@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futo_notes_core::files::{
-    collides_but_differs, collision_key, create_new_atomic, rename_through_temp, safe_appdata_path,
-    set_file_mtime_ms, write_atomic_text,
+    collides_but_differs, collision_key, create_new_atomic, move_no_replace, rename_through_temp,
+    safe_appdata_path, set_file_mtime_ms, write_atomic_text,
 };
 use futo_notes_model::{make_id, rewrite_wikilinks, sanitize_folder_path, split_id};
 use futo_notes_search::{SearchConfig, SearchEngine, StatusObserver, DEFAULT_TOPK};
@@ -453,9 +453,9 @@ impl LocalNoteStore {
     }
 
     /// Atomically (re-)create the note at `id` with `content` ONLY IF no file
-    /// exists there yet — a no-replace `hard_link` install via
-    /// [`create_new_atomic`], so a concurrent scan/sync never observes an
-    /// empty or partial file. The editor's leave/background flush uses this to
+    /// exists there yet — a no-replace install via [`create_new_atomic`], so a
+    /// concurrent scan/sync never observes an empty or partial file. The
+    /// editor's leave/background flush uses this to
     /// honor the peer-delete dirty-keep edit-wins semantic: recreate a note the
     /// conditional flush just reported [`FlushOutcome::SkippedMissing`] for,
     /// WITHOUT the unconditional-write clobber risk — a live-sync pull writing
@@ -573,7 +573,7 @@ impl LocalNoteStore {
             rename_through_temp(&source, &destination)?;
         } else {
             // This renames a DIRECTORY, so the file no-replace primitive
-            // (hard_link) doesn't apply, and POSIX rename onto a non-empty dir
+            // (move_no_replace) doesn't apply, and POSIX rename onto a non-empty dir
             // fails ENOTEMPTY (no clobber). The only residual of the
             // exists()-check above is an EMPTY destination dir created in this
             // user-initiated window being replaced — no note bytes are at risk
@@ -817,7 +817,7 @@ impl LocalNoteStore {
             .unwrap_or_else(|| recovered.leaf.clone());
         let stem = format!("{title} (recovered)");
         let wanted = make_id(&folder, &stem);
-        // Idempotency (E2): a crash after the hard_link but before the backup
+        // Idempotency (E2): a crash after the install but before the backup
         // unlink leaves the recovered note in place with the backup still
         // sidecar'd, so a re-sweep would re-park it under the next suffix —
         // a duplicate per interruption. If a note in this folder already holds
@@ -848,10 +848,10 @@ impl LocalNoteStore {
         // read+create+delete (D1). But NO-REPLACE (E1, same TOCTOU class as A1
         // create / B2 restore): an external writer landing at the chosen
         // recovered name in the allocate→park window must not be clobbered.
-        // `hard_link` fails EEXIST rather than overwriting; on EEXIST re-suffix
-        // and retry. The link is what makes the backup terminal (it is no longer
-        // a `.sf-bak-*` the restore loop could resurrect — C1); dropping the
-        // backup completes the move, then the sidecar goes last so a crash mid-
+        // `move_no_replace` reports Ok(false) rather than overwriting; on a taken
+        // name re-suffix and retry. Installing the backup makes it terminal (it is
+        // no longer a `.sf-bak-*` the restore loop could resurrect — C1) and
+        // consumes the backup to complete the move, then the sidecar goes last so a crash mid-
         // park re-sweeps rather than strands.
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, &wanted, None)?;
@@ -863,20 +863,14 @@ impl LocalNoteStore {
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&id);
             }
-            match fs::hard_link(&recovered.backup, &path) {
-                Ok(()) => {
-                    if let Err(error) = fs::remove_file(&recovered.backup) {
-                        // Source removal failed — undo the link so no duplicate
-                        // is stranded (B4), and report.
-                        let _ = fs::remove_file(&path);
-                        return Err(io_error(error));
-                    }
+            match move_no_replace(&recovered.backup, &path) {
+                Ok(true) => {
                     let _ = fs::remove_file(&recovered.sidecar);
                     self.notify(&FileChange::Changed(note_filename(&id)));
                     return Ok(());
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(io_error(error)),
+                Ok(false) => continue,
+                Err(error) => return Err(error),
             }
         }
         Err("could not allocate a recovered note id after repeated collisions".to_owned())
@@ -1072,28 +1066,18 @@ fn move_files_with_rollback(root: &Path, mappings: &[(String, String)]) -> Resul
         } else {
             // No-replace move. The destination id was allocated unique, so a
             // file there now is a writer outside this store's serialization —
-            // never clobber it (the A1 window applied to rename). `hard_link`
-            // is the portable atomic no-replace install (EEXIST if taken) and
-            // shares the inode, so mtime carries over; dropping the source link
-            // completes the move. On EEXIST we fail, and the caller rolls back
-            // — the newcomer and the source both survive.
-            match fs::hard_link(&source, &destination) {
-                Ok(()) => match fs::remove_file(&source) {
-                    Ok(()) => Ok(()),
-                    Err(error) => {
-                        // The link was created but the source couldn't be
-                        // dropped. Undo the link so the error path never strands
-                        // a duplicate (both names live), then fall through to
-                        // rolling back the prior moves (B4).
-                        let _ = fs::remove_file(&destination);
-                        Err(io_error(error))
-                    }
-                },
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(format!(
+            // never clobber it (the A1 window applied to rename). `move_no_replace`
+            // is the portable atomic no-replace install (Ok(false) if taken),
+            // carries mtime across, and consumes the source to complete the move;
+            // on a collision the caller rolls back — the newcomer and the source
+            // both survive.
+            match move_no_replace(&source, &destination) {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(format!(
                     "rename destination {} appeared under a concurrent writer",
                     destination.display()
                 )),
-                Err(error) => Err(io_error(error)),
+                Err(error) => Err(error),
             }
         };
         if let Err(error) = result {

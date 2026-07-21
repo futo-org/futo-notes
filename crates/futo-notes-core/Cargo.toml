@@ -17,5 +17,8 @@ hex = "0.4"
 thiserror = "1"
 unicode-normalization = "0.1.25"
 
+[target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))'.dependencies]
+rustix = { version = "1", features = ["fs"] }
+
 [dev-dependencies]
 serde_json = "1"

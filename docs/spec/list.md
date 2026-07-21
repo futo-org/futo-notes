@@ -167,7 +167,10 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - **Android native** note rows expose the same Move to Folder… / Delete via
   long-press; the move sheet matches iOS (Root, every folder, inline "New
   Folder…") and applies the move + backlink relink immediately, with a
-  "Moved to {folder}" toast (verified on emulator 2026-06-09). →
+  "Moved to {folder}" toast. Its shared file placement uses an atomic
+  no-replace rename when Android FUSE rejects hard links, so create/move never
+  overwrites a note that appears concurrently (verified on emulator 2026-07-21;
+  race regression added 2026-07-21). →
   NoteListScreen.kt, FolderPickerSheet.kt
 - **Both native shells create notes as quick capture** (iOS "+" menu → New
   Note; Android FAB → New note): an "Untitled" note is created in the current
