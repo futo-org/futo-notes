@@ -250,9 +250,10 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
 - Pressing Enter in a list item continues the list (inherits nesting, auto
   numbers ordered items, renumbers on edit); Backspace at item start dedents;
   Backspace in an empty item deletes it. → listContinuation.ts
-- Selecting text (desktop, single-line) raises a floating toolbar: Bold,
-  Italic, Strikethrough, Code, Link. It hides for empty/multi-line selections
-  and inside tables/code. → editorUX/selectionToolbar.ts _(desktop)_
+- A desktop single-line selection raises a floating Bold, Italic, Strikethrough, Code, and Link
+  toolbar; it hides for empty/multi-line selections and inside tables/code. Settings, search, and
+  folder-dialog overlays always cover it. → selectionToolbar.ts,
+  editor-selection-toolbar.css, tests/editor-ux.spec.ts
 - Typing `/` at the start of an empty block opens a block-command menu
   (headings, lists, tasks, quote, code, table, HR). Arrow keys move the
   highlight; a menu item activates on BOTH mouse click and Enter — the item

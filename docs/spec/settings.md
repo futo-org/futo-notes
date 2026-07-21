@@ -54,8 +54,11 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 
 - Settings is a sheet/modal (mobile: bottom sheet over the current screen)
   with sections: Storage, Appearance, Sync, Crash reporting, Updates, then
-  Danger zone last, and a version footer. → SettingsScreen.svelte (see
-  settings-visual.md for the platform-split and shared content model)
+  Danger zone last, and a version footer. The sheet fully covers and blocks
+  floating editor UI, including the selection toolbar. → SettingsScreen.svelte,
+  src/styles/editor-selection-toolbar.css, tests/editor-ux.spec.ts "Selection
+  toolbar > stacks below blocking overlays" (see settings-visual.md for the
+  platform-split and shared content model)
 - **Storage:** the displayed active/default roots come from the Tauri platform
   facade. Both changing and resetting the root confirm first with a warning
   dialog naming the restart (the change dialog also notes existing notes are
