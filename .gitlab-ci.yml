@@ -1298,9 +1298,9 @@ test:ios-native:
   variables:
     GIT_STRATEGY: clone
   before_script:
-    - env | grep -E '^(CI_|IOS_)' > .cienv
+    - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run testFutoNotesIOSNative --artifacts-dir . --env-file .cienv
+    - cirrus run testFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     when: always
     paths:

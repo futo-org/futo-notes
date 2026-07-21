@@ -90,7 +90,7 @@ test_ios_native_task:
     # printed (reproduced on the shared Mac: Xcode 26.2 exits non-zero, 26.6
     # exits 0, byte-identical output). So do NOT gate on its exit here; capture
     # the log and let the outcome arbiter below decide (M11: assert outcomes,
-    # not exit codes). `|| true` is safe ONLY because the arbiter is the gate.
+    # not exit codes).
     - |
       set -o pipefail
       # `tee` cannot create the log if its dir is absent — and on a fresh CI
@@ -99,14 +99,17 @@ test_ios_native_task:
       # (output still streams to the Cirrus log, so the file silently stays
       # empty). A warm local .build hid this. Create the dir first.
       mkdir -p apps/ios/.build
+      set +e
       xcodebuild test -project apps/ios/FutoNotesNative.xcodeproj \
         -scheme FutoNotesNative \
         -destination "id=$SIM" \
         -derivedDataPath apps/ios/.build \
         -resultBundlePath apps/ios/.build/TestResults.xcresult \
         CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
-        2>&1 | tee apps/ios/.build/xcodebuild-test.log || true
-      echo "xcodebuild-exit=${PIPESTATUS[0]} (informational; the arbiter below decides)"
+        2>&1 | tee apps/ios/.build/xcodebuild-test.log
+      XCODEBUILD_EXIT=${PIPESTATUS[0]}
+      set -e
+      echo "xcodebuild-exit=$XCODEBUILD_EXIT (informational; the arbiter below decides)"
     # M11 outcome arbiter — pass/fail from what xcodebuild REPORTED, never its
     # exit code. Layered so it can never go silently green.
     - |
@@ -131,8 +134,9 @@ test_ios_native_task:
         exit 1
       fi
       echo "iOS tests passed (arbiter: TEST SUCCEEDED + >=1 executed test + no failure markers)"
-  ios_test_results_artifacts:
-    path: "apps/ios/.build/TestResults.xcresult/**"
+  always:
+    ios_test_results_artifacts:
+      path: "apps/ios/.build/TestResults.xcresult/**"
 
 build_ios_task:
   name: buildFutoNotesIOS
