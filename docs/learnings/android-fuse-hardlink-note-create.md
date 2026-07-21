@@ -31,15 +31,12 @@ Four sites shared the pattern: `create_new_atomic` (note create),
 
 One shared primitive, `futo_notes_core::files::move_no_replace`, keeps the
 `hard_link` fast path and falls back — only when `link` actually fails — to
-claiming the destination name with an exclusive `create_new` open (preserving
-the no-clobber guarantee) and renaming the completed source over it. All four
-sites call it, which also removed the duplicated "undo the link if dropping the
-source fails" rollback that had been copy-pasted at each site.
-
-Tradeoff, confined to the fallback path (FUSE only): between the exclusive
-claim and the rename there is a microsecond window where a crash would leave an
-empty placeholder at the destination — a recoverable empty note, never
-corruption or data loss. The link fast path (all other platforms) is unchanged.
+an atomic no-replace rename (`RENAME_NOREPLACE` on Android/Linux and
+`RENAME_EXCL` on Apple). The rename either moves the completed source or reports
+that the destination exists; there is no check-then-replace window and no empty
+placeholder for a scan or crash to observe. All four sites call it, which also
+removed the duplicated "undo the link if dropping the source fails" rollback
+that had been copy-pasted at each site.
 
 ## Guard against recurrence
 

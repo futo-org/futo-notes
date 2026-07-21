@@ -2,8 +2,16 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
+#[cfg(test)]
+use std::cell::RefCell;
+
 use super::parked_backup::{hidden_path, install_temp};
 use super::paths::NAME_MAX;
+
+#[cfg(test)]
+thread_local! {
+    static MOVE_NO_REPLACE_BEFORE_RENAME: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+}
 
 fn create_temp(parent: &Path) -> Result<(std::path::PathBuf, File), String> {
     for _ in 0..32 {
@@ -96,12 +104,18 @@ pub fn create_new_atomic(path: &Path, bytes: &[u8]) -> Result<bool, String> {
 /// support it (the destination cannot clobber an existing name, and the shared
 /// inode carries mtime across). Some filesystems — notably Android's
 /// FUSE-backed external storage — reject `link` outright, so fall back to
-/// claiming the name with an exclusive create and renaming the source over it.
+/// an atomic no-replace rename where the platform provides one.
 pub fn move_no_replace(source: &Path, destination: &Path) -> Result<bool, String> {
+    #[cfg(test)]
+    if MOVE_NO_REPLACE_BEFORE_RENAME.with(|hook| hook.borrow().is_some()) {
+        // Host filesystems support links; the hook simulates Android FUSE rejecting one.
+        return move_no_replace_via_rename(source, destination);
+    }
+
     match fs::hard_link(source, destination) {
         Ok(()) => drop_source_after_link(source, destination),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-        Err(_) => move_no_replace_via_rename(source, destination),
+        Err(error) => move_no_replace_after_link_error(source, destination, error),
     }
 }
 
@@ -121,30 +135,51 @@ fn drop_source_after_link(source: &Path, destination: &Path) -> Result<bool, Str
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+fn move_no_replace_after_link_error(
+    source: &Path,
+    destination: &Path,
+    _link_error: std::io::Error,
+) -> Result<bool, String> {
+    move_no_replace_via_rename(source, destination)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+fn move_no_replace_after_link_error(
+    source: &Path,
+    destination: &Path,
+    link_error: std::io::Error,
+) -> Result<bool, String> {
+    Err(format!(
+        "{link_error} (hard-linking {} -> {}; atomic no-replace rename unavailable on this platform)",
+        source.display(),
+        destination.display()
+    ))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
 fn move_no_replace_via_rename(source: &Path, destination: &Path) -> Result<bool, String> {
-    // Claim the destination name atomically first so a concurrent writer is
-    // never clobbered — the no-replace guarantee `hard_link` gave for free.
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(destination)
-    {
-        Ok(_placeholder) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
-        Err(error) => return Err(format!("{error} (claiming {})", destination.display())),
-    }
-    match fs::rename(source, destination) {
-        Ok(()) => Ok(true),
-        Err(error) => {
-            // Renaming the completed source over our empty placeholder failed;
-            // remove the placeholder so no empty file is left behind.
-            let _ = fs::remove_file(destination);
-            Err(format!(
-                "{error} (renaming {} -> {})",
-                source.display(),
-                destination.display()
-            ))
+    #[cfg(test)]
+    MOVE_NO_REPLACE_BEFORE_RENAME.with(|hook| {
+        if let Some(before_rename) = hook.borrow_mut().take() {
+            before_rename();
         }
+    });
+
+    match rustix::fs::renameat_with(
+        rustix::fs::CWD,
+        source,
+        rustix::fs::CWD,
+        destination,
+        rustix::fs::RenameFlags::NOREPLACE,
+    ) {
+        Ok(()) => Ok(true),
+        Err(rustix::io::Errno::EXIST) => Ok(false),
+        Err(error) => Err(format!(
+            "{error} (no-replace renaming {} -> {})",
+            source.display(),
+            destination.display()
+        )),
     }
 }
 
@@ -323,5 +358,35 @@ mod tests {
         assert_eq!(fs::read_to_string(&destination).unwrap(), "incumbent");
         assert_eq!(fs::read_to_string(&source).unwrap(), "incoming");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_fallback_preserves_a_destination_created_in_the_install_window() {
+        let root = temp_dir();
+        let source = root.join(".sf-tmp-source");
+        let destination = root.join("note.md");
+        fs::write(&source, "incoming").unwrap();
+
+        let writer_destination = destination.clone();
+        MOVE_NO_REPLACE_BEFORE_RENAME.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                write_atomic_text(&writer_destination, "concurrent writer").unwrap();
+            }));
+        });
+
+        let moved = move_no_replace(&source, &destination).unwrap();
+        let destination_content = fs::read_to_string(&destination).unwrap();
+        let source_content = fs::read_to_string(&source).ok();
+        fs::remove_dir_all(root).unwrap();
+
+        assert_eq!(
+            (
+                moved,
+                destination_content.as_str(),
+                source_content.as_deref()
+            ),
+            (false, "concurrent writer", Some("incoming")),
+            "the competing writer must win without consuming the source"
+        );
     }
 }
