@@ -2,24 +2,13 @@
   interface Props {
     onclicknewfolder: () => void;
     onclicknewnote: () => void;
-    ontouchcancel: () => void;
-    ontouchend: () => void;
-    ontouchstart: () => void;
   }
 
-  let { onclicknewfolder, onclicknewnote, ontouchcancel, ontouchend, ontouchstart }: Props =
-    $props();
+  let { onclicknewfolder, onclicknewnote }: Props = $props();
 </script>
 
 <div class="fab-row">
-  <button
-    class="fab"
-    aria-label="New note"
-    {ontouchstart}
-    {ontouchend}
-    {ontouchcancel}
-    onclick={onclicknewnote}
-  >
+  <button class="fab" aria-label="New note" onclick={onclicknewnote}>
     <svg
       width="18"
       height="18"

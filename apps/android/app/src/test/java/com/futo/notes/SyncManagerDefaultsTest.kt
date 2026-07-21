@@ -1,6 +1,7 @@
 package com.futo.notes
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -49,5 +50,23 @@ class SyncManagerDefaultsTest {
     @Test
     fun rejectsEmptyUrl() {
         assertEquals("Enter a server URL.", SyncManager.validateServerUrl("   "))
+    }
+
+    @Test
+    fun terminalLiveSessionErrorsTriggerHealing() {
+        assertTrue(SyncManager.shouldHealLiveError("auth: HTTP 401: invalid session"))
+        assertTrue(SyncManager.shouldHealLiveError("collection-gone: HTTP 404"))
+        assertFalse(SyncManager.shouldHealLiveError("stream: connection reset"))
+        assertFalse(SyncManager.shouldHealLiveError("HTTP 500"))
+    }
+
+    @Test
+    fun recoverableLiveErrorSurfacesWhenHealingCannotStart() {
+        val manager = SyncManager()
+
+        manager.handleLiveError("auth: HTTP 401: invalid session")
+
+        assertEquals("auth: HTTP 401: invalid session", manager.lastError)
+        assertEquals("Error", manager.status)
     }
 }

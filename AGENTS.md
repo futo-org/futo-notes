@@ -153,7 +153,7 @@ read the one for the layer you're editing.
 src/                    ← Shared Svelte 5 app (UI, reactive state, sync coordination)
   lib/rules.ts          ← Hot-path shim re-exporting the note rules from @futo-notes/editor
   lib/localNoteStore.ts ← Note/folder/search adapter; Rust in production, memory in browser tests
-  lib/platform/         ← Non-note shell storage/images/capabilities, pathSafety, tauriPaths
+  lib/platform/         ← Non-note shell storage/images/capabilities, pathSafety, tauri/notesRoot
   editor-embed/         ← Entry for the single-file editor.html embedded in the native shells
 crates/
   futo-notes-core/      ← Hashing, E2EE crypto, 3-way merge, conflict naming,
@@ -607,7 +607,7 @@ title constraints across the hot-path/native surfaces.
 
 **Not locked — real drift risk.** If you touch one, touch all, and say so in the commit:
 - Default notes-root split, 3 independent copies: Rust `vault_location.rs`, iOS `NotesStore.swift`,
-  Android `NotesStore.kt`.
+  Android `NotesStorage.kt`.
 - Note sort order (`modified desc, id asc`): `notes.svelte.ts`, Rust store snapshots, iOS
   `resortInPlace`.
 - Unique note-ID generation in Rust, TypeScript, Swift, and Kotlin.

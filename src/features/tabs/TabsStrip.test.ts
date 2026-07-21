@@ -58,4 +58,21 @@ describe('TabsStrip', () => {
     expect(target.querySelector('.sidebar-expand-fallback-btn')).toBeNull();
     expect(target.querySelector('.sidebar-toggle-btn')).toBeNull();
   });
+
+  it('clicking a tab pill activates it', () => {
+    mountStrip();
+    const first = tabsStore.tabs[0];
+    tabsStore.newTab();
+    expect(tabsStore.activeTabId).not.toBe(first.id);
+
+    const firstPill = target.querySelector(`[data-tab-id="${first.id}"]`) as HTMLButtonElement;
+    firstPill.click();
+    expect(tabsStore.activeTabId).toBe(first.id);
+  });
+
+  it('tab pills are HTML5-draggable for reorder', () => {
+    mountStrip();
+    const pill = target.querySelector('.tab-pill') as HTMLButtonElement;
+    expect(pill.getAttribute('draggable')).toBe('true');
+  });
 });

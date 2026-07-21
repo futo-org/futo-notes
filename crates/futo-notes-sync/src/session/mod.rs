@@ -199,6 +199,14 @@ struct LiveInputs<'a> {
     push_at: &'a mut Option<Instant>,
 }
 
+fn classify_cycle_error(error: &SyncErrorKind) -> (CycleResult, String) {
+    match error {
+        SyncErrorKind::Auth(_) => (CycleResult::Stop, format!("auth: {}", error.message())),
+        SyncErrorKind::CollectionGone(_) => (CycleResult::Stop, error.message()),
+        _ => (CycleResult::Continue, error.message()),
+    }
+}
+
 async fn run_cycle(
     state: &Arc<Mutex<Option<ConnectedState>>>,
     gate: &Arc<Mutex<()>>,
@@ -218,13 +226,9 @@ async fn run_cycle(
             CycleResult::Continue
         }
         Err(error) => {
-            let stop = matches!(error, SyncErrorKind::CollectionGone(_));
-            listener.on_cycle_error(error.message());
-            if stop {
-                CycleResult::Stop
-            } else {
-                CycleResult::Continue
-            }
+            let (result, message) = classify_cycle_error(&error);
+            listener.on_cycle_error(message);
+            result
         }
     }
 }
@@ -443,5 +447,32 @@ mod tests {
         session.note_changed();
         session.stop_live();
         session.stop_live();
+    }
+
+    #[test]
+    fn auth_cycle_errors_stop_and_emit_reauthentication_signal() {
+        let (result, message) = classify_cycle_error(&SyncErrorKind::Auth(
+            "HTTP 401: session expired or invalid".into(),
+        ));
+
+        assert!(matches!(result, CycleResult::Stop));
+        assert_eq!(message, "auth: HTTP 401: session expired or invalid");
+    }
+
+    #[test]
+    fn collection_gone_stops_but_transient_http_errors_continue() {
+        let (gone_result, gone_message) = classify_cycle_error(&SyncErrorKind::CollectionGone(
+            "HTTP 404: collection not found".into(),
+        ));
+        assert!(matches!(gone_result, CycleResult::Stop));
+        assert_eq!(
+            gone_message,
+            "collection-gone: HTTP 404: collection not found"
+        );
+
+        let (http_result, http_message) =
+            classify_cycle_error(&SyncErrorKind::Http("HTTP 500: unavailable".into()));
+        assert!(matches!(http_result, CycleResult::Continue));
+        assert_eq!(http_message, "HTTP 500: unavailable");
     }
 }

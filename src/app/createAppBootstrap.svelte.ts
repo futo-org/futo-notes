@@ -1,62 +1,60 @@
-import { updateChecker } from '$features/system/updateChecker.svelte';
-import { initSyncPassword } from '$features/sync/syncServiceE2ee';
+import { getPlatformFS } from '$lib/platform';
 import { getCachedPreferences, loadPreferences } from '$shared/state/appState';
 import { initNotes } from '$features/notes/notes.svelte';
-import { getPlatformFS, hasFileSystem } from '$lib/platform';
-import { applyThemePreference, watchSystemThemeTauri } from '$features/system/theme';
+import { initSyncPassword } from '$features/sync/syncServiceE2ee';
+import {
+  applyThemePreference,
+  watchSystemThemeTauri,
+  type ResolvedTheme,
+} from '$features/system/theme';
+import { updateChecker } from '$features/system/updateChecker.svelte';
 
-interface AppBootstrapDependencies {
+export interface AppBootstrapDeps {
   initializeCrashReporting: () => Promise<void>;
   installDevelopmentHooks: () => void | Promise<void>;
 }
 
-export function createAppBootstrap({
-  initializeCrashReporting,
-  installDevelopmentHooks,
-}: AppBootstrapDependencies) {
+export interface AppBootstrap {
+  readonly initialized: boolean;
+  start: () => () => void;
+}
+
+// M1 render gate: `initialized` flips true synchronously as start()'s first
+// statement, before any filesystem/preference/platform I/O. Every load is
+// fired without awaiting ahead of the flip and applies reactively, so a cold
+// sandbox where plugin-fs hangs can never blank first paint.
+export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
   let initialized = $state(false);
-  let step = $state('booting');
-  let stopWatchingSystemTheme: (() => void) | null = null;
-
-  async function initializeTheme(): Promise<void> {
-    const preferences = await loadPreferences();
-    await applyThemePreference(preferences.appearance.theme);
-    stopWatchingSystemTheme?.();
-    stopWatchingSystemTheme = watchSystemThemeTauri((theme) => {
-      if (getCachedPreferences().appearance.theme === 'auto') {
-        void applyThemePreference('auto', theme);
-      }
-    });
-  }
-
-  function initializeNotes(): void {
-    if (!(hasFileSystem || import.meta.env.DEV)) return;
-
-    void initNotes((nextStep) => {
-      step = nextStep;
-    })
-      .then(() => installDevelopmentHooks())
-      .catch((error) => console.warn('initNotes failed:', error));
-  }
 
   function start(): () => void {
-    // The shell must render before any filesystem, preference, or platform I/O.
     initialized = true;
 
-    void getPlatformFS().catch((error) => console.warn('getPlatformFS failed:', error));
-    void initializeTheme().catch((error) => console.warn('Theme/prefs init failed:', error));
-    // Migrate any legacy plaintext vault password into the OS keyring and
-    // load the stored password without gating the first render.
-    void initSyncPassword();
-    initializeNotes();
-    void initializeCrashReporting().catch((error) =>
-      console.warn('Crash reporting init failed:', error),
-    );
-    void updateChecker.start().catch((error) => console.warn('Update checker init failed:', error));
+    let disposeThemeWatch = () => {};
+
+    // Everything below is background work; none of it gates the render above.
+    // Forward the OS-reported theme: on Linux the webview's matchMedia can't see
+    // the desktop theme, so the portal event's value must win for `auto`.
+    const applyCurrentTheme = (systemTheme?: ResolvedTheme) =>
+      void applyThemePreference(getCachedPreferences().appearance.theme, systemTheme);
+    applyCurrentTheme();
+    disposeThemeWatch = watchSystemThemeTauri(applyCurrentTheme);
+    void loadPreferences()
+      .then((prefs) => applyThemePreference(prefs.appearance.theme))
+      .catch((error) => console.warn('Failed to load preferences:', error));
+
+    void getPlatformFS().catch((error) => console.warn('Platform FS unavailable:', error));
+    void deps
+      .initializeCrashReporting()
+      .catch((error) => console.warn('Crash reporting init failed:', error));
+    void updateChecker.start().catch((error) => console.warn('Update checker failed:', error));
+    void initSyncPassword().catch((error) => console.warn('Sync password init failed:', error));
+
+    void initNotes()
+      .then(() => deps.installDevelopmentHooks())
+      .catch((error) => console.warn('Notes init failed:', error));
 
     return () => {
-      stopWatchingSystemTheme?.();
-      stopWatchingSystemTheme = null;
+      disposeThemeWatch();
       updateChecker.stop();
     };
   }
@@ -64,9 +62,6 @@ export function createAppBootstrap({
   return {
     get initialized() {
       return initialized;
-    },
-    get step() {
-      return step;
     },
     start,
   };

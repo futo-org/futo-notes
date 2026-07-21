@@ -135,7 +135,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     );
     const coord = syncCoord;
     startAutoSyncV2({
-      onSyncComplete: handleSyncComplete,
+      onSyncComplete: (summary, trigger) => void handleSyncComplete(summary, trigger),
       onSyncError: (err) => {
         raiseSyncError(getSyncErrorMessage(err));
         console.warn('Auto-sync error:', err);

@@ -45,6 +45,7 @@ desktop, iOS, and Android query that owner through thin adapters.
 - Queries debounce about 100 ms.
 - Arrow keys select results, Enter opens, Escape closes, and the clear button
   resets the query.
-- Ctrl/Cmd+click or Shift+click opens a result in a new tab.
+- Ctrl/Cmd+click, Shift+click, or middle-click opens a result in a new tab.
+- A query with no matches shows a "No notes found" empty state.
 
 SPLADE/learned-sparse search is not part of this contract.

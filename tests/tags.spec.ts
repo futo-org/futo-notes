@@ -76,6 +76,7 @@ test.describe('Tag System', () => {
     // Should show the "+ Tag" button
     const addBtn = page.locator('.tag-add-btn');
     await expect(addBtn).toBeVisible();
+    await expect(addBtn).toHaveText('+ Tag');
   });
 
   test('NoteTagBar aligns with the title column', async ({ page }) => {
@@ -132,6 +133,19 @@ test.describe('Tag System', () => {
     // Verify the editor content was updated
     const content = await getEditorContent(page);
     expect(content).toContain('#recipes');
+  });
+
+  test('Comma commits a tag from the tag bar input', async ({ page }) => {
+    await openNewNote(page);
+    await seedNote(page, 'comma tag test', 'Some note content here.');
+
+    await page.locator('.tag-add-btn').click();
+    const input = page.locator('.tag-input');
+    await input.fill('recipes');
+    await input.press(',');
+
+    await expect(page.locator('.tag-pill-name')).toHaveText(['recipes']);
+    expect(await getEditorContent(page)).toContain('#recipes');
   });
 
   test('Tag input normalizes case and spaces before creating', async ({ page }) => {
@@ -247,7 +261,7 @@ test.describe('Tag System', () => {
     await input.fill('travel');
     const createRow = page.locator('.tag-suggestion-create');
     await expect(createRow).toBeVisible({ timeout: 2000 });
-    await expect(createRow).toContainText('travel');
+    await expect(createRow).toHaveText('Create #travel');
   });
 
   test('Tag input hides the Create row when an existing tag matches exactly', async ({ page }) => {

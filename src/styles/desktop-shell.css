@@ -6,7 +6,7 @@
    native window buttons are cleared structurally — independent of sidebar
    state — instead of by per-component padding that broke when the sidebar
    collapsed. On non-desktop (native/mobile) the band is not rendered and the
-   drawer/main/graph are absolute overlays, so column vs row is immaterial. */
+   drawer/main are absolute overlays, so column vs row is immaterial. */
 .notes-shell.desktop-layout {
   display: flex;
   flex-direction: column;

@@ -24,7 +24,7 @@ import {
 } from '$shared/state/appState';
 import { getPlatformFS, isTauri } from '$lib/platform';
 import { getSyncErrorMessage } from './syncErrorMessage';
-import { showGlobalToast } from '$shared/notifications/toastBus';
+import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import type {
   E2eeConnectInput,
   E2eeConnectOutput,
@@ -205,6 +205,24 @@ async function scrubLegacySyncStateIfConsumed(): Promise<void> {
 
 // ── Sync runner ─────────────────────────────────────────────────────────
 
+export function isRecoverableSessionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('collection-gone') ||
+    message.startsWith('auth:') ||
+    /\bHTTP 401\b/i.test(message) ||
+    /\b401 Unauthorized\b/i.test(message)
+  );
+}
+
+/** Rebuild the authenticated session without demoting or deleting sync state. */
+export async function reauthenticateE2ee(password: string): Promise<void> {
+  const serverUrl = getAppState().e2eeServerUrl;
+  if (!serverUrl) throw new Error('E2EE sync not configured');
+  await stopLiveSync();
+  await connectE2ee(serverUrl, password);
+}
+
 async function ensureConnected(passwordOverride?: string): Promise<void> {
   const status = await invoke<E2eeStatusOutput>('e2ee_status');
   if (status.connected && passwordOverride == null) return;
@@ -226,14 +244,10 @@ async function ensureConnected(passwordOverride?: string): Promise<void> {
       input,
     });
   } catch (e) {
-    // The stored vault no longer exists on the server — e.g. it was a duplicate
-    // collection collapsed by the single-vault migration. Re-point to the
-    // canonical vault: connect() re-picks it and persists the corrected ids, and
-    // the orchestrator's reset→reconcile→push re-uploads our local notes to the
-    // survivor. (Native shells already self-heal because they only ever
-    // connect(), never resume().)
-    if (String(e).includes('collection-gone')) {
-      await connectE2ee(s.e2eeServerUrl, password);
+    // A fresh login recovers both an expired token and a migration-collapsed
+    // vault, without deleting sync state. → sync.md
+    if (isRecoverableSessionError(e)) {
+      await reauthenticateE2ee(password);
     } else {
       throw e;
     }
@@ -392,17 +406,15 @@ export async function syncE2eeAuto(): Promise<SyncSummary> {
     await scrubLegacySyncStateIfConsumed();
     return summary;
   } catch (e) {
-    // The vault was collapsed/deleted server-side while we were already
-    // connected (e.g. the single-vault migration during a server upgrade).
-    // ensureConnected's resume-heal can't fire for a live session, so re-point
-    // here: tear down the live loop bound to the gone vault, connect() re-picks
-    // the survivor, and retry the sync once. The post-sync `ensureLiveSync`
-    // (autoSyncV2) then restarts the live stream on the new session.
+    // An active session can fail after ensureConnected's resume path has been
+    // skipped. Stop its live loop, authenticate again, and retry exactly once;
+    // the post-sync ensureLiveSync call restarts the stream on the new session.
     const s = getAppState();
-    if (String(e).includes('collection-gone') && s.e2eeServerUrl && cachedPassword) {
-      await stopLiveSync();
-      await connectE2ee(s.e2eeServerUrl, cachedPassword);
-      return await invoke<SyncSummary>('e2ee_sync_run');
+    if (isRecoverableSessionError(e) && s.e2eeServerUrl && cachedPassword) {
+      await reauthenticateE2ee(cachedPassword);
+      const summary = await invoke<SyncSummary>('e2ee_sync_run');
+      await scrubLegacySyncStateIfConsumed();
+      return summary;
     }
     throw e;
   }

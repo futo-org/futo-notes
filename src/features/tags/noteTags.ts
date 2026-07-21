@@ -1,21 +1,5 @@
 import type { NotePreview } from '$shared/types/note';
 
-export function buildTagIndex(notes: NotePreview[]): Map<string, string[]> {
-  const index = new Map<string, string[]>();
-  for (const note of notes) {
-    for (const tag of note.tags) {
-      const lower = tag.toLowerCase();
-      const existing = index.get(lower);
-      if (existing) {
-        existing.push(note.id);
-      } else {
-        index.set(lower, [note.id]);
-      }
-    }
-  }
-  return index;
-}
-
 export function getSortedTags(
   notes: NotePreview[],
 ): Array<{ tag: string; display: string; count: number }> {
