@@ -62,12 +62,12 @@ class SyncManager(
 
     private var client: SyncClient? = null
 
-    /** Vault root of the current session, stashed at connect so a
-     *  collection-gone heal can rebuild the client without the Sync screen. */
+    /** Vault root of the current session, stashed at connect so an expired or
+     *  collapsed session can be rebuilt without the Sync screen. */
     private var notesRoot: String? = null
 
-    /** Guards against re-entrant heal attempts — a collection-gone can surface
-     *  from both the manual/initial sync path and the live loop at once. */
+    /** Guards against re-entrant heal attempts — collection-gone or auth expiry
+     *  can surface from both the manual sync path and the live loop at once. */
     private var healing = false
 
     /** Marshals Rust live-sync callbacks onto the main thread. */
@@ -93,15 +93,7 @@ class SyncManager(
         }
         override fun onError(message: String) {
             scope.launch {
-                // The live loop hit the collapsed vault and stopped itself
-                // (terminal on collection-gone). Re-point to the surviving
-                // canonical vault rather than leaving a persistent error until
-                // the app restarts.
-                if (message.contains("collection-gone")) {
-                    healCollectionGone()
-                } else {
-                    lastError = message
-                }
+                handleLiveError(message)
             }
         }
         override fun onStopped() {
@@ -121,7 +113,7 @@ class SyncManager(
             return
         }
         busy = true; lastError = null; status = "Connecting…"
-        this.notesRoot = notesRoot  // stash for a later collection-gone heal
+        this.notesRoot = notesRoot
         try {
             val c = SyncClient(notesRoot, url)
             val info = c.connect(password)
@@ -155,10 +147,11 @@ class SyncManager(
         try {
             applyOutcome(c.syncNow())
         } catch (e: Exception) {
-            // The pinned vault was collapsed by the single-vault migration —
-            // re-point to the survivor instead of surfacing a dead-end error.
-            if (isCollectionGone(e)) {
-                healCollectionGone()
+            // Re-login for both a collapsed vault and an expired bearer token.
+            // The same-vault path keeps the persisted cursor/object map, so
+            // token expiry does not trigger a full reconcile.
+            if (isRecoverableSessionError(e)) {
+                healSession(describe(e))
             } else {
                 lastError = describe(e); status = "Error"
             }
@@ -167,32 +160,50 @@ class SyncManager(
         }
     }
 
-    /** Whether a sync error is the collection-gone signal (the pinned vault was
-     *  collapsed server-side by the single-vault migration). */
-    private fun isCollectionGone(e: Exception): Boolean = e is SyncException.CollectionGone
+    private fun isRecoverableSessionError(e: Exception): Boolean =
+        e is SyncException.Auth || e is SyncException.CollectionGone
 
-    /** Heal a collapsed vault: re-point to the surviving canonical vault. A
-     *  fresh [connectAndSync] re-runs connect() (which re-picks the survivor via
-     *  list_collections) and the reset→reconcile→push re-uploads local notes, so
-     *  nothing is lost. Uses the password stored at last connect; no-op if none.
-     *  Guarded against re-entry. Mirrors iOS `healCollectionGone`. */
-    private fun healCollectionGone() {
+    /** Re-login with the stored password to recover an expired session or
+     *  collapsed vault without deleting state. Guarded against re-entry;
+     *  mirrors iOS `healSession`. → sync.md */
+    private fun healSession(fallbackMessage: String) {
         if (healing) return
-        val root = notesRoot ?: return
+        val root = notesRoot
+        if (root == null) {
+            reportUnavailableSessionRecovery(fallbackMessage)
+            return
+        }
         healing = true
+        client?.stopLive()
         scope.launch {
             val password = withContext(Dispatchers.IO) {
                 runCatching { secure?.loadPassword() }.getOrNull()
             }
             if (password == null) {
                 healing = false
+                reportUnavailableSessionRecovery(fallbackMessage)
                 return@launch
             }
-            // The dead session's live loop stopped itself (terminal on
-            // collection-gone); connectAndSync builds a fresh client + live loop.
+            // The dead session's live loop stopped itself; connectAndSync builds
+            // a fresh authenticated client + live loop without deleting state.
             connectAndSync(root, password)
             healing = false
         }
+    }
+
+    internal fun handleLiveError(message: String) {
+        // Auth expiry and collection-gone are terminal for the old live loop,
+        // but recoverable from the securely stored password.
+        if (shouldHealLiveError(message)) {
+            healSession(message)
+        } else {
+            lastError = message
+        }
+    }
+
+    private fun reportUnavailableSessionRecovery(message: String) {
+        lastError = message
+        status = "Error"
     }
 
     /** Single reporter for a completed cycle's outcome [sync.md]: clean →
@@ -319,5 +330,10 @@ class SyncManager(
             }
             return null
         }
+
+        /** Live-loop auth errors and collection-gone are terminal for the old
+         *  bearer session but recoverable with the securely stored password. */
+        internal fun shouldHealLiveError(message: String): Boolean =
+            message.startsWith("auth:") || message.contains("collection-gone")
     }
 }

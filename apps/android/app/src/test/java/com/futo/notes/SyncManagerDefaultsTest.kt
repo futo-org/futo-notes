@@ -3,6 +3,8 @@ package com.futo.notes
 import java.io.File
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -40,5 +42,23 @@ class SyncManagerDefaultsTest {
             val expected = if (testCase.isNull("expected")) null else testCase.getString("expected")
             assertEquals("input ${input.replace(" ", "\u2420")}", expected, SyncManager.validateServerUrl(input))
         }
+    }
+
+    @Test
+    fun terminalLiveSessionErrorsTriggerHealing() {
+        assertTrue(SyncManager.shouldHealLiveError("auth: HTTP 401: invalid session"))
+        assertTrue(SyncManager.shouldHealLiveError("collection-gone: HTTP 404"))
+        assertFalse(SyncManager.shouldHealLiveError("stream: connection reset"))
+        assertFalse(SyncManager.shouldHealLiveError("HTTP 500"))
+    }
+
+    @Test
+    fun recoverableLiveErrorSurfacesWhenHealingCannotStart() {
+        val manager = SyncManager()
+
+        manager.handleLiveError("auth: HTTP 401: invalid session")
+
+        assertEquals("auth: HTTP 401: invalid session", manager.lastError)
+        assertEquals("Error", manager.status)
     }
 }

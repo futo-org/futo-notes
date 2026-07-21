@@ -481,7 +481,9 @@ EditorWebView.swift, EditorWebView.kt
   on iOS 2026-07-13 (sim: clean re-background after a settled save left mtime
   unchanged; dirty-on-deleted backgrounded across cycles yields exactly one home —
   the re-created note — and no conflict copy) + Rust unit tests
-  (creates-when-missing / never-clobbers-existing / rejects-traversal).
+  (creates-when-missing / never-clobbers-existing / rejects-traversal). Android's
+  FUSE fallback uses one atomic no-replace rename, guarded by
+  `rename_fallback_preserves_a_destination_created_in_the_install_window`.
 - The open editor's unsaved-draft register is **derived** from the editor's live
   state (note id, buffer, saved content, loaded) rather than hand-synced, so it
   goes clean the instant a save completes or a remote is adopted (no stale draft
