@@ -106,7 +106,7 @@ final class SyncManager: ObservableObject {
         lastError = nil
         liveError = nil
         status = "Connecting…"
-        self.notesRoot = notesRoot  // stash for a later session heal
+        self.notesRoot = notesRoot
         defer { busy = false }
         // Reject a schemeless URL up front with an actionable message instead
         // of letting the client fail with an opaque transport error. → sync.md
@@ -177,8 +177,6 @@ final class SyncManager: ObservableObject {
         }
     }
 
-    /// Whether a typed sync error can be healed by logging in again with the
-    /// password already stored in Keychain.
     private func isRecoverableSessionError(_ error: Error) -> Bool {
         guard let e = error as? SyncError else { return false }
         switch e {
@@ -187,11 +185,8 @@ final class SyncManager: ObservableObject {
         }
     }
 
-    /// Heal an expired session or collapsed vault with the password stored at
-    /// last connect. For auth expiry, `connect()` reuses the same collection's
-    /// persisted cursor/map; for collection-gone it re-picks the survivor and
-    /// safely reconciles. Missing recovery credentials surface the original
-    /// error; guarded against re-entry.
+    /// Re-login with the stored password to recover an expired session or
+    /// collapsed vault without deleting state. Guarded against re-entry. → sync.md
     private func healSession(orReport message: String) {
         guard !healing else { return }
         guard let root = notesRoot, let password = Keychain.syncPassword else {

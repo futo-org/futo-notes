@@ -244,10 +244,8 @@ async function ensureConnected(passwordOverride?: string): Promise<void> {
       input,
     });
   } catch (e) {
-    // A fresh login heals either an expired bearer token or a vault collapsed
-    // by the single-vault migration. connect() preserves the checkpoint when it
-    // re-selects the same collection and safely re-reconciles when it selects a
-    // replacement collection.
+    // A fresh login recovers both an expired token and a migration-collapsed
+    // vault, without deleting sync state. → sync.md
     if (isRecoverableSessionError(e)) {
       await reauthenticateE2ee(password);
     } else {

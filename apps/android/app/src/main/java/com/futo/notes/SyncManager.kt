@@ -113,7 +113,7 @@ class SyncManager(
             return
         }
         busy = true; lastError = null; status = "Connecting…"
-        this.notesRoot = notesRoot  // stash for a later session heal
+        this.notesRoot = notesRoot
         try {
             val c = SyncClient(notesRoot, url)
             val info = c.connect(password)
@@ -160,16 +160,12 @@ class SyncManager(
         }
     }
 
-    /** Whether a sync error can be healed by logging in again with the password
-     *  already stored in the Android Keystore. */
     private fun isRecoverableSessionError(e: Exception): Boolean =
         e is SyncException.Auth || e is SyncException.CollectionGone
 
-    /** Heal an expired session or collapsed vault with the password stored at
-     *  last connect. Auth expiry reuses the same collection's persisted state;
-     *  collection-gone re-picks the survivor and safely reconciles. Missing
-     *  recovery credentials surface the original error; guarded against
-     *  re-entry. Mirrors iOS `healSession`. */
+    /** Re-login with the stored password to recover an expired session or
+     *  collapsed vault without deleting state. Guarded against re-entry;
+     *  mirrors iOS `healSession`. → sync.md */
     private fun healSession(fallbackMessage: String) {
         if (healing) return
         val root = notesRoot
@@ -195,7 +191,6 @@ class SyncManager(
         }
     }
 
-    /** Route one live-loop failure through recovery or visible error state. */
     internal fun handleLiveError(message: String) {
         // Auth expiry and collection-gone are terminal for the old live loop,
         // but recoverable from the securely stored password.
