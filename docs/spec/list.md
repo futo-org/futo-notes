@@ -245,6 +245,9 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - The sidebar files tree stays responsive on large vaults (target: 10,000
   notes) — scrolling, expanding/collapsing, and drag & drop remain usable.
   The implementation is not required to virtualize rows. → FolderTreeView.svelte
+- Every folder-tree note, folder, and empty-state row spans the remaining
+  sidebar width after its nesting indent, so hover, selection, context-menu,
+  and drag/drop hit zones stay full-width at every depth. → folderTree.css
 
 ## Folder management
 

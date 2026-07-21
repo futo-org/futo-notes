@@ -18,6 +18,8 @@
   align-items: center;
   height: 48px;
   margin: 1px 0;
+  margin-left: var(--row-indent, 0px);
+  width: calc(100% - var(--row-indent, 0px));
   padding: 0 12px;
   box-sizing: border-box;
   color: var(--color-muted, #888);
@@ -38,6 +40,8 @@
   cursor: pointer;
   padding: 0 12px;
   margin: 1px 0;
+  margin-left: var(--row-indent, 0px);
+  width: calc(100% - var(--row-indent, 0px));
   box-sizing: border-box;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
