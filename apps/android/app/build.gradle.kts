@@ -171,4 +171,5 @@ dependencies {
 
     // JVM unit tests (pure logic only — e.g. SyncManager's seed-URL selection).
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

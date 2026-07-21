@@ -601,8 +601,9 @@ Conformance-locked or generated (safe, but regenerate on change): note and image
 safe note IDs TS↔Rust; toolbar and bridge manifests → generated native specs; Rust vault image
 extensions → generated UniFFI bindings for Swift/Kotlin; Rust Tauri sync records → generated TS.
 
-Partially locked: `validateServerUrl` ×3 (TS and Swift read the full shared fixture — Swift via
-`apps/ios/Tests/ServerUrlConformanceTests.swift`; **Kotlin hand-mirrors only a 5-case subset**);
+Fully locked: `validateServerUrl` ×3 (TS, Swift, and Kotlin all read the full shared fixture;
+Swift via `apps/ios/Tests/ServerUrlConformanceTests.swift`, Kotlin via
+`apps/android/app/src/test/java/com/futo/notes/SyncManagerDefaultsTest.kt`). Partially locked:
 title constraints across the hot-path/native surfaces.
 
 **Not locked — real drift risk.** If you touch one, touch all, and say so in the commit:
