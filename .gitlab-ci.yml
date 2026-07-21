@@ -638,9 +638,9 @@ test:rust:macos:
   variables:
     GIT_STRATEGY: clone
   before_script:
-    - env | grep -E '^(CI_)' > .cienv
+    - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run testRustMacOS --artifacts-dir . --env-file .cienv
+    - cirrus run testRustMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_TAG
     # Auto on Rust-touching MRs. allow_failure stays: this runs through
@@ -887,9 +887,9 @@ test:desktop-smoke:macos:
   variables:
     GIT_STRATEGY: clone
   before_script:
-    - env | grep -E '^(CI_)' > .cienv
+    - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run testDesktopSmokeMacOS --artifacts-dir . --env-file .cienv
+    - cirrus run testDesktopSmokeMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_TAG
     # Auto on desktop-touching MRs; allow_failure stays (single macscript
@@ -1082,9 +1082,9 @@ build:macos:
   before_script:
     # TAURI_ passes the updater signing key (TAURI_SIGNING_PRIVATE_KEY[_PASSWORD])
     # through to the Cirrus macOS task, which builds the signed .app.tar.gz.
-    - env | grep -E '^(CI_|MACOS_|ASC_|TAURI_)' > .cienv
+    - env | grep -E '^(CI_|MACOS_|ASC_|TAURI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run buildFutoNotesMacOS --artifacts-dir . --env-file .cienv
+    - cirrus run buildFutoNotesMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     paths:
       - buildFutoNotesMacOS/binary/*.dmg
@@ -1270,9 +1270,9 @@ build:ios-native:
     # IOS_ must pass through: the Cirrus task imports Certificates.p12 with
     # $IOS_CERT_PASSWORD on tag builds. CI_-only here yields an empty
     # password and "MAC verification failed during PKCS12 import".
-    - env | grep -E '^(CI_|IOS_)' > .cienv
+    - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run buildFutoNotesIOSNative --artifacts-dir . --env-file .cienv
+    - cirrus run buildFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     paths:
       - buildFutoNotesIOSNative/binary/*.ipa
@@ -1725,9 +1725,9 @@ publish:ios:
   variables:
     GIT_STRATEGY: clone
   before_script:
-    - env | grep -E '^(CI_|IOS_|ASC_)' > .cienv
+    - env | grep -E '^(CI_|IOS_|ASC_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run publishFutoNotesIOS --artifacts-dir . --env-file .cienv
+    - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_TAG
 
