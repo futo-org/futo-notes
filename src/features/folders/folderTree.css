@@ -29,6 +29,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  /* .note-row is a <button>: unlike a <div>, a button does not stretch to
+     fill its containing block just because display is flex/block — it
+     shrink-wraps to its content (the title text), producing a ragged,
+     title-width pill instead of a uniform column. Explicit width: 100%
+     forces every row (folder or note) to the same fixed width. */
+  width: 100%;
   height: 48px;
   border: none;
   border-radius: 10px;

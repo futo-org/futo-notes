@@ -329,4 +329,37 @@ test.describe('Folder support', () => {
     // the outline is oscillating — the regression we're guarding against.
     expect(transitions.transitionCount).toBeLessThanOrEqual(2);
   });
+
+  test('note row background boxes are a uniform fixed width, not title-hugging', async ({
+    page,
+  }) => {
+    // Regression: .note-row is a <button>, which — unlike a <div> —
+    // does not stretch to fill its containing block just because
+    // display is flex/block; it shrink-wraps to its content (the
+    // title). That produced a ragged sidebar where a short title got a
+    // narrow pill and a long title a wide one. Every row's box must be
+    // the same fixed width regardless of title length.
+    await openSidebar(page);
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('Hi', 'short title body');
+      await win.__testNotes.createNote(
+        'This is a much longer note title used to test row width',
+        'long title body',
+      );
+    });
+
+    const widths = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll<HTMLElement>('.note-row')];
+      return rows.map((row) => Math.round(row.getBoundingClientRect().width));
+    });
+
+    expect(widths.length).toBeGreaterThanOrEqual(2);
+    // All rows share one fixed width — no per-title variance.
+    expect(new Set(widths).size).toBe(1);
+    // And that width fills the available column, not just the "Hi" text.
+    expect(widths[0]).toBeGreaterThan(100);
+  });
 });
