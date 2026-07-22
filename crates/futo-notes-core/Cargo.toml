@@ -15,6 +15,7 @@ hmac = "0.12"
 base64 = "0.22"
 hex = "0.4"
 thiserror = "1"
+time = "0.3"
 unicode-normalization = "0.1.25"
 
 [target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))'.dependencies]

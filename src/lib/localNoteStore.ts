@@ -37,6 +37,23 @@ export interface LocalNoteMutation {
   warnings: string[];
 }
 
+/** The single outcome of one draft flush (CONTEXT.md: flush disposition).
+ * Shells render dispositions; they never decide them (ADR-0001). Mirrors
+ * `futo-notes-store::FlushDisposition`. */
+export type LocalFlushDisposition =
+  | { kind: 'wrote' }
+  | { kind: 'converged' }
+  | { kind: 'recreated' }
+  | { kind: 'parkedConflict'; parkedId: string };
+
+/** What a flush committed: one disposition plus the mutation to project
+ * (null when nothing changed on disk — converged, or a park that found its
+ * copy already minted). */
+export interface LocalFlushDraftResult {
+  disposition: LocalFlushDisposition;
+  mutation: LocalNoteMutation | null;
+}
+
 export interface LocalNoteBootstrap {
   snapshot: LocalNoteSnapshot;
   seeded: number;
@@ -68,6 +85,13 @@ export interface LocalNoteStore {
     content: string,
     modifiedMs?: number,
   ): Promise<LocalNoteMutation>;
+  /** THE draft-saving verb (persist-or-park, ADR-0001 / issue #37): persist
+   * `content` for the note at `id` against `base` (the content the editor
+   * last loaded or saved) and return one flush disposition — wrote /
+   * converged / recreated / parked as a conflict copy — plus the mutation to
+   * apply. The engine resolves every surprise itself; desktop callers adopt
+   * in ticket #38. */
+  flushDraft(id: string, base: string, content: string): Promise<LocalFlushDraftResult>;
   move(id: string, wantedId: string): Promise<LocalNoteMutation>;
   delete(id: string): Promise<LocalNoteMutation>;
   createFolder(path: string): Promise<LocalNoteMutation>;
@@ -171,6 +195,76 @@ export class BrowserLocalNoteStore implements LocalNoteStore {
       renamed,
       finalId: id,
     });
+  }
+
+  async flushDraft(id: string, base: string, content: string): Promise<LocalFlushDraftResult> {
+    const note = this.notes.get(id);
+    if (!note) {
+      const collidingNote = [...this.notes.keys()].find(
+        (existingId) => collisionKey(existingId) === collisionKey(id),
+      );
+      if (collidingNote) return this.parkConflictDraft(id, content);
+      // Peer deleted; the edit wins — recreated at the ORIGINAL id.
+      this.notes.set(id, { content, mtime: Date.now() });
+      return {
+        disposition: { kind: 'recreated' },
+        mutation: this.finish({ upsertedIds: [id], finalId: id }),
+      };
+    }
+    if (note.content === content) {
+      // Converged before the base comparison, so an already-persisted draft
+      // never rewrites identical bytes (an mtime bump would re-rank the note).
+      return { disposition: { kind: 'converged' }, mutation: null };
+    }
+    if (note.content === base) {
+      note.content = content;
+      note.mtime = Date.now();
+      return {
+        disposition: { kind: 'wrote' },
+        mutation: this.finish({ upsertedIds: [id], finalId: id }),
+      };
+    }
+    return this.parkConflictDraft(id, content);
+  }
+
+  /** The flush's park arm: preserve a draft that conflicts with a genuinely
+   * different in-memory version as a dated conflict copy, leaving the
+   * diverged note untouched. Idempotent — a copy this park could have minted
+   * already holding identical content is reported instead of duplicated. */
+  private parkConflictDraft(id: string, content: string): LocalFlushDraftResult {
+    const slash = id.lastIndexOf('/');
+    const folder = slash < 0 ? '' : id.slice(0, slash);
+    const title = slash < 0 ? id : id.slice(slash + 1);
+    const date = new Date().toISOString().slice(0, 10);
+    const siblingTitles = [...this.notes.keys()]
+      .filter((sibling) => (slash < 0 ? !sibling.includes('/') : sibling.startsWith(`${folder}/`)))
+      .map((sibling) => sibling.slice(folder ? folder.length + 1 : 0))
+      .filter((sibling) => !sibling.includes('/'));
+    const stem = conflictCopyTitle(title, date, new Set());
+    for (const sibling of siblingTitles) {
+      if (!isDatedConflictVariant(stem, sibling)) continue;
+      const parkedId = folder ? `${folder}/${sibling}` : sibling;
+      if (this.notes.get(parkedId)?.content === content) {
+        return { disposition: { kind: 'parkedConflict', parkedId }, mutation: null };
+      }
+    }
+    const existing = new Set(siblingTitles);
+    for (;;) {
+      const copyTitle = conflictCopyTitle(title, date, existing);
+      const collides = siblingTitles.some(
+        (siblingTitle) => collisionKey(siblingTitle) === collisionKey(copyTitle),
+      );
+      if (collides) {
+        existing.add(copyTitle);
+        continue;
+      }
+      const parkedId = folder ? `${folder}/${copyTitle}` : copyTitle;
+      this.notes.set(parkedId, { content, mtime: Date.now() });
+      return {
+        disposition: { kind: 'parkedConflict', parkedId },
+        mutation: this.finish({ upsertedIds: [parkedId], finalId: parkedId }),
+      };
+    }
   }
 
   async move(id: string, wantedId: string): Promise<LocalNoteMutation> {
@@ -362,6 +456,41 @@ export class BrowserLocalNoteStore implements LocalNoteStore {
 
 function collisionKey(id: string): string {
   return id.normalize('NFC').toLocaleLowerCase();
+}
+
+/** A dated conflict token this harness mints: " (conflict YYYY-MM-DD)" with an
+ * optional counter. The browser twin never sees sync's object-id tokens, so
+ * the date shape is the full reachable space here. */
+const DATED_CONFLICT_SUFFIX_RE = / \(conflict \d{4}-\d{2}-\d{2}(?: \d+)?\)$/;
+
+/** THE conflict-copy name ("<base> (conflict YYYY-MM-DD)", counter suffix on a
+ * same-day collision, never stacking on an existing conflict suffix). The
+ * browser harness plays the ENGINE side of the LocalNoteStore seam, so this is
+ * the in-memory twin of the Rust rule (`futo_notes_core::conflict_names::
+ * conflict_filename`) — registered in scripts/drift-registry.json. */
+function conflictCopyTitle(title: string, date: string, existing: Set<string>): string {
+  let base = title;
+  while (DATED_CONFLICT_SUFFIX_RE.test(base)) base = base.replace(DATED_CONFLICT_SUFFIX_RE, '');
+  const first = `${base} (conflict ${date})`;
+  if (!existing.has(first)) return first;
+  for (let counter = 2; ; counter++) {
+    const candidate = `${base} (conflict ${date} ${counter})`;
+    if (!existing.has(candidate)) return candidate;
+  }
+}
+
+/** Whether `candidate` is a title the park could have minted for the dated
+ * `stem`: the stem itself or one of its counter variants. Deliberately not a
+ * prefix match, so a merely similarly-named note ("<stem> draft") never
+ * satisfies the park idempotency guard. Twin of the Rust store's
+ * `is_dated_conflict_variant`. */
+function isDatedConflictVariant(stem: string, candidate: string): boolean {
+  if (candidate === stem) return true;
+  if (!stem.endsWith(')')) return false;
+  const open = stem.slice(0, -1);
+  if (!candidate.startsWith(`${open} `) || !candidate.endsWith(')')) return false;
+  const counter = candidate.slice(open.length + 1, -1);
+  return counter.length > 0 && /^\d+$/.test(counter);
 }
 
 let localNotes: LocalNoteStore | null = null;

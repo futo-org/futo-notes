@@ -4,8 +4,8 @@ use std::sync::Arc;
 use futo_notes_store as store;
 
 use super::{
-    ConditionalWrite, CreateOutcome, NoteBootstrap, NoteError, NoteMutation, NoteSnapshot,
-    SearchHit,
+    ConditionalWrite, CreateOutcome, FlushDraftResult, NoteBootstrap, NoteError, NoteMutation,
+    NoteSnapshot, SearchHit,
 };
 
 #[derive(uniffi::Object)]
@@ -73,6 +73,22 @@ impl NoteStore {
     ) -> Result<CreateOutcome, NoteError> {
         self.inner
             .create_if_absent(&id, &content)
+            .map(Into::into)
+            .map_err(NoteError::Io)
+    }
+
+    /// THE draft-saving verb (persist-or-park, ADR-0001 / issue #37): the
+    /// whole wrote/converged/recreated/parked composition runs under the
+    /// engine's per-workflow serialization, so shells never stitch the raw
+    /// primitives together across FFI calls.
+    pub fn flush_draft(
+        &self,
+        id: String,
+        base: String,
+        content: String,
+    ) -> Result<FlushDraftResult, NoteError> {
+        self.inner
+            .flush_draft(&id, &base, &content)
             .map(Into::into)
             .map_err(NoteError::Io)
     }

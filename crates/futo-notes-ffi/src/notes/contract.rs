@@ -139,6 +139,47 @@ pub struct ConditionalWrite {
     pub mutation: Option<NoteMutation>,
 }
 
+/// The single outcome of one draft flush (CONTEXT.md: flush disposition).
+/// Shells render dispositions; they never decide them (ADR-0001).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum FlushDisposition {
+    Wrote,
+    Converged,
+    Recreated,
+    ParkedConflict { parked_id: String },
+}
+
+impl From<store::FlushDisposition> for FlushDisposition {
+    fn from(disposition: store::FlushDisposition) -> Self {
+        match disposition {
+            store::FlushDisposition::Wrote => Self::Wrote,
+            store::FlushDisposition::Converged => Self::Converged,
+            store::FlushDisposition::Recreated => Self::Recreated,
+            store::FlushDisposition::ParkedConflict { parked_id } => {
+                Self::ParkedConflict { parked_id }
+            }
+        }
+    }
+}
+
+/// What a flush committed: one disposition plus the mutation to project
+/// (absent when nothing changed on disk — converged, or a park that found
+/// its copy already minted).
+#[derive(uniffi::Record)]
+pub struct FlushDraftResult {
+    pub disposition: FlushDisposition,
+    pub mutation: Option<NoteMutation>,
+}
+
+impl From<store::FlushDraftResult> for FlushDraftResult {
+    fn from(result: store::FlushDraftResult) -> Self {
+        Self {
+            disposition: result.disposition.into(),
+            mutation: result.mutation.map(Into::into),
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct SearchHit {
     pub note_id: String,

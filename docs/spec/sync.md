@@ -739,18 +739,28 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 - A **dirty draft against a real remote change** (draft still inside the
   save debounce when the pull rewrites the file) is parked, not kept: the
   pending save is cancelled, the draft is written to a
-  `<title> (conflict YYYY-MM-DD)` copy (uniqued like every create), the
-  remote content is adopted into the editor, and a "Conflicting edits saved
-  to a copy" toast fires. A draft that already reached disk is covered by
-  the push-first 409 machinery above instead. On Android the local edit is
-  captured after the conflict-copy id is minted and immediately before the
-  copy is written; the copy lands on DISK first and the remote is adopted
-  last (crash-durable: a process death mid-flow never loses the captured
-  edit; a stale background flush can't clobber the adopted remote because
-  the conditional write skips on changed base — PKT-12 final ordering).
-  Verified on the emulator 2026-06-09 (held-dirty draft + peer edit → copy
-  contained the draft, editor showed the remote).
-  → NoteEditorScreen.kt / NoteEditorView.swift
+  `<title> (conflict YYYY-MM-DD)` copy, the remote content is adopted into
+  the editor, and a "Conflicting edits saved to a copy" toast fires. A draft
+  that already reached disk is covered by the push-first 409 machinery above
+  instead. On iOS the park rides the engine's one flush verb
+  (`flush_draft` — the same persist-or-park path as the leave/background
+  flush, see editor.md "Saving & rename"), so the copy is named by the
+  engine's conflict-naming rule and an identical double-park mints one copy;
+  if the engine's serialized re-check instead finds the note back at the
+  draft's base, gone, or already holding the draft's exact bytes (an in-flight
+  autosave landed it first — Converged), the draft wins at the original id and
+  nothing is parked: the editor keeps the draft and never adopts the pre-flush
+  disk snapshot, so the just-persisted draft is not clobbered by the next
+  keystroke's autosave (a converged flush is grouped with wrote/recreated, not
+  with the park arm — issue #37). On Android the local edit is captured after the conflict-copy id
+  is minted and immediately before the copy is written; the copy lands on
+  DISK first and the remote is adopted last (crash-durable: a process death
+  mid-flow never loses the captured edit; a stale background flush can't
+  clobber the adopted remote because the conditional write skips on changed
+  base — PKT-12 final ordering). Verified on the emulator 2026-06-09
+  (held-dirty draft + peer edit → copy contained the draft, editor showed
+  the remote). → futo-notes-store `flush_draft` (iOS);
+  NoteEditorScreen.kt / NoteEditorView.swift `adoptExternalChange`
 - A peer **deleting the currently-open note** closes the open session (route →
   home, "Note was deleted during sync" toast) instead of adopting its content;
   an unsaved local draft is kept open with an "Open note was deleted during
@@ -762,10 +772,12 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   fleet-wide (F4). iOS branches on the note no longer existing on disk after a
   live pull (`store.exists` false in `adoptExternalChange`), acts only for the
   visible editor (a buried wikilink editor must not pop the stack top), and
-  relies on the conditional flush (`write_if_unchanged` → SkippedMissing) so a
-  clean note is never resurrected even before the close runs. The dirty-keep
-  path is edit-wins: the debounced save re-creates the note with the local
-  edits. → syncManager `handleSyncComplete` (guarded by "peer delete of open
+  relies on the engine's flush verb (`flush_draft` — a clean editor never
+  flushes) so a clean note is never resurrected even before the close runs.
+  The dirty-keep path is edit-wins: the debounced save re-creates the note
+  with the local edits, and a leave/background flush of the kept draft
+  converges on the same home via the verb's Recreated arm.
+  → syncManager `handleSyncComplete` (guarded by "peer delete of open
   note closes editor" in tests/cross-platform-sync.mjs + the F4 seam tests in
   src/features/sync/syncManager.test.ts); iOS NoteEditorView `handleOpenNoteDeleted`.
   > **Gap:** Android leaves the open editor bound to the deleted id (its

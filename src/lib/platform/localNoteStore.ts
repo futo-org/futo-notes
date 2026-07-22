@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
+  LocalFlushDraftResult,
   LocalNoteBootstrap,
   LocalNoteInventoryItem,
   LocalNoteMutation,
@@ -39,6 +40,10 @@ class TauriLocalNoteStore implements LocalNoteStore {
           ? Math.trunc(modifiedMs)
           : null,
     });
+  }
+
+  flushDraft(id: string, base: string, content: string) {
+    return invoke<LocalFlushDraftResult>('local_notes_flush_draft', { id, base, content });
   }
 
   move(id: string, wantedId: string) {

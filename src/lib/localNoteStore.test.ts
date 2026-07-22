@@ -92,3 +92,144 @@ describe('BrowserLocalNoteStore mutation contract', () => {
     expect((await store.deleteFolder('G')).folders).toEqual(['Empty', 'Empty/Nested']);
   });
 });
+
+// The one draft-saving verb (persist-or-park, issue #37): the browser adapter
+// honors the same four-outcome flush contract as the Rust engine
+// (crates/futo-notes-store flush_draft tests), so desktop save behavior is
+// exercisable in vitest/Playwright without a real vault.
+describe('BrowserLocalNoteStore flush contract', () => {
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  it('writes when the note still holds the base', async () => {
+    const store = new BrowserLocalNoteStore();
+    await store.save(null, 'note', 'base text');
+
+    const result = await store.flushDraft('note', 'base text', 'draft text');
+
+    expect(result.disposition).toEqual({ kind: 'wrote' });
+    expect(result.mutation?.finalId).toBe('note');
+    expect(await store.read('note')).toBe('draft text');
+  });
+
+  it('reports convergence without rewriting identical bytes', async () => {
+    const store = new BrowserLocalNoteStore();
+    await store.save(null, 'note', 'same text', 1000);
+
+    const result = await store.flushDraft('note', 'stale base', 'same text');
+
+    expect(result.disposition).toEqual({ kind: 'converged' });
+    expect(result.mutation).toBeNull();
+    const [note] = (await store.snapshot()).notes;
+    expect(note.modifiedMs).toBe(1000);
+  });
+
+  it('recreates a peer-deleted note at the original id with a positioned mutation', async () => {
+    const store = new BrowserLocalNoteStore();
+    await store.save(null, 'other', 'x', 1000);
+
+    const result = await store.flushDraft('Gone', 'old base', 'surviving draft');
+
+    expect(result.disposition).toEqual({ kind: 'recreated' });
+    expect(result.mutation?.finalId).toBe('Gone');
+    expect(result.mutation?.upserted[0]).toMatchObject({ position: 0 });
+    expect(await store.read('Gone')).toBe('surviving draft');
+  });
+
+  it('parks instead of recreating beside a case-colliding note', async () => {
+    const store = new BrowserLocalNoteStore();
+    await store.save(null, 'note', 'surviving peer');
+
+    const result = await store.flushDraft('Note', 'old base', 'my draft');
+
+    expect(result.disposition).toEqual({
+      kind: 'parkedConflict',
+      parkedId: `Note (conflict ${today()})`,
+    });
+    expect(await store.read('note')).toBe('surviving peer');
+    expect(await store.read(`Note (conflict ${today()})`)).toBe('my draft');
+  });
+
+  it('parks a diverged draft as a dated conflict copy, leaving the note untouched', async () => {
+    const store = new BrowserLocalNoteStore();
+    await store.save(null, 'note', 'peer version');
+
+    const result = await store.flushDraft('note', 'original base', 'my draft');
+
+    const parkedId = `note (conflict ${today()})`;
+    expect(result.disposition).toEqual({ kind: 'parkedConflict', parkedId });
+    expect(result.mutation?.finalId).toBe(parkedId);
+    expect(await store.read('note')).toBe('peer version');
+    expect(await store.read(parkedId)).toBe('my draft');
+  });
+
+  it('parks an identical draft twice into ONE copy and counters a distinct one', async () => {
+    const store = new BrowserLocalNoteStore();
+    await store.save(null, 'note', 'peer version');
+
+    const first = await store.flushDraft('note', 'original', 'my draft');
+    const again = await store.flushDraft('note', 'original', 'my draft');
+    const distinct = await store.flushDraft('note', 'original', 'another draft');
+
+    const parkedId = `note (conflict ${today()})`;
+    expect(first.disposition).toEqual({ kind: 'parkedConflict', parkedId });
+    expect(again.disposition).toEqual({ kind: 'parkedConflict', parkedId });
+    expect(again.mutation).toBeNull();
+    expect(distinct.disposition).toEqual({
+      kind: 'parkedConflict',
+      parkedId: `note (conflict ${today()} 2)`,
+    });
+    expect((await store.snapshot()).notes).toHaveLength(3);
+  });
+
+  it('skips a case-colliding conflict-copy id', async () => {
+    const store = new BrowserLocalNoteStore();
+    await store.save(null, 'note', 'peer version');
+    await store.save(null, `Note (conflict ${today()})`, 'unrelated copy');
+
+    const result = await store.flushDraft('note', 'original', 'my draft');
+
+    expect(result.disposition).toEqual({
+      kind: 'parkedConflict',
+      parkedId: `note (conflict ${today()} 2)`,
+    });
+    expect(await store.read(`Note (conflict ${today()})`)).toBe('unrelated copy');
+    expect(await store.read(`note (conflict ${today()} 2)`)).toBe('my draft');
+  });
+
+  it('does not stack conflict suffixes when parking a conflict copy', async () => {
+    const store = new BrowserLocalNoteStore();
+    await store.save(null, 'note (conflict 2026-01-01)', 'peer version');
+
+    const result = await store.flushDraft('note (conflict 2026-01-01)', 'original', 'my draft');
+
+    expect(result.disposition).toEqual({
+      kind: 'parkedConflict',
+      parkedId: `note (conflict ${today()})`,
+    });
+  });
+
+  it('ignores a similarly-named note in the park idempotency guard', async () => {
+    const store = new BrowserLocalNoteStore();
+    await store.save(null, 'note', 'peer version');
+    await store.save(null, `note (conflict ${today()}) draft`, 'my draft');
+
+    const result = await store.flushDraft('note', 'original', 'my draft');
+
+    expect(result.disposition).toEqual({
+      kind: 'parkedConflict',
+      parkedId: `note (conflict ${today()})`,
+    });
+  });
+
+  it('parks inside the note folder', async () => {
+    const store = new BrowserLocalNoteStore();
+    await store.save(null, 'Projects/note', 'peer version');
+
+    const result = await store.flushDraft('Projects/note', 'original', 'my draft');
+
+    expect(result.disposition).toEqual({
+      kind: 'parkedConflict',
+      parkedId: `Projects/note (conflict ${today()})`,
+    });
+  });
+});

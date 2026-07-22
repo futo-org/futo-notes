@@ -39,7 +39,8 @@ owners.
 The current frontend contract is:
 
 - `local_notes_bootstrap`, `local_notes_snapshot`, `local_notes_inventory`
-- `local_notes_read`, `local_notes_exists`, `local_notes_save`
+- `local_notes_read`, `local_notes_exists`, `local_notes_save`,
+  `local_notes_flush_draft`
 - `local_notes_delete`, `local_notes_move`
 - `local_notes_create_folder`, `local_notes_rename_folder`,
   `local_notes_delete_folder`

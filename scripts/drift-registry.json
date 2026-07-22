@@ -1,9 +1,9 @@
 {
-  "_comment": "AGENTS.md §12 (drift watchlist) as enforced code — architecture-hardening.md R1. Every PERMITTED same-logic-in->=2-places duplicate in this repo is enumerated here with its copies (file + a regex that must still match there) and its lock (the fixture/generated-file/test that catches drift, or 'unlocked' when none exists yet). scripts/drift-check.mjs (just check-drift / just check) enforces: (a) every copy exists where claimed, (b) every declared lock file exists and lockStatus is consistent with whether locks are registered, (c) for entries with a 'scan' block, no NEW file outside the registered copies matches the concept's detection pattern. Registration friction is the feature — do not add entries for concepts that haven't actually drifted or burned us; do not delete an entry because its pattern is inconvenient, tighten the pattern instead.",
+  "_comment": "AGENTS.md \u00a712 (drift watchlist) as enforced code \u2014 architecture-hardening.md R1. Every PERMITTED same-logic-in->=2-places duplicate in this repo is enumerated here with its copies (file + a regex that must still match there) and its lock (the fixture/generated-file/test that catches drift, or 'unlocked' when none exists yet). scripts/drift-check.mjs (just check-drift / just check) enforces: (a) every copy exists where claimed, (b) every declared lock file exists and lockStatus is consistent with whether locks are registered, (c) for entries with a 'scan' block, no NEW file outside the registered copies matches the concept's detection pattern. Registration friction is the feature \u2014 do not add entries for concepts that haven't actually drifted or burned us; do not delete an entry because its pattern is inconvenient, tighten the pattern instead.",
   "entries": [
     {
       "concept": "note-rules-ts-rust",
-      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) — the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md §4 M6/M7). Copies must stay bit-for-bit per tests/conformance/*.json.",
+      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md \u00a74 M6/M7). Copies must stay bit-for-bit per tests/conformance/*.json.",
       "lockStatus": "locked",
       "copies": [
         {
@@ -112,14 +112,22 @@
         }
       ],
       "scan": {
-        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
-        "extensions": [".ts", ".swift", ".kt"],
+        "dirs": [
+          "src",
+          "apps/ios/Sources",
+          "apps/android/app/src/main"
+        ],
+        "extensions": [
+          ".ts",
+          ".swift",
+          ".kt"
+        ],
         "pattern": "(function validateSyncServerUrl|fun validateServerUrl|func validateServerURL)\\b"
       }
     },
     {
       "concept": "sort-tiebreaker-modified-id",
-      "description": "Note sort order (modified desc, id asc). The Rust store is canonical: snapshots are emitted sorted and every mutation carries per-note sorted positions (issue #35 / ADR-0001), so the three former shell copies are deleted — shells apply engine positions as verbatim splices. The ONLY remaining twin is the browser in-memory dev/test harness, the LocalNoteStore seam's second engine adapter. Each side is pinned by its own contract tests (crates/futo-notes-store tests.rs; src/lib/localNoteStore.test.ts); no shared fixture locks the pair.",
+      "description": "Note sort order (modified desc, id asc). The Rust store is canonical: snapshots are emitted sorted and every mutation carries per-note sorted positions (issue #35 / ADR-0001), so the three former shell copies are deleted \u2014 shells apply engine positions as verbatim splices. The ONLY remaining twin is the browser in-memory dev/test harness, the LocalNoteStore seam's second engine adapter. Each side is pinned by its own contract tests (crates/futo-notes-store tests.rs; src/lib/localNoteStore.test.ts); no shared fixture locks the pair.",
       "lockStatus": "unlocked",
       "copies": [
         {
@@ -134,9 +142,9 @@
     },
     {
       "concept": "notes-root-triplet",
-      "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md §6 explicitly accepts this as a non-goal for unification — registered so it's visible, not to be locked or collapsed.",
+      "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md \u00a76 explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
       "lockStatus": "unlocked",
-      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md §6 non-goals — do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. CORRECTION to AGENTS.md §12: the Android copy is NOT in NotesStore.kt (that class only takes a resolved `notesRoot: File`) — the actual dev/prod guard lives in NotesStorage.kt's `deviceFolderName`, and Android's split works differently (a distinct DEVICE-mode folder name, 'FUTO Notes Dev' vs 'FUTO Notes', since its APP/INTERNAL modes already isolate via the `.dev` applicationId on package-scoped paths) rather than the desktop/iOS 'fake-notes' vs 'futo-notes' directory-name split.",
+      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md \u00a76 non-goals \u2014 do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. CORRECTION to AGENTS.md \u00a712: the Android copy is NOT in NotesStore.kt (that class only takes a resolved `notesRoot: File`) \u2014 the actual dev/prod guard lives in NotesStorage.kt's `deviceFolderName`, and Android's split works differently (a distinct DEVICE-mode folder name, 'FUTO Notes Dev' vs 'FUTO Notes', since its APP/INTERNAL modes already isolate via the `.dev` applicationId on package-scoped paths) rather than the desktop/iOS 'fake-notes' vs 'futo-notes' directory-name split.",
       "copies": [
         {
           "location": "apps/tauri/src-tauri/src/vault_location.rs",
@@ -255,10 +263,49 @@
         }
       ],
       "scan": {
-        "dirs": ["packages/editor/src", "crates", "apps/ios/Sources", "apps/android/app/src/main"],
-        "extensions": [".ts", ".rs", ".swift", ".kt"],
+        "dirs": [
+          "packages/editor/src",
+          "crates",
+          "apps/ios/Sources",
+          "apps/android/app/src/main"
+        ],
+        "extensions": [
+          ".ts",
+          ".rs",
+          ".swift",
+          ".kt"
+        ],
         "pattern": "MAX_TITLE_LENGTH\\s*[:=]\\s*(usize\\s*=\\s*)?200|TITLE_MAX_LENGTH\\s*=\\s*200|titleMaxLength\\s*=\\s*200"
       }
+    },
+    {
+      "concept": "conflict-copy-naming",
+      "description": "Dated conflict-copy naming (\"<base> (conflict YYYY-MM-DD)\", counter on a same-day collision, never stacking on an existing conflict suffix). Rust rule in futo-notes-core conflict_names (used by sync parks and the note engine's flush_draft park arm); the browser LocalNoteStore harness plays the engine side of the seam and mirrors the dated-token subset (it never mints sync's object-id tokens). Each side's flush contract test pins the exact minted names. A THIRD, hand-rolled copy still lives in Android's NoteEditorScreen.kt (SimpleDateFormat mint, no counter, no suffix-peeling — and it has already drifted: a device-LOCAL date vs the registered pair's UTC). It is UNLOCKED and slated for deletion in #38, when Android adopts the flush_draft verb; registered here so check-drift is honest until then. Partial: the Rust/TS pair has independent test pins, Android has none.",
+      "lockStatus": "partial",
+      "copies": [
+        {
+          "location": "crates/futo-notes-core/src/conflict_names.rs",
+          "pattern": "pub fn conflict_filename"
+        },
+        {
+          "location": "src/lib/localNoteStore.ts",
+          "pattern": "function conflictCopyTitle"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/NoteEditorScreen.kt",
+          "pattern": "\\(conflict \\$date\\)"
+        }
+      ],
+      "locks": [
+        {
+          "path": "crates/futo-notes-store/src/tests.rs",
+          "kind": "test"
+        },
+        {
+          "path": "src/lib/localNoteStore.test.ts",
+          "kind": "test"
+        }
+      ]
     }
   ]
 }
