@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-// Strip incompatible bundled libs from a Tauri AppImage so it boots on Mesa 26
-// (CachyOS / Arch / Fedora 40+).
+// Patch Tauri AppImages for modern Wayland hosts (CachyOS / Arch / Fedora 40+).
 //
-// Background: linuxdeploy copies `libwayland-client.so.0` from the build base
-// into the AppImage. At runtime the *host* provides libEGL (Mesa 26). Mesa 26
-// needs a libwayland-client whose ABI matches the host's libEGL, but the copy
-// pulled from the Ubuntu build base doesn't — so
+// 1. linuxdeploy copies `libwayland-client.so.0` from the build base into the
+// AppImage. At runtime the *host* provides libEGL (Mesa 26). Mesa 26 needs a
+// libwayland-client whose ABI matches the host's libEGL, but the Ubuntu copy
+// doesn't — so
 // `eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, …)` fails and WebKit aborts
 // with "Could not create default EGL display: EGL_BAD_PARAMETER. Aborting…"
 // before rendering anything. Reproduced against v1.2.0 on CachyOS (Mesa 26).
@@ -16,18 +15,26 @@
 // Arch, CachyOS) provide a compatible libwayland-client in the default
 // library path.
 //
+// 2. tauri-bundler 2.9.4 generates an AppRun GTK hook that unconditionally
+// exports GDK_BACKEND=x11 because of tauri-apps/tauri#8541. That puts AppImages
+// under XWayland and overrides explicit user choices. Work item #14 verified
+// that deb/rpm installs already follow the system GTK backend. Since the
+// incompatible bundled Wayland library is removed above, prefer Wayland with
+// an X11 fallback when the user has not selected a backend.
+//
 // This only applies to Linux AppImages. .deb / .rpm link against the host
 // webkit2gtk + libwayland and never had this problem.
 //
 // Usage:
-//   node scripts/patch-appimage-mesa26.mjs <path/to/FUTO-Notes-x.y.z-x86_64.AppImage>
-//   node scripts/patch-appimage-mesa26.mjs --dir target/release/bundle/appimage
+//   node scripts/patch-appimage.mjs <path/to/FUTO-Notes-x.y.z-x86_64.AppImage>
+//   node scripts/patch-appimage.mjs --dir target/release/bundle/appimage
 
 import { spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, readdirSync, statSync } from 'node:fs';
-import { chmod, mkdir, rename, rm } from 'node:fs/promises';
+import { createWriteStream, existsSync, readdirSync } from 'node:fs';
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 // Bundled libs that break on modern Mesa when mixed with host libEGL. We
 // delete these from the AppDir so the host copies are used instead.
@@ -38,6 +45,25 @@ const LIBS_TO_STRIP = [
   // extend this list (libwayland-egl.so.1, libwayland-cursor.so.0,
   // libwayland-server.so.0 are the next candidates).
 ];
+
+const FORCED_GDK_BACKEND =
+  'export GDK_BACKEND=x11 # Crash with Wayland backend on Wayland - We tested it without it and ended up with this: https://github.com/tauri-apps/tauri/issues/8541';
+const PREFERRED_GDK_BACKEND =
+  'if [ -z "${GDK_BACKEND+x}" ]; then export GDK_BACKEND=wayland,x11; fi';
+
+export function rewriteForcedGdkBackend(hookText) {
+  if (hookText.includes(FORCED_GDK_BACKEND)) {
+    return {
+      text: hookText.replace(FORCED_GDK_BACKEND, PREFERRED_GDK_BACKEND),
+      changed: true,
+      notFound: false,
+    };
+  }
+  if (hookText.includes(PREFERRED_GDK_BACKEND)) {
+    return { text: hookText, changed: false, notFound: false };
+  }
+  return { text: hookText, changed: false, notFound: true };
+}
 
 function log(msg) {
   console.log(`[patch-appimage] ${msg}`);
@@ -124,7 +150,7 @@ async function main() {
     }
   }
   if (!targetPath) {
-    console.error('usage: node scripts/patch-appimage-mesa26.mjs <appimage> | --dir <bundle_dir>');
+    console.error('usage: node scripts/patch-appimage.mjs <appimage> | --dir <bundle_dir>');
     process.exit(2);
   }
   if (!existsSync(targetPath)) throw new Error(`not found: ${targetPath}`);
@@ -156,8 +182,29 @@ async function main() {
       log(`skipped usr/lib/${lib} (not present)`);
     }
   }
-  if (stripped === 0) {
-    log('nothing to strip — leaving original AppImage in place');
+
+  const gtkHookPath = join(extractDir, 'apprun-hooks', 'linuxdeploy-plugin-gtk.sh');
+  if (!existsSync(gtkHookPath)) {
+    throw new Error(
+      `GTK launch hook missing at ${gtkHookPath}; expected line: ${FORCED_GDK_BACKEND}`,
+    );
+  }
+  const gtkHook = await readFile(gtkHookPath, 'utf8');
+  const rewrittenHook = rewriteForcedGdkBackend(gtkHook);
+  if (rewrittenHook.notFound) {
+    throw new Error(
+      `GTK launch hook did not contain the expected forced backend line: ${FORCED_GDK_BACKEND}`,
+    );
+  }
+  if (rewrittenHook.changed) {
+    await writeFile(gtkHookPath, rewrittenHook.text);
+    log('rewrote GTK launch hook to prefer Wayland and respect GDK_BACKEND');
+  } else {
+    log('GTK launch hook already prefers Wayland and respects GDK_BACKEND');
+  }
+
+  if (stripped === 0 && !rewrittenHook.changed) {
+    log('AppImage already patched — leaving original in place');
     await rm(extractDir, { recursive: true, force: true });
     return;
   }
@@ -182,7 +229,9 @@ async function main() {
   log(`done: ${targetPath}`);
 }
 
-main().catch((err) => {
-  console.error(`[patch-appimage] FAILED: ${err.message}`);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error(`[patch-appimage] FAILED: ${err.message}`);
+    process.exit(1);
+  });
+}

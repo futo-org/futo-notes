@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { parseFlags, bumpPatch, hostTarget } from './release-build.mjs';
+import {
+  bumpPatch,
+  finalizeAppImageArtifact,
+  hostTarget,
+  parseFlags,
+  patchAppImage,
+} from './release-build.mjs';
 import { KNOWN_PLATFORMS } from './build-updater-manifest.mjs';
 
 describe('parseFlags', () => {
@@ -37,22 +43,22 @@ describe('bumpPatch', () => {
 });
 
 describe('hostTarget — per-OS updater artifact shape', () => {
-  it('maps linux → AppImage (and re-signs after the mesa patch)', () => {
+  it('maps linux → AppImage with the post-bundle patch enabled', () => {
     const t = hostTarget('linux', 'x64');
     expect(t).toMatchObject({
       platform: 'linux-x86_64',
       bundle: 'appimage',
       suffix: '.AppImage',
-      mesaPatch: true,
+      patchAppImage: true,
     });
   });
 
-  it('maps macOS → app.tar.gz (NOT the .dmg), per-arch key, no mesa patch', () => {
+  it('maps macOS → app.tar.gz (NOT the .dmg), per-arch key, no AppImage patch', () => {
     expect(hostTarget('darwin', 'arm64')).toMatchObject({
       platform: 'darwin-aarch64',
       bundle: 'app',
       suffix: '.app.tar.gz',
-      mesaPatch: false,
+      patchAppImage: false,
     });
     expect(hostTarget('darwin', 'x64')).toMatchObject({ platform: 'darwin-x86_64' });
   });
@@ -62,7 +68,7 @@ describe('hostTarget — per-OS updater artifact shape', () => {
       platform: 'windows-x86_64',
       bundle: 'nsis',
       suffix: '-setup.exe',
-      mesaPatch: false,
+      patchAppImage: false,
     });
     expect(hostTarget('win32', 'arm64')).toMatchObject({ platform: 'windows-aarch64' });
   });
@@ -80,10 +86,39 @@ describe('hostTarget — per-OS updater artifact shape', () => {
     }
   });
 
-  it('the mesa-patch flag is set ONLY for linux (the only re-sign-after-mutation OS here)', () => {
-    expect(hostTarget('linux', 'x64').mesaPatch).toBe(true);
-    expect(hostTarget('darwin', 'arm64').mesaPatch).toBe(false);
-    expect(hostTarget('win32', 'x64').mesaPatch).toBe(false);
+  it('the AppImage-patch flag is set ONLY for linux', () => {
+    expect(hostTarget('linux', 'x64').patchAppImage).toBe(true);
+    expect(hostTarget('darwin', 'arm64').patchAppImage).toBe(false);
+    expect(hostTarget('win32', 'x64').patchAppImage).toBe(false);
+  });
+});
+
+describe('AppImage artifact finalization', () => {
+  it('patches the AppImage before signing its final bytes', () => {
+    const events = [];
+
+    finalizeAppImageArtifact({
+      dir: '/bundle/appimage',
+      artifact: '/bundle/appimage/FUTO-Notes.AppImage',
+      profile: 'prod',
+      patch: (dir) => events.push(['patch', dir]),
+      sign: (artifact, profile) => events.push(['sign', artifact, profile]),
+    });
+
+    expect(events).toEqual([
+      ['patch', '/bundle/appimage'],
+      ['sign', '/bundle/appimage/FUTO-Notes.AppImage', 'prod'],
+    ]);
+  });
+
+  it('fails when the required AppImage patch script is missing', () => {
+    const missingScript = fileURLToPath(
+      new URL('./definitely-missing-patch-appimage.mjs', import.meta.url),
+    );
+
+    expect(() => patchAppImage('/bundle/appimage', missingScript)).toThrow(
+      `AppImage patch script missing at ${missingScript}`,
+    );
   });
 });
 

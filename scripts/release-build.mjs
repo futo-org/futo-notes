@@ -8,7 +8,7 @@
  *   2. signing   — the private key used at build time (TAURI_SIGNING_PRIVATE_KEY)
  *   3. verifying — the pubkey baked into the app (in the chosen config overlay)
  *
- * Everything downstream — createUpdaterArtifacts signing, the mesa-patch→re-sign
+ * Everything downstream — createUpdaterArtifacts signing, the AppImage-patch→re-sign
  * ordering, manifest assembly (build-updater-manifest.mjs), and the client's
  * check→download→verify→swap→relaunch — is identical.
  *
@@ -122,7 +122,7 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
         bundle: 'appimage',
         dir: join(ROOT, 'target', 'release', 'bundle', 'appimage'),
         suffix: '.AppImage',
-        mesaPatch: true,
+        patchAppImage: true,
       };
     case 'darwin':
       return {
@@ -130,7 +130,7 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
         bundle: 'app',
         dir: join(ROOT, 'target', 'release', 'bundle', 'macos'),
         suffix: '.app.tar.gz',
-        mesaPatch: false,
+        patchAppImage: false,
       };
     case 'win32':
       return {
@@ -138,7 +138,7 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
         bundle: 'nsis',
         dir: join(ROOT, 'target', 'release', 'bundle', 'nsis'),
         suffix: '-setup.exe',
-        mesaPatch: false,
+        patchAppImage: false,
       };
     default:
       return die(`unsupported platform: ${platform}`);
@@ -155,7 +155,7 @@ function findArtifact(dir, suffix) {
 }
 
 /** Re-sign a file in place (regenerates `<file>.sig`). The detached updater
- *  signature must be the LAST touch — after the mesa patch (Linux) or any OS
+ *  signature must be the LAST touch — after the AppImage patch (Linux) or any OS
  *  signing/notarization step that rewrites the artifact bytes. */
 function resign(file, profile) {
   rmSync(`${file}.sig`, { force: true });
@@ -167,13 +167,20 @@ function resign(file, profile) {
   });
 }
 
-function mesaPatch(dir) {
-  const patch = join(ROOT, 'scripts', 'patch-appimage-mesa26.mjs');
-  if (!existsSync(patch)) {
-    log('mesa26 patch script absent — skipping');
-    return;
-  }
-  run('node', [patch, '--dir', dir]);
+export function patchAppImage(dir, scriptPath = join(ROOT, 'scripts', 'patch-appimage.mjs')) {
+  if (!existsSync(scriptPath)) die(`AppImage patch script missing at ${scriptPath}`);
+  run('node', [scriptPath, '--dir', dir]);
+}
+
+export function finalizeAppImageArtifact({
+  dir,
+  artifact,
+  profile,
+  patch = patchAppImage,
+  sign = resign,
+}) {
+  patch(dir);
+  sign(artifact, profile);
 }
 
 /** Stamp both desktop version sources: Tauri's generated package info reads
@@ -237,12 +244,11 @@ function buildOne({ profile, version }) {
   );
   const artifact = findArtifact(t.dir, t.suffix);
   if (!artifact) die(`no ${t.suffix} produced in ${t.dir}`);
-  // Mesa patch rewrites the AppImage → its build-time .sig is now stale. Re-sign
+  // The AppImage patch rewrites the artifact → its build-time .sig is now stale. Re-sign
   // so the .sig matches the bytes the client downloads. (Same shape as the
   // Windows Authenticode / macOS notarize re-sign in CI.)
-  if (t.mesaPatch) {
-    mesaPatch(t.dir);
-    resign(artifact, profile);
+  if (t.patchAppImage) {
+    finalizeAppImageArtifact({ dir: t.dir, artifact, profile });
   }
   const sig = `${artifact}.sig`;
   if (!existsSync(sig))

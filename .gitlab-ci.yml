@@ -361,10 +361,11 @@ collect-secrets-from-op:
 
 # Separate caches for the release Linux builds. Both packages (.deb/.rpm) and the
 # AppImage build on ubuntu:22.04 (glibc 2.35, wide forward-compat; jammy-security
-# WebKitGTK is new enough for the EGL platform API — the AppImage's Mesa 26 issue
-# is handled by scripts/patch-appimage-mesa26.mjs, not by a newer base). Test jobs
-# use the kitchensink image. Each base gets its own cache key — sharing a target/
-# across images wastes bandwidth and invalidates oddly.
+# WebKitGTK is new enough for the EGL platform API). The post-bundle pass in
+# scripts/patch-appimage.mjs strips the Mesa 26-incompatible Wayland library and
+# rewrites tauri-bundler's forced-X11 hook to prefer Wayland. Test jobs use the
+# kitchensink image. Each base gets its own cache key — sharing a target/ across
+# images wastes bandwidth and invalidates oddly.
 .cache-cargo-tauri-linux-packages:
   cache:
     key:
@@ -913,15 +914,14 @@ build:linux-packages:
     - if: $CI_COMMIT_TAG
 
 # AppImage bundles its entire userland (WebKitGTK, GLib, GStreamer, libwayland,
-# ...) and relies on the *host's* Mesa at runtime. The failure mode we hit on
-# Mesa 26 (CachyOS / Arch / Fedora 40+): linuxdeploy bundles the build base's
-# libwayland-client.so.0 into the AppImage, and that bundled copy mismatches
-# the host's libEGL — eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, …) fails
-# with "Could not create default EGL display: EGL_BAD_PARAMETER. Aborting…"
-# and WebKit exits before rendering. Confirmed reproducible on v1.2.0 against
-# CachyOS (Mesa 26.0.5). Fix: delete libwayland-client.so.0 from the AppImage
-# via scripts/patch-appimage-mesa26.mjs so the host's copy is used instead —
-# host libwayland and host libEGL always match because they ship together.
+# ...) and relies on the *host's* Mesa at runtime. The post-bundle patch handles
+# two launch failures. First, linuxdeploy bundles a libwayland-client.so.0 that
+# mismatches the host's Mesa 26 libEGL and aborts WebKit with EGL_BAD_PARAMETER;
+# deleting it makes host libwayland and host libEGL load together. Second,
+# tauri-bundler's GTK hook unconditionally exports GDK_BACKEND=x11; rewriting
+# that line makes unset environments prefer native Wayland with an X11 fallback
+# while preserving a user-selected backend. Both fixes live in
+# scripts/patch-appimage.mjs and ship in the same extract→modify→repack pass.
 #
 # Base is ubuntu:22.04 for the widest glibc floor (2.35). jammy-security
 # already ships WebKitGTK 2.50 (libwebkit2gtk-4.1 2.50.4-0ubuntu0.22.04.1),
@@ -945,10 +945,10 @@ build:linux-appimage:
     - !reference [.setup-rust, script]
     - !reference [.set-version, script]
     - cd apps/tauri && cargo tauri build --bundles appimage && cd ../..
-    # Strip the bundled libwayland-client.so.0 so the AppImage boots on Mesa 26.
+    # Strip the incompatible libwayland client and prefer Wayland in the GTK hook.
     # Script auto-downloads appimagetool if it isn't already on PATH.
-    - node scripts/patch-appimage-mesa26.mjs --dir target/release/bundle/appimage
-    # Updater signature — minisign the FINAL (mesa-patched) AppImage so the .sig
+    - node scripts/patch-appimage.mjs --dir target/release/bundle/appimage
+    # Updater signature — minisign the FINAL (patched) AppImage so the .sig
     # matches the bytes clients download. MUST be the last touch on the artifact.
     # TAURI_SIGNING_PRIVATE_KEY is a protected CI variable; the key has no password
     # (-p "" supplies the empty passphrase). The .sig content is embedded into
