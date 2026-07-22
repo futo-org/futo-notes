@@ -231,9 +231,9 @@
     },
     {
       "concept": "title-validation-constants",
-      "description": "MAX_TITLE_LENGTH (200) and the forbidden-character set, defined canonically in packages/editor/src/filename.ts + mirrored in Rust, and additionally hand-copied (as a live-input-filter fast path) in both native shells. The numeric 200 is locked cross-language via constants.json (TS+Rust only); the native hand-copies of both the number and the forbidden-char set are unlocked.",
+      "description": "MAX_TITLE_LENGTH (200) and the visible forbidden-character set, shared by packages/editor/src/filename.ts and Rust, and generated into both native shells as a live-input-filter fast path (apps/ios/Sources/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts. The numeric 200 is additionally locked cross-language via constants.json (TS+Rust only). Platform-specific control-character handling remains template-authored: Android matches the TS C0 + DEL set, while iOS matches Rust's wider Unicode control-character rule.",
       "lockStatus": "partial",
-      "note": "PARTIAL: constants.json + constantsConformance.test.ts + conformance.rs lock maxTitleLength=200 for TS and Rust. NoteEditorScreen.kt's TITLE_MAX_LENGTH/FORBIDDEN_TITLE_CHARS and NoteEditorView.swift's titleMaxLength/forbiddenTitleScalars are UNLOCKED hand-copies (comment-only cross-reference, no test).",
+      "note": "PARTIAL: generation locks MAX_TITLE_LENGTH and the visible forbidden characters from packages/editor/src/filename.ts into both native files. Control-character handling is still authored in the generator templates: Android/TS use C0 + DEL while iOS/Rust use the wider Unicode control set, so the whole rule is not fully conformance-locked.",
       "copies": [
         {
           "location": "packages/editor/src/filename.ts",
@@ -244,12 +244,12 @@
           "pattern": "pub const MAX_TITLE_LENGTH: usize = 200"
         },
         {
-          "location": "apps/android/app/src/main/java/com/futo/notes/ui/NoteEditorScreen.kt",
-          "pattern": "private const val TITLE_MAX_LENGTH = 200"
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/TitleSpec.kt",
+          "pattern": "const val maxLength = 200"
         },
         {
-          "location": "apps/ios/Sources/NoteEditorView.swift",
-          "pattern": "private let titleMaxLength = 200"
+          "location": "apps/ios/Sources/TitleSpec.swift",
+          "pattern": "static let maxLength = 200"
         }
       ],
       "locks": [
@@ -260,6 +260,10 @@
         {
           "path": "src/lib/constantsConformance.test.ts",
           "kind": "test"
+        },
+        {
+          "path": "scripts/gen-title-spec.ts",
+          "kind": "generator"
         }
       ],
       "scan": {
@@ -275,7 +279,7 @@
           ".swift",
           ".kt"
         ],
-        "pattern": "MAX_TITLE_LENGTH\\s*[:=]\\s*(usize\\s*=\\s*)?200|TITLE_MAX_LENGTH\\s*=\\s*200|titleMaxLength\\s*=\\s*200"
+        "pattern": "MAX_TITLE_LENGTH\\s*[:=]\\s*(usize\\s*=\\s*)?200|TITLE_MAX_LENGTH\\s*=\\s*200|titleMaxLength\\s*=\\s*200|maxLength\\s*=\\s*200"
       }
     },
     {

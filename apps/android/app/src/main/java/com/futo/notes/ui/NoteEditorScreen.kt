@@ -88,15 +88,6 @@ private val UNTITLED_PLACEHOLDER = Regex("""^Untitled(-\d+)?$""")
 
 internal fun isPlaceholderTitle(title: String): Boolean = UNTITLED_PLACEHOLDER.matches(title)
 
-/** Characters forbidden in a note title — mirrors the Rust `is_forbidden_char`
- *  (futo-notes-core) and the TS `FORBIDDEN_CHARS_RE`: `< > : " / \ | ? *` plus
- *  all control characters. Live input filtering only; the authoritative
- *  validation + messages come from the shared `validateTitle` (FFI). */
-private val FORBIDDEN_TITLE_CHARS = Regex("[<>:\"/\\\\|?*\\x00-\\x1F\\x7F]")
-
-/** Max title length (chars) — matches the shared `MAX_TITLE_LENGTH` (200). */
-private const val TITLE_MAX_LENGTH = 200
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, FlowPreview::class)
 @Composable
 fun NoteEditorScreen(
@@ -440,9 +431,9 @@ fun NoteEditorScreen(
                     // Strip forbidden filesystem chars in-place (desktop parity —
                     // the illegal char never persists) + cap at the length limit.
                     val noNewline = v.text.replace("\n", "")
-                    val cleaned = FORBIDDEN_TITLE_CHARS.replace(noNewline, "")
+                    val cleaned = TitleSpec.forbiddenChars.replace(noNewline, "")
                     val forbidden = cleaned != noNewline
-                    val capped = if (cleaned.length > TITLE_MAX_LENGTH) cleaned.take(TITLE_MAX_LENGTH) else cleaned
+                    val capped = if (cleaned.length > TitleSpec.maxLength) cleaned.take(TitleSpec.maxLength) else cleaned
                     titleValue =
                         if (capped == v.text) v
                         else TextFieldValue(capped, TextRange(minOf(v.selection.end, capped.length)))
