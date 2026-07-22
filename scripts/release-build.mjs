@@ -230,7 +230,6 @@ export const bumpPatch = (v) => {
 function buildOne({ profile, version }) {
   const t = hostTarget();
   setVersion(version);
-  if (process.platform === 'linux') run('node', [join(ROOT, 'scripts', 'fetch-ort-linux.mjs')]);
   rmSync(t.dir, { recursive: true, force: true });
   // --ci: non-interactive + use the key's empty passphrase for createUpdaterArtifacts
   // (no password prompt, no password variable).
