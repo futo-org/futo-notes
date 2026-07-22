@@ -4,7 +4,10 @@ import Foundation
 /// The only native owner of the Rust local-note store. Every blocking FFI call
 /// runs on this actor, never on the main actor.
 actor NoteVault {
-    private let core: NoteStore
+    /// `nonisolated(unsafe)`: the UniFFI handle is thread-safe (the Rust
+    /// object is Send + Sync), and `waitUntilSearchReady` must reach it
+    /// without queueing on this actor. Every other use stays actor-isolated.
+    nonisolated(unsafe) private let core: NoteStore
 
     init(notesRoot: String) {
         core = NoteStore(notesRoot: notesRoot)
@@ -75,7 +78,7 @@ actor NoteVault {
         try core.moveNote(id: id, folder: folder)
     }
 
-    func createFolder(_ path: String) throws -> String {
+    func createFolder(_ path: String) throws -> NoteMutation {
         try core.createFolder(path: path)
     }
 
@@ -91,7 +94,17 @@ actor NoteVault {
         try core.search(query: query, limit: limit)
     }
 
-    func keywordReady() -> Bool { core.keywordReady() }
+    /// The engine wait blocks, so run it on overcommitting GCD rather than the
+    /// Swift cooperative pool. `nonisolated` keeps it off the note-workflow
+    /// actor queue (see `SearchReadinessWaitTests`).
+    nonisolated func waitUntilSearchReady(timeoutMs: UInt64) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { [core] in
+                continuation.resume(returning: core.waitUntilSearchReady(timeoutMs: timeoutMs))
+            }
+        }
+    }
+
     func rescan() { core.rescan() }
     func reset() throws { try core.reset() }
 }
@@ -287,12 +300,6 @@ final class NotesStore: ObservableObject {
         Task { applySnapshot(await vault.scan()) }
     }
 
-    func resortInPlace() {
-        notes.sort { left, right in
-            left.modified == right.modified ? left.id < right.id : left.modified > right.modified
-        }
-    }
-
     private static func item(from metadata: NoteMetadata) -> NoteItem {
         NoteItem(
             id: metadata.id,
@@ -310,29 +317,17 @@ final class NotesStore: ObservableObject {
         folders = snapshot.folders
     }
 
-    /// The sole incremental cache seam. Renames, collision outcomes, and
-    /// backlink rewrites are already complete when this is called.
+    /// Positions are post-removal; clamp them against a stale shell cache.
     private func applyMutation(_ mutation: NoteMutation) {
-        let removed = Set(mutation.removed)
-        var next = notes.filter { !removed.contains($0.id) }
-        for metadata in mutation.upserted {
-            let item = Self.item(from: metadata)
-            if let index = next.firstIndex(where: { $0.id == item.id }) {
-                next[index] = item
-            } else {
-                next.insert(item, at: 0)
-            }
+        let affected = Set(mutation.removed).union(mutation.upserted.map { $0.note.id })
+        var next = notes.filter { !affected.contains($0.id) }
+        for entry in mutation.upserted {
+            let position = min(Int(entry.position), next.count)
+            next.insert(Self.item(from: entry.note), at: position)
         }
         notes = next
+        folders = mutation.folders
         mutation.warnings.forEach { print("local-note mutation: \($0)") }
-    }
-
-    private func finalId(_ mutation: NoteMutation, fallback: String) -> String {
-        mutation.renamed.last?.to ?? mutation.upserted.first?.id ?? fallback
-    }
-
-    private func refreshFolders() async {
-        folders = await vault.scan().folders
     }
 
     func read(_ id: String) async -> String { await vault.read(id) }
@@ -353,9 +348,8 @@ final class NotesStore: ObservableObject {
         do {
             let mutation = try await vault.createNote(title: title, folder: folder)
             applyMutation(mutation)
-            await refreshFolders()
             onLocalChange?()
-            return finalId(mutation, fallback: title)
+            return mutation.finalId ?? title
         } catch {
             print("createNote failed: \(error)")
             return nil
@@ -366,7 +360,6 @@ final class NotesStore: ObservableObject {
         Task {
             do {
                 applyMutation(try await vault.delete(id))
-                await refreshFolders()
                 onLocalChange?()
             } catch {
                 print("delete failed for \(id): \(error)")
@@ -379,9 +372,8 @@ final class NotesStore: ObservableObject {
         do {
             let mutation = try await vault.rename(oldId: oldId, newId: newId)
             applyMutation(mutation)
-            await refreshFolders()
             onLocalChange?()
-            return finalId(mutation, fallback: oldId)
+            return mutation.finalId ?? oldId
         } catch {
             print("rename failed \(oldId) -> \(newId): \(error)")
             return oldId
@@ -488,26 +480,10 @@ final class NotesStore: ObservableObject {
         do {
             let mutation = try await vault.moveNote(id, folder: folder)
             applyMutation(mutation)
-            await refreshFolders()
             onLocalChange?()
-            return finalId(mutation, fallback: id)
+            return mutation.finalId ?? id
         } catch {
             print("moveNote failed \(id) -> \(folder): \(error)")
-            return id
-        }
-    }
-
-    @discardableResult
-    func moveNoteCreatingFolder(_ id: String, folder: String) async -> String {
-        do {
-            _ = try await vault.createFolder(folder)
-            let mutation = try await vault.moveNote(id, folder: folder)
-            applyMutation(mutation)
-            await refreshFolders()
-            onLocalChange?()
-            return finalId(mutation, fallback: id)
-        } catch {
-            print("moveNoteCreatingFolder failed \(id) -> \(folder): \(error)")
             return id
         }
     }
@@ -516,7 +492,6 @@ final class NotesStore: ObservableObject {
         Task {
             do {
                 applyMutation(try await vault.deleteFolder(folder))
-                await refreshFolders()
                 onLocalChange?()
             } catch {
                 print("deleteFolder failed for \(folder): \(error)")
@@ -527,8 +502,7 @@ final class NotesStore: ObservableObject {
     func createFolder(_ path: String) {
         Task {
             do {
-                _ = try await vault.createFolder(path)
-                await refreshFolders()
+                applyMutation(try await vault.createFolder(path))
                 onLocalChange?()
             } catch {
                 print("createFolder failed for \(path): \(error)")
@@ -539,7 +513,6 @@ final class NotesStore: ObservableObject {
     func renameFolder(from: String, to: String) async -> Bool {
         do {
             applyMutation(try await vault.renameFolder(from: from, to: to))
-            await refreshFolders()
             onLocalChange?()
             return true
         } catch {
@@ -569,17 +542,36 @@ final class NotesStore: ObservableObject {
         notesRoot.appendingPathComponent(id + ".md").path
     }
 
-    /// Search has no shell-owned fallback. The same Rust owner serves queries
-    /// after its background reconciliation becomes ready.
-    func search(_ query: String, limit: UInt32 = 50) async -> [SearchHit] {
-        for _ in 0..<200 {
-            if await vault.keywordReady() {
-                return (try? await vault.search(query, limit: limit)) ?? []
+    /// Budget handed to the engine's bounded search-readiness wait — the
+    /// 200×25ms this shell's former poll loop allowed.
+    private static let searchReadyTimeoutMs: UInt64 = 5_000
+
+    /// Share one blocking readiness wait across searches. Keep a successful
+    /// task for later searches; discard a timeout so the self-healing index
+    /// gets another bounded attempt.
+    private var searchReadyWait: Task<Bool, Never>?
+
+    /// Await keyword readiness through the shared single-flight wait.
+    private func awaitSearchReady() async -> Bool {
+        let wait =
+            searchReadyWait
+            ?? Task { [vault] in
+                await vault.waitUntilSearchReady(timeoutMs: Self.searchReadyTimeoutMs)
             }
-            if Task.isCancelled { return [] }
-            try? await Task.sleep(nanoseconds: 25_000_000)
-        }
-        return []
+        searchReadyWait = wait
+        let ready = await wait.value
+        if !ready, searchReadyWait == wait { searchReadyWait = nil }
+        return ready
+    }
+
+    /// A cancelled keystroke search exits around the shared engine wait without
+    /// cancelling readiness for other searches. A timeout returns empty while
+    /// the index continues healing.
+    func search(_ query: String, limit: UInt32 = 50) async -> [SearchHit] {
+        if Task.isCancelled { return [] }
+        guard await awaitSearchReady() else { return [] }
+        if Task.isCancelled { return [] }
+        return (try? await vault.search(query, limit: limit)) ?? []
     }
 
     func liveDataChanged() {

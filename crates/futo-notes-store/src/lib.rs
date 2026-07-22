@@ -46,22 +46,25 @@ pub struct NoteRename {
     pub to: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertedNote {
+    pub note: NoteMetadata,
+    /// Post-mutation index after affected rows are removed.
+    pub position: u32,
+}
+
+/// Complete committed projection for shell caches.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MutationResult {
-    pub upserted: Vec<NoteMetadata>,
+    pub upserted: Vec<UpsertedNote>,
     pub removed: Vec<String>,
     pub renamed: Vec<NoteRename>,
+    pub folders: Vec<String>,
+    /// Collision-resolved primary id, if the workflow has one.
+    pub final_id: Option<String>,
     pub warnings: Vec<String>,
-}
-
-impl MutationResult {
-    pub fn final_id(&self) -> Option<&str> {
-        self.renamed
-            .last()
-            .map(|rename| rename.to.as_str())
-            .or_else(|| self.upserted.last().map(|note| note.id.as_str()))
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,6 +135,10 @@ impl BeforeWrite for NoopBeforeWrite {
 /// single Rust owner, so iOS, Android, and desktop share one implementation
 /// (and it closes the banked Android search-retry-cooldown alignment follow-up).
 const SEARCH_ENGINE_RETRY_COOLDOWN: Duration = Duration::from_secs(15);
+
+/// Poll cadence inside [`LocalNoteStore::wait_until_search_ready`] — matches
+/// the 25ms the shells used before the wait moved down here.
+const SEARCH_READY_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 /// The owned search engine plus what's needed to re-attempt a failed start.
 #[derive(Default)]
@@ -214,7 +221,7 @@ impl LocalNoteStore {
         }
     }
 
-    pub fn search_status(&self) -> SearchStatus {
+    fn search_status(&self) -> SearchStatus {
         let Ok(mut search) = self.search.lock() else {
             return SearchStatus::default();
         };
@@ -224,6 +231,23 @@ impl LocalNoteStore {
             .as_ref()
             .map(SearchEngine::status)
             .unwrap_or_default()
+    }
+
+    /// Blocking, bounded wait for engine-owned search readiness. Callers keep
+    /// it off the UI thread; a timeout safely degrades to empty search results
+    /// while the index continues its self-healing retries.
+    pub fn wait_until_search_ready(&self, timeout_ms: u64) -> bool {
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+        loop {
+            if self.search_status().keyword.ready {
+                return true;
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            std::thread::sleep(SEARCH_READY_POLL_INTERVAL.min(deadline - now));
+        }
     }
 
     pub fn rebuild_search(&self) {
@@ -365,10 +389,7 @@ impl LocalNoteStore {
     ) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
         let metadata = self.install_new(&make_id(folder, title), content, None)?;
-        Ok(MutationResult {
-            upserted: vec![metadata],
-            ..MutationResult::default()
-        })
+        Ok(self.upsert_mutation(metadata))
     }
 
     pub fn write(
@@ -379,10 +400,7 @@ impl LocalNoteStore {
     ) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
         let metadata = self.write_raw(id, content, modified_ms)?;
-        Ok(MutationResult {
-            upserted: vec![metadata],
-            ..MutationResult::default()
-        })
+        Ok(self.upsert_mutation(metadata))
     }
 
     /// One shell call for editor save: the current body is committed at the
@@ -400,17 +418,11 @@ impl LocalNoteStore {
             None => {
                 let (folder, title) = split_id(wanted_id);
                 let metadata = self.install_new(&make_id(&folder, &title), content, modified_ms)?;
-                Ok(MutationResult {
-                    upserted: vec![metadata],
-                    ..MutationResult::default()
-                })
+                Ok(self.upsert_mutation(metadata))
             }
             Some(original) if original == wanted_id => {
                 let metadata = self.write_raw(original, content, modified_ms)?;
-                Ok(MutationResult {
-                    upserted: vec![metadata],
-                    ..MutationResult::default()
-                })
+                Ok(self.upsert_mutation(metadata))
             }
             Some(original) => {
                 self.write_raw(original, content, modified_ms)?;
@@ -432,10 +444,7 @@ impl LocalNoteStore {
                 let metadata = self.write_raw(id, content, None)?;
                 Ok(ConditionalWriteResult {
                     outcome: FlushOutcome::Wrote,
-                    mutation: Some(MutationResult {
-                        upserted: vec![metadata],
-                        ..MutationResult::default()
-                    }),
+                    mutation: Some(self.upsert_mutation(metadata)),
                 })
             }
             Ok(_) => Ok(ConditionalWriteResult {
@@ -509,7 +518,7 @@ impl LocalNoteStore {
         let _gate = self.lock_gate()?;
         let path = paths::note_path(&self.root, id)?;
         if !path.exists() {
-            return Ok(MutationResult::default());
+            return Ok(self.finish_mutation(Vec::new(), MutationResult::default()));
         }
         let change = FileChange::Removed(note_filename(id));
         self.before_write
@@ -517,21 +526,24 @@ impl LocalNoteStore {
         remove(&path)?;
         prune_empty_parents(&self.root, &path);
         self.notify(&change);
-        Ok(MutationResult {
-            removed: vec![id.to_owned()],
-            ..MutationResult::default()
-        })
+        Ok(self.finish_mutation(
+            Vec::new(),
+            MutationResult {
+                removed: vec![id.to_owned()],
+                ..MutationResult::default()
+            },
+        ))
     }
 
-    pub fn create_folder(&self, raw: &str) -> Result<String, String> {
+    pub fn create_folder(&self, raw: &str) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
         let clean = sanitize_folder_path(raw);
         if clean.is_empty() {
-            return Ok(String::new());
+            return Ok(self.finish_mutation(Vec::new(), MutationResult::default()));
         }
         let path = paths::folder_path(&self.root, &clean)?;
         fs::create_dir_all(path).map_err(io_error)?;
-        Ok(clean)
+        Ok(self.finish_mutation(Vec::new(), MutationResult::default()))
     }
 
     pub fn rename_folder(&self, from: &str, to: &str) -> Result<MutationResult, String> {
@@ -582,7 +594,7 @@ impl LocalNoteStore {
             // it for that (M17 #8, adjudicated).
             fs::rename(&source, &destination).map_err(io_error)?;
         }
-        let mut mutation = self.finish_mappings(mappings, relinks);
+        let mut mutation = self.finish_mappings(mappings, relinks, None);
         mutation
             .warnings
             .extend(remove_empty_source_warning(&source));
@@ -609,7 +621,7 @@ impl LocalNoteStore {
         let folder = sanitize_folder_path(folder);
         let target = paths::folder_path(&self.root, &folder)?;
         if !target.exists() {
-            return Ok(MutationResult::default());
+            return Ok(self.finish_mutation(Vec::new(), MutationResult::default()));
         }
         let parent = folder
             .rsplit_once('/')
@@ -648,12 +660,11 @@ impl LocalNoteStore {
         );
         self.before_write.before_write(&changes);
         move_files_with_rollback(&self.root, &mappings)?;
-        let mut mutation = self.finish_mappings(mappings, relinks);
-        if let Err(error) = remove_tree(&target) {
-            mutation
-                .warnings
-                .push(format!("notes moved, but folder cleanup failed: {error}"));
-        }
+        let cleanup_warning = remove_tree(&target)
+            .err()
+            .map(|error| format!("notes moved, but folder cleanup failed: {error}"));
+        let mut mutation = self.finish_mappings(mappings, relinks, None);
+        mutation.warnings.extend(cleanup_warning);
         Ok(mutation)
     }
 
@@ -683,17 +694,20 @@ impl LocalNoteStore {
     fn rename_raw(&self, old_id: &str, wanted_id: &str) -> Result<MutationResult, String> {
         if old_id == wanted_id {
             let upserted = vault::metadata(&self.root, old_id).into_iter().collect();
-            return Ok(MutationResult {
+            return Ok(self.finish_mutation(
                 upserted,
-                ..MutationResult::default()
-            });
+                MutationResult {
+                    final_id: Some(old_id.to_owned()),
+                    ..MutationResult::default()
+                },
+            ));
         }
         let source = paths::note_path(&self.root, old_id)?;
         if !source.is_file() {
             return Err("source note does not exist".to_owned());
         }
         let final_id = paths::unique_note_id(&self.root, wanted_id, Some(old_id))?;
-        let mappings = vec![(old_id.to_owned(), final_id)];
+        let mappings = vec![(old_id.to_owned(), final_id.clone())];
         let relinks = prepare_relinks(&self.root, &mappings);
         let mut changes = rename_changes(&mappings);
         changes.extend(
@@ -703,13 +717,14 @@ impl LocalNoteStore {
         );
         self.before_write.before_write(&changes);
         move_files_with_rollback(&self.root, &mappings)?;
-        Ok(self.finish_mappings(mappings, relinks))
+        Ok(self.finish_mappings(mappings, relinks, Some(final_id)))
     }
 
     fn finish_mappings(
         &self,
         mappings: Vec<(String, String)>,
         relinks: HashMap<String, String>,
+        final_id: Option<String>,
     ) -> MutationResult {
         let mut warnings = Vec::new();
         let mut touched = HashSet::new();
@@ -731,20 +746,68 @@ impl LocalNoteStore {
             });
             touched.insert(to.clone());
         }
-        let mut upserted = touched
+        let upserted = touched
             .into_iter()
             .filter_map(|id| vault::metadata(&self.root, &id))
             .collect::<Vec<_>>();
-        upserted.sort_by(|left, right| left.id.cmp(&right.id));
-        MutationResult {
+        self.finish_mutation(
             upserted,
-            removed: mappings.iter().map(|(from, _)| from.clone()).collect(),
-            renamed: mappings
-                .into_iter()
-                .map(|(from, to)| NoteRename { from, to })
-                .collect(),
-            warnings,
-        }
+            MutationResult {
+                removed: mappings.iter().map(|(from, _)| from.clone()).collect(),
+                renamed: mappings
+                    .into_iter()
+                    .map(|(from, to)| NoteRename { from, to })
+                    .collect(),
+                final_id,
+                warnings,
+                ..MutationResult::default()
+            },
+        )
+    }
+
+    /// A single-note upsert mutation: the note is its own primary, so its
+    /// (collision-resolved) id is the mutation's final id.
+    fn upsert_mutation(&self, metadata: NoteMetadata) -> MutationResult {
+        let final_id = metadata.id.clone();
+        self.finish_mutation(
+            vec![metadata],
+            MutationResult {
+                final_id: Some(final_id),
+                ..MutationResult::default()
+            },
+        )
+    }
+
+    /// Complete the authoritative shell projection while the mutation gate is
+    /// held. Externally removed upserts fall back to the clamped list tail.
+    fn finish_mutation(
+        &self,
+        notes: Vec<NoteMetadata>,
+        mut mutation: MutationResult,
+    ) -> MutationResult {
+        let (order, folders) = vault::note_order_and_folders(&self.root);
+        let index: HashMap<&str, u32> = order
+            .iter()
+            .enumerate()
+            .map(|(position, id)| (id.as_str(), position as u32))
+            .collect();
+        mutation.upserted = notes
+            .into_iter()
+            .map(|note| UpsertedNote {
+                position: index
+                    .get(note.id.as_str())
+                    .copied()
+                    .unwrap_or(order.len() as u32),
+                note,
+            })
+            .collect();
+        mutation.upserted.sort_by(|left, right| {
+            left.position
+                .cmp(&right.position)
+                .then_with(|| left.note.id.cmp(&right.note.id))
+        });
+        mutation.folders = folders;
+        mutation
     }
 
     /// Install a brand-new note at a collision-free id using a NO-REPLACE

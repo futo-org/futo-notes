@@ -110,8 +110,11 @@ impl NoteStore {
             .map_err(NoteError::Io)
     }
 
-    pub fn create_folder(&self, path: String) -> Result<String, NoteError> {
-        self.inner.create_folder(&path).map_err(NoteError::Io)
+    pub fn create_folder(&self, path: String) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .create_folder(&path)
+            .map(Into::into)
+            .map_err(NoteError::Io)
     }
 
     pub fn rename_folder(&self, from: String, to: String) -> Result<NoteMutation, NoteError> {
@@ -140,8 +143,11 @@ impl NoteStore {
             .map_err(NoteError::Io)
     }
 
-    pub fn keyword_ready(&self) -> bool {
-        self.inner.search_status().keyword.ready
+    /// Bounded, engine-owned wait for keyword readiness (replaces the former
+    /// per-shell poll loops). Blocking — call off the main thread, exactly
+    /// like `search`.
+    pub fn wait_until_search_ready(&self, timeout_ms: u64) -> bool {
+        self.inner.wait_until_search_ready(timeout_ms)
     }
 
     pub fn rescan(&self) {

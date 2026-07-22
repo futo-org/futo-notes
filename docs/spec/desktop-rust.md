@@ -44,12 +44,14 @@ The current frontend contract is:
 - `local_notes_create_folder`, `local_notes_rename_folder`,
   `local_notes_delete_folder`
 - `local_notes_reset`
-- `local_notes_search`, `local_notes_search_status`, `local_notes_rescan`
+- `local_notes_search`, `local_notes_wait_until_search_ready`,
+  `local_notes_rescan`
 
 These commands expose workflow-shaped results. `local_notes_save` commits the
 body, optional rename, collision resolution, and every resolvable backlink
-rewrite under one store lock. Folder rename/delete similarly return every
-affected note. TypeScript applies the returned mutation and never predicts it.
+rewrite under one store lock. Note and folder workflows also return the
+post-commit folder projection. TypeScript applies that result without a
+follow-up vault scan and never predicts it.
 
 Old `notes_*`, note-related `fs_*`, and independent `search_*` commands are not
 compatibility requirements and must not be reintroduced.

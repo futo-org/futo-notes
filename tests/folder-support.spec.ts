@@ -197,6 +197,7 @@ test.describe('Folder support', () => {
     await page.getByTestId('new-folder-btn').click();
     await page.getByTestId('create-folder-input').fill('archive');
     await page.getByTestId('create-folder-confirm').click();
+    await expect(page.locator('[data-folder-path="archive"]').first()).toBeVisible();
 
     const moved = await page.evaluate(async () => {
       const archive = document.querySelector('[data-folder-path="archive"]');

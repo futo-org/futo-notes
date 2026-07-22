@@ -208,7 +208,7 @@ pub async fn local_notes_create_folder(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
-) -> Result<String, String> {
+) -> Result<MutationResult, String> {
     let store = store(&app, &state)?;
     blocking(move || store.create_folder(&path)).await
 }
@@ -256,12 +256,16 @@ pub async fn local_notes_search(
     blocking(move || store.search(&query, limit)).await
 }
 
+/// The engine-owned bounded readiness wait (issue #35). Runs on the blocking
+/// pool because the wait can hold its thread for up to `timeout_ms`.
 #[tauri::command]
-pub async fn local_notes_search_status(
+pub async fn local_notes_wait_until_search_ready(
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<SearchStatus, String> {
-    Ok(store(&app, &state)?.search_status())
+    timeout_ms: u64,
+) -> Result<bool, String> {
+    let store = store(&app, &state)?;
+    blocking(move || Ok(store.wait_until_search_ready(timeout_ms))).await
 }
 
 #[tauri::command]

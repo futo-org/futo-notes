@@ -609,8 +609,11 @@ title constraints across the hot-path/native surfaces.
 **Not locked — real drift risk.** If you touch one, touch all, and say so in the commit:
 - Default notes-root split, 3 independent copies: Rust `vault_location.rs`, iOS `NotesStore.swift`,
   Android `NotesStorage.kt`.
-- Note sort order (`modified desc, id asc`): `notes.svelte.ts`, Rust store snapshots, iOS
-  `resortInPlace`.
+- Note sort order (`modified desc, id asc`): Rust store (canonical — sorted snapshots + per-note
+  mutation positions, `vault::note_list_order`) + the browser in-memory harness
+  (`localNoteStore.ts` `compareNoteOrder`). The former shell copies are GONE — shells apply
+  engine-reported positions as verbatim splices (ADR-0001); never reintroduce a shell comparator
+  or a shell final-id heuristic.
 - Unique note-ID generation in Rust, TypeScript, Swift, and Kotlin.
 
 ## 13. Own the E2E experience
