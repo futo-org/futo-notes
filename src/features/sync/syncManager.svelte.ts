@@ -10,7 +10,6 @@ import { createExternalChangeCoordinator } from './createExternalChangeCoordinat
 import { getSyncErrorMessage } from './syncErrorMessage';
 import { createSyncCompletionReconciler } from './reconcileSyncCompletion';
 
-export { findActiveSyncRename } from './reconcileSyncCompletion';
 export { getSyncErrorMessage } from './syncErrorMessage';
 
 export interface SyncManagerDeps {

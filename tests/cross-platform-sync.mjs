@@ -403,6 +403,103 @@ async function renamePropagation(a, b, server) {
   );
 }
 
+async function collisionPlacementFollowsOpenNote(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+
+  // Own the push/pull on both clients (same live-sync race family as
+  // renamePropagation) so the collision lands in B's explicit syncNow and the
+  // reported rename + canonical adopt arrive in ONE summary.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+
+  // A mints the OLDER object. Server object ids are uuidv7 (time-ordered), so
+  // A's object is lexicographically smaller and deterministically wins any
+  // filename collision against B's later object — no coin flip.
+  await a.writeNote('stuff/shared', '# from A');
+  await a.syncNow();
+
+  // B pulls A's note, then creates and MAPS its own distinct 'shared' note
+  // (synced before any rival exists under that name) and opens it.
+  await b.syncNow();
+  assert(await b.noteExists('stuff/shared'), 'B should have pulled A’s note');
+  await b.writeNote('shared', '# from B');
+  await b.syncNow();
+  await b.openNote('shared');
+  await waitForOpenNoteTitle(b, 'shared');
+
+  // A moves its older object onto the name B has open. A same-basename move
+  // is collapsed into a rename of the SAME object by the push-side pairing,
+  // so the older (winning) object id survives. A has not pulled B's 'shared',
+  // so the move lands cleanly on A.
+  await a.moveNote('stuff/shared', 'shared');
+  await a.syncNow();
+
+  // B pulls the renamed rival. A's smaller object id wins the canonical name,
+  // so the engine relocates B's locally-mapped note to
+  // `shared (conflict <oid8>)` — a collision placement it must report as
+  // rename intent in the summary, and B's open tab/editor must follow.
+  const bResult = await b.syncNow();
+
+  const bFiles = (await b.listNotes()).map((f) => f.filename || f.name || f);
+  const conflictFile = bFiles.find((name) => name.includes('shared (conflict'));
+  assert(conflictFile, `B should keep both rivals, got ${JSON.stringify(bFiles)}`);
+  const conflictId = conflictFile.replace(/\.md$/, '');
+
+  assertEqual(await b.readNote('shared'), '# from A', 'canonical name should hold A’s content');
+  assertEqual(await b.readNote(conflictId), '# from B', 'conflict copy should hold B’s content');
+  assert(!(await b.noteExists('stuff/shared')), 'B should not keep the pre-move path');
+
+  // The relocation is reported in the summary itself — never inferred by the
+  // shell from id patterns.
+  const renames = bResult.summary.renamed ?? [];
+  assert(
+    renames.some((pair) => pair.fromId === 'shared' && pair.toId === conflictId),
+    `summary should report the collision placement as a rename, got ${JSON.stringify(renames)}`,
+  );
+
+  const state = await waitForOpenNoteTitle(b, conflictId);
+  assertEqual(state.originalId, conflictId, 'open note should follow the collision placement');
+  assertEqual(state.editorContent, '# from B', 'editor should keep showing B’s own content');
+  assertEqual(
+    state.hash,
+    `#/note/${encodeURIComponent(conflictId)}`,
+    'route should follow the collision placement',
+  );
+
+  // The relocation renamed B's open note on disk (shared.md → the conflict
+  // copy) and rewrote shared.md with A's content. Drive the file-watcher
+  // events those mutations emit and AWAIT their handling — the resolved
+  // handlers are the observable "external change processed" signal (M15),
+  // replacing a fixed settle window. A followed collision placement must
+  // survive its own watcher aftermath without closing the note or toasting a
+  // delete.
+  await b.deliverFileChange('unlink', 'shared.md');
+  await b.deliverFileChange('add', conflictFile);
+  await b.deliverFileChange('change', 'shared.md');
+  const stableState = await b.getOpenNoteState();
+  assertEqual(
+    stableState.originalId,
+    conflictId,
+    'open note should remain stable after watcher aftermath',
+  );
+  assert(
+    stableState.toastMessage === '' || stableState.toastMessage === 'Sync complete',
+    `collision placement should not surface a delete/change toast, got ${JSON.stringify(stableState.toastMessage)}`,
+  );
+
+  // A converges on the identical file set (every client mints the same
+  // loser name).
+  await a.syncNow();
+  const aFiles = (await a.listNotes()).map((f) => f.filename || f.name || f);
+  assert(
+    aFiles.includes(conflictFile),
+    `A should mint the identical conflict name, got ${JSON.stringify(aFiles)}`,
+  );
+  assertEqual(await a.readNote('shared'), '# from A', 'A canonical should hold A’s content');
+  assertEqual(await a.readNote(conflictId), '# from B', 'A conflict copy should hold B’s content');
+}
+
 async function activeNoteReload(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
@@ -1617,6 +1714,11 @@ const scenarios = [
   { name: 'concurrent edit conflict', fn: concurrentEditConflict, matrices: ['desktop-desktop'] },
   { name: 'three way merge', fn: threeWayMerge, matrices: ['desktop-desktop'] },
   { name: 'rename propagation', fn: renamePropagation, matrices: ['desktop-desktop'] },
+  {
+    name: 'collision placement follows open note',
+    fn: collisionPlacementFollowsOpenNote,
+    matrices: ['desktop-desktop'],
+  },
   { name: 'active note reload', fn: activeNoteReload, matrices: ['desktop-desktop'] },
   // Folder-support v1 scenarios — see Specs § Sync conflict resolution.
   {

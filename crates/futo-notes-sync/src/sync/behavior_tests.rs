@@ -163,7 +163,7 @@ fn combined_summary_keeps_counts_failures_and_unique_ids() {
 }
 
 #[test]
-fn rename_replaces_ghost_create_and_delete_ids() {
+fn rename_strips_the_from_side_ghost_delete_but_keeps_target_updates() {
     let push = SyncSummary {
         deleted_ids: vec!["old".into()],
         peer_deleted_ids: vec!["old".into()],
@@ -179,10 +179,14 @@ fn rename_replaces_ghost_create_and_delete_ids() {
         ..Default::default()
     };
     let combined = combine(push, pull);
+    // The from-side "delete at the old name" byproduct is the only ghost.
     assert!(combined.deleted_ids.is_empty());
     assert!(combined.peer_deleted_ids.is_empty());
-    assert!(combined.updated_ids.is_empty());
-    assert!(combined.peer_updated_ids.is_empty());
+    // An update recorded against the rename TARGET is a real content event
+    // (a same-cycle peer edit to the relocated object), never a byproduct, so
+    // it survives — the shell that followed the rename must reload it.
+    assert_eq!(combined.updated_ids, ["new"]);
+    assert_eq!(combined.peer_updated_ids, ["new"]);
     assert_eq!(combined.renamed.len(), 1);
 }
 
@@ -347,6 +351,176 @@ fn colliding_remote_notes_both_survive_but_identical_content_deduplicates() {
     )
     .unwrap();
     assert_eq!(local_files(root.path()).len(), before);
+}
+
+#[test]
+fn collision_placement_reports_the_relocated_local_note_as_a_rename() {
+    let root = TempRoot::new();
+    let ancestry = HashMap::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+
+    // A locally-mapped note holds the canonical name; a rival remote object
+    // with a smaller object id arrives under the same name and wins it.
+    std::fs::write(root.path().join("note.md"), "local text").unwrap();
+    state.object_map.insert(
+        "note.md".into(),
+        entry("z-local", Some(&hash_sha256("local text"))),
+    );
+
+    apply_remote(
+        &mut state,
+        root.path(),
+        &remote("a-remote", "note.md", "remote text"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    // The loser survives at its deterministic conflict name, and the
+    // placement is reported as rename intent in the summary — shells follow
+    // it verbatim instead of inferring a rename from id patterns.
+    let conflict = collision_conflict_filename("note.md", "z-local");
+    assert_eq!(read_content(root.path(), &conflict).unwrap(), "local text");
+    assert_eq!(read_content(root.path(), "note.md").unwrap(), "remote text");
+    assert_eq!(summary.renamed.len(), 1);
+    assert_eq!(summary.renamed[0].from_id, "note");
+    assert_eq!(summary.renamed[0].to_id, note_id(&conflict));
+}
+
+#[test]
+fn identical_content_collision_dedup_reports_no_rename() {
+    let root = TempRoot::new();
+    let ancestry = HashMap::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+
+    // The byte-identical loser adopts silently (map entry dropped, no
+    // conflict copy) — there is no relocation, so no rename intent either.
+    std::fs::write(root.path().join("note.md"), "same text").unwrap();
+    state.object_map.insert(
+        "note.md".into(),
+        entry("z-local", Some(&hash_sha256("same text"))),
+    );
+
+    apply_remote(
+        &mut state,
+        root.path(),
+        &remote("a-remote", "note.md", "same text"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    assert!(summary.renamed.is_empty());
+    assert_eq!(local_files(root.path()).len(), 1);
+}
+
+#[test]
+fn same_cycle_tombstone_of_a_collision_relocated_note_survives_ghost_stripping() {
+    let root = TempRoot::new();
+    let ancestry = HashMap::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+
+    // The mapped local note loses the shared name to a rival remote object,
+    // so the collision placement relocates it and reports a rename.
+    std::fs::write(root.path().join("note.md"), "local text").unwrap();
+    state.object_map.insert(
+        "note.md".into(),
+        entry("z-local", Some(&hash_sha256("local text"))),
+    );
+    apply_remote(
+        &mut state,
+        root.path(),
+        &remote("a-remote", "note.md", "remote text"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    // The same pull then delivers the peer's tombstone for that object: the
+    // relocated conflict copy is removed at its new name.
+    apply_tombstone(
+        &mut state,
+        root.path(),
+        &object("z-local", 2, true),
+        &ancestry,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+    let conflict = collision_conflict_filename("note.md", "z-local");
+    assert!(!root.path().join(&conflict).exists());
+
+    // Ghost-stripping in combine() must not erase the deletion just because
+    // the deleted id was a rename target earlier in the same cycle — shells
+    // follow the rename and need the deletion to close the open note instead
+    // of leaving the editor bound to a note that no longer exists.
+    let combined = combine(summary, SyncSummary::default());
+    assert_eq!(combined.renamed.len(), 1);
+    assert!(combined.deleted_ids.contains(&note_id(&conflict)));
+    assert!(combined.peer_deleted_ids.contains(&note_id(&conflict)));
+}
+
+#[test]
+fn same_cycle_update_of_a_collision_relocated_note_survives_ghost_stripping() {
+    let root = TempRoot::new();
+    let ancestry = HashMap::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+
+    // The mapped local note loses the shared name to a rival remote object,
+    // so the collision placement relocates it and reports a rename.
+    std::fs::write(root.path().join("note.md"), "local text").unwrap();
+    state.object_map.insert(
+        "note.md".into(),
+        entry("z-local", Some(&hash_sha256("local text"))),
+    );
+    apply_remote(
+        &mut state,
+        root.path(),
+        &remote("a-remote", "note.md", "remote text"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    // The same pull then delivers a newer peer edit to that same object,
+    // which now lives under its conflict name.
+    let mut peer_edit = remote("z-local", "note.md", "peer edit");
+    peer_edit.object.version = 2;
+    peer_edit.object.change_seq = 2;
+    peer_edit.object.blob_key = Some("blob-z-local-v2".into());
+    apply_remote(
+        &mut state,
+        root.path(),
+        &peer_edit,
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+    let conflict = collision_conflict_filename("note.md", "z-local");
+    assert_eq!(read_content(root.path(), &conflict).unwrap(), "peer edit");
+
+    // Ghost-stripping in combine() must not erase that update just because the
+    // updated id was a rename target earlier in the same cycle — the shell
+    // followed the rename and must reload the peer's content, or its next save
+    // overwrites the peer edit on every client.
+    let combined = combine(summary, SyncSummary::default());
+    assert_eq!(combined.renamed.len(), 1);
+    assert!(combined.updated_ids.contains(&note_id(&conflict)));
+    assert!(combined.peer_updated_ids.contains(&note_id(&conflict)));
 }
 
 #[test]

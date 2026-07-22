@@ -222,6 +222,17 @@ export class TauriTestClient {
     return this._executeMutation(`window.__notesShellTest.flushSave()`, 'flushSave');
   }
 
+  // Deliver a single file-watcher event to the shell and await its handling.
+  // The resolved promise is the observable "external change processed" signal,
+  // so a test can drive the watcher aftermath of a sync deterministically
+  // instead of sleeping for a fixed settle window.
+  async deliverFileChange(type, filename) {
+    return executeJs(
+      this.ws,
+      `window.__notesShellTest.handleFileChange({ type: ${JSON.stringify(type)}, filename: ${JSON.stringify(filename)} })`,
+    );
+  }
+
   async getOpenNoteState() {
     return this._executeRead(`window.__notesShellTest.getState()`, 'getOpenNoteState');
   }

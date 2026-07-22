@@ -27,12 +27,7 @@ vi.mock('$features/notes/notes.svelte', () => ({
 import { updateAppState } from '$shared/state/appState';
 import { noteExists, readNote, refreshNotesFromStorage } from '$features/notes/notes.svelte';
 import type { NoteSession } from '$features/notes/noteSession.svelte';
-import {
-  createSyncManager,
-  findActiveSyncRename,
-  getSyncErrorMessage,
-  type SyncManagerDeps,
-} from './syncManager.svelte';
+import { createSyncManager, getSyncErrorMessage, type SyncManagerDeps } from './syncManager.svelte';
 import type { SyncSummary } from './syncServiceE2ee';
 
 const emptySummary: SyncSummary = {
@@ -147,39 +142,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('rename classification', () => {
-  it('prefers an explicit rename from the sync summary', () => {
-    expect(
-      findActiveSyncRename(
-        { updatedIds: [], deletedIds: [], renamed: [{ fromId: 'Old', toId: 'New' }] },
-        'Old',
-      ),
-    ).toEqual({ fromId: 'Old', toId: 'New' });
-  });
-
-  it('falls back to a recent recorded rename target', () => {
-    expect(
-      findActiveSyncRename(
-        { updatedIds: [], deletedIds: ['Old'], renamed: [] },
-        'Old',
-        'Recovered',
-      ),
-    ).toEqual({ fromId: 'Old', toId: 'Recovered' });
-  });
-
-  it('infers a rename from delete plus collision-suffixed update', () => {
-    expect(
-      findActiveSyncRename({ updatedIds: ['Old (2)'], deletedIds: ['Old'], renamed: [] }, 'Old'),
-    ).toEqual({ fromId: 'Old', toId: 'Old (2)' });
-  });
-
-  it('returns null when sync only deleted the note with no recovery target', () => {
-    expect(
-      findActiveSyncRename({ updatedIds: [], deletedIds: ['Old'], renamed: [] }, 'Old'),
-    ).toBeNull();
-  });
-});
-
 describe('sync outcome state', () => {
   it('rewrites opaque fetch TypeErrors to an actionable message', () => {
     expect(getSyncErrorMessage(new TypeError('Failed to fetch'))).toMatch(/Could not reach server/);
@@ -276,23 +238,82 @@ describe('peer projections', () => {
     expect(rescanLocalNotes).not.toHaveBeenCalled();
   });
 
-  it('retargets an inferred rename before pruning the deleted id', async () => {
-    vi.mocked(noteExists).mockImplementation(async (id) => id === 'Old (2)');
+  // Rename intent is engine-reported (including collision placements — see
+  // collision_placement_reports_the_relocated_local_note_as_a_rename in
+  // futo-notes-sync); this only guards the tab-follow wiring for a
+  // reported rename.
+  it('follows a reported collision-placement rename before pruning deletions', async () => {
+    vi.mocked(noteExists).mockImplementation(async (id) => id !== 'Gone');
     const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
-      updatedIds: ['Old (2)'],
-      deletedIds: ['Old'],
-      peerUpdatedIds: ['Old (2)'],
-      peerDeletedIds: ['Old'],
+      updatedIds: ['Old'],
+      deletedIds: ['Gone'],
+      peerUpdatedIds: ['Old'],
+      peerDeletedIds: ['Gone'],
+      renamed: [{ fromId: 'Old', toId: 'Old (conflict deadbeef)' }],
     });
-    expect(bundle.onRename).toHaveBeenCalledWith('Old', 'Old (2)', 'Old (2)');
-    expect(bundle.applyRemoteRename).toHaveBeenCalledWith('Old (2)', 'Old (2)');
-    if (bundle.pruneTabsForDeletedIds.mock.calls.length > 0) {
-      expect(bundle.onRename.mock.invocationCallOrder[0]).toBeLessThan(
-        bundle.pruneTabsForDeletedIds.mock.invocationCallOrder[0],
-      );
-    }
+    expect(bundle.onRename).toHaveBeenCalledWith(
+      'Old',
+      'Old (conflict deadbeef)',
+      'Old (conflict deadbeef)',
+    );
+    expect(bundle.applyRemoteRename).toHaveBeenCalledWith(
+      'Old (conflict deadbeef)',
+      'Old (conflict deadbeef)',
+    );
+    // The follow rebinds the session; the relocated draft is not adopted over.
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith(['Gone']);
+    expect(bundle.onRename.mock.invocationCallOrder[0]).toBeLessThan(
+      bundle.pruneTabsForDeletedIds.mock.invocationCallOrder[0],
+    );
+  });
+
+  // Same-cycle collision placement + tombstone of the relocated note: the
+  // engine reports both the rename and the deletion of its target (guarded by
+  // same_cycle_tombstone_of_a_collision_relocated_note_survives_ghost_stripping
+  // in futo-notes-sync). The tab follows the rename, then the deleted-during-
+  // sync flow closes it instead of leaving the editor bound to a nonexistent
+  // note whose next save would resurrect the tombstoned object.
+  it('closes the open note when a followed rename target was tombstoned in the same cycle', async () => {
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['Old'],
+      deletedIds: ['Old (conflict deadbeef)'],
+      peerUpdatedIds: ['Old'],
+      peerDeletedIds: ['Old (conflict deadbeef)'],
+      renamed: [{ fromId: 'Old', toId: 'Old (conflict deadbeef)' }],
+    });
+    expect(bundle.applyRemoteRename).toHaveBeenCalledWith(
+      'Old (conflict deadbeef)',
+      'Old (conflict deadbeef)',
+    );
+    expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
+    expect(bundle.toasts).toContain('Note was deleted during sync');
+    expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith(['Old (conflict deadbeef)']);
+  });
+
+  // Same-cycle collision placement + a real peer edit to the relocated object:
+  // the engine reports the rename AND keeps the update against its target id
+  // (guarded by same_cycle_update_of_a_collision_relocated_note_survives_ghost_stripping
+  // in futo-notes-sync). The tab follows the rename, then the fresh peer content
+  // is adopted — without it the editor keeps the stale relocated draft and the
+  // next save overwrites the peer edit on every client.
+  it('reloads a followed rename target that also received a real update in the same cycle', async () => {
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'stale' }));
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['Old (conflict deadbeef)'],
+      peerUpdatedIds: ['Old (conflict deadbeef)'],
+      renamed: [{ fromId: 'Old', toId: 'Old (conflict deadbeef)' }],
+    });
+    expect(bundle.applyRemoteRename).toHaveBeenCalledWith(
+      'Old (conflict deadbeef)',
+      'Old (conflict deadbeef)',
+    );
+    expect(bundle.applyExternalContent).toHaveBeenCalledWith('FRESH');
   });
 });
 

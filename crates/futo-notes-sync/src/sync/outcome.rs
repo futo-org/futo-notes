@@ -254,23 +254,21 @@ fn remove_rename_ghost_ids(summary: &mut SyncSummary) {
         .iter()
         .map(|rename| rename.from_id.as_str())
         .collect();
-    let renamed_to: HashSet<_> = summary
-        .renamed
-        .iter()
-        .map(|rename| rename.to_id.as_str())
-        .collect();
-    summary
-        .updated_ids
-        .retain(|id| !renamed_to.contains(id.as_str()));
-    summary
-        .peer_updated_ids
-        .retain(|id| !renamed_to.contains(id.as_str()));
+    // Only the from-side of a rename is a ghost: every relocation records its
+    // "delete at the old name" byproduct against the source id and describes
+    // the move itself with the rename pair. Nothing records a byproduct
+    // against the TARGET side, so an id recorded there — an update OR a
+    // deletion — is always a real, subsequent event: a same-cycle peer edit to
+    // a collision-relocated note (which the shell that followed the rename must
+    // reload, or its next save overwrites the peer edit) or a same-cycle
+    // tombstone of it (which must close the followed editor). Stripping the
+    // target side erased both. Strip the from-side ghost only.
     summary
         .deleted_ids
-        .retain(|id| !renamed_from.contains(id.as_str()) && !renamed_to.contains(id.as_str()));
+        .retain(|id| !renamed_from.contains(id.as_str()));
     summary
         .peer_deleted_ids
-        .retain(|id| !renamed_from.contains(id.as_str()) && !renamed_to.contains(id.as_str()));
+        .retain(|id| !renamed_from.contains(id.as_str()));
 }
 
 pub(super) fn combine(mut push: SyncSummary, pull: SyncSummary) -> SyncSummary {

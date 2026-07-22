@@ -492,6 +492,46 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   futo-notes-sync sync module
 - Renames are paired — a rename is not seen as delete + create. → migration plan
   Phase 5
+- **Sync reports rename intent; shells never infer renames from id patterns.**
+  Every relocation the sync engine performs — paired local moves, mapping
+  relocations, merge-target moves, and collision placements that relocate a
+  locally-mapped note (the loser's move to `name (conflict <oid8>)`) — is
+  reported in the locally-computed `SyncSummary.renamed` (no sync payload or
+  protocol change; a byte-identical collision loser adopts silently and
+  reports no rename). The desktop follows the open tab/editor through a
+  reported rename verbatim; its former id-pattern inference
+  (`findActiveSyncRename` / `isCollisionVariantId`) is deleted. →
+  futo-notes-sync `sync/collision_resolution.rs` (guarded by
+  `collision_placement_reports_the_relocated_local_note_as_a_rename` and
+  `identical_content_collision_dedup_reports_no_rename` in
+  `sync/behavior_tests.rs`); desktop `reconcileSyncCompletion.ts` (guarded by
+  "follows a reported collision-placement rename before pruning deletions" in
+  src/features/sync/syncManager.test.ts and the cross-platform scenario
+  "collision placement follows open note" in tests/cross-platform-sync.mjs)
+- **A rename never hides a real update OR deletion of its target.** Summary
+  ghost-stripping removes only the rename's from-side from
+  `deletedIds`/`peerDeletedIds` (the "delete at the old name" byproduct every
+  relocation records); nothing is recorded against the target side, so an id
+  recorded there — an update OR a deletion — is always a real, subsequent
+  same-cycle event and stays shell-visible. A same-cycle peer edit to a
+  collision-relocated note keeps its entry in `updatedIds`/`peerUpdatedIds`, so
+  the shell that followed the rename reloads the peer's content instead of
+  keeping the stale relocated draft (whose next save would overwrite the peer
+  edit on every client); a same-cycle tombstone of it keeps its entry in
+  `deletedIds`/`peerDeletedIds`, so the shell runs its deleted-during-sync
+  close/keep-draft flow instead of leaving the editor bound to a nonexistent
+  note. Consequently a relocation records its byproduct against the SOURCE id
+  only — the "delete at the old name" plus the rename pair — never a synthetic
+  update against the target. → futo-notes-sync `sync/outcome.rs`
+  `remove_rename_ghost_ids` + `sync/collision_resolution.rs`
+  `move_collision_loser` (guarded by
+  `same_cycle_update_of_a_collision_relocated_note_survives_ghost_stripping`
+  and
+  `same_cycle_tombstone_of_a_collision_relocated_note_survives_ghost_stripping`
+  in `sync/behavior_tests.rs`); desktop guarded by "reloads a followed rename
+  target that also received a real update in the same cycle" and "closes the
+  open note when a followed rename target was tombstoned in the same cycle" in
+  src/features/sync/syncManager.test.ts
 - A push checkpoint is written every 50 objects. → migration plan Phase 5
 - A legacy `.app-state.json` is migrated on first run. → migration plan Phase 5
 - **Concurrent-move dedup keys on OBJECT IDENTITY, never on (content-hash,
