@@ -3,10 +3,20 @@
  * Used by both client and server.
  */
 
+/**
+ * The visible (non-control) characters forbidden in a title. Exported so the
+ * native title-spec generator (`scripts/gen-title-spec.ts`) can derive
+ * `TitleSpec.swift` / `TitleSpec.kt` from the same source this file itself
+ * builds `FORBIDDEN_PATTERN` from — one definition, no drift.
+ */
+export const FORBIDDEN_TITLE_CHARS_VISIBLE = '<>:"/\\|?*';
+
 const CONTROL_CHARS =
   Array.from({ length: 32 }, (_, index) => String.fromCharCode(index)).join('') +
   String.fromCharCode(127);
-const FORBIDDEN_PATTERN = `[<>:"/\\\\|?*${CONTROL_CHARS}]`;
+// Escape the backslash in FORBIDDEN_TITLE_CHARS_VISIBLE for use inside a
+// regex character class; the other visible chars need no escaping there.
+const FORBIDDEN_PATTERN = `[${FORBIDDEN_TITLE_CHARS_VISIBLE.replace(/\\/g, '\\\\')}${CONTROL_CHARS}]`;
 
 /** Global regex for replacing forbidden characters (use with `.replace()`). */
 export const FORBIDDEN_CHARS_RE = new RegExp(FORBIDDEN_PATTERN, 'g');

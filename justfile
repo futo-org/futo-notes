@@ -409,6 +409,16 @@ toolbar-spec:
 toolbar-spec-check:
   pnpm exec tsx scripts/gen-toolbar-spec.ts --check
 
+# Regenerate the native shells' title-validation constants
+# (apps/ios/Sources/TitleSpec.swift / apps/android/.../TitleSpec.kt) from the
+# @futo-notes/editor title-rule manifest (packages/editor/src/filename.ts).
+title-spec:
+  pnpm exec tsx scripts/gen-title-spec.ts --write
+
+# Fail if a generated native title spec has drifted from the manifest.
+title-spec-check:
+  pnpm exec tsx scripts/gen-title-spec.ts --check
+
 # Fail on a registered-but-uncalled Tauri command not in the allowlist, a
 # stale allowlist entry (command now has a caller, or was deleted from Rust),
 # or an invoke() of a name that isn't registered at all (architecture-
@@ -465,7 +475,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check arch-gate test-rust
+check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
   pnpm run lint
   pnpm run check:svelte
   pnpm run format:check

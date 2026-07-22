@@ -654,16 +654,6 @@ private struct DraftInputs: Equatable {
     let content: String
 }
 
-/// Characters forbidden in a note title — mirrors the Rust `is_forbidden_char`
-/// (futo-notes-core) and the TS `FORBIDDEN_CHARS_RE`: `< > : " / \ | ? *` plus
-/// all control characters. Used only for live input filtering; the authoritative
-/// validation + messages come from the shared `validateTitle` (FFI).
-private let forbiddenTitleScalars: CharacterSet =
-    CharacterSet(charactersIn: "<>:\"/\\|?*").union(.controlCharacters)
-
-/// Max title length (chars) — matches the shared `MAX_TITLE_LENGTH` (200).
-private let titleMaxLength = 200
-
 /// A note title that is still the auto-assigned placeholder: exactly "Untitled",
 /// or a dedup variant "Untitled-N" (see the Rust store's `unique_note_id`, which
 /// appends `-2`, `-3`, …). Tapping such a title selects it whole so a keystroke
@@ -724,9 +714,9 @@ private struct TitleTextField: UIViewRepresentable {
             let raw = (tf.text ?? "").replacingOccurrences(of: "\n", with: "")
             // Strip forbidden filesystem chars in-place (desktop parity — the
             // illegal char never persists) and cap at the title length limit.
-            var cleaned = String(raw.unicodeScalars.filter { !forbiddenTitleScalars.contains($0) })
+            var cleaned = String(raw.unicodeScalars.filter { !TitleSpec.forbiddenScalars.contains($0) })
             let forbidden = cleaned != raw
-            if cleaned.count > titleMaxLength { cleaned = String(cleaned.prefix(titleMaxLength)) }
+            if cleaned.count > TitleSpec.maxLength { cleaned = String(cleaned.prefix(TitleSpec.maxLength)) }
             if tf.text != cleaned {
                 // Keep the caret roughly where it was: a stripped forbidden char
                 // shifts it back one; a length cap clamps it to the end.

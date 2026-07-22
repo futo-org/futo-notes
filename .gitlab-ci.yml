@@ -432,6 +432,7 @@ test:
         pnpm install --frozen-lockfile --prefer-offline
         node scripts/spec-gaps.mjs --check
         pnpm exec tsx scripts/gen-toolbar-spec.ts --check
+        pnpm exec tsx "$CI_PROJECT_DIR/scripts/gen-title-spec.ts" --check
         pnpm run lint
         pnpm run lint:platform
         pnpm run format:check
