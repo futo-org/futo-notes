@@ -54,7 +54,7 @@ const PREFERRED_GDK_BACKEND =
 export function rewriteForcedGdkBackend(hookText) {
   if (hookText.includes(FORCED_GDK_BACKEND)) {
     return {
-      text: hookText.replace(FORCED_GDK_BACKEND, PREFERRED_GDK_BACKEND),
+      text: hookText.replaceAll(FORCED_GDK_BACKEND, PREFERRED_GDK_BACKEND),
       changed: true,
       notFound: false,
     };

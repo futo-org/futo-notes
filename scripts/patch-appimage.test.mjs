@@ -31,6 +31,16 @@ describe('rewriteForcedGdkBackend', () => {
     });
   });
 
+  it('rewrites every forced line when the hook contains duplicates', () => {
+    const duplicated = TAURI_BUNDLER_GTK_HOOK + '\n' + FORCED_GDK_BACKEND + '\n';
+
+    const result = rewriteForcedGdkBackend(duplicated);
+
+    expect(result.changed).toBe(true);
+    expect(result.text).not.toContain(FORCED_GDK_BACKEND);
+    expect(result.text.split(PREFERRED_GDK_BACKEND).length - 1).toBe(2);
+  });
+
   it('leaves an already-rewritten hook byte-identical', () => {
     const rewrittenHook = TAURI_BUNDLER_GTK_HOOK.replace(FORCED_GDK_BACKEND, PREFERRED_GDK_BACKEND);
 
