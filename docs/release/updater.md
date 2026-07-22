@@ -30,7 +30,8 @@ The localdev↔prod trust boundary (why the localdev key is safe to commit) is i
 signed updater artifact + `.sig` (minisign), which `release:` assembles into one
 `latest.json`. Per-OS the re-sign is always the LAST touch on the bytes:
 
-- **Linux** — build the AppImage keyless → mesa patch → `cargo tauri signer sign`.
+- **Linux** — build the AppImage keyless → AppImage patch (Mesa 26 library strip +
+  Wayland-backend hook rewrite) → `cargo tauri signer sign`.
 - **Windows** — build the setup.exe keyless on the VM → `windows:sign` does
   Authenticode (jsign) → re-minisign via `npx @tauri-apps/cli signer sign` (so
   the signing key never reaches the Windows VM).
@@ -76,11 +77,11 @@ instead of shipping a permanently-unupdateable client.
 
 ## Re-sign ordering (critical)
 
-The detached `.sig` must be the LAST touch on an artifact — after the Linux mesa
-patch and after macOS notarize / Windows Authenticode (jsign). `release-build.mjs`
-re-signs after the mesa patch; CI must re-sign after the OS-signing step. (The
-`release:` signature-verify step above is a second backstop: a `.sig` made before
-a byte-mutating step fails verification.)
+The detached `.sig` must be the LAST touch on an artifact — after the Linux
+AppImage patch and after macOS notarize / Windows Authenticode (jsign).
+`release-build.mjs` re-signs after the AppImage patch; CI must re-sign after the
+OS-signing step. The `release:` signature-verify step above is a second backstop:
+a `.sig` made before a byte-mutating step fails verification.
 
 ## Not yet validated end-to-end
 
