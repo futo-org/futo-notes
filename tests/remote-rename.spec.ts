@@ -87,50 +87,9 @@ test.describe('Remote Rename UX', () => {
     await expect(page.locator('.toast')).toHaveCount(0);
   });
 
-  test('open note stays open when sync only reports delete plus collision-suffixed update', async ({
-    page,
-  }) => {
-    await openNewNote(page);
-    await seedNote(page, 'Old Title', 'Body content');
-    await expect(page).toHaveURL(/#\/note\/Old%20Title$/);
-    await expect(page.locator('.title-input')).toHaveValue('Old Title');
-    await expect(page.locator('.cm-content')).toContainText('Body content');
-
-    await seedRenamedNote(page, 'Old Title (2)', 'Body content');
-
-    await page.evaluate(async () => {
-      const w = window as typeof window & {
-        __notesShellTest: {
-          handleSyncComplete: (summary: {
-            uploaded: number;
-            downloaded: number;
-            deleted: number;
-            conflicts: number;
-            updatedIds: string[];
-            deletedIds: string[];
-            renamed: Array<{ fromId: string; toId: string }>;
-            peerUpdatedIds: string[];
-            peerDeletedIds: string[];
-          }) => Promise<void>;
-        };
-      };
-      await w.__notesShellTest.handleSyncComplete({
-        uploaded: 0,
-        downloaded: 0,
-        deleted: 1,
-        conflicts: 0,
-        updatedIds: ['Old Title (2)'],
-        deletedIds: ['Old Title'],
-        renamed: [],
-        peerUpdatedIds: ['Old Title (2)'],
-        peerDeletedIds: ['Old Title'],
-      });
-    });
-
-    await expect(page).toHaveURL(/#\/note\/Old%20Title%20\(2\)$/);
-    await expect(page.locator('.title-input')).toHaveValue('Old Title (2)');
-    await expect(page.locator('.cm-content')).toContainText('Body content');
-    await expect(page.locator('.toast')).toHaveCount(0);
-    await expect(page.locator('text=For You')).toHaveCount(0);
-  });
+  // A collision placement that relocates the open note arrives as an
+  // engine-reported rename (guarded by
+  // collision_placement_reports_the_relocated_local_note_as_a_rename in
+  // futo-notes-sync), so it takes the reported-rename path above. Shells no
+  // longer infer a rename from a delete plus a collision-suffixed update.
 });

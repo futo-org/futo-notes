@@ -8,7 +8,7 @@ use crate::checkpoint::{ConnectedState, ObjectState};
 
 use super::encrypted_note::RemoteNote;
 use super::outcome::note_id;
-use super::{PreWrite, SyncSummary};
+use super::{PreWrite, RenamePair, SyncSummary};
 
 fn collision_rivals(
     state: &ConnectedState,
@@ -66,7 +66,18 @@ fn move_collision_loser(
     context.state.object_map.insert(target.clone(), entry);
     context.summary.local_writes_applied += 1;
     context.summary.deleted_ids.push(note_id(&name));
-    context.summary.updated_ids.push(note_id(&target));
+    // A relocation records its byproduct against the SOURCE id only: the
+    // "delete at the old name" above plus the rename intent below. It must NOT
+    // record an update against the target — the bytes moved unchanged, so
+    // there is nothing for a shell to reload, and a synthetic target update
+    // could not be told apart from a real same-cycle peer edit to the same
+    // object, which combine() would then erase (see remove_rename_ghost_ids).
+    // Rename intent lets shells follow the relocation (open tab/editor)
+    // without inferring from id patterns.
+    context.summary.renamed.push(RenamePair {
+        from_id: note_id(&name),
+        to_id: note_id(&target),
+    });
     Ok(())
 }
 
