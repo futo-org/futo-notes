@@ -1,642 +1,188 @@
-# AGENTS.md — FUTO Notes Operating Manual
+# AGENTS.md — FUTO Notes operating manual
 
-@README.md for project overview. @justfile for all commands.
+@README.md for the project overview. @justfile for every command.
 
-FUTO Notes is an offline-first markdown notes app: one Svelte 5 web editor and one shared Rust
-core, shipped as **three apps** — Tauri desktop, native SwiftUI iOS, native Compose Android — with
-optional E2EE sync against an external server. This file is the operating manual: where code goes,
-the named mistakes that recur in this codebase and the rule that prevents each, what "done" means
-per kind of change, and exactly when to stop and ask.
+FUTO Notes is an offline-first markdown notes app: one Svelte 5 web editor + one shared Rust core,
+shipped as **three apps** — Tauri desktop, native SwiftUI iOS, native Compose Android — with optional
+E2EE sync against an external server (`~/Developer/futo-notes-server`). Rules marked **CRITICAL**
+protect user data or shipped behavior; never weaken one to pass a test, build, or pipeline.
 
-Every rule here is load-bearing. Rules marked **CRITICAL** protect user data or shipped behavior —
-never weaken one to make a test pass, a build compile, or a pipeline go green.
+## Before you modify
 
-## Mandatory modifying-agent organization standard
+`docs/architecture/codebase-organization.md` is the canonical standard for code ownership, placement,
+naming, comments, and test placement. Read it — and the nested `AGENTS.md` for the layer you touch —
+before planning or editing code, and name the narrowest owner. Re-read it only when your context was
+summarized/replaced or you're replanning from scratch. Where it says `spec/`, this repo means
+`docs/spec/`. Priority when guidance conflicts: system/user instructions → CRITICAL rules here →
+`docs/spec/` + nearest nested `AGENTS.md` → the standard → existing patterns.
 
-`docs/architecture/codebase-organization.md` is the canonical standard for code ownership,
-placement, dependencies, naming, file design, comments, and test placement. These root
-instructions apply throughout the repository. Nested `AGENTS.md` files add layer-specific rules;
-they do not replace this requirement.
-
-### Modifying-agent activation
-
-An agent becomes a modifying agent when it intends to:
-
-- Produce a concrete implementation or refactoring plan expected to result in repository changes.
-- Create, edit, move, rename, or delete code, tests, configuration, scripts, build files, CI files,
-  or architecture documentation.
-- Delegate planning or implementation that may result in those changes.
-- Transition from read-only investigation into planning or implementing a fix.
-
-Before producing the implementation plan, and before making any modification, the agent must:
-
-1. Read `docs/architecture/codebase-organization.md` completely, from its first line through EOF.
-2. Read the applicable behavioral specifications and nested `AGENTS.md` files.
-3. Identify the narrowest feature, capability, resource, provider, or boundary that owns the
-   planned change.
-4. State that the complete organization standard was read and name the chosen owner before
-   presenting the plan or editing files.
-
-Do not rely on memory, a previous task, excerpts, a context summary, another agent's summary, or
-another agent's acknowledgment. The completed read remains valid across ordinary conversation
-turns, implementation iterations, test failures, review corrections, and small plan adjustments
-within the same modifying task.
-
-If a read-only task becomes a modifying task, stop and complete the required reading before
-proposing the implementation plan. Pure read-only analysis, status reporting, and hypothetical
-discussion do not activate this requirement. Every newly spawned or handed-off agent that may
-plan modifications or edit files must complete its own full read before planning or editing.
-
-### Read-lease invalidation
-
-The modifying agent must read the complete organization document again before its next planning
-or editing action when either of these occurs:
-
-- The conversation or agent context is compacted, summarized, or replaced.
-- The original implementation plan is abandoned at an architectural or organizational level.
-
-Foundational replanning includes:
-
-- Starting the implementation over or from scratch.
-- Rethinking the approach or taking a fundamentally different approach.
-- Discarding the current ownership model, module boundaries, source-tree layout, or dependency
-  direction.
-- Discovering that the plan rests on incorrect architectural assumptions and replacing those
-  foundations rather than correcting the existing plan locally.
-
-It does not include:
-
-- Adding, removing, reordering, or clarifying implementation steps.
-- Changing specific files while preserving the same ownership model.
-- Fixing tests, compiler errors, regressions, or review findings within the existing approach.
-- Extracting another helper or component consistent with the plan.
-- Expanding into another layer while retaining the original approach.
-- Rebasing, refreshing from `main`, resolving merge conflicts, or recreating a branch without
-  changing the implementation approach.
-- Pausing and resuming while the original context remains intact.
-
-Decision rule: if the original ownership boundaries, module layout, and dependency direction still
-govern the work, the plan is being refined and the read remains valid. If those foundations are
-being discarded, the plan is being replaced and the document must be read again.
-
-When work expands into another directory or architectural layer, read its nested `AGENTS.md` and
-relevant specifications before planning changes there. The complete organization document does not
-need to be reread while the existing read remains valid.
-
-### Repository interpretation and priority
-
-Where the organization standard refers to `spec/`, this repository's equivalent is `docs/spec/`.
-Its framework-specific trees and examples are conceptual; apply their ownership and dependency
-rules through this repository's Svelte, Rust, Swift, Kotlin, and Tauri structures.
-
-Apply organization guidance in this order:
-
-1. System and explicit user instructions.
-2. CRITICAL safety, data-integrity, compatibility, and behavioral rules in `AGENTS.md`.
-3. Applicable requirements in `docs/spec/` and the nearest nested `AGENTS.md`.
-4. `docs/architecture/codebase-organization.md`.
-5. Existing implementation patterns.
-
-If the organization standard conflicts with a higher-priority requirement, preserve the
-higher-priority requirement and report the conflict.
-
-In short: organize by the narrowest real owner, make shared code earn its scope, keep entry points
-focused on orchestration, prefer precise names and explicit dependencies, co-locate tests, explain
-only non-obvious intent in comments, and complete every structural move across code, tests,
-configuration, and documentation.
-
----
-
-## 1. Quick start
+## Quick start
 
 ```bash
-just install         # Install all workspace dependencies
-just tauri-dev       # Tauri DESKTOP dev (Wayland-first, fixed port 5180)
-just build           # TypeScript check + Vite build → dist/
-just check           # spec-gaps + toolbar-spec + rust conformance + lint + tests + build
-# Mobile = NATIVE shells (see §2), NOT Tauri:
-just ios-native         # Native iOS app on a booted simulator
-just ios-native-device  # Native iOS app on a connected iPhone (Debug)
-just android-native     # Native Android (Compose) app on device/emulator
+just install       # workspace deps
+just tauri-dev     # desktop dev (Wayland, port 5180)
+just build         # tsc + vite → dist/
+just check         # fast pre-merge gate; just prepush adds full rust + e2e + cross-platform sync
+just ios-native / just android-native   # native mobile shells
 ```
 
-**Always use `just` from the monorepo root.** The justfile encodes config overlays, dev bundle
-IDs, per-worktree isolation, and device detection. Never call `cargo tauri` directly. The
-package.json has toolchain scripts only (vite, vitest, playwright, eslint).
+Always run `just` from the repo root — it encodes config overlays, dev bundle ids, and per-worktree
+isolation. Never call `cargo tauri` directly.
 
-## 2. CRITICAL — mobile is native, not Tauri
+## Mobile is native, not Tauri (CRITICAL)
 
-When asked to run, build, or install the app on a phone, use the **native shells** in `apps/ios`
-and `apps/android`. There is no Tauri mobile shell — the legacy `cargo tauri ios/android` recipes
-were **removed**. The native apps are SwiftUI/Compose on the shared Rust core (`futo-notes-ffi`)
-with an embedded web editor.
+On-phone builds use the native shells in `apps/ios` (SwiftUI) and `apps/android` (Compose) over the
+shared Rust core (`futo-notes-ffi`) with an embedded web editor — there is no Tauri mobile shell.
+`just ios-native` (simulator), `just ios-native-device` / `just deploy-ios` (device debug/release),
+`just android-native`; compile-only: `just build-ios-native` / `just build-android-native`.
 
-| Goal | Command |
-| --- | --- |
-| iOS on the booted simulator | `just ios-native` |
-| iOS on a connected iPhone (Debug, `com.futo.notes.dev`) | `just ios-native-device` |
-| iOS **Release** on a connected iPhone (prod `com.futo.notes`) | `just deploy-ios` |
-| Android (Compose) on a device/emulator | `just android-native` |
-| Compile-only sanity (no install) | `just build-ios-native` / `just build-android-native` |
+## Monorepo map
 
-Gotchas: a missing `vite-plugin-singlefile` during the editor-bundle build means stale
-node_modules — run `pnpm install`. A locked iPhone yields `FBSOpenApplicationErrorDomain error 7`
-on launch — unlock and relaunch.
-
-## 3. Monorepo map
-
-pnpm workspaces + a Cargo workspace. Layer-specific conventions live in nested AGENTS.md files
-(`src/`, `apps/tauri/`, `crates/futo-notes-core/`, `docs/spec/`, `factory/`) —
-read the one for the layer you're editing.
+pnpm + Cargo workspaces. Read the nested `AGENTS.md` for the layer you edit.
 
 ```
-src/                    ← Shared Svelte 5 app (UI, reactive state, sync coordination)
-  lib/rules.ts          ← Hot-path shim re-exporting the note rules from @futo-notes/editor
-  lib/localNoteStore.ts ← Note/folder/search adapter; Rust in production, memory in browser tests
-  lib/platform/         ← Non-note shell storage/images/capabilities, pathSafety, tauri/notesRoot
-  editor-embed/         ← Entry for the single-file editor.html embedded in the native shells
-crates/
-  futo-notes-core/      ← Hashing, E2EE crypto, 3-way merge, conflict naming,
-                          path safety + atomic file primitives (`files/`)
-  futo-notes-model/     ← Pure note decisions (id/tags/wikilinks/preview), no filesystem state
-  futo-notes-store/     ← THE LOCAL NOTE ENGINE: vault, migrations, workflows, owned search
-  futo-notes-sync/      ← E2EE sync orchestrator (push-first run_sync), SSE live loop
-  futo-notes-search/    ← Tantivy BM25 engine + background indexer
-  futo-notes-ffi/       ← UniFFI projection (NoteStore owns search, plus SyncClient/rules).
-                          Generated bindings are gitignored.
-apps/
-  tauri/                ← Tauri v2 desktop shell (local_notes_* / e2ee_* / OS glue)
-  ios/                  ← Native SwiftUI app (xcodegen; Sources/Generated is generated)
-  android/              ← Native Compose app (UniFFI Kotlin bindings + jniLibs are generated)
-packages/
-  editor/               ← Canonical TS hot-path note/image rules + the versioned futoBridge contract +
-                          the toolbar manifest (toolbar.ts — source of truth for native toolbars)
-docs/spec/              ← Behavioral source of truth for all three apps (§10)
-tests/                  ← Playwright E2E, conformance fixtures, cross-platform sync harness
-markdown-spec/          ← Editor decoration/cursor fixture corpus (YAML cases)
-factory/                ← Obsidian-as-oracle editor comparison harness
+src/                     Shared Svelte 5 app (UI, reactive state, sync coordination)
+  lib/rules.ts           hot-path shim re-exporting note rules from @futo-notes/editor
+  lib/localNoteStore.ts  note/folder/search adapter (Rust in prod, memory in browser tests)
+  lib/platform/          shell storage/images/capabilities, pathSafety, tauri glue
+crates/  futo-notes-model (pure note rules, no fs) · -core (hashing, E2EE crypto, 3-way merge,
+         path safety + atomic files) · -store (THE local note engine: vault/migrations/workflows/
+         owned search) · -sync (E2EE orchestrator, push-first run_sync, SSE) · -search (Tantivy
+         BM25 + indexer) · -ffi (UniFFI projection; generated bindings gitignored)
+apps/{tauri,ios,android} desktop shell + the two native shells (generated dirs gitignored)
+packages/editor/         canonical TS hot-path rules + futoBridge contract + toolbar manifest
+docs/spec/               behavioral source of truth for all three apps
+tests/, markdown-spec/, factory/   E2E + sync harness, editor fixtures, Obsidian-oracle harness
 ```
 
-- **Sync server**: external repo at `~/Developer/futo-notes-server`
-  ([GitLab](https://gitlab.futo.org/futo-notes/futo-notes-server)). The client uploads opaque
-  encrypted blobs; content is encrypted client-side.
+## Where logic lives
 
-## 4. Where logic lives (decision procedure)
+1. Note rule or filesystem mutation on the note tree → **Rust** (`futo-notes-model`/`-core`), via
+   `notes_*`/`search_*` Tauri commands (desktop) or the `futo-notes-ffi` facade (native). Never
+   re-implement it in TS/Swift/Kotlin.
+2. **Per-keystroke** note rule (title/tag/id/preview/image) → the ONE sanctioned TS copy in
+   `packages/editor/src/*` via `src/lib/rules.ts`; Rust stays canonical, the TS copy held bit-for-bit
+   by `tests/conformance/*`. This is the only rule allowed to live in two places.
+3. View / reactive state / sync coordination / platform shell → **TS** (`src/lib`). `notesCache` in
+   `notes.svelte.ts` is the single reactive source of truth, and it is a projection — apply only the
+   complete `LocalNoteMutation` Rust returns (collision outcomes + backlink rewrites included).
+4. Compute-heavy / protocol-shaped (vector math, sync delta, hashing, crypto) → Rust.
+5. OS access already covered by the platform layer → extend `PlatformFS`; never branch on platform
+   inside components (`pnpm run lint:platform`).
+6. A workflow of two domain calls (create-then-write, rename-then-relink) belongs in the domain
+   (Rust `_impl` / FFI verb), not stitched together at each call site.
 
-Ask, in order:
+## Conventions
 
-1. **Is it a note rule or a filesystem mutation on the note tree?** → Rust
-   (`futo-notes-model` / `futo-notes-core`). Reach it via `notes_*`/`search_*` Tauri commands on
-   desktop and the `futo-notes-ffi` facade on native. **Never re-implement it in TS, Swift, or
-   Kotlin** — one definition, three consumers, is what keeps the apps behaviorally identical.
-2. **Is it one of the note rules needed per keystroke?** (title/tag/id/preview/image) → the ONE
-   sanctioned exception: a conformance-locked TS copy lives in
-   `packages/editor/src/{filename,tags,preview,images}.ts`, imported through the editor facade.
-   Rust stays canonical; the TS copy is held bit-for-bit by `tests/conformance/*` (§7.3).
-3. **Is it view/reactive state/sync coordination/platform shell?** → TypeScript (`src/lib/`,
-   components). `notesCache` in `notes.svelte.ts` is the single reactive source of truth.
-4. **Is it compute-heavy or protocol-shaped?** (vector math, sync delta, hashing, crypto) → Rust.
-5. **Is it ad-hoc OS access already covered by the platform layer?** (watcher, clipboard) → leave
-   it where it is; extend `PlatformFS`, never branch on platform inside components
-   (`pnpm run lint:platform` enforces this).
-6. **Is the workflow two domain calls in sequence?** (create-then-write, rename-then-relink) → the
-   workflow itself belongs in the domain (Rust `_impl` / FFI verb), not stitched together at every
-   call site — otherwise each shell must remember the ordering invariant and one WILL drift (M6/M7).
+- **Svelte 5 runes only** (`$state`/`$derived`/`$effect`, module state in `.svelte.ts`). Never
+  `svelte/store`, `on:click`, or `createEventDispatcher` — use `onclick=` attributes + callback props.
+  Inside `$effect`, read callbacks/objects lazily in inner callbacks so they don't become deps.
+- Note/folder/search go through `getLocalNoteStore()`; `PlatformFS` is only shell storage/images/
+  capabilities; sync uses `syncServiceE2ee.ts`. Components never invoke note commands or plugin-fs
+  directly (`check:platform-discipline`).
+- Never hand-build note paths — `pathSafety.ts` (TS) / `futo_notes_core::files::safe_note_path`
+  (Rust). Non-component toasts: `showGlobalToast()`; dialogs: `confirmDialog()`/`ask()`/`message()`
+  (`window.confirm`/`alert` do not block in the Tauri webview).
+- Rust: each Tauri local-note command wraps an `_impl`, is a projection over the one `LocalNoteStore`,
+  and registers watcher suppression (the `BeforeWrite` hook) before the first syscall. FFI errors are
+  `uniffi::Error` enums; FFI builds use dev (iOS) / `release-ffi` (Android) profiles — the workspace
+  release `panic="abort"` breaks UniFFI's `catch_unwind`.
+- CSS: Tailwind v4, tokens in the `@theme` block (`theme.css`), dark via `[data-theme='dark']`. CM6
+  overrides need `!important` in layered CSS (`editor-ux.css` is imported unlayered on purpose).
 
-**Push concerns down, not out.** If forgetting to add a line at every call site would cause a bug,
-that line belongs in infrastructure. Existing examples: filename/path safety
-(`packages/editor/src/filename.ts`, `src/lib/platform/pathSafety.ts`,
-`futo_notes_core::files`), platform I/O behind `src/lib/platform/index.ts`, E2EE fetch/auth/
-persistence centralized in `src/features/sync/syncServiceE2ee.ts`. Before copying a pattern from another
-file (auth headers, try/parse/catch, validation), check whether a shared helper exists or should.
+## Named mistakes (institutional memory — cited elsewhere by number; the rule that prevents each)
 
-## 5. Conventions
+**Data/render safety (CRITICAL):**
+- **M1** Gated render — `initialized=true` flips synchronously; never await prefs/scan/`invoke` before
+  it (loads apply reactively). Every historical hang came from this.
+- **M2** Title transformation — the filename IS the title; `sanitizeTitle()` only strips fs-breaking
+  chars. Never case- or dash-massage a filename into a title.
+- **M3** Dev build touches prod data — dev = `com.futo.notes.dev` + `~/Documents/fake-notes`, release
+  = `com.futo.notes` + `~/Documents/futo-notes`; split in Rust `vault_location.rs` / iOS
+  `#if FUTO_DEBUG_BUILD` / Android `BuildConfig.DEBUG`; the TS resolver MUST delegate to
+  `resolve_default_notes_root`; `FUTO_NOTES_DATA_DIR` overrides both. Never weaken.
+- **M4** Piecemeal destructive reset — clear every module-level cache (appState, sync watermarks);
+  stop live sync first and prefer reloading the process.
+- **M5** Editor jank — responsiveness is sacred; per-keystroke work stays synchronous TS, everything
+  else backgrounds.
 
-### Code — TypeScript / Svelte
-- Svelte 5 runes only: `$state`/`$derived`/`$effect`, module-level state in `.svelte.ts` files
-  exposed as functions/getter-objects. **Never** `svelte/store`, `on:click`, or
-  `createEventDispatcher` — use `onclick={...}` attributes and callback props
-  (`onclose?`, `onchange?`). Props: `interface Props {...}` + `let {...}: Props = $props()`.
-- Inside `$effect`, read callbacks/objects like `scrollParent`/`onchange` **lazily inside inner
-  callbacks**, not in the effect body — otherwise they become dependencies and destroy/recreate
-  the editor.
-- Note/folder/search work goes through `getLocalNoteStore()`; `PlatformFS` is only for shell
-  storage, images, and capabilities. Components never invoke note commands or plugin-fs directly.
-  Sync keeps its dedicated `syncServiceE2ee.ts` shim.
-- The note cache is a projection, not an optimistic owner. Apply only the complete
-  `LocalNoteMutation` returned after Rust commits a workflow; it includes collision outcomes and
-  backlink rewrites. User-facing sync errors funnel through `getSyncErrorMessage()`.
-- Never hand-build note paths: `pathSafety.ts` (TS) / `futo_notes_core::files::safe_note_path`
-  (Rust).
-- New persisted setting: add the field to `AppState` (`src/shared/state/appState.ts`), guard it in
-  `sanitize()`, default it in `defaultState()`, thread through the `AppPreferences` facade.
-  UI-layout state (sidebar width, open folders, tabs) goes in `.app-config.json` via
-  `getConfig`/`saveConfig`.
-- Toasts from non-component code: `showGlobalToast()`. Dialogs: `confirmDialog()` /
-  `ask()`/`message()` from `@tauri-apps/plugin-dialog` — **`window.confirm()`/`alert()` do not
-  block in Tauri's webview.**
+**Single source:** **M6** don't reimplement a note rule in TS/Swift/Kotlin · **M7** a rule change
+touches canonical TS (`packages/editor`) AND Rust (`futo-notes-model`) + regenerates fixtures
+(`tests/conformance/generate.mjs`) · **M8** edit sources, not generated files (`GAPS.md`,
+`ToolbarSpec.*`, `Sources/Generated`, uniffi bindings, the **bundled** `editor.html` — the root
+`editor.html` is the hand-written source) · **M9** rebuild FFI bindings after any FFI-visible crate
+change · **M10** a new `futoBridge`/toolbar surface needs BOTH native hosts.
 
-### Code — Rust
-- Tauri local-note commands are projections over the one `LocalNoteStore` in `AppState`; do not
-  recreate filesystem/search workflow logic in an adapter.
-- `LocalNoteStore` serializes each note workflow and invokes its `BeforeWrite` hook for every
-  affected filename **before** the first filesystem syscall. Desktop maps that hook to typed
-  one-shot watcher suppression.
-- Tempdirs in tests are hand-rolled (`temp_dir().join(format!(...))` + `AtomicU32` counter + pid)
-  — no `tempfile` crate. Env-var tests serialize on a `static Mutex`.
-- FFI errors are `#[derive(uniffi::Error, thiserror::Error)]` enums. The FFI builds use the dev
-  profile (iOS) / `release-ffi` profile (Android) because the workspace release profile's
-  `panic = "abort"` breaks UniFFI's `catch_unwind` — never "fix" the FFI build by switching it to
-  the plain release profile.
+**CI/release:** **M11** no silent green (assert outcomes, keep the non-zero exit) · **M12**
+`$CI_PROJECT_DIR`-anchored paths, no cwd assumptions · **M13** exercise tag-gated jobs before tagging ·
+**M14** every new test job goes in `release:gate.needs` · **M15** don't loosen timeouts/assertions/
+skips to kill a flake — root-cause it · **M16** never commit generated dirs or temp debug code.
 
-### CSS
-- Tailwind v4; theme tokens in the `@theme` block of `src/styles/theme.css`; dark mode via
-  `[data-theme='dark']` overrides (no `dark:` variant).
-- **IMPORTANT**: styles in `@layer(components)` lose to CodeMirror's unlayered CSS. CM6 overrides
-  need `!important` inside layered CSS; `editor-ux.css` is imported unlayered on purpose.
+**Fix discipline:** **M17** fix every sibling occurrence (grep first) · **M18** run the verification
+chain before claiming done · **M19** update `docs/spec/` with any behavior change · **M20** build from
+the repo root.
 
-### Git / process
-- Commits: `type(scope): imperative summary` — types `feat|fix|docs|chore|ci|perf|refactor|build|test`,
-  scopes are surfaces/platforms (`android`, `ios`, `editor`, `sync`, `ci`, ...). Nontrivial fixes
-  get a body naming the exact failure (pipeline number, error string), the root cause, and a
-  verification line ("Verified: assembleDebug green; …").
-- Features and risky work go through branches + GitLab MRs; small self-contained fixes may land on
-  main. Land migrations and perf work as **small per-concern commits** so pieces can be reverted
-  individually.
-- Releases are annotated `vX.Y.Z` tags. Android `versionCode = MAJOR*1e6 + MINOR*1e3 + PATCH`.
-- GitLab API access: `$GITLAB_TOKEN` is in the shell:
-  ```bash
-  curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-    "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/pipelines?ref=main&per_page=1"
-  ```
+**Platform traps:** **M21** don't trust synthetic DOM input / stale emulator screenshots · **M22**
+Playwright/WebKit can't prove Windows WebView2 or the real iOS keyboard (duplicate `@codemirror/*`
+blanks the editor) · **M23** the updater `.sig` must be the last touch on artifact bytes.
 
-### Docs
-- Behavior changes update `docs/spec/<area>.md` in the same change (§10).
-- Hard-won debugging knowledge (a class of bug, not a single fix) becomes a
-  `docs/learnings/*.md` postmortem.
+## Testing & quality bar
 
-## 6. Named mistakes — and the rule that prevents each
+Every logic change ships a test; a bug fix's regression test fails before the fix and passes after.
+Run `just build` first, then the chain for your layer, reporting commands + results:
+- **Note rule** (filename/tag/image/preview/wikilink) → canonical TS + Rust,
+  `pnpm exec tsx tests/conformance/generate.mjs`, then `pnpm run test:editor:minimal` + `just test-rust`.
+- UI/Svelte → `just build` + the targeted Playwright spec. Editor (CM6) → `just test-markdown-spec` +
+  a `markdown-spec/` YAML case. Rust/Tauri command → `_impl` unit test + `just test-rust[-full]`,
+  register in `generate_handler!` + the TS shim, watcher suppression before writes. Sync →
+  `cargo test -p futo-notes-sync` + a `tests/cross-platform-sync.mjs` scenario, push-first untouched
+  (dirty local edits PUT before any pull writes disk). Native → `just build-{ios,android}-native`
+  (+ `just test-android-native`) + device QA.
+- The full suite list is in the `@justfile`; `just check` is the pre-merge umbrella, `just prepush`
+  the maximal gate. Tests co-locate with the code they verify. A new CI test job goes in
+  `release:gate.needs` the same commit (M14).
 
-These are the failure modes that actually recur in this repo's history. If you feel yourself about
-to do one, stop and apply the rule.
+## Driving the apps
 
-### A. Data and render safety (CRITICAL)
+Web/desktop: `agent-browser`; Tauri debug builds ship the MCP bridge (`driver_session`, `webview_*`).
+Native has no bridge — iOS via `xcrun simctl` + `idb`, Android via `adb`/uiautomator + CDP
+(`just cdp-forward`). Sync in debug builds: prefer the `window.__testSync` hook
+(`connect`/`connectE2ee`/`syncNow`/`status`/`disconnect`). Parallel isolation: `just qa-claim` /
+`qa-status` / `qa-release` / `qa-server`. Logs: `just emu-logs` / `sim-logs`. Full playbooks: `/verify`.
 
-- **M1 — Gated render.** Awaiting *anything* (prefs, scan, `getPlatformFS`, `invoke`) before
-  `App.svelte` flips `initialized = true`. Every historical hang came from this.
-  **Rule:** `initialized = true` flips synchronously; all loads run un-awaited afterward and apply
-  reactively. Render the shell with empty state. A slow scan may delay list population, never the
-  shell. Native mirrors this: I/O on `NoteVault` actor / `Dispatchers.IO`, `hasBootstrapped`
-  distinguishes loading from empty.
-- **M2 — Title transformation.** "Improving" a filename into a title (case, dash→space).
-  **Rule:** the filename IS the title. `"grocery list.md"` → `"grocery list"`. `sanitizeTitle()`
-  only strips filesystem-breaking characters. Never mutate filenames into titles.
-- **M3 — Dev build touches prod data.** A debug build writing the user's real notes, or dev/prod
-  resolving the same path. This burned badly enough to become three layered guards.
-  **Rule:** dev/debug = bundle id `com.futo.notes.dev` ("FUTO Notes Dev") + notes root
-  `~/Documents/fake-notes` (release: `com.futo.notes` + `~/Documents/futo-notes`). The split lives
-  in Rust `default_root` (`apps/tauri/src-tauri/src/vault_location.rs`), iOS
-  `#if FUTO_DEBUG_BUILD`, Android `BuildConfig.DEBUG`. The TS resolver MUST delegate to the Rust
-  `resolve_default_notes_root` command — `documentDir()` looks identical in dev and release, so
-  resolving in JS silently points dev at prod. `FUTO_NOTES_DATA_DIR` overrides both (worktree/test
-  isolation). Never remove or weaken any of this.
-- **M4 — Piecemeal destructive reset.** Wiping disk state but leaving module-level caches alive
-  (`appState`, sync version watermarks), so the next sync resumes from a stale watermark and
-  pulls nothing. **Rule:** a destructive reset must reset every module-level cache — stop live
-  sync first, and prefer reloading the webview/process over trusting piecemeal invalidation.
-- **M5 — Editor jank introduced by background work.** **Rule:** editor responsiveness is sacred.
-  Sync, indexing, and saves must never block or delay typing; anything per-keystroke stays
-  synchronous TS (see §4.2), everything else is backgrounded.
+## Spec is the source of truth
 
-### B. The single-source rule
+`docs/spec/*` states what each surface should do across all three apps. Read `docs/spec/<area>.md`
+before changing behavior; update the line after (one behavior per line, platform tags, `→ path`
+authority refs). Known divergence = an inline `> **Gap:**` note; adding/closing one → `just spec-gaps`,
+commit the regenerated `GAPS.md` (`just spec-gaps-check`, in `just check`, fails on staleness). Use
+`/spec-sync`.
 
-- **M6 — Reimplementing a note rule.** Writing tag/title/preview/CRUD logic in TS/Swift/Kotlin
-  because it's "just a small helper". A rule that exists in two places WILL drift.
-  **Rule:** the note domain is Rust (§4). If you need a rule in TS, it must already be in
-  `packages/editor` and imported via `src/lib/rules.ts`; if it isn't there, add it to Rust and the
-  conformance fixtures first.
-- **M7 — One-sided rule edit.** Changing a rule in TS or Rust without the other side + fixtures.
-  **Rule:** any rule change touches canonical TS (`packages/editor`) AND Rust
-  (`futo-notes-model`), then regenerates fixtures (`pnpm exec tsx tests/conformance/generate.mjs`)
-  and runs BOTH consumers (§7.3). CI's `--check` will catch you, but locally is cheaper.
-- **M8 — Editing generated files.** `docs/spec/GAPS.md`, `ToolbarSpec.swift`/`ToolbarSpec.kt`,
-  `TitleSpec.swift`/`TitleSpec.kt`, `apps/ios/Sources/Generated/*`, Android `uniffi/` bindings +
-  `jniLibs`, `editor.html`.
-  **Rule:** edit the source of truth (spec gap notes / `packages/editor/src/toolbar.ts` /
-  `packages/editor/src/filename.ts` / the FFI crate / the web editor) and regenerate
-  (`just spec-gaps`, `just toolbar-spec`, `just title-spec`,
-  `scripts/build-rust-{ios,android}.sh`, `vite build --config vite.editor.config.ts`).
-- **M9 — Stale FFI bindings.** Changing `futo-notes-ffi` (or a crate it re-exports) and testing
-  against a native app built with old bindings — symptoms look like "my change did nothing" or
-  Kotlin/Swift compile errors on missing symbols. **Rule:** after any FFI-visible crate change,
-  rebuild via `just build-rust-ios` / `just build-rust-android` before building the shells (the
-  `just *-native` recipes do this; direct `xcodebuild`/gradle invocations do not).
-- **M10 — New cross-shell surface added to one shell.** A new `futoBridge` message or toolbar item
-  handled on only one platform. **Rule:** the bridge contract (`packages/editor/src/bridge.ts`,
-  `BRIDGE_VERSION`) is the source of truth; a new message needs BOTH hand-written hosts
-  (`EditorWebView.swift` + `EditorWebView.kt`). Toolbar items go in `toolbar.ts` + regenerate
-  (`just toolbar-spec`); behavior goes in the shared `TOOLBAR_EXEC` map — never in a shell.
+## When uncertain
 
-### C. CI and release (the single most-churned area of this repo)
+Resolve yourself, in order: `docs/spec/<area>.md` → the fixture corpora → the Rust crate source →
+`git log` + `docs/learnings/` → the nested `AGENTS.md`. Act without asking on reversible in-repo work
+(fixes, tests, refactors within a layer, running suites, dev builds/installs, spec edits reflecting
+verified behavior). For demos/migrations, own the full client + server + data + launcher path until
+the user can open the app and see the result — don't hand off operational steps you can do yourself.
 
-- **M11 — Silent green.** Special-casing an error to `exit 0` (or `-f`/`|| true` masking a
-  failure), so a job "succeeds" while publishing nothing. **Rule:** a job that did not accomplish
-  its purpose fails red. Assert outcomes (artifact exists, N objects uploaded), not the absence of
-  exceptions. Keep the diagnostic, keep the non-zero exit.
-- **M12 — CWD/path assumptions in CI.** A `cd` on one script line persists to the next; a relative
-  path resolves somewhere else and `-f` hides it. **Rule:** in `.gitlab-ci.yml` scripts use
-  `$CI_PROJECT_DIR`-anchored absolute paths only, and verify the effect of every destructive/
-  cleanup line actually happened.
-- **M13 — Tag-only jobs fail on first contact.** Publish/release jobs that only run at tag time
-  fail on their first real run (missing env propagation into nested VMs, cold caches, wrong
-  artifact paths) — this repo's tag list shows same-day retag pairs from exactly this.
-  **Rule:** exercise any tag-gated job before tagging (manual trigger / temp branch rule); pass
-  secrets into nested VMs explicitly; upload caches `when: always`. Use the `/ci-doctor` skill.
-- **M14 — Test job not wired into `release:gate`.** A new test job that isn't in `release:gate`'s
-  `needs:` list cannot stop a publish — this nearly shipped a broken release twice.
-  **Rule:** every new CI test job gets added to `release:gate.needs`, same commit.
-- **M15 — Loosening instead of root-causing.** Bumping timeouts, softening assertions, skipping
-  scenarios to make a flake go away — history shows each of these came back.
-  **Rule:** wait on conditions/events, not fixed timeouts; don't assert exact user-facing strings
-  in cross-platform tests; one timeout bump with a comment is tolerable, a second bump on the same
-  job means root-cause it now.
-- **M16 — Committing artifacts and temp debug code.** Generated sources from a dev build, or a
-  "(temp) debug trace" commit, landing on main and breaking release builds later.
-  **Rule:** gitignore generated dirs before first build; review `git status` for `gen/`/generated
-  paths before committing; temp debugging never lands on main.
+**Stop and ask first:** (1) anything under `keys/`, signing keys, or the updater trust boundary;
+(2) weakening a CRITICAL guard (dev bundle id, `fake-notes` root, push-first sync, `release:gate.needs`,
+the dep-guard, hash/crypto in `hash.rs`); (3) destructive ops on real data (the user's
+`~/Documents/futo-notes`, the prod server, `git push --force`, dropping DBs you didn't create);
+(4) publishing (Play/TestFlight/F-Droid uploads, tagging a release, posting to Zulip); (5) changing
+behavior the spec records — surface the conflict; (6) cross-cutting protocol changes (sync payload,
+`BRIDGE_VERSION`, `AppState` schema).
 
-### D. Fix and verification discipline
+Two-strikes: same fix failed twice → re-diagnose from scratch (`/codex:rescue`). Contradiction:
+evidence contradicts the task premise → report before acting. Flake: root-cause first; one commented
+timeout bump max (M15).
 
-- **M17 — Fixing 1 of N occurrences.** The same constant/typo/pattern exists in sibling files and
-  only one gets fixed. **Rule:** after any fix, grep for every other occurrence of the
-  pattern/constant before committing; if it's duplicated, centralize or fix all and say so.
-- **M18 — Claiming done without the chain.** Reporting a change complete after it compiles.
-  **Rule:** run the verification chain for the deliverable type (§7) and report commands + results.
-  If verification fails, iterate until it passes — do not report partial success as success.
-- **M19 — Spec drift.** Changing behavior without touching `docs/spec/`.
-  **Rule:** before changing behavior in an area, read `docs/spec/<area>.md`; after, update the
-  line (and gaps → `just spec-gaps`). Use the `/spec-sync` skill.
-- **M20 — Building from the wrong directory.** `pnpm run build` from a workspace resolves a
-  different build script. **Rule:** build from the monorepo root; verify output includes
-  `vite build` and `dist/assets/`. Also: `pnpm run dev` uses localhost APIs, `pnpm run build`
-  points at production endpoints; `cargo build` needs a repo-root `dist/` to exist
-  (`mkdir -p dist`).
+## Drift watchlist (touch all copies in lockstep — `just check-drift`)
 
-### E. Platform traps (things that lie to you)
-
-- **M21 — Trusting synthetic input and stale screenshots.** Programmatic DOM `click()` does NOT
-  fire Svelte 5 handlers (tap at CSS-rect-center × devicePixelRatio via `adb input tap` instead);
-  an unfocused Android emulator throttles Compose frames so `adb screencap` shows stale UI
-  (verify via disk/logcat or force a real scroll); on iOS, `axe gesture` presets exit 0 while
-  scrolling nothing, and `axe tap` prints `✓` for an element whose activation point is off-screen.
-  **Rule:** when UI automation reports "nothing happened", suspect the tool before the app — check
-  the playbooks in the `/verify` skill's `references/ios.md` and `references/android.md`. The
-  canonical case: for 25 days (2026-07-02 → 2026-07-27) `docs/spec/nav.md` carried a gap blaming
-  SwiftUI for iOS nav-bar items missing from the a11y tree. The labels were always there; `idb ui describe-all` returns a
-  shallow ~11-element tree on iOS 26.5 and never showed them. A tool's blind spot became a
-  recorded app defect — never record a gap from one tool's silence (2026-07-27, fixed by `axe`).
-- **M22 — Believing the wrong browser.** Playwright/agent-browser run WebKit/Chromium — they can
-  never prove Windows WebView2 behavior (native drag-drop, NSIS installer, clean-machine launch:
-  use the qemu VM harness in `scripts/win-vm/`), the real iOS keyboard (toolbar/inset bugs are
-  invisible), or duplicate-dependency breakage. If the editor goes blank or decorations vanish
-  after a dependency change, check for duplicated `@codemirror/*` packages first.
-- **M23 — Updater signing order.** The detached `.sig` must be the LAST touch on artifact bytes —
-  after the Linux mesa patch / macOS notarize / Windows Authenticode — or verification fails.
-  Architecture + keys/trust boundary: `docs/release/updater.md`, `keys/README.md`. Local
-  rehearsal: `just updater-localdev`. A localdev-signed artifact can never be accepted by a prod
-  client — that asymmetry is the design, not a bug.
-
-## 7. Quality bar per deliverable (checkable)
-
-`just build` runs `tsc --noEmit` and `vite build`, truncated to `head -30`/`tail -20` under
-`pipefail` so a real failure still exits nonzero — run it rather than piping `tsc`/`vite build`
-through `head`/`tail` yourself without `pipefail`, which would swallow the exit code.
-Every logic change ships with a test — no exceptions. A bug fix's regression test must fail before
-the fix and pass after. In your final report, include commands run, pass/fail, and key observed
-behavior.
-
-### 7.1 UI / Svelte / component change
-- [ ] `just build` passes (tsc + vite from root)
-- [ ] Relevant Playwright spec passes: `pnpm run test:e2e:smoke` minimum; the targeted spec
-      (`pnpm exec playwright test tests/<spec>.spec.ts`) when one covers the area
-- [ ] New interaction/flow → new or extended spec in `tests/` (launch `page.goto('/#/note/new')`,
-      selectors `.cm-content`/`.title-input`/`.note-row`, `pageerror` capture for crash checks)
-- [ ] Component logic → Vitest `*.test.ts` with `vi.mock('$lib/platform')` (in-memory `testFS`)
-- [ ] CSS-only → `just build` + visual spot-check screenshot
-- [ ] Spec line updated in `docs/spec/<area>.md` if behavior changed
-
-### 7.2 Editor behavior (CM6 live preview)
-- [ ] `just build` passes
-- [ ] `pnpm run test:markdown-spec` passes
-- [ ] New behavior → YAML case in `markdown-spec/cases/<NN-topic>/` (static: `cursor` +
-      `expect.decorations/widgets/visible_text*`; movement: `start_cursor`/`moves`/
-      `checkpoints`/`expect_final`, `require_wrapped_start_line` if wrapping matters)
-- [ ] Relevant `src/lib/*.test.ts` (reveal/continuation/table) pass
-- [ ] Manual check in `just tauri-dev` (CM6 quirks don't always show in Playwright)
-- [ ] `docs/spec/editor.md` updated
-
-### 7.3 Note rule change (filename/title, tags, image, preview, wikilinks)
-- [ ] Rule changed in BOTH canonical TS (`packages/editor/src/*`) and Rust (`futo-notes-model`)
-- [ ] Fixtures regenerated: `pnpm exec tsx tests/conformance/generate.mjs` (new inputs added to
-      the relevant group first)
-- [ ] TS side green: `pnpm run test:editor:minimal`
-- [ ] Rust side green: `just test-rust` (= `cargo test -p futo-notes-model --test conformance`)
-- [ ] No new un-fixtured copies created anywhere (grep Swift/Kotlin for siblings — see §12)
-
-### 7.4 Rust core / Tauri command
-- [ ] New `#[tauri::command]` wraps an `_impl`; `#[cfg(test)]` unit test for the `_impl` added
-- [ ] `just test-rust` green; `just test-rust-full` (`cargo test --workspace`, needs `dist/`) for
-      anything beyond model rules
-- [ ] Command registered in `lib.rs` `generate_handler!` and added to the matching TS shim
-- [ ] Mutations register watcher suppression before writing
-- [ ] Dep-guard intact: portable crates must not pull `tantivy`/`ort` (CI `test:rust:dep-guard`)
-
-### 7.5 Sync change
-- [ ] `cargo test -p futo-notes-sync` green
-- [ ] Protocol/sync-engine changes → scenario added/updated in `tests/cross-platform-sync.mjs`
-      (register in the `scenarios` array) and `just test-cross-platform` run locally
-- [ ] Server-contract changes → F-series integration tests against an ISOLATED server
-      (`FUTO_TEST_SERVER=http://127.0.0.1:3055 cargo test -p futo-notes-sync --test
-      server_integration -- --ignored --test-threads=1`) — never the :3005 demo server
-- [ ] Push-first invariant untouched: dirty local edits are PUT before any pull writes disk
-- [ ] `docs/spec/sync.md` line updated, naming its guarding test/scenario
-- [ ] High-stakes (crypto/merge/tombstones)? → run `/sync-adversarial` and consider `/slow-review`
-
-### 7.6 Native iOS
-- [ ] `just build-ios-native` compiles
-- [ ] Simulator or device QA of the changed flow (there is no iOS test target — record what you
-      exercised; keyboard/safe-area/scroll changes need the full matrix: new note, existing note,
-      toolbar, scroll-during-IME)
-- [ ] Testable logic pushed down into the Rust crates rather than Swift
-- [ ] Spec line updated with a dated verification note
-
-### 7.7 Native Android
-- [ ] `just build-android-native` compiles
-- [ ] `just test-android-native` green (JVM unit tests — CI also runs them in
-      `build:android-native` on MR/default pipelines and on tags)
-- [ ] New pure-logic seams get a JUnit test in `apps/android/app/src/test/java/com/futo/notes/`
-- [ ] Emulator/device QA of the changed flow (respect `$ANDROID_SERIAL`; see M21)
-
-### 7.8 CI / pipeline change
-- [ ] Every path `$CI_PROJECT_DIR`-anchored; no cwd assumptions; no silent-green exits (M11–M12)
-- [ ] New test job added to `release:gate.needs` (M14)
-- [ ] Verified on a real pipeline (push branch/MR; for tag-only jobs see `/ci-doctor`)
-
-### 7.9 Bug fix (any layer)
-- [ ] Regression test written FIRST and observed failing (use `/bugfix`)
-- [ ] Root cause named (not just the symptom patched)
-- [ ] Sibling occurrences grepped (M17)
-- [ ] Chain for the touched layer (above) run and green
-
-### 7.10 Before merge / release
-- [ ] `just check` green (spec-gaps-check + toolbar-spec-check + rust conformance + lint +
-      test:full + tsc + build)
-- [ ] To catch as much as possible *before* pushing, `just prepush` = `check` + full Rust
-      workspace + the entire Playwright suite + cross-platform sync. Slow (30–60 min) and
-      environment-dependent (sync server repo + Postgres, Playwright browsers) — deliberately
-      NOT part of `check`, which must stay the fast always-run gate. Native-shell runtime
-      behavior and Windows/WebView2 remain out of its reach (device QA / `scripts/win-vm/`)
-- [ ] MR pipelines auto-run every suite whose `changes:` paths the MR touches: hard gates
-      (lint + `lint:platform` + `test:full` + Rust conformance + dep-guard) always; E2E +
-      markdown-spec on web/editor changes (blocking); cross-platform sync on sync-critical
-      paths (blocking); macOS jobs on Rust/desktop changes (`allow_failure` — single runner).
-      Only the Windows chain (protected secrets) and image publish stay manual on MRs.
-      Everything is MANDATORY on tags — still run locally what your change risks (M13)
-- [ ] Release flow itself: use `/release` (tests → MR → changelog → tag → pipeline watch → Zulip)
-
-## 8. Testing map
-
-| Suite | Command | What it is |
-|---|---|---|
-| Rust conformance (fast) | `just test-rust` | model rules vs golden fixtures |
-| Rust full workspace | `just test-rust-full` | all crates (needs `dist/`) |
-| TS unit (curated) | `just test-unit` | whitelisted `src/lib` + scripts tests |
-| TS unit full | `pnpm run test:unit:full` | all vitest |
-| Editor package | `just test-editor` | `packages/editor` |
-| Conformance staleness | `pnpm exec tsx tests/conformance/generate.mjs --check` | fixtures fresh? |
-| Playwright smoke | `just test-e2e` | `tests/p0-regressions.spec.ts` |
-| Playwright full | `just test-e2e-full` | all specs |
-| Markdown spec corpus | `just test-markdown-spec` | decoration/cursor YAML cases |
-| Cross-platform sync | `just test-cross-platform` | 2 real Tauri instances + server, ~26 scenarios |
-| Android JVM | `just test-android-native` | native pure-logic tests |
-| Desktop smoke | `just test-desktop-smoke` | MCP-bridge 4-check smoke |
-| Everything local | `just check` | the pre-merge umbrella |
-| Everything before push | `just prepush` | `check` + full Rust workspace + full E2E + cross-platform sync |
-
-Where tests live: Rust → inline `#[cfg(test)]` modules + `crates/*/tests/`; Tauri `_impl` tests live
-at the bottom of their owning files in `apps/tauri/src-tauri/src/`; TS → `src/lib/*.test.ts`;
-editor rules/bridge → `packages/editor/src`; E2E → `tests/*.spec.ts`; sync scenarios →
-`tests/cross-platform-sync.mjs` (helpers in `tests/lib/`).
-
-## 9. Verification tooling (drive the real apps)
-
-- **Web/desktop UI poking**: `agent-browser` (faster than Playwright MCP, handles CM6 typing,
-  annotated screenshots — run with no args for the reference). **Tauri desktop**: the MCP bridge
-  (`driver_session`, `webview_*`) ships in desktop debug builds.
-- **Native mobile has NO MCP bridge**: iOS via `xcrun simctl` + `axe` (read the a11y tree through
-  `node scripts/describe-ios-ui.mjs`, never a raw `axe describe-ui` dump — it is 254KB+); Android
-  via `adb` / uiautomator + CDP (`just cdp-forward`, then `node scripts/cdp-invoke.mjs
-  "document.title"`).
-  Full playbooks: `/verify` skill `references/ios.md`, `references/android.md`. Android emulator →
-  host services via `10.0.2.2`.
-- **Sync in debug builds**: prefer the `window.__testSync` hook over UI automation —
-  `connect(serverUrl, password)`, `status()`, `syncNow()`, `disconnect()`,
-  `pauseAutoSync()`, `resumeAutoSync()`.
-- **Parallel QA isolation**: `just qa-claim` / `qa-status` / `qa-release` / `qa-server` — worktree
-  → slot → pooled devices (`futo-qa-0..6`) + per-slot sync server. Never touch devices you didn't
-  claim; adb forward ports are machine-global.
-- **Logs**: `just emu-logs` (tag-scoped logcat), `just sim-logs` (os_log; `print()` needs
-  `xcrun simctl launch --console-pty booted com.futo.notes.dev`).
-- **Windows/WebView2**: qemu Win11 harness in `scripts/win-vm/` (see its README).
-
-## 10. Behavioral spec — source of truth
-
-`docs/spec/` states what the app should do, by surface (`app`, `editor`, `list`, `nav`, `tabs`,
-`search`, `settings`, `sync`), across all three apps. A requirement exists in one place even when
-a platform doesn't satisfy it yet.
-
-- **Before** changing behavior in an area: read `docs/spec/<area>.md`.
-- **After** establishing/changing behavior: add or update the line (one behavior per line,
-  platform tags `*(iOS)*` etc., `→ path` authority refs).
-- Known missing/divergent behavior = an inline `> **Gap:** ...` note. Adding or closing a gap =
-  update the note, run `just spec-gaps`, commit the regenerated `GAPS.md`. `just spec-gaps-check`
-  (in `just check`) fails on staleness and runs closure probes — when one fires, verify and update
-  the spec, don't ignore it.
-- Layering: spec (behavior) sits above `tests/conformance/*.json` (TS↔Rust rule parity) and
-  `markdown-spec/cases/*.yaml` (editor fixtures) — reference those, don't duplicate them.
-- The `/spec-sync` skill encodes the full lifecycle including the hidden-affordance checklist
-  required before recording any gap.
-
-## 11. When uncertain — escalation rules
-
-**Resolve on your own, in this order.** (1) `docs/spec/<area>.md`; (2) the fixture corpora
-(`tests/conformance/`, `markdown-spec/cases/`); (3) the Rust crate source (canonical for the note
-domain); (4) `git log` on the file + `docs/learnings/`; (5) the nested AGENTS.md for the layer.
-Never resolve uncertainty by inventing a new pattern — find the existing one.
-
-**Act without asking** on anything reversible and in-repo that follows from the request: fixes,
-tests, refactors within a layer, running suites, dev builds, local installs of dev builds, spec
-edits reflecting verified behavior. When the user pastes an error: grep the message → read the
-source → `git log --oneline -5 -- <file>` → fix → verify. Bias toward action; don't ask
-clarifying questions unless the error is genuinely ambiguous.
-
-**Stop and ask first — exact list:**
-1. Anything under `keys/`, signing keys, or the updater trust boundary (M23).
-2. Weakening or removing a CRITICAL guard: dev bundle id, `fake-notes` root, push-first sync,
-   `release:gate` needs, the dep-guard, hash/crypto functions (`hash.rs` changes break sync for
-   every existing client).
-3. Destructive operations on real data: the user's `~/Documents/futo-notes`, the production
-   server (elitedesk), dropping databases you didn't create, deleting tags, `git push --force`.
-4. Publishing anything: Play/TestFlight uploads, tagging a release, posting to Zulip, F-Droid.
-5. Changing intent: if a fix requires changing behavior the spec records (rather than closing a
-   gap), surface the conflict — spec says what SHOULD be, code says what IS; don't silently
-   change either.
-6. Cross-cutting protocol changes: sync payload shape, `BRIDGE_VERSION` bumps, `AppState` schema
-   migrations.
-
-**Two-strikes rule.** If the same fix approach has failed twice, stop patching. Re-diagnose from
-scratch, write down the competing hypotheses, and pick the cheapest discriminating experiment. A
-second opinion is available via `/codex:rescue`.
-
-**Contradiction rule.** If what you find contradicts the task's premise ("fix X" but X provably
-works; "delete Y, it's unused" but Y has callers), report the evidence before acting on the
-premise.
-
-**Flake rule.** First flake → root-cause it. You may bump one timeout once, with a comment naming
-what you actually waited for. A second bump on the same job is forbidden (M15).
-
-## 12. Drift watchlist (same logic in ≥2 places — move in lockstep)
-
-Conformance-locked or generated (safe, but regenerate on change): note and image rules TS↔Rust;
-safe note IDs TS↔Rust; toolbar and bridge manifests → generated native specs; title-validation
-constants (`packages/editor/src/filename.ts` → `scripts/gen-title-spec.ts` →
-`TitleSpec.swift`/`TitleSpec.kt`); Rust vault image extensions → generated UniFFI bindings for
-Swift/Kotlin; Rust Tauri sync records → generated TS.
-
-Fully locked: `validateServerUrl` ×3 (TS, Swift, and Kotlin all read the full shared fixture;
-Swift via `apps/ios/Tests/Sync/ServerUrlConformanceTests.swift`, Kotlin via
-`apps/android/app/src/test/java/com/futo/notes/SyncManagerDefaultsTest.kt`).
-
-Partially locked: title length + visible forbidden characters are generated from
-`packages/editor/src/filename.ts`, while control-character handling remains platform-specific in
-`scripts/gen-title-spec.ts` (Android matches the TS C0 + DEL set; iOS matches Rust's wider Unicode
-control set).
-
-**Not locked — real drift risk.** If you touch one, touch all, and say so in the commit:
-- Default notes-root split, 3 independent copies: Rust `vault_location.rs`, iOS `NotesStore.swift`,
-  Android `NotesStorage.kt`.
-- Note sort order (`modified desc, id asc`): Rust store (canonical — sorted snapshots + per-note
-  mutation positions, `vault::note_list_order`) + the browser in-memory harness
-  (`localNoteStore.ts` `compareNoteOrder`). The former shell copies are GONE — shells apply
-  engine-reported positions as verbatim splices (ADR-0001); never reintroduce a shell comparator
-  or a shell final-id heuristic.
-- Unique note-ID generation (`-2`, `-3`, … collision suffixes) in Rust (canonical,
-  `futo-notes-store` `paths::unique_note_id`) + the browser in-memory harness
-  (`localNoteStore.ts` `unique`). Swift and Kotlin do NOT generate: they pass `"Untitled"` to the
-  Rust `createNote` and only *recognize* the suffix shape (`isPlaceholderTitle`) — keep it that way.
-
-## 13. Own the E2E experience
-
-For demos, migrations, or "make the whole thing work on my machine" requests — own the full
-client + server + data + launcher path until the user can open the app and see the result. Do not
-hand off operational steps you can do yourself.
+Conformance-locked/generated (regenerate on change): note/image rules TS↔Rust, safe note IDs,
+toolbar/bridge manifests → native specs, Rust sync records → TS. Fully locked: `validateServerUrl` ×3
+(TS/Swift/Kotlin). **Not locked — real risk, move together:** the default notes-root split (Rust
+`vault_location.rs` / iOS `NotesStore.swift` / Android `NotesStorage.kt`); note sort order
+(`modified desc, id asc`) across `notes.svelte.ts` / Rust snapshots / iOS `resortInPlace`; unique
+note-ID generation in Rust, TypeScript, Swift, and Kotlin.

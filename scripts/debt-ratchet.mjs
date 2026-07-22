@@ -16,7 +16,7 @@
 //   tauriImportsOutsideShims    — files outside src/lib/platform/** that
 //                                 import '@tauri-apps/*' and are not one of
 //                                 the dedicated sync shim,
-//                                 syncServiceE2ee.ts) — AGENTS.md §4's "OS
+//                                 syncServiceE2ee.ts) — AGENTS.md's "Where logic lives" "OS
 //                                 glue" scattered outside a proper shim.
 //   invokeCallsOutsideShims     — same scope, but for actual invoke(...)
 //                                 call sites rather than the bare import.

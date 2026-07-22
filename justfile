@@ -463,7 +463,7 @@ sync-contract-check:
 # Fail on a stale drift-registry.json entry (copy missing / pattern no longer
 # matches / lock file missing / lockStatus inconsistent), or a NEW file
 # matching a registered concept's scan pattern outside its registered copies
-# (architecture-hardening.md R1 — AGENTS.md §12 as code, deny-by-default).
+# (architecture-hardening.md R1 — AGENTS.md "Drift watchlist" as code, deny-by-default).
 check-drift:
   node scripts/drift-check.mjs
 

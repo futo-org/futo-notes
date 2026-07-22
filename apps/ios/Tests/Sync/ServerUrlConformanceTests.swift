@@ -33,8 +33,8 @@ private func loadServerUrlCases() -> [ServerUrlCase] {
 private let serverUrlCases = loadServerUrlCases()
 
 /// Locks Swift's `SyncManager.validateServerURL` to the shared fixture that the
-/// TS and Kotlin copies are already checked against — the AGENTS.md §12
-/// drift-watchlist hole ("the Swift copy has no automated fixture check").
+/// TS and Kotlin copies are already checked against — the AGENTS.md "Drift
+/// watchlist" hole ("the Swift copy has no automated fixture check").
 ///
 /// `@MainActor` because `SyncManager` is `@MainActor`, so its static
 /// `validateServerURL` is main-actor-isolated.
