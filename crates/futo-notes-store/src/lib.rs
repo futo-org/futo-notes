@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use futo_notes_core::conflict_names::{conflict_filename, current_conflict_date};
 use futo_notes_core::files::{
-    collides_but_differs, collision_key, create_new_atomic, move_no_replace, rename_through_temp,
+    collides_but_differs, create_new_atomic, move_no_replace, rename_through_temp,
     safe_appdata_path, set_file_mtime_ms, write_atomic_text,
 };
 use futo_notes_model::{make_id, rewrite_wikilinks, sanitize_folder_path, split_id};
@@ -104,6 +105,34 @@ pub enum CreateOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConditionalWriteResult {
     pub outcome: FlushOutcome,
+    pub mutation: Option<MutationResult>,
+}
+
+/// The single outcome of one draft flush (CONTEXT.md: flush disposition).
+/// Shells render dispositions; they never decide them (ADR-0001).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FlushDisposition {
+    /// The note still held `base`; the draft is committed at its id.
+    Wrote,
+    /// Disk already equals the draft — nothing written, no mtime bump.
+    /// Explicit so shells never read disk to compare.
+    Converged,
+    /// A peer deleted the note; the edit wins — recreated at the ORIGINAL id.
+    Recreated,
+    /// A peer changed the note (or its id reappeared inside the flush); the
+    /// draft is parked as a conflict copy and the diverged note is untouched.
+    #[serde(rename_all = "camelCase")]
+    ParkedConflict { parked_id: String },
+}
+
+/// What [`LocalNoteStore::flush_draft`] committed: one disposition plus the
+/// mutation to project (`None` when nothing changed on disk — converged, or
+/// a park that found its copy already minted).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlushDraftResult {
+    pub disposition: FlushDisposition,
     pub mutation: Option<MutationResult>,
 }
 
@@ -485,6 +514,179 @@ impl LocalNoteStore {
         } else {
             Ok(CreateOutcome::Existed)
         }
+    }
+
+    /// THE draft-saving verb (persist-or-park, ADR-0001 / issue #37): persist
+    /// `content` for the note at `id`, resolving every surprise itself, and
+    /// return one [`FlushDisposition`] plus the mutation to project. `base` is
+    /// the content the editor last loaded or saved — what detects that the
+    /// note changed underneath the draft.
+    ///
+    /// The whole composition holds the mutation gate once, so no check-then-act
+    /// window spans app-facing calls (the P1a TOCTOU that lived between the raw
+    /// `write_if_unchanged`/`create_if_absent`/park FFI calls). External/sync
+    /// writers are NOT serialized by the gate, so every install remains
+    /// no-replace and re-validates instead of clobbering.
+    pub fn flush_draft(
+        &self,
+        id: &str,
+        base: &str,
+        content: &str,
+    ) -> Result<FlushDraftResult, String> {
+        let _gate = self.lock_gate()?;
+        let path = paths::note_path(&self.root, id)?;
+        match fs::read_to_string(&path) {
+            // Converged is checked BEFORE the base comparison so a draft the
+            // disk already holds never rewrites identical bytes (an mtime bump
+            // would re-rank the note on every device).
+            Ok(current) if current == content => Ok(FlushDraftResult {
+                disposition: FlushDisposition::Converged,
+                mutation: None,
+            }),
+            Ok(current) if current == base => {
+                let metadata = self.write_raw(id, content, None)?;
+                Ok(FlushDraftResult {
+                    disposition: FlushDisposition::Wrote,
+                    mutation: Some(self.upsert_mutation(metadata)),
+                })
+            }
+            // The note changed under the editor (a live pull adopted a peer
+            // edit, or an in-flight autosave advanced disk past `base`). Never
+            // drop the draft: park it as a conflict copy — the diverged note on
+            // disk is left intact and the edit survives as a new note.
+            Ok(_) => self.park_conflict_draft(id, content),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.recreate_missing_draft(id, content, &path)
+            }
+            Err(error) => Err(io_error(error)),
+        }
+    }
+
+    /// The flush's peer-delete arm: a dirty draft is edit-wins — recreate at
+    /// the ORIGINAL id (the same home the editor's resume autosave rewrites,
+    /// so the survive and jetsam paths converge with no duplicate copy). The
+    /// install is atomic no-replace: a live-sync pull that recreated the id
+    /// outside the store's serialization is never clobbered — if the id
+    /// reappeared, park the draft unless it converged.
+    fn recreate_missing_draft(
+        &self,
+        id: &str,
+        content: &str,
+        path: &Path,
+    ) -> Result<FlushDraftResult, String> {
+        // Never recreate at an id that cross-platform-collides (case-insensitive
+        // / NFC) with a DIFFERENT surviving note. `create_new_atomic` only fails
+        // on an EXACT-path collision, so on a case-sensitive filesystem
+        // recreating a peer-deleted "Note" beside a live "note" would install a
+        // shadow `write_raw` refuses for ordinary writes. Park the edit instead —
+        // the draft still survives, at a non-shadowing conflict-copy id.
+        if self.colliding_note(id).is_some() {
+            return self.park_conflict_draft(id, content);
+        }
+        let change = FileChange::Changed(note_filename(id));
+        self.before_write
+            .before_write(std::slice::from_ref(&change));
+        #[cfg(test)]
+        if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
+            hook(id);
+        }
+        if create_new_atomic(path, content.as_bytes())? {
+            let metadata = vault::metadata(&self.root, id)
+                .ok_or_else(|| "note metadata unavailable after recreate".to_owned())?;
+            self.notify(&change);
+            return Ok(FlushDraftResult {
+                disposition: FlushDisposition::Recreated,
+                mutation: Some(self.upsert_mutation(metadata)),
+            });
+        }
+        match fs::read_to_string(path) {
+            Ok(current) if current == content => Ok(FlushDraftResult {
+                disposition: FlushDisposition::Converged,
+                mutation: None,
+            }),
+            _ => self.park_conflict_draft(id, content),
+        }
+    }
+
+    /// Park a draft that conflicts with a genuinely different on-disk version
+    /// as a "<title> (conflict YYYY-MM-DD)" copy, named by the engine's one
+    /// conflict-naming rule (`futo_notes_core::conflict_names` — the rule sync
+    /// already uses). Idempotent: if a copy this park could have minted (the
+    /// dated stem or one of its counter variants) already holds byte-identical
+    /// content, the existing copy is reported and nothing new is created — a
+    /// crash-window double-park mints ONE copy. Caller holds the mutation gate.
+    fn park_conflict_draft(&self, id: &str, content: &str) -> Result<FlushDraftResult, String> {
+        let (folder, title) = split_id(id);
+        let date = current_conflict_date();
+        let sibling_titles: Vec<String> = vault::note_paths(&self.root)
+            .into_iter()
+            .filter_map(|(sibling_id, _)| {
+                let (sibling_folder, sibling_title) = split_id(&sibling_id);
+                (sibling_folder == folder).then_some(sibling_title)
+            })
+            .collect();
+        let stem = note_title(&conflict_filename(
+            &note_filename(&title),
+            &date,
+            &HashSet::new(),
+        ));
+        for sibling_title in &sibling_titles {
+            if !is_dated_conflict_variant(&stem, sibling_title) {
+                continue;
+            }
+            let parked_id = join_id(&folder, sibling_title);
+            if self.read(&parked_id) == content {
+                return Ok(FlushDraftResult {
+                    disposition: FlushDisposition::ParkedConflict { parked_id },
+                    mutation: None,
+                });
+            }
+        }
+        // Mint the copy no-replace. The naming rule avoids every sibling seen
+        // now; a writer outside this store's serialization landing on the
+        // chosen name in the window fails the install (EEXIST), and the retry
+        // re-runs the rule with that name occupied — never a clobber. Like
+        // every brand-new create (see `install_new`, D2), the park registers
+        // NO watcher suppression: the own-create echo reconciles idempotently
+        // and a peer's colliding event must not be eaten.
+        let mut existing: HashSet<String> = sibling_titles
+            .iter()
+            .map(|sibling_title| note_filename(sibling_title))
+            .collect();
+        for _ in 0..1000 {
+            let filename = conflict_filename(&note_filename(&title), &date, &existing);
+            let parked_id = join_id(&folder, &note_title(&filename));
+            // Skip a candidate that cross-platform-collides (case-insensitive /
+            // NFC) with a DIFFERENT live note: `create_new_atomic` can't see
+            // that on a case-sensitive filesystem, so installing here would
+            // shadow it. Occupy the name so the naming rule advances to the next
+            // dated counter, then retry.
+            if self.colliding_note(&parked_id).is_some() {
+                existing.insert(filename);
+                continue;
+            }
+            let path = paths::note_path(&self.root, &parked_id)?;
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(io_error)?;
+            }
+            #[cfg(test)]
+            if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
+                hook(&parked_id);
+            }
+            if create_new_atomic(&path, content.as_bytes())? {
+                let metadata = vault::metadata(&self.root, &parked_id)
+                    .ok_or_else(|| "note metadata unavailable after park".to_owned())?;
+                self.notify(&FileChange::Changed(note_filename(&parked_id)));
+                return Ok(FlushDraftResult {
+                    disposition: FlushDisposition::ParkedConflict {
+                        parked_id: parked_id.clone(),
+                    },
+                    mutation: Some(self.upsert_mutation(metadata)),
+                });
+            }
+            existing.insert(filename);
+        }
+        Err("could not allocate a conflict-copy id after repeated collisions".to_owned())
     }
 
     pub fn rename(&self, old_id: &str, wanted_id: &str) -> Result<MutationResult, String> {
@@ -939,16 +1141,27 @@ impl LocalNoteStore {
         Err("could not allocate a recovered note id after repeated collisions".to_owned())
     }
 
+    /// The id of a DIFFERENT live note sharing `id`'s cross-platform collision
+    /// key (case-insensitive + NFC), if any. `create_new_atomic` /
+    /// `write_atomic_text` only catch an EXACT-path collision, so on a
+    /// case-sensitive filesystem an install at `id` could otherwise shadow a
+    /// live note cross-platform. `write_raw` refuses such a write; the flush
+    /// verb's recreate and park arms park the draft instead of installing a
+    /// shadowing id.
+    fn colliding_note(&self, id: &str) -> Option<String> {
+        vault::note_paths(&self.root)
+            .into_iter()
+            .map(|(existing, _)| existing)
+            .find(|existing| collides_but_differs(existing, id))
+    }
+
     fn write_raw(
         &self,
         id: &str,
         content: &str,
         modified_ms: Option<i64>,
     ) -> Result<NoteMetadata, String> {
-        if let Some((existing, _)) = vault::note_paths(&self.root)
-            .into_iter()
-            .find(|(existing, _)| existing != id && collision_key(existing) == collision_key(id))
-        {
+        if let Some(existing) = self.colliding_note(id) {
             return Err(format!(
                 "note id collides with existing cross-platform path: {existing}"
             ));
@@ -1071,6 +1284,43 @@ impl LocalNoteStore {
 
 fn note_filename(id: &str) -> String {
     format!("{id}.md")
+}
+
+fn note_title(filename: &str) -> String {
+    filename
+        .strip_suffix(".md")
+        .unwrap_or(filename)
+        .to_owned()
+}
+
+fn join_id(folder: &str, title: &str) -> String {
+    if folder.is_empty() {
+        title.to_owned()
+    } else {
+        format!("{folder}/{title}")
+    }
+}
+
+/// Whether `candidate` is a title [`LocalNoteStore::park_conflict_draft`]
+/// could have minted for the dated `stem` ("<base> (conflict YYYY-MM-DD)"):
+/// the stem itself or one of the naming rule's counter variants
+/// ("<base> (conflict YYYY-MM-DD N)"). Deliberately NOT a prefix match, so a
+/// merely similarly-named user note ("<stem> draft") never satisfies the park
+/// idempotency guard (the F1 class).
+fn is_dated_conflict_variant(stem: &str, candidate: &str) -> bool {
+    if candidate == stem {
+        return true;
+    }
+    let Some(open) = stem.strip_suffix(')') else {
+        return false;
+    };
+    candidate
+        .strip_prefix(open)
+        .and_then(|rest| rest.strip_prefix(' '))
+        .and_then(|rest| rest.strip_suffix(')'))
+        .is_some_and(|counter| {
+            !counter.is_empty() && counter.bytes().all(|byte| byte.is_ascii_digit())
+        })
 }
 
 fn prepare_relinks(root: &Path, mappings: &[(String, String)]) -> HashMap<String, String> {

@@ -279,11 +279,12 @@ struct NoteEditorView: View {
                 store.delete(noteId)
             } else if content != savedContent {
                 // POP flush (navigating back isn't a background signal, so the
-                // scenePhase handler won't fire). Conditional write via the draft:
-                // `flushAsync` writes only if the note still holds `savedContent`,
-                // so a note deleted / sync-adopted while open is neither
-                // resurrected nor clobbered, and a no-edit open/close never bumps
-                // mtime. Mirrors Android's onDispose flush.
+                // scenePhase handler won't fire). Persist-or-park via the engine's
+                // flush verb: the draft is written only if the note still holds
+                // `savedContent`, recreated if a peer deleted it, or parked as a
+                // conflict copy if a peer changed it — never silently dropped, and
+                // a no-edit open/close never bumps mtime. Mirrors Android's
+                // onDispose flush.
                 store.flushAsync(PendingDraft(id: noteId, base: savedContent, content: content))
                 savedContent = content
             }
@@ -483,15 +484,55 @@ struct NoteEditorView: View {
             savedContent = disk
         } else {
             // True three-way conflict: cancel the pending save (it would clobber
-            // the remote edit — store.write is unconditional), park the draft as a
-            // conflict copy, then adopt. Uses the shared `parkDraftCopy` so the
-            // flush and the live-pull path can't drift on the conflict-copy naming.
+            // the remote edit — store.write is unconditional), then route the
+            // draft through the engine's ONE flush verb, so the live-pull path
+            // and the leave/background flush share the park semantics and the
+            // conflict-copy naming by construction.
             saveTask?.cancel()
-            await store.parkDraftCopy(PendingDraft(id: id, base: savedContent, content: content))
+            // Snapshot the draft BEFORE the suspending flush: a keystroke landing
+            // during the await (main-actor reentrancy — the PKT-12 F1 hazard
+            // applyRename/scheduleSave avoid) must stay dirty, not be marked
+            // saved and lost on pop/jetsam. The engine persists exactly this
+            // snapshot; assigning `flushed` (not the live `content`) leaves any
+            // newer keystroke dirty for the next flush.
+            let flushed = content
+            let disposition = await store.flushDraft(
+                PendingDraft(id: id, base: savedContent, content: flushed))
             guard noteId == id else { return }
-            if isVisible { EditorHost.shared.applyExternal(content: disk) }
-            content = disk
-            savedContent = disk
+            switch adoptFlushOutcome(for: disposition) {
+            case .keepDraft:
+                // wrote / recreated / converged: the flushed draft is on disk at
+                // the original id (converged = an in-flight autosave landed it
+                // first). Keep the draft in the editor — do NOT adopt the stale
+                // pre-flush `disk` snapshot, which is gone from disk; adopting it
+                // clean would let the next keystroke's unconditional autosave
+                // destroy the just-persisted draft with no copy (F3).
+                savedContent = flushed
+            case .reloadDisk:
+                // Parked as a conflict copy. The engine decided that outcome
+                // from a serialized re-check, so the pre-flush `disk` snapshot
+                // is no longer authoritative. Re-read before adopting.
+                guard content == flushed else {
+                    // A newer keystroke landed during the flush. Re-evaluate it
+                    // against current disk instead of replacing it or letting
+                    // its unconditional autosave clobber the peer version.
+                    await adoptExternalChange()
+                    return
+                }
+                let refreshedDisk = await store.read(id)
+                guard noteId == id else { return }
+                guard content == flushed else {
+                    await adoptExternalChange()
+                    return
+                }
+                if isVisible { EditorHost.shared.applyExternal(content: refreshedDisk) }
+                content = refreshedDisk
+                savedContent = refreshedDisk
+            case .retryLater:
+                // Flush failed (I/O): leave the draft dirty so the next signal
+                // (autosave, background flush, re-adopt) retries.
+                return
+            }
         }
     }
 
@@ -507,8 +548,9 @@ struct NoteEditorView: View {
     /// re-adopt when the user navigates back to it (H2), so a peer-deleted buried
     /// note is closed/kept on return rather than staying bound to a dead id where
     /// the next keystroke's unconditional autosave would resurrect it. The
-    /// background/leave flush is anti-resurrection (persist-or-park →
-    /// SkippedMissing parks a copy, never recreates the original id).
+    /// background/leave flush honors the same edit-wins promise through the
+    /// engine's flush verb (a dirty draft of a deleted note is Recreated at the
+    /// original id; a clean editor never flushes).
     private func handleOpenNoteDeleted() {
         guard isVisible, !isClosing else { return }
         if content == savedContent {

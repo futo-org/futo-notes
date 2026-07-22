@@ -88,13 +88,7 @@ pub(super) fn remove_local(root: &Path, name: &str, pre_write: &PreWrite) -> Res
 }
 
 pub(super) fn conflict_date() -> String {
-    let date = time::OffsetDateTime::now_utc().date();
-    format!(
-        "{:04}-{:02}-{:02}",
-        date.year(),
-        u8::from(date.month()),
-        date.day()
-    )
+    futo_notes_core::conflict_names::current_conflict_date()
 }
 
 pub(super) fn park_local(

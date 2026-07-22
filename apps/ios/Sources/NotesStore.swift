@@ -25,43 +25,15 @@ actor NoteVault {
         try core.write(id: id, content: content)
     }
 
-    /// Conditional write for a backgrounded editor flush (see
-    /// `NotesStore.flushAsync`): write `content` only if the note still holds
-    /// `expected`. Returns the outcome plus, on a genuine write, the mutation to
-    /// project into the list. The anti-resurrection / anti-clobber decision lives
-    /// in the Rust store's `write_if_unchanged` — this is a thin off-main wrapper.
-    func writeIfUnchanged(_ id: String, expected: String, content: String) throws
-        -> ConditionalWrite
-    {
-        try core.writeIfUnchanged(id: id, expectedPrev: expected, content: content)
-    }
-
-    /// Atomically (re-)create the note at `id` with `content` ONLY IF absent
-    /// (no-replace `hard_link` install, Rust store `create_if_absent`) — the
-    /// peer-delete edit-wins recreate without a clobber race against an
-    /// independent sync write (PKT-10 P1a). Returns `.created` (the caller
-    /// reloads to project the new row) or `.existed`.
-    func createIfAbsent(_ id: String, content: String) throws -> CreateOutcome {
-        try core.createIfAbsent(id: id, content: content)
-    }
-
-    /// Atomically (WITHIN this actor) create a "<stem>" conflict copy holding
-    /// `content` in `folder` — UNLESS a note whose title matches the stem already
-    /// holds byte-identical content. The candidate scan reads DISK
-    /// (`scan`/`read`) and the create runs with NO suspension in between, so
-    /// two concurrent parks (a live-adopt conflict racing a scene-phase flush, or
-    /// overlapping background episodes) that both route through this actor are
-    /// serialized — they can't each mint a suffixed duplicate (PKT-10 P1b).
-    /// Returns the create mutation, or nil if a matching copy already existed.
-    func parkConflictCopyIfAbsent(stem: String, folder: String, content: String) throws
-        -> NoteMutation?
-    {
-        let alreadyParked = core.scan().notes.contains { meta in
-            meta.folder == folder && meta.title.hasPrefix(stem)
-                && core.read(id: meta.id) == content
-        }
-        if alreadyParked { return nil }
-        return try core.createNote(title: stem, folder: folder, content: content)
+    /// THE draft-saving verb (persist-or-park, ADR-0001 / issue #37): the
+    /// engine resolves every save surprise itself — wrote / converged /
+    /// recreated at the original id / parked as a conflict copy — under its
+    /// own per-workflow serialization, and returns the disposition plus the
+    /// mutation to project. This replaced the Swift-side
+    /// writeIfUnchanged → createIfAbsent → park composition, whose
+    /// check-then-act windows spanned FFI calls (PKT-10 P1a/P1b).
+    func flushDraft(_ id: String, base: String, content: String) throws -> FlushDraftResult {
+        try core.flushDraft(id: id, base: base, content: content)
     }
 
     func createNote(title: String, folder: String) throws -> NoteMutation {
@@ -111,11 +83,11 @@ actor NoteVault {
 
 /// An open editor's unsaved draft: the note `id` to persist, the `content` to
 /// write, and `base` — the content the editor believes is on disk (its
-/// `savedContent`). `base` is the expected-previous for the conditional flush
-/// (see `NotesStore.flushAsync` → `writeIfUnchanged`): the flush writes only if
-/// the note still holds `base`, so a note deleted or sync-adopted while
-/// backgrounded is neither resurrected nor clobbered. Mirrors Android's
-/// `PendingDraft` (NotesStore.kt).
+/// `savedContent`). `base` is what the engine's flush verb
+/// (`NotesStore.flushDraft` → Rust `flush_draft`) compares against to detect
+/// that the note changed underneath the editor, so a note deleted or
+/// sync-adopted while backgrounded is neither resurrected nor clobbered.
+/// Mirrors Android's `PendingDraft` (NotesStore.kt).
 struct PendingDraft: Equatable {
     let id: String
     let base: String
@@ -137,6 +109,42 @@ func derivePendingDraft(loaded: Bool, noteId: String, savedContent: String, cont
 {
     (loaded && content != savedContent)
         ? PendingDraft(id: noteId, base: savedContent, content: content) : nil
+}
+
+/// What the live-pull conflict path (`NoteEditorView.adoptExternalChange`) does
+/// to the OPEN editor once the engine's flush verb resolves a dirty draft.
+enum AdoptFlushOutcome: Equatable {
+    /// The draft is durable ON DISK at the original id — keep it in the editor.
+    /// wrote/recreated installed it; converged means disk already equalled it.
+    case keepDraft
+    /// The draft was parked as a conflict copy — re-read and adopt the current
+    /// on-disk peer version. The snapshot from before the flush is stale by
+    /// definition because the flush performed its own serialized re-check.
+    case reloadDisk
+    /// The flush failed (I/O) — leave the draft dirty; the next signal retries.
+    case retryLater
+}
+
+/// Map a flush disposition to the open-note adopt outcome. Pure + top-level (like
+/// `derivePendingDraft`) so the persist-or-park arm choice — above all the
+/// converged race, where an in-flight unconditional autosave lands the draft on
+/// disk just before `flush_draft` runs — is a table test, not a device scenario.
+///
+/// `.converged` groups with `.wrote`/`.recreated`, NOT with `.parkedConflict`
+/// (issue #37 F3): converged means the engine saw disk ALREADY hold the draft,
+/// so the draft is the on-disk content. Adopting the caller's pre-flush `disk`
+/// snapshot here would show a version no longer on disk, mark it clean, and let
+/// the next keystroke's unconditional autosave destroy the just-persisted draft
+/// with no conflict copy — a regression against the persist-or-park promise.
+func adoptFlushOutcome(for disposition: FlushDisposition?) -> AdoptFlushOutcome {
+    switch disposition {
+    case .parkedConflict:
+        return .reloadDisk
+    case .wrote, .recreated, .converged:
+        return .keepDraft
+    case .none:
+        return .retryLater
+    }
 }
 
 /// SwiftUI projection of the canonical local-note store. The published arrays
@@ -222,8 +230,8 @@ final class NotesStore: ObservableObject {
     /// BETWEEN the two callbacks (the newest edit, lost on suspend/terminate —
     /// defeating the jetsam guard). Comparing the registered draft to the snapshot
     /// re-flushes only a CHANGED draft while skipping an identical re-flush (the
-    /// anti-double-park property, which `parkConflictCopyIfAbsent` idempotency
-    /// enforces on its own anyway).
+    /// anti-double-park property, which the engine's `flush_draft` park
+    /// idempotency enforces on its own anyway).
     private var flushedThisEpisode: [String: PendingDraft] = [:]
 
     /// Flush every live editor's pending draft to disk (scenePhase inactive/
@@ -380,99 +388,41 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    /// Fire-and-forget conditional flush of a pending draft from a context that
-    /// cannot `await` — `NoteEditorView.onDisappear` (pop) and the app's scenePhase
-    /// background handler. A conditional write (`writeIfUnchanged`): persist
-    /// `draft.content` only if the note still holds `draft.base` (the content the
-    /// editor last saw). One FFI call replaces the old `exists()`-then-`write()`
-    /// sequence, collapsing its cross-FFI TOCTOU. NEVER drops the draft:
-    /// `.wrote` reflects into the in-memory list; `.skippedMissing` (peer deleted)
-    /// recreates the note at its original id — edit-wins dirty-keep, converging
-    /// with the resume autosave on ONE home (no conflict-copy-vs-recreated-original
-    /// dup); `.skippedChanged` (peer changed) parks the draft as a conflict copy so
-    /// the edit survives WITHOUT clobbering the diverged note. (Diverges from
-    /// Android's flush, which drops on skip; iOS is the only shell that makes the
-    /// peer-delete "keeping local draft" promise.)
-    func flushAsync(_ draft: PendingDraft) {
-        Task {
-            do {
-                let result = try await vault.writeIfUnchanged(
-                    draft.id, expected: draft.base, content: draft.content)
-                switch result.outcome {
-                case .wrote:
-                    // The store committed the write and returned the affected row.
-                    if let mutation = result.mutation {
-                        applyMutation(mutation)
-                        onLocalChange?()
-                    }
-                case .skippedChanged:
-                    // The note changed under the editor between its last read and
-                    // this flush — a live pull adopted a peer edit, or an in-flight
-                    // autosave advanced disk past `base`. NEVER drop the draft: if it
-                    // hasn't already converged with disk, park it as a conflict copy
-                    // (persist-or-park). Not a clobber — the diverged note on disk is
-                    // left intact; the edit survives as a new note.
-                    let disk = await vault.read(draft.id)
-                    if disk != draft.content { await parkDraftCopy(draft) }
-                case .skippedMissing:
-                    // Peer deleted the note; a dirty draft is edit-wins
-                    // RE-CREATE-WITH-EDITS (sync.md dirty-keep). Recreate at the
-                    // ORIGINAL id — exactly what the editor's resume autosave does —
-                    // so the survive path (autosave rewrites the same id,
-                    // idempotent) and the jetsam path (this flush recreated)
-                    // converge on ONE home, with NO conflict-copy-vs-recreated-
-                    // original duplication. BUT recreate only-while-still-absent
-                    // (atomic no-replace install): a live-sync pull that recreated
-                    // the id in the window between the CAS and here must not be
-                    // clobbered (P1a). If it reappeared, fall through to the changed
-                    // handling — park the draft unless it converged.
-                    let created = try await vault.createIfAbsent(
-                        draft.id, content: draft.content)
-                    if created == .created {
-                        // The store has no mutation for a bare create-if-absent;
-                        // reload to project the recreated row.
-                        reload()
-                        onLocalChange?()
-                    } else {
-                        let disk = await vault.read(draft.id)
-                        if disk != draft.content { await parkDraftCopy(draft) }
-                    }
-                }
-            } catch {
-                print("flush failed for \(draft.id): \(error)")
+    /// Flush a pending draft through the engine's ONE draft-saving verb
+    /// (persist-or-park, ADR-0001 / issue #37) and project the returned
+    /// mutation. The engine decides the disposition — wrote / converged /
+    /// recreated at the original id (edit-wins dirty-keep, sync.md — the same
+    /// home the resume autosave rewrites, so the survive and jetsam paths
+    /// converge with no duplicate copy) / parked as a conflict copy (the
+    /// diverged note untouched, the edit surviving as a new note). The whole
+    /// composition runs under the engine's serialization, so the old
+    /// cross-FFI check-then-act windows (PKT-10 P1a/P1b) and the hand-rolled
+    /// per-platform state machine are gone. Returns the disposition (nil on
+    /// an I/O failure) so the live-pull conflict path can react; iOS remains
+    /// the shell that never drops a draft (Android drops on skip until #38).
+    @discardableResult
+    func flushDraft(_ draft: PendingDraft) async -> FlushDisposition? {
+        do {
+            let result = try await vault.flushDraft(
+                draft.id, base: draft.base, content: draft.content)
+            // Converged and already-parked outcomes carry no mutation —
+            // nothing changed on disk, nothing to project or sync.
+            if let mutation = result.mutation {
+                applyMutation(mutation)
+                onLocalChange?()
             }
+            return result.disposition
+        } catch {
+            print("flush failed for \(draft.id): \(error)")
+            return nil
         }
     }
 
-    /// Preserve a draft that CONFLICTS with a genuinely different on-disk version
-    /// (a peer CHANGED the note out from under the editor) as a
-    /// "<title> (conflict YYYY-MM-DD)" copy, so the local edit survives without
-    /// clobbering the peer's version. Shared by the flush's `.skippedChanged` arm
-    /// and the live-pull conflict path (`adoptExternalChange`), so the
-    /// conflict-copy naming lives in one place. (The peer-DELETE case does NOT come
-    /// here — it is edit-wins re-create at the original id; see `flushAsync`.)
-    /// Anti-clobber safe: creates a NEW note, never rewrites the diverged original.
-    ///
-    /// IDEMPOTENCY GUARD (conflict-copy combinatorial-explosion class — the
-    /// 1081-object incident): the check-that-a-copy-doesn't-already-exist and the
-    /// create are ONE serialized `NoteVault` operation reading DISK
-    /// (`parkConflictCopyIfAbsent`), so two concurrent parks can't each mint a
-    /// suffixed duplicate — the stale-cache / yield-before-create race the old
-    /// in-`notes`-cache scan had (P1b). Only a genuine create refreshes state.
-    func parkDraftCopy(_ draft: PendingDraft) async {
-        let parts = splitId(id: draft.id)
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let stem = "\(parts.title) (conflict \(formatter.string(from: Date())))"
-        do {
-            guard let mutation = try await vault.parkConflictCopyIfAbsent(
-                stem: stem, folder: parts.folder, content: draft.content)
-            else { return }  // an identical copy already existed — no duplicate
-            applyMutation(mutation)
-            onLocalChange?()
-        } catch {
-            print("parkDraftCopy failed for \(draft.id): \(error)")
-        }
+    /// Fire-and-forget flush for contexts that cannot `await` —
+    /// `NoteEditorView.onDisappear` (pop) and the app's scenePhase background
+    /// handler (the F8 jetsam guard).
+    func flushAsync(_ draft: PendingDraft) {
+        Task { await flushDraft(draft) }
     }
 
     @discardableResult

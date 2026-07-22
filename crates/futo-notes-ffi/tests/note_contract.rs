@@ -2,9 +2,9 @@ use std::fs;
 
 use futo_notes_ffi::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
-    sanitize_title, split_id, validate_title, ConditionalWrite, CreateOutcome, FlushOutcome,
-    NoteBootstrap, NoteError, NoteIdParts, NoteMetadata, NoteMutation, NoteSnapshot, NoteStore,
-    SearchHit, TitleIssue,
+    sanitize_title, split_id, validate_title, ConditionalWrite, CreateOutcome, FlushDisposition,
+    FlushDraftResult, FlushOutcome, NoteBootstrap, NoteError, NoteIdParts, NoteMetadata,
+    NoteMutation, NoteSnapshot, NoteStore, SearchHit, TitleIssue,
 };
 
 mod support;
@@ -207,6 +207,63 @@ fn note_store_projects_complete_workflow_results() {
     assert!(notes_root.is_dir(), "reset must preserve the vault root");
 }
 
+// The one draft-saving verb (persist-or-park, issue #37) projects all four
+// flush dispositions and their mutations through the FFI.
+#[test]
+fn flush_draft_projects_every_disposition() {
+    let temp = TempTree::new();
+    let notes_root = temp.path("vault");
+    fs::create_dir_all(&notes_root).unwrap();
+    let store = NoteStore::new(path_string(&notes_root));
+
+    fs::write(notes_root.join("note.md"), "base").unwrap();
+    let wrote = store
+        .flush_draft("note".to_owned(), "base".to_owned(), "draft".to_owned())
+        .unwrap();
+    assert_eq!(wrote.disposition, FlushDisposition::Wrote);
+    let mutation = wrote.mutation.expect("a write projects a mutation");
+    assert_eq!(mutation.final_id.as_deref(), Some("note"));
+    assert_eq!(store.read("note".to_owned()), "draft");
+
+    let converged = store
+        .flush_draft("note".to_owned(), "stale".to_owned(), "draft".to_owned())
+        .unwrap();
+    assert_eq!(converged.disposition, FlushDisposition::Converged);
+    assert!(converged.mutation.is_none());
+
+    let parked = store
+        .flush_draft("note".to_owned(), "stale".to_owned(), "diverged".to_owned())
+        .unwrap();
+    let FlushDisposition::ParkedConflict { parked_id } = parked.disposition else {
+        panic!("expected the diverged draft to be parked");
+    };
+    assert!(parked_id.starts_with("note (conflict "));
+    assert_eq!(store.read(parked_id.clone()), "diverged");
+    assert_eq!(store.read("note".to_owned()), "draft", "diverged note untouched");
+    assert!(parked.mutation.is_some(), "a fresh park projects a mutation");
+
+    // Park idempotency across the FFI: the identical draft reports the same
+    // copy and mints nothing new.
+    let reparked = store
+        .flush_draft("note".to_owned(), "stale".to_owned(), "diverged".to_owned())
+        .unwrap();
+    assert_eq!(
+        reparked.disposition,
+        FlushDisposition::ParkedConflict { parked_id }
+    );
+    assert!(reparked.mutation.is_none());
+
+    store.delete("note".to_owned()).unwrap();
+    let recreated = store
+        .flush_draft("note".to_owned(), "draft".to_owned(), "survivor".to_owned())
+        .unwrap();
+    assert_eq!(recreated.disposition, FlushDisposition::Recreated);
+    let mutation = recreated.mutation.expect("a recreate projects a mutation");
+    assert_eq!(mutation.final_id.as_deref(), Some("note"));
+    assert_eq!(mutation.upserted[0].position, 0);
+    assert_eq!(store.read("note".to_owned()), "survivor");
+}
+
 #[test]
 fn bootstrap_makes_existing_note_content_searchable_through_bm25() {
     let temp = TempTree::new();
@@ -326,6 +383,26 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
     };
     assert_eq!(outcome, FlushOutcome::SkippedMissing);
     assert!(mutation.is_none());
+
+    let FlushDraftResult {
+        disposition,
+        mutation,
+    } = FlushDraftResult {
+        disposition: FlushDisposition::ParkedConflict {
+            parked_id: "note (conflict 2026-07-21)".to_owned(),
+        },
+        mutation: None,
+    };
+    assert_eq!(
+        disposition,
+        FlushDisposition::ParkedConflict {
+            parked_id: "note (conflict 2026-07-21)".to_owned()
+        }
+    );
+    assert!(mutation.is_none());
+    assert_eq!(FlushDisposition::Wrote, FlushDisposition::Wrote);
+    assert_eq!(FlushDisposition::Converged, FlushDisposition::Converged);
+    assert_eq!(FlushDisposition::Recreated, FlushDisposition::Recreated);
 
     let TitleIssue { kind, message } = TitleIssue {
         kind: "empty".to_owned(),
