@@ -156,8 +156,7 @@ Behaviors and constraints that hold across every surface and platform.
   banned; instead the `LiveMarkdownPlugin` constructor seeds decorations with a
   tightly time-boxed (≤200 ms) `ensureSyntaxTree(..., doc.length, 200)` parse,
   then grows decorations incrementally as parsing continues
-  (`scheduleParseRefresh`). → src/features/editor/live-preview/LiveMarkdownPlugin.ts,
-  docs/learnings/scroll-fix-handoff-report.md
+  (`scheduleParseRefresh`). → src/features/editor/live-preview/LiveMarkdownPlugin.ts
 
 ## Data safety
 
