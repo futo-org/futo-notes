@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NotePreview } from '$shared/types/note';
+import { getEmptyFolders, setFolderSnapshot } from '$features/folders/emptyFolders.svelte';
 import {
+  _applyLocalMutation,
   createNote,
   getAllNotes,
   handleExternalFileChange,
@@ -14,6 +16,7 @@ import {
   type LocalNoteMetadata,
   type LocalNoteMutation,
   type LocalNoteStore,
+  type LocalNoteUpsert,
 } from '$lib/localNoteStore';
 
 function metadata(id: string, preview = ''): LocalNoteMetadata {
@@ -29,8 +32,20 @@ function metadata(id: string, preview = ''): LocalNoteMetadata {
   };
 }
 
+function upsert(id: string, position = 0, preview = ''): LocalNoteUpsert {
+  return { note: metadata(id, preview), position };
+}
+
 function mutation(overrides: Partial<LocalNoteMutation> = {}): LocalNoteMutation {
-  return { upserted: [], removed: [], renamed: [], warnings: [], ...overrides };
+  return {
+    upserted: [],
+    removed: [],
+    renamed: [],
+    folders: [],
+    finalId: null,
+    warnings: [],
+    ...overrides,
+  };
 }
 
 function preview(id: string): NotePreview {
@@ -52,7 +67,7 @@ function fakeStore(overrides: Partial<LocalNoteStore> = {}): LocalNoteStore {
     deleteFolder: vi.fn(),
     reset: vi.fn(),
     search: vi.fn(async () => []),
-    searchStatus: vi.fn(async () => ({ keyword: { ready: true } })),
+    waitUntilSearchReady: vi.fn(async () => true),
     rescan: vi.fn(),
     ...overrides,
   } as LocalNoteStore;
@@ -61,11 +76,12 @@ function fakeStore(overrides: Partial<LocalNoteStore> = {}): LocalNoteStore {
 describe('TypeScript local-note projection', () => {
   beforeEach(() => {
     setNotesUniverse([]);
+    setFolderSnapshot([], []);
     _setLocalNoteStoreForTest(null);
   });
 
   it('accepts the store collision result instead of predicting a create id', async () => {
-    const save = vi.fn(async () => mutation({ upserted: [metadata('Draft-2')] }));
+    const save = vi.fn(async () => mutation({ upserted: [upsert('Draft-2')], finalId: 'Draft-2' }));
     _setLocalNoteStoreForTest(fakeStore({ save }));
 
     await expect(createNote('Draft', 'body')).resolves.toEqual({ id: 'Draft-2', mtime: 123 });
@@ -80,7 +96,8 @@ describe('TypeScript local-note projection', () => {
       mutation({
         removed: ['Old'],
         renamed: [{ from: 'Old', to: 'Folder/New' }],
-        upserted: [metadata('Folder/New'), metadata('Links', 'See [[Folder/New]]')],
+        upserted: [upsert('Folder/New', 0), upsert('Links', 1, 'See [[Folder/New]]')],
+        finalId: 'Folder/New',
       }),
     );
     _setLocalNoteStoreForTest(fakeStore({ move }));
@@ -90,11 +107,7 @@ describe('TypeScript local-note projection', () => {
       mtime: 123,
     });
     expect(move).toHaveBeenCalledOnce();
-    expect(
-      getAllNotes()
-        .map((note) => note.id)
-        .sort(),
-    ).toEqual(['Folder/New', 'Links']);
+    expect(getAllNotes().map((note) => note.id)).toEqual(['Folder/New', 'Links']);
     expect(getAllNotes().find((note) => note.id === 'Links')?.preview).toBe('See [[Folder/New]]');
   });
 
@@ -103,13 +116,41 @@ describe('TypeScript local-note projection', () => {
       mutation({
         removed: ['Old'],
         renamed: [{ from: 'Old', to: 'New' }],
-        upserted: [metadata('New')],
+        upserted: [upsert('New')],
+        finalId: 'New',
       }),
     );
     _setLocalNoteStoreForTest(fakeStore({ save }));
 
     await updateNote('New', 'ignored shell title', 'latest body', 'Old', 456);
     expect(save).toHaveBeenCalledWith('Old', 'New', 'latest body', 456);
+  });
+
+  // The projection holds no sort rule (ADR-0001): it reproduces the engine's
+  // order purely by applying removals and position splices.
+  it('applies engine-reported positions as verbatim splices', () => {
+    setNotesUniverse([preview('A'), preview('B'), preview('C')]);
+
+    _applyLocalMutation(mutation({ upserted: [upsert('D', 1)] }));
+    expect(getAllNotes().map((note) => note.id)).toEqual(['A', 'D', 'B', 'C']);
+
+    // Re-ranking an existing row moves it: old row drops, splice re-inserts.
+    _applyLocalMutation(mutation({ upserted: [upsert('C', 0)] }));
+    expect(getAllNotes().map((note) => note.id)).toEqual(['C', 'A', 'D', 'B']);
+
+    _applyLocalMutation(mutation({ removed: ['A'] }));
+    expect(getAllNotes().map((note) => note.id)).toEqual(['C', 'D', 'B']);
+  });
+
+  it('clamps an out-of-range position instead of crashing', () => {
+    setNotesUniverse([preview('A')]);
+    _applyLocalMutation(mutation({ upserted: [upsert('Z', 99)] }));
+    expect(getAllNotes().map((note) => note.id)).toEqual(['A', 'Z']);
+  });
+
+  it('applies the engine-reported folder projection with the note rows', () => {
+    _applyLocalMutation(mutation({ folders: ['Empty', 'Projects'] }));
+    expect([...getEmptyFolders()]).toEqual(['Empty', 'Projects']);
   });
 
   // The create path no longer suppresses the watcher (D2); the own-create echo
@@ -146,9 +187,8 @@ describe('TypeScript local-note projection', () => {
   });
 });
 
-// A4: the shared search-readiness promise must be bounded (never-ready index
-// can't hang search) and un-poisonable (a transient status-probe rejection
-// doesn't permanently reject it). Fresh module per test for clean init state.
+// A4: the engine-owned readiness wait is bounded and a rejection cannot poison
+// later searches. Each test loads a fresh module for clean initialization.
 describe('search readiness (A4)', () => {
   async function freshModules() {
     vi.resetModules();
@@ -161,34 +201,30 @@ describe('search readiness (A4)', () => {
     return { snapshot: { notes, folders: [] }, seeded: 0, migrated: 0, warnings: [] };
   }
 
-  it('degrades promptly instead of hanging when the index never becomes ready', async () => {
+  it('passes the configured budget to the engine wait and degrades when it reports not-ready', async () => {
     const { notes, ln } = await freshModules();
     notes._setSearchReadyTimeoutForTest(60);
+    const waitUntilSearchReady = vi.fn(async () => false);
     ln._setLocalNoteStoreForTest(
       fakeStore({
         bootstrap: vi.fn(async () => bootstrapResult()),
-        searchStatus: vi.fn(async () => ({ keyword: { ready: false } })),
+        waitUntilSearchReady,
         search: vi.fn(async () => []),
       }),
     );
     await notes.initNotes();
 
-    const started = Date.now();
     await expect(notes.search('needle')).resolves.toEqual([]);
-    expect(Date.now() - started).toBeLessThan(2000);
+    expect(waitUntilSearchReady).toHaveBeenCalledWith(60);
   });
 
-  it('survives a transient searchStatus rejection without poisoning search', async () => {
+  it('survives a rejected readiness wait without poisoning search', async () => {
     const { notes, ln } = await freshModules();
-    notes._setSearchReadyTimeoutForTest(2000);
-    let probes = 0;
     ln._setLocalNoteStoreForTest(
       fakeStore({
         bootstrap: vi.fn(async () => bootstrapResult([metadata('X', 'body')])),
-        searchStatus: vi.fn(async () => {
-          probes += 1;
-          if (probes === 1) throw new Error('transient probe failure');
-          return { keyword: { ready: true } };
+        waitUntilSearchReady: vi.fn(async () => {
+          throw new Error('transient wait failure');
         }),
         search: vi.fn(async () => [{ noteId: 'X', score: 1, source: 'keyword' }]),
       }),
@@ -197,6 +233,5 @@ describe('search readiness (A4)', () => {
 
     const results = await notes.search('q');
     expect(results.map((item) => item.note.id)).toEqual(['X']);
-    expect(probes).toBeGreaterThanOrEqual(2);
   });
 });

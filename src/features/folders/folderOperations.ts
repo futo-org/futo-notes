@@ -6,7 +6,6 @@ import {
   validateFolderName,
 } from '$lib/rules';
 
-import { rebaseEmptyFolders, removeEmptyFolderTree } from './emptyFolders.svelte';
 import {
   openFolderAndAncestors,
   rebaseOpenFolders,
@@ -56,7 +55,9 @@ export async function createFolder(
 
   const path = parentPath ? `${parentPath}/${name}` : name;
   try {
-    await (await getLocalNoteStore()).createFolder(path);
+    const mutation = await (await getLocalNoteStore()).createFolder(path);
+    const { _applyLocalMutation } = await import('$features/notes/notes.svelte');
+    _applyLocalMutation(mutation);
     openFolderAndAncestors(path);
     return { ok: true, path };
   } catch (cause) {
@@ -93,7 +94,6 @@ export async function renameOrMoveFolder(
     const { _applyLocalMutation } = await import('$features/notes/notes.svelte');
     _applyLocalMutation(mutation);
     rebaseOpenFolders(fromPath, toPath);
-    rebaseEmptyFolders(fromPath, toPath);
     return { ok: true, renames: mutation.renamed };
   } catch (cause) {
     return { ok: false, error: folderOperationError(cause, 'Failed to rename folder') };
@@ -108,7 +108,6 @@ export async function deleteFolder(
     const { _applyLocalMutation } = await import('$features/notes/notes.svelte');
     _applyLocalMutation(mutation);
     removeOpenFolderTree(path);
-    removeEmptyFolderTree(path);
     return { ok: true, renames: mutation.renamed };
   } catch (cause) {
     return { ok: false, error: folderOperationError(cause, 'Failed to delete folder') };

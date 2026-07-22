@@ -119,24 +119,16 @@
     },
     {
       "concept": "sort-tiebreaker-modified-id",
-      "description": "Note sort order (modified desc, id asc), emitted canonically by the Rust store and repeated in the three shell caches so local edits can re-sort without a disk scan. No shared fixture currently locks the four copies.",
+      "description": "Note sort order (modified desc, id asc). The Rust store is canonical: snapshots are emitted sorted and every mutation carries per-note sorted positions (issue #35 / ADR-0001), so the three former shell copies are deleted — shells apply engine positions as verbatim splices. The ONLY remaining twin is the browser in-memory dev/test harness, the LocalNoteStore seam's second engine adapter. Each side is pinned by its own contract tests (crates/futo-notes-store tests.rs; src/lib/localNoteStore.test.ts); no shared fixture locks the pair.",
       "lockStatus": "unlocked",
       "copies": [
         {
-          "location": "src/features/notes/notes.svelte.ts",
-          "pattern": "right\\.modificationTime\\s*-\\s*left\\.modificationTime\\s*\\|\\|\\s*left\\.id\\.localeCompare\\(right\\.id\\)"
-        },
-        {
           "location": "crates/futo-notes-store/src/vault.rs",
-          "pattern": "right\\s*\\.modified_ms\\s*\\.cmp\\(&left\\.modified_ms\\)"
+          "pattern": "fn note_list_order"
         },
         {
-          "location": "apps/ios/Sources/NotesStore.swift",
-          "pattern": "func resortInPlace"
-        },
-        {
-          "location": "apps/android/app/src/main/java/com/futo/notes/NotesStore.kt",
-          "pattern": "compareByDescending<NoteItem>\\s*\\{\\s*it\\.modifiedMs\\s*\\}\\.thenBy\\s*\\{\\s*it\\.id\\s*\\}"
+          "location": "src/lib/localNoteStore.ts",
+          "pattern": "function compareNoteOrder"
         }
       ]
     },

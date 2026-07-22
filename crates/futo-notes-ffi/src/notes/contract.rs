@@ -41,16 +41,26 @@ impl From<store::Snapshot> for NoteSnapshot {
 }
 
 #[derive(uniffi::Record)]
-pub struct NoteRename {
-    pub from: String,
-    pub to: String,
+pub struct UpsertedNote {
+    pub note: NoteMetadata,
+    pub position: u32,
+}
+
+impl From<store::UpsertedNote> for UpsertedNote {
+    fn from(entry: store::UpsertedNote) -> Self {
+        Self {
+            note: entry.note.into(),
+            position: entry.position,
+        }
+    }
 }
 
 #[derive(uniffi::Record)]
 pub struct NoteMutation {
-    pub upserted: Vec<NoteMetadata>,
+    pub upserted: Vec<UpsertedNote>,
     pub removed: Vec<String>,
-    pub renamed: Vec<NoteRename>,
+    pub folders: Vec<String>,
+    pub final_id: Option<String>,
     pub warnings: Vec<String>,
 }
 
@@ -59,14 +69,8 @@ impl From<store::MutationResult> for NoteMutation {
         Self {
             upserted: mutation.upserted.into_iter().map(Into::into).collect(),
             removed: mutation.removed,
-            renamed: mutation
-                .renamed
-                .into_iter()
-                .map(|rename| NoteRename {
-                    from: rename.from,
-                    to: rename.to,
-                })
-                .collect(),
+            folders: mutation.folders,
+            final_id: mutation.final_id,
             warnings: mutation.warnings,
         }
     }

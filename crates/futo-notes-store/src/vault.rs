@@ -9,6 +9,13 @@ use walkdir::{DirEntry, WalkDir};
 
 use crate::{NoteMetadata, Snapshot, VaultFile};
 
+/// THE note-list sort rule (modified desc, id asc). Canonical for every shell:
+/// snapshots are emitted in this order and mutations carry each upserted note's
+/// position in it, so no shell holds a sort rule of its own (ADR-0001).
+pub(crate) fn note_list_order(left: (i64, &str), right: (i64, &str)) -> std::cmp::Ordering {
+    right.0.cmp(&left.0).then_with(|| left.1.cmp(right.1))
+}
+
 pub(crate) fn snapshot(root: &Path) -> Snapshot {
     let (paths, folders) = walk(root);
     let mut notes: Vec<NoteMetadata> = paths
@@ -16,15 +23,30 @@ pub(crate) fn snapshot(root: &Path) -> Snapshot {
         .filter_map(|(id, path)| metadata_at(&id, &path))
         .collect();
     notes.sort_by(|left, right| {
-        right
-            .modified_ms
-            .cmp(&left.modified_ms)
-            .then_with(|| left.id.cmp(&right.id))
+        note_list_order((left.modified_ms, &left.id), (right.modified_ms, &right.id))
     });
     Snapshot {
         notes,
         folders: folders.into_iter().collect(),
     }
+}
+
+/// Stat-only post-mutation projection used to assign note positions and return
+/// the same folder state to every shell.
+pub(crate) fn note_order_and_folders(root: &Path) -> (Vec<String>, Vec<String>) {
+    let (paths, folders) = walk(root);
+    let mut entries: Vec<(i64, String)> = paths
+        .into_iter()
+        .filter_map(|(id, path)| {
+            let metadata = fs::metadata(path).ok()?;
+            metadata.is_file().then(|| (file_mtime_ms(&metadata), id))
+        })
+        .collect();
+    entries.sort_by(|left, right| note_list_order((left.0, &left.1), (right.0, &right.1)));
+    (
+        entries.into_iter().map(|(_, id)| id).collect(),
+        folders.into_iter().collect(),
+    )
 }
 
 pub(crate) fn note_paths(root: &Path) -> Vec<(String, PathBuf)> {

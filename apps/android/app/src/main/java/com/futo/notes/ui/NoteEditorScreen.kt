@@ -586,7 +586,7 @@ fun NoteEditorScreen(
         FolderPickerSheet(
             store = store,
             onDismiss = { showMoveSheet = false },
-            onPick = { folder, isNew ->
+            onPick = { folder ->
                 showMoveSheet = false
                 scope.launch {
                     // Flush the draft to the CURRENT id before the file moves —
@@ -600,7 +600,6 @@ fun NoteEditorScreen(
                     // background flush (PKT-12 F1 — same as the rename path).
                     val flushed = content
                     if (flushed != savedContent) { store.write(noteId, flushed); savedContent = flushed }
-                    if (isNew) store.createFolder(folder)
                     noteId = store.moveNote(noteId, folder)
                     Toast.makeText(context, "Moved to ${folder.ifEmpty { "Root" }}", Toast.LENGTH_SHORT).show()
                 }

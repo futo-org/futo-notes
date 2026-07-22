@@ -259,15 +259,6 @@ struct FolderContentsView: View {
         }
         .background(Theme.background)
         .navigationTitle(title)
-        .onAppear {
-            // Resort the list when it re-appears — including when a pushed
-            // editor pops back in this NavigationStack. `write` refreshes the
-            // edited row's modified date in place (no resort) so editing doesn't
-            // churn the list; we settle the order here, once, on return. Cheap
-            // in-memory sort, no rescan; first-appear is already-sorted → no-op.
-            // [list.md:24]
-            store.resortInPlace()
-        }
         .toolbar {
             ToolbarItem(id: "create", placement: .topBarTrailing) {
                 Menu {
@@ -650,11 +641,8 @@ struct MoveToFolderSheet: View {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let dest = currentFolder.isEmpty ? name : currentFolder + "/" + name
-        // Create the folder then move into it — ordered so the destination
-        // exists before the move. createFolder is fire-and-forget (Task-wrapped
-        // internally); the move must observe its result, so chain explicitly.
         Task {
-            let finalId = await store.moveNoteCreatingFolder(note.id, folder: dest)
+            let finalId = await store.moveNote(note.id, toFolder: dest)
             onMoved?(finalId)
         }
         dismiss()

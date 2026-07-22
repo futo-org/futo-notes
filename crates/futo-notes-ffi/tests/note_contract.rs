@@ -1,11 +1,10 @@
 use std::fs;
-use std::time::{Duration, Instant};
 
 use futo_notes_ffi::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
     sanitize_title, split_id, validate_title, ConditionalWrite, CreateOutcome, FlushOutcome,
-    NoteBootstrap, NoteError, NoteIdParts, NoteMetadata, NoteMutation, NoteRename, NoteSnapshot,
-    NoteStore, SearchHit, TitleIssue,
+    NoteBootstrap, NoteError, NoteIdParts, NoteMetadata, NoteMutation, NoteSnapshot, NoteStore,
+    SearchHit, TitleIssue,
 };
 
 mod support;
@@ -102,10 +101,8 @@ fn note_store_projects_complete_workflow_results() {
     );
     assert_eq!(alpha.tags, vec!["tag"]);
 
-    assert_eq!(
-        store.create_folder("Projects/Nested".to_owned()).unwrap(),
-        "Projects/Nested"
-    );
+    let folder_created = store.create_folder("Projects/Nested".to_owned()).unwrap();
+    assert_eq!(folder_created.folders, ["Projects", "Projects/Nested"]);
     let created = store
         .create_note(
             "Beta".to_owned(),
@@ -114,9 +111,10 @@ fn note_store_projects_complete_workflow_results() {
         )
         .unwrap();
     assert_eq!(created.upserted.len(), 1);
-    assert_eq!(created.upserted[0].id, "Projects/Beta");
+    assert_eq!(created.upserted[0].note.id, "Projects/Beta");
+    assert_eq!(created.final_id.as_deref(), Some("Projects/Beta"));
     assert!(created.removed.is_empty());
-    assert!(created.renamed.is_empty());
+    assert_eq!(created.folders, ["Projects", "Projects/Nested"]);
     assert!(created.warnings.is_empty());
     assert!(store.exists("Projects/Beta".to_owned()));
     assert_eq!(store.read("Projects/Beta".to_owned()), "version one");
@@ -124,7 +122,8 @@ fn note_store_projects_complete_workflow_results() {
     let written = store
         .write("Projects/Beta".to_owned(), "version two".to_owned())
         .unwrap();
-    assert_eq!(written.upserted[0].id, "Projects/Beta");
+    assert_eq!(written.upserted[0].note.id, "Projects/Beta");
+    assert_eq!(written.final_id.as_deref(), Some("Projects/Beta"));
 
     let flushed = store
         .write_if_unchanged(
@@ -176,38 +175,30 @@ fn note_store_projects_complete_workflow_results() {
     let renamed = store
         .rename("Projects/Beta".to_owned(), "Projects/Gamma".to_owned())
         .unwrap();
-    assert!(renamed
-        .renamed
-        .iter()
-        .any(|rename| rename.from == "Projects/Beta" && rename.to == "Projects/Gamma"));
+    assert_eq!(renamed.removed, ["Projects/Beta"]);
+    assert_eq!(renamed.final_id.as_deref(), Some("Projects/Gamma"));
 
     let moved = store
         .move_note("Projects/Gamma".to_owned(), "Projects/Nested".to_owned())
         .unwrap();
-    assert!(moved
-        .renamed
-        .iter()
-        .any(|rename| { rename.from == "Projects/Gamma" && rename.to == "Projects/Nested/Gamma" }));
+    assert_eq!(moved.removed, ["Projects/Gamma"]);
+    assert_eq!(moved.final_id.as_deref(), Some("Projects/Nested/Gamma"));
 
     let folder_renamed = store
         .rename_folder("Projects/Nested".to_owned(), "Archive".to_owned())
         .unwrap();
-    assert!(folder_renamed
-        .renamed
-        .iter()
-        .any(|rename| { rename.from == "Projects/Nested/Gamma" && rename.to == "Archive/Gamma" }));
+    assert_eq!(folder_renamed.removed, ["Projects/Nested/Gamma"]);
+    assert_eq!(folder_renamed.folders, ["Archive", "Projects"]);
 
     let folder_deleted = store.delete_folder("Archive".to_owned()).unwrap();
-    assert!(folder_deleted
-        .renamed
-        .iter()
-        .any(|rename| rename.from == "Archive/Gamma" && rename.to == "Gamma"));
+    assert_eq!(folder_deleted.removed, ["Archive/Gamma"]);
+    assert_eq!(folder_deleted.folders, ["Projects"]);
     assert!(store.exists("Gamma".to_owned()));
 
     let missing_delete = store.delete("missing".to_owned()).unwrap();
     assert!(missing_delete.upserted.is_empty());
     assert!(missing_delete.removed.is_empty());
-    assert!(missing_delete.renamed.is_empty());
+    assert_eq!(missing_delete.folders, ["Projects"]);
 
     store.reset().unwrap();
     let after_reset = store.scan();
@@ -232,14 +223,10 @@ fn bootstrap_makes_existing_note_content_searchable_through_bm25() {
     let store = NoteStore::new(path_string(&notes_root));
     store.bootstrap(path_string(&index_root)).unwrap();
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !store.keyword_ready() {
-        assert!(
-            Instant::now() < deadline,
-            "keyword index never became ready"
-        );
-        std::thread::sleep(Duration::from_millis(25));
-    }
+    assert!(
+        store.wait_until_search_ready(10_000),
+        "keyword index never became ready"
+    );
 
     let hits = store
         .search("uniquebootstrapkeyword".to_owned(), Some(10))
@@ -294,26 +281,23 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
     assert!(notes.is_empty());
     assert_eq!(folders, vec!["folder"]);
 
-    let NoteRename { from, to } = NoteRename {
-        from: "before.md".to_owned(),
-        to: "after.md".to_owned(),
-    };
-    assert_eq!((from.as_str(), to.as_str()), ("before.md", "after.md"));
-
     let NoteMutation {
         upserted,
         removed,
-        renamed,
+        folders,
+        final_id,
         warnings,
     } = NoteMutation {
         upserted: Vec::new(),
         removed: vec!["before.md".to_owned()],
-        renamed: Vec::new(),
+        folders: vec!["folder".to_owned()],
+        final_id: Some("after.md".to_owned()),
         warnings: vec!["warning".to_owned()],
     };
     assert!(upserted.is_empty());
     assert_eq!(removed, vec!["before.md"]);
-    assert!(renamed.is_empty());
+    assert_eq!(folders, vec!["folder"]);
+    assert_eq!(final_id.as_deref(), Some("after.md"));
     assert_eq!(warnings, vec!["warning"]);
 
     let NoteBootstrap {

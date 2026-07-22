@@ -31,7 +31,9 @@ export async function installDevelopmentHooks(): Promise<void> {
           content,
           modifiedAtMs,
         );
-        return mutation.upserted.find((note) => note.id === id)?.modifiedMs ?? Date.now();
+        return (
+          mutation.upserted.find((entry) => entry.note.id === id)?.note.modifiedMs ?? Date.now()
+        );
       },
       deleteNoteFile: (id: string) => notes.delete(id),
       deleteNote,
@@ -44,12 +46,9 @@ export async function installDevelopmentHooks(): Promise<void> {
       moveNote: (fromId: string, toId: string) => notes.move(fromId, toId),
       moveNoteWithCollisions: moveNote,
     },
-  });
-  installTestSync();
-  Object.assign(window, {
     __testSearch: {
       search: (query: string) => notes.search(query),
-      isPopulated: async () => (await notes.searchStatus()).keyword.ready,
     },
   });
+  installTestSync();
 }
