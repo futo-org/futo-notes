@@ -1,0 +1,11 @@
+/* Screen-level stacking tiers shared across features. Local stacking contexts
+ * (for example sticky headers inside a modal) keep their small relative values. */
+:root {
+  --z-editor-menu: 50;
+  --z-app-chrome: 100;
+  --z-selection-toolbar: 150;
+  --z-overlay: 200;
+  --z-status: 250;
+  --z-update-banner: 260;
+  --z-toast: 300;
+}

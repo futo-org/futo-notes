@@ -112,6 +112,12 @@ test.describe('Selection toolbar', () => {
     await page.getByTestId('new-folder-btn').click();
     await expect(page.getByTestId('create-folder-input')).toBeVisible();
     expect(await selectionToolbarReceivesHitAtCenter(page)).toBe(false);
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await selectRange(page, 0, 5);
+    await page.getByRole('button', { name: 'Search' }).click();
+    await expect(page.getByPlaceholder('Search notes...')).toBeVisible();
+    expect(await selectionToolbarReceivesHitAtCenter(page)).toBe(false);
   });
 
   test('editor focus state follows CodeMirror focus', async ({ page }) => {

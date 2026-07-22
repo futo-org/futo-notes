@@ -65,7 +65,7 @@
     padding: 0 8px 0 12px;
     background: var(--color-surface, var(--color-bg));
     border-bottom: 1px solid var(--color-border);
-    z-index: 100;
+    z-index: var(--z-app-chrome);
     user-select: none;
   }
 

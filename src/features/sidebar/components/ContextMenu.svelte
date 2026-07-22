@@ -59,7 +59,7 @@
 <style>
   .context-menu {
     position: fixed;
-    z-index: 200;
+    z-index: var(--z-overlay);
     min-width: 160px;
     background: var(--color-bg, #fff);
     color: var(--color-text, #000);

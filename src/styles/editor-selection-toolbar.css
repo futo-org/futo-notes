@@ -8,11 +8,8 @@
 
 /* === Selection toolbar ========================================================= */
 
-/* CM6 adds `.cm-tooltip` to our dom element itself, so we style both .sf-selection-toolbar
- * directly (our class) and neutralize CM6's default tooltip chrome. Floating editor affordances
- * sit above editor/app chrome (<=100), but below blocking overlays (200: Settings, search, and
- * folder dialogs), the sync status bar (250), and toasts (300), so modals cover the toolbar
- * (GitLab #29). */
+/* CM6 adds `.cm-tooltip` to our dom element itself, so we style .sf-selection-toolbar
+ * directly and neutralize CM6's default tooltip chrome. */
 .sf-selection-toolbar {
   background: var(--color-bg) !important;
   border: 1px solid var(--color-border) !important;
@@ -22,7 +19,7 @@
   display: flex;
   gap: 2px;
   font-family: var(--font-sans);
-  z-index: 150 !important;
+  z-index: var(--z-selection-toolbar) !important;
 }
 
 .sf-selection-toolbar button {
