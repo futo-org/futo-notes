@@ -460,6 +460,12 @@ test:e2e:smoke:
     - pnpm install --frozen-lockfile --prefer-offline
     - !reference [.setup-playwright, script]
     - pnpm run test:e2e:smoke
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+      - playwright-report/
+    expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -483,6 +489,12 @@ test:e2e:markdown-spec:
     - pnpm install --frozen-lockfile --prefer-offline
     - !reference [.setup-playwright, script]
     - pnpm run test:markdown-spec
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+      - playwright-report/
+    expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
     # Deterministic editor corpus, already blocking on tags — auto-run and
@@ -511,6 +523,12 @@ test:e2e:rest:
     - pnpm install --frozen-lockfile --prefer-offline
     - !reference [.setup-playwright, script]
     - pnpm run test:e2e:rest
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+      - playwright-report/
+    expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
     # Same web surface as test:e2e:smoke, plus any spec edit re-runs the
@@ -545,6 +563,12 @@ test:e2e:editor-embed:
     # testMatch would otherwise pass silently).
     - |
       node -e "const r=require('$CI_PROJECT_DIR/test-results/editor-embed-results.json'); if(!(r.stats && r.stats.expected>0)){console.error('editor-embed bridge harness ran zero tests'); process.exit(1);} console.log('editor-embed bridge tests run:', r.stats.expected);"
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+      - playwright-report/
+    expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
     # Locks the editor-embed <-> native-host futoBridge protocol — auto-run and
@@ -891,6 +915,11 @@ test:desktop-smoke:macos:
     - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
     - cirrus run testDesktopSmokeMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  artifacts:
+    when: always
+    paths:
+      - testDesktopSmokeMacOS/desktop_smoke/**/*
+    expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
     # Auto on desktop-touching MRs; allow_failure stays (single macscript
