@@ -25,6 +25,14 @@ this file states the behaviors a human cares about.
   token via the unlayered `[data-theme='dark']` variables and falling back to
   the literal light token. _(Android)_ → editor.html,
   tests/editor-embed-bridge.spec.ts (legacy WebView tests)
+- The editor needs a System WebView of **Chromium 80 or newer**: the bundle
+  targets ES2020, and an `editor.html` `String.prototype.replaceAll` shim covers
+  Chromium 80–84 (where Svelte 5's runtime would otherwise throw and leave the
+  editor blank). Below that floor the bundle can't parse at all, so on Android
+  the shell shows a native "update Android System WebView" notice in place of a
+  blank editor pane; the rest of the app (native list/search/settings) still
+  works. _(Android)_ → editor.html, vite.editor.config.ts, LegacyWebViewNotice.kt,
+  NoteEditorScreen.kt
 
 ## Live preview
 

@@ -5,6 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#ffffff" />
   <title>FUTO Notes Editor</title>
+  <!-- Legacy Android System WebView runtime shim (github#8). The editor bundle
+       targets ES2020 (syntax floor: Chromium 80), but Svelte 5's client runtime
+       calls String.prototype.replaceAll (Chromium 85), so without this the whole
+       app throws on Chromium 80-84 and the editor never mounts. A classic (non-
+       module) script runs before the deferred module bundle. Engines below the
+       ES2020 syntax floor are caught natively (see Android EditorWebView). -->
+  <script>
+    if (!String.prototype.replaceAll) {
+      String.prototype.replaceAll = function (search, replacement) {
+        if (Object.prototype.toString.call(search) === '[object RegExp]') {
+          if (!search.global) {
+            throw new TypeError('replaceAll must be called with a global RegExp');
+          }
+          return String.prototype.replace.call(this, search, replacement);
+        }
+        var escaped = String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return String.prototype.replace.call(this, new RegExp(escaped, 'g'), replacement);
+      };
+    }
+  </script>
   <style>
     /* ------------------------------------------------------------------ *
      * Embedded editor layout for the native-iOS WKWebView host.
