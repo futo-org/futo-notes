@@ -108,7 +108,7 @@ categories — a change can match several; run every matching chain:
 | `src/**/*.svelte`, `src/**/*.ts` (not tests) | frontend — if files import `@tauri-apps/*`/`invoke`/`rustCore`, also tauri-dependent; if editor-related, the same code ships inside the native apps' embedded editor |
 | `src/**/*.css`, `src/styles/**` | styles |
 | `src/**/*.test.ts`, `src/**/*.spec.ts` | unit-tests |
-| `packages/shared/**` | shared |
+| `packages/editor/src/{filename,tags,preview,images}.ts` | shared — the conformance-locked TS↔Rust note rules |
 | `packages/editor/**` | editor — feeds desktop AND the native shells' embedded editor.html; toolbar manifest changes also regenerate native toolbar specs |
 | `crates/**` | rust-core — consumed by the Tauri app and (via `futo-notes-ffi`) both native shells |
 | `apps/tauri/src-tauri/**` | tauri-rust |
@@ -141,7 +141,7 @@ grep -rl '<feature-keyword>' tests/*.spec.ts   # find relevant specs
 pnpm run test 2>&1 | tail -40                  # or run the matching specs only
 ```
 
-### shared: `just test-shared 2>&1 | tail -20`
+### shared: `just test-editor 2>&1 | tail -20`
 ### unit-tests: `just test-unit 2>&1 | tail -30`
 ### editor: `just test-markdown-spec 2>&1 | tail -20` and `just toolbar-spec-check` (toolbar manifest changes)
 ### rust-core:
