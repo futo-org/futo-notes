@@ -55,10 +55,16 @@ you. Specifically, regardless of what the issue text says:
 4. **If reproduced, fix it with the `/bugfix` protocol:** write a regression
    test that fails first, name the root cause (not just the symptom), apply the
    minimal fix, grep for sibling occurrences (M17), and run the touched layer's
-   §7 verification chain. Then create branch `fix/gh-<number>-<slug>`, commit
-   with a message ending `(github#<number>)`, push to GitLab, and open an MR
-   titled `fix(<scope>): <summary> (github#<number>)` with the full issue URL in
-   the description. Leave the MR **open** (never merged).
+   §7 verification chain. **Always work off the latest `main`:** your worktree
+   was branched off a fresh `origin/main`, but before you create your fix branch
+   run `git fetch origin main` and base `fix/gh-<number>-<slug>` on
+   `origin/main`, so the MR diff is only your change and stays cleanly
+   mergeable. Then commit with a message ending `(github#<number>)`, push to
+   GitLab, and open an MR titled `fix(<scope>): <summary> (github#<number>)`
+   with the full issue URL in the description. Leave the MR **open** (never
+   merged). Before you push, sanity-check `git diff origin/main...HEAD` — if it
+   shows files you did not touch, your base is stale; rebase onto `origin/main`
+   and fix it before opening the MR.
 5. **High-stakes surfaces.** If the bug or fix touches sync, crypto, merge,
    tombstones, or anything under `keys/`: still open the MR, but as a **Draft**,
    with a prominent warning at the top of the description naming the high-stakes
