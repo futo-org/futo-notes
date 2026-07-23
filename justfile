@@ -297,6 +297,12 @@ cdp-forward:
   echo "  export CDP_PORT=${PORT}   # then: node scripts/cdp-invoke.mjs \"document.title\""
 
 build:
+  #!/usr/bin/env bash
+  # `just` runs each unshebanged line via a fresh `sh -c` with pipefail off, so
+  # `cmd | head -N` reports head's exit status (always 0), not cmd's — a
+  # failing tsc/vite build would go green. pipefail here makes the pipeline
+  # fail when the left side does.
+  set -euo pipefail
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
 
@@ -476,6 +482,10 @@ clean:
   rm -rf apps/android/app/build apps/android/build
 
 check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
+  #!/usr/bin/env bash
+  # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
+  # truncation on the last two lines can't mask a failing tsc/vite build.
+  set -euo pipefail
   pnpm run lint
   pnpm run check:svelte
   pnpm run format:check
