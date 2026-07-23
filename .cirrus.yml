@@ -376,8 +376,11 @@ build_ios_native_task:
     # Generate the Xcode project.
     - (cd apps/ios && xcodegen generate)
     - |
-      if [ -n "${CI_COMMIT_TAG:-}" ]; then
-        echo "Building signed native iOS release for $CI_COMMIT_TAG"
+      # Sign + archive on tag builds (release IPA) AND default-branch builds
+      # (the dogfood IPA that publish:ios:main ships to TestFlight). MRs fall
+      # through to the unsigned simulator compile check below.
+      if [ -n "${CI_COMMIT_TAG:-}" ] || { [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; }; then
+        echo "Building signed native iOS release for ${CI_COMMIT_TAG:-$CI_COMMIT_BRANCH}"
         curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
 
         security unlock-keychain -p "admin" ~/Library/Keychains/login.keychain
@@ -404,8 +407,13 @@ build_ios_native_task:
           exit 1
         fi
 
-        VERSION="${CI_COMMIT_TAG#v}"
+        # Tag builds use the tag version; default-branch builds use the latest
+        # release patch-bumped (see scripts/ios-marketing-version.mjs). The build
+        # number is the pipeline IID — monotonic across the whole project, so a
+        # main build never collides with or regresses below a tag build's number.
+        VERSION="$(node scripts/ios-marketing-version.mjs)"
         BUILD_NUMBER="${CI_PIPELINE_IID:-1}"
+        echo "Marketing version $VERSION (build $BUILD_NUMBER)"
         ARCHIVE="apps/ios/.build-release/FutoNotesNative.xcarchive"
         xcodebuild -project apps/ios/FutoNotesNative.xcodeproj \
           -scheme FutoNotesNative -configuration Release \

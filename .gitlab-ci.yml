@@ -1357,8 +1357,11 @@ build:ios-native:
         - crates/futo-notes-ffi/**/*
         - Cargo.lock
         - scripts/build-rust-ios.sh
+    # Every push to the default branch builds a SIGNED IPA (no changes: filter)
+    # so publish:ios:main can ship the latest main to TestFlight. Editor/UI
+    # changes live in src/ and packages/editor and bundle into the app, so a
+    # path filter would miss most feedback-relevant changes.
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *native-ios-changes
     - if: $CI_COMMIT_TAG
 
 # Native iOS unit tests on a concrete simulator via Cirrus. This separately
@@ -1808,6 +1811,32 @@ publish:ios:
     - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_TAG
+
+# Ship the latest default-branch build to TestFlight on every push — the
+# maintainer's dogfood feedback loop, so the newest main is always on-device.
+# Publishes the PROD app (com.futo.notes); build:ios-native signs the same
+# bundle id on main as on a tag. Gated on the `test` hard gate (lint + tsc +
+# test:full + build) instead of the tag-only release:gate, so a red main is not
+# shipped. Reuses the SAME Cirrus altool upload as the tag publish:ios; build
+# numbers (CI_PIPELINE_IID) never collide between main and tag pipelines.
+publish:ios:main:
+  stage: release
+  interruptible: false
+  tags:
+    - macscript
+  needs:
+    - job: test
+      artifacts: false
+    - job: build:ios-native
+      artifacts: true
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_|IOS_|ASC_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 # Upload the signed AAB to Google Play (internal testing track) using FUTO's
 # shared publish_playstore.py (Android Publisher API v3) — the SAME uploader
