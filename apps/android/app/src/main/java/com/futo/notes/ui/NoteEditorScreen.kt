@@ -107,6 +107,9 @@ fun NoteEditorScreen(
     // EditorWebView props) for the bridge-v2 imperative calls:
     // applyExternalContent (sync adopt) and insertImage (picker round-trip).
     val host = remember { EditorHost.get(context) }
+    // Gate the editor pane on the System WebView being new enough to run the
+    // bundle (github#8); the provider is fixed for the app's lifetime.
+    val webViewTooOld = remember { isWebViewTooOldForEditor() }
 
     var noteId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
     // TextFieldValue (not String) so we can control the selection: tapping a
@@ -479,6 +482,13 @@ fun NoteEditorScreen(
             Spacer(Modifier.size(8.dp))
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                // A System WebView older than the editor bundle's engine floor
+                // can't run the editor at all (blank pane, github#8) — show a
+                // native "update WebView" notice there instead. Read once: the
+                // provider can't change while the app is running.
+                if (webViewTooOld) {
+                    LegacyWebViewNotice()
+                } else {
                 EditorWebView(
                     content = content,
                     // Quick capture: a brand-new note (autoFocus) opens with the
@@ -521,6 +531,7 @@ fun NoteEditorScreen(
                         }
                     },
                 )
+                }
             }
 
             // Native markdown toolbar [editor.md]: rendered from the generated
