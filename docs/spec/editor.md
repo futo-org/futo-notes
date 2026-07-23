@@ -459,8 +459,11 @@ EditorWebView.swift, EditorWebView.kt
   before changing the note's identity when their required body flush fails;
   conflict adoption likewise waits until the local conflict copy is durable.
   A dirty native editor that leaves the screen retains its final draft registration
-  until the asynchronous leave flush writes or parks it successfully. _(iOS,
-  Android)_ → `NotesStore.write`, NoteEditorScreen.kt / NoteEditorView.swift,
+  until the asynchronous leave flush writes or parks it successfully. A later
+  successful ordinary save for that note supersedes any older retained snapshot,
+  so a failed leave attempt cannot later park stale text after the user has
+  reopened and saved newer text. _(iOS, Android)_ → `NotesStore.write`,
+  NoteEditorScreen.kt / NoteEditorView.swift,
   NativeMutationOutcomeTest / NativeMutationOutcomeTests
 - Title edits debounce (~500 ms) into a rename (iOS commits via the rename
   dialog instead). Before the file moves, any pending body save is flushed to
@@ -469,6 +472,13 @@ EditorWebView.swift, EditorWebView.kt
   NoteEditorView.swift `commitRename`
 - Leaving the editor flushes a pending save only if the content changed. The
   engine then decides whether the note is written, recreated, or parked.
+- A confirmed local delete is the final editor mutation for that note. Android
+  serializes body saves, title flush/rename, conflict adoption, and delete
+  through one editor mutation gate; iOS cancellation chains retain every
+  predecessor task and delete awaits the complete save/rename/adoption/move
+  chain before removing the note. An in-flight conflict flush or title debounce
+  therefore cannot recreate or rename a note after its delete commits. _(iOS,
+  Android)_ → `EditorMutationGate`, NoteEditorScreen.kt, NoteEditorView.swift
 - Backgrounding the app makes a **best-effort** flush of the open editor's
   pending edit at the first leave-foreground signal, so an edit caught inside the
   autosave debounce is usually persisted before the OS jetsams the process. The

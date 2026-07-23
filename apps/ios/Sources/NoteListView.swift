@@ -103,7 +103,7 @@ struct NoteListView: View {
                     destructiveLabel: "Delete Note",
                     onCancel: { setSearchDelete([], visible: false) },
                     onDestructive: {
-                        for id in searchDeleteIds { store.delete(id) }
+                        for id in searchDeleteIds { store.deleteAsync(id) }
                         setSearchDelete([], visible: false)
                     }
                 )
@@ -354,7 +354,7 @@ struct FolderContentsView: View {
                 destructiveLabel: "Delete Note",
                 onCancel: { setDeleteTarget(nil) },
                 onDestructive: {
-                    if let note = deleteTarget { store.delete(note.id) }
+                    if let note = deleteTarget { store.deleteAsync(note.id) }
                     setDeleteTarget(nil)
                 }
             )

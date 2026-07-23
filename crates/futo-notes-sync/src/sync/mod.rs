@@ -57,12 +57,7 @@ pub(crate) async fn cycle_with_checkpoint(
     };
     let pull_since = ready.pull_cursor;
     let (pushed, after_push) =
-        push::push_with_checkpoint(&ready, root, progress, pre_write, save_checkpoint)
-            .await
-            .map_err(|kind| CycleFailure {
-                kind,
-                state: ready.clone(),
-            })?;
+        push::push_with_checkpoint(&ready, root, progress, pre_write, save_checkpoint).await?;
     let (pulled, after_pull) = pull::pull_with_checkpoint(
         &after_push,
         root,

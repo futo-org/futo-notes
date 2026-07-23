@@ -17,6 +17,10 @@ struct NoteEditorView: View {
     @State private var saveTask: Task<Void, Never>?
     /// Debounced inline-title rename (Android parity) — rescheduled per keystroke.
     @State private var renameTask: Task<Void, Never>?
+    /// Consecutive adoption requests form one cancellation-aware chain. Waiting
+    /// for the latest task therefore waits for every older in-flight flush too.
+    @State private var adoptionTask: Task<Void, Never>?
+    @State private var moveTask: Task<Void, Never>?
     /// CRITICAL: never block the editor's first frame on a disk read (F9 / the
     /// never-gate-render rule). The body starts empty and is read OFF the main
     /// actor in `.task`; until it lands, `loaded` is false, which gates the
@@ -234,7 +238,7 @@ struct NoteEditorView: View {
             // (and on exit, SAVES BACK) a stale base — silently clobbering the
             // remote edit. See adoptExternalChange for the clean/dirty rules.
             guard loaded else { return }
-            Task { await adoptExternalChange() }
+            scheduleExternalAdoption()
         }
         .onAppear {
             isVisible = true
@@ -251,7 +255,7 @@ struct NoteEditorView: View {
             // resurrects it fleet-wide (H2). adoptExternalChange applies the same
             // close/keep/adopt decision as a live pull. Gated on `loaded` so it
             // never runs before the initial read (a fresh open is already current).
-            if loaded { Task { await adoptExternalChange() } }
+            if loaded { scheduleExternalAdoption() }
         }
         // Keep the register's derivation current: any change to loaded/noteId/
         // savedContent/content re-publishes this editor's draft (or clears it the
@@ -277,7 +281,7 @@ struct NoteEditorView: View {
                 && content.isEmpty && savedContent.isEmpty
             var shouldReleaseDraft = true
             if untouched {
-                store.delete(noteId)
+                store.deleteAsync(noteId)
             } else if content != savedContent {
                 // POP flush (navigating back isn't a background signal, so the
                 // scenePhase handler won't fire). Persist-or-park through the
@@ -316,10 +320,12 @@ struct NoteEditorView: View {
     }
 
     private func scheduleSave(_ newContent: String) {
-        saveTask?.cancel()
+        let previous = saveTask
+        previous?.cancel()
         saveTask = Task { @MainActor in
+            await previous?.value
             try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s debounce
-            if Task.isCancelled { return }
+            if Task.isCancelled || isClosing { return }
             // Re-read `noteId` at FIRE time (not schedule time) so a save that
             // lands after a rename writes to the renamed note, not the stale id.
             // This is the second half of the ghost-note fix (F7); the first half
@@ -341,10 +347,12 @@ struct NoteEditorView: View {
     /// Debounced inline-title rename (Android parity): reschedule on each
     /// keystroke and rename once typing settles. Cancelled on leave/delete.
     private func scheduleRename(_ newTitle: String) {
-        renameTask?.cancel()
+        let previous = renameTask
+        previous?.cancel()
         renameTask = Task { @MainActor in
+            await previous?.value
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s debounce
-            if Task.isCancelled { return }
+            if Task.isCancelled || isClosing { return }
             await applyRename(newTitle)
         }
     }
@@ -359,6 +367,7 @@ struct NoteEditorView: View {
     /// recreate a ghost note at the old path (write_note creates files
     /// unconditionally) — data loss. Mirrors Android's NoteEditorScreen.kt.
     private func applyRename(_ rawTitle: String) async {
+        guard !isClosing else { return }
         let parts = splitId(id: noteId)
         let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         // Reject empty (sanitizeTitle would coerce to "Untitled" and lose the
@@ -461,6 +470,7 @@ struct NoteEditorView: View {
     /// the draft is parked as a "<title> (conflict YYYY-MM-DD)" copy and the
     /// disk content adopted, so neither side is silently lost.
     private func adoptExternalChange() async {
+        guard !isClosing else { return }
         // Snapshot the id: a debounced rename/move can change `noteId` DURING the
         // awaits below. Acting on the stale id would (a) treat a rename's
         // "old id no longer exists" as a peer delete and pop the renamed editor
@@ -506,8 +516,10 @@ struct NoteEditorView: View {
             // snapshot; assigning `flushed` (not the live `content`) leaves any
             // newer keystroke dirty for the next flush.
             let flushed = content
+            guard !isClosing else { return }
             let disposition = await store.flushDraft(
                 PendingDraft(id: id, base: savedContent, content: flushed))
+            guard !isClosing else { return }
             guard noteId == id else { return }
             switch adoptFlushOutcome(for: disposition) {
             case .keepDraft:
@@ -616,7 +628,11 @@ struct NoteEditorView: View {
     /// before the file can move (same ghost-note class as commitRename — a
     /// stale debounced save would recreate the old path), then open the sheet.
     private func prepareMove() {
-        Task {
+        let previous = moveTask
+        previous?.cancel()
+        moveTask = Task { @MainActor in
+            await previous?.value
+            guard !isClosing else { return }
             saveTask?.cancel()
             // Snapshot before the suspending write; advance savedContent to that
             // snapshot, not live `content`, so a keystroke typed during the write
@@ -641,13 +657,20 @@ struct NoteEditorView: View {
     /// path FIRST (a write after the delete would resurrect the file — the Rust
     /// write creates files unconditionally), then delete and pop the editor.
     private func deleteNote() {
+        let pendingSave = saveTask
+        let pendingRename = renameTask
+        let pendingAdoption = adoptionTask
+        let pendingMove = moveTask
         saveTask?.cancel()
         renameTask?.cancel()
+        adoptionTask?.cancel()
+        moveTask?.cancel()
         // Latch closing so the local delete's reload doesn't trip the peer-delete
         // path (adoptExternalChange → handleOpenNoteDeleted).
         isClosing = true
         // Mark the draft clean so both the derived register (content==savedContent
         // → nil) and onDisappear's flush are no-ops; the file won't be resurrected.
+        let previousSavedContent = savedContent
         savedContent = content
         // Publish SYNCHRONOUSLY to clear this editor's register entry NOW. The
         // register still holds the last dirty publish until onDisappear releases
@@ -655,8 +678,35 @@ struct NoteEditorView: View {
         // flush → skippedMissing → recreate the note the user just deleted (the
         // unconditional recreate un-deletes it). Same fix pattern as N1.
         publishDraft()
-        store.delete(noteId)
-        if !navPath.isEmpty { navPath.removeLast() }
+        Task { @MainActor in
+            await pendingSave?.value
+            await pendingRename?.value
+            await pendingAdoption?.value
+            await pendingMove?.value
+            let outcome = await store.delete(noteId)
+            if case .committed = outcome {
+                if !navPath.isEmpty { navPath.removeLast() }
+            } else {
+                isClosing = false
+                savedContent = previousSavedContent
+                publishDraft()
+                store.showTransient("Couldn't delete note. It remains in your notes.")
+            }
+        }
+    }
+
+    /// Coalesce live-reload signals without abandoning an older in-flight
+    /// engine flush. The latest task represents the whole predecessor chain,
+    /// which lets local delete await every adoption before deleting last.
+    private func scheduleExternalAdoption() {
+        guard !isClosing else { return }
+        let previous = adoptionTask
+        previous?.cancel()
+        adoptionTask = Task { @MainActor in
+            await previous?.value
+            guard !Task.isCancelled, !isClosing else { return }
+            await adoptExternalChange()
+        }
     }
 }
 

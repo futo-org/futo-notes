@@ -15,7 +15,7 @@ use super::SyncSessionListener;
 pub(super) struct LiveTask {
     cancel: mpsc::Sender<()>,
     note_changed: mpsc::Sender<()>,
-    abort: tokio::task::AbortHandle,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl LiveTask {
@@ -23,9 +23,14 @@ impl LiveTask {
         let _ = self.note_changed.try_send(());
     }
 
-    pub(super) fn stop(self) {
+    pub(super) fn abort(self) {
         let _ = self.cancel.try_send(());
-        self.abort.abort();
+        self.task.abort();
+    }
+
+    pub(super) async fn stop_and_wait(self) {
+        let _ = self.cancel.send(()).await;
+        let _ = self.task.await;
     }
 }
 
@@ -51,6 +56,36 @@ pub(super) fn spawn_live_task(
     LiveTask {
         cancel: cancel_sender,
         note_changed: note_changed_sender,
-        abort: task.abort_handle(),
+        task,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn graceful_stop_waits_for_task_cleanup_instead_of_aborting_it() {
+        let (cancel, mut receive_cancel) = mpsc::channel(1);
+        let (note_changed, _) = mpsc::channel(1);
+        let cleaned_up = Arc::new(AtomicBool::new(false));
+        let observed_cleanup = Arc::clone(&cleaned_up);
+        let task = tokio::spawn(async move {
+            receive_cancel.recv().await;
+            tokio::task::yield_now().await;
+            observed_cleanup.store(true, Ordering::Relaxed);
+        });
+
+        LiveTask {
+            cancel,
+            note_changed,
+            task,
+        }
+        .stop_and_wait()
+        .await;
+
+        assert!(cleaned_up.load(Ordering::Relaxed));
     }
 }

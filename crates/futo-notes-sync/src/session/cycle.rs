@@ -137,6 +137,7 @@ mod tests {
         posts: &AtomicUsize,
         remote_blob: Option<&[u8]>,
         fail_pull: bool,
+        fail_delete_conflict: bool,
     ) -> std::io::Result<()> {
         let request = read_request(stream)?;
         let request_line = request.lines().next().unwrap_or_default();
@@ -171,6 +172,20 @@ mod tests {
                 };
                 ("200 OK", "application/json", body.as_bytes().to_vec())
             }
+        } else if fail_delete_conflict && request_line.starts_with("DELETE ") {
+            (
+                "409 Conflict",
+                "application/json",
+                br#"{"currentVersion":2,"currentBlobKey":"changed-blob"}"#.to_vec(),
+            )
+        } else if fail_delete_conflict
+            && request_line.starts_with("GET /api/collections/collection/objects/deleted-object ")
+        {
+            (
+                "500 Internal Server Error",
+                "application/json",
+                br#"{"error":"injected delete-conflict fetch failure"}"#.to_vec(),
+            )
         } else if request_line.starts_with("GET /api/blobs/remote-blob ") {
             (
                 "200 OK",
@@ -195,20 +210,28 @@ mod tests {
 
     impl MutationServer {
         fn new() -> Self {
-            Self::with_remote(None, false)
+            Self::with_remote(None, false, false)
         }
 
         fn with_pull_failure() -> Self {
-            Self::with_remote(None, true)
+            Self::with_remote(None, true, false)
+        }
+
+        fn with_delete_conflict_failure() -> Self {
+            Self::with_remote(None, false, true)
         }
 
         fn with_remote_note(vault_key: &[u8; 32], name: &str, content: &str) -> Self {
             let plaintext = futo_notes_core::e2ee::pack_note_v2(name, content);
             let ciphertext = futo_notes_core::e2ee::aes_gcm_encrypt(vault_key, &plaintext).unwrap();
-            Self::with_remote(Some(ciphertext), false)
+            Self::with_remote(Some(ciphertext), false, false)
         }
 
-        fn with_remote(remote_blob: Option<Vec<u8>>, fail_pull: bool) -> Self {
+        fn with_remote(
+            remote_blob: Option<Vec<u8>>,
+            fail_pull: bool,
+            fail_delete_conflict: bool,
+        ) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
             let posts = Arc::new(AtomicUsize::new(0));
@@ -226,6 +249,7 @@ mod tests {
                             &observed_posts,
                             remote_blob.as_deref(),
                             fail_pull,
+                            fail_delete_conflict,
                         );
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -456,6 +480,70 @@ mod tests {
             server.posts.load(Ordering::Relaxed),
             1,
             "retrying the failed pull must not POST the same note again"
+        );
+    }
+
+    #[tokio::test]
+    async fn uploaded_state_survives_a_later_fatal_delete_conflict() {
+        let root = TempRoot::new();
+        std::fs::write(root.0.join("new.md"), "new body").unwrap();
+        let server = MutationServer::with_delete_conflict_failure();
+        let mut connected = connected();
+        connected.base_url = server.base_url.clone();
+        connected.max_version = 1;
+        connected.pull_cursor = 1;
+        connected.object_map.insert(
+            "deleted.md".into(),
+            crate::checkpoint::ObjectState {
+                object_id: "deleted-object".into(),
+                version: 1,
+                blob_key: "deleted-blob".into(),
+                hash: Some(futo_notes_core::hash::hash_sha256("old body")),
+                mtime_ms: Some(1),
+                size_bytes: Some(8),
+            },
+        );
+        let state = Arc::new(Mutex::new(Some(connected)));
+        let gate = Arc::new(Mutex::new(()));
+        let no_progress = |_: crate::sync::SyncProgress| {};
+        let no_pre_write = |_: &str| {};
+
+        run_with_checkpoint(
+            &state,
+            &gate,
+            &root.0,
+            &no_progress,
+            &no_pre_write,
+            &checkpoint::save,
+        )
+        .await
+        .expect_err("the injected delete-conflict fetch failure should abort the cycle");
+
+        assert!(
+            state
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .object_map
+                .contains_key("new.md"),
+            "the running session must retain the successful POST before the later error"
+        );
+
+        run_with_checkpoint(
+            &state,
+            &gate,
+            &root.0,
+            &no_progress,
+            &no_pre_write,
+            &checkpoint::save,
+        )
+        .await
+        .expect_err("the delete conflict remains intentionally unavailable");
+        assert_eq!(
+            server.posts.load(Ordering::Relaxed),
+            1,
+            "retrying the failed delete conflict must not POST the same note again"
         );
     }
 }

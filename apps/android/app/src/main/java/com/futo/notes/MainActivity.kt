@@ -509,8 +509,12 @@ class MainActivity : ComponentActivity() {
         val to = NotesStorage.rootFor(this, newMode, BuildConfig.DEBUG)
         storageSwitching.value = true
         current.suppressAutoPush = true
+        current.beginStorageMigration()
         lifecycleScope.launch {
             val outcome = runCatching {
+                check(EditorHost.get(this@MainActivity).freezeAndCaptureContent()) {
+                    "The open editor could not be snapshotted"
+                }
                 sync.quiesceForStorageMigration()
                 current.migrateVault(to)
             }.getOrElse {
@@ -552,6 +556,7 @@ class MainActivity : ComponentActivity() {
 
             current.suppressAutoPush = false
             current.resumeAfterStorageMigrationFailure()
+            EditorHost.get(this@MainActivity).resumeAfterStorageMigrationFailure()
             storageSwitching.value = false
             sync.resumeLiveAsync()
             Toast.makeText(

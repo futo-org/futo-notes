@@ -326,9 +326,11 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   the object map is keyed by **relative** filename (not absolute path) and the
   `.e2ee-state.json` travels inside the vault, so the session picks up at
   the new root with no re-upload — provided the move carries the dotfiles.
-  Android storage migration stops live sync and awaits the Rust session's cycle
-  gate before taking the store's exclusive vault gate, so sync/editor/store
-  writes cannot race the staged copy and manifest verification. →
+  Android storage migration gracefully cancels and joins the live task before
+  awaiting the Rust session's cycle gate; it never aborts an in-flight cycle
+  before that cycle installs its advanced in-memory/checkpoint state. It then
+  takes the store's exclusive vault gate, so sync/editor/store writes cannot
+  race the staged copy and manifest verification. →
   `SyncSession::stop_live_and_wait`, `SyncManager.quiesceForStorageMigration`,
   `NotesStore.migrateVault`
 
@@ -607,6 +609,9 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   A pull failure after a successful push preserves the same pushed state even
   when its interim checkpoint also failed; guarded by
   `uploaded_state_survives_when_checkpoint_and_following_pull_fail`.
+  A fatal push-side delete-conflict recovery after earlier successful uploads
+  likewise returns the partially advanced push state to the session; guarded by
+  `uploaded_state_survives_a_later_fatal_delete_conflict`.
   **Crash/restart limit:** if the process exits before a later checkpoint save
   succeeds, disk still contains the older map/cursors, so a restart can repeat a
   successful remote create. Eliminating that window requires a server-side

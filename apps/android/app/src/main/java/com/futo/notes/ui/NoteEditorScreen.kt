@@ -251,9 +251,11 @@ fun NoteEditorScreen(
                     val conflictId = noteId
                     while (noteId == conflictId) {
                         val flushed = content
-                        val disposition = store.flushDraft(
-                            PendingDraft(conflictId, savedContent, flushed),
-                        )
+                        val disposition = mutationGate.runEditorMutation {
+                            store.flushDraft(
+                                PendingDraft(conflictId, savedContent, flushed),
+                            )
+                        } ?: return@collect
                         when (adoptFlushOutcome(disposition)) {
                             AdoptFlushOutcome.KEEP_DRAFT -> {
                                 savedContent = flushed
@@ -309,27 +311,29 @@ fun NoteEditorScreen(
             // would recreate a ghost note at the old id (data loss). The derived
             // register re-keys to the new id after the rename (its content follows
             // the live noteId), so no manual draft repointing is needed (PKT-1 R4).
-            saveJob?.cancel()
-            // Snapshot the body BEFORE the suspending write and advance savedContent
-            // to exactly that snapshot — never to the live `content`. If the user
-            // types during the suspended write, `content` moves ahead of the bytes
-            // on disk; assigning savedContent from live `content` would mark that
-            // newer keystroke as saved and the register would go clean, losing it on
-            // background/process death (PKT-12 F1).
-            val flushed = content
-            if (flushed != savedContent) {
-                val outcome = store.write(noteId, flushed)
-                savedContent = confirmedSavedContent(savedContent, flushed, outcome)
-                if (outcome === NoteMutationOutcome.Failed) {
-                    Toast.makeText(
-                        context,
-                        "Couldn't save note. Your changes are still pending.",
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                    return@collectLatest
+            mutationGate.runEditorMutation {
+                saveJob?.cancel()
+                // Snapshot the body BEFORE the suspending write and advance savedContent
+                // to exactly that snapshot — never to the live `content`. If the user
+                // types during the suspended write, `content` moves ahead of the bytes
+                // on disk; assigning savedContent from live `content` would mark that
+                // newer keystroke as saved and the register would go clean, losing it on
+                // background/process death (PKT-12 F1).
+                val flushed = content
+                if (flushed != savedContent) {
+                    val outcome = store.write(noteId, flushed)
+                    savedContent = confirmedSavedContent(savedContent, flushed, outcome)
+                    if (outcome === NoteMutationOutcome.Failed) {
+                        Toast.makeText(
+                            context,
+                            "Couldn't save note. Your changes are still pending.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        return@runEditorMutation
+                    }
                 }
+                noteId = store.rename(noteId, target)
             }
-            noteId = store.rename(noteId, target)
         }
     }
 
@@ -523,13 +527,21 @@ fun NoteEditorScreen(
                     onOpenNote = onOpenNote,
                     onPickImage = pickImage,
                     onSaveImageData = saveImageData,
+                    onMigrationSnapshot = { capturedContent ->
+                        saveJob?.cancel()
+                        content = capturedContent
+                    },
                     onChange = { newContent ->
                         // Data-loss guard: ignore editor change events until the
                         // off-main initial read has landed (`loaded`). The WebView
                         // mounts with "" and can emit a setContent echo before the
                         // real body loads; saving that empty echo would clobber the
                         // note on disk. Once loaded, all edits flow through.
-                        if (loaded && !mutationGate.isDestructiveActionStarted) {
+                        if (
+                            loaded &&
+                            !mutationGate.isDestructiveActionStarted &&
+                            !store.isVaultMigrationStarted
+                        ) {
                             // Just update the buffer state. The unsaved-draft
                             // register follows from the snapshotFlow derivation
                             // (content != savedContent) — no manual publish; the

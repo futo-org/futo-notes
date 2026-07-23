@@ -62,7 +62,11 @@ Behaviors and constraints that hold across every surface and platform.
     invisible to the stock Files app on Android 11+ and deleted on uninstall.
     Switching modes migrates the whole vault (including the `.futo` sync state)
     and relaunches. The switch blocks editor/store writes and pauses live sync;
-    it stages the copy, verifies every relative path and file digest, and durably
+    it disables and blurs the Android WebView, then reads
+    `FutoEditor.getContent()` before taking the vault snapshot, so a bridge
+    change still waiting for animation-frame delivery is included; failure to
+    read the live editor aborts the switch. The engine stages the copy, verifies
+    every relative path and file digest, and durably
     commits the new mode before deleting the source. A failed copy/verification
     or preference write keeps the old mode/root active and reports the failure.
     An open editor's pending draft must first produce a committed mutation or

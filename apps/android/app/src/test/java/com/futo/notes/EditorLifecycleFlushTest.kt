@@ -255,6 +255,25 @@ class EditorLifecycleFlushTest {
     }
 
     @Test
+    fun newerCommittedSaveSupersedesOlderRetainedDraftForSameNote() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val token = pending.claim()
+        pending.setProvider(token) {
+            PendingDraft("todo", "old base", "older unsaved edit")
+        }
+        pending.release(token)
+
+        pending.completeNote("todo")
+        pending.flush()
+
+        assertTrue(
+            "a newer committed save must prevent the stale leave snapshot from parking later",
+            rec.writes.isEmpty(),
+        )
+    }
+
+    @Test
     fun dirtyEditorReleaseRetainsItsDraftForLifecycleRetry() {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)

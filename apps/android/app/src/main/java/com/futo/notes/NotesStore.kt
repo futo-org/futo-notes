@@ -150,6 +150,11 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
         retained.entries.removeAll { it.value == draft }
     }
 
+    /** A newer ordinary save for [id] supersedes every older leave snapshot. */
+    fun completeNote(id: String) {
+        retained.entries.removeAll { it.value.id == id }
+    }
+
     /** Persist every live editor's current draft by pulling each provider
      *  SYNCHRONOUSLY (so the newest keystroke is always seen). Flushes all live
      *  providers — at most two during a cross-fade — so an outgoing dirty editor
@@ -213,6 +218,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     /** Serializes every FFI vault access with storage migration. */
     private val vaultAccess = Mutex()
     @Volatile private var vaultMigrationStarted = false
+    val isVaultMigrationStarted: Boolean
+        get() = vaultMigrationStarted
 
     /** Owns the background scan + every FFI mutation. State writes hop back to
      *  [Dispatchers.Main.immediate] (this scope's dispatcher) so Compose state is
@@ -310,13 +317,17 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
 
+    /** Freeze store access before the WebView's final synchronous snapshot. */
+    fun beginStorageMigration() {
+        vaultMigrationStarted = true
+    }
+
     /**
      * Flush live editor drafts and hold the vault gate across migration. Existing
      * store operations finish before the copy starts; the Activity blocks new UI
      * input and pauses sync before calling this method.
      */
     suspend fun migrateVault(to: File): NotesStorage.MigrationOutcome {
-        vaultMigrationStarted = true
         val drafts = pendingEditor.currentDrafts()
         val mutations = mutableListOf<NoteMutation>()
         val outcome = withContext(Dispatchers.IO) {
@@ -374,6 +385,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         try {
             val mutation = withCore { core.write(id, content) }
             applyMutation(mutation)
+            pendingEditor.completeNote(id)
             signalLocalChange()
             NoteMutationOutcome.Committed(Unit)
         } catch (e: Exception) {

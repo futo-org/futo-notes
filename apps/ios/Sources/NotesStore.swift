@@ -254,6 +254,15 @@ final class NotesStore: ObservableObject {
         }
     }
 
+    /// A newer ordinary save for a note supersedes every older leave snapshot.
+    private func completeRetainedDrafts(for id: String) {
+        let completedTokens = oneShotDraftTokens.filter { draftRegister[$0]?.id == id }
+        for token in completedTokens {
+            draftRegister[token] = nil
+            oneShotDraftTokens.remove(token)
+        }
+    }
+
     /// What each note's draft was flushed as during the current background episode
     /// (id → the exact `PendingDraft` last flushed), cleared by
     /// `rearmBackgroundFlush` on the next foreground. NOT a boolean latch: the
@@ -377,6 +386,7 @@ final class NotesStore: ObservableObject {
     func write(_ id: String, content: String) async -> NoteMutationOutcome<Void> {
         do {
             applyMutation(try await vault.write(id, content: content))
+            completeRetainedDrafts(for: id)
             onLocalChange?()
             return .committed(())
         } catch {
@@ -400,14 +410,20 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    func delete(_ id: String) {
+    func delete(_ id: String) async -> NoteMutationOutcome<Void> {
+        do {
+            applyMutation(try await vault.delete(id))
+            onLocalChange?()
+            return .committed(())
+        } catch {
+            print("delete failed for \(id): \(error)")
+            return .failed
+        }
+    }
+
+    func deleteAsync(_ id: String) {
         Task {
-            do {
-                applyMutation(try await vault.delete(id))
-                onLocalChange?()
-            } catch {
-                print("delete failed for \(id): \(error)")
-            }
+            _ = await delete(id)
         }
     }
 

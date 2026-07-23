@@ -15,8 +15,8 @@ use super::outcome::{append_derived_renames, note_id, record_checkpoint_failure}
 use super::tombstones::recover_stale_claims;
 use super::vault::{local_files, read_content, write_content, LocalFile};
 use super::{
-    FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind, SyncFailure,
-    SyncProgress, SyncSummary,
+    CycleFailure, FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind,
+    SyncFailure, SyncProgress, SyncSummary,
 };
 
 pub(super) struct Upload<'a> {
@@ -428,7 +428,9 @@ pub(crate) async fn push(
     progress: &Progress,
     pre_write: &PreWrite,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
-    push_with_checkpoint(state, root, progress, pre_write, &checkpoint::save).await
+    push_with_checkpoint(state, root, progress, pre_write, &checkpoint::save)
+        .await
+        .map_err(|failure| failure.kind)
 }
 
 pub(crate) async fn push_with_checkpoint(
@@ -437,10 +439,16 @@ pub(crate) async fn push_with_checkpoint(
     progress: &Progress,
     pre_write: &PreWrite,
     save_checkpoint: &SaveCheckpoint,
-) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
+) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
     recover_stale_claims(root, pre_write);
-    let files = local_files(root).map_err(SyncErrorKind::Io)?;
-    let http = client(state)?;
+    let files = local_files(root).map_err(|error| CycleFailure {
+        kind: SyncErrorKind::Io(error),
+        state: state.clone(),
+    })?;
+    let http = client(state).map_err(|kind| CycleFailure {
+        kind,
+        state: state.clone(),
+    })?;
     let mut next = state.clone();
     let missing = missing_local_files(&next, &files);
     let mut summary = SyncSummary::default();
@@ -475,7 +483,7 @@ pub(crate) async fn push_with_checkpoint(
             checkpoint_progress(root, &next, &mut summary, completed, save_checkpoint);
         }
     }
-    delete_missing_objects(
+    if let Err(kind) = delete_missing_objects(
         &http,
         &mut next,
         root,
@@ -484,7 +492,10 @@ pub(crate) async fn push_with_checkpoint(
         pre_write,
         &mut summary,
     )
-    .await?;
+    .await
+    {
+        return Err(CycleFailure { kind, state: next });
+    }
     append_derived_renames(&mut summary, &state.object_map, &next.object_map);
     if save_checkpoint(root, &next).is_err() {
         record_checkpoint_failure(&mut summary);

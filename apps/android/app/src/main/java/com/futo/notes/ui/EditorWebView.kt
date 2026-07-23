@@ -25,7 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.BuildConfig
+import kotlinx.coroutines.suspendCancellableCoroutine
+import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.coroutines.resume
 
 /**
  * Whether a top-level navigation may load inside the reused editor WebView.
@@ -73,6 +76,7 @@ fun EditorWebView(
     onOpenNote: (String) -> Unit = {},
     onPickImage: (String) -> Unit = {},
     onSaveImageData: (String, String) -> Unit = { _, _ -> },
+    onMigrationSnapshot: (String) -> Unit = {},
     onReady: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -91,8 +95,15 @@ fun EditorWebView(
     // note before this one's onDispose runs (it would otherwise clobber the
     // newer binding).
     DisposableEffect(Unit) {
-        val token =
-            host.attach(autoFocus, onChange, onReady, onOpenNote, onPickImage, onSaveImageData)
+        val token = host.attach(
+            autoFocus,
+            onChange,
+            onReady,
+            onOpenNote,
+            onPickImage,
+            onSaveImageData,
+            onMigrationSnapshot,
+        )
         onDispose { host.detach(token) }
     }
 
@@ -114,6 +125,14 @@ fun EditorWebView(
     }
 }
 
+internal fun decodeJavascriptString(result: String?): String? {
+    if (result == null) return null
+    return runCatching {
+        val wrapped = JSONArray("[$result]")
+        if (wrapped.isNull(0)) null else wrapped.getString(0)
+    }.getOrNull()
+}
+
 /**
  * Owns the single, app-lifetime editor WebView. Pre-warmed once so it has
  * already reached `ready` (bundle parsed, CodeMirror mounted) by the time the
@@ -130,6 +149,7 @@ class EditorHost private constructor(appContext: Context) {
     private var onOpenNote: (String) -> Unit = {}
     private var onPickImage: (String) -> Unit = {}
     private var onSaveImageData: (String, String) -> Unit = { _, _ -> }
+    private var onMigrationSnapshot: (String) -> Unit = {}
     private var autoFocus = false
 
     // Reactive inputs for the NATIVE Compose toolbar (EditorToolbar.kt), fed by
@@ -326,12 +346,14 @@ class EditorHost private constructor(appContext: Context) {
         onOpenNote: (String) -> Unit = {},
         onPickImage: (String) -> Unit = {},
         onSaveImageData: (String, String) -> Unit = { _, _ -> },
+        onMigrationSnapshot: (String) -> Unit = {},
     ): Int {
         this.onChange = onChange
         this.onReady = onReady
         this.onOpenNote = onOpenNote
         this.onPickImage = onPickImage
         this.onSaveImageData = onSaveImageData
+        this.onMigrationSnapshot = onMigrationSnapshot
         this.autoFocus = autoFocus
         if (isReady) {
             onReady()
@@ -348,6 +370,7 @@ class EditorHost private constructor(appContext: Context) {
         onOpenNote = {}
         onPickImage = {}
         onSaveImageData = { _, _ -> }
+        onMigrationSnapshot = {}
         autoFocus = false
         // Leaving the editor screen detaches the WebView without a blur event;
         // clear the flag so a reopened note doesn't flash a stale toolbar.
@@ -404,6 +427,39 @@ class EditorHost private constructor(appContext: Context) {
      *  message) hides the native toolbar. The toolbar's dismiss chevron. */
     fun blur() {
         eval("window.FutoEditor && window.FutoEditor.blur();")
+    }
+
+    /**
+     * Blur first so no later keystroke can enter the document, then read the
+     * live CM6 bytes instead of relying on the bridge's rAF-coalesced change.
+     */
+    suspend fun freezeAndCaptureContent(): Boolean {
+        webView.isEnabled = false
+        if (!isReady) return true
+        return suspendCancellableCoroutine { continuation ->
+            webView.post {
+                webView.evaluateJavascript(
+                    """
+                    (() => {
+                      if (!window.FutoEditor) return null;
+                      window.FutoEditor.blur();
+                      return window.FutoEditor.getContent();
+                    })()
+                    """.trimIndent(),
+                ) { result ->
+                    val content = decodeJavascriptString(result)
+                    if (content != null) {
+                        lastPushedContent = content
+                        onMigrationSnapshot(content)
+                    }
+                    if (continuation.isActive) continuation.resume(content != null)
+                }
+            }
+        }
+    }
+
+    fun resumeAfterStorageMigrationFailure() {
+        webView.isEnabled = true
     }
 
     /** Open an external link (`openUrl` bridge message) in the system browser —

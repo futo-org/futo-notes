@@ -138,14 +138,17 @@ impl SyncSession {
     pub fn stop_live(&self) {
         if let Ok(mut live) = self.live.lock() {
             if let Some(task) = live.take() {
-                task.stop();
+                task.abort();
             }
         }
     }
 
     /// Stop the live task and wait until any cycle already holding the vault is done.
     pub async fn stop_live_and_wait(&self) {
-        self.stop_live();
+        let live_task = self.live.lock().ok().and_then(|mut live| live.take());
+        if let Some(task) = live_task {
+            task.stop_and_wait().await;
+        }
         let _gate = self.cycle_gate.lock().await;
     }
 }
