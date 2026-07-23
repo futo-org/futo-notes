@@ -215,6 +215,25 @@ test.describe('Folder support', () => {
     await expect(page.locator('[data-note-id="open-note"]')).toBeVisible();
   });
 
+  test('folder context menu exposes Move to folder and applies the picked destination', async ({
+    page,
+  }) => {
+    await openSidebar(page);
+    for (const name of ['Work', 'Archive']) {
+      await page.getByTestId('new-folder-btn').click();
+      await page.getByTestId('create-folder-input').fill(name);
+      await page.getByTestId('create-folder-confirm').click();
+    }
+
+    await page.locator('[data-folder-path="Work"]').first().click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Move to folder' }).click();
+    await page.locator('.modal-card').getByText('Archive', { exact: true }).click();
+
+    await expect(page.locator('[data-folder-path="Archive/Work"]').first()).toBeVisible();
+    await expect(page.locator('[data-folder-path="Work"]')).toHaveCount(0);
+    await expect(page.locator('.toast')).toContainText('Moved to Archive');
+  });
+
   test('folder drag-drop falls back to tracked source when MIME data is hidden', async ({
     page,
   }) => {

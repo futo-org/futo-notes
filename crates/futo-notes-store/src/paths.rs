@@ -17,6 +17,20 @@ pub(crate) fn unique_note_id(
     Ok(unique_against(wanted, &occupied))
 }
 
+pub(crate) fn unique_folder_path(
+    root: &Path,
+    wanted: &str,
+    exclude: Option<&str>,
+) -> Result<String, String> {
+    folder_path(root, wanted)?;
+    let occupied = crate::vault::note_order_and_folders(root)
+        .1
+        .into_iter()
+        .filter(|path| Some(path.as_str()) != exclude)
+        .collect::<HashSet<_>>();
+    Ok(unique_against(wanted, &occupied))
+}
+
 pub(crate) fn unique_against(wanted: &str, occupied: &HashSet<String>) -> String {
     let keys: HashSet<String> = occupied.iter().map(|id| collision_key(id)).collect();
     if !keys.contains(&collision_key(wanted)) {

@@ -65,6 +65,8 @@ pub struct MutationResult {
     pub folders: Vec<String>,
     /// Collision-resolved primary id, if the workflow has one.
     pub final_id: Option<String>,
+    /// Collision-resolved folder path for rename/move-folder workflows.
+    pub final_folder: Option<String>,
     pub warnings: Vec<String>,
 }
 
@@ -754,13 +756,68 @@ impl LocalNoteStore {
         paths::folder_path(&self.root, to)?;
         let from = sanitize_folder_path(from);
         let to = sanitize_folder_path(to);
+        self.relocate_folder(&from, &to)
+    }
+
+    pub fn move_folder(
+        &self,
+        from: &str,
+        destination_parent: &str,
+    ) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        paths::folder_path(&self.root, from)?;
+        let from = sanitize_folder_path(from);
+        let destination_parent = if destination_parent.is_empty() {
+            String::new()
+        } else {
+            paths::folder_path(&self.root, destination_parent)?;
+            sanitize_folder_path(destination_parent)
+        };
+        if destination_parent == from || destination_parent.starts_with(&format!("{from}/")) {
+            return Err("cannot move a folder into itself or a descendant".to_owned());
+        }
+        if !destination_parent.is_empty()
+            && !paths::folder_path(&self.root, &destination_parent)?.is_dir()
+        {
+            return Err("destination folder does not exist".to_owned());
+        }
+
+        let leaf = from.rsplit('/').next().unwrap_or(&from);
+        let wanted = if destination_parent.is_empty() {
+            leaf.to_owned()
+        } else {
+            format!("{destination_parent}/{leaf}")
+        };
+        let to = paths::unique_folder_path(&self.root, &wanted, Some(&from))?;
+        self.relocate_folder(&from, &to)
+    }
+
+    fn relocate_folder(&self, from: &str, to: &str) -> Result<MutationResult, String> {
         let source = paths::folder_path(&self.root, &from)?;
         let destination = paths::folder_path(&self.root, &to)?;
         if !source.is_dir() {
             return Err("source folder does not exist".to_owned());
         }
+        if source == destination {
+            let mut mutation = self.finish_mutation(Vec::new(), MutationResult::default());
+            mutation.final_folder = Some(from.to_owned());
+            return Ok(mutation);
+        }
         if destination.exists() && !same_physical(&source, &destination) {
             return Err("target folder already exists".to_owned());
+        }
+
+        let (_, folders) = vault::note_order_and_folders(&self.root);
+        for folder in folders
+            .into_iter()
+            .filter(|folder| folder == from || folder.starts_with(&format!("{from}/")))
+        {
+            let rebased = if folder == from {
+                to.to_owned()
+            } else {
+                format!("{to}/{}", &folder[from.len() + 1..])
+            };
+            paths::folder_path(&self.root, &rebased)?;
         }
 
         let prefix = format!("{from}/");
@@ -797,6 +854,7 @@ impl LocalNoteStore {
             fs::rename(&source, &destination).map_err(io_error)?;
         }
         let mut mutation = self.finish_mappings(mappings, relinks, None);
+        mutation.final_folder = Some(to.to_owned());
         mutation
             .warnings
             .extend(remove_empty_source_warning(&source));

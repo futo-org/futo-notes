@@ -3,7 +3,7 @@
   "counts": {
     "tauriImportsOutsideShims": 9,
     "invokeCallsOutsideShims": 2,
-    "specGapsCount": 12,
+    "specGapsCount": 10,
     "unlockedDriftRegistryEntries": 3
   }
 }

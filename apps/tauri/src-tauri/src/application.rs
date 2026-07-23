@@ -59,6 +59,7 @@ pub(crate) fn run() {
             crate::local_notes::local_notes_move,
             crate::local_notes::local_notes_create_folder,
             crate::local_notes::local_notes_rename_folder,
+            crate::local_notes::local_notes_move_folder,
             crate::local_notes::local_notes_delete_folder,
             crate::local_notes::local_notes_reset,
             crate::local_notes::local_notes_search,
