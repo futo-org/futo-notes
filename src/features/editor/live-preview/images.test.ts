@@ -55,4 +55,23 @@ describe('ImageWidget', () => {
 
     expect(requestMeasure).toHaveBeenCalled();
   });
+
+  it('replaces the placeholder min-height with a definite height on load', () => {
+    const { img } = setupImageWidgetView();
+    const wrapper = img.parentElement as HTMLElement;
+
+    // Before load: an uncached image reserves only a placeholder min-height —
+    // this is the "cut off on first paint" state the bug got stuck in.
+    expect(wrapper.style.minHeight).toBe('200px');
+    expect(wrapper.style.height).toBe('');
+
+    img.dispatchEvent(new Event('load'));
+
+    // After load: the widget commits a definite height (measured from the now-
+    // loaded image) and drops the placeholder, so it can no longer render short.
+    // (jsdom reports offsetHeight 0, so we assert the placeholder→height swap,
+    // not the pixel value — the swap is what the fix guarantees.)
+    expect(wrapper.style.height).not.toBe('');
+    expect(wrapper.style.minHeight).toBe('');
+  });
 });
