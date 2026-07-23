@@ -54,22 +54,22 @@ class StorageMigrationGateTest {
     }
 
     @Test
-    fun `idle-only migration refuses an in-flight callback-producing write`() = runBlocking {
+    fun `idle-only migration refuses the post-write callback inside gated access`() = runBlocking {
         val gate = StorageMigrationGate()
-        val writeStarted = CompletableDeferred<Unit>()
-        val releaseWrite = CompletableDeferred<Unit>()
+        val fileWriteFinished = CompletableDeferred<Unit>()
+        val releaseEditorCallback = CompletableDeferred<Unit>()
 
         val write = launch {
             gate.runAccess {
-                writeStarted.complete(Unit)
-                releaseWrite.await()
+                fileWriteFinished.complete(Unit)
+                releaseEditorCallback.await()
             }
         }
-        writeStarted.await()
+        fileWriteFinished.await()
 
         assertEquals(false, gate.tryBeginMigrationWhenIdle())
 
-        releaseWrite.complete(Unit)
+        releaseEditorCallback.complete(Unit)
         write.join()
         assertEquals("available", gate.runAccess { "available" })
     }

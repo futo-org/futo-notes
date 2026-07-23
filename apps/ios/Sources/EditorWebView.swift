@@ -6,6 +6,13 @@ import ObjectiveC
 import ObjectiveC.runtime
 import os
 
+func shouldDeliverEditorCompletion(
+    capturedGeneration: Int,
+    currentGeneration: Int
+) -> Bool {
+    capturedGeneration == currentGeneration
+}
+
 /// SwiftUI wrapper around a single, app-lifetime WKWebView that hosts the
 /// bundled markdown editor — the iOS counterpart of Android's `EditorHost`
 /// (apps/android/.../ui/EditorWebView.kt).
@@ -358,11 +365,21 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
-    /// Host → editor: insert `![](filename)\n` at the cursor. Called after a
-    /// picked image has been saved into the vault root.
-    func insertImage(_ filename: String) {
+    /// Host → editor: insert `![](filename)\n` only if the editor that started
+    /// the asynchronous image operation still owns the shared WebView.
+    private func insertImage(_ filename: String, for capturedGeneration: Int) {
+        guard shouldDeliverEditorCompletion(
+            capturedGeneration: capturedGeneration,
+            currentGeneration: generation
+        ) else { return }
         let js = "window.FutoEditor && window.FutoEditor.insertImage(\(jsLiteral(filename)));"
         webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    /// Invalidate completions owned by the current editor before a committed
+    /// delete exposes another note in the shared WebView.
+    func invalidateAsyncCompletions() {
+        generation += 1
     }
 
     /// Freeze user editing before a destructive native workflow. The resulting
@@ -446,6 +463,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // the SAME path as the picker and hand the filename back.
             if let base64 = body["data"] as? String,
                let ext = body["ext"] as? String {
+                let targetGeneration = generation
                 Task { @MainActor in
                     // Decode in a detached task so it runs off the main actor.
                     // (Kept out of the `guard` condition: a trailing closure
@@ -456,7 +474,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     guard let data = decoded else { return }
                     guard let filename = await VaultImages.save(
                         data: data, preferredExtension: ext) else { return }
-                    self.insertImage(filename)
+                    self.insertImage(filename, for: targetGeneration)
                 }
             }
         case .pasteClipboardImage:
@@ -468,10 +486,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // otherwise re-encode UIPasteboard's UIImage as PNG. No-op when the
             // pasteboard holds no image.
             if let (data, ext) = clipboardImageData() {
+                let targetGeneration = generation
                 Task { @MainActor in
                     guard let filename = await VaultImages.save(
                         data: data, preferredExtension: ext) else { return }
-                    self.insertImage(filename)
+                    self.insertImage(filename, for: targetGeneration)
                 }
             } else {
                 EditorHost.logger.info("pasteClipboardImage: no image on the pasteboard")
@@ -500,12 +519,13 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// library on devices/simulators without one), save into the vault root
     /// honoring the shared image-extension rules, then insertImage(filename).
     private func presentImagePicker(source: String) {
+        let targetGeneration = generation
         ImagePicker.present(source: source) { [weak self] data, ext in
             guard let self, let data else { return }
             Task { @MainActor in
                 guard let filename = await VaultImages.save(
                     data: data, preferredExtension: ext) else { return }
-                self.insertImage(filename)
+                self.insertImage(filename, for: targetGeneration)
             }
         }
     }

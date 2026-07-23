@@ -193,7 +193,7 @@ struct NoteEditorView: View {
                     }
                     Divider()
                     Button(role: .destructive) {
-                        showDeleteConfirm = true
+                        presentWithoutAnimation { showDeleteConfirm = true }
                     } label: {
                         Label("Delete Note", systemImage: "trash")
                     }
@@ -210,12 +210,16 @@ struct NoteEditorView: View {
         } message: {
             Text("Enter a new name for this note.")
         }
-        .confirmationDialog(
-            "Delete this note? This action cannot be undone.",
-            isPresented: $showDeleteConfirm, titleVisibility: .visible
-        ) {
-            Button("Delete Note", role: .destructive) { deleteNote() }
-            Button("Cancel", role: .cancel) {}
+        .fullScreenCover(isPresented: $showDeleteConfirm) {
+            DestructiveConfirmDialog(
+                message: "Delete this note? This action cannot be undone.",
+                destructiveLabel: "Delete Note",
+                onCancel: {
+                    presentWithoutAnimation { showDeleteConfirm = false }
+                },
+                onDestructive: { deleteNote() }
+            )
+            .presentationBackground(.clear)
         }
         .sheet(isPresented: $showMove) {
             // Keep the complete move in this editor's tracked mutation chain.
@@ -275,6 +279,11 @@ struct NoteEditorView: View {
         // set/clear calls (PKT-1 R1-R4, PKT-12 R5).
         .onChange(of: draftInputs) { _, _ in publishDraft() }
         .onDisappear {
+            // Presenting the centered delete confirmation covers this view but
+            // is not navigation. Preserve its save chain and draft ownership.
+            guard shouldHandleEditorDisappear(
+                isDeleteConfirmationPresented: showDeleteConfirm
+            ) else { return }
             // Covered (a wikilink pushed a new editor) or popped: no longer the
             // visible editor, so it must stop driving the shared WebView.
             isVisible = false
@@ -735,6 +744,8 @@ struct NoteEditorView: View {
             let outcome = await store.delete(noteId)
             if case .committed = outcome {
                 closingContent = nil
+                EditorHost.shared.invalidateAsyncCompletions()
+                presentWithoutAnimation { showDeleteConfirm = false }
                 if !navPath.isEmpty { navPath.removeLast() }
             } else {
                 let lateContent = closingContent
@@ -745,6 +756,7 @@ struct NoteEditorView: View {
                     content = lateContent
                     scheduleSave(lateContent)
                 }
+                presentWithoutAnimation { showDeleteConfirm = false }
                 publishDraft()
                 store.showTransient("Couldn't delete note. It remains in your notes.")
             }
@@ -784,6 +796,10 @@ func shouldFlushEditorOnDisappear(
     savedContent: String
 ) -> Bool {
     loaded && !isClosing && content != savedContent
+}
+
+func shouldHandleEditorDisappear(isDeleteConfirmationPresented: Bool) -> Bool {
+    !isDeleteConfirmationPresented
 }
 
 /// The state the unsaved-draft derivation reads, bundled into one Equatable

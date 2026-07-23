@@ -9,17 +9,6 @@ enum Route: Hashable {
     case newNote(String)
 }
 
-/// Toggles state without the implicit view-transition animation, so a
-/// transparent `fullScreenCover` pops in place (like the `.alert`/
-/// `.confirmationDialog` it replaces) instead of sliding up. Shared by the
-/// New Folder dialog and the destructive delete confirmations below — see
-/// `DestructiveConfirmDialog`.
-private func presentWithoutAnimation(_ mutate: () -> Void) {
-    var transaction = Transaction()
-    transaction.disablesAnimations = true
-    withTransaction(transaction, mutate)
-}
-
 struct NoteListView: View {
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
@@ -579,59 +568,6 @@ private struct NewFolderDialog: View {
                 // the .alert this replaced always raised the keyboard.
                 DispatchQueue.main.async { nameFocused = true }
             }
-        }
-    }
-}
-
-/// Alert-look-alike card for a destructive confirmation (delete note, delete
-/// folder), hosted in a transparent `fullScreenCover`. Replaces
-/// `.confirmationDialog`, which — attached at a container view far from the
-/// swiped/long-pressed row — can render as an arrow popover anchored to that
-/// container in a regular-width horizontal size class (some large iPhones),
-/// pointing the arrow at an unrelated row instead of the one being deleted.
-/// A transparent fullScreenCover is always centered, never anchored to a
-/// source view. Mirrors `NewFolderDialog` above.
-private struct DestructiveConfirmDialog: View {
-    /// The full confirmation prompt (e.g. "Delete this note? This action
-    /// cannot be undone."), rendered as one centered headline — matching what
-    /// `.confirmationDialog(_:titleVisibility: .visible)` showed.
-    let message: String
-    let destructiveLabel: String
-    let onCancel: () -> Void
-    let onDestructive: () -> Void
-
-    var body: some View {
-        ZStack {
-            // The same dim a real alert/action sheet draws. Taps on it do NOT
-            // dismiss — parity with the .confirmationDialog this replaced.
-            Color.black.opacity(0.2)
-                .ignoresSafeArea()
-            VStack(spacing: 0) {
-                Text(message)
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 19)
-                    .padding(.bottom, 16)
-                Divider()
-                HStack(spacing: 0) {
-                    Button(action: onCancel) {
-                        Text("Cancel")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    Divider()
-                        .frame(height: 44)
-                    Button(role: .destructive, action: onDestructive) {
-                        Text(destructiveLabel)
-                            .foregroundStyle(Theme.danger)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                }
-            }
-            .frame(width: 270)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
         }
     }
 }

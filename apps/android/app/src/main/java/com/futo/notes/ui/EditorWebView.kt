@@ -410,11 +410,25 @@ class EditorHost private constructor(appContext: Context) {
         eval("window.FutoEditor && window.FutoEditor.applyExternalContent(${JSONObject.quote(markdown)});")
     }
 
-    /** Insert `![](filename)` at the cursor — called after a pickImage
-     *  round-trip saves the image into the vault root. */
-    fun insertImage(filename: String) {
-        eval("window.FutoEditor && window.FutoEditor.insertImage(${JSONObject.quote(filename)});")
-    }
+    /** Insert `![](filename)` and wait until CodeMirror has applied the
+     * transaction. Storage migration keeps its vault gate until this returns,
+     * so a following editor snapshot cannot run in the post-save callback gap. */
+    suspend fun insertImageAndWait(filename: String): Boolean =
+        suspendCancellableCoroutine { continuation ->
+            webView.post {
+                webView.evaluateJavascript(
+                    """
+                    (() => {
+                      if (!window.FutoEditor) return false;
+                      window.FutoEditor.insertImage(${JSONObject.quote(filename)});
+                      return true;
+                    })()
+                    """.trimIndent(),
+                ) { result ->
+                    if (continuation.isActive) continuation.resume(result == "true")
+                }
+            }
+        }
 
     /** Run a shared toolbar command (TOOLBAR_EXEC in markdownToolbar.ts) by
      *  manifest id — how the native toolbar's Exec items dispatch (bridge v3).

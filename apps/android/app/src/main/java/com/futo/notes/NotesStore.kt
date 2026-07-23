@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -148,9 +149,26 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
         retained.entries.removeAll { it.value == draft }
     }
 
-    /** A newer ordinary save for [id] supersedes every older leave snapshot. */
-    fun completeNote(id: String) {
+    /** Snapshot retained drafts present when an ordinary save starts. */
+    fun retainedSnapshot(id: String): Map<Long, PendingDraft> =
+        retained.filterValues { it.id == id }
+
+    /** Clear only snapshots that are still the admitted values. */
+    fun completeSnapshot(snapshot: Map<Long, PendingDraft>) {
+        snapshot.forEach { (token, draft) ->
+            if (retained[token] == draft) retained.remove(token)
+        }
+    }
+
+    fun discardNote(id: String) {
         retained.entries.removeAll { it.value.id == id }
+        providers.entries.removeAll { it.value()?.id == id }
+    }
+
+    fun retargetRetainedNote(oldId: String, finalId: String) {
+        retained.replaceAll { _, draft ->
+            if (draft.id == oldId) draft.copy(id = finalId) else draft
+        }
     }
 
     /** Persist every live editor's current draft by pulling each provider
@@ -256,12 +274,19 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     suspend fun read(id: String): String = withCore { core.read(id) }
     suspend fun exists(id: String): Boolean = withCore { core.exists(id) }
 
-    /** Save an editor image under the active vault root while holding the same
-     * migration gate as note workflows. A migration that has begun rejects the
-     * save; one queued behind an in-flight save drains it before staging files. */
-    suspend fun saveImageIntoVault(save: (File) -> String?): String? =
+    /** Save an editor image and consume its filename while holding the same
+     * migration gate as note workflows. The consumer is part of the operation:
+     * image insertion reaches the WebView before migration may snapshot it. */
+    suspend fun saveImageIntoVault(
+        save: (File) -> String?,
+        useSavedImage: suspend (String) -> Unit,
+    ): String? =
         try {
-            withVaultAccess { save(File(rootPath)) }
+            withVaultAccess {
+                val filename = save(File(rootPath))
+                if (filename != null) useSavedImage(filename)
+                filename
+            }
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "image save failed", e)
             null
@@ -275,13 +300,20 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  Rust's one `flush_draft` workflow writes, converges, recreates, or parks
      *  the draft under the store's mutation gate. */
     fun flushAsync(draft: PendingDraft) {
-        scope.launch {
-            if (flushDraft(draft) != null) pendingEditor.complete(draft)
+        val admission = editorDraftCoordinator.admit(draft.id) ?: return
+        val previous = editorDraftTail
+        editorDraftTail = scope.launch {
+            previous?.join()
+            if (!editorDraftCoordinator.permits(admission)) return@launch
+            if (flushDraftDirect(draft) != null) pendingEditor.complete(draft)
         }
     }
 
     /** Persist-or-park one exact editor snapshot through the Rust workflow. */
-    suspend fun flushDraft(draft: PendingDraft): FlushDisposition? = try {
+    suspend fun flushDraft(draft: PendingDraft): FlushDisposition? =
+        flushDraftDirect(draft)
+
+    private suspend fun flushDraftDirect(draft: PendingDraft): FlushDisposition? = try {
         val result = withCore { core.flushDraft(draft.id, draft.base, draft.content) }
         result.mutation?.let {
             applyMutation(it)
@@ -301,6 +333,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  still overlapping during a nav cross-fade — is persisted before the OS can
      *  kill the backgrounded process. Mirrors iOS `NotesStore.pendingDraft`. */
     private val pendingEditor = PendingEditorDraft { draft -> flushAsync(draft) }
+    private val editorDraftCoordinator = EditorDraftCoordinator()
+    private var editorDraftTail: Job? = null
 
     /** A newly-composed editor claims a register entry; returns its unique token.
      *  Entries are keyed by it, so editors overlapping during the AnimatedContent
@@ -381,20 +415,20 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         storageMigrationGate.resume()
     }
 
-    suspend fun finalizeVaultMigration(to: File): Boolean =
+    suspend fun finalizeVaultMigration(to: File): VaultMigrationFinalization =
         withContext(Dispatchers.IO) {
             storageMigrationGate.runMigration {
-                core.finalizeVaultMigration(to.absolutePath) !=
-                    VaultMigrationFinalization.DESTINATION_CHANGED
+                core.finalizeVaultMigration(to.absolutePath)
             }
         }
 
     /** Write one note and consume the complete committed mutation. */
     suspend fun write(id: String, content: String): NoteMutationOutcome<Unit> =
         try {
+            val retainedAtAdmission = pendingEditor.retainedSnapshot(id)
             val mutation = withCore { core.write(id, content) }
             applyMutation(mutation)
-            pendingEditor.completeNote(id)
+            pendingEditor.completeSnapshot(retainedAtAdmission)
             signalLocalChange()
             NoteMutationOutcome.Committed(Unit)
         } catch (e: Exception) {
@@ -405,22 +439,31 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     suspend fun createNote(title: String, folder: String = ""): String? = try {
         val mutation = withCore { core.createNote(title, folder, "") }
         applyMutation(mutation)
+        val createdId = mutation.finalId ?: title
+        editorDraftCoordinator.reopen(createdId)
         signalLocalChange()
-        mutation.finalId ?: title
+        createdId
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "createNote failed", e); null
     }
 
-    suspend fun delete(id: String): NoteMutationOutcome<Unit> =
-        try {
+    suspend fun delete(id: String): NoteMutationOutcome<Unit> {
+        val identity = editorDraftCoordinator.beginIdentityMutation(id)
+        val pendingFlushes = editorDraftTail
+        return try {
+            pendingFlushes?.join()
             val mutation = withCore { core.delete(id) }
             applyMutation(mutation)
+            pendingEditor.discardNote(id)
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
             signalLocalChange()
             NoteMutationOutcome.Committed(Unit)
         } catch (e: Exception) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
             android.util.Log.e("NotesStore", "delete failed", e)
             NoteMutationOutcome.Failed
         }
+    }
 
     /** Fire-and-forget delete for the editor's `onDispose` (can't suspend; the
      *  composable's scope is already gone). Runs on the store's scope, which
@@ -430,33 +473,54 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         scope.launch { delete(id) }
     }
 
-    suspend fun rename(oldId: String, newId: String): String = try {
-        val mutation = withCore { core.rename(oldId, newId) }
-        applyMutation(mutation)
-        signalLocalChange()
-        mutation.finalId ?: oldId
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "rename failed", e); oldId
+    suspend fun rename(oldId: String, newId: String): String {
+        val identity = editorDraftCoordinator.beginIdentityMutation(oldId)
+        val pendingFlushes = editorDraftTail
+        return try {
+            pendingFlushes?.join()
+            val mutation = withCore { core.rename(oldId, newId) }
+            val finalId = mutation.finalId ?: oldId
+            applyMutation(mutation)
+            pendingEditor.retargetRetainedNote(oldId, finalId)
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
+            editorDraftCoordinator.reopen(finalId)
+            signalLocalChange()
+            finalId
+        } catch (e: Exception) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            android.util.Log.e("NotesStore", "rename failed", e)
+            oldId
+        }
     }
 
     suspend fun moveNote(
         id: String,
         toFolder: String,
         createFolder: Boolean = false,
-    ): NoteMutationOutcome<String> = try {
-        val mutation = withCore {
-            if (createFolder) {
-                core.moveNoteToNewFolder(id, toFolder)
-            } else {
-                core.moveNote(id, toFolder)
+    ): NoteMutationOutcome<String> {
+        val identity = editorDraftCoordinator.beginIdentityMutation(id)
+        val pendingFlushes = editorDraftTail
+        return try {
+            pendingFlushes?.join()
+            val mutation = withCore {
+                if (createFolder) {
+                    core.moveNoteToNewFolder(id, toFolder)
+                } else {
+                    core.moveNote(id, toFolder)
+                }
             }
+            val finalId = mutation.finalId ?: id
+            applyMutation(mutation)
+            pendingEditor.retargetRetainedNote(id, finalId)
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
+            editorDraftCoordinator.reopen(finalId)
+            signalLocalChange()
+            NoteMutationOutcome.Committed(finalId)
+        } catch (e: Exception) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            android.util.Log.e("NotesStore", "moveNote failed", e)
+            NoteMutationOutcome.Failed
         }
-        applyMutation(mutation)
-        signalLocalChange()
-        NoteMutationOutcome.Committed(mutation.finalId ?: id)
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "moveNote failed", e)
-        NoteMutationOutcome.Failed
     }
 
     suspend fun createFolder(path: String): NoteMutationOutcome<Unit> =
@@ -518,7 +582,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         if (!suppressAutoPush) onLocalChange?.invoke()
     }
 
-    private suspend fun <T> withVaultAccess(block: () -> T): T =
+    private suspend fun <T> withVaultAccess(block: suspend () -> T): T =
         withContext(Dispatchers.IO) {
             storageMigrationGate.runAccess { block() }
         }

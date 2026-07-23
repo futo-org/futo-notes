@@ -460,9 +460,14 @@ EditorWebView.swift, EditorWebView.kt
   conflict adoption likewise waits until the local conflict copy is durable.
   A dirty native editor that leaves the screen retains its final draft registration
   until the asynchronous leave flush writes or parks it successfully. A later
-  successful ordinary save for that note supersedes any older retained snapshot,
-  so a failed leave attempt cannot later park stale text after the user has
-  reopened and saved newer text. _(iOS, Android)_ → `NotesStore.write`,
+  successful ordinary save clears only the exact retained revision it observed,
+  so it cannot accidentally discard a newer retained edit. Identity mutations
+  advance a store-owned draft generation before suspending: delete discards the
+  old identity's live and retained drafts only after commit, while rename/move
+  retarget retained drafts to the authoritative final id. Failed identity
+  mutations reopen a fresh generation. A queued or failed leave flush from the
+  old generation therefore cannot resurrect a deleted note or create an old-id
+  ghost after rename/move. _(iOS, Android)_ → `NotesStore.write`,
   NoteEditorScreen.kt / NoteEditorView.swift,
   NativeMutationOutcomeTest / NativeMutationOutcomeTests
 - Title edits debounce (~500 ms) into a rename (iOS commits via the rename
@@ -479,13 +484,16 @@ EditorWebView.swift, EditorWebView.kt
   move—not only presentation of its picker—and delete awaits the complete
   save/rename/adoption/move chain before removing the final id. Once closing
   starts, iOS blurs the WebView, quarantines late bridge changes, and never
-  flushes that closing view on disappear. A committed delete discards the
+  flushes that closing view on disappear. Its centered delete card is a
+  transparent cover, and presenting that cover is explicitly excluded from the
+  editor's navigation-disappear cleanup. A committed delete discards the
   quarantine; a failed delete restores and autosaves it, so the note is neither
   recreated after success nor stripped of a late edit after failure. An
   in-flight conflict flush, move, title debounce, or queued bridge callback
   therefore cannot recreate or rename a note after its delete commits. _(iOS,
   Android)_ → `EditorMutationGate`,
-  NoteEditorScreen.kt, NoteEditorView.swift, NativeMutationOutcomeTests
+  `EditorDraftCoordinator`, NoteEditorScreen.kt, NoteEditorView.swift,
+  NativeMutationOutcomeTests
 - Backgrounding the app makes a **best-effort** flush of the open editor's
   pending edit at the first leave-foreground signal, so an edit caught inside the
   autosave debounce is usually persisted before the OS jetsams the process. The

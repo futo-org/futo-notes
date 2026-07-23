@@ -64,15 +64,22 @@ Behaviors and constraints that hold across every surface and platform.
     and relaunches. The switch blocks editor/store writes—including image-picker
     and clipboard image files—and pauses live sync. It refuses to begin while a
     vault write is active, because an image write completes with a later editor
-    insertion that must land before the WebView snapshot; the user can retry
-    after that save finishes. A newly queued save is rejected once migration is
-    latched. It disables and blurs the Android WebView, then reads
+    insertion that must be confirmed by the WebView before the storage gate
+    opens; the user can retry after that save finishes. A newly queued save is
+    rejected once migration is latched. That same synchronous latch makes an
+    Activity `onStop` unable to abort live sync before the migration's graceful
+    sync stop completes. It disables and blurs the Android WebView, then reads
     `FutoEditor.getContent()` before taking the vault snapshot, so a bridge
     change still waiting for animation-frame delivery is included; failure to
     read the live editor aborts the switch. The engine stages the copy, verifies
-    every relative path and file digest, and durably
-    commits the new mode before deleting the source. A failed copy/verification
-    or preference write keeps the old mode/root active and reports the failure.
+    every relative path and file digest. Before and after activation it records
+    a fsynced, atomically replaced app-private journal. `PREPARED` makes the old
+    root authoritative after a crash; `ACTIVATED` makes the verified destination
+    authoritative even if the SharedPreferences commit result is ambiguous, so
+    recovery never rolls back to a source that may already have been cleaned up.
+    Source cleanup occurs only after activation; a failed cleanup leaves the
+    source intact as a backup while the destination remains canonical. A failed
+    copy/verification keeps the old mode/root active and reports the failure.
     An open editor's pending draft must first produce a committed mutation or
     already match the bytes on disk; a skipped/missing/divergent flush aborts the
     switch instead of relaunching with an older draft. A non-empty destination is

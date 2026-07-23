@@ -268,13 +268,21 @@ class SyncManager(
 
     /** Tear down the live stream (e.g. app backgrounded). Keeps the session. */
     fun pauseLive() {
+        // Storage migration owns a graceful stop. An onStop callback landing
+        // between the synchronous latch and quiescence must not abort that task.
+        if (storageMigrationGate.isMigrationStarted) return
         client?.stopLive()
         live = false
     }
 
+    /** Synchronously reject new sync work before the Activity snapshots the
+     * editor. The later suspend step drains work and performs a graceful stop. */
+    fun beginStorageMigration() {
+        storageMigrationGate.beginMigration()
+    }
+
     /** Stop live sync and wait for any connect/manual cycle already in flight. */
     suspend fun quiesceForStorageMigration() {
-        storageMigrationGate.beginMigration()
         storageMigrationGate.runMigration {
             client?.stopLiveAndWait()
             live = false

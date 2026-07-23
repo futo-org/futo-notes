@@ -128,26 +128,4 @@ class NotesStorageTest {
         assertEquals("Copy verification failed.", failed.feedback)
     }
 
-    @Test
-    fun failedFinalVerificationKeepsTheCurrentStorageModeActive() {
-        val verified = NotesStorage.storageActivationDecision(
-            requiresFinalization = true,
-            finalized = true,
-        )
-        val changedAfterCopy = NotesStorage.storageActivationDecision(
-            requiresFinalization = true,
-            finalized = false,
-        )
-        val emptySource = NotesStorage.storageActivationDecision(
-            requiresFinalization = false,
-            finalized = false,
-        )
-
-        assertTrue(verified.activateDestination)
-        assertFalse(verified.revertPreference)
-        assertFalse(changedAfterCopy.activateDestination)
-        assertTrue(changedAfterCopy.revertPreference)
-        assertTrue(emptySource.activateDestination)
-        assertFalse(emptySource.revertPreference)
-    }
 }

@@ -58,6 +58,7 @@ import com.futo.notes.ui.theme.FutoMotion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.futo_notes_ffi.VaultMigrationFinalization
 import java.io.File
 
 /** A screen in the manual nav stack. Note ids/folders contain `/`, which would
@@ -103,12 +104,14 @@ class MainActivity : ComponentActivity() {
     // setContent shows the shell only once initVault has run. Resolved early in
     // onCreate (no disk on the main thread — see initVault).
     private lateinit var prefs: android.content.SharedPreferences
+    private lateinit var storageMigrationJournal: StorageMigrationJournal
     private lateinit var notesRoot: File
     private val store = mutableStateOf<NotesStore?>(null)
     private val showOnboarding = mutableStateOf(false)
     private val showRegrant = mutableStateOf(false)
     private val showStoragePicker = mutableStateOf(false)
     private val storageSwitching = mutableStateOf(false)
+    private val storageRecoveryError = mutableStateOf<String?>(null)
 
     // The All-files-access settings screen returns no result code, so we
     // re-check the actual permission state on return and run the continuation.
@@ -172,11 +175,35 @@ class MainActivity : ComponentActivity() {
         // unavoidable cold-start resolution. Permit them inside a narrow window so
         // the debug StrictMode policy stays a clean tripwire for note I/O that
         // slips onto the UI thread.
-        val startup = android.os.StrictMode.allowThreadDiskReads().let { saved ->
+        val startup = android.os.StrictMode.allowThreadDiskWrites().let { saved ->
             try {
                 prefs = getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE)
+                storageMigrationJournal =
+                    StorageMigrationJournal(File(filesDir, ".storage-migration"))
+                val pending = storageMigrationJournal.read().getOrElse {
+                    storageRecoveryError.value =
+                        "The previous storage move could not be recovered. Both note folders were left unchanged."
+                    return@let null
+                }
+                val savedMode = prefs.getString(Prefs.STORAGE_MODE, null)
+                val effectiveMode = pending?.let {
+                    val recovery = NotesStorage.storageRecoveryDecision(savedMode, it)
+                    val preferenceReady = recovery.repairPreferenceTo?.let { repair ->
+                        prefs.edit().putString(Prefs.STORAGE_MODE, repair.name).commit()
+                    } ?: true
+                    val sourceExists =
+                        NotesStorage.rootFor(this, it.from, BuildConfig.DEBUG).exists()
+                    val cleanupResolved = !it.cleanupRequired || !sourceExists
+                    if (
+                        preferenceReady &&
+                        (it.phase == StorageMigrationPhase.PREPARED || cleanupResolved)
+                    ) {
+                        storageMigrationJournal.clear()
+                    }
+                    recovery.activeMode.name
+                } ?: savedMode
                 NotesStorage.decideStartup(
-                    savedMode = prefs.getString(Prefs.STORAGE_MODE, null),
+                    savedMode = effectiveMode,
                     internalVaultExists = NotesStorage.looksLikeExistingVault(NotesStorage.internalRoot(this)),
                     deviceModeSupported = NotesStorage.deviceModeSupported(),
                 )
@@ -211,7 +238,9 @@ class MainActivity : ComponentActivity() {
         // Resolve where the vault lives. A known location boots straight into the
         // shell; a fresh install shows the picker; a DEVICE vault whose permission
         // was revoked shows the re-grant screen instead of an empty vault.
-        if (startup.needsOnboarding) {
+        if (startup == null) {
+            // The shell still renders below with a visible recovery error.
+        } else if (startup.needsOnboarding) {
             showOnboarding.value = true
         } else {
             val mode = startup.mode!!
@@ -256,6 +285,12 @@ class MainActivity : ComponentActivity() {
                         storageSwitching = storageSwitching.value,
                     )
                     when {
+                        storageRecoveryError.value != null -> Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            Text(storageRecoveryError.value!!)
+                        }
                         vaultSurface.renderShell -> Box(modifier = Modifier.fillMaxSize()) {
                             AppShell(s!!, themeMode, onThemeMode = {
                                 themeMode = it
@@ -517,13 +552,25 @@ class MainActivity : ComponentActivity() {
             ).show()
             return
         }
+        // Latch BOTH vault owners synchronously. onStop may fire as soon as the
+        // picker Activity loses focus; it must not abort the graceful sync stop.
+        sync.beginStorageMigration()
         current.suppressAutoPush = true
         lifecycleScope.launch {
+            val prepared = PendingStorageMigration(
+                from = previousMode,
+                to = newMode,
+                phase = StorageMigrationPhase.PREPARED,
+                cleanupRequired = false,
+            )
             val outcome = runCatching {
                 check(EditorHost.get(this@MainActivity).freezeAndCaptureContent()) {
                     "The open editor could not be snapshotted"
                 }
                 sync.quiesceForStorageMigration()
+                withContext(Dispatchers.IO) {
+                    storageMigrationJournal.write(prepared).getOrThrow()
+                }
                 current.migrateVault(to)
             }.getOrElse {
                 NotesStorage.MigrationOutcome.Failed(
@@ -533,35 +580,52 @@ class MainActivity : ComponentActivity() {
             val decision = NotesStorage.storageSwitchDecision(outcome)
 
             if (decision.commitPreference) {
-                // commit() (synchronous) — NOT apply(): restartApp() kills the process
-                // immediately, and an async apply() write would be lost before it
-                // flushes, stranding the app back in the old mode + re-seeding.
-                val committed = withContext(Dispatchers.IO) {
-                    prefs.edit().putString(Prefs.STORAGE_MODE, newMode.name).commit()
+                val activated = prepared.copy(
+                    phase = StorageMigrationPhase.ACTIVATED,
+                    cleanupRequired = decision.requiresFinalization,
+                )
+                val journalActivated = withContext(Dispatchers.IO) {
+                    storageMigrationJournal.write(activated).isSuccess
                 }
-                if (committed) {
-                    val finalized = !decision.requiresFinalization ||
-                        runCatching { current.finalizeVaultMigration(to) }.getOrDefault(false)
-                    val activation = NotesStorage.storageActivationDecision(
-                        requiresFinalization = decision.requiresFinalization,
-                        finalized = finalized,
-                    )
-                    if (activation.revertPreference) {
+                if (journalActivated) {
+                    // The journal is now authoritative. SharedPreferences is only
+                    // a cache; a false commit result cannot roll the active root
+                    // backward or make the next process choose the source.
+                    val preferenceCommitted = withContext(Dispatchers.IO) {
+                        prefs.edit().putString(Prefs.STORAGE_MODE, newMode.name).commit()
+                    }
+                    val finalization = if (decision.requiresFinalization) {
+                        runCatching { current.finalizeVaultMigration(to) }
+                            .getOrDefault(VaultMigrationFinalization.DESTINATION_CHANGED)
+                    } else {
+                        VaultMigrationFinalization.FINALIZED
+                    }
+                    if (
+                        preferenceCommitted &&
+                        finalization == VaultMigrationFinalization.FINALIZED
+                    ) {
                         withContext(Dispatchers.IO) {
-                            prefs.edit()
-                                .putString(Prefs.STORAGE_MODE, previousMode.name)
-                                .commit()
+                            storageMigrationJournal.clear()
                         }
                     }
                     // A vault move changes the path captured by the process-singleton
                     // search engine + sync client, so relaunch to rebuild them.
-                    if (activation.activateDestination) {
-                        if (decision.restart) restartApp()
-                        return@launch
-                    }
+                    // ACTIVATED is the point of no return even if a future
+                    // decision shape stops carrying a restart hint.
+                    restartApp()
+                    return@launch
                 }
             }
 
+            // PREPARED (or no journal) means the source remains authoritative.
+            // Clearing is best effort: a surviving PREPARED record also selects
+            // the source on the next launch.
+            withContext(Dispatchers.IO) {
+                storageMigrationJournal.clear()
+                prefs.edit()
+                    .putString(Prefs.STORAGE_MODE, previousMode.name)
+                    .commit()
+            }
             current.suppressAutoPush = false
             current.resumeAfterStorageMigrationFailure()
             EditorHost.get(this@MainActivity).resumeAfterStorageMigrationFailure()
@@ -569,7 +633,7 @@ class MainActivity : ComponentActivity() {
             sync.resumeAfterStorageMigrationFailure()
             Toast.makeText(
                 this@MainActivity,
-                decision.feedback ?: "The storage preference could not be saved. The original notes remain active.",
+                decision.feedback ?: "The storage move could not be activated. The original notes remain active.",
                 Toast.LENGTH_LONG,
             ).show()
         }

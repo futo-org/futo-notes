@@ -45,6 +45,26 @@ object NotesStorage {
 
     data class Startup(val mode: StorageMode?, val needsOnboarding: Boolean)
 
+    data class StorageRecoveryDecision(
+        val activeMode: StorageMode,
+        val repairPreferenceTo: StorageMode?,
+    )
+
+    fun storageRecoveryDecision(
+        savedMode: String?,
+        pending: PendingStorageMigration,
+    ): StorageRecoveryDecision {
+        val activeMode = when (pending.phase) {
+            StorageMigrationPhase.PREPARED -> pending.from
+            StorageMigrationPhase.ACTIVATED -> pending.to
+        }
+        val saved = savedMode?.let { runCatching { StorageMode.valueOf(it) }.getOrNull() }
+        return StorageRecoveryDecision(
+            activeMode = activeMode,
+            repairPreferenceTo = activeMode.takeIf { it != saved },
+        )
+    }
+
     /**
      * Decide the vault location at launch (PURE).
      *  - a saved mode wins (returning user).
@@ -137,18 +157,4 @@ object NotesStorage {
             -> StorageSwitchDecision(true, true, false, null)
         }
 
-    data class StorageActivationDecision(
-        val activateDestination: Boolean,
-        val revertPreference: Boolean,
-    )
-
-    fun storageActivationDecision(
-        requiresFinalization: Boolean,
-        finalized: Boolean,
-    ): StorageActivationDecision =
-        if (!requiresFinalization || finalized) {
-            StorageActivationDecision(activateDestination = true, revertPreference = false)
-        } else {
-            StorageActivationDecision(activateDestination = false, revertPreference = true)
-        }
 }

@@ -49,6 +49,12 @@ struct NativeMutationOutcomeTests {
         #expect(editorChangeDisposition(loaded: true, isClosing: true) == .quarantine)
     }
 
+    @Test("async editor completion stays with the generation that started it")
+    func editorCompletionGeneration() {
+        #expect(shouldDeliverEditorCompletion(capturedGeneration: 7, currentGeneration: 7))
+        #expect(!shouldDeliverEditorCompletion(capturedGeneration: 7, currentGeneration: 8))
+    }
+
     @Test("closing editor never flushes a newly dirty buffer on disappear")
     func closingEditorDoesNotFlushOnDisappear() {
         #expect(
@@ -66,6 +72,16 @@ struct NativeMutationOutcomeTests {
                 content: "late bridge edit",
                 savedContent: "delete snapshot"
             )
+        )
+    }
+
+    @Test("delete confirmation cover is not treated as editor navigation")
+    func deleteConfirmationPreservesEditorLifecycle() {
+        #expect(
+            !shouldHandleEditorDisappear(isDeleteConfirmationPresented: true)
+        )
+        #expect(
+            shouldHandleEditorDisappear(isDeleteConfirmationPresented: false)
         )
     }
 }

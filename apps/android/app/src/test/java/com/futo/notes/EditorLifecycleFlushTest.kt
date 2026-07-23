@@ -264,13 +264,64 @@ class EditorLifecycleFlushTest {
         }
         pending.release(token)
 
-        pending.completeNote("todo")
+        val admitted = pending.retainedSnapshot("todo")
+        pending.completeSnapshot(admitted)
         pending.flush()
 
         assertTrue(
             "a newer committed save must prevent the stale leave snapshot from parking later",
             rec.writes.isEmpty(),
         )
+    }
+
+    @Test
+    fun ordinarySaveDoesNotClearAnewerRetainedDraft() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val oldToken = pending.claim()
+        pending.setProvider(oldToken) { PendingDraft("todo", "A", "old") }
+        pending.release(oldToken)
+        val admitted = pending.retainedSnapshot("todo")
+
+        val newToken = pending.claim()
+        pending.setProvider(newToken) { PendingDraft("todo", "A", "new") }
+        pending.release(newToken)
+        pending.completeSnapshot(admitted)
+        pending.flush()
+
+        assertEquals(listOf(PendingDraft("todo", "A", "new")), rec.writes)
+    }
+
+    @Test
+    fun identityMutationRetargetsRetainedDraftToAuthoritativeFinalId() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val token = pending.claim()
+        pending.setProvider(token) { PendingDraft("old", "A", "draft") }
+        pending.release(token)
+
+        pending.retargetRetainedNote("old", "folder/final-2")
+        pending.flush()
+
+        assertEquals(
+            listOf(PendingDraft("folder/final-2", "A", "draft")),
+            rec.writes,
+        )
+    }
+
+    @Test
+    fun committedDeleteDiscardsLiveAndRetainedDrafts() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val retainedToken = pending.claim()
+        pending.setProvider(retainedToken) { PendingDraft("note", "A", "retained") }
+        pending.release(retainedToken)
+        pending.setProvider(pending.claim()) { PendingDraft("note", "A", "live") }
+
+        pending.discardNote("note")
+        pending.flush()
+
+        assertTrue(rec.writes.isEmpty())
     }
 
     @Test

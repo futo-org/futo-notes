@@ -7,8 +7,8 @@ flag gaps the codebase suggests have been implemented.
 
 ## app.md
 
-- [app.md:96](app.md#L96) — Android pre-11 (API < 30) devices can't use Device storage (All-files access is an API-30 mechanism) — they only get App storage, so their vault is not visible in a file manager. _(Android)_
-- [app.md:100](app.md#L100) — The vault folder is fixed per mode and not a user-pickable arbitrary directory on mobile (desktop allows a custom folder); iOS has no iCloud Drive vault option. Both are possible follow-ups. _(iOS / Android)_
+- [app.md:103](app.md#L103) — Android pre-11 (API < 30) devices can't use Device storage (All-files access is an API-30 mechanism) — they only get App storage, so their vault is not visible in a file manager. _(Android)_
+- [app.md:107](app.md#L107) — The vault folder is fixed per mode and not a user-pickable arbitrary directory on mobile (desktop allows a custom folder); iOS has no iCloud Drive vault option. Both are possible follow-ups. _(iOS / Android)_
 
 ## editor.md
 
@@ -20,8 +20,8 @@ flag gaps the codebase suggests have been implemented.
 
 - [list.md:50](list.md#L50) — _(Android)_ A **sync live pull** that creates or re-ranks a note while the list is composed at the top still relies on LazyListState key anchoring, so the remotely-changed row can land above the viewport until the user drags. Same anchoring class as the local-edit invisibility bug fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem` on the FAB path and a pop-time re-pin in `AppShell.pop()`); the `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt `reloadAsync`, MainActivity.kt `AppShell.pop`
 - [list.md:80](list.md#L80) — Tauri desktop sidebar note rows show the **title only** — no body preview at all. The single-line, markdown-opaque `make_preview` snippet appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar rows. The rich multi-line preview is native-only (iOS + Android) for now.
-- [list.md:296](list.md#L296) — the native shells expose no folder-rename affordance yet — the folder long-press menu offers Delete only (iOS `NoteListView.swift`, Android `NoteListScreen.kt`). The shared `NoteStore.renameFolder` contract exists; only the native UI affordance remains. _(native shells)_
-- [list.md:306](list.md#L306) — the native shells can move a _note_ into a folder ("Move to Folder…") but expose no folder-move affordance — moving a folder itself belongs in the folder long-press menu alongside Rename and Delete, and the shared `NoteStore` FFI facade has no move-folder primitive. _(native shells)_
+- [list.md:298](list.md#L298) — the native shells expose no folder-rename affordance yet — the folder long-press menu offers Delete only (iOS `NoteListView.swift`, Android `NoteListScreen.kt`). The shared `NoteStore.renameFolder` contract exists; only the native UI affordance remains. _(native shells)_
+- [list.md:308](list.md#L308) — the native shells can move a _note_ into a folder ("Move to Folder…") but expose no folder-move affordance — moving a folder itself belongs in the folder long-press menu alongside Rename and Delete, and the shared `NoteStore` FFI facade has no move-folder primitive. _(native shells)_
 
 ## nav.md
 

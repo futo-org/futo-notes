@@ -179,7 +179,9 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   > the swiped/long-pressed row, could render as a popover anchored to that
   > container in a regular-width horizontal size class (some large iPhones) —
   > pointing the arrow at an unrelated row instead of the one being deleted
-  > (fixed 2026-07-22). → NoteListView.swift `DestructiveConfirmDialog`
+  > (fixed 2026-07-22). The editor menu uses the same presentation, and opening
+  > its cover does not trigger editor-leave draft cleanup. →
+  > DestructiveConfirmDialog.swift, NoteListView.swift, NoteEditorView.swift
 - **iOS native** note rows expose **Move to Folder…** and **Delete** via
   long-press context menu / swipe actions; the move sheet lists Root, every
   folder, and an inline "New Folder…" option, and the move is applied on

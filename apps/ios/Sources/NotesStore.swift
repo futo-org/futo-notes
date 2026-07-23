@@ -254,12 +254,37 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    /// A newer ordinary save for a note supersedes every older leave snapshot.
-    private func completeRetainedDrafts(for id: String) {
-        let completedTokens = oneShotDraftTokens.filter { draftRegister[$0]?.id == id }
-        for token in completedTokens {
+    private func retainedDraftSnapshot(for id: String) -> [UInt64: PendingDraft] {
+        Dictionary(
+            uniqueKeysWithValues: oneShotDraftTokens.compactMap { token in
+                guard let draft = draftRegister[token], draft.id == id else { return nil }
+                return (token, draft)
+            })
+    }
+
+    private func completeRetainedDraftSnapshot(_ snapshot: [UInt64: PendingDraft]) {
+        for (token, draft) in snapshot where draftRegister[token] == draft {
             draftRegister[token] = nil
             oneShotDraftTokens.remove(token)
+        }
+    }
+
+    private func discardDrafts(for id: String) {
+        let tokens = draftRegister.compactMap { token, draft in draft.id == id ? token : nil }
+        for token in tokens {
+            draftRegister[token] = nil
+            oneShotDraftTokens.remove(token)
+        }
+    }
+
+    private func retargetRetainedDrafts(from oldId: String, to finalId: String) {
+        for token in oneShotDraftTokens {
+            guard let draft = draftRegister[token], draft.id == oldId else { continue }
+            draftRegister[token] = PendingDraft(
+                id: finalId,
+                base: draft.base,
+                content: draft.content
+            )
         }
     }
 
@@ -275,6 +300,8 @@ final class NotesStore: ObservableObject {
     /// anti-double-park property, which the engine's `flush_draft` park
     /// idempotency enforces on its own anyway).
     private var flushedThisEpisode: [String: PendingDraft] = [:]
+    private let editorDraftCoordinator = EditorDraftCoordinator()
+    private var editorDraftTail: Task<Void, Never>?
 
     /// Flush every live editor's pending draft to disk (scenePhase inactive/
     /// background). Coalesces by note id, keeping the highest-token (most recently
@@ -385,8 +412,9 @@ final class NotesStore: ObservableObject {
 
     func write(_ id: String, content: String) async -> NoteMutationOutcome<Void> {
         do {
+            let retainedAtAdmission = retainedDraftSnapshot(for: id)
             applyMutation(try await vault.write(id, content: content))
-            completeRetainedDrafts(for: id)
+            completeRetainedDraftSnapshot(retainedAtAdmission)
             onLocalChange?()
             return .committed(())
         } catch {
@@ -402,8 +430,10 @@ final class NotesStore: ObservableObject {
         do {
             let mutation = try await vault.createNote(title: title, folder: folder)
             applyMutation(mutation)
+            let createdId = mutation.finalId ?? title
+            editorDraftCoordinator.reopen(createdId)
             onLocalChange?()
-            return mutation.finalId ?? title
+            return createdId
         } catch {
             print("createNote failed: \(error)")
             return nil
@@ -411,11 +441,17 @@ final class NotesStore: ObservableObject {
     }
 
     func delete(_ id: String) async -> NoteMutationOutcome<Void> {
+        let identity = editorDraftCoordinator.beginIdentityMutation(id)
+        let pendingFlushes = editorDraftTail
         do {
+            await pendingFlushes?.value
             applyMutation(try await vault.delete(id))
+            discardDrafts(for: id)
+            editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
             onLocalChange?()
             return .committed(())
         } catch {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("delete failed for \(id): \(error)")
             return .failed
         }
@@ -429,12 +465,20 @@ final class NotesStore: ObservableObject {
 
     @discardableResult
     func rename(oldId: String, newId: String) async -> String {
+        let identity = editorDraftCoordinator.beginIdentityMutation(oldId)
+        let pendingFlushes = editorDraftTail
         do {
+            await pendingFlushes?.value
             let mutation = try await vault.rename(oldId: oldId, newId: newId)
+            let finalId = mutation.finalId ?? oldId
             applyMutation(mutation)
+            retargetRetainedDrafts(from: oldId, to: finalId)
+            editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
+            editorDraftCoordinator.reopen(finalId)
             onLocalChange?()
-            return mutation.finalId ?? oldId
+            return finalId
         } catch {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("rename failed \(oldId) -> \(newId): \(error)")
             return oldId
         }
@@ -454,6 +498,10 @@ final class NotesStore: ObservableObject {
     /// the shell that never drops a draft (Android drops on skip until #38).
     @discardableResult
     func flushDraft(_ draft: PendingDraft) async -> FlushDisposition? {
+        await flushDraftDirect(draft)
+    }
+
+    private func flushDraftDirect(_ draft: PendingDraft) async -> FlushDisposition? {
         do {
             let result = try await vault.flushDraft(
                 draft.id, base: draft.base, content: draft.content)
@@ -474,20 +522,32 @@ final class NotesStore: ObservableObject {
     /// `NoteEditorView.onDisappear` (pop) and the app's scenePhase background
     /// handler (the F8 jetsam guard).
     func flushAsync(_ draft: PendingDraft) {
-        Task {
-            if await flushDraft(draft) != nil {
+        guard let admission = editorDraftCoordinator.admit(draft.id) else { return }
+        let previous = editorDraftTail
+        editorDraftTail = Task { @MainActor in
+            await previous?.value
+            guard editorDraftCoordinator.permits(admission) else { return }
+            if await flushDraftDirect(draft) != nil {
                 completeRetainedDraft(draft)
             }
         }
     }
 
     func moveNote(_ id: String, toFolder folder: String) async -> NoteMutationOutcome<String> {
+        let identity = editorDraftCoordinator.beginIdentityMutation(id)
+        let pendingFlushes = editorDraftTail
         do {
+            await pendingFlushes?.value
             let mutation = try await vault.moveNote(id, folder: folder)
+            let finalId = mutation.finalId ?? id
             applyMutation(mutation)
+            retargetRetainedDrafts(from: id, to: finalId)
+            editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
+            editorDraftCoordinator.reopen(finalId)
             onLocalChange?()
-            return .committed(mutation.finalId ?? id)
+            return .committed(finalId)
         } catch {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("moveNote failed \(id) -> \(folder): \(error)")
             return .failed
         }

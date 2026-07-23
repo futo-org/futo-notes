@@ -66,12 +66,14 @@ import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.theme.FutoTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import uniffi.futo_notes_ffi.makeId
@@ -342,12 +344,19 @@ fun NoteEditorScreen(
         val handle: (Uri?) -> Unit = { uri ->
             if (uri != null) {
                 scope.launch {
-                    val name = store.saveImageIntoVault { root ->
-                        saveImageIntoVault(context.contentResolver, root, uri)
-                    }
-                    if (name != null) {
-                        host.insertImage(name)
-                    } else {
+                    val name = store.saveImageIntoVault(
+                        save = { root ->
+                            saveImageIntoVault(context.contentResolver, root, uri)
+                        },
+                        useSavedImage = { filename ->
+                            withContext(Dispatchers.Main.immediate) {
+                                check(host.insertImageAndWait(filename)) {
+                                    "The editor was unavailable for image insertion"
+                                }
+                            }
+                        },
+                    )
+                    if (name == null) {
                         Toast.makeText(context, "Unsupported image type", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -365,13 +374,20 @@ fun NoteEditorScreen(
     // destination as the picker above, so paste and pick are indistinguishable.
     val saveImageData: (String, String) -> Unit = { base64, ext ->
         scope.launch {
-            val name = store.saveImageIntoVault { root ->
-                val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
-                saveImageDataIntoVault(root, bytes, ext)
-            }
-            if (name != null) {
-                host.insertImage(name)
-            } else {
+            val name = store.saveImageIntoVault(
+                save = { root ->
+                    val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+                    saveImageDataIntoVault(root, bytes, ext)
+                },
+                useSavedImage = { filename ->
+                    withContext(Dispatchers.Main.immediate) {
+                        check(host.insertImageAndWait(filename)) {
+                            "The editor was unavailable for image insertion"
+                        }
+                    }
+                },
+            )
+            if (name == null) {
                 Toast.makeText(context, "Couldn't paste image", Toast.LENGTH_SHORT).show()
             }
         }
