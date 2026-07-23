@@ -107,6 +107,12 @@ export class ImageWidget extends WidgetType {
         imageSizes.set(cacheKey, { width: image.offsetWidth, height: image.offsetHeight });
       }
       wrapper.style.cssText = `height: ${image.offsetHeight}px;`;
+      // The image finishes loading well after toDOM()'s initial paint, which is the
+      // only point CodeMirror measures this widget's height. Mutating the wrapper's
+      // style directly updates the DOM but leaves CM6's internal height cache (used
+      // for scroll/viewport math) pointing at the stale pre-load estimate until the
+      // next transaction — ask it to re-measure now instead of waiting for one.
+      view.requestMeasure();
     };
 
     wrapper.addEventListener('mousedown', (event) => {

@@ -17,18 +17,43 @@
   display: flex;
   align-items: center;
   height: 48px;
-  margin: 1px 0;
+  /* margin-block only — the shared row-indent rule owns margin-left. */
+  margin-block: 1px;
   padding: 0 12px;
   box-sizing: border-box;
   color: var(--color-muted, #888);
   font-size: 0.95rem;
   user-select: none;
 }
+/* Shared depth indent for every tree row — folder rows, note rows, and the
+   per-folder empty-state row. Each component sets --indent inline
+   (depth * indentPixels). We apply that indent as margin-left AND subtract it
+   from the width so the row's right edge stays flush inside .folder-tree-scroll
+   (whose overflow-x: hidden would otherwise clip an over-wide row). The width
+   also gives .note-row (a <button>, which would otherwise shrink-wrap to its
+   title text) a uniform fixed size.
+   The indent is capped at 50% of the row's containing block: folder depth is
+   unbounded and the sidebar can shrink to 200px, where a raw depth-10 indent
+   (160px) + 24px padding would consume the whole row and leave a blank,
+   titleless/placeholderless target. Capping keeps every row at least half its
+   width at any depth and sidebar width; only pathologically deep rows lose
+   depth distinction. min() with mixed px/% resolves against the containing
+   block at use time. */
+.folder-row,
+.note-row,
+.folder-empty-row {
+  --indent-effective: min(var(--indent, 0px), 50%);
+  margin-left: var(--indent-effective);
+  width: calc(100% - var(--indent-effective));
+}
 .folder-row,
 .note-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* Width (from the shared row-indent rule above) is what forces .note-row —
+     a <button> that would otherwise shrink-wrap to its title text — into the
+     same uniform column as the <div>-based rows. */
   height: 48px;
   border: none;
   border-radius: 10px;
@@ -37,7 +62,8 @@
   text-align: left;
   cursor: pointer;
   padding: 0 12px;
-  margin: 1px 0;
+  /* margin-block only — must not reset the margin-left indent set above. */
+  margin-block: 1px;
   box-sizing: border-box;
   user-select: none;
   -webkit-tap-highlight-color: transparent;

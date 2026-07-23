@@ -101,6 +101,14 @@ this file states the behaviors a human cares about.
   footprint (and the widget should render at a definite height) — otherwise
   CM6 re-sizes the off-screen gap when the element scrolls back into view and
   jerks the scroll position on iOS momentum scrolling. → docs/learnings/hr-scroll-jank.md
+- Image widgets re-measure on load. On the native shells an embedded image's
+  bytes arrive asynchronously (fetched through the native scheme handler after
+  the widget's first paint), so its real height is unknown when CM6 first
+  measures it. The widget calls `view.requestMeasure()` from the `<img>`
+  `onload` handler so CM6 recomputes its height map once the image resolves —
+  otherwise the image renders cut off at the placeholder height on first load
+  until an unrelated transaction (e.g. tapping it) forces a re-layout.
+  *(iOS/Android native)* → live-preview/images.ts
 - On the native shells (iOS **and** Android — CM6 owns its own scroller), the
   editor warms CM6's height map on note load (and after font load / width change)
   by measuring every line's real height up front. Off-screen wrapped lines are

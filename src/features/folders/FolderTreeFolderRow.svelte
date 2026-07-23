@@ -125,7 +125,7 @@
   tabindex="0"
   class="folder-row"
   class:drop-target={isDropTarget}
-  style="margin-left: {node.depth * indentPixels}px"
+  style="--indent: {node.depth * indentPixels}px"
   {onclick}
   ondblclick={(event) => {
     event.preventDefault();

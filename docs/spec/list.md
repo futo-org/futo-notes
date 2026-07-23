@@ -81,6 +81,12 @@ new-note affordances.
   > preview at all. The single-line, markdown-opaque `make_preview` snippet
   > appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar
   > rows. The rich multi-line preview is native-only (iOS + Android) for now.
+- Preview text is never interactive: tapping anywhere on a note row — including
+  preview text that looks like a URL — always opens the note, never a link.
+  _(iOS native)_ `AttributedString(markdown:)` auto-attaches a `.link`
+  attribute to URL-shaped preview text; `NoteRow.stripLinkAttributes` removes
+  it from every run before render so the row's `NavigationLink` always gets
+  the tap. → NoteListView.swift `NoteRow`
 
 ## Folder drawer
 
@@ -167,6 +173,13 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   cannot be undone.") — editor menus, list rows, swipe actions, and search
   results alike (verified on emulator + simulator 2026-06-09). →
   NoteEditorScreen.kt, NoteEditorView.swift, ConfirmDialog.kt
+  > **iOS native**: the delete-note and delete-folder confirmations render as a
+  > centered, non-anchored card (a transparent `fullScreenCover`), never as an
+  > arrow popover. `.confirmationDialog`, attached at a container view far from
+  > the swiped/long-pressed row, could render as a popover anchored to that
+  > container in a regular-width horizontal size class (some large iPhones) —
+  > pointing the arrow at an unrelated row instead of the one being deleted
+  > (fixed 2026-07-22). → NoteListView.swift `DestructiveConfirmDialog`
 - **iOS native** note rows expose **Move to Folder…** and **Delete** via
   long-press context menu / swipe actions; the move sheet lists Root, every
   folder, and an inline "New Folder…" option, and the move is applied on
