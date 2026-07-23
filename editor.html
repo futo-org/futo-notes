@@ -50,6 +50,21 @@
       background: transparent;
     }
 
+    /* Legacy-WebView text-color fallback (github#8). Non-updated Android 8-10
+     * system WebViews predate @layer (Chromium 99) and drop EVERY rule inside
+     * Tailwind's layers — including the @theme light tokens and the
+     * body/.cm-editor color rules — leaving UA-black text over the hosts'
+     * surface (invisible in dark mode). The [data-theme='dark'] variable
+     * overrides in theme.css stay unlayered, so var() still resolves there;
+     * the literal fallback covers light mode, where the @layer'd token is
+     * lost. Inherited from html, so it never outranks the layered rules that
+     * modern engines apply on body/.cm-editor. The hex must equal theme.css's
+     * light --color-text (locked by the legacy-WebView tests in
+     * tests/editor-embed-bridge.spec.ts). */
+    html {
+      color: var(--color-text, #0f0f0f);
+    }
+
     #editor {
       position: absolute;
       inset: 0;                  /* fill the web view: a DEFINITE height */

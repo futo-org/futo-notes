@@ -18,6 +18,13 @@ this file states the behaviors a human cares about.
   surface) shows through and the editor pane matches the surrounding UI in
   both light and dark. → editor.html, EditorWebView.swift, EditorWebView.kt,
   tests/editor-embed-bridge.spec.ts
+- Editor text stays legible on legacy Android system WebViews (Chromium < 99,
+  no `@layer` support — they drop every Tailwind-layered rule, including the
+  light theme tokens and the `body`/`.cm-editor` colors): editor.html carries
+  an unlayered inherited text-color fallback on `html`, resolving the dark
+  token via the unlayered `[data-theme='dark']` variables and falling back to
+  the literal light token. _(Android)_ → editor.html,
+  tests/editor-embed-bridge.spec.ts (legacy WebView tests)
 
 ## Live preview
 
