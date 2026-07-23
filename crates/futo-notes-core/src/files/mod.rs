@@ -6,7 +6,7 @@ mod paths;
 mod timestamps;
 
 pub use atomic_write::{
-    create_new_atomic, rename_through_temp, write_atomic_bytes, write_atomic_text,
+    create_new_atomic, move_no_replace, rename_through_temp, write_atomic_bytes, write_atomic_text,
 };
 pub use blob_file::{read_blob_as_base64, write_base64_as_blob};
 pub use filenames::{

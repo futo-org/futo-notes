@@ -450,7 +450,7 @@ EditorWebView.swift, EditorWebView.kt
   visible message tells the user it is still pending. Rename and move stop
   before changing the note's identity when their required body flush fails;
   conflict adoption likewise waits until the local conflict copy is durable.
-  A dirty iOS editor that leaves the screen retains its final draft registration
+  A dirty native editor that leaves the screen retains its final draft registration
   until the asynchronous leave flush writes or parks it successfully. _(iOS,
   Android)_ → `NotesStore.write`, NoteEditorScreen.kt / NoteEditorView.swift,
   NativeMutationOutcomeTest / NativeMutationOutcomeTests
@@ -459,8 +459,7 @@ EditorWebView.swift, EditorWebView.kt
   the _current_ id and the in-flight save is cancelled — otherwise a stale save
   recreates a ghost note at the old id (data loss). → NoteEditorScreen.kt /
   NoteEditorView.swift `commitRename`
-- Leaving the editor flushes a pending save only if the content changed and the
-  note still exists.
+- Leaving the editor flushes a pending save only if the content changed.
 - Backgrounding the app makes a **best-effort** flush of the open editor's
   pending edit at the first leave-foreground signal, so an edit caught inside the
   autosave debounce is usually persisted before the OS jetsams the process. The
@@ -474,7 +473,7 @@ EditorWebView.swift, EditorWebView.kt
   (Check-then-atomic-write, so a narrow single-process syscall window remains —
   accepted; not a true compare-and-swap.) _(iOS, Android)_ →
   `futo_notes_model::write_note_if_unchanged` via FFI `write_if_unchanged`;
-  `NotesStore.flushAsync`. iOS additionally makes the flush **never drop** a dirty
+  `NotesStore.flushAsync`. Both native shells make the flush **never drop** a dirty
   draft when the write is skipped: if the note was **deleted** under the editor it
   is re-created at its original id (edit-wins dirty-keep — the same thing the
   editor's resume autosave does, so survive + jetsam converge on ONE home with no
@@ -487,7 +486,8 @@ EditorWebView.swift, EditorWebView.kt
   serialization in the flush window is not clobbered: if the id reappeared the
   recreate is skipped and the draft is parked as a conflict copy instead. →
   `futo_notes_model::create_note_if_absent` via FFI `create_if_absent`. Verified
-  on iOS 2026-07-13 (sim: clean re-background after a settled save left mtime
+  on iOS 2026-07-13 and by Android JVM lifecycle regressions (clean
+  re-background after a settled save left mtime
   unchanged; dirty-on-deleted backgrounded across cycles yields exactly one home —
   the re-created note — and no conflict copy) + Rust unit tests
   (creates-when-missing / never-clobbers-existing / rejects-traversal).

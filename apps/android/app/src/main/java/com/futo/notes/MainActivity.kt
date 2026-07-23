@@ -21,6 +21,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -68,6 +69,20 @@ sealed interface Screen {
     data object Settings : Screen
     data object Sync : Screen
 }
+
+internal data class VaultSurfaceState(
+    val renderShell: Boolean,
+    val showMovingOverlay: Boolean,
+)
+
+internal fun vaultSurfaceState(
+    hasStore: Boolean,
+    needsRegrant: Boolean,
+    storageSwitching: Boolean,
+): VaultSurfaceState = VaultSurfaceState(
+    renderShell = hasStore,
+    showMovingOverlay = hasStore && storageSwitching && !needsRegrant,
+)
 
 class MainActivity : ComponentActivity() {
     // Hoisted so onStart/onStop can pause/resume the SSE live stream — the
@@ -235,17 +250,36 @@ class MainActivity : ComponentActivity() {
                 }
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val s = store.value
+                    val vaultSurface = vaultSurfaceState(
+                        hasStore = s != null,
+                        needsRegrant = showRegrant.value,
+                        storageSwitching = storageSwitching.value,
+                    )
                     when {
-                        storageSwitching.value -> Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator()
-                                Text("Moving notes…")
+                        vaultSurface.renderShell -> Box(modifier = Modifier.fillMaxSize()) {
+                            AppShell(s!!, themeMode, onThemeMode = {
+                                themeMode = it
+                                prefs.edit().putString(Prefs.THEME, it.name).apply()
+                            }, dark = dark)
+                            if (vaultSurface.showMovingOverlay) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable(onClick = {}),
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.fillMaxSize(),
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            CircularProgressIndicator()
+                                            Text("Moving notes…")
+                                        }
+                                    }
+                                }
                             }
                         }
-                        s == null && showRegrant.value -> StorageRegrantScreen(
+                        showRegrant.value -> StorageRegrantScreen(
                             onGrant = { requestDeviceAccess { showRegrant.value = false; initVault(NotesStorage.deviceRoot(BuildConfig.DEBUG)) } },
                             onUseAppStorage = {
                                 // commit() — restartApp() kills the process before an
@@ -259,10 +293,6 @@ class MainActivity : ComponentActivity() {
                             deviceModeSupported = NotesStorage.deviceModeSupported(),
                             onConfirm = { chooseStorage(it) },
                         )
-                        else -> AppShell(s, themeMode, onThemeMode = {
-                            themeMode = it
-                            prefs.edit().putString(Prefs.THEME, it.name).apply()
-                        }, dark = dark)
                     }
                 }
             }
@@ -493,7 +523,7 @@ class MainActivity : ComponentActivity() {
     private fun performSwitch(newMode: StorageMode) {
         if (storageSwitching.value) return
         val current = store.value ?: return
-        val from = File(current.rootPath)
+        val previousMode = currentMode()
         val to = NotesStorage.rootFor(this, newMode, BuildConfig.DEBUG)
         storageSwitching.value = true
         current.suppressAutoPush = true
@@ -516,14 +546,25 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putString(Prefs.STORAGE_MODE, newMode.name).commit()
                 }
                 if (committed) {
-                    // Source cleanup is deliberately AFTER the preference commit.
-                    // If cleanup fails, the verified destination remains active and
-                    // the intact source is a recoverable duplicate.
-                    withContext(Dispatchers.IO) { NotesStorage.finalizeMigration(from, to) }
+                    val finalized = !decision.requiresFinalization ||
+                        runCatching { current.finalizeVaultMigration(to) }.getOrDefault(false)
+                    val activation = NotesStorage.storageActivationDecision(
+                        requiresFinalization = decision.requiresFinalization,
+                        finalized = finalized,
+                    )
+                    if (activation.revertPreference) {
+                        withContext(Dispatchers.IO) {
+                            prefs.edit()
+                                .putString(Prefs.STORAGE_MODE, previousMode.name)
+                                .commit()
+                        }
+                    }
                     // A vault move changes the path captured by the process-singleton
                     // search engine + sync client, so relaunch to rebuild them.
-                    if (decision.restart) restartApp()
-                    return@launch
+                    if (activation.activateDestination) {
+                        if (decision.restart) restartApp()
+                        return@launch
+                    }
                 }
             }
 

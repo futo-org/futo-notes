@@ -5,7 +5,7 @@ use futo_notes_store as store;
 
 use super::{
     ConditionalWrite, CreateOutcome, NoteBootstrap, NoteError, NoteMutation, NoteSnapshot,
-    SearchHit,
+    SearchHit, VaultMigrationFinalization, VaultMigrationOutcome,
 };
 
 #[derive(uniffi::Object)]
@@ -110,6 +110,17 @@ impl NoteStore {
             .map_err(NoteError::Io)
     }
 
+    pub fn move_note_to_new_folder(
+        &self,
+        id: String,
+        folder: String,
+    ) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .move_note_to_new_folder(&id, &folder)
+            .map(Into::into)
+            .map_err(NoteError::Io)
+    }
+
     pub fn create_folder(&self, path: String) -> Result<String, NoteError> {
         self.inner.create_folder(&path).map_err(NoteError::Io)
     }
@@ -131,6 +142,26 @@ impl NoteStore {
 
     pub fn reset(&self) -> Result<(), NoteError> {
         self.inner.reset().map_err(NoteError::Io)
+    }
+
+    pub fn stage_vault_migration(
+        &self,
+        destination: String,
+    ) -> Result<VaultMigrationOutcome, NoteError> {
+        self.inner
+            .stage_vault_migration(&PathBuf::from(destination))
+            .map(Into::into)
+            .map_err(NoteError::Io)
+    }
+
+    pub fn finalize_vault_migration(
+        &self,
+        destination: String,
+    ) -> Result<VaultMigrationFinalization, NoteError> {
+        self.inner
+            .finalize_vault_migration(&PathBuf::from(destination))
+            .map(Into::into)
+            .map_err(NoteError::Io)
     }
 
     pub fn search(&self, query: String, limit: Option<u32>) -> Result<Vec<SearchHit>, NoteError> {

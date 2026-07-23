@@ -129,6 +129,55 @@ impl From<store::CreateOutcome> for CreateOutcome {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum VaultMigrationStatus {
+    Migrated,
+    EmptySource,
+    AlreadyAtDestination,
+}
+
+impl From<store::VaultMigrationStatus> for VaultMigrationStatus {
+    fn from(status: store::VaultMigrationStatus) -> Self {
+        match status {
+            store::VaultMigrationStatus::Migrated => Self::Migrated,
+            store::VaultMigrationStatus::EmptySource => Self::EmptySource,
+            store::VaultMigrationStatus::AlreadyAtDestination => Self::AlreadyAtDestination,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum VaultMigrationFinalization {
+    Finalized,
+    SourceRetained,
+    DestinationChanged,
+}
+
+impl From<store::VaultMigrationFinalization> for VaultMigrationFinalization {
+    fn from(finalization: store::VaultMigrationFinalization) -> Self {
+        match finalization {
+            store::VaultMigrationFinalization::Finalized => Self::Finalized,
+            store::VaultMigrationFinalization::SourceRetained => Self::SourceRetained,
+            store::VaultMigrationFinalization::DestinationChanged => Self::DestinationChanged,
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct VaultMigrationOutcome {
+    pub status: VaultMigrationStatus,
+    pub files: u32,
+}
+
+impl From<store::VaultMigrationOutcome> for VaultMigrationOutcome {
+    fn from(outcome: store::VaultMigrationOutcome) -> Self {
+        Self {
+            status: outcome.status.into(),
+            files: outcome.files,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct ConditionalWrite {
     pub outcome: FlushOutcome,

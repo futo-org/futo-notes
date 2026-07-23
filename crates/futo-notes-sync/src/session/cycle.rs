@@ -30,10 +30,16 @@ async fn run_with_checkpoint(
         .await
         .clone()
         .ok_or(SyncErrorKind::NotConnected)?;
-    let (summary, next) =
-        sync::cycle_with_checkpoint(&current, root, progress, pre_write, save_checkpoint).await?;
-    *state.lock().await = Some(next);
-    Ok(summary)
+    match sync::cycle_with_checkpoint(&current, root, progress, pre_write, save_checkpoint).await {
+        Ok((summary, next)) => {
+            *state.lock().await = Some(next);
+            Ok(summary)
+        }
+        Err(failure) => {
+            *state.lock().await = Some(failure.state);
+            Err(failure.kind)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -130,10 +136,11 @@ mod tests {
         stream: &mut TcpStream,
         posts: &AtomicUsize,
         remote_blob: Option<&[u8]>,
+        fail_pull: bool,
     ) -> std::io::Result<()> {
         let request = read_request(stream)?;
         let request_line = request.lines().next().unwrap_or_default();
-        let (content_type, body) = if request_line
+        let (status, content_type, body) = if request_line
             .starts_with("POST /api/collections/collection/blob-objects ")
         {
             let post = posts.fetch_add(1, Ordering::Relaxed) + 1;
@@ -141,35 +148,45 @@ mod tests {
                 r#"{{"object":{{"id":"posted-{post}","version":1,"change_seq":{post},"deleted":false,"blob_key":"posted-blob-{post}","updated_at":"2026-07-20T00:00:00Z"}},"collectionVersion":{post}}}"#
             )
             .into_bytes();
-            ("application/json", body)
+            ("200 OK", "application/json", body)
         } else if request_line.starts_with("GET /api/collections/collection/objects?sinceVersion=")
         {
-            let since = request_line
-                .split("sinceVersion=")
-                .nth(1)
-                .and_then(|tail| tail.split_whitespace().next())
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(0);
-            let body = if remote_blob.is_some() && since < 2 {
-                r#"{"objects":[{"id":"remote-object","version":1,"change_seq":2,"deleted":false,"blob_key":"remote-blob","updated_at":"2026-07-20T00:00:00Z"}]}"#
+            if fail_pull {
+                (
+                    "500 Internal Server Error",
+                    "application/json",
+                    br#"{"error":"injected pull failure"}"#.to_vec(),
+                )
             } else {
-                r#"{"objects":[]}"#
-            };
-            ("application/json", body.as_bytes().to_vec())
+                let since = request_line
+                    .split("sinceVersion=")
+                    .nth(1)
+                    .and_then(|tail| tail.split_whitespace().next())
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let body = if remote_blob.is_some() && since < 2 {
+                    r#"{"objects":[{"id":"remote-object","version":1,"change_seq":2,"deleted":false,"blob_key":"remote-blob","updated_at":"2026-07-20T00:00:00Z"}]}"#
+                } else {
+                    r#"{"objects":[]}"#
+                };
+                ("200 OK", "application/json", body.as_bytes().to_vec())
+            }
         } else if request_line.starts_with("GET /api/blobs/remote-blob ") {
             (
+                "200 OK",
                 "application/octet-stream",
                 remote_blob.unwrap_or_default().to_vec(),
             )
         } else {
             (
+                "200 OK",
                 "application/json",
                 r#"{"error":"unexpected test request"}"#.as_bytes().to_vec(),
             )
         };
         write!(
             stream,
-            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             body.len()
         )?;
         stream.write_all(&body)?;
@@ -178,16 +195,20 @@ mod tests {
 
     impl MutationServer {
         fn new() -> Self {
-            Self::with_remote(None)
+            Self::with_remote(None, false)
+        }
+
+        fn with_pull_failure() -> Self {
+            Self::with_remote(None, true)
         }
 
         fn with_remote_note(vault_key: &[u8; 32], name: &str, content: &str) -> Self {
             let plaintext = futo_notes_core::e2ee::pack_note_v2(name, content);
             let ciphertext = futo_notes_core::e2ee::aes_gcm_encrypt(vault_key, &plaintext).unwrap();
-            Self::with_remote(Some(ciphertext))
+            Self::with_remote(Some(ciphertext), false)
         }
 
-        fn with_remote(remote_blob: Option<Vec<u8>>) -> Self {
+        fn with_remote(remote_blob: Option<Vec<u8>>, fail_pull: bool) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
             let posts = Arc::new(AtomicUsize::new(0));
@@ -204,6 +225,7 @@ mod tests {
                             &mut stream,
                             &observed_posts,
                             remote_blob.as_deref(),
+                            fail_pull,
                         );
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -380,5 +402,60 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(server.posts.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn uploaded_state_survives_when_checkpoint_and_following_pull_fail() {
+        let root = TempRoot::new();
+        std::fs::write(root.0.join("new.md"), "new body").unwrap();
+        let server = MutationServer::with_pull_failure();
+        let mut connected = connected();
+        connected.base_url = server.base_url.clone();
+        connected.max_version = 1;
+        connected.pull_cursor = 1;
+        let state = Arc::new(Mutex::new(Some(connected)));
+        let gate = Arc::new(Mutex::new(()));
+        let no_progress = |_: crate::sync::SyncProgress| {};
+        let no_pre_write = |_: &str| {};
+        let fail_checkpoint =
+            |_: &Path, _: &ConnectedState| Err("injected checkpoint failure".into());
+
+        run_with_checkpoint(
+            &state,
+            &gate,
+            &root.0,
+            &no_progress,
+            &no_pre_write,
+            &fail_checkpoint,
+        )
+        .await
+        .expect_err("the injected pull failure should abort the cycle");
+
+        assert!(
+            state
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .object_map
+                .contains_key("new.md"),
+            "the running session must retain the successful POST"
+        );
+
+        run_with_checkpoint(
+            &state,
+            &gate,
+            &root.0,
+            &no_progress,
+            &no_pre_write,
+            &fail_checkpoint,
+        )
+        .await
+        .expect_err("the pull remains intentionally unavailable");
+        assert_eq!(
+            server.posts.load(Ordering::Relaxed),
+            1,
+            "retrying the failed pull must not POST the same note again"
+        );
     }
 }

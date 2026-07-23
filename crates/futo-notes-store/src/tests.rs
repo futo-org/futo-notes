@@ -588,6 +588,36 @@ fn deleting_a_folder_moves_notes_up_with_collisions_before_removing_the_tree() {
 }
 
 #[test]
+fn create_folder_and_move_note_rolls_back_the_folder_when_move_fails() {
+    let root = TestRoot::new();
+    let store = store(&root);
+
+    assert!(store
+        .move_note_to_new_folder("missing", "Projects")
+        .is_err());
+    assert!(
+        !root.0.join("Projects").exists(),
+        "the failed workflow must not leave an unintended empty folder"
+    );
+}
+
+#[test]
+fn create_folder_and_move_note_commits_both_changes() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("note", "body", None).unwrap();
+
+    let mutation = store
+        .move_note_to_new_folder("note", "Projects")
+        .unwrap();
+
+    assert_eq!(mutation.final_id(), Some("Projects/note"));
+    assert!(root.0.join("Projects").is_dir());
+    assert_eq!(store.read("Projects/note"), "body");
+    assert!(!store.exists("note"));
+}
+
+#[test]
 fn destructive_operations_refuse_the_vault_root_and_traversal() {
     let root = TestRoot::new();
     let store = store(&root);
@@ -641,4 +671,88 @@ fn reset_removes_every_vault_entry_but_never_the_vault_directory() {
     store.reset().unwrap();
     assert!(root.0.is_dir());
     assert_eq!(fs::read_dir(&root.0).unwrap().count(), 0);
+}
+
+#[test]
+fn vault_migration_copies_every_entry_and_deletes_source_only_after_finalize() {
+    let source = TestRoot::new();
+    let destination = TestRoot::new();
+    let store = store(&source);
+    store.write("Folder/note", "body", None).unwrap();
+    fs::write(source.0.join("image.png"), [1, 2, 3]).unwrap();
+    fs::write(source.0.join(".e2ee-state.json"), "checkpoint").unwrap();
+
+    let outcome = store.stage_vault_migration(&destination.0).unwrap();
+
+    assert_eq!(outcome.status, VaultMigrationStatus::Migrated);
+    assert_eq!(
+        fs::read_to_string(destination.0.join("Folder/note.md")).unwrap(),
+        "body"
+    );
+    assert_eq!(
+        fs::read(destination.0.join("image.png")).unwrap(),
+        [1, 2, 3]
+    );
+    assert_eq!(
+        fs::read_to_string(destination.0.join(".e2ee-state.json")).unwrap(),
+        "checkpoint"
+    );
+    assert!(source.0.join("Folder/note.md").exists());
+
+    assert_eq!(
+        store.finalize_vault_migration(&destination.0).unwrap(),
+        VaultMigrationFinalization::Finalized
+    );
+    assert!(!source.0.exists());
+}
+
+#[test]
+fn vault_migration_refuses_a_different_destination_without_changing_either_vault() {
+    let source = TestRoot::new();
+    let destination = TestRoot::new();
+    let store = store(&source);
+    store.write("note", "source", None).unwrap();
+    fs::write(destination.0.join("note.md"), "destination").unwrap();
+
+    assert!(store.stage_vault_migration(&destination.0).is_err());
+
+    assert_eq!(store.read("note"), "source");
+    assert_eq!(
+        fs::read_to_string(destination.0.join("note.md")).unwrap(),
+        "destination"
+    );
+}
+
+#[test]
+fn vault_migration_finalize_refuses_to_delete_a_changed_source() {
+    let source = TestRoot::new();
+    let destination = TestRoot::new();
+    let store = store(&source);
+    store.write("note", "source", None).unwrap();
+    store.stage_vault_migration(&destination.0).unwrap();
+    store.write("late", "new edit", None).unwrap();
+
+    assert_eq!(
+        store.finalize_vault_migration(&destination.0).unwrap(),
+        VaultMigrationFinalization::DestinationChanged
+    );
+    assert!(source.0.exists());
+    assert_eq!(store.read("late"), "new edit");
+}
+
+#[test]
+fn empty_vault_migration_does_not_require_a_destination_to_finalize() {
+    let source = TestRoot::new();
+    let destination = source.0.with_extension("new-location");
+    let store = store(&source);
+
+    let outcome = store.stage_vault_migration(&destination).unwrap();
+
+    assert_eq!(outcome.status, VaultMigrationStatus::EmptySource);
+    assert!(!destination.exists());
+    assert_eq!(
+        store.finalize_vault_migration(&destination).unwrap(),
+        VaultMigrationFinalization::Finalized
+    );
+    assert!(!source.0.exists());
 }

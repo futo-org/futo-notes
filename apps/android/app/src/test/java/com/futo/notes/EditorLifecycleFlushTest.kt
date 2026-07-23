@@ -230,7 +230,7 @@ class EditorLifecycleFlushTest {
     }
 
     @Test
-    fun releaseRemovesOnlyItsOwnEntry() {
+    fun releaseRetainsItsDirtyDraftWithoutTouchingAnotherOwner() {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
         val a = pending.claim()
@@ -239,10 +239,16 @@ class EditorLifecycleFlushTest {
         val b = pending.claim()
         val bState = EditorState(noteId = "b", savedContent = "", content = "edit B")
         pending.setProvider(b, bState::derive)
-        // A disposes; its release must not touch B's entry.
+        // A disposes; its dirty draft is retained and B stays live.
         pending.release(a)
         pending.flush()
-        assertEquals(listOf(PendingDraft("b", "", "edit B")), rec.writes)
+        assertEquals(
+            listOf(
+                PendingDraft("a", "", "edit A"),
+                PendingDraft("b", "", "edit B"),
+            ),
+            rec.writes,
+        )
     }
 
     @Test
@@ -250,13 +256,51 @@ class EditorLifecycleFlushTest {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
         val token = pending.claim()
-        val st = EditorState(savedContent = "", content = "buy milk")
+        val st = EditorState(savedContent = "saved", content = "saved")
         pending.setProvider(token, st::derive)
         // The only/last editor left composition (true pop) → entry removed, so a
         // later background flush is a no-op.
         pending.release(token)
         pending.flush()
         assertTrue(rec.writes.isEmpty())
+    }
+
+    @Test
+    fun completedRetainedDraftIsNotRetried() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val token = pending.claim()
+        val draft = PendingDraft("todo", "saved", "saved + edit")
+        pending.setProvider(token) { draft }
+        pending.release(token)
+        pending.complete(draft)
+
+        pending.flush()
+
+        assertTrue(rec.writes.isEmpty())
+    }
+
+    @Test
+    fun dirtyEditorReleaseRetainsItsDraftForLifecycleRetry() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val token = pending.claim()
+        val state = EditorState(
+            noteId = "todo",
+            savedContent = "saved",
+            content = "saved + unsaved",
+        )
+        pending.setProvider(token, state::derive)
+
+        // Navigation disposes the editor before the asynchronous leave flush can
+        // prove durability. A later lifecycle flush must still see the draft.
+        pending.release(token)
+        pending.flush()
+
+        assertEquals(
+            listOf(PendingDraft("todo", "saved", "saved + unsaved")),
+            rec.writes,
+        )
     }
 
     /**

@@ -22,13 +22,20 @@ pub(crate) use push::push;
 
 pub(crate) type SaveCheckpoint = dyn Fn(&Path, &ConnectedState) -> Result<(), String> + Send + Sync;
 
+pub(crate) struct CycleFailure {
+    pub(crate) kind: SyncErrorKind,
+    pub(crate) state: ConnectedState,
+}
+
 pub(crate) async fn cycle(
     state: &ConnectedState,
     root: &Path,
     progress: &Progress,
     pre_write: &PreWrite,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
-    cycle_with_checkpoint(state, root, progress, pre_write, &checkpoint::save).await
+    cycle_with_checkpoint(state, root, progress, pre_write, &checkpoint::save)
+        .await
+        .map_err(|failure| failure.kind)
 }
 
 pub(crate) async fn cycle_with_checkpoint(
@@ -37,15 +44,25 @@ pub(crate) async fn cycle_with_checkpoint(
     progress: &Progress,
     pre_write: &PreWrite,
     save_checkpoint: &SaveCheckpoint,
-) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
+) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
     let (bootstrap, ready) = if state.object_map.is_empty() && state.max_version == 0 {
-        pull::pull_with_checkpoint(state, root, 0, progress, pre_write, save_checkpoint).await?
+        pull::pull_with_checkpoint(state, root, 0, progress, pre_write, save_checkpoint)
+            .await
+            .map_err(|kind| CycleFailure {
+                kind,
+                state: state.clone(),
+            })?
     } else {
         (SyncSummary::default(), state.clone())
     };
     let pull_since = ready.pull_cursor;
     let (pushed, after_push) =
-        push::push_with_checkpoint(&ready, root, progress, pre_write, save_checkpoint).await?;
+        push::push_with_checkpoint(&ready, root, progress, pre_write, save_checkpoint)
+            .await
+            .map_err(|kind| CycleFailure {
+                kind,
+                state: ready.clone(),
+            })?;
     let (pulled, after_pull) = pull::pull_with_checkpoint(
         &after_push,
         root,
@@ -54,7 +71,11 @@ pub(crate) async fn cycle_with_checkpoint(
         pre_write,
         save_checkpoint,
     )
-    .await?;
+    .await
+    .map_err(|kind| CycleFailure {
+        kind,
+        state: after_push,
+    })?;
     Ok((combine(bootstrap, combine(pushed, pulled)), after_pull))
 }
 

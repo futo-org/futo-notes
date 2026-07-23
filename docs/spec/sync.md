@@ -564,6 +564,9 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   installed. Guarded by
   `uploaded_state_survives_final_checkpoint_failure_in_the_running_session` and
   `downloaded_state_survives_final_checkpoint_failure_in_the_running_session`.
+  A pull failure after a successful push preserves the same pushed state even
+  when its interim checkpoint also failed; guarded by
+  `uploaded_state_survives_when_checkpoint_and_following_pull_fail`.
   **Crash/restart limit:** if the process exits before a later checkpoint save
   succeeds, disk still contains the older map/cursors, so a restart can repeat a
   successful remote create. Eliminating that window requires a server-side

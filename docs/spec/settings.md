@@ -34,8 +34,10 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   storage shows a blocking migration state and relaunches only after the whole
   vault is verified and the new preference is durably saved. Failure leaves the
   current mode active and surfaces an actionable toast; a different non-empty
-  destination is never merged into or deleted. → `MainActivity.performSwitch`,
-  `NotesStorage.kt`
+  destination is never merged into or deleted. The editor remains composed
+  behind the blocking overlay so its live draft can be flushed before the
+  Rust-owned whole-vault migration begins. → `MainActivity.performSwitch`,
+  `futo-notes-store::vault_migration`
 - **About**: an open-source link (GitLab) and the app version.
 - **Crash reporting**: "Share crash reports" toggle with a nested "Always
   send automatically" (see app.md for the dialog flow).

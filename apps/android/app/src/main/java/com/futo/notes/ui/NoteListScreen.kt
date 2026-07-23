@@ -305,15 +305,7 @@ fun NoteListScreen(
             onPick = { folder, isNew ->
                 val id = moveTarget ?: return@FolderPickerSheet
                 scope.launch {
-                    if (isNew && !shouldCompleteNoteAction(store.createFolder(folder))) {
-                        Toast.makeText(
-                            context,
-                            "Couldn't create folder. The note was not moved.",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        return@launch
-                    }
-                    when (store.moveNote(id, folder)) {
+                    when (store.moveNote(id, folder, createFolder = isNew)) {
                         is NoteMutationOutcome.Committed -> {
                             moveTarget = null
                             Toast.makeText(

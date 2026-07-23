@@ -10,7 +10,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * Pure-logic guard for the vault storage resolver + migration (no Android
+ * Pure-logic guard for the vault storage resolver + switch decision (no Android
  * framework — same JVM-unit-test discipline as [SyncManagerDefaultsTest]). The
  * production wiring feeds the real Context/Environment/BuildConfig into these
  * same functions.
@@ -102,123 +102,52 @@ class NotesStorageTest {
         assertTrue(NotesStorage.looksLikeExistingVault(vault))
     }
 
-    // ── migrate ──
-
-    @Test
-    fun migrateCopiesDotfilesAndImagesThenDeletesSourceAfterCommit() {
-        val from = tmp.newFolder("from")
-        File(from, "note.md").writeText("# hello")
-        File(from, "Folder").mkdirs()
-        File(from, "Folder/nested.md").writeText("nested")
-        File(from, "image.png").writeBytes(byteArrayOf(1, 2, 3))
-        // dotfiles: sync state + crash logs must travel with the vault
-        File(from, ".futo").mkdirs()
-        File(from, ".futo/.e2ee-state.json").writeText("{\"objectMap\":{}}")
-        File(from, ".crashlogs").mkdirs()
-        File(from, ".crashlogs/crash-1.json").writeText("{}")
-
-        val to = File(tmp.root, "to")
-        val result = NotesStorage.migrate(from, to)
-
-        assertTrue(result.migrated)
-        assertEquals(5, result.files)
-        assertTrue(File(to, "note.md").exists())
-        assertTrue(File(to, "Folder/nested.md").exists())
-        assertTrue(File(to, "image.png").exists())
-        assertEquals("{\"objectMap\":{}}", File(to, ".futo/.e2ee-state.json").readText())
-        assertTrue(File(to, ".crashlogs/crash-1.json").exists())
-        // Preference persistence happens between these two phases in MainActivity.
-        assertTrue(from.exists())
-        assertTrue(NotesStorage.finalizeMigration(from, to))
-        assertFalse(from.exists())
-    }
-
-    @Test
-    fun migrateIsIdempotentWhenRerun() {
-        val from = tmp.newFolder("from2")
-        File(from, "a.md").writeText("a")
-        val to = File(tmp.root, "to2")
-
-        val first = NotesStorage.migrate(from, to)
-        assertTrue(first.migrated)
-        assertTrue(NotesStorage.finalizeMigration(from, to))
-        // Re-running with the (now-deleted) source is a no-op, not a crash.
-        val second = NotesStorage.migrate(from, to)
-        assertFalse(second.migrated)
-        assertTrue(File(to, "a.md").exists())
-    }
-
-    @Test
-    fun migrateNoOpsOnEmptyOrSamePath() {
-        val empty = tmp.newFolder("empty2")
-        assertFalse(NotesStorage.migrate(empty, File(tmp.root, "dest")).migrated)
-
-        val same = tmp.newFolder("same")
-        File(same, "x.md").writeText("x")
-        assertFalse(NotesStorage.migrate(same, same).migrated)
-        assertTrue(File(same, "x.md").exists())
-    }
-
-    @Test
-    fun missingSourceFailsInsteadOfActivatingAnEmptyDestination() {
-        val result = NotesStorage.migrate(
-            File(tmp.root, "missing-source"),
-            File(tmp.root, "missing-destination"),
-        )
-        val decision = NotesStorage.storageSwitchDecision(result)
-
-        assertTrue(result is NotesStorage.MigrationOutcome.Failed)
-        assertFalse(decision.commitPreference)
-        assertFalse(decision.restart)
-    }
-
-    @Test
-    fun migrateRejectsCorruptCopyAndPreservesSource() {
-        val from = tmp.newFolder("corrupt-source")
-        File(from, "note.md").writeText("source bytes")
-        val to = File(tmp.root, "corrupt-destination")
-
-        val result = NotesStorage.migrate(from, to) { _, staging ->
-            staging.mkdirs()
-            File(staging, "note.md").writeText("wrong bytes!")
-            true
-        }
-
-        assertTrue(result is NotesStorage.MigrationOutcome.Failed)
-        assertEquals("source bytes", File(from, "note.md").readText())
-        assertFalse(to.exists())
-    }
-
-    @Test
-    fun migrateRefusesDifferentPreexistingDestinationWithoutChangingEitherVault() {
-        val from = tmp.newFolder("occupied-source")
-        File(from, "note.md").writeText("source")
-        val to = tmp.newFolder("occupied-destination")
-        File(to, "note.md").writeText("destination")
-
-        val result = NotesStorage.migrate(from, to)
-
-        assertTrue(result is NotesStorage.MigrationOutcome.Failed)
-        assertEquals("source", File(from, "note.md").readText())
-        assertEquals("destination", File(to, "note.md").readText())
-    }
-
     @Test
     fun storageSwitchDecisionCommitsOnlySafeOutcomes() {
         val migrated = NotesStorage.storageSwitchDecision(
             NotesStorage.MigrationOutcome.Migrated(files = 2),
         )
         val empty = NotesStorage.storageSwitchDecision(NotesStorage.MigrationOutcome.EmptySource)
+        val alreadySelected = NotesStorage.storageSwitchDecision(
+            NotesStorage.MigrationOutcome.AlreadyAtDestination,
+        )
         val failed = NotesStorage.storageSwitchDecision(
             NotesStorage.MigrationOutcome.Failed("Copy verification failed."),
         )
 
         assertTrue(migrated.commitPreference)
         assertTrue(migrated.restart)
+        assertTrue(migrated.requiresFinalization)
         assertTrue(empty.commitPreference)
         assertTrue(empty.restart)
+        assertFalse(empty.requiresFinalization)
+        assertFalse(alreadySelected.requiresFinalization)
         assertFalse(failed.commitPreference)
         assertFalse(failed.restart)
+        assertFalse(failed.requiresFinalization)
         assertEquals("Copy verification failed.", failed.feedback)
+    }
+
+    @Test
+    fun failedFinalVerificationKeepsTheCurrentStorageModeActive() {
+        val verified = NotesStorage.storageActivationDecision(
+            requiresFinalization = true,
+            finalized = true,
+        )
+        val changedAfterCopy = NotesStorage.storageActivationDecision(
+            requiresFinalization = true,
+            finalized = false,
+        )
+        val emptySource = NotesStorage.storageActivationDecision(
+            requiresFinalization = false,
+            finalized = false,
+        )
+
+        assertTrue(verified.activateDestination)
+        assertFalse(verified.revertPreference)
+        assertFalse(changedAfterCopy.activateDestination)
+        assertTrue(changedAfterCopy.revertPreference)
+        assertTrue(emptySource.activateDestination)
+        assertFalse(emptySource.revertPreference)
     }
 }

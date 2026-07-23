@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::atomic_write::move_no_replace;
 use super::filenames::collision_key;
 use super::paths::MAX_FOLDER_DEPTH;
 use super::timestamps::now_ms;
@@ -144,13 +145,13 @@ fn recover_parked_backup(dir: &Path, name: &str) -> Option<RecoveredBackup> {
         return None;
     }
     let destination = dir.join(leaf);
-    // A hard link closes the existence-check race by installing without replacement.
-    match fs::hard_link(&backup, &destination) {
-        Ok(()) => {
-            remove_parked_files(&backup, &sidecar);
+    // A no-replace move also works on Android storage, where hard links are denied.
+    match move_no_replace(&backup, &destination) {
+        Ok(true) => {
+            let _ = fs::remove_file(&sidecar);
             None
         }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+        Ok(false) => {
             match (fs::read(&backup), fs::read(&destination)) {
                 (Ok(backup_bytes), Ok(live_bytes)) if backup_bytes == live_bytes => {
                     remove_parked_files(&backup, &sidecar);

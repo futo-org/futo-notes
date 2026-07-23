@@ -11,12 +11,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import uniffi.futo_notes_ffi.CreateOutcome
 import uniffi.futo_notes_ffi.FlushOutcome
 import uniffi.futo_notes_ffi.NoteMutation
 import uniffi.futo_notes_ffi.NoteStore
 import uniffi.futo_notes_ffi.NoteMetadata
 import uniffi.futo_notes_ffi.SearchHit
+import uniffi.futo_notes_ffi.VaultMigrationStatus
+import uniffi.futo_notes_ffi.VaultMigrationFinalization
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** A single note for the UI. Mirrors the iOS `NoteItem`; `tags` are canonical
  *  lowercase names WITHOUT the leading `#`. */
@@ -128,6 +134,7 @@ internal fun pendingDraftIsDurable(
 internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> Unit) {
     private var seq: Long = 0
     private val providers = LinkedHashMap<Long, () -> PendingDraft?>()
+    private val retained = LinkedHashMap<Long, PendingDraft>()
 
     /** A newly-composed editor claims an entry; returns its unique generation
      *  token (the map key). Registration/removal are keyed by it, so editors
@@ -140,10 +147,14 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
         providers[token] = provider
     }
 
-    /** The editor left composition — removes only its own entry, leaving any
-     *  overlapping editor's provider intact. */
+    /** The editor left composition. Keep its last dirty value until a storage
+     *  operation proves that exact draft durable. */
     fun release(token: Long) {
-        providers.remove(token)
+        providers.remove(token)?.invoke()?.let { retained[token] = it }
+    }
+
+    fun complete(draft: PendingDraft) {
+        retained.entries.removeAll { it.value == draft }
     }
 
     /** Persist every live editor's current draft by pulling each provider
@@ -165,6 +176,7 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
     /** Snapshot and coalesce the live drafts for an exclusive vault operation. */
     fun currentDrafts(): List<PendingDraft> {
         val byId = LinkedHashMap<String, PendingDraft>()
+        retained.values.forEach { byId[it.id] = it }
         providers.values.toList().forEach { provider -> provider()?.let { byId[it.id] = it } }
         return byId.values.toList()
     }
@@ -255,32 +267,70 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  A conditional write (`write_if_unchanged`): persist `draft.content` only
      *  if the note still holds `draft.base` (the content the editor last saw).
      *  One FFI call replaces the old `exists()`-then-`write()` sequence,
-     *  collapsing its cross-FFI TOCTOU — a note deleted while backgrounded
-     *  returns SkippedMissing (never resurrected), and content a live-sync pull
-     *  adopted since the editor's last read returns SkippedChanged (never
-     *  clobbered). Check-then-atomic-write, not a true CAS (a narrow residual
-     *  syscall window is accepted — see the Rust doc). Only a genuine write
-     *  (WROTE) updates in-memory state. */
+     *  collapsing its cross-FFI TOCTOU. A deleted note is conditionally
+     *  re-created for edit-wins dirty-keep; a changed note parks the local draft
+     *  as a conflict copy, so neither peer content nor the draft is lost. */
     fun flushAsync(draft: PendingDraft) {
         scope.launch {
-            // Swallow-and-log, mirroring [write]. `writeIfUnchanged` throws
-            // NoteException on a non-NotFound IO error (temp-write ENOSPC, EACCES
-            // read); this runs on a fire-and-forget scope with no exception
-            // handler, so an uncaught throw here would crash the process at
-            // leave-foreground. A failed background flush must degrade to "not
-            // flushed" (the debounce / next flush retries), never crash.
-            try {
-                val result = withCore {
-                    core.writeIfUnchanged(draft.id, draft.base, draft.content)
+            if (flush(draft)) pendingEditor.complete(draft)
+        }
+    }
+
+    /** Persist-or-park the exact editor snapshot. A peer change is never
+     * overwritten: an incompatible draft becomes a visible conflict note. */
+    suspend fun flush(draft: PendingDraft): Boolean = try {
+        val result = withCore {
+            core.writeIfUnchanged(draft.id, draft.base, draft.content)
+        }
+        result.mutation?.let {
+            applyMutation(it)
+            signalLocalChange()
+        }
+        when (result.outcome) {
+            FlushOutcome.WROTE -> result.mutation != null || read(draft.id) == draft.content
+            FlushOutcome.SKIPPED_CHANGED ->
+                if (read(draft.id) == draft.content) true else parkDraft(draft)
+            FlushOutcome.SKIPPED_MISSING -> {
+                when (withCore { core.createIfAbsent(draft.id, draft.content) }) {
+                    CreateOutcome.CREATED -> {
+                        reload()
+                        signalLocalChange()
+                        true
+                    }
+                    CreateOutcome.EXISTED ->
+                        if (read(draft.id) == draft.content) true else parkDraft(draft)
                 }
-                result.mutation?.let {
-                    applyMutation(it)
-                    signalLocalChange()
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("NotesStore", "flush failed for ${draft.id}", e)
             }
         }
+    } catch (e: Exception) {
+        android.util.Log.e("NotesStore", "flush failed for ${draft.id}", e)
+        false
+    }
+
+    private suspend fun parkDraft(draft: PendingDraft): Boolean = try {
+        val folder = draft.id.substringBeforeLast('/', "")
+        val title = draft.id.substringAfterLast('/')
+        val stamp = SimpleDateFormat("yyyy-MM-dd HHmmss", Locale.US).format(Date())
+        val mutation = withCore {
+            val prefix = "$title (conflict "
+            val alreadyParked = core.scan().notes.any { note ->
+                note.folder == folder &&
+                    note.title.startsWith(prefix) &&
+                    core.read(note.id) == draft.content
+            }
+            if (alreadyParked) null else {
+                core.createNote("$title (conflict $stamp)", folder, draft.content)
+            }
+        }
+        mutation?.let {
+            applyMutation(it)
+            refreshFolders()
+            signalLocalChange()
+        }
+        true
+    } catch (e: Exception) {
+        android.util.Log.e("NotesStore", "could not park editor draft for ${draft.id}", e)
+        false
     }
 
     /** The open editors' unsaved-draft register (F8 jetsam guard). Each editor
@@ -303,14 +353,14 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     fun setDraftProvider(token: Long, provider: () -> PendingDraft?) =
         pendingEditor.setProvider(token, provider)
 
-    /** The editor left composition — removes only its own entry, leaving any
-     *  overlapping editor's provider intact. */
+    /** The editor left composition. Its dirty value remains retained until the
+     *  asynchronous flush proves it durable. */
     fun releaseDraftOwnership(token: Long) = pendingEditor.release(token)
 
     /** Flush the open editor's pending draft to disk if it has unsaved edits.
      *  Called from MainActivity.onPause (the first leave-foreground signal).
-     *  Fire-and-forget via [flushAsync], which re-checks existence off-main so a
-     *  note deleted while open is never resurrected. Mirrors iOS `flushPendingEditor`.
+     *  Fire-and-forget via [flushAsync], which uses persist-or-park semantics.
+     *  Mirrors iOS `flushPendingEditor`.
      *  Best-effort: the write is fire-and-forget, so an immediate process death
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
@@ -348,7 +398,15 @@ class NotesStore(notesRoot: File, searchIndex: File) {
                         "An open editor change could not be saved. The storage mode was not changed.",
                     )
                 } else {
-                    NotesStorage.migrate(File(rootPath), to)
+                    val staged = core.stageVaultMigration(to.absolutePath)
+                    when (staged.status) {
+                        VaultMigrationStatus.MIGRATED ->
+                            NotesStorage.MigrationOutcome.Migrated(staged.files.toInt())
+                        VaultMigrationStatus.EMPTY_SOURCE ->
+                            NotesStorage.MigrationOutcome.EmptySource
+                        VaultMigrationStatus.ALREADY_AT_DESTINATION ->
+                            NotesStorage.MigrationOutcome.AlreadyAtDestination
+                    }
                 }
             }
         }
@@ -360,6 +418,14 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     fun resumeAfterStorageMigrationFailure() {
         vaultMigrationStarted = false
     }
+
+    suspend fun finalizeVaultMigration(to: File): Boolean =
+        withContext(Dispatchers.IO) {
+            vaultAccess.withLock {
+                core.finalizeVaultMigration(to.absolutePath) !=
+                    VaultMigrationFinalization.DESTINATION_CHANGED
+            }
+        }
 
     /** Write one note and consume the complete committed mutation. */
     suspend fun write(id: String, content: String): NoteMutationOutcome<Unit> =
@@ -424,9 +490,18 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         android.util.Log.e("NotesStore", "rename failed", e); oldId
     }
 
-    suspend fun moveNote(id: String, toFolder: String): NoteMutationOutcome<String> = try {
+    suspend fun moveNote(
+        id: String,
+        toFolder: String,
+        createFolder: Boolean = false,
+    ): NoteMutationOutcome<String> = try {
         val (mutation, folderPaths) = withCore {
-            core.moveNote(id, toFolder) to core.scan().folders
+            val moved = if (createFolder) {
+                core.moveNoteToNewFolder(id, toFolder)
+            } else {
+                core.moveNote(id, toFolder)
+            }
+            moved to core.scan().folders
         }
         applyMutation(mutation)
         folders = folderPaths

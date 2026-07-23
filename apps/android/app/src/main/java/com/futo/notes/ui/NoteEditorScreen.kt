@@ -141,6 +141,7 @@ fun NoteEditorScreen(
     var saveJob by remember { mutableStateOf<Job?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
+    val mutationGate = remember(initialNoteId) { EditorMutationGate() }
     val theme = if (darkTheme) "dark" else "light"
 
     // The editor's note universe [editor.md:77]: id/title/modifiedMs/tags JSON
@@ -533,7 +534,7 @@ fun NoteEditorScreen(
                         // mounts with "" and can emit a setContent echo before the
                         // real body loads; saving that empty echo would clobber the
                         // note on disk. Once loaded, all edits flow through.
-                        if (loaded) {
+                        if (loaded && !mutationGate.isDestructiveActionStarted) {
                             // Just update the buffer state. The unsaved-draft
                             // register follows from the snapshotFlow derivation
                             // (content != savedContent) — no manual publish; the
@@ -546,8 +547,14 @@ fun NoteEditorScreen(
                                 // Re-read noteId at fire time so a save that lands
                                 // after a rename writes to the renamed note, not the
                                 // stale id.
-                                val outcome = store.write(noteId, newContent)
-                                savedContent = confirmedSavedContent(savedContent, newContent, outcome)
+                                val outcome = mutationGate.runEditorMutation {
+                                    store.write(noteId, newContent)
+                                } ?: return@launch
+                                savedContent = confirmedSavedContent(
+                                    savedContent,
+                                    newContent,
+                                    outcome,
+                                )
                                 if (outcome === NoteMutationOutcome.Failed) {
                                     Toast.makeText(
                                         context,
@@ -591,9 +598,13 @@ fun NoteEditorScreen(
             confirmLabel = "Delete",
             onConfirm = {
                 confirmDelete = false
+                mutationGate.beginDestructiveAction()
                 saveJob?.cancel()
+                host.blur()
                 scope.launch {
-                    val outcome = store.delete(noteId)
+                    val outcome = mutationGate.runDestructiveMutation {
+                        store.delete(noteId)
+                    }
                     if (shouldCompleteNoteAction(outcome)) {
                         // Mark clean only after delete commits, so onDispose
                         // cannot recreate the deleted note from its dirty draft.
@@ -601,6 +612,7 @@ fun NoteEditorScreen(
                         Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
                         onBack()
                     } else {
+                        mutationGate.cancelDestructiveAction()
                         Toast.makeText(
                             context,
                             "Couldn't delete note. It remains in your notes.",
@@ -641,15 +653,11 @@ fun NoteEditorScreen(
                             return@launch
                         }
                     }
-                    if (isNew && !shouldCompleteNoteAction(store.createFolder(folder))) {
-                        Toast.makeText(
-                            context,
-                            "Couldn't create folder. The note was not moved.",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        return@launch
-                    }
-                    when (val outcome = store.moveNote(noteId, folder)) {
+                    when (val outcome = store.moveNote(
+                        noteId,
+                        folder,
+                        createFolder = isNew,
+                    )) {
                         is NoteMutationOutcome.Committed -> {
                             noteId = outcome.value
                             showMoveSheet = false
