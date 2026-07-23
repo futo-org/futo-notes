@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 
-import { rewriteForcedGdkBackend } from './patch-appimage.mjs';
+import { rewriteForcedGdkBackend, stripBundledWaylandClients } from './patch-appimage.mjs';
 
 const FORCED_GDK_BACKEND =
   'export GDK_BACKEND=x11 # Crash with Wayland backend on Wayland - We tested it without it and ended up with this: https://github.com/tauri-apps/tauri/issues/8541';
@@ -59,5 +62,43 @@ describe('rewriteForcedGdkBackend', () => {
       changed: false,
       notFound: true,
     });
+  });
+
+  it('rewrites quoted and whitespace-varied forced X11 assignments', () => {
+    const variants = [
+      'GDK_BACKEND = "x11"',
+      "export GDK_BACKEND='x11'",
+      '  export   GDK_BACKEND = x11  # generated hook',
+    ].join('\n');
+
+    const result = rewriteForcedGdkBackend(variants);
+
+    expect(result.changed).toBe(true);
+    expect(result.notFound).toBe(false);
+    expect(result.text).not.toMatch(/GDK_BACKEND\s*=\s*["']?x11["']?/);
+    expect(result.text.split(PREFERRED_GDK_BACKEND)).toHaveLength(4);
+  });
+});
+
+describe('stripBundledWaylandClients', () => {
+  it('removes every bundled client library regardless of AppDir location', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'futo-appimage-test-'));
+    const paths = [
+      join(root, 'usr/lib/libwayland-client.so.0'),
+      join(root, 'usr/lib/x86_64-linux-gnu/libwayland-client.so.0.22.0'),
+      join(root, 'lib/libwayland-client.so.0'),
+    ];
+    try {
+      for (const path of paths) {
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, 'bundled');
+      }
+
+      const removed = await stripBundledWaylandClients(root);
+
+      expect(removed.sort()).toEqual(paths.sort());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

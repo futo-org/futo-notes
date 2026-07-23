@@ -944,10 +944,10 @@ build:linux-appimage:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - !reference [.set-version, script]
-    - cd apps/tauri && cargo tauri build --bundles appimage && cd ../..
+    - (cd "$CI_PROJECT_DIR/apps/tauri" && cargo tauri build --bundles appimage)
     # Strip the incompatible libwayland client and prefer Wayland in the GTK hook.
     # Script auto-downloads appimagetool if it isn't already on PATH.
-    - node scripts/patch-appimage.mjs --dir target/release/bundle/appimage
+    - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
     # Updater signature — minisign the FINAL (patched) AppImage so the .sig
     # matches the bytes clients download. MUST be the last touch on the artifact.
     # TAURI_SIGNING_PRIVATE_KEY is a protected CI variable; the key has no password
@@ -955,13 +955,13 @@ build:linux-appimage:
     # latest.json by the release: job.
     - |
       test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }
-      for f in target/release/bundle/appimage/*.AppImage; do
+      for f in "$CI_PROJECT_DIR"/target/release/bundle/appimage/*.AppImage; do
         cargo tauri signer sign -p "" "$f"
       done
   after_script:
     - |
       echo "=== Linux AppImage artifact ==="
-      find target/release/bundle -type f \( -name "*.AppImage" -o -name "*.AppImage.sig" \) 2>/dev/null
+      find "$CI_PROJECT_DIR/target/release/bundle" -type f \( -name "*.AppImage" -o -name "*.AppImage.sig" \) 2>/dev/null
   artifacts:
     paths:
       - target/release/bundle/appimage/*.AppImage
@@ -969,6 +969,13 @@ build:linux-appimage:
     expire_in: 4 weeks
   rules:
     - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - scripts/patch-appimage.mjs
+        - scripts/patch-appimage.test.mjs
+      when: manual
+      allow_failure: true
 
 # Rebuild the pre-baked Android CI image (JDK + SDK/NDK + Rust targets +
 # emulator + system image + desktop Tauri deps). Manual trigger only —

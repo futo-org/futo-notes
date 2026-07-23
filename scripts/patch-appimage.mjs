@@ -31,30 +31,24 @@
 
 import { spawnSync } from 'node:child_process';
 import { createWriteStream, existsSync, readdirSync } from 'node:fs';
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-
-// Bundled libs that break on modern Mesa when mixed with host libEGL. We
-// delete these from the AppDir so the host copies are used instead.
-const LIBS_TO_STRIP = [
-  'libwayland-client.so.0',
-  // Keep the rest for now — only libwayland-client.so.0 is load-bearing for
-  // the EGL_BAD_PARAMETER failure. If we see further breakage on newer Mesa,
-  // extend this list (libwayland-egl.so.1, libwayland-cursor.so.0,
-  // libwayland-server.so.0 are the next candidates).
-];
 
 const FORCED_GDK_BACKEND =
   'export GDK_BACKEND=x11 # Crash with Wayland backend on Wayland - We tested it without it and ended up with this: https://github.com/tauri-apps/tauri/issues/8541';
 const PREFERRED_GDK_BACKEND =
   'if [ -z "${GDK_BACKEND+x}" ]; then export GDK_BACKEND=wayland,x11; fi';
+const FORCED_GDK_BACKEND_PATTERN =
+  /^[ \t]*(?:export[ \t]+)?GDK_BACKEND[ \t]*=[ \t]*(?:"x11"|'x11'|x11)[ \t]*(?:#.*)?$/gm;
+const WAYLAND_CLIENT_LIBRARY_PATTERN = /^libwayland-client\.so(?:\.|$)/;
 
 export function rewriteForcedGdkBackend(hookText) {
-  if (hookText.includes(FORCED_GDK_BACKEND)) {
+  if (FORCED_GDK_BACKEND_PATTERN.test(hookText)) {
+    FORCED_GDK_BACKEND_PATTERN.lastIndex = 0;
     return {
-      text: hookText.replaceAll(FORCED_GDK_BACKEND, PREFERRED_GDK_BACKEND),
+      text: hookText.replaceAll(FORCED_GDK_BACKEND_PATTERN, PREFERRED_GDK_BACKEND),
       changed: true,
       notFound: false,
     };
@@ -63,6 +57,27 @@ export function rewriteForcedGdkBackend(hookText) {
     return { text: hookText, changed: false, notFound: false };
   }
   return { text: hookText, changed: false, notFound: true };
+}
+
+export async function stripBundledWaylandClients(extractDir) {
+  // Remove every bundled ABI/link name from the AppDir so a relocated copy
+  // cannot silently defeat the host-library fallback.
+  const removed = [];
+  const pending = [extractDir];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(path);
+      } else if (WAYLAND_CLIENT_LIBRARY_PATTERN.test(entry.name)) {
+        await rm(path);
+        removed.push(path);
+      }
+    }
+  }
+  return removed;
 }
 
 function log(msg) {
@@ -171,16 +186,12 @@ async function main() {
     throw new Error(`extraction did not produce ${extractDir}`);
   }
 
-  let stripped = 0;
-  for (const lib of LIBS_TO_STRIP) {
-    const libPath = join(extractDir, 'usr', 'lib', lib);
-    if (existsSync(libPath)) {
-      await rm(libPath);
-      stripped += 1;
-      log(`removed usr/lib/${lib}`);
-    } else {
-      log(`skipped usr/lib/${lib} (not present)`);
-    }
+  const stripped = await stripBundledWaylandClients(extractDir);
+  for (const path of stripped) {
+    log(`removed ${path.slice(extractDir.length + 1)}`);
+  }
+  if (stripped.length === 0) {
+    log('no bundled libwayland-client copies found');
   }
 
   const gtkHookPath = join(extractDir, 'apprun-hooks', 'linuxdeploy-plugin-gtk.sh');
@@ -203,7 +214,7 @@ async function main() {
     log('GTK launch hook already prefers Wayland and respects GDK_BACKEND');
   }
 
-  if (stripped === 0 && !rewrittenHook.changed) {
+  if (stripped.length === 0 && !rewrittenHook.changed) {
     log('AppImage already patched — leaving original in place');
     await rm(extractDir, { recursive: true, force: true });
     return;
