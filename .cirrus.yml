@@ -43,12 +43,18 @@ test_desktop_smoke_macos_task:
       NOTES_DIR=$(mktemp -d)
       mkdir -p "$HOME/Library/Application Support/com.futo.notes"
       echo '{"notesDir":"'"$NOTES_DIR"'"}' > "$HOME/Library/Application Support/com.futo.notes/notes-dir-override.json"
-    # Launch (Cirrus macOS VMs have a display — no xvfb needed)
+    # Launch (Cirrus macOS VMs have a display — no xvfb needed). Log +
+    # screenshots land under the repo checkout (not /tmp) so the always:
+    # artifacts block below can copy them out via --artifacts-dir.
+    - mkdir -p test-screenshots
     - |
-      target/debug/futo-notes-tauri > /tmp/tauri-smoke.log 2>&1 &
+      target/debug/futo-notes-tauri > test-screenshots/tauri-smoke.log 2>&1 &
     # Run smoke tests (script handles port discovery from log)
-    - node tests/desktop-smoke.mjs --log-file /tmp/tauri-smoke.log
+    - node tests/desktop-smoke.mjs --log-file test-screenshots/tauri-smoke.log
     - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
+  always:
+    desktop_smoke_artifacts:
+      path: "test-screenshots/**"
 
 test_ios_native_task:
   name: testFutoNotesIOSNative
