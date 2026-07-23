@@ -73,9 +73,13 @@ export function selectIssue(state, explicitNumber) {
 }
 
 /**
- * Create an isolated worktree off main plus an empty notes data dir. The agent
- * creates its own fix/gh-<n>-<slug> branch later; this temp branch just gives
- * it a clean tree to work in.
+ * Create an isolated worktree off the freshly fetched origin/main plus an empty
+ * notes data dir. The agent creates its own fix/gh-<n>-<slug> branch later; this
+ * temp branch just gives it a clean tree to work in.
+ *
+ * Base off origin/main, NOT local main: a local main that has drifted behind the
+ * remote would make the fix MR show every intervening commit as a phantom
+ * deletion and be unmergeable.
  * @returns {{ worktreePath: string, dataDir: string, branch: string }}
  */
 function createWorktree({ number, runId }) {
@@ -84,7 +88,8 @@ function createWorktree({ number, runId }) {
   const dataDir = join(worktreePath, '.triage-notes-data');
 
   mkdirSync(dirname(worktreePath), { recursive: true });
-  runGit(['worktree', 'add', '-b', branch, worktreePath, 'main']);
+  runGit(['fetch', 'origin', 'main']);
+  runGit(['worktree', 'add', '-b', branch, worktreePath, 'origin/main']);
   mkdirSync(dataDir, { recursive: true });
 
   return { worktreePath, dataDir, branch };
