@@ -725,6 +725,11 @@ struct MoveToFolderSheet: View {
     }
 
     private func move(to folder: String) {
+        performMove(to: folder)
+        dismiss()
+    }
+
+    private func performMove(to folder: String) {
         if let onMoveRequested {
             onMoveRequested(folder)
         } else {
@@ -736,24 +741,13 @@ struct MoveToFolderSheet: View {
                 }
             }
         }
-        dismiss()
     }
 
     private func createAndMove() {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let dest = currentFolder.isEmpty ? name : currentFolder + "/" + name
-        if let onMoveRequested {
-            onMoveRequested(dest)
-        } else {
-            Task {
-                if case .committed(let finalId) =
-                    await store.moveNote(note.id, toFolder: dest)
-                {
-                    onMoved?(finalId)
-                }
-            }
-        }
+        performMove(to: dest)
         dismiss()
     }
 }

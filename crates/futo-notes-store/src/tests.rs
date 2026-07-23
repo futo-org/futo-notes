@@ -1305,3 +1305,19 @@ fn empty_vault_migration_does_not_require_a_destination_to_finalize() {
     );
     assert!(!source.0.exists());
 }
+
+#[test]
+fn empty_vault_migration_refuses_an_unrelated_nonempty_destination() {
+    let source = TestRoot::new();
+    let destination = TestRoot::new();
+    let store = store(&source);
+    fs::write(destination.0.join("unrelated.md"), "keep me").unwrap();
+
+    assert!(store.stage_vault_migration(&destination.0).is_err());
+
+    assert!(source.0.exists());
+    assert_eq!(
+        fs::read_to_string(destination.0.join("unrelated.md")).unwrap(),
+        "keep me"
+    );
+}

@@ -508,8 +508,16 @@ class MainActivity : ComponentActivity() {
         val previousMode = currentMode()
         val to = NotesStorage.rootFor(this, newMode, BuildConfig.DEBUG)
         storageSwitching.value = true
+        if (!current.tryBeginStorageMigration()) {
+            storageSwitching.value = false
+            Toast.makeText(
+                this,
+                "A note or image is still being saved. Try changing storage again.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
         current.suppressAutoPush = true
-        current.beginStorageMigration()
         lifecycleScope.launch {
             val outcome = runCatching {
                 check(EditorHost.get(this@MainActivity).freezeAndCaptureContent()) {

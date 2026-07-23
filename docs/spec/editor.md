@@ -478,10 +478,13 @@ EditorWebView.swift, EditorWebView.kt
   one editor mutation gate. iOS cancellation chains own the actual committed
   move—not only presentation of its picker—and delete awaits the complete
   save/rename/adoption/move chain before removing the final id. Once closing
-  starts, iOS blurs the WebView, rejects late bridge changes, and never flushes
-  that closing view on disappear. An in-flight conflict flush, move, title
-  debounce, or queued bridge callback therefore cannot recreate or rename a note
-  after its delete commits. _(iOS, Android)_ → `EditorMutationGate`,
+  starts, iOS blurs the WebView, quarantines late bridge changes, and never
+  flushes that closing view on disappear. A committed delete discards the
+  quarantine; a failed delete restores and autosaves it, so the note is neither
+  recreated after success nor stripped of a late edit after failure. An
+  in-flight conflict flush, move, title debounce, or queued bridge callback
+  therefore cannot recreate or rename a note after its delete commits. _(iOS,
+  Android)_ → `EditorMutationGate`,
   NoteEditorScreen.kt, NoteEditorView.swift, NativeMutationOutcomeTests
 - Backgrounding the app makes a **best-effort** flush of the open editor's
   pending edit at the first leave-foreground signal, so an edit caught inside the

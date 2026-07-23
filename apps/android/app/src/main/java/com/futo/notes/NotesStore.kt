@@ -325,10 +325,11 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
 
-    /** Freeze store access before the WebView's final synchronous snapshot. */
-    fun beginStorageMigration() {
-        storageMigrationGate.beginMigration()
-    }
+    /** Freeze store access before the WebView's final synchronous snapshot.
+     * Refuse while a write is active: image saves complete with a later editor
+     * callback, so merely waiting for their file I/O would snapshot too early. */
+    fun tryBeginStorageMigration(): Boolean =
+        storageMigrationGate.tryBeginMigrationWhenIdle()
 
     /**
      * Flush live editor drafts and hold the vault gate across migration. Existing

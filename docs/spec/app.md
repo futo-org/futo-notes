@@ -62,9 +62,11 @@ Behaviors and constraints that hold across every surface and platform.
     invisible to the stock Files app on Android 11+ and deleted on uninstall.
     Switching modes migrates the whole vault (including the `.futo` sync state)
     and relaunches. The switch blocks editor/store writes—including image-picker
-    and clipboard image files—and pauses live sync; an image save already in
-    flight drains before staging begins, while a newly queued save is rejected.
-    it disables and blurs the Android WebView, then reads
+    and clipboard image files—and pauses live sync. It refuses to begin while a
+    vault write is active, because an image write completes with a later editor
+    insertion that must land before the WebView snapshot; the user can retry
+    after that save finishes. A newly queued save is rejected once migration is
+    latched. It disables and blurs the Android WebView, then reads
     `FutoEditor.getContent()` before taking the vault snapshot, so a bridge
     change still waiting for animation-frame delivery is included; failure to
     read the live editor aborts the switch. The engine stages the copy, verifies

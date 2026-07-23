@@ -49,17 +49,30 @@ pub(super) fn stage(source: &Path, destination: &Path) -> Result<VaultMigrationO
     }
 
     let source_manifest = manifest(&source)?;
+    let destination_manifest = if destination.exists() {
+        if !destination.is_dir() {
+            return Err("the new notes folder is not a directory".into());
+        }
+        Some(manifest(&destination)?)
+    } else {
+        None
+    };
     if source_manifest.is_empty() {
+        if destination_manifest
+            .as_ref()
+            .is_some_and(|manifest| !manifest.is_empty())
+        {
+            return Err(
+                "the new notes folder already contains different files; neither vault was changed"
+                    .into(),
+            );
+        }
         return Ok(VaultMigrationOutcome {
             status: VaultMigrationStatus::EmptySource,
             files: 0,
         });
     }
-    if destination.exists() {
-        if !destination.is_dir() {
-            return Err("the new notes folder is not a directory".into());
-        }
-        let destination_manifest = manifest(&destination)?;
+    if let Some(destination_manifest) = destination_manifest {
         if !destination_manifest.is_empty() {
             if destination_manifest == source_manifest {
                 return Ok(VaultMigrationOutcome {

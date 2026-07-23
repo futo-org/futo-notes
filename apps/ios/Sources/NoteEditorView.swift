@@ -61,6 +61,10 @@ struct NoteEditorView: View {
     /// "deleted during sync" banner + a double pop in a wikilink chain). A
     /// one-way latch for this view instance.
     @State private var isClosing = false
+    /// A bridge change that arrives after delete starts is quarantined. A
+    /// committed delete discards it; a failed delete restores it so no late
+    /// animation-frame edit is silently lost.
+    @State private var closingContent: String?
 
     /// Path of the enclosing NavigationStack. A resolved-wikilink tap PUSHES a
     /// new editor entry (Back returns to the note you came from — a chain of
@@ -133,8 +137,15 @@ struct NoteEditorView: View {
                     // with the new note's content via setContent and can emit an echo
                     // before the disk read returns; saving that echo could clobber the
                     // note on disk. Once loaded, all edits flow through.
-                    guard shouldAcceptEditorChange(loaded: loaded, isClosing: isClosing)
-                    else { return }
+                    switch editorChangeDisposition(loaded: loaded, isClosing: isClosing) {
+                    case .ignore:
+                        return
+                    case .quarantine:
+                        closingContent = newContent
+                        return
+                    case .apply:
+                        break
+                    }
                     content = newContent
                     // Publish the derived draft SYNCHRONOUSLY here, not only via the
                     // async `.onChange(of: draftInputs)` below. The scenePhase
@@ -346,7 +357,14 @@ struct NoteEditorView: View {
     }
 
     private func commitRename() {
-        Task { await applyRename(renameField) }
+        let requestedTitle = renameField
+        let previous = renameTask
+        previous?.cancel()
+        renameTask = Task { @MainActor in
+            await previous?.value
+            guard !Task.isCancelled, !isClosing else { return }
+            await applyRename(requestedTitle)
+        }
     }
 
     /// Debounced inline-title rename (Android parity): reschedule on each
@@ -697,6 +715,7 @@ struct NoteEditorView: View {
         // Latch closing so the local delete's reload doesn't trip the peer-delete
         // path (adoptExternalChange → handleOpenNoteDeleted).
         isClosing = true
+        closingContent = nil
         EditorHost.shared.blur()
         // Mark the draft clean so both the derived register (content==savedContent
         // → nil) and onDisappear's flush are no-ops; the file won't be resurrected.
@@ -715,10 +734,17 @@ struct NoteEditorView: View {
             await pendingMove?.value
             let outcome = await store.delete(noteId)
             if case .committed = outcome {
+                closingContent = nil
                 if !navPath.isEmpty { navPath.removeLast() }
             } else {
+                let lateContent = closingContent
+                closingContent = nil
                 isClosing = false
                 savedContent = previousSavedContent
+                if let lateContent {
+                    content = lateContent
+                    scheduleSave(lateContent)
+                }
                 publishDraft()
                 store.showTransient("Couldn't delete note. It remains in your notes.")
             }
@@ -740,8 +766,15 @@ struct NoteEditorView: View {
     }
 }
 
-func shouldAcceptEditorChange(loaded: Bool, isClosing: Bool) -> Bool {
-    loaded && !isClosing
+enum EditorChangeDisposition: Equatable {
+    case ignore
+    case quarantine
+    case apply
+}
+
+func editorChangeDisposition(loaded: Bool, isClosing: Bool) -> EditorChangeDisposition {
+    if !loaded { return .ignore }
+    return isClosing ? .quarantine : .apply
 }
 
 func shouldFlushEditorOnDisappear(
