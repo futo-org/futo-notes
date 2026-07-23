@@ -66,21 +66,18 @@ import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.theme.FutoTheme
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
 import uniffi.futo_notes_ffi.validateTitle
-import java.io.File
 
 /** A note title that is still the auto-assigned placeholder: exactly "Untitled",
  *  or a dedup variant "Untitled-N" (the Rust store's `unique_note_id` appends `-2`,
@@ -345,8 +342,8 @@ fun NoteEditorScreen(
         val handle: (Uri?) -> Unit = { uri ->
             if (uri != null) {
                 scope.launch {
-                    val name = withContext(Dispatchers.IO) {
-                        saveImageIntoVault(context.contentResolver, File(store.rootPath), uri)
+                    val name = store.saveImageIntoVault { root ->
+                        saveImageIntoVault(context.contentResolver, root, uri)
                     }
                     if (name != null) {
                         host.insertImage(name)
@@ -368,11 +365,9 @@ fun NoteEditorScreen(
     // destination as the picker above, so paste and pick are indistinguishable.
     val saveImageData: (String, String) -> Unit = { base64, ext ->
         scope.launch {
-            val name = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
-                    saveImageDataIntoVault(File(store.rootPath), bytes, ext)
-                }.getOrNull()
+            val name = store.saveImageIntoVault { root ->
+                val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+                saveImageDataIntoVault(root, bytes, ext)
             }
             if (name != null) {
                 host.insertImage(name)
@@ -642,31 +637,40 @@ fun NoteEditorScreen(
                     // a stale save would recreate a ghost at the old id. The
                     // derived register re-keys to the moved id afterwards (its
                     // content follows the live noteId), so no manual clear (R4).
-                    saveJob?.cancel()
-                    // Snapshot before the suspending write; advance savedContent to
-                    // the snapshot, not live `content`, so a keystroke typed during
-                    // the write stays dirty in the register and survives a later
-                    // background flush (PKT-12 F1 — same as the rename path).
-                    val flushed = content
-                    if (flushed != savedContent) {
-                        val outcome = store.write(noteId, flushed)
-                        savedContent = confirmedSavedContent(savedContent, flushed, outcome)
-                        if (outcome === NoteMutationOutcome.Failed) {
-                            Toast.makeText(
-                                context,
-                                "Couldn't save note. Your changes are still pending.",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                            return@launch
+                    val outcome = mutationGate.runEditorMutation {
+                        saveJob?.cancel()
+                        // Snapshot before the suspending write; advance savedContent to
+                        // the snapshot, not live `content`, so a keystroke typed during
+                        // the write stays dirty in the register and survives a later
+                        // background flush (PKT-12 F1 — same as the rename path).
+                        val flushed = content
+                        if (flushed != savedContent) {
+                            val writeOutcome = store.write(noteId, flushed)
+                            savedContent =
+                                confirmedSavedContent(savedContent, flushed, writeOutcome)
+                            if (writeOutcome === NoteMutationOutcome.Failed) {
+                                Toast.makeText(
+                                    context,
+                                    "Couldn't save note. Your changes are still pending.",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                return@runEditorMutation NoteMutationOutcome.Failed
+                            }
                         }
-                    }
-                    when (val outcome = store.moveNote(
-                        noteId,
-                        folder,
-                        createFolder = isNew,
-                    )) {
+                        val moveOutcome = store.moveNote(
+                            noteId,
+                            folder,
+                            createFolder = isNew,
+                        )
+                        if (moveOutcome is NoteMutationOutcome.Committed) {
+                            // Update the live id before releasing the gate. A delete
+                            // already waiting behind this move must target the final id.
+                            noteId = moveOutcome.value
+                        }
+                        moveOutcome
+                    } ?: return@launch
+                    when (outcome) {
                         is NoteMutationOutcome.Committed -> {
-                            noteId = outcome.value
                             showMoveSheet = false
                             Toast.makeText(
                                 context,

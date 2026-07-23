@@ -7,8 +7,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.NoteMutation
@@ -215,11 +213,10 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  the iOS `NoteVault` actor (the handle only ever lives off-main). */
     private val core: NoteStore by lazy { NoteStore(rootPath) }
 
-    /** Serializes every FFI vault access with storage migration. */
-    private val vaultAccess = Mutex()
-    @Volatile private var vaultMigrationStarted = false
+    /** Serializes every vault-root access, including image writes, with migration. */
+    private val storageMigrationGate = StorageMigrationGate()
     val isVaultMigrationStarted: Boolean
-        get() = vaultMigrationStarted
+        get() = storageMigrationGate.isMigrationStarted
 
     /** Owns the background scan + every FFI mutation. State writes hop back to
      *  [Dispatchers.Main.immediate] (this scope's dispatcher) so Compose state is
@@ -258,6 +255,17 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     suspend fun read(id: String): String = withCore { core.read(id) }
     suspend fun exists(id: String): Boolean = withCore { core.exists(id) }
+
+    /** Save an editor image under the active vault root while holding the same
+     * migration gate as note workflows. A migration that has begun rejects the
+     * save; one queued behind an in-flight save drains it before staging files. */
+    suspend fun saveImageIntoVault(save: (File) -> String?): String? =
+        try {
+            withVaultAccess { save(File(rootPath)) }
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "image save failed", e)
+            null
+        }
 
     /** Fire-and-forget flush for the editor's leave paths (`onDispose` on pop,
      *  and the register's onPause flush): a composable's dispose callback can't
@@ -319,7 +327,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     /** Freeze store access before the WebView's final synchronous snapshot. */
     fun beginStorageMigration() {
-        vaultMigrationStarted = true
+        storageMigrationGate.beginMigration()
     }
 
     /**
@@ -331,7 +339,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         val drafts = pendingEditor.currentDrafts()
         val mutations = mutableListOf<NoteMutation>()
         val outcome = withContext(Dispatchers.IO) {
-            vaultAccess.withLock {
+            storageMigrationGate.runMigration {
                 val flushFailed = drafts.any { draft ->
                     try {
                         val result = core.flushDraft(draft.id, draft.base, draft.content)
@@ -369,12 +377,12 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     /** Re-open the old root after a migration or preference-commit failure. */
     fun resumeAfterStorageMigrationFailure() {
-        vaultMigrationStarted = false
+        storageMigrationGate.resume()
     }
 
     suspend fun finalizeVaultMigration(to: File): Boolean =
         withContext(Dispatchers.IO) {
-            vaultAccess.withLock {
+            storageMigrationGate.runMigration {
                 core.finalizeVaultMigration(to.absolutePath) !=
                     VaultMigrationFinalization.DESTINATION_CHANGED
             }
@@ -509,13 +517,12 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         if (!suppressAutoPush) onLocalChange?.invoke()
     }
 
-    private suspend fun <T> withCore(block: () -> T): T =
+    private suspend fun <T> withVaultAccess(block: () -> T): T =
         withContext(Dispatchers.IO) {
-            vaultAccess.withLock {
-                check(!vaultMigrationStarted) { "Vault access is paused for storage migration" }
-                block()
-            }
+            storageMigrationGate.runAccess { block() }
         }
+
+    private suspend fun <T> withCore(block: () -> T): T = withVaultAccess(block)
 
     /** Immediate child folders of `folder` ("" = root). */
     fun subfolders(of: String): List<String> {

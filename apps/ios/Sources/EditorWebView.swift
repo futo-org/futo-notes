@@ -365,6 +365,13 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
+    /// Freeze user editing before a destructive native workflow. The resulting
+    /// bridge callback is still guarded by the owning editor's closing latch.
+    func blur() {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.blur();", completionHandler: nil)
+    }
+
     // MARK: WKScriptMessageHandler
 
     func userContentController(
@@ -516,8 +523,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         case .pickImage(let source):
             presentImagePicker(source: source)
         case .dismiss:
-            webView.evaluateJavaScript(
-                "window.FutoEditor && window.FutoEditor.blur();", completionHandler: nil)
+            blur()
         }
     }
 

@@ -7,7 +7,6 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.futo_notes_ffi.SyncClient
@@ -71,6 +70,11 @@ class SyncManager(
      *  can surface from both the manual sync path and the live loop at once. */
     private var healing = false
 
+    /** Drains connect/heal/manual/resume work before a vault migration starts
+     * and rejects any new sync work until the old vault is resumed or the app
+     * restarts on the migrated root. */
+    private val storageMigrationGate = StorageMigrationGate()
+
     /** Marshals Rust live-sync callbacks onto the main thread. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -104,6 +108,13 @@ class SyncManager(
 
     /** Connect (login + unwrap vault key), run an initial sync, then go live. */
     suspend fun connectAndSync(notesRoot: String, password: String) {
+        storageMigrationGate.runAccessIfAvailable {
+            connectAndSyncLocked(notesRoot, password)
+        }
+    }
+
+    /** Connect while [storageMigrationGate] is already held by the caller. */
+    private suspend fun connectAndSyncLocked(notesRoot: String, password: String) {
         // Be forgiving about whitespace, but catch the common mistake of a
         // schemeless URL up front with an actionable message instead of letting
         // it surface as a cryptic transport error [sync.md].
@@ -143,21 +154,23 @@ class SyncManager(
     }
 
     suspend fun syncNow() {
-        val c = client ?: return
-        busy = true; lastError = null; status = "Syncing…"
-        try {
-            applyOutcome(c.syncNow())
-        } catch (e: Exception) {
-            // Re-login for both a collapsed vault and an expired bearer token.
-            // The same-vault path keeps the persisted cursor/object map, so
-            // token expiry does not trigger a full reconcile.
-            if (isRecoverableSessionError(e)) {
-                healSession(describe(e))
-            } else {
-                lastError = describe(e); status = "Error"
+        storageMigrationGate.runAccessIfAvailable {
+            val c = client ?: return@runAccessIfAvailable
+            busy = true; lastError = null; status = "Syncing…"
+            try {
+                applyOutcome(c.syncNow())
+            } catch (e: Exception) {
+                // Re-login for both a collapsed vault and an expired bearer token.
+                // The same-vault path keeps the persisted cursor/object map, so
+                // token expiry does not trigger a full reconcile.
+                if (isRecoverableSessionError(e)) {
+                    healSession(describe(e))
+                } else {
+                    lastError = describe(e); status = "Error"
+                }
+            } finally {
+                busy = false
             }
-        } finally {
-            busy = false
         }
     }
 
@@ -168,7 +181,7 @@ class SyncManager(
      *  collapsed vault without deleting state. Guarded against re-entry;
      *  mirrors iOS `healSession`. → sync.md */
     private fun healSession(fallbackMessage: String) {
-        if (healing) return
+        if (healing || storageMigrationGate.isMigrationStarted) return
         val root = notesRoot
         if (root == null) {
             reportUnavailableSessionRecovery(fallbackMessage)
@@ -177,18 +190,24 @@ class SyncManager(
         healing = true
         client?.stopLive()
         scope.launch {
-            val password = withContext(Dispatchers.IO) {
-                runCatching { secure?.loadPassword() }.getOrNull()
-            }
-            if (password == null) {
+            try {
+                storageMigrationGate.runAccessIfAvailable {
+                    val password = withContext(Dispatchers.IO) {
+                        runCatching { secure?.loadPassword() }.getOrNull()
+                    }
+                    if (password == null) {
+                        reportUnavailableSessionRecovery(fallbackMessage)
+                        return@runAccessIfAvailable
+                    }
+                    // The dead session's live loop stopped itself; rebuild the
+                    // authenticated client while still holding the operation gate.
+                    connectAndSyncLocked(root, password)
+                }
+            } finally {
+                // Also release when migration began before this queued heal
+                // acquired the operation gate, or when the task is cancelled.
                 healing = false
-                reportUnavailableSessionRecovery(fallbackMessage)
-                return@launch
             }
-            // The dead session's live loop stopped itself; connectAndSync builds
-            // a fresh authenticated client + live loop without deleting state.
-            connectAndSync(root, password)
-            healing = false
         }
     }
 
@@ -228,19 +247,21 @@ class SyncManager(
      *  Activity wires this to every [NotesStore] mutation via
      *  [NotesStore.onLocalChange]. Mirrors the iOS `SyncManager.noteChanged`. */
     fun noteChanged() {
-        client?.noteChanged()
+        if (!storageMigrationGate.isMigrationStarted) client?.noteChanged()
     }
 
     /** Re-open the live stream after returning to the foreground (no-op if not
      *  connected or already live). Fire-and-forget from the Activity lifecycle. */
     fun resumeLiveAsync() {
         scope.launch {
-            val c = client ?: return@launch
-            if (!connected || live) return@launch
-            try {
-                c.startLive(LiveListener())
-            } catch (e: Exception) {
-                lastError = describe(e)
+            storageMigrationGate.runAccessIfAvailable {
+                val c = client ?: return@runAccessIfAvailable
+                if (!connected || live) return@runAccessIfAvailable
+                try {
+                    c.startLive(LiveListener())
+                } catch (e: Exception) {
+                    lastError = describe(e)
+                }
             }
         }
     }
@@ -253,9 +274,17 @@ class SyncManager(
 
     /** Stop live sync and wait for any connect/manual cycle already in flight. */
     suspend fun quiesceForStorageMigration() {
-        while (busy) delay(10)
-        client?.stopLiveAndWait()
-        live = false
+        storageMigrationGate.beginMigration()
+        storageMigrationGate.runMigration {
+            client?.stopLiveAndWait()
+            live = false
+        }
+    }
+
+    /** Re-enable the old session when vault migration or preference commit fails. */
+    fun resumeAfterStorageMigrationFailure() {
+        storageMigrationGate.resume()
+        resumeLiveAsync()
     }
 
     /** Silent reconnect with the persisted session at startup [sync.md:91].
@@ -264,11 +293,13 @@ class SyncManager(
      *  may simply be unreachable); only [disconnect] clears it. */
     fun restoreSession(notesRoot: String) {
         scope.launch {
-            if (connected) return@launch
-            val password = withContext(Dispatchers.IO) {
-                runCatching { secure?.loadPassword() }.getOrNull()
-            } ?: return@launch
-            connectAndSync(notesRoot, password)
+            storageMigrationGate.runAccessIfAvailable {
+                if (connected) return@runAccessIfAvailable
+                val password = withContext(Dispatchers.IO) {
+                    runCatching { secure?.loadPassword() }.getOrNull()
+                } ?: return@runAccessIfAvailable
+                connectAndSyncLocked(notesRoot, password)
+            }
         }
     }
 

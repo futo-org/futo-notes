@@ -41,4 +41,30 @@ struct NativeMutationOutcomeTests {
             ) != nil
         )
     }
+
+    @Test("closing editor rejects bridge changes")
+    func closingEditorRejectsBridgeChanges() {
+        #expect(shouldAcceptEditorChange(loaded: true, isClosing: false))
+        #expect(!shouldAcceptEditorChange(loaded: true, isClosing: true))
+    }
+
+    @Test("closing editor never flushes a newly dirty buffer on disappear")
+    func closingEditorDoesNotFlushOnDisappear() {
+        #expect(
+            shouldFlushEditorOnDisappear(
+                loaded: true,
+                isClosing: false,
+                content: "local edit",
+                savedContent: "base"
+            )
+        )
+        #expect(
+            !shouldFlushEditorOnDisappear(
+                loaded: true,
+                isClosing: true,
+                content: "late bridge edit",
+                savedContent: "delete snapshot"
+            )
+        )
+    }
 }

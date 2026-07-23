@@ -558,7 +558,7 @@ class MainActivity : ComponentActivity() {
             current.resumeAfterStorageMigrationFailure()
             EditorHost.get(this@MainActivity).resumeAfterStorageMigrationFailure()
             storageSwitching.value = false
-            sync.resumeLiveAsync()
+            sync.resumeAfterStorageMigrationFailure()
             Toast.makeText(
                 this@MainActivity,
                 decision.feedback ?: "The storage preference could not be saved. The original notes remain active.",

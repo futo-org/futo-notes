@@ -650,6 +650,9 @@ struct MoveToFolderSheet: View {
     /// Invoked with the note's FINAL id once the move lands (a move changes the
     /// id). The open editor uses this to keep the note open under its new id.
     var onMoved: ((String) -> Void)? = nil
+    /// The editor supplies this synchronous handoff so it owns and tracks the
+    /// complete asynchronous move. List-row moves use the default store task.
+    var onMoveRequested: ((String) -> Void)? = nil
 
     @State private var showingNewFolder = false
     @State private var newFolderName = ""
@@ -722,9 +725,16 @@ struct MoveToFolderSheet: View {
     }
 
     private func move(to folder: String) {
-        Task {
-            let finalId = await store.moveNote(note.id, toFolder: folder)
-            onMoved?(finalId)
+        if let onMoveRequested {
+            onMoveRequested(folder)
+        } else {
+            Task {
+                if case .committed(let finalId) =
+                    await store.moveNote(note.id, toFolder: folder)
+                {
+                    onMoved?(finalId)
+                }
+            }
         }
         dismiss()
     }
@@ -733,9 +743,16 @@ struct MoveToFolderSheet: View {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let dest = currentFolder.isEmpty ? name : currentFolder + "/" + name
-        Task {
-            let finalId = await store.moveNote(note.id, toFolder: dest)
-            onMoved?(finalId)
+        if let onMoveRequested {
+            onMoveRequested(dest)
+        } else {
+            Task {
+                if case .committed(let finalId) =
+                    await store.moveNote(note.id, toFolder: dest)
+                {
+                    onMoved?(finalId)
+                }
+            }
         }
         dismiss()
     }

@@ -481,16 +481,15 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    @discardableResult
-    func moveNote(_ id: String, toFolder folder: String) async -> String {
+    func moveNote(_ id: String, toFolder folder: String) async -> NoteMutationOutcome<String> {
         do {
             let mutation = try await vault.moveNote(id, folder: folder)
             applyMutation(mutation)
             onLocalChange?()
-            return mutation.finalId ?? id
+            return .committed(mutation.finalId ?? id)
         } catch {
             print("moveNote failed \(id) -> \(folder): \(error)")
-            return id
+            return .failed
         }
     }
 

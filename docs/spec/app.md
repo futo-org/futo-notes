@@ -61,7 +61,9 @@ Behaviors and constraints that hold across every surface and platform.
   - **App storage** — `Android/data/<pkg>/files/futo-notes`: no permission, but
     invisible to the stock Files app on Android 11+ and deleted on uninstall.
     Switching modes migrates the whole vault (including the `.futo` sync state)
-    and relaunches. The switch blocks editor/store writes and pauses live sync;
+    and relaunches. The switch blocks editor/store writes—including image-picker
+    and clipboard image files—and pauses live sync; an image save already in
+    flight drains before staging begins, while a newly queued save is rejected.
     it disables and blurs the Android WebView, then reads
     `FutoEditor.getContent()` before taking the vault snapshot, so a bridge
     change still waiting for animation-frame delivery is included; failure to

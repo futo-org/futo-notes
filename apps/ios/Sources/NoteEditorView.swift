@@ -133,7 +133,8 @@ struct NoteEditorView: View {
                     // with the new note's content via setContent and can emit an echo
                     // before the disk read returns; saving that echo could clobber the
                     // note on disk. Once loaded, all edits flow through.
-                    guard loaded else { return }
+                    guard shouldAcceptEditorChange(loaded: loaded, isClosing: isClosing)
+                    else { return }
                     content = newContent
                     // Publish the derived draft SYNCHRONOUSLY here, not only via the
                     // async `.onChange(of: draftInputs)` below. The scenePhase
@@ -206,13 +207,12 @@ struct NoteEditorView: View {
             Button("Cancel", role: .cancel) {}
         }
         .sheet(isPresented: $showMove) {
-            // Keep the note open under its new id after the move (onMoved).
+            // Keep the complete move in this editor's tracked mutation chain.
             MoveToFolderSheet(
                 note: currentItem,
                 currentFolder: splitId(id: noteId).folder,
-                onMoved: { newId in
-                    noteId = newId
-                    titleField = splitId(id: newId).title
+                onMoveRequested: { folder in
+                    moveNote(to: folder)
                 }
             )
             .environmentObject(store)
@@ -280,9 +280,14 @@ struct NoteEditorView: View {
                 && titleField == splitId(id: originalId).title
                 && content.isEmpty && savedContent.isEmpty
             var shouldReleaseDraft = true
-            if untouched {
+            if !isClosing && untouched {
                 store.deleteAsync(noteId)
-            } else if content != savedContent {
+            } else if shouldFlushEditorOnDisappear(
+                loaded: loaded,
+                isClosing: isClosing,
+                content: content,
+                savedContent: savedContent
+            ) {
                 // POP flush (navigating back isn't a background signal, so the
                 // scenePhase handler won't fire). Persist-or-park through the
                 // engine, retaining this exact draft until the async flush is
@@ -653,6 +658,30 @@ struct NoteEditorView: View {
         }
     }
 
+    /// The move sheet hands the destination back synchronously so this editor
+    /// owns the complete move task. Delete can then cancel/await that exact task
+    /// and, if the move already committed, target its final id.
+    private func moveNote(to folder: String) {
+        let previous = moveTask
+        moveTask = Task { @MainActor in
+            await previous?.value
+            guard !Task.isCancelled, !isClosing else { return }
+            let sourceId = noteId
+            let outcome = await store.moveNote(sourceId, toFolder: folder)
+            switch outcome {
+            case .committed(let finalId):
+                // Apply even if delete set `isClosing` while the actor call was in
+                // flight. Delete awaits this task and must see the committed id.
+                noteId = finalId
+                titleField = splitId(id: finalId).title
+            case .failed:
+                if !isClosing {
+                    store.showTransient("Couldn't move note. It remains in its current folder.")
+                }
+            }
+        }
+    }
+
     /// Confirmed delete from the nav-bar menu: neutralize every pending-save
     /// path FIRST (a write after the delete would resurrect the file — the Rust
     /// write creates files unconditionally), then delete and pop the editor.
@@ -668,6 +697,7 @@ struct NoteEditorView: View {
         // Latch closing so the local delete's reload doesn't trip the peer-delete
         // path (adoptExternalChange → handleOpenNoteDeleted).
         isClosing = true
+        EditorHost.shared.blur()
         // Mark the draft clean so both the derived register (content==savedContent
         // → nil) and onDisappear's flush are no-ops; the file won't be resurrected.
         let previousSavedContent = savedContent
@@ -708,6 +738,19 @@ struct NoteEditorView: View {
             await adoptExternalChange()
         }
     }
+}
+
+func shouldAcceptEditorChange(loaded: Bool, isClosing: Bool) -> Bool {
+    loaded && !isClosing
+}
+
+func shouldFlushEditorOnDisappear(
+    loaded: Bool,
+    isClosing: Bool,
+    content: String,
+    savedContent: String
+) -> Bool {
+    loaded && !isClosing && content != savedContent
 }
 
 /// The state the unsaved-draft derivation reads, bundled into one Equatable

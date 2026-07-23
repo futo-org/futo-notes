@@ -326,13 +326,15 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   the object map is keyed by **relative** filename (not absolute path) and the
   `.e2ee-state.json` travels inside the vault, so the session picks up at
   the new root with no re-upload — provided the move carries the dotfiles.
-  Android storage migration gracefully cancels and joins the live task before
-  awaiting the Rust session's cycle gate; it never aborts an in-flight cycle
-  before that cycle installs its advanced in-memory/checkpoint state. It then
-  takes the store's exclusive vault gate, so sync/editor/store writes cannot
-  race the staged copy and manifest verification. →
+  Android storage migration synchronously closes a session-operation gate, then
+  drains credential restore/heal, connect, manual sync, and live-resume work
+  before gracefully cancelling and joining the live task and awaiting the Rust
+  session's cycle gate. It never aborts an in-flight cycle before that cycle
+  installs its advanced in-memory/checkpoint state. It then takes the store's
+  exclusive vault gate, so sync/editor/store/image writes cannot race the staged
+  copy and manifest verification. →
   `SyncSession::stop_live_and_wait`, `SyncManager.quiesceForStorageMigration`,
-  `NotesStore.migrateVault`
+  `NotesStore.migrateVault`, `StorageMigrationGateTest`
 
 ## Live sync (SSE)
 
