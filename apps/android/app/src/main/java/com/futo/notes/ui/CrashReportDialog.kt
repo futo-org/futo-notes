@@ -88,7 +88,7 @@ fun CrashReportDialog(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = always, onCheckedChange = { always = it })
-                    Text("Always send crash reports", style = FutoType.small, color = c.textSecondary)
+                    Text("Send crashes automatically", style = FutoType.small, color = c.textSecondary)
                 }
             }
         },

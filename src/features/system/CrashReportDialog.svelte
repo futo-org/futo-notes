@@ -119,7 +119,7 @@
 
       <label class="crash-checkbox-row">
         <input type="checkbox" bind:checked={alwaysSend} />
-        <span>Always send crash reports</span>
+        <span>Send crashes automatically</span>
       </label>
     </div>
 

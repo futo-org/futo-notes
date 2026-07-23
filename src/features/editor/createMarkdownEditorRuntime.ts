@@ -3,6 +3,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { keymap, drawSelection, EditorView, type ViewUpdate } from '@codemirror/view';
 
 import { isIOS } from '$lib/platform';
+import { openExternalUrl } from '$lib/platform/openExternalUrl';
 
 import { markdownEditorLanguageExtensions } from './codeMirrorMarkdown';
 import { cursorMotionKeymap } from './cursorMotion';
@@ -16,7 +17,6 @@ import { listContinuationKeymap, orderedListRenumber } from './listContinuation'
 import { autoLinkHighlight } from './links/autolinks';
 import { liveMarkdownTransform } from './liveMarkdownTransform';
 import { isListLine, toggleBold, toggleItalic, toggleStrikethrough } from './markdownToolbar';
-import { openUrl } from './openUrl';
 import { selectionToolbar } from './editorUX/selectionToolbar';
 import { slashMenu } from './editorUX/slashMenu';
 import { wikilinkAutocomplete } from './wikilinkAutocomplete';
@@ -44,7 +44,7 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
     openExternalUrl: (url) => {
       const onOpenUrl = options.getOnOpenUrl();
       if (onOpenUrl) onOpenUrl(url);
-      else openUrl(url);
+      else openExternalUrl(url);
     },
   });
   const caretInteractions = new EditorCaretInteractions({
