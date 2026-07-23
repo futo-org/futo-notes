@@ -1,4 +1,4 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Locator, Page } from '@playwright/test';
 
 /**
  * Folder support v1 — sidebar folder UI.
@@ -12,6 +12,34 @@ async function openSidebar(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('.notes-drawer', { timeout: 10_000 });
+}
+
+// Pin the folder tree to MIN_SIDEBAR_WIDTH (200px) so the 50% indent cap
+// resolves against the worst supported sidebar width.
+async function pinSidebarToMinWidth(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const scroll = document.querySelector<HTMLElement>('.folder-tree-scroll')!;
+    scroll.style.flex = '0 0 200px';
+    scroll.style.width = '200px';
+  });
+}
+
+// Content width (excluding horizontal padding) of a tree row and whether its
+// right edge stays inside the (overflow-hidden) scroll viewport.
+async function measureRowFit(
+  row: Locator,
+): Promise<{ contentWidth: number; rowRight: number; scrollRight: number }> {
+  return row.evaluate((el) => {
+    const scroll = el.closest<HTMLElement>('.folder-tree-scroll')!;
+    const style = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    return {
+      contentWidth: rect.width - padX,
+      rowRight: rect.right,
+      scrollRight: scroll.getBoundingClientRect().right,
+    };
+  });
 }
 
 test.describe('Folder support', () => {
@@ -454,31 +482,61 @@ test.describe('Folder support', () => {
         .click();
     }
 
-    // Pin the tree to the minimum supported sidebar width so the 50% cap
-    // resolves against 200px, the worst supported case.
-    await page.evaluate(() => {
-      const scroll = document.querySelector<HTMLElement>('.folder-tree-scroll')!;
-      scroll.style.flex = '0 0 200px';
-      scroll.style.width = '200px';
-    });
+    await pinSidebarToMinWidth(page);
 
     const leaf = page.locator(`.note-row[data-note-id="${leafId}"]`);
     await expect(leaf).toBeVisible();
-
-    const box = await leaf.evaluate((row) => {
-      const scroll = row.closest<HTMLElement>('.folder-tree-scroll')!;
-      const style = getComputedStyle(row);
-      const rect = row.getBoundingClientRect();
-      const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-      return {
-        contentWidth: rect.width - padX,
-        rowRight: rect.right,
-        scrollRight: scroll.getBoundingClientRect().right,
-      };
-    });
+    const box = await measureRowFit(leaf);
 
     // The deepest row must keep a usable, title-bearing content width — the
     // old raw indent left 0px here. And its right edge stays in the viewport.
+    expect(box.contentWidth).toBeGreaterThan(40);
+    expect(box.rowRight).toBeLessThanOrEqual(box.scrollRight + 1);
+  });
+
+  test('deeply nested empty-folder placeholder stays usable at min width', async ({ page }) => {
+    // Same adversarial boundary as above, for the third indented row type: the
+    // per-folder empty-state row (.folder-empty-row) shares the capped indent
+    // rule, so a deep EMPTY folder's placeholder must not collapse to a blank
+    // strip at the 200px minimum sidebar width.
+    const DEPTH = 10;
+    await openSidebar(page);
+    const deepest = await page.evaluate(async (depth) => {
+      const win = window as unknown as {
+        __testNotes: {
+          createFolder: (path: string) => Promise<unknown>;
+          createNote: (id: string, body: string) => Promise<unknown>;
+        };
+      };
+      const parts: string[] = [];
+      for (let i = 1; i <= depth; i++) {
+        parts.push(`e${i}`);
+        await win.__testNotes.createFolder(parts.join('/'));
+      }
+      // A root note nudges the reactive tree to render the (otherwise
+      // note-less) empty folder chain; the chain itself stays empty so the
+      // deepest folder shows its placeholder row.
+      await win.__testNotes.createNote('tree-trigger', 'x');
+      return parts.join('/'); // deepest folder, left empty -> shows placeholder
+    }, DEPTH);
+
+    const parts: string[] = [];
+    for (let i = 1; i <= DEPTH; i++) {
+      parts.push(`e${i}`);
+      await page
+        .locator(`.folder-row[data-folder-path="${parts.join('/')}"]`)
+        .first()
+        .click();
+    }
+
+    await pinSidebarToMinWidth(page);
+
+    const placeholder = page.locator(`.folder-empty-row[data-folder-path="${deepest}"]`);
+    await expect(placeholder).toBeVisible();
+    const box = await measureRowFit(placeholder);
+
+    // Placeholder keeps a readable width and stays within the viewport — the
+    // pre-cap raw indent left it a blank strip here.
     expect(box.contentWidth).toBeGreaterThan(40);
     expect(box.rowRight).toBeLessThanOrEqual(box.scrollRight + 1);
   });
