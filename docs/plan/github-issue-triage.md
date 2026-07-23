@@ -195,3 +195,35 @@ hardening → timer.
    it.
 5. **High-stakes bugs still get an MR** — as a Draft with a warning, never
    diagnosis-only (see Guardrails).
+
+## Build status (2026-07-23)
+
+Implemented in `scripts/issue-triage/` — see that directory's `README.md` for
+the operator's manual. Ownership: an operational-tooling capability module, not
+application code.
+
+- **Tier 1 (notify): built, tested, LIVE.** `poll.mjs` orchestrator over
+  `githubIssues.mjs` / `zulipAlerts.mjs` / `classifyIssue.mjs` / `triageState.mjs`,
+  31 co-located unit tests. The 8-issue backlog is posted to
+  `#futo-notes-alerts` (one topic each; #1–5,#7 feature, #6 other, #8 bug/queued
+  — exactly as designed). The systemd user timer is installed and verified
+  (second poll correctly found 0 new — idempotent).
+- **Tier 2 (triage): built, dry-run-verified, not yet exercised end-to-end.**
+  `runTriage.mjs` launcher + `triage-prompt.md`. Autonomy confirmed with Justin:
+  headless `claude -p --dangerously-skip-permissions`, isolated worktree +
+  throwaway `FUTO_NOTES_DATA_DIR`, no GitHub token in the agent's env, 45-min
+  timebox. The launcher owns the Zulip post + state transition off a JSON result
+  file, so a dead agent still reports `needs_human`. gh#8 shakedown pending.
+
+### Decisions settled during the build
+
+- **Watermark floor is `2000-01-01`, not the Unix epoch.** GitHub's issues
+  `since` filter treats `1970-01-01T00:00:00Z` as unset and returns nothing.
+- **Zulip bot** `futo-notes-github-issues-bot` is subscribed to
+  `#futo-notes-alerts` and can post + self-delete (verified).
+- **Credentials**: `GITHUB_PAT` (fine-grained, Issues:read), `ZULIP_TRIAGE_BOT_*`,
+  `GITLAB_TOKEN` — in `~/.zshrc` (interactive) and mirrored to
+  `~/.config/futo-notes-issue-triage/env` (systemd `EnvironmentFile`, chmod 600).
+- **Timer `ExecStart` currently points at the worktree.** After this branch
+  merges to `main`, re-run `install-timer.sh` from `~/Developer/futo-notes` to
+  re-point it; `$HOME`-based state and creds carry over untouched.

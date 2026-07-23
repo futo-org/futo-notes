@@ -1,0 +1,15 @@
+[Unit]
+Description=FUTO Notes GitHub issue triage — poll the mirror and post new issues to Zulip
+Documentation=file:%h/Developer/futo-notes/scripts/issue-triage/README.md
+# Don't run when the workstation has no network; the timer retries next cycle.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# __NODE_BIN__ and __REPO_DIR__ are substituted by install-timer.sh so this
+# unit carries no machine-specific (nvm) path in git.
+ExecStart=__NODE_BIN__ __REPO_DIR__/scripts/issue-triage/poll.mjs
+EnvironmentFile=%h/.config/futo-notes-issue-triage/env
+# poll.mjs exits non-zero on any GitHub/Zulip failure; let that surface as a
+# failed unit (the alarm) rather than masking it.
