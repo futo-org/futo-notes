@@ -1,4 +1,4 @@
-// Debt ratchet gate (architecture-hardening.md PKT-8 / R2). Recomputes 5
+// Debt ratchet gate (architecture-hardening.md PKT-8 / R2). Recomputes 4
 // "fuzzy" debt counts fresh from the tree and compares them against the
 // checked-in baseline (scripts/debt-ratchet.json). The numbers can only go
 // down over time:
@@ -20,8 +20,6 @@
 //                                 glue" scattered outside a proper shim.
 //   invokeCallsOutsideShims     — same scope, but for actual invoke(...)
 //                                 call sites rather than the bare import.
-//   specGapsCount               — `> **Gap:**` lines recorded in
-//                                 docs/spec/GAPS.md (spec-gaps.mjs output).
 //   unlockedDriftRegistryEntries — entries in scripts/drift-registry.json
 //                                 with lockStatus 'unlocked'.
 //   ignoredPropertyTests        — `#[ignore = "known gap: …"]` tests under
@@ -46,7 +44,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RATCHET_PATH = path.join(ROOT, 'scripts/debt-ratchet.json');
 const SRC_DIR = path.join(ROOT, 'src');
 const PLATFORM_DIR = path.join(SRC_DIR, 'lib', 'platform') + path.sep;
-const GAPS_PATH = path.join(ROOT, 'docs/spec/GAPS.md');
 const REGISTRY_PATH = path.join(ROOT, 'scripts/drift-registry.json');
 const CRATES_DIR = path.join(ROOT, 'crates');
 const AGENTS_MD_PATH = path.join(ROOT, 'AGENTS.md');
@@ -107,11 +104,6 @@ function countInvokeCallsOutsideShims() {
   return count;
 }
 
-function countSpecGaps() {
-  const text = fs.readFileSync(GAPS_PATH, 'utf8');
-  return text.split('\n').filter((line) => line.startsWith('- [')).length;
-}
-
 function countIgnoredPropertyTests() {
   let count = 0;
   for (const file of walk(CRATES_DIR, ['.rs'])) {
@@ -139,7 +131,6 @@ function countDocsPlanNonArchiveFiles() {
 const current = {
   tauriImportsOutsideShims: countTauriImportsOutsideShims(),
   invokeCallsOutsideShims: countInvokeCallsOutsideShims(),
-  specGapsCount: countSpecGaps(),
   unlockedDriftRegistryEntries: countUnlockedDriftRegistryEntries(),
   ignoredPropertyTests: countIgnoredPropertyTests(),
 };
@@ -154,8 +145,8 @@ for (const key of Object.keys(current)) {
   if (now > was) {
     failures.push(
       `'${key}' increased from ${was} to ${now} — new debt of this kind is not allowed. ` +
-        `Fix the regression (move the offending code behind a shim / lock the registry entry / ` +
-        `close the spec gap) rather than raising the number in ${path.relative(ROOT, RATCHET_PATH)}.`,
+        `Fix the regression (move the offending code behind a shim / lock the registry entry) ` +
+        `rather than raising the number in ${path.relative(ROOT, RATCHET_PATH)}.`,
     );
   } else {
     failures.push(

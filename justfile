@@ -467,9 +467,10 @@ sync-contract-check:
 check-drift:
   node scripts/drift-check.mjs
 
-# Fail if any of the 5 checked-in debt counts (scripts/debt-ratchet.json)
+# Fail if any of the 4 checked-in debt counts (scripts/debt-ratchet.json)
 # increased, or if one decreased without the file being updated to match
-# (architecture-hardening.md R2 — the ratchet only turns one way).
+# (architecture-hardening.md R2 — the ratchet only turns one way). Also fails
+# if a "ceilings" metric exceeds its fixed cap.
 check-debt-ratchet:
   node scripts/debt-ratchet.mjs
 
