@@ -362,4 +362,59 @@ test.describe('Folder support', () => {
     // And that width fills the available column, not just the "Hi" text.
     expect(widths[0]).toBeGreaterThan(100);
   });
+
+  test('nested rows stay within the tree viewport (no right-edge clipping)', async ({ page }) => {
+    // Regression: nested folder/note rows carry a depth-based margin-left.
+    // With a plain width: 100% the row's margin box grows wider than
+    // .folder-tree-scroll, whose overflow-x: hidden then clips each nested
+    // row's right edge (title area, background, and click target). The
+    // fixed-width test above only creates ROOT notes, so it can't catch
+    // this — depth 0 has margin-left: 0. Sizing rows to
+    // calc(100% - var(--indent)) must keep every indented row's right edge
+    // flush inside the viewport.
+    await openSidebar(page);
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: {
+          createFolder: (path: string) => Promise<unknown>;
+          createNote: (id: string, body: string) => Promise<unknown>;
+        };
+      };
+      await win.__testNotes.createFolder('Deep');
+      await win.__testNotes.createFolder('Deep/Nested');
+      await win.__testNotes.createNote('Deep/Nested/leaf', 'nested note body');
+    });
+
+    // Folders created via the test hook start collapsed — expand each so the
+    // depth-2 note row renders.
+    await page.locator('.folder-row[data-folder-path="Deep"]').first().click();
+    await page.locator('.folder-row[data-folder-path="Deep/Nested"]').first().click();
+
+    const nestedRow = page.locator('.note-row[data-note-id="Deep/Nested/leaf"]');
+    await expect(nestedRow).toBeVisible();
+
+    const geometry = await page.evaluate(() => {
+      const scroll = document.querySelector<HTMLElement>('.folder-tree-scroll')!;
+      const scrollRect = scroll.getBoundingClientRect();
+      const rows = [...document.querySelectorAll<HTMLElement>('.note-row, .folder-row')];
+      return {
+        scrollRight: scrollRect.right,
+        rows: rows.map((row) => {
+          const rect = row.getBoundingClientRect();
+          return { right: rect.right, left: rect.left, width: Math.round(rect.width) };
+        }),
+      };
+    });
+
+    // No row's right edge spills past the scroll viewport (which would be
+    // clipped by overflow-x: hidden). 1px tolerance for sub-pixel rounding.
+    for (const row of geometry.rows) {
+      expect(row.right).toBeLessThanOrEqual(geometry.scrollRight + 1);
+    }
+    // The deepest row is genuinely indented (proves margin-left still applies)
+    // yet remains a usable width, not squeezed to nothing.
+    const deepest = geometry.rows.reduce((a, b) => (b.left > a.left ? b : a));
+    expect(deepest.left).toBeGreaterThan(geometry.rows[0].left);
+    expect(deepest.width).toBeGreaterThan(100);
+  });
 });

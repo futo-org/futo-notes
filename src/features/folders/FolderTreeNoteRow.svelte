@@ -33,7 +33,7 @@
   type="button"
   class="note-row"
   class:selected
-  style="margin-left: {node.depth * indentPixels}px"
+  style="--indent: {node.depth * indentPixels}px; margin-left: var(--indent)"
   onclick={onselect}
   onauxclick={(event) => {
     if (event.button !== 1) return;

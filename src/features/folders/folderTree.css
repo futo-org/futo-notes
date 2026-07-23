@@ -32,9 +32,14 @@
   /* .note-row is a <button>: unlike a <div>, a button does not stretch to
      fill its containing block just because display is flex/block — it
      shrink-wraps to its content (the title text), producing a ragged,
-     title-width pill instead of a uniform column. Explicit width: 100%
-     forces every row (folder or note) to the same fixed width. */
-  width: 100%;
+     title-width pill instead of a uniform column. An explicit width forces
+     every row (folder or note) to the same fixed width.
+     Nested rows carry a positive `margin-left` (depth * indentPixels, set
+     inline as --indent). A plain width: 100% would then make the margin box
+     wider than .folder-tree-scroll, and its `overflow-x: hidden` would clip
+     each nested row's right edge. Subtract the indent so the row's right
+     edge stays flush inside the viewport at every depth. */
+  width: calc(100% - var(--indent, 0px));
   height: 48px;
   border: none;
   border-radius: 10px;
