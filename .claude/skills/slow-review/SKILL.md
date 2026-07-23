@@ -34,16 +34,35 @@ Track the three reviews with TaskCreate so none get lost.
 
 **Reviewer A — Claude `/code-review` at high effort.** Invoke via the Skill tool with `code-review` and effort `high`. This is your own pass, in-conversation.
 
-**Reviewers B + C — Codex.** These slash commands are user-only (`disable-model-invocation: true`), so you cannot fire them yourself. Hand off cleanly:
+**Reviewers B + C — Codex.** The `/codex:review` and `/codex:adversarial-review` *slash commands* are user-only (`disable-model-invocation: true`), but the slash command is just a thin wrapper around the companion script — **you can and should run that script yourself**, no hand-off needed. Fire both directly:
 
-> Please run these in parallel in this session and paste each result back when ready:
->
-> - `/codex:review --background`
-> - `/codex:adversarial-review --background`
->
-> The adversarial pass is the one that asks "should we be doing this at all?" — it's where design-level findings come from.
+```bash
+COMP="$HOME/.claude/plugins/cache/openai-codex/codex/<ver>/scripts/codex-companion.mjs"  # ver = installed plugin version, e.g. 1.0.5
+# Reviewer B — standards/correctness pass:
+node "$COMP" review --wait --base origin/main --scope branch
+# Reviewer C — adversarial "should we even do this?" pass:
+node "$COMP" adversarial-review --wait --base origin/main --scope branch
+```
 
-While the user runs Codex, you can do Reviewer A in the foreground. When all three are in, move on. Do not skip the adversarial pass unless the user explicitly says so — that's the one Lawson highlights as having outsized value.
+Critical invocation details (learned the hard way — get these wrong and the review silently reviews nothing):
+
+- **`--base <ref> --scope branch` is mandatory when the work is already committed.** The reviewer's default scope is `working-tree`; if your fixes are committed ahead of `origin/main`, a bare `review` inspects the (empty/unrelated) working tree. Use the merge-base ref you pinned in step 1 (`origin/main`, a tag, etc.). For genuinely uncommitted work, omit both and it reviews the working tree.
+- **Run each pass detached, not in a blocking foreground shell.** A real review of a multi-file diff can exceed a 10-minute foreground cap. Launch each `--wait` invocation with the Bash tool's `run_in_background: true` (you get the full output on completion), or use the companion's own `--background` and poll `node "$COMP" status --all --json` / `node "$COMP" result <job-id>`. Peek at the detached output file after ~30s to confirm it printed `Thread ready` + `Reviewer started` (i.e. it's actually inspecting the diff, not wedged).
+- **Run B and C sequentially, not concurrently.** They share one Codex runtime broker; two cold app-server spawns racing on the same socket can wedge both. Wait for B to finish, then fire C.
+- **Never `pkill` the Codex processes.** The companion runs a long-lived shared broker (`app-server-broker.mjs`) that owns the `codex app-server` child; killing either orphans in-flight jobs and stalls new ones in `phase: starting`. If a run misbehaves, `node "$COMP" cancel <job-id>` the job — don't kill processes. Only as a last resort, full-reset the runtime (kill `app-server-broker.mjs`, delete the stale `broker.sock`/`broker.pid`, then re-launch a review, which respawns a fresh broker via `ensureBrokerSession`).
+
+**Do Reviewer A (your own `/code-review`) in the foreground while B and C run detached.** When all three are in, move on. Do not skip the adversarial pass unless the user explicitly says so — that's the one Lawson highlights as having outsized value.
+
+#### Troubleshooting: "command runner failed to start (`codex-code-mode-host` is missing)"
+
+Codex's reviewer runs its diff-inspection shell commands through a separate helper binary, `codex-code-mode-host`, that ships in the Codex release dir but is **not** always symlinked onto `PATH` next to `codex`. When it isn't, every review dies immediately with that error and inspects nothing. Fix once, persistently, by symlinking the host onto `PATH` through the version-tracking `current` link:
+
+```bash
+ln -sf "$HOME/.codex/packages/standalone/current/bin/codex-code-mode-host" "$HOME/.local/bin/codex-code-mode-host"
+which codex-code-mode-host   # should now resolve
+```
+
+Going through `current/` (not a pinned `releases/<ver>/`) means the symlink keeps working across Codex upgrades. Verify the underlying runtime is otherwise healthy with `node "$COMP" setup --json` (`ready`, `auth.loggedIn`, and a live `sessionRuntime.endpoint`) — but note `loggedIn` reads `false` whenever no app-server is currently live to verify through, even though `codex login status` shows you're logged in; that alone is not the problem.
 
 ### 3. Dedupe, rank, validate
 
