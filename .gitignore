@@ -70,6 +70,7 @@ app-example
 # Playwright
 .playwright-mcp
 test-results/
+playwright-report/
 
 # Claude
 .claude/local-plugins/*

@@ -10,7 +10,6 @@ import { createExternalChangeCoordinator } from './createExternalChangeCoordinat
 import { getSyncErrorMessage } from './syncErrorMessage';
 import { createSyncCompletionReconciler } from './reconcileSyncCompletion';
 
-export { findActiveSyncRename } from './reconcileSyncCompletion';
 export { getSyncErrorMessage } from './syncErrorMessage';
 
 export interface SyncManagerDeps {
@@ -135,7 +134,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     );
     const coord = syncCoord;
     startAutoSyncV2({
-      onSyncComplete: handleSyncComplete,
+      onSyncComplete: (summary, trigger) => void handleSyncComplete(summary, trigger),
       onSyncError: (err) => {
         raiseSyncError(getSyncErrorMessage(err));
         console.warn('Auto-sync error:', err);

@@ -1,53 +1,75 @@
 <script lang="ts">
-  import { Minus, Square, X } from '@lucide/svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
 
+  // Linux-only custom 36px title bar (nav.md §Desktop shell). macOS and Windows
+  // use native window chrome, so this component is only rendered on Linux.
   const appWindow = getCurrentWindow();
+
+  function minimize(): void {
+    void appWindow.minimize();
+  }
+  function toggleMaximize(): void {
+    void appWindow.toggleMaximize();
+  }
+  function close(): void {
+    void appWindow.close();
+  }
 </script>
 
-<header class="titlebar">
-  <div class="titlebar-drag" data-tauri-drag-region>
-    <span class="titlebar-title" data-tauri-drag-region>FUTO Notes</span>
-  </div>
+<div class="titlebar" data-tauri-drag-region>
+  <span class="titlebar-title">FUTO Notes</span>
   <div class="titlebar-controls">
-    <button class="titlebar-btn" onclick={() => appWindow.minimize()} title="Minimize">
-      <Minus size={14} strokeWidth={1.5} />
+    <button class="titlebar-btn" aria-label="Minimize" onclick={minimize}>
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+        ><line x1="2" y1="6" x2="10" y2="6" stroke="currentColor" stroke-width="1.2" /></svg
+      >
     </button>
-    <button class="titlebar-btn" onclick={() => appWindow.toggleMaximize()} title="Maximize">
-      <Square size={11} strokeWidth={1.5} />
+    <button class="titlebar-btn" aria-label="Maximize" onclick={toggleMaximize}>
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+        ><rect
+          x="2.5"
+          y="2.5"
+          width="7"
+          height="7"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.2"
+        /></svg
+      >
     </button>
-    <button class="titlebar-btn titlebar-btn-close" onclick={() => appWindow.close()} title="Close">
-      <X size={14} strokeWidth={1.5} />
+    <button class="titlebar-btn titlebar-close" aria-label="Close" onclick={close}>
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+        ><line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="1.2" /><line
+          x1="9"
+          y1="3"
+          x2="3"
+          y2="9"
+          stroke="currentColor"
+          stroke-width="1.2"
+        /></svg
+      >
     </button>
   </div>
-</header>
+</div>
 
 <style>
   .titlebar {
-    position: fixed;
+    position: absolute;
     top: 0;
     left: 0;
     right: 0;
-    height: 36px;
-    z-index: 50;
+    height: var(--titlebar-height, 36px);
     display: flex;
     align-items: center;
-    background: var(--color-sidebar);
+    justify-content: space-between;
+    padding: 0 8px 0 12px;
+    background: var(--color-surface, var(--color-bg));
     border-bottom: 1px solid var(--color-border);
+    z-index: 100;
     user-select: none;
-    -webkit-user-select: none;
-    font-family: var(--font-sans);
-  }
-
-  .titlebar-drag {
-    flex: 1;
-    height: 100%;
-    display: flex;
-    align-items: center;
   }
 
   .titlebar-title {
-    padding-left: 12px;
     font-size: 13px;
     color: var(--color-muted);
     pointer-events: none;
@@ -55,33 +77,29 @@
 
   .titlebar-controls {
     display: flex;
-    height: 100%;
+    gap: 2px;
   }
 
   .titlebar-btn {
-    appearance: none;
+    width: 28px;
+    height: 24px;
     border: none;
     background: transparent;
-    width: 46px;
-    height: 100%;
-    display: flex;
+    color: var(--color-muted);
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: var(--color-muted);
-    cursor: default;
-    padding: 0;
-    transition:
-      background 0.1s ease,
-      color 0.1s ease;
   }
 
   .titlebar-btn:hover {
-    background: rgba(var(--ink-rgb), 0.08);
+    background: color-mix(in srgb, var(--color-text) 10%, transparent);
     color: var(--color-text);
   }
 
-  .titlebar-btn-close:hover {
-    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-    color: var(--color-danger);
+  .titlebar-close:hover {
+    background: var(--color-danger);
+    color: #fff;
   }
 </style>

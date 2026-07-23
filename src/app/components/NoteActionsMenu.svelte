@@ -1,52 +1,46 @@
 <script lang="ts">
   interface Props {
-    noteId: string;
-    open?: boolean;
-    showNativeActions: boolean;
-    oncopy: () => void;
-    ondelete: () => void;
-    ongraph: () => void;
+    open: boolean;
+    ontoggle: () => void;
+    onclose: () => void;
+    ongraphview: () => void;
+    oncopypath: () => void;
     onmove: () => void;
+    ondelete: () => void;
   }
 
-  let {
-    noteId,
-    open = $bindable(false),
-    showNativeActions,
-    oncopy,
-    ondelete,
-    ongraph,
-    onmove,
-  }: Props = $props();
-
-  function run(action: () => void): void {
-    open = false;
-    action();
-  }
+  let { open, ontoggle, onclose, ongraphview, oncopypath, onmove, ondelete }: Props = $props();
 </script>
-
-{#if open}
-  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-  <div class="note-menu-backdrop" onclick={() => (open = false)}></div>
-{/if}
 
 <div class="note-menu-anchor">
   <button
     class="note-menu-toggle"
     aria-label="Note options"
     aria-expanded={open}
-    onclick={() => (open = !open)}>&#8942;</button
+    onclick={ontoggle}
   >
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="12" cy="5" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="12" cy="19" r="1.6" />
+    </svg>
+  </button>
+
   {#if open}
-    <div class="note-menu-dropdown">
-      {#if showNativeActions}
-        <button onclick={() => run(ongraph)}>Graph view</button>
-        <button onclick={() => run(oncopy)}>Copy file path</button>
-      {/if}
-      {#if noteId !== 'new'}
-        <button data-testid="note-menu-move" onclick={() => run(onmove)}>Move to folder</button>
-      {/if}
-      <button class="danger" onclick={() => run(ondelete)}>Delete note</button>
+    <div
+      class="note-menu-backdrop"
+      role="presentation"
+      onclick={onclose}
+      oncontextmenu={(e) => {
+        e.preventDefault();
+        onclose();
+      }}
+    ></div>
+    <div class="note-menu-dropdown" role="menu">
+      <button role="menuitem" onclick={ongraphview}>Graph view</button>
+      <button role="menuitem" onclick={oncopypath}>Copy file path</button>
+      <button role="menuitem" data-testid="note-menu-move" onclick={onmove}>Move to folder</button>
+      <button role="menuitem" class="danger" onclick={ondelete}>Delete note</button>
     </div>
   {/if}
 </div>

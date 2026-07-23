@@ -121,6 +121,19 @@ test.describe('Wikilink Decorations', () => {
     const wikilink = page.locator('.cm-md-wikilink');
     await expect(wikilink).toHaveCount(0);
   });
+
+  test('wikilink decorations refresh when the note-id universe changes', async ({ page }) => {
+    await setupEditor(page, 'See [[future note]] here.\n\nMore text');
+    await blurEditor(page);
+    await expect(page.locator('.cm-md-wikilink-broken')).toBeVisible();
+
+    await page.evaluate(() => {
+      (window as any).__testNotes?._injectTestNote('future note', 'body');
+    });
+
+    await expect(page.locator('.cm-md-wikilink-broken')).toHaveCount(0);
+    await expect(page.locator('.cm-md-wikilink')).toHaveText('future note');
+  });
 });
 
 // ============================================================================

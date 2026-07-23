@@ -47,26 +47,26 @@ describe('modeFromEvent', () => {
 });
 
 describe('per-tab state persistence', () => {
-  it('persists tab scroll/selection state in the snapshot', () => {
+  it('persists tab scroll state in the snapshot', () => {
     let snap: PersistedTabs | null = null;
     tabsStore.setPersister((s) => {
       snap = s;
     });
     const tab = tabsStore.openNote('a', 'foreground');
-    tabsStore.setTabState(tab.id, { scroll: 120, selFrom: 3, selTo: 7 });
+    tabsStore.setTabState(tab.id, { scroll: 120 });
     expect(snap).not.toBeNull();
     const persisted = snap!.tabs.find((t) => t.id === tab.id);
-    expect(persisted?.state).toEqual({ scroll: 120, selFrom: 3, selTo: 7 });
+    expect(persisted?.state).toEqual({ scroll: 120 });
   });
 
-  it('restores tab state on hydrate', () => {
-    const snap: PersistedTabs = {
+  it('restores tab state on hydrate, accepting the legacy selFrom/selTo shape', () => {
+    const snap = {
       tabs: [{ id: 't1', noteId: 'a', state: { scroll: 55, selFrom: 1, selTo: 2 } }],
       activeTabId: 't1',
-    };
+    } as unknown as PersistedTabs;
     tabsStore.hydrate(snap, () => true);
     const tab = tabsStore.tabs.find((t) => t.id === 't1');
-    expect(tab?.state).toEqual({ scroll: 55, selFrom: 1, selTo: 2 });
+    expect(tab?.state?.scroll).toBe(55);
   });
 
   it('ignores malformed persisted state on hydrate', () => {
@@ -446,6 +446,19 @@ describe('hydrate', () => {
       expect(tabsStore.activeNoteId).toBeNull();
       expect(tabsStore.hydrated).toBe(true);
     });
+
+    it('an explicit Home route overrides the persisted active note', () => {
+      const snap: PersistedTabs = {
+        tabs: [
+          { id: 'home', noteId: null },
+          { id: 'a-tab', noteId: 'a' },
+        ],
+        activeTabId: 'a-tab',
+      };
+
+      expect(tabsStore.hydrate(snap, isValid, null)).toBe(true);
+      expect(tabsStore.activeNoteId).toBeNull();
+    });
   });
 });
 
@@ -511,18 +524,14 @@ describe('replaceTabNoteId and applyRename', () => {
 });
 
 describe('setTabState', () => {
-  it('stores per-tab editor state AND persists it (tabs.md: per-tab scroll persists across restarts)', () => {
+  it('stores per-tab scroll state AND persists it (tabs.md: per-tab scroll persists across restarts)', () => {
     const calls: PersistedTabs[] = [];
     tabsStore.setPersister((s) => calls.push(s));
     const t = tabsStore.openNote('a', 'foreground');
     const callsBefore = calls.length;
-    tabsStore.setTabState(t.id, { scroll: 120, selFrom: 5, selTo: 5 });
-    expect(t.state).toEqual({ scroll: 120, selFrom: 5, selTo: 5 });
+    tabsStore.setTabState(t.id, { scroll: 120 });
+    expect(t.state).toEqual({ scroll: 120 });
     expect(calls.length).toBe(callsBefore + 1);
-    expect(calls.at(-1)!.tabs.find((x) => x.id === t.id)?.state).toEqual({
-      scroll: 120,
-      selFrom: 5,
-      selTo: 5,
-    });
+    expect(calls.at(-1)!.tabs.find((x) => x.id === t.id)?.state).toEqual({ scroll: 120 });
   });
 });

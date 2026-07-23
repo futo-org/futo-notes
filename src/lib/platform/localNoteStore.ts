@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
+  LocalFlushDraftResult,
   LocalNoteBootstrap,
   LocalNoteInventoryItem,
   LocalNoteMutation,
@@ -41,6 +42,10 @@ class TauriLocalNoteStore implements LocalNoteStore {
     });
   }
 
+  flushDraft(id: string, base: string, content: string) {
+    return invoke<LocalFlushDraftResult>('local_notes_flush_draft', { id, base, content });
+  }
+
   move(id: string, wantedId: string) {
     return invoke<LocalNoteMutation>('local_notes_move', { id, wantedId });
   }
@@ -50,7 +55,7 @@ class TauriLocalNoteStore implements LocalNoteStore {
   }
 
   createFolder(path: string) {
-    return invoke<string>('local_notes_create_folder', { path });
+    return invoke<LocalNoteMutation>('local_notes_create_folder', { path });
   }
 
   renameFolder(from: string, to: string) {
@@ -69,8 +74,8 @@ class TauriLocalNoteStore implements LocalNoteStore {
     return invoke<LocalSearchHit[]>('local_notes_search', { query, limit });
   }
 
-  searchStatus() {
-    return invoke<{ keyword: { ready: boolean } }>('local_notes_search_status');
+  waitUntilSearchReady(timeoutMs: number) {
+    return invoke<boolean>('local_notes_wait_until_search_ready', { timeoutMs });
   }
 
   rescan() {

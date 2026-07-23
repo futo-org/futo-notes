@@ -1,7 +1,9 @@
 package com.futo.notes
 
+import java.io.File
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -28,26 +30,35 @@ class SyncManagerDefaultsTest {
         assertEquals("", SyncManager.defaultServer(isDebug = false))
     }
 
-    // The three validateServerUrl tests below mirror the shared cross-shell
-    // case-set in tests/conformance/server-url.json (the source of truth the
-    // TS/Swift/Kotlin copies must all satisfy). Keep them in sync with it.
     @Test
-    fun acceptsUrlsWithScheme() {
-        assertNull(SyncManager.validateServerUrl("https://notes.example.com"))
-        assertNull(SyncManager.validateServerUrl("http://10.0.2.2:3005"))
-        // Case-insensitive scheme, surrounding whitespace tolerated.
-        assertNull(SyncManager.validateServerUrl("  HTTPS://notes.example.com  "))
+    fun validateServerUrlMatchesSharedFixture() {
+        val fixtureFile = File("../../../tests/conformance/server-url.json")
+        val cases = JSONObject(fixtureFile.readText()).getJSONArray("cases")
+        assertEquals("shared fixture case count", 9, cases.length())
+
+        for (index in 0 until cases.length()) {
+            val testCase = cases.getJSONObject(index)
+            val input = testCase.getString("input")
+            val expected = if (testCase.isNull("expected")) null else testCase.getString("expected")
+            assertEquals("input ${input.replace(" ", "\u2420")}", expected, SyncManager.validateServerUrl(input))
+        }
     }
 
     @Test
-    fun rejectsSchemelessUrlWithActionableMessage() {
-        val msg = SyncManager.validateServerUrl("notes.example.com")
-        assertTrue(msg!!.contains("http://"))
-        assertTrue(msg.contains("https://"))
+    fun terminalLiveSessionErrorsTriggerHealing() {
+        assertTrue(SyncManager.shouldHealLiveError("auth: HTTP 401: invalid session"))
+        assertTrue(SyncManager.shouldHealLiveError("collection-gone: HTTP 404"))
+        assertFalse(SyncManager.shouldHealLiveError("stream: connection reset"))
+        assertFalse(SyncManager.shouldHealLiveError("HTTP 500"))
     }
 
     @Test
-    fun rejectsEmptyUrl() {
-        assertEquals("Enter a server URL.", SyncManager.validateServerUrl("   "))
+    fun recoverableLiveErrorSurfacesWhenHealingCannotStart() {
+        val manager = SyncManager()
+
+        manager.handleLiveError("auth: HTTP 401: invalid session")
+
+        assertEquals("auth: HTTP 401: invalid session", manager.lastError)
+        assertEquals("Error", manager.status)
     }
 }

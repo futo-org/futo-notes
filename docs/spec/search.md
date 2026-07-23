@@ -10,7 +10,10 @@ desktop, iOS, and Android query that owner through thin adapters.
 - Bootstrap starts index reconciliation in the background so list rendering
   never waits on search startup.
 - A non-empty query waits for keyword readiness, then returns ranked note IDs.
-  There is no TypeScript, Swift, or Kotlin fallback index.
+  The wait is a single bounded engine call
+  (`LocalNoteStore::wait_until_search_ready`); shells pass a budget and
+  degrade to empty results when it elapses — no shell owns a readiness poll
+  loop, and there is no TypeScript, Swift, or Kotlin fallback index.
 - The index covers note title, folder, tags, and body text.
 - Internal hyphens are parsed as an adjacent phrase by the shared Tantivy query
   behavior (`folder-scoped` matches the compound, not distant words).
@@ -23,8 +26,9 @@ desktop, iOS, and Android query that owner through thin adapters.
 - `futo-notes-search` implements BM25 and background reconciliation.
 - `futo-notes-store::LocalNoteStore` owns its lifecycle and feeds it every
   committed local mutation.
-- Tauri exposes this owner through `local_notes_search/status/rescan`; UniFFI
-  exposes the same calls on `NoteStore`.
+- Tauri exposes this owner through
+  `local_notes_search/wait_until_search_ready/rescan`; UniFFI exposes
+  the same calls on `NoteStore`.
 - A mutation is visible to the index as part of the store workflow. Shells do
   not issue per-file search notifications.
 - Sync and external filesystem writes bypass local workflows, so each completed
@@ -33,7 +37,7 @@ desktop, iOS, and Android query that owner through thin adapters.
   owned by that same instance.
 - A failed engine start (bad/locked index dir, momentary disk pressure) degrades
   to empty results rather than crashing, and the store re-attempts the start
-  lazily on the next search/status/rescan call — gated by a 15 s cooldown
+  lazily on the next search/wait/rescan call — gated by a 15 s cooldown
   (`SEARCH_ENGINE_RETRY_COOLDOWN`) so a persistent failure is not reopened on
   every call. This self-heal lives in the shared `futo-notes-store` owner, so
   iOS, Android, and desktop share it (it replaces the former iOS-only
@@ -45,6 +49,7 @@ desktop, iOS, and Android query that owner through thin adapters.
 - Queries debounce about 100 ms.
 - Arrow keys select results, Enter opens, Escape closes, and the clear button
   resets the query.
-- Ctrl/Cmd+click or Shift+click opens a result in a new tab.
+- Ctrl/Cmd+click, Shift+click, or middle-click opens a result in a new tab.
+- A query with no matches shows a "No notes found" empty state.
 
 SPLADE/learned-sparse search is not part of this contract.

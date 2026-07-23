@@ -8,12 +8,21 @@ use crate::server::{Http, HttpError};
 use crate::sync::{ConnectInfo, SyncErrorKind};
 
 fn http_error(error: HttpError) -> SyncErrorKind {
-    SyncErrorKind::Http(error.to_string())
+    let status = error.status;
+    let message = match status {
+        Some(status) => format!("HTTP {status}: {}", error.message),
+        None => error.message,
+    };
+    if status == Some(401) {
+        SyncErrorKind::Auth(message)
+    } else {
+        SyncErrorKind::Http(message)
+    }
 }
 
 pub(crate) fn collection_error(error: HttpError) -> SyncErrorKind {
     if error.is(404) {
-        SyncErrorKind::CollectionGone(error.to_string())
+        SyncErrorKind::CollectionGone(format!("HTTP 404: {}", error.message))
     } else {
         http_error(error)
     }
@@ -152,4 +161,20 @@ pub(crate) fn client(state: &ConnectedState) -> Result<Http, SyncErrorKind> {
     Ok(Http::new(&state.base_url)
         .map_err(http_error)?
         .token(state.token.clone()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unauthorized_collection_request_preserves_status_and_auth_kind() {
+        let error = collection_error(HttpError {
+            status: Some(401),
+            message: "session expired or invalid".into(),
+        });
+
+        assert!(matches!(error, SyncErrorKind::Auth(_)));
+        assert_eq!(error.to_string(), "HTTP 401: session expired or invalid");
+    }
 }

@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { SearchResultItem } from '$shared/types/search';
   import { search } from '$features/notes/notes.svelte';
-  import { shouldPreventScrollChaining } from '$shared/dom/shouldPreventScrollChaining';
 
   interface Props {
     onclose: () => void;
@@ -11,11 +10,9 @@
   let { onclose, onselect }: Props = $props();
 
   let query = $state('');
-  let overlayEl: HTMLDivElement | undefined = $state(undefined);
   let inputEl: HTMLInputElement | undefined = $state(undefined);
   let selectedIndex = $state(-1);
   let resultEls: HTMLElement[] = $state([]);
-  let lastTouchY = 0;
 
   let results: SearchResultItem[] = $state([]);
 
@@ -88,78 +85,13 @@
     }
   }
 
-  function handleOverlayKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      onclose();
-    }
-  }
-
-  function resetViewportScroll(): void {
-    if (
-      window.scrollY === 0 &&
-      document.documentElement.scrollTop === 0 &&
-      document.body.scrollTop === 0
-    )
-      return;
-    window.scrollTo(0, 0);
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-  }
-
-  function handleSearchTouchStart(event: TouchEvent): void {
-    if (event.touches.length !== 1) return;
-    lastTouchY = event.touches[0].clientY;
-  }
-
-  function handleSearchTouchMove(event: TouchEvent): void {
-    if (event.touches.length !== 1) return;
-    const y = event.touches[0].clientY;
-    const dy = y - lastTouchY;
-    lastTouchY = y;
-
-    const target = event.target instanceof Element ? event.target : null;
-    const scroller = target?.closest('.search-results') as HTMLElement | null;
-    if (!scroller) {
-      event.preventDefault();
-      resetViewportScroll();
-      return;
-    }
-
-    if (shouldPreventScrollChaining(scroller, dy)) {
-      event.preventDefault();
-      resetViewportScroll();
-    }
-  }
-
   $effect(() => {
-    const overlay = overlayEl;
-    if (!overlay) return;
-
-    resetViewportScroll();
-    overlay.addEventListener('touchstart', handleSearchTouchStart, { passive: true });
-    overlay.addEventListener('touchmove', handleSearchTouchMove, { passive: false });
-    window.addEventListener('scroll', resetViewportScroll, { passive: true });
-    return () => {
-      overlay.removeEventListener('touchstart', handleSearchTouchStart);
-      overlay.removeEventListener('touchmove', handleSearchTouchMove);
-      window.removeEventListener('scroll', resetViewportScroll);
-    };
-  });
-
-  $effect(() => {
-    resetViewportScroll();
     inputEl?.focus();
   });
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  bind:this={overlayEl}
-  class="search-overlay"
-  onclick={onclose}
-  onkeydown={handleOverlayKeydown}
->
+<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+<div class="search-overlay" onclick={onclose}>
   <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
   <div class="search-panel" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown}>
     <div class="search-input-row">
@@ -234,9 +166,7 @@
               <span class="search-result-folder-badge" data-testid="folder-badge">{parent}</span>
             {/if}
           </div>
-          {#if result.snippet && result.snippet.length > 0}
-            <div class="search-result-preview">{result.snippet}</div>
-          {:else if result.note.preview}
+          {#if result.note.preview}
             <div class="search-result-preview">{result.note.preview}</div>
           {/if}
         </button>
@@ -323,12 +253,6 @@
 
   .search-results {
     overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    /* iOS WKWebView: when the list has nothing (or little) to scroll
-       and the keyboard is up, a touchmove here would otherwise pan the
-       visual viewport and drag the whole app behind the popup. */
-    overscroll-behavior: contain;
-    touch-action: pan-y;
   }
 
   .search-result-item {

@@ -43,11 +43,11 @@ final class SyncManager: ObservableObject {
     private var liveListener: LiveListener?
 
     /// The vault root of the current session, stashed at connect so a
-    /// collection-gone heal can rebuild the client without the Sync view.
+    /// session heal can rebuild the client without the Sync view.
     private var notesRoot: String?
 
-    /// Guards against re-entrant heal attempts — a collection-gone can surface
-    /// from both the manual/initial sync path and the live loop at once.
+    /// Guards against re-entrant heal attempts — collection-gone or auth expiry
+    /// can surface from both the manual sync path and the live loop at once.
     private var healing = false
 
     /// Invoked on the main actor after a live pull that changed the vault on
@@ -106,7 +106,7 @@ final class SyncManager: ObservableObject {
         lastError = nil
         liveError = nil
         status = "Connecting…"
-        self.notesRoot = notesRoot  // stash for a later collection-gone heal
+        self.notesRoot = notesRoot
         defer { busy = false }
         // Reject a schemeless URL up front with an actionable message instead
         // of letting the client fail with an opaque transport error. → sync.md
@@ -165,32 +165,40 @@ final class SyncManager: ObservableObject {
             let summary = try await c.syncNow()
             applyOutcome(summary)
         } catch {
-            // The pinned vault was collapsed by the single-vault migration —
-            // re-point to the survivor instead of surfacing a dead-end error.
-            if isCollectionGone(error) { healCollectionGone(); return }
+            // Re-login for both a collapsed vault and an expired bearer token.
+            // connect() reuses the persisted cursor/map for the same vault, so
+            // auth expiry stays incremental instead of forcing a reconcile.
+            if isRecoverableSessionError(error) {
+                healSession(orReport: describe(error))
+                return
+            }
             lastError = describe(error)
             status = "Error"
         }
     }
 
-    /// Whether a typed sync error is the collection-gone signal (the vault this
-    /// client pinned to was collapsed server-side by the single-vault migration).
-    private func isCollectionGone(_ error: Error) -> Bool {
-        if let e = error as? SyncError, case .CollectionGone = e { return true }
-        return false
+    private func isRecoverableSessionError(_ error: Error) -> Bool {
+        guard let e = error as? SyncError else { return false }
+        switch e {
+        case .Auth, .CollectionGone: return true
+        default: return false
+        }
     }
 
-    /// Heal a collapsed vault: re-point to the surviving canonical vault. A
-    /// fresh `connectAndSync` re-runs `connect()` (which re-picks the survivor
-    /// via `list_collections`) and the reset→reconcile→push re-uploads our local
-    /// notes, so nothing is lost. Uses the password stored at last connect;
-    /// no-op if none. Guarded against re-entry.
-    private func healCollectionGone() {
-        guard !healing, let root = notesRoot, let password = Keychain.syncPassword else { return }
+    /// Re-login with the stored password to recover an expired session or
+    /// collapsed vault without deleting state. Guarded against re-entry. → sync.md
+    private func healSession(orReport message: String) {
+        guard !healing else { return }
+        guard let root = notesRoot, let password = Keychain.syncPassword else {
+            lastError = message
+            status = "Error"
+            return
+        }
         healing = true
+        client?.stopLive()
         Task {
-            // The dead session's live loop stopped itself (terminal on
-            // collection-gone); connectAndSync builds a fresh client + live loop.
+            // The dead session's live loop stopped itself; connectAndSync builds
+            // a fresh authenticated client + live loop without deleting state.
             await connectAndSync(notesRoot: root, password: password)
             healing = false
         }
@@ -253,11 +261,10 @@ final class SyncManager: ObservableObject {
     /// still runs) are live-stream health and go to the muted `liveError`.
     /// Anything else is a genuine failure and gets the red `lastError`.
     fileprivate func setLastError(_ m: String) {
-        // The live loop hit the collapsed vault and stopped itself (terminal on
-        // collection-gone). Re-point to the surviving canonical vault rather
-        // than leaving a persistent error until the app restarts.
-        if m.contains("collection-gone") {
-            healCollectionGone()
+        // Auth expiry and collection-gone are terminal for the old live loop,
+        // but recoverable from the securely stored password.
+        if m.contains("collection-gone") || m.hasPrefix("auth:") {
+            healSession(orReport: m)
             return
         }
         if m.hasPrefix("connect:") || m.hasPrefix("stream:") {

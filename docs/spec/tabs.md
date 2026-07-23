@@ -11,11 +11,17 @@ shells are single-document. → TabsStrip.svelte, tabsStore.svelte.ts
   the For You home and can be reused.
 - Middle-click or Ctrl/Cmd+W closes a tab; Ctrl/Cmd+Shift+T reopens the last
   closed tab.
-- Tabs drag to reorder, with an insertion-slot indicator.
+- Tabs drag to reorder.
 - Open tabs, their order, per-tab scroll position, and the active tab persist
   across restarts in `.app-config.json`; saves merge the `openTabs` snapshot
   without discarding sidebar layout fields. →
   `src/lib/platform/tauri/appConfig.ts`, `startTabsPersistence.ts`
+- A new tab (background or foreground) inserts immediately after the active
+  tab, not at the end of the strip; opening the unsaved "new" note twice
+  reuses the existing unsaved tab. → tabsStore.svelte.ts `openNote`
+- The window URL hash mirrors the active tab (`#/note/<id>`, `#/note/new`);
+  navigating the hash (webview back/forward, deep link) opens that note in the
+  current tab. Hash routing waits for tab hydration. → app/router.ts, App.svelte
 - Opening a note from the sidebar replaces the current tab's note.
   Ctrl/Cmd+click, Shift+click, or middle-click opens it in a new **background**
   tab (the current tab stays active); Ctrl/Cmd+Shift+click opens it in a new

@@ -2,6 +2,10 @@
 dist/
 node_modules/
 target/
+.pnpm-store/
+
+# Local git worktrees (each is its own checkout with its own formatting run)
+.worktrees/
 apps/ios/.build*/
 apps/android/app/build/
 apps/android/build/

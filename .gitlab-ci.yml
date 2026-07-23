@@ -433,6 +433,7 @@ test:
         pnpm install --frozen-lockfile --prefer-offline
         node scripts/spec-gaps.mjs --check
         pnpm exec tsx scripts/gen-toolbar-spec.ts --check
+        pnpm exec tsx "$CI_PROJECT_DIR/scripts/gen-title-spec.ts" --check
         pnpm run lint
         pnpm run lint:platform
         pnpm run format:check
@@ -460,6 +461,12 @@ test:e2e:smoke:
     - pnpm install --frozen-lockfile --prefer-offline
     - !reference [.setup-playwright, script]
     - pnpm run test:e2e:smoke
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+      - playwright-report/
+    expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -483,6 +490,12 @@ test:e2e:markdown-spec:
     - pnpm install --frozen-lockfile --prefer-offline
     - !reference [.setup-playwright, script]
     - pnpm run test:markdown-spec
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+      - playwright-report/
+    expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
     # Deterministic editor corpus, already blocking on tags — auto-run and
@@ -511,6 +524,12 @@ test:e2e:rest:
     - pnpm install --frozen-lockfile --prefer-offline
     - !reference [.setup-playwright, script]
     - pnpm run test:e2e:rest
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+      - playwright-report/
+    expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
     # Same web surface as test:e2e:smoke, plus any spec edit re-runs the
@@ -522,6 +541,49 @@ test:e2e:rest:
         - tests/**/*.spec.ts
         - tests/lib/**/*
         - playwright.config.ts
+        - package.json
+        - pnpm-lock.yaml
+        - .gitlab-ci.yml
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
+
+test:e2e:editor-embed:
+  stage: test
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-playwright, cache]
+  script:
+    - pnpm install --frozen-lockfile --prefer-offline
+    - !reference [.setup-playwright, script]
+    # globalSetup builds the single-file editor.html; every test loads it over
+    # file:// (no dev server), so the harness drives the SAME bytes the native
+    # shells ship.
+    - pnpm run test:e2e:editor-embed
+    # M11: a green playwright exit with zero tests must still fail red (a broken
+    # testMatch would otherwise pass silently).
+    - |
+      node -e "const r=require('$CI_PROJECT_DIR/test-results/editor-embed-results.json'); if(!(r.stats && r.stats.expected>0)){console.error('editor-embed bridge harness ran zero tests'); process.exit(1);} console.log('editor-embed bridge tests run:', r.stats.expected);"
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+      - playwright-report/
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_TAG
+    # Locks the editor-embed <-> native-host futoBridge protocol — auto-run and
+    # block on the MRs that can break the embed or its contract.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - src/editor-embed/**/*
+        - src/features/editor/**/*
+        - packages/editor/**/*
+        - editor.html
+        - vite.editor.config.ts
+        - tests/editor-embed-bridge.spec.ts
+        - tests/editorEmbedBundle.ts
+        - playwright.editor-embed.config.ts
         - package.json
         - pnpm-lock.yaml
         - .gitlab-ci.yml
@@ -602,9 +664,9 @@ test:rust:macos:
   variables:
     GIT_STRATEGY: clone
   before_script:
-    - env | grep -E '^(CI_)' > .cienv
+    - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run testRustMacOS --artifacts-dir . --env-file .cienv
+    - cirrus run testRustMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_TAG
     # Auto on Rust-touching MRs. allow_failure stays: this runs through
@@ -851,9 +913,14 @@ test:desktop-smoke:macos:
   variables:
     GIT_STRATEGY: clone
   before_script:
-    - env | grep -E '^(CI_)' > .cienv
+    - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run testDesktopSmokeMacOS --artifacts-dir . --env-file .cienv
+    - cirrus run testDesktopSmokeMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  artifacts:
+    when: always
+    paths:
+      - testDesktopSmokeMacOS/desktop_smoke/**/*
+    expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
     # Auto on desktop-touching MRs; allow_failure stays (single macscript
@@ -1052,9 +1119,9 @@ build:macos:
   before_script:
     # TAURI_ passes the updater signing key (TAURI_SIGNING_PRIVATE_KEY[_PASSWORD])
     # through to the Cirrus macOS task, which builds the signed .app.tar.gz.
-    - env | grep -E '^(CI_|MACOS_|ASC_|TAURI_)' > .cienv
+    - env | grep -E '^(CI_|MACOS_|ASC_|TAURI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run buildFutoNotesMacOS --artifacts-dir . --env-file .cienv
+    - cirrus run buildFutoNotesMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     paths:
       - buildFutoNotesMacOS/binary/*.dmg
@@ -1240,9 +1307,9 @@ build:ios-native:
     # IOS_ must pass through: the Cirrus task imports Certificates.p12 with
     # $IOS_CERT_PASSWORD on tag builds. CI_-only here yields an empty
     # password and "MAC verification failed during PKCS12 import".
-    - env | grep -E '^(CI_|IOS_)' > .cienv
+    - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run buildFutoNotesIOSNative --artifacts-dir . --env-file .cienv
+    - cirrus run buildFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     paths:
       - buildFutoNotesIOSNative/binary/*.ipa
@@ -1256,6 +1323,37 @@ build:ios-native:
         - scripts/build-rust-ios.sh
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-ios-changes
+    - if: $CI_COMMIT_TAG
+
+# Native iOS unit tests on a concrete simulator via Cirrus. This separately
+# enforces the FutoNotesNativeTests target that build:ios-native only compiles.
+test:ios-native:
+  stage: test
+  needs: []
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - cirrus run testFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  artifacts:
+    when: always
+    paths:
+      - testFutoNotesIOSNative/ios_test_results/**/*
+    expire_in: 1 week
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &native-ios-test-changes
+        - apps/ios/**/*
+        - tests/conformance/**/*
+        - packages/editor/src/bridge.ts
+        - scripts/build-rust-ios.sh
+        - .cirrus.yml
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *native-ios-test-changes
     - if: $CI_COMMIT_TAG
 
 # ─────────────────────────────────────────────────────────────
@@ -1588,11 +1686,13 @@ release:gate:
     - job: test:e2e:smoke
     - job: test:e2e:markdown-spec
     - job: test:e2e:rest
+    - job: test:e2e:editor-embed
     - job: test:rust:workspace
     - job: test:rust:ffi-android
     - job: test:rust:macos
     - job: test:desktop-smoke:macos
     - job: test:cross-platform-sync
+    - job: test:ios-native
     - job: build:linux-packages
       artifacts: true
     - job: build:linux-appimage
@@ -1662,9 +1762,9 @@ publish:ios:
   variables:
     GIT_STRATEGY: clone
   before_script:
-    - env | grep -E '^(CI_|IOS_|ASC_)' > .cienv
+    - env | grep -E '^(CI_|IOS_|ASC_)' > "$CI_PROJECT_DIR/.cienv"
   script:
-    - cirrus run publishFutoNotesIOS --artifacts-dir . --env-file .cienv
+    - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_TAG
 

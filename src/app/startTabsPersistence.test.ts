@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   whenNotesReady: vi.fn(),
 }));
 
-vi.mock('$lib/platform', () => ({ hasFileSystem: true, isDesktop: true }));
+vi.mock('$lib/platform', () => ({ isTauri: true, isDesktop: true }));
 vi.mock('$features/notes/notes.svelte', () => ({
   getAllNotes: mocks.getAllNotes,
   whenNotesReady: mocks.whenNotesReady,
@@ -45,11 +45,7 @@ describe('startTabsPersistence', () => {
   });
 
   it('does not hydrate or install a persister after teardown', async () => {
-    let resolveConfig!: (config: {
-      sidebarWidth: number;
-      graphSidebarWidth: number;
-      openTabs: null;
-    }) => void;
+    let resolveConfig!: (config: { sidebarWidth: number; openTabs: null }) => void;
     mocks.getConfig.mockReturnValue(
       new Promise((resolve) => {
         resolveConfig = resolve;
@@ -57,23 +53,70 @@ describe('startTabsPersistence', () => {
     );
     const setSidebarCollapsed = vi.fn();
     const setSidebarWidth = vi.fn();
-    const setGraphSidebarWidth = vi.fn();
     const stop = startTabsPersistence({
-      initialNoteId: null,
+      getRequestedNoteId: () => null,
       setSidebarCollapsed,
       setSidebarWidth,
-      setGraphSidebarWidth,
     });
 
     stop();
-    resolveConfig({ sidebarWidth: 310, graphSidebarWidth: 360, openTabs: null });
+    resolveConfig({ sidebarWidth: 310, openTabs: null });
     await vi.waitFor(() => expect(mocks.getConfig).toHaveBeenCalledOnce());
     await Promise.resolve();
 
     expect(setSidebarWidth).not.toHaveBeenCalled();
-    expect(setGraphSidebarWidth).not.toHaveBeenCalled();
     expect(mocks.hydrate).not.toHaveBeenCalled();
     expect(mocks.setPersister).toHaveBeenCalledTimes(1);
     expect(mocks.setPersister).toHaveBeenLastCalledWith(null);
+  });
+
+  it('hydrates the latest hash request when navigation changes while notes are loading', async () => {
+    let resolveNotesReady!: () => void;
+    let requestedNoteId: string | null = 'first';
+    mocks.getConfig.mockResolvedValue({ sidebarWidth: 280, openTabs: null });
+    mocks.whenNotesReady.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveNotesReady = resolve;
+      }),
+    );
+    mocks.getAllNotes.mockReturnValue([{ id: 'first' }, { id: 'second' }]);
+
+    startTabsPersistence({
+      getRequestedNoteId: () => requestedNoteId,
+      setSidebarCollapsed: vi.fn(),
+      setSidebarWidth: vi.fn(),
+    });
+    await vi.waitFor(() => expect(mocks.whenNotesReady).toHaveBeenCalledOnce());
+
+    requestedNoteId = 'second';
+    resolveNotesReady();
+
+    await vi.waitFor(() => expect(mocks.hydrate).toHaveBeenCalledOnce());
+    expect(mocks.hydrate.mock.calls[0][2]).toBe('second');
+  });
+
+  it('preserves an explicit navigation to Home while notes are loading', async () => {
+    let resolveNotesReady!: () => void;
+    let requestedNoteId: string | null | undefined = 'first';
+    mocks.getConfig.mockResolvedValue({ sidebarWidth: 280, openTabs: null });
+    mocks.whenNotesReady.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveNotesReady = resolve;
+      }),
+    );
+    mocks.getAllNotes.mockReturnValue([{ id: 'first' }]);
+
+    startTabsPersistence({
+      getRequestedNoteId: () => requestedNoteId,
+      setSidebarCollapsed: vi.fn(),
+      setSidebarWidth: vi.fn(),
+    });
+    await vi.waitFor(() => expect(mocks.whenNotesReady).toHaveBeenCalledOnce());
+
+    requestedNoteId = null;
+    resolveNotesReady();
+
+    await vi.waitFor(() => expect(mocks.hydrate).toHaveBeenCalledOnce());
+    expect(mocks.hydrate.mock.calls[0][2]).toBeNull();
   });
 });

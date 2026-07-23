@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use futo_notes_store::{
-    BeforeWrite, BootstrapResult, FileChange, LocalNoteStore, MutationResult, SearchHit,
-    SearchStatus, Snapshot, VaultFile,
+    BeforeWrite, BootstrapResult, FileChange, FlushDraftResult, LocalNoteStore, MutationResult,
+    SearchHit, SearchStatus, Snapshot, VaultFile,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -179,6 +179,30 @@ pub async fn local_notes_save(
     blocking(move || store.save(original_id.as_deref(), &wanted_id, &content, modified_ms)).await
 }
 
+/// THE draft-saving verb (persist-or-park, ADR-0001 / issue #37). Desktop
+/// callers adopt in ticket #38; the seam ships now so both adapters honor the
+/// same flush contract.
+fn local_notes_flush_draft_impl(
+    store: &LocalNoteStore,
+    id: &str,
+    base: &str,
+    content: &str,
+) -> Result<FlushDraftResult, String> {
+    store.flush_draft(id, base, content)
+}
+
+#[tauri::command]
+pub async fn local_notes_flush_draft(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    base: String,
+    content: String,
+) -> Result<FlushDraftResult, String> {
+    let store = store(&app, &state)?;
+    blocking(move || local_notes_flush_draft_impl(&store, &id, &base, &content)).await
+}
+
 #[tauri::command]
 pub async fn local_notes_delete(
     app: AppHandle,
@@ -208,7 +232,7 @@ pub async fn local_notes_create_folder(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
-) -> Result<String, String> {
+) -> Result<MutationResult, String> {
     let store = store(&app, &state)?;
     blocking(move || store.create_folder(&path)).await
 }
@@ -256,12 +280,16 @@ pub async fn local_notes_search(
     blocking(move || store.search(&query, limit)).await
 }
 
+/// The engine-owned bounded readiness wait (issue #35). Runs on the blocking
+/// pool because the wait can hold its thread for up to `timeout_ms`.
 #[tauri::command]
-pub async fn local_notes_search_status(
+pub async fn local_notes_wait_until_search_ready(
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<SearchStatus, String> {
-    Ok(store(&app, &state)?.search_status())
+    timeout_ms: u64,
+) -> Result<bool, String> {
+    let store = store(&app, &state)?;
+    blocking(move || Ok(store.wait_until_search_ready(timeout_ms))).await
 }
 
 #[tauri::command]
@@ -272,7 +300,20 @@ pub async fn local_notes_rescan(app: AppHandle, state: State<'_, AppState>) -> R
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
     use super::*;
+
+    fn temp_root() -> PathBuf {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "futo-notes-tauri-flush-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
 
     #[test]
     fn desktop_projection_registers_both_sides_of_a_rename() {
@@ -283,5 +324,18 @@ mod tests {
         }]);
         assert!(suppression.contains("old.md"));
         assert!(suppression.contains("new.md"));
+    }
+
+    #[test]
+    fn flush_draft_impl_projects_the_engine_result() {
+        let root = temp_root();
+        let store = LocalNoteStore::new(root.clone());
+        store.write("note", "base", None).unwrap();
+
+        let result = local_notes_flush_draft_impl(&store, "note", "base", "draft").unwrap();
+
+        assert_eq!(result.disposition, futo_notes_store::FlushDisposition::Wrote);
+        assert_eq!(store.read("note"), "draft");
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

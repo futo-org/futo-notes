@@ -1,93 +1,148 @@
 <script lang="ts">
+  import type { EditorView } from '@codemirror/view';
+
   import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
   import NoteTagBar from '$features/editor/NoteTagBar.svelte';
-  import ForYouPage from '$features/notes/ForYouPage.svelte';
   import type { NoteSession } from '$features/notes/noteSession.svelte';
   import type { NotePreview } from '$shared/types/note';
+  import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
+
+  import type { createCurrentNoteActions } from '../createCurrentNoteActions.svelte';
+  import NoteActionsMenu from './NoteActionsMenu.svelte';
+
+  // The subset of the (frozen) editor's imperative API the shell drives.
+  export interface EditorApi {
+    setContent: (text: string, options?: { preserveSelection?: boolean }) => void;
+    focus: () => void;
+    blur: () => void;
+    getContent: () => string | undefined;
+    hasFocus: () => boolean;
+    isComposing: () => boolean;
+    getView: () => EditorView | null;
+    refreshDecorations: () => void;
+    placeCaretAtEnd: () => void;
+  }
 
   interface Props {
-    noteId: string | null;
-    notes: NotePreview[];
     session: NoteSession;
-    editorFocused: boolean;
-    editor?: ReturnType<typeof MarkdownEditor> | null;
-    noteBody?: HTMLElement | undefined;
-    titleTextarea?: HTMLTextAreaElement | undefined;
-    oneditorfocuschange: (focused: boolean) => void;
-    onbodyfocusin: (event: FocusEvent) => void;
-    onopenwikilink: (title: string, event: MouseEvent) => void;
-    onnavigate: (id: string) => void;
+    notes: NotePreview[];
+    actions: ReturnType<typeof createCurrentNoteActions>;
+    active: boolean;
+    onopenlink: (title: string, event: MouseEvent) => void;
+    onfocuschange?: (focused: boolean) => void;
+    editorApi?: EditorApi;
+    noteBodyEl?: HTMLElement;
+    titleEl?: HTMLTextAreaElement;
   }
 
   let {
-    noteId,
-    notes,
     session,
-    editorFocused,
-    editor = $bindable(null),
-    noteBody = $bindable(undefined),
-    titleTextarea = $bindable(undefined),
-    oneditorfocuschange,
-    onbodyfocusin,
-    onopenwikilink,
-    onnavigate,
+    notes,
+    actions,
+    active,
+    onopenlink,
+    onfocuschange,
+    editorApi = $bindable(),
+    noteBodyEl = $bindable(),
+    titleEl = $bindable(),
   }: Props = $props();
 
-  function handleBodyClick(event: MouseEvent): void {
-    if (!editor) return;
-    const target = event.target as HTMLElement;
-    if (target.closest('.cm-editor')) return;
-    if (target.closest('.note-title-row, .note-tag-bar, a, button, input, textarea, select')) {
-      return;
-    }
+  let editorFocused = $state(false);
 
-    const editorRect = editor.getView()?.dom.getBoundingClientRect();
-    if (editorRect && event.clientY > editorRect.bottom) editor.placeCaretAtEnd();
-    editor.focus();
+  function handleFocusChange(focused: boolean): void {
+    editorFocused = focused;
+    onfocuschange?.(focused);
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div
   class="note-body"
+  class:is-hidden={!active}
+  bind:this={noteBodyEl}
   data-editor-focused={editorFocused ? '' : undefined}
-  bind:this={noteBody}
-  onclick={handleBodyClick}
-  onfocusin={onbodyfocusin}
 >
-  {#if noteId}
-    <div class="note-title-row">
-      <textarea
-        rows="1"
-        class="title-input w-full border-none bg-transparent p-0 focus:outline-none"
-        style="font-family: var(--font-serif); font-size: 30px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; color: var(--color-text); resize: none; overflow: hidden; min-height: 36px;"
-        placeholder="Untitled"
-        bind:value={session.title}
-        oninput={session.handleTitleInput}
-        onkeydown={session.handleTitleKeydown}
-        onfocus={session.handleTitleFocus}
-        onpointerdown={session.handleTitlePointerDown}
-        maxlength={200}
-        enterkeyhint="done"
-        bind:this={titleTextarea}></textarea>
-      {#if session.titleWarning}
-        <div class="text-xs pt-0.5" style="color: var(--color-danger)">
-          {session.titleWarning}
-        </div>
-      {/if}
-    </div>
-    <NoteTagBar content={session.content} getEditorView={() => editor?.getView() ?? null} {notes} />
-    <div class="editor-container">
-      <MarkdownEditor
-        bind:this={editor}
-        content={session.content}
-        onchange={session.debouncedSave}
-        onfocuschange={oneditorfocuschange}
-        scrollParent={noteBody ?? null}
-        onopenlink={onopenwikilink}
-      />
-    </div>
-  {:else}
-    <ForYouPage {notes} {onnavigate} />
-  {/if}
+  <div class="note-title-row">
+    <textarea
+      class="title-input"
+      bind:this={titleEl}
+      value={session.title}
+      rows="1"
+      spellcheck="false"
+      placeholder="Untitled"
+      oninput={session.handleTitleInput}
+      onkeydown={session.handleTitleKeydown}
+      onfocus={session.handleTitleFocus}
+      onpointerdown={session.handleTitlePointerDown}></textarea>
+    {#if session.titleWarning}
+      <div class="title-warning">{session.titleWarning}</div>
+    {/if}
+  </div>
+
+  <NoteTagBar
+    content={session.content}
+    getEditorView={() => editorApi?.getView() ?? null}
+    {notes}
+  />
+
+  <div class="editor-container">
+    <MarkdownEditor
+      bind:this={editorApi}
+      content={session.content}
+      scrollParent={noteBodyEl ?? null}
+      onchange={(content) => session.debouncedSave(content)}
+      onfocuschange={handleFocusChange}
+      {onopenlink}
+    />
+  </div>
 </div>
+
+{#if active}
+  <NoteActionsMenu
+    open={actions.menuOpen}
+    ontoggle={actions.toggleMenu}
+    onclose={actions.closeMenu}
+    ongraphview={actions.graphView}
+    oncopypath={actions.copyFilePath}
+    onmove={actions.openMovePicker}
+    ondelete={actions.deleteCurrentNote}
+  />
+{/if}
+
+{#if active && actions.movePickerOpen}
+  <FolderPickerModal
+    {notes}
+    onpick={(path) => void actions.moveToFolder(path)}
+    oncancel={actions.closeMovePicker}
+  />
+{/if}
+
+<style>
+  .note-body.is-hidden {
+    display: none;
+  }
+
+  .title-input {
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    resize: none;
+    overflow: hidden;
+    font-family: var(--font-serif);
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--color-text);
+    padding: 0;
+  }
+
+  .title-input::placeholder {
+    color: var(--color-border);
+  }
+
+  .title-warning {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--color-danger);
+  }
+</style>

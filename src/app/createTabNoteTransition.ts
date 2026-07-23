@@ -1,73 +1,53 @@
-import type MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
 
-interface TabNoteTransitionOptions {
-  getEditor: () => ReturnType<typeof MarkdownEditor> | null;
-  getNoteBody: () => HTMLElement | undefined;
-  getCurrentNoteId: () => string | null;
+export interface TabNoteTransitionDeps {
   loadNote: (id: string | null) => Promise<void>;
+  getNoteBody: () => HTMLElement | undefined;
 }
 
-export function createTabNoteTransition(options: TabNoteTransitionOptions) {
-  let previousNoteId: string | null | undefined;
+// Owns switching the open note when the active tab changes: save the outgoing
+// tab's scroll position, load the incoming note, then restore that tab's scroll
+// (tabs.md — per-tab scroll persists). loadNote resets scrollTop to 0, so the
+// restore runs after it, on the next frame.
+export function createTabNoteTransition(deps: TabNoteTransitionDeps) {
   let previousTabId: string | null = null;
+  let loadedNoteId: string | null = null;
+  let transitionVersion = 0;
 
-  function update(currentNoteId: string | null): void {
-    const currentTabId = tabsStore.activeTabId;
-    if (previousNoteId === currentNoteId && previousTabId === currentTabId) return;
+  async function transition(
+    nextTabId: string,
+    nextNoteId: string | null,
+    savedScroll: number,
+  ): Promise<void> {
+    if (previousTabId === nextTabId && loadedNoteId === nextNoteId) return;
+    const version = ++transitionVersion;
 
-    const editor = options.getEditor();
-    if (previousTabId && previousTabId !== currentTabId && editor) {
-      const selection = editor.getSelection?.();
-      const scroll = options.getNoteBody()?.scrollTop ?? 0;
-      tabsStore.setTabState(
-        previousTabId,
-        selection ? { scroll, selFrom: selection.from, selTo: selection.to } : undefined,
-      );
+    if (previousTabId && previousTabId !== nextTabId) {
+      const body = deps.getNoteBody();
+      if (body) tabsStore.setTabState(previousTabId, { scroll: body.scrollTop });
     }
+    previousTabId = nextTabId;
 
-    const incomingTabId = currentTabId;
-    const incomingState = tabsStore.tabs.find((tab) => tab.id === incomingTabId)?.state;
-    const incomingNoteId = currentNoteId;
-    previousNoteId = currentNoteId;
-    previousTabId = currentTabId;
+    await deps.loadNote(nextNoteId);
+    if (version !== transitionVersion || tabsStore.activeTabId !== nextTabId) return;
+    loadedNoteId = nextNoteId;
 
-    void options.loadNote(currentNoteId).then(() => {
-      if (!incomingState) return;
-      if (tabsStore.activeTabId !== incomingTabId) return;
-      if (incomingNoteId !== options.getCurrentNoteId()) return;
-
-      requestAnimationFrame(() =>
+    if (savedScroll > 0) {
+      requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          if (tabsStore.activeTabId !== incomingTabId) return;
-          options.getEditor()?.setSelection?.(incomingState.selFrom, incomingState.selTo);
-          const noteBody = options.getNoteBody();
-          if (noteBody) noteBody.scrollTop = incomingState.scroll;
-        }),
-      );
-    });
-  }
-
-  function handleNoteRenamed(savedOriginalId: string | null, realId: string): void {
-    const oldKey = savedOriginalId ?? 'new';
-    const activeTab = tabsStore.activeTab;
-    if (activeTab.noteId === oldKey) {
-      previousNoteId = realId;
-      previousTabId = activeTab.id;
-    }
-    for (const tab of tabsStore.tabs) {
-      if (tab.noteId === oldKey) tabsStore.replaceTabNoteId(tab.id, realId);
+          if (version !== transitionVersion || tabsStore.activeTabId !== nextTabId) return;
+          const body = deps.getNoteBody();
+          if (body) body.scrollTop = savedScroll;
+        });
+      });
     }
   }
 
   return {
-    get previousNoteId() {
-      return previousNoteId ?? null;
+    transition,
+    setLoadedNoteId(noteId: string | null): void {
+      transitionVersion += 1;
+      loadedNoteId = noteId;
     },
-    setPreviousNoteId(id: string | null | undefined) {
-      previousNoteId = id;
-    },
-    update,
-    handleNoteRenamed,
   };
 }

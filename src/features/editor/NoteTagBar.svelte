@@ -236,13 +236,13 @@
                 addTag(createName);
               }}
             >
-              + Create #{createName}
+              Create #{createName}
             </button>
           {/if}
         </div>
       {/if}
     </div>
   {:else}
-    <button class="tag-add-btn" onclick={startAdding}>+ Tag</button>
+    <button class="tag-add-btn" aria-label="Add tag" onclick={startAdding}>+ Tag</button>
   {/if}
 </div>

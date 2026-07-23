@@ -3,9 +3,12 @@
 ## All platforms
 
 - **Theme**: Light / Dark / Auto. Auto follows the system setting; selecting a
-  theme applies immediately (no restart) and persists across restarts. →
+  theme applies immediately (no restart) and persists across restarts. On
+  desktop, Auto tracks the OS theme via the window/portal theme-change event and
+  the event's reported value wins — the webview's own `matchMedia` cannot observe
+  the Linux desktop theme, so it is not the source of truth for Auto. →
   SettingsScreen.kt (SharedPreferences `theme_mode`) _(Android)_;
-  theme.ts / SettingsScreen.svelte _(Tauri)_
+  theme.ts / createAppBootstrap.svelte.ts / SettingsScreen.svelte _(Tauri)_
 - The app version is shown.
 
 ## Native shells
@@ -54,15 +57,31 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   Danger zone last, and a version footer. → SettingsScreen.svelte (see
   settings-visual.md for the platform-split and shared content model)
 - **Storage:** the displayed active/default roots come from the Tauri platform
-  facade. Choosing a custom root requires an absolute path, creates it before
+  facade. Both changing and resetting the root confirm first with a warning
+  dialog naming the restart (the change dialog also notes existing notes are
+  not moved). Choosing a custom root requires an absolute path, creates it before
   persistence, saves it through `notes_dir_override_save`, invalidates the
   frontend root cache, and then relaunches. Reset saves a `null` override and
-  relaunches. → `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`
+  relaunches. The relaunch is a full process restart, **not** a
+  `window.location.reload()`: the Rust filesystem watcher binds the vault root
+  once at startup, so only a restart rebinds it to the new vault (a webview
+  reload leaves external-change detection pointed at the old root). →
+  `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`, SettingsScreen.svelte
 - **Sync**: server URL + password inline with a Connect button and a
   "Last sync: …" line ("never" before the first sync). Once connected the
-  section shows status/disconnect (see sync.md).
+  section shows the locked URL plus **Sync now**, **Forget password**, and
+  **Reset connection** (confirmed) — clicking the read-only server URL also
+  opens the Reset-connection confirm. When connected without a saved password
+  (keyring unavailable or forgotten), a "Vault password — required after
+  restart" field appears for on-demand re-entry (see sync.md). →
+  SyncSettingsSection.svelte, createSyncSettings.svelte.ts
 - **Crash reporting**: a "Share crash reports" toggle (anonymous crash logs);
   see app.md for the crash dialog flow.
+- Dev builds additionally show a **Sync error test** section (fabricated
+  sync-failure scenarios that exercise the failure-message UI) and a **Test
+  crash** button in the Danger zone; neither ships in release builds
+  (`import.meta.env.DEV`). → DevSyncErrorSettingsSection.svelte,
+  DangerSettingsSection.svelte
 - **Updates (desktop self-update)**: an "Updates" section with a single
   state-driven button — Check for updates → Restart & update to vX →
   Downloading…N% → Restart now to finish — backed by the Tauri updater plugin

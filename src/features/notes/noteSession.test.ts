@@ -160,7 +160,6 @@ describe('title debounce vs body debounce (character-loss race)', () => {
       isEditorFocused: () => false,
       isComposing: () => false,
       getNotes: () => [],
-      patchGraphNode: vi.fn(),
       getNoteBody: () => undefined,
       getTitleTextarea: () => undefined,
       getNoteId: () => 'new',
@@ -173,7 +172,6 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   function typeTitle(session: ReturnType<typeof createNoteSession>, fullTitle: string): void {
     for (let i = 1; i <= fullTitle.length; i++) {
       const value = fullTitle.slice(0, i);
-      (session as { title: string }).title = value;
       const target = { value, selectionStart: value.length, setSelectionRange: vi.fn() };
       session.handleTitleInput({ target } as unknown as Event);
     }
@@ -202,6 +200,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     const { updateNote } = await import('./notes.svelte');
 
     typeTitle(session, 'Grocery list');
+    expect(session.title).toBe('Grocery list');
 
     vi.advanceTimersByTime(500);
     await vi.runAllTicks();
@@ -244,6 +243,44 @@ describe('title debounce vs body debounce (character-loss race)', () => {
       undefined,
     );
   });
+
+  it('queues saves typed during a local move until the session has retargeted', async () => {
+    const session = createNoteSession(makeDeps());
+    const { updateNote } = await import('./notes.svelte');
+    session.seedOpenNote('Projects/Roadmap', 'base');
+    editorContent = 'base';
+
+    let releaseMove!: () => void;
+    let markMoveStarted!: () => void;
+    const moveStarted = new Promise<void>((resolve) => {
+      markMoveStarted = resolve;
+    });
+    const moveGate = new Promise<void>((resolve) => {
+      releaseMove = resolve;
+    });
+    const moving = session.runWithSaveLock(async () => {
+      markMoveStarted();
+      await moveGate;
+      session.applyRemoteRename('Archive/Roadmap', 'Roadmap');
+    });
+    await moveStarted;
+
+    editorContent = 'draft typed during move';
+    session.debouncedSave(editorContent);
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+    expect(updateNote).not.toHaveBeenCalled();
+
+    releaseMove();
+    await moving;
+    await vi.waitFor(() => expect(updateNote).toHaveBeenCalledOnce());
+    expect(updateNote).toHaveBeenCalledWith(
+      'Archive/Roadmap',
+      'Roadmap',
+      'draft typed during move',
+      'Archive/Roadmap',
+    );
+  });
 });
 
 describe('loadNote focus routing', () => {
@@ -255,7 +292,6 @@ describe('loadNote focus routing', () => {
       isEditorFocused: () => false,
       isComposing: () => false,
       getNotes: () => [],
-      patchGraphNode: vi.fn(),
       getNoteBody: () => undefined,
       getTitleTextarea: () => undefined,
       getNoteId: () => noteId,
@@ -363,7 +399,6 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
       isEditorFocused: () => false,
       isComposing: () => false,
       getNotes: () => [],
-      patchGraphNode: vi.fn(),
       getNoteBody: () => undefined,
       getTitleTextarea: () => undefined,
       getNoteId: () => 'old note',

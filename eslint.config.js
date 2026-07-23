@@ -23,4 +23,25 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': 'off',
     },
   },
+  // Type-checked promise-safety guard for the controller/orchestration layer
+  // (`src/**` .ts + Svelte-runes `.svelte.ts`). Unhandled or misused promises —
+  // a rejected async left un-awaited, or an async function handed to a
+  // void-returning callback — are the "fire-and-forget async" trap behind the
+  // move-failure regression. (Svelte template attributes such as
+  // `onpick={() => fn()}` are not visible to these rules; mark those handlers
+  // with an explicit `void`.)
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['src/**/*.test.ts', 'src/**/__mocks__/**', 'src/**/__test__/**'],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: true }],
+    },
+  },
 );

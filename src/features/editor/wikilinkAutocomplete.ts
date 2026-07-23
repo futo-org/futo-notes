@@ -41,11 +41,7 @@ function wikilinkCompletions(context: CompletionContext): CompletionResult | nul
       .slice(0, 20)
       .map((note) => buildCompletion(note.id));
   } else {
-    options = allNotes
-      .slice()
-      .sort((a, b) => b.modificationTime - a.modificationTime)
-      .slice(0, 20)
-      .map((n) => buildCompletion(n.id));
+    options = allNotes.slice(0, 20).map((n) => buildCompletion(n.id));
   }
 
   if (options.length === 0) return null;

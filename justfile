@@ -13,6 +13,7 @@ alias tu := test-unit
 alias te := test-editor
 alias l := lint
 alias c := check
+alias pp := prepush
 alias dd := deploy-deb
 alias dr := deploy-rpm
 alias di := deploy-ios
@@ -296,6 +297,12 @@ cdp-forward:
   echo "  export CDP_PORT=${PORT}   # then: node scripts/cdp-invoke.mjs \"document.title\""
 
 build:
+  #!/usr/bin/env bash
+  # `just` runs each unshebanged line via a fresh `sh -c` with pipefail off, so
+  # `cmd | head -N` reports head's exit status (always 0), not cmd's — a
+  # failing tsc/vite build would go green. pipefail here makes the pipeline
+  # fail when the left side does.
+  set -euo pipefail
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
 
@@ -408,6 +415,16 @@ toolbar-spec:
 toolbar-spec-check:
   pnpm exec tsx scripts/gen-toolbar-spec.ts --check
 
+# Regenerate the native shells' title-validation constants
+# (apps/ios/Sources/TitleSpec.swift / apps/android/.../TitleSpec.kt) from the
+# @futo-notes/editor title-rule manifest (packages/editor/src/filename.ts).
+title-spec:
+  pnpm exec tsx scripts/gen-title-spec.ts --write
+
+# Fail if a generated native title spec has drifted from the manifest.
+title-spec-check:
+  pnpm exec tsx scripts/gen-title-spec.ts --check
+
 # Fail on a registered-but-uncalled Tauri command not in the allowlist, a
 # stale allowlist entry (command now has a caller, or was deleted from Rust),
 # or an invoke() of a name that isn't registered at all (architecture-
@@ -464,13 +481,31 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check arch-gate test-rust
+check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
+  #!/usr/bin/env bash
+  # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
+  # truncation on the last two lines can't mask a failing tsc/vite build.
+  set -euo pipefail
   pnpm run lint
   pnpm run check:svelte
   pnpm run format:check
   pnpm run test:full
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
+
+# Cross-platform sync needs the server repo at ~/Developer/futo-notes-server
+# (+ Postgres); the full Playwright run needs installed browsers. Budget
+# 30-60 min. What it still can't see: native-shell runtime behavior (device
+# QA) and Windows/WebView2 (scripts/win-vm/).
+# --retries=1: the local 30s test timeout (CI gets 90s) makes a ~250-test run
+# flake on the odd slow navigation/click; one retry absorbs those while a
+# genuinely broken test still fails both attempts (and is reported "flaky"
+# when it passes only on retry — treat repeat offenders as real bugs).
+# Maximal pre-push gate: `check` + full Rust workspace + full E2E + cross-platform sync.
+prepush: check test-rust-full
+  pnpm exec playwright test --retries=1
+  pnpm run test:cross-platform
+  @echo "prepush green — check + rust workspace + full e2e + cross-platform sync all passed"
 
 ci:
   pnpm run ci

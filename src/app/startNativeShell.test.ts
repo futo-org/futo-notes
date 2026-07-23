@@ -29,6 +29,51 @@ describe('startNativeShell', () => {
     mocks.onCloseRequested.mockResolvedValue(mocks.closeCleanup);
   });
 
+  it('closes the window even when the save drain hangs', async () => {
+    vi.useFakeTimers();
+    try {
+      let closeHandler!: (event: { preventDefault: () => void }) => Promise<void>;
+      mocks.onCloseRequested.mockImplementation(async (handler) => {
+        closeHandler = handler;
+        return mocks.closeCleanup;
+      });
+      startNativeShell({
+        enqueueFileChange: vi.fn(),
+        flushSave: vi.fn(() => new Promise<void>(() => {})),
+      });
+      await vi.waitFor(() => expect(mocks.onCloseRequested).toHaveBeenCalledOnce());
+
+      const closed = closeHandler({ preventDefault: vi.fn() });
+      await vi.advanceTimersByTimeAsync(3000);
+      await closed;
+
+      const { exit } = await import('@tauri-apps/plugin-process');
+      expect(exit).toHaveBeenCalledWith(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('closes the window when the save drain rejects', async () => {
+    let closeHandler!: (event: { preventDefault: () => void }) => Promise<void>;
+    mocks.onCloseRequested.mockImplementation(async (handler) => {
+      closeHandler = handler;
+      return mocks.closeCleanup;
+    });
+    startNativeShell({
+      enqueueFileChange: vi.fn(),
+      flushSave: vi.fn(async () => {
+        throw new Error('disk full');
+      }),
+    });
+    await vi.waitFor(() => expect(mocks.onCloseRequested).toHaveBeenCalledOnce());
+
+    await closeHandler({ preventDefault: vi.fn() });
+
+    const { exit } = await import('@tauri-apps/plugin-process');
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
   it('disposes handlers that finish registering after teardown', async () => {
     const stop = startNativeShell({
       enqueueFileChange: vi.fn(),

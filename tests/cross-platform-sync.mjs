@@ -24,7 +24,7 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startDesktopTauriInstance } from './lib/tauri-instance.mjs';
 import { startServer } from './lib/sync-test-server.mjs';
-import { sleep, executeJs } from './lib/mcp-client.mjs';
+import { sleep } from './lib/mcp-client.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -137,9 +137,9 @@ async function externalWriteNote(client, id, content) {
 async function waitForNoteInSidebar(client, titleSubstring, timeoutMs = 5_000) {
   for (let elapsed = 0; elapsed < timeoutMs; elapsed += 500) {
     await sleep(500);
-    const items = await executeJs(
-      client.ws,
+    const items = await client.readWebview(
       `[...document.querySelectorAll('.note-row, [data-note-id]')].map(el => (el.getAttribute('data-note-id') || el.textContent.trim()))`,
+      'sidebar note list',
     );
     if (items.some((t) => t.includes(titleSubstring))) return;
   }
@@ -148,9 +148,9 @@ async function waitForNoteInSidebar(client, titleSubstring, timeoutMs = 5_000) {
 
 /** Get all note titles currently visible in the sidebar. */
 async function getSidebarTitles(client) {
-  return executeJs(
-    client.ws,
+  return client.readWebview(
     `[...document.querySelectorAll('.note-row, [data-note-id]')].map(el => (el.getAttribute('data-note-id') || el.textContent.trim()))`,
+    'sidebar note list',
   );
 }
 
@@ -403,6 +403,103 @@ async function renamePropagation(a, b, server) {
   );
 }
 
+async function collisionPlacementFollowsOpenNote(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+
+  // Own the push/pull on both clients (same live-sync race family as
+  // renamePropagation) so the collision lands in B's explicit syncNow and the
+  // reported rename + canonical adopt arrive in ONE summary.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+
+  // A mints the OLDER object. Server object ids are uuidv7 (time-ordered), so
+  // A's object is lexicographically smaller and deterministically wins any
+  // filename collision against B's later object — no coin flip.
+  await a.writeNote('stuff/shared', '# from A');
+  await a.syncNow();
+
+  // B pulls A's note, then creates and MAPS its own distinct 'shared' note
+  // (synced before any rival exists under that name) and opens it.
+  await b.syncNow();
+  assert(await b.noteExists('stuff/shared'), 'B should have pulled A’s note');
+  await b.writeNote('shared', '# from B');
+  await b.syncNow();
+  await b.openNote('shared');
+  await waitForOpenNoteTitle(b, 'shared');
+
+  // A moves its older object onto the name B has open. A same-basename move
+  // is collapsed into a rename of the SAME object by the push-side pairing,
+  // so the older (winning) object id survives. A has not pulled B's 'shared',
+  // so the move lands cleanly on A.
+  await a.moveNote('stuff/shared', 'shared');
+  await a.syncNow();
+
+  // B pulls the renamed rival. A's smaller object id wins the canonical name,
+  // so the engine relocates B's locally-mapped note to
+  // `shared (conflict <oid8>)` — a collision placement it must report as
+  // rename intent in the summary, and B's open tab/editor must follow.
+  const bResult = await b.syncNow();
+
+  const bFiles = (await b.listNotes()).map((f) => f.filename || f.name || f);
+  const conflictFile = bFiles.find((name) => name.includes('shared (conflict'));
+  assert(conflictFile, `B should keep both rivals, got ${JSON.stringify(bFiles)}`);
+  const conflictId = conflictFile.replace(/\.md$/, '');
+
+  assertEqual(await b.readNote('shared'), '# from A', 'canonical name should hold A’s content');
+  assertEqual(await b.readNote(conflictId), '# from B', 'conflict copy should hold B’s content');
+  assert(!(await b.noteExists('stuff/shared')), 'B should not keep the pre-move path');
+
+  // The relocation is reported in the summary itself — never inferred by the
+  // shell from id patterns.
+  const renames = bResult.summary.renamed ?? [];
+  assert(
+    renames.some((pair) => pair.fromId === 'shared' && pair.toId === conflictId),
+    `summary should report the collision placement as a rename, got ${JSON.stringify(renames)}`,
+  );
+
+  const state = await waitForOpenNoteTitle(b, conflictId);
+  assertEqual(state.originalId, conflictId, 'open note should follow the collision placement');
+  assertEqual(state.editorContent, '# from B', 'editor should keep showing B’s own content');
+  assertEqual(
+    state.hash,
+    `#/note/${encodeURIComponent(conflictId)}`,
+    'route should follow the collision placement',
+  );
+
+  // The relocation renamed B's open note on disk (shared.md → the conflict
+  // copy) and rewrote shared.md with A's content. Drive the file-watcher
+  // events those mutations emit and AWAIT their handling — the resolved
+  // handlers are the observable "external change processed" signal (M15),
+  // replacing a fixed settle window. A followed collision placement must
+  // survive its own watcher aftermath without closing the note or toasting a
+  // delete.
+  await b.deliverFileChange('unlink', 'shared.md');
+  await b.deliverFileChange('add', conflictFile);
+  await b.deliverFileChange('change', 'shared.md');
+  const stableState = await b.getOpenNoteState();
+  assertEqual(
+    stableState.originalId,
+    conflictId,
+    'open note should remain stable after watcher aftermath',
+  );
+  assert(
+    stableState.toastMessage === '' || stableState.toastMessage === 'Sync complete',
+    `collision placement should not surface a delete/change toast, got ${JSON.stringify(stableState.toastMessage)}`,
+  );
+
+  // A converges on the identical file set (every client mints the same
+  // loser name).
+  await a.syncNow();
+  const aFiles = (await a.listNotes()).map((f) => f.filename || f.name || f);
+  assert(
+    aFiles.includes(conflictFile),
+    `A should mint the identical conflict name, got ${JSON.stringify(aFiles)}`,
+  );
+  assertEqual(await a.readNote('shared'), '# from A', 'A canonical should hold A’s content');
+  assertEqual(await a.readNote(conflictId), '# from B', 'A conflict copy should hold B’s content');
+}
+
 async function activeNoteReload(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
@@ -643,6 +740,17 @@ async function externalWatcherKeepsDirtyDraft(a, _b, _server) {
 async function deleteVsEdit(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the delete-then-edit ordering this scenario asserts ("B syncs first —
+  // edit wins"). With the live loop running, a background cycle can push A's
+  // delete or pull B's edit between the explicit steps below, so the "B first"
+  // premise stops holding and A converges to the (correct, non-lossy) delete
+  // instead of B's edit — the same contended-convergence hazard the sibling
+  // scenarios (fileMovedToTwoFoldersByAandB, concurrentOfflineFolderRename,
+  // fileMoveOnAEditOnB) pause auto-sync to avoid. Pausing here changes nothing
+  // about the conflict tested (A deletes, B edits, both from the shared
+  // baseline); it only makes the stated sync ordering real.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
 
   // Both get a shared note
   await a.writeNote('contested', '# Original');
@@ -656,13 +764,13 @@ async function deleteVsEdit(a, b, server) {
   // B syncs first — edit wins
   await b.syncNow();
 
-  // A syncs to pick up B's version. Delete-vs-edit resolves in B's favor and
-  // A pulls the surviving edit back — but this can take more than one sync
-  // round: A's explicit sync (or an earlier auto-sync) pushes A's delete
-  // first, and B's edit only lands on a later pull. Poll until it converges
-  // instead of assuming a fixed number of syncs. readNote returns "" (not an
-  // error) for an absent file, so read the content directly and loop until it
-  // matches — a plain read cannot distinguish "not pulled yet" from "gone".
+  // A syncs to pick up B's version. Each cycle is push-first: A's push of its
+  // stale delete hits a 409 (B already bumped the version) and the client
+  // restores B's surviving edit, which the same cycle's pull confirms. Poll
+  // rather than assume a fixed round count — the restore can trail the push by
+  // a cycle. readNote returns "" (not an error) for an absent file, so read the
+  // content directly and loop until it matches — a plain read cannot
+  // distinguish "not pulled yet" from "gone".
   let aContent = '';
   for (let attempt = 0; attempt < 6; attempt += 1) {
     await a.syncNow();
@@ -1606,6 +1714,11 @@ const scenarios = [
   { name: 'concurrent edit conflict', fn: concurrentEditConflict, matrices: ['desktop-desktop'] },
   { name: 'three way merge', fn: threeWayMerge, matrices: ['desktop-desktop'] },
   { name: 'rename propagation', fn: renamePropagation, matrices: ['desktop-desktop'] },
+  {
+    name: 'collision placement follows open note',
+    fn: collisionPlacementFollowsOpenNote,
+    matrices: ['desktop-desktop'],
+  },
   { name: 'active note reload', fn: activeNoteReload, matrices: ['desktop-desktop'] },
   // Folder-support v1 scenarios — see Specs § Sync conflict resolution.
   {

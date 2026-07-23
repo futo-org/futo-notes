@@ -1,80 +1,76 @@
-import { isDesktop, isMac } from '$lib/platform';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
 
-interface NotesShellShortcutActions {
+export interface NotesShellShortcutDeps {
   openSearch: () => void;
   createNote: () => void;
 }
 
-export function registerNotesShellShortcuts(actions: NotesShellShortcutActions): () => void {
-  const handleShortcut = (event: KeyboardEvent): void => {
-    const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
+function isMacAgent(): boolean {
+  return typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
+}
 
-    if (isDesktop) {
-      if (event.ctrlKey && !event.shiftKey && event.key === 'PageDown') {
+// Desktop tab + navigation accelerators (tabs.md). Ctrl+Tab cycling always uses
+// the physical Ctrl key (even on macOS); the primary-modifier accelerators use
+// Cmd on macOS and Ctrl elsewhere.
+export function registerNotesShellShortcuts(deps: NotesShellShortcutDeps): () => void {
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.ctrlKey && !event.altKey && event.key === 'Tab') {
+      event.preventDefault();
+      if (event.shiftKey) tabsStore.prevTab();
+      else tabsStore.nextTab();
+      return;
+    }
+    if (event.ctrlKey && event.key === 'PageDown') {
+      event.preventDefault();
+      tabsStore.nextTab();
+      return;
+    }
+    if (event.ctrlKey && event.key === 'PageUp') {
+      event.preventDefault();
+      tabsStore.prevTab();
+      return;
+    }
+    if (isMacAgent() && event.metaKey && event.altKey) {
+      if (event.key === 'ArrowRight') {
         event.preventDefault();
         tabsStore.nextTab();
         return;
       }
-      if (event.ctrlKey && !event.shiftKey && event.key === 'PageUp') {
+      if (event.key === 'ArrowLeft') {
         event.preventDefault();
         tabsStore.prevTab();
         return;
       }
-      if (event.ctrlKey && event.key === 'Tab') {
-        event.preventDefault();
-        if (event.shiftKey) tabsStore.prevTab();
-        else tabsStore.nextTab();
-        return;
-      }
-      if (
-        isMac &&
-        event.metaKey &&
-        event.altKey &&
-        (event.key === 'ArrowRight' || event.key === 'ArrowLeft')
-      ) {
-        event.preventDefault();
-        if (event.key === 'ArrowRight') tabsStore.nextTab();
-        else tabsStore.prevTab();
-        return;
-      }
-
-      if (modifierPressed) {
-        if (event.key === 't' && !event.shiftKey) {
-          event.preventDefault();
-          tabsStore.newTab();
-          return;
-        }
-        if (event.key === 'w') {
-          event.preventDefault();
-          tabsStore.closeActive();
-          return;
-        }
-        if (event.key === 'T' || (event.shiftKey && event.key === 't')) {
-          event.preventDefault();
-          tabsStore.reopenLastClosed();
-          return;
-        }
-        if (event.key >= '1' && event.key <= '9') {
-          event.preventDefault();
-          const tabNumber = Number(event.key);
-          if (tabNumber === 9) tabsStore.activateLast();
-          else tabsStore.activateByIndex(tabNumber - 1);
-          return;
-        }
-      }
     }
 
-    if (!modifierPressed) return;
-    if (event.key === 'p') {
-      event.preventDefault();
-      actions.openSearch();
-    } else if (event.key === 'n') {
-      event.preventDefault();
-      actions.createNote();
-    }
-  };
+    const modifier = isMacAgent() ? event.metaKey : event.ctrlKey;
+    if (!modifier || event.altKey) return;
 
-  window.addEventListener('keydown', handleShortcut);
-  return () => window.removeEventListener('keydown', handleShortcut);
+    const key = event.key.toLowerCase();
+    if (key === 'p') {
+      event.preventDefault();
+      deps.openSearch();
+    } else if (key === 'n') {
+      event.preventDefault();
+      deps.createNote();
+    } else if (key === 't' && event.shiftKey) {
+      event.preventDefault();
+      tabsStore.reopenLastClosed();
+    } else if (key === 't') {
+      event.preventDefault();
+      tabsStore.newTab();
+    } else if (key === 'w') {
+      event.preventDefault();
+      tabsStore.closeActive();
+    } else if (/^[1-9]$/.test(event.key)) {
+      event.preventDefault();
+      const position = Number(event.key);
+      // 9 always jumps to the last tab regardless of count (tabs.md).
+      if (position === 9) tabsStore.activateLast();
+      else tabsStore.activateByIndex(position - 1);
+    }
+  }
+
+  window.addEventListener('keydown', handleKeydown);
+  return () => window.removeEventListener('keydown', handleKeydown);
 }
