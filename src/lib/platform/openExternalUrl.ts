@@ -1,6 +1,6 @@
-import { isTauri } from '$lib/platform';
+import { isTauri } from './index';
 
-export function openUrl(url: string): void {
+export function openExternalUrl(url: string): void {
   if (isTauri) {
     void import('@tauri-apps/plugin-opener').then(({ openUrl: tauriOpen }) => {
       void tauriOpen(url);

@@ -15,9 +15,9 @@
 
   import AppearanceSettingsSection from './AppearanceSettingsSection.svelte';
   import BlockingSettingsOverlay from './BlockingSettingsOverlay.svelte';
-  import CrashReportingSettingsSection from './CrashReportingSettingsSection.svelte';
   import DangerSettingsSection from './DangerSettingsSection.svelte';
   import DevSyncErrorSettingsSection from './DevSyncErrorSettingsSection.svelte';
+  import IssueReportingSettingsSection from './IssueReportingSettingsSection.svelte';
   import StorageSettingsSection from './StorageSettingsSection.svelte';
   import SyncSettingsSection from './SyncSettingsSection.svelte';
   import UpdatesSettingsSection from './UpdatesSettingsSection.svelte';
@@ -210,7 +210,7 @@
           backgroundError={backgroundSyncError}
           backgroundErrorMessage={backgroundSyncErrorMessage}
         />
-        <CrashReportingSettingsSection
+        <IssueReportingSettingsSection
           enabled={preferences.crashReporting.enabled}
           alwaysSend={preferences.crashReporting.alwaysSend}
           ontoggleenabled={toggleCrashReporting}

@@ -78,6 +78,17 @@
   color: var(--color-danger);
 }
 
+.settings-btn.settings-issue-link {
+  margin-top: 0;
+  border-radius: 0 0 12px 12px;
+}
+
+.settings-external-icon {
+  color: var(--color-muted);
+  font-size: 20px;
+  line-height: 1;
+}
+
 .settings-btn-text {
   display: flex;
   flex-direction: column;
