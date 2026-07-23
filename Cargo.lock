@@ -1623,10 +1623,12 @@ dependencies = [
  "hmac",
  "pbkdf2",
  "rand 0.8.5",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",
  "thiserror 1.0.69",
+ "time",
  "unicode-normalization",
 ]
 

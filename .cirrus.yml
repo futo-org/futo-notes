@@ -43,12 +43,106 @@ test_desktop_smoke_macos_task:
       NOTES_DIR=$(mktemp -d)
       mkdir -p "$HOME/Library/Application Support/com.futo.notes"
       echo '{"notesDir":"'"$NOTES_DIR"'"}' > "$HOME/Library/Application Support/com.futo.notes/notes-dir-override.json"
-    # Launch (Cirrus macOS VMs have a display — no xvfb needed)
+    # Launch (Cirrus macOS VMs have a display — no xvfb needed). Log +
+    # screenshots land under the repo checkout (not /tmp) so the always:
+    # artifacts block below can copy them out via --artifacts-dir.
+    - mkdir -p test-screenshots
     - |
-      target/debug/futo-notes-tauri > /tmp/tauri-smoke.log 2>&1 &
+      target/debug/futo-notes-tauri > test-screenshots/tauri-smoke.log 2>&1 &
     # Run smoke tests (script handles port discovery from log)
-    - node tests/desktop-smoke.mjs --log-file /tmp/tauri-smoke.log
+    - node tests/desktop-smoke.mjs --log-file test-screenshots/tauri-smoke.log
     - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
+  always:
+    desktop_smoke_artifacts:
+      path: "test-screenshots/**"
+
+test_ios_native_task:
+  name: testFutoNotesIOSNative
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  testFutoNotesIOSNative_script:
+    - brew install node@22 xcodegen
+    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y
+    - export PATH="$HOME/.cargo/bin:$PATH"
+    - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+    - pnpm install --frozen-lockfile
+    # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings.
+    - bash scripts/build-rust-ios.sh
+    # Embedded editor bundle used by the native bridge tests.
+    - pnpm exec vite build --config vite.editor.config.ts
+    - (cd apps/ios && xcodegen generate)
+    # xcodebuild test requires one concrete simulator. Prefer an already-booted
+    # iPhone; otherwise boot the first available iPhone runtime on the image.
+    - |
+      SIM=$(xcrun simctl list devices booted | sed -n 's/.*(\([0-9A-Fa-f-]\{36\}\)).*Booted.*/\1/p' | head -1)
+      if [ -z "$SIM" ]; then
+        SIM=$(xcrun simctl list devices available | sed -n '/iPhone/s/.*(\([0-9A-Fa-f-]\{36\}\)).*/\1/p' | head -1)
+        if [ -z "$SIM" ]; then
+          echo "ERROR: no available iPhone simulator found" >&2
+          xcrun simctl list devices available >&2
+          exit 1
+        fi
+        xcrun simctl boot "$SIM"
+      fi
+      xcrun simctl bootstatus "$SIM" -b
+      echo "Testing on simulator $SIM"
+      export SIM
+    # xcodebuild's EXIT CODE is unreliable for a Swift-Testing-only target: it
+    # returns non-zero for the empty XCTest bundle's "Executed 0 tests" on some
+    # Xcode versions even when Swift Testing passed and "** TEST SUCCEEDED **"
+    # printed (reproduced on the shared Mac: Xcode 26.2 exits non-zero, 26.6
+    # exits 0, byte-identical output). So do NOT gate on its exit here; capture
+    # the log and let the outcome arbiter below decide (M11: assert outcomes,
+    # not exit codes).
+    - |
+      set -o pipefail
+      # `tee` cannot create the log if its dir is absent — and on a fresh CI
+      # clone apps/ios/.build does not exist until xcodebuild's -derivedDataPath
+      # makes it, by which point tee has already failed to open the file
+      # (output still streams to the Cirrus log, so the file silently stays
+      # empty). A warm local .build hid this. Create the dir first.
+      mkdir -p apps/ios/.build
+      set +e
+      xcodebuild test -project apps/ios/FutoNotesNative.xcodeproj \
+        -scheme FutoNotesNative \
+        -destination "id=$SIM" \
+        -derivedDataPath apps/ios/.build \
+        -resultBundlePath apps/ios/.build/TestResults.xcresult \
+        CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
+        2>&1 | tee apps/ios/.build/xcodebuild-test.log
+      XCODEBUILD_EXIT=${PIPESTATUS[0]}
+      set -e
+      echo "xcodebuild-exit=$XCODEBUILD_EXIT (informational; the arbiter below decides)"
+    # M11 outcome arbiter — pass/fail from what xcodebuild REPORTED, never its
+    # exit code. Layered so it can never go silently green.
+    - |
+      LOG=apps/ios/.build/xcodebuild-test.log
+      # (1) Any genuine test/build failure marker -> red.
+      if grep -Eq '\*\* TEST FAILED \*\*|Testing failed:|Failing tests:|Executed [0-9]+ tests?, with [1-9][0-9]* failures?|Test run with [0-9]+ tests?( in [0-9]+ suites?)? failed' "$LOG"; then
+        echo "ERROR: xcodebuild reported test/build failures" >&2
+        grep -Ei 'fail' "$LOG" | tail -20 >&2
+        exit 1
+      fi
+      # (2) Require a positive pass summary with >=1 executed test (catches
+      #     build failures and zero-test runs — the empty XCTest "Executed 0
+      #     tests" line does NOT satisfy this).
+      if ! grep -Eq 'Test run with [1-9][0-9]* tests?( in [0-9]+ suites?)? passed|Executed [1-9][0-9]* tests?, with 0 failures' "$LOG"; then
+        echo "ERROR: no passing test summary with >=1 executed test" >&2
+        grep -E 'Executed [0-9]+ tests?|Test run with [0-9]+ tests?' "$LOG" >&2 || echo "(no test summary at all)" >&2
+        exit 1
+      fi
+      # (3) Require the overall success marker.
+      if ! grep -q '\*\* TEST SUCCEEDED \*\*' "$LOG"; then
+        echo "ERROR: no '** TEST SUCCEEDED **' marker in the test log" >&2
+        exit 1
+      fi
+      echo "iOS tests passed (arbiter: TEST SUCCEEDED + >=1 executed test + no failure markers)"
+  always:
+    ios_test_results_artifacts:
+      path: "apps/ios/.build/TestResults.xcresult/**"
 
 build_ios_task:
   name: buildFutoNotesIOS

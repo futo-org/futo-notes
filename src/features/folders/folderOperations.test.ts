@@ -2,22 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   applyLocalMutation: vi.fn(),
-  rebaseEmptyFolders: vi.fn(),
+  createFolder: vi.fn(),
   rebaseOpenFolders: vi.fn(),
   renameFolder: vi.fn(),
 }));
 
 vi.mock('$lib/localNoteStore', () => ({
   getLocalNoteStore: vi.fn(async () => ({
+    createFolder: mocks.createFolder,
     renameFolder: mocks.renameFolder,
   })),
 }));
 vi.mock('$features/notes/notes.svelte', () => ({
   _applyLocalMutation: mocks.applyLocalMutation,
-}));
-vi.mock('./emptyFolders.svelte', () => ({
-  rebaseEmptyFolders: mocks.rebaseEmptyFolders,
-  removeEmptyFolderTree: vi.fn(),
 }));
 vi.mock('./folderExpansion.svelte', () => ({
   openFolderAndAncestors: vi.fn(),
@@ -25,7 +22,7 @@ vi.mock('./folderExpansion.svelte', () => ({
   removeOpenFolderTree: vi.fn(),
 }));
 
-import { renameOrMoveFolder } from './folderOperations';
+import { createFolder, renameOrMoveFolder } from './folderOperations';
 
 describe('renameOrMoveFolder', () => {
   beforeEach(() => {
@@ -37,6 +34,8 @@ describe('renameOrMoveFolder', () => {
       removed: ['Projects/Roadmap'],
       upserted: [],
       renamed: [{ from: 'Projects/Roadmap', to: 'Archive/Roadmap' }],
+      folders: ['Archive'],
+      finalId: null,
       warnings: [],
     };
     mocks.renameFolder.mockResolvedValue(mutation);
@@ -47,5 +46,29 @@ describe('renameOrMoveFolder', () => {
     expect(mocks.renameFolder).toHaveBeenCalledWith('Projects', 'Archive');
     expect(mocks.applyLocalMutation).toHaveBeenCalledWith(mutation);
     expect(result).toEqual({ ok: true, renames: mutation.renamed });
+  });
+});
+
+describe('createFolder', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('applies the committed folder projection', async () => {
+    const mutation = {
+      removed: [],
+      upserted: [],
+      renamed: [],
+      folders: ['Projects'],
+      finalId: null,
+      warnings: [],
+    };
+    mocks.createFolder.mockResolvedValue(mutation);
+
+    await expect(createFolder('', 'Projects', [])).resolves.toEqual({
+      ok: true,
+      path: 'Projects',
+    });
+    expect(mocks.applyLocalMutation).toHaveBeenCalledWith(mutation);
   });
 });

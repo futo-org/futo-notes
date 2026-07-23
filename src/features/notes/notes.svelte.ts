@@ -29,13 +29,6 @@ export function _setSearchReadyTimeoutForTest(ms: number): void {
   searchReadyTimeoutMs = ms;
 }
 
-const sortedNotes = $derived.by(() =>
-  [...notesCache].sort(
-    (left, right) =>
-      right.modificationTime - left.modificationTime || left.id.localeCompare(right.id),
-  ),
-);
-
 function preview(note: LocalNoteMetadata): NotePreview {
   return {
     id: note.id,
@@ -51,36 +44,29 @@ function replaceFromSnapshot(snapshot: LocalNoteSnapshot): void {
   setFolderSnapshot(snapshot.folders, notesCache);
 }
 
-/** The only cache mutation seam. Rust has already committed the complete
- * vault operation and returns every affected note, including backlink edits. */
+/** Project a committed Rust mutation by removing affected rows and splicing
+ * ordered upserts at clamped positions. No sort rule lives in this cache. */
 export function _applyLocalMutation(mutation: LocalNoteMutation): void {
-  const removed = new Set(mutation.removed);
-  const next = new Map(
-    notesCache.filter((note) => !removed.has(note.id)).map((note) => [note.id, note]),
-  );
-  for (const metadata of mutation.upserted) next.set(metadata.id, preview(metadata));
-  notesCache = [...next.values()];
+  const affected = new Set([
+    ...mutation.removed,
+    ...mutation.upserted.map((entry) => entry.note.id),
+  ]);
+  const next = notesCache.filter((note) => !affected.has(note.id));
+  for (const entry of mutation.upserted) {
+    const position = Math.min(Math.max(entry.position, 0), next.length);
+    next.splice(position, 0, preview(entry.note));
+  }
+  notesCache = next;
+  setFolderSnapshot(mutation.folders, notesCache);
   for (const warning of mutation.warnings) console.warn(`[local-notes] ${warning}`);
 }
 
-function finalId(mutation: LocalNoteMutation, fallback: string): string {
-  return (
-    mutation.renamed[mutation.renamed.length - 1]?.to ??
-    mutation.upserted[mutation.upserted.length - 1]?.id ??
-    fallback
-  );
-}
-
 function mtimeFor(mutation: LocalNoteMutation, id: string): number {
-  return mutation.upserted.find((note) => note.id === id)?.modifiedMs ?? Date.now();
+  return mutation.upserted.find((entry) => entry.note.id === id)?.note.modifiedMs ?? Date.now();
 }
 
 export function whenNotesReady(): Promise<void> {
   return notesReadyPromise;
-}
-
-export function whenSearchIndexReady(): Promise<void> {
-  return searchReady ?? Promise.resolve();
 }
 
 export async function initNotes(onStep?: (label: string) => void): Promise<void> {
@@ -92,49 +78,40 @@ export async function initNotes(onStep?: (label: string) => void): Promise<void>
   replaceFromSnapshot(bootstrap.snapshot);
   for (const warning of bootstrap.warnings) console.warn(`[local-notes] ${warning}`);
 
-  // Index reconciliation remains background work. A user search can await this
-  // promise, but initial list rendering never does.
-  searchReady = waitUntilSearchReady(store);
+  // Search may await background index readiness, but initial rendering never
+  // does. Timeout or rejection degrades to empty results while the engine heals.
+  searchReady = store.waitUntilSearchReady(searchReadyTimeoutMs).then(
+    () => undefined,
+    (err) => {
+      console.warn('[local-notes] search readiness wait failed:', err);
+    },
+  );
   initialized = true;
   notesReadyResolve?.();
   notesReadyResolve = null;
   onStep?.('initNotes: done');
 }
 
-async function waitUntilSearchReady(
-  store: Awaited<ReturnType<typeof getLocalNoteStore>>,
-): Promise<void> {
-  const deadline = Date.now() + searchReadyTimeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      if ((await store.searchStatus()).keyword.ready) return;
-    } catch (err) {
-      // A transient status-probe rejection must NOT poison this shared promise
-      // (every search awaits it) — log and keep polling until the deadline.
-      console.warn('[local-notes] search status probe failed:', err);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  // Deadline hit without readiness: degrade. store.search returns empty until
-  // the index opens (it self-heals via the retry cooldown), so a never-ready
-  // engine can never hang search.
-}
-
-/** Test/embed seam: no disk or search side effects. */
+/** Test/embed seam: no disk or search side effects. Callers supply previews
+ * already in engine order (native shells pass their engine-ordered list). */
 export function setNotesUniverse(previews: NotePreview[]): void {
   notesCache = previews;
 }
 
 export function _injectTestNote(id: string, title: string): void {
-  notesCache.push({ id, title, preview: '', modificationTime: Date.now(), tags: [] });
+  // Newest-first: the cache holds engine order and Date.now() is the newest.
+  notesCache.unshift({ id, title, preview: '', modificationTime: Date.now(), tags: [] });
 }
 
 export function noteTitleFromId(id: string): string {
   return id.slice(id.lastIndexOf('/') + 1);
 }
 
+/** The note list in engine order (modified desc, id asc). The order is
+ * maintained purely by applying snapshots and mutation splices — the
+ * projection holds no comparator (ADR-0001). */
 export function getAllNotes(): NotePreview[] {
-  return sortedNotes;
+  return notesCache;
 }
 
 export function getNoteById(id: string): NotePreview | undefined {
@@ -156,7 +133,7 @@ export async function createNote(
   const store = await getLocalNoteStore();
   const mutation = await store.save(null, id, content);
   _applyLocalMutation(mutation);
-  const createdId = finalId(mutation, id);
+  const createdId = mutation.finalId ?? id;
   return { id: createdId, mtime: mtimeFor(mutation, createdId) };
 }
 
@@ -170,7 +147,7 @@ export async function updateNote(
   const store = await getLocalNoteStore();
   const mutation = await store.save(originalId ?? null, id, content, overrideMtime);
   _applyLocalMutation(mutation);
-  const savedId = finalId(mutation, id);
+  const savedId = mutation.finalId ?? id;
   return { id: savedId, mtime: mtimeFor(mutation, savedId) };
 }
 
@@ -186,7 +163,7 @@ export async function moveNote(
   }
   const mutation = await (await getLocalNoteStore()).move(fromId, toId);
   _applyLocalMutation(mutation);
-  const id = finalId(mutation, toId);
+  const id = mutation.finalId ?? toId;
   return { id, mtime: mtimeFor(mutation, id) };
 }
 

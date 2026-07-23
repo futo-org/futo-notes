@@ -13,7 +13,6 @@ vi.mock('$features/folders/folderExpansion.svelte', () => ({
 }));
 vi.mock('$features/folders/emptyFolders.svelte', () => ({
   getEmptyFolders: vi.fn(() => []),
-  refreshEmptyFolders: vi.fn(),
 }));
 vi.mock('$features/folders/folderOperations', () => ({
   deleteFolder: vi.fn(),

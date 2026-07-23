@@ -101,6 +101,14 @@ this file states the behaviors a human cares about.
   footprint (and the widget should render at a definite height) — otherwise
   CM6 re-sizes the off-screen gap when the element scrolls back into view and
   jerks the scroll position on iOS momentum scrolling. → docs/learnings/hr-scroll-jank.md
+- Image widgets re-measure on load. On the native shells an embedded image's
+  bytes arrive asynchronously (fetched through the native scheme handler after
+  the widget's first paint), so its real height is unknown when CM6 first
+  measures it. The widget calls `view.requestMeasure()` from the `<img>`
+  `onload` handler so CM6 recomputes its height map once the image resolves —
+  otherwise the image renders cut off at the placeholder height on first load
+  until an unrelated transaction (e.g. tapping it) forces a re-layout.
+  *(iOS/Android native)* → live-preview/images.ts
 - On the native shells (iOS **and** Android — CM6 owns its own scroller), the
   editor warms CM6's height map on note load (and after font load / width change)
   by measuring every line's real height up front. Off-screen wrapped lines are
@@ -451,8 +459,8 @@ EditorWebView.swift, EditorWebView.kt
   the _current_ id and the in-flight save is cancelled — otherwise a stale save
   recreates a ghost note at the old id (data loss). → NoteEditorScreen.kt /
   NoteEditorView.swift `commitRename`
-- Leaving the editor flushes a pending save only if the content changed and the
-  note still exists.
+- Leaving the editor flushes a pending save only if the content changed. The
+  engine then decides whether the note is written, recreated, or parked.
 - Backgrounding the app makes a **best-effort** flush of the open editor's
   pending edit at the first leave-foreground signal, so an edit caught inside the
   autosave debounce is usually persisted before the OS jetsams the process. The
@@ -460,29 +468,34 @@ EditorWebView.swift, EditorWebView.kt
   write — true on both native shells. → Android MainActivity `onPause` →
   `NotesStore.flushPendingEditor`; iOS FutoNotesApp scenePhase
   `.inactive`/`.background` → `NotesStore.flushPendingEditor`
-- A leave/background flush is a **conditional write**: it persists only if the
-  note still holds the content the editor last saw, so content a live pull
-  adopted since the editor's last read is never clobbered by a stale flush.
-  (Check-then-atomic-write, so a narrow single-process syscall window remains —
-  accepted; not a true compare-and-swap.) _(iOS, Android)_ →
-  `futo_notes_model::write_note_if_unchanged` via FFI `write_if_unchanged`;
-  `NotesStore.flushAsync`. iOS additionally makes the flush **never drop** a dirty
-  draft when the write is skipped: if the note was **deleted** under the editor it
-  is re-created at its original id (edit-wins dirty-keep — the same thing the
-  editor's resume autosave does, so survive + jetsam converge on ONE home with no
-  duplicate copy); if the note was **changed** by a peer it is parked as a
-  conflict copy (`parkDraftCopy`) so the local edit survives without clobbering
-  the peer's version. A clean editor never flushes, so a genuinely abandoned note
-  is never resurrected. The re-create is conditional-on-absent
-  (`create_note_if_absent`, O_EXCL — the exists-check and the create are one
-  syscall), so a live-sync write that recreates the id OUTSIDE the store's
-  serialization in the flush window is not clobbered: if the id reappeared the
-  recreate is skipped and the draft is parked as a conflict copy instead. →
-  `futo_notes_model::create_note_if_absent` via FFI `create_if_absent`. Verified
-  on iOS 2026-07-13 (sim: clean re-background after a settled save left mtime
-  unchanged; dirty-on-deleted backgrounded across cycles yields exactly one home —
-  the re-created note — and no conflict copy) + Rust unit tests
-  (creates-when-missing / never-clobbers-existing / rejects-traversal).
+- A leave/background flush goes through the engine's ONE draft-saving verb
+  (persist-or-park, ADR-0001): `flush_draft(id, base, content)` resolves every
+  surprise itself under the engine's per-workflow serialization and returns one
+  flush disposition plus the mutation to apply — **wrote** (the note still held
+  `base`; content a live pull adopted since the editor's last read is never
+  clobbered by a stale flush), **converged** (disk already equals the draft —
+  explicit, no rewrite, no mtime bump; shells never read disk to compare),
+  **recreated** (peer deleted; the edit wins at the ORIGINAL id — the same home
+  the editor's resume autosave rewrites, so survive + jetsam converge with no
+  duplicate copy; the install is atomic no-replace, so a live-sync write that
+  recreates the id outside the engine's serialization in the flush window is
+  not clobbered — the draft is parked instead), or **parked** as a conflict
+  copy (peer changed; both versions survive, the copy id reported). A dirty
+  draft is never silently dropped; a clean editor never flushes, so a genuinely
+  abandoned note is never resurrected. Conflict copies are named by the
+  engine's one conflict-naming rule ("<title> (conflict YYYY-MM-DD)", counter
+  suffix on a same-day collision), and parking is idempotent — a crash-window
+  double-park mints ONE copy. _(iOS; Android/desktop adopt in #38 — Android's
+  flush still drops on skip, desktop saves unconditionally.)_ →
+  `futo_notes_store::LocalNoteStore::flush_draft` via FFI `flush_draft`;
+  `NotesStore.flushDraft`/`flushAsync`; conflict naming
+  `futo_notes_core::conflict_names`. Guarded by the flush_draft unit tests in
+  crates/futo-notes-store/src/tests.rs (all four dispositions, converged/park
+  boundary, recreate-vs-reappeared window, park idempotency, recreate-arm
+  mutation positioning), the FFI note_contract test, and
+  apps/ios/Tests/FlushDraftVerbTests.swift. Earlier behavior verified on iOS
+  2026-07-13 (sim); verb wiring verified via `just test-ios-native`
+  2026-07-21.
 - The open editor's unsaved-draft register is **derived** from the editor's live
   state (note id, buffer, saved content, loaded) rather than hand-synced, so it
   goes clean the instant a save completes or a remote is adopted (no stale draft

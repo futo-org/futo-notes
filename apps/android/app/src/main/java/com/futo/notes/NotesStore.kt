@@ -6,7 +6,6 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.futo_notes_ffi.NoteMutation
@@ -32,12 +31,10 @@ data class NoteItem(
     val tags: List<String>,
 )
 
-/** The list's display order: most-recently-modified first, id ascending as the
- *  tiebreaker — matches the bootstrap scan's `(modified_ms desc, id asc)`
- *  (futo-notes-model `scan_notes`) so an in-place resort is identical to a
- *  fresh reload. Pinned by NoteListRepinTest. */
-internal val noteListOrder: Comparator<NoteItem> =
-    compareByDescending<NoteItem> { it.modifiedMs }.thenBy { it.id }
+/** Budget handed to the engine's bounded search-readiness wait
+ *  (`NoteStore.waitUntilSearchReady`) — the 200×25ms this shell's former poll
+ *  loop allowed. */
+internal const val SEARCH_READY_TIMEOUT_MS: ULong = 5_000uL
 
 /** An open editor's unsaved draft: the note [id] to persist, the [content] to
  *  write, and [base] — the content the editor believes is on disk (its
@@ -285,21 +282,11 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         }
     }
 
-    /** Re-sort the in-memory list most-recently-modified first WITHOUT a rescan
-     *  [list.md:24]. `write` keeps row identity/order stable while typing (so a
-     *  resort can't pop the open editor out from under the user); this sorts what
-     *  is already in memory and is called when a pop lands back on the list
-     *  (AppShell.pop). Pure state swap on main — no FFI, no I/O. */
-    fun resortInPlace() {
-        notes = notes.sortedWith(noteListOrder)
-    }
-
     suspend fun createNote(title: String, folder: String = ""): String? = try {
         val mutation = withContext(Dispatchers.IO) { core.createNote(title, folder, "") }
         applyMutation(mutation)
-        refreshFolders()
         signalLocalChange()
-        mutation.finalId(title)
+        mutation.finalId ?: title
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "createNote failed", e); null
     }
@@ -308,7 +295,6 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         try {
             val mutation = withContext(Dispatchers.IO) { core.delete(id) }
             applyMutation(mutation)
-            refreshFolders()
             signalLocalChange()
         } catch (e: Exception) { android.util.Log.e("NotesStore", "delete failed", e) }
     }
@@ -324,9 +310,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     suspend fun rename(oldId: String, newId: String): String = try {
         val mutation = withContext(Dispatchers.IO) { core.rename(oldId, newId) }
         applyMutation(mutation)
-        refreshFolders()
         signalLocalChange()
-        mutation.finalId(oldId)
+        mutation.finalId ?: oldId
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "rename failed", e); oldId
     }
@@ -334,17 +319,16 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     suspend fun moveNote(id: String, toFolder: String): String = try {
         val mutation = withContext(Dispatchers.IO) { core.moveNote(id, toFolder) }
         applyMutation(mutation)
-        refreshFolders()
         signalLocalChange()
-        mutation.finalId(id)
+        mutation.finalId ?: id
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "moveNote failed", e); id
     }
 
     suspend fun createFolder(path: String) {
         try {
-            withContext(Dispatchers.IO) { core.createFolder(path) }
-            refreshFolders()
+            val mutation = withContext(Dispatchers.IO) { core.createFolder(path) }
+            applyMutation(mutation)
             signalLocalChange()
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "createFolder failed", e)
@@ -359,9 +343,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     suspend fun deleteFolder(path: String): UInt? = try {
         val mutation = withContext(Dispatchers.IO) { core.deleteFolder(path) }
         applyMutation(mutation)
-        refreshFolders()
         signalLocalChange()
-        mutation.renamed.size.toUInt()
+        mutation.removed.size.toUInt()
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "deleteFolder failed for $path", e); null
     }
@@ -385,17 +368,16 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         }
     }
 
-    /** No shell-owned search or fallback: wait briefly for the Rust owner and
-     *  return its ranked result set. */
-    suspend fun search(query: String, limit: UInt = 50u): List<SearchHit> {
-        repeat(200) {
-            if (withContext(Dispatchers.IO) { core.keywordReady() }) {
-                return withContext(Dispatchers.IO) { core.search(query, limit) }
+    /** The engine owns the bounded readiness wait; a timeout returns an empty
+     *  result while the self-healing index continues in the background. */
+    suspend fun search(query: String, limit: UInt = 50u): List<SearchHit> =
+        withContext(Dispatchers.IO) {
+            if (core.waitUntilSearchReady(SEARCH_READY_TIMEOUT_MS)) {
+                core.search(query, limit)
+            } else {
+                emptyList()
             }
-            delay(25)
         }
-        return emptyList()
-    }
 
     private fun signalLocalChange() {
         if (!suppressAutoPush) onLocalChange?.invoke()
@@ -417,28 +399,20 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         folders = folderPaths
     }
 
-    /** The sole incremental cache seam. Rust has already committed collision
-     *  outcomes and every backlink rewrite represented by this result. */
+    /** Positions are post-removal; clamp them against a stale shell cache. */
     private fun applyMutation(mutation: NoteMutation) {
-        val removed = mutation.removed.toSet()
-        val next = notes.filterNot { it.id in removed }.toMutableList()
-        mutation.upserted.forEach { metadata ->
-            val item = metadata.toItem()
-            val index = next.indexOfFirst { it.id == item.id }
-            if (index >= 0) next[index] = item else next.add(0, item)
+        val affected = mutation.removed.toSet() + mutation.upserted.map { it.note.id }
+        val next = notes.filterNot { it.id in affected }.toMutableList()
+        mutation.upserted.forEach { entry ->
+            val position = entry.position.toInt().coerceIn(0, next.size)
+            next.add(position, entry.note.toItem())
         }
         notes = next
+        folders = mutation.folders
         mutation.warnings.forEach {
             android.util.Log.w("NotesStore", "local-note mutation: $it")
         }
     }
-
-    private suspend fun refreshFolders() {
-        folders = withContext(Dispatchers.IO) { core.scan().folders }
-    }
-
-    private fun NoteMutation.finalId(fallback: String): String =
-        renamed.lastOrNull()?.to ?: upserted.firstOrNull()?.id ?: fallback
 
     private fun NoteMetadata.toItem() =
         NoteItem(id, title, folder, modifiedMs, preview, richPreview, tags)

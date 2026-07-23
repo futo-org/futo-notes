@@ -3,14 +3,14 @@
 The home screen: notes in the current folder, a folder drawer, and search /
 new-note affordances.
 
-## Home ("For You") *(Tauri)*
+## Home ("For You") _(Tauri)_
 
 - With no note open, the main pane shows a "For You" feed of recent-note cards
   (title, preview, relative modified time); tapping a card opens the note.
   Cards reorder as notes are edited. → ForYouPage.svelte
-- The feed shows the **three** most recently modified notes, using the same
-  modified-desc / id-asc ordering as the note list (§12 drift watchlist); card
-  previews truncate to 60 characters. → forYou.ts
+- The feed shows the **three** most recently modified notes — the head of the
+  engine-ordered note list (a slice; the shell holds no comparator of its
+  own); card previews truncate to 60 characters. → forYou.ts
 - Relative times in the desktop UI (For You cards, images tab) use the
   vocabulary just now / Nm ago / Nh ago / yesterday / Nd ago / Nmo ago /
   Ny ago. → shared/time/formatRelativeTime.ts
@@ -27,38 +27,45 @@ new-note affordances.
 
 - Shows the notes in the current folder, or all notes when "All notes" is
   selected. → NoteListScreen.kt
-- Notes are sorted most-recently-modified first. **Opening a note does not count
-  as modifying it** — only an actual content or title change moves a note to the
-  top.
-- On the native shells the editor is a full-screen push (the list isn't visible
-  while editing), so a content/title edit refreshes the row **in place** while
-  typing — stable identity/order, no editor-popping, the deliberate
-  `NotesStore.write` optimization — and the list resorts
-  most-recently-modified-first when it re-appears on editor close, never on a
-  keystroke. The resort is a cheap in-memory sort (`NotesStore.resortInPlace()`,
-  key `modified` desc then `id`, matching the Rust scan order) fired from
-  `FolderContentsView.onAppear` on iOS and a `LaunchedEffect` in `NoteListScreen`
-  on Android. Desktop Tauri resorts live. → NotesStore.swift / NotesStore.kt
-  `resortInPlace`
-  > **Gap:** *(Android)* A **sync live pull** that creates or re-ranks a note
+- Notes are sorted most-recently-modified first, id ascending on a modified
+  tie. The sort rule lives **only in the Rust engine** (ADR-0001): snapshots
+  arrive sorted, and every committed mutation carries each affected note's
+  **final id** and its **position** in the sorted list (positions defined
+  after removals), together with the post-commit folder projection. All three
+  shells apply that result directly—no shell-side sort, identity rule, or
+  follow-up folder scan. Positions are clamped so a stale value cannot crash.
+  **Opening a note does not count as modifying
+  it** — only an actual content or title change moves a note to the top. →
+  futo-notes-store `vault::note_list_order` / `place_upserted`;
+  notes.svelte.ts `_applyLocalMutation`, NotesStore.swift / NotesStore.kt
+  `applyMutation`
+- On the native shells the editor is a full-screen push (the list isn't
+  visible while editing), so the splice that re-ranks an edited row happens
+  while the list is off-screen; the list re-appears already in engine order —
+  there is no on-appear resort. Android's return-to-list still re-pins an
+  at-top viewport to index 0 (`isAtListTop` + `requestScrollToItem` in
+  `AppShell.pop`) because LazyListState anchors to the previously-first row's
+  key. Desktop Tauri reorders live. → MainActivity.kt `AppShell.pop`,
+  NoteListScreen.kt `isAtListTop`
+  > **Gap:** _(Android)_ A **sync live pull** that creates or re-ranks a note
   > while the list is composed at the top still relies on LazyListState key
   > anchoring, so the remotely-changed row can land above the viewport until
   > the user drags. Same anchoring class as the local-edit invisibility bug
   > fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem`
-  > on the FAB path and a pop-time resort in `AppShell.pop()`); the
+  > on the FAB path and a pop-time re-pin in `AppShell.pop()`); the
   > `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt
   > `reloadAsync`, MainActivity.kt `AppShell.pop`
 - Tapping a note opens it in the editor (no autofocus). → NoteListScreen.kt /
   MainActivity.kt
 - The list keeps its scroll position while you navigate: scroll, open a note
   (or Search / Settings), come back — the list is where you left it, not
-  jumped to the top. → MainActivity.kt saved per-screen state *(Android
-  native)*, NoteListView.swift NavigationStack *(iOS native)*
-- An empty folder shows an empty state. *(Tauri/Android: "Nothing here yet".
+  jumped to the top. → MainActivity.kt saved per-screen state _(Android
+  native)_, NoteListView.swift NavigationStack _(iOS native)_
+- An empty folder shows an empty state. _(Tauri/Android: "Nothing here yet".
   iOS native distinguishes the case: "No notes yet" at the vault root, "Empty
-  folder" inside a folder — NoteListView.swift.)*
+  folder" inside a folder — NoteListView.swift.)_
 - The top bar is transparent at rest and gains a surface fill + bottom border
-  once the list is scrolled. *(Android)*
+  once the list is scrolled. _(Android)_
 - Each note row shows a **rich, multi-line** body preview rather than raw
   markdown: line breaks are preserved (up to 3 lines), heading/quote markers are
   stripped, task items render as ☐/☑, bullets as •, tables and rules are
@@ -66,20 +73,26 @@ new-note affordances.
   itself is kept as plain preview lines, and inline `**bold**` / `*italic*` /
   `` `code` `` / `~~strike~~` render as real styling. The block-markdown rewrite is the shared Rust rule
   `make_rich_preview` (futo-notes-model), exposed over FFI and carried on
-  `NoteMetadata.richPreview`. *(iOS native)* renders it via `AttributedString`
-  (`.inlineOnlyPreservingWhitespace`) → NoteListView.swift `NoteRow`; *(Android
-  native)* via a small inline-markdown `AnnotatedString` parser → NoteCard.kt /
+  `NoteMetadata.richPreview`. _(iOS native)_ renders it via `AttributedString`
+  (`.inlineOnlyPreservingWhitespace`) → NoteListView.swift `NoteRow`; _(Android
+  native)_ via a small inline-markdown `AnnotatedString` parser → NoteCard.kt /
   InlineMarkdown.kt.
   > **Gap:** Tauri desktop sidebar note rows show the **title only** — no body
   > preview at all. The single-line, markdown-opaque `make_preview` snippet
   > appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar
   > rows. The rich multi-line preview is native-only (iOS + Android) for now.
+- Preview text is never interactive: tapping anywhere on a note row — including
+  preview text that looks like a URL — always opens the note, never a link.
+  _(iOS native)_ `AttributedString(markdown:)` auto-attaches a `.link`
+  attribute to URL-shaped preview text; `NoteRow.stripLinkAttributes` removes
+  it from every run before render so the row's `NavigationLink` always gets
+  the tap. → NoteListView.swift `NoteRow`
 
 ## Folder drawer
 
 - Opened from the menu icon (or an edge swipe). Lists "All notes" first, then
-  each folder path, each with a live note count. → NoteListScreen.kt *(Android
-  native)*
+  each folder path, each with a live note count. → NoteListScreen.kt _(Android
+  native)_
 - Selecting a folder filters the list and closes the drawer.
 - A Settings entry sits at the bottom of the drawer.
 - **Tauri** does not use this "All notes" + per-folder-count drawer. Its
@@ -97,7 +110,7 @@ icon**. `NotesStore.noteCount(under:)` exists but is only used for delete
 confirmation, not surfaced as a per-folder count. → NoteListView.swift
 `FolderContentsView`
 
-## Sidebar drag & drop *(desktop)*
+## Sidebar drag & drop _(desktop)_
 
 - Notes and folders can be dragged onto a folder (or the root) in the sidebar
   to move them. Internal drags carry custom MIME types
@@ -140,9 +153,9 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   shown); picking a destination moves the file, keeps the note open under its
   new id, and rewrites backlinks. → FolderPickerModal.svelte
 - "Delete note" asks for confirmation ("This action cannot be undone."), then
-  deletes the file. *(Desktop)* routes through the OS trash — recoverable via
+  deletes the file. _(Desktop)_ routes through the OS trash — recoverable via
   the OS trash — falling back to permanent delete if the platform trash is
-  unavailable (e.g. headless CI). *(iOS, Android)* delete permanently; there
+  unavailable (e.g. headless CI). _(iOS, Android)_ delete permanently; there
   is no trash in the native UI flow. Sync is unaffected either way — the file
   leaving the vault tombstones the note on the next sync exactly as a
   permanent delete would. Deleting the only note in a folder prunes now-empty
@@ -160,6 +173,13 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   cannot be undone.") — editor menus, list rows, swipe actions, and search
   results alike (verified on emulator + simulator 2026-06-09). →
   NoteEditorScreen.kt, NoteEditorView.swift, ConfirmDialog.kt
+  > **iOS native**: the delete-note and delete-folder confirmations render as a
+  > centered, non-anchored card (a transparent `fullScreenCover`), never as an
+  > arrow popover. `.confirmationDialog`, attached at a container view far from
+  > the swiped/long-pressed row, could render as a popover anchored to that
+  > container in a regular-width horizontal size class (some large iPhones) —
+  > pointing the arrow at an unrelated row instead of the one being deleted
+  > (fixed 2026-07-22). → NoteListView.swift `DestructiveConfirmDialog`
 - **iOS native** note rows expose **Move to Folder…** and **Delete** via
   long-press context menu / swipe actions; the move sheet lists Root, every
   folder, and an inline "New Folder…" option, and the move is applied on
@@ -167,7 +187,10 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - **Android native** note rows expose the same Move to Folder… / Delete via
   long-press; the move sheet matches iOS (Root, every folder, inline "New
   Folder…") and applies the move + backlink relink immediately, with a
-  "Moved to {folder}" toast (verified on emulator 2026-06-09). →
+  "Moved to {folder}" toast. Its shared file placement uses an atomic
+  no-replace rename when Android FUSE rejects hard links, so create/move never
+  overwrites a note that appears concurrently (verified on emulator 2026-07-21;
+  race regression added 2026-07-21). →
   NoteListScreen.kt, FolderPickerSheet.kt
 - **Both native shells create notes as quick capture** (iOS "+" menu → New
   Note; Android FAB → New note): an "Untitled" note is created in the current
@@ -213,7 +236,7 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   case-insensitive sibling duplicates inline (verified on emulator
   2026-06-09). → NoteListScreen.kt, NewFolderDialog.kt
 
-## Sidebar tabs *(Tauri)*
+## Sidebar tabs _(Tauri)_
 
 - The drawer/sidebar has three tabs: **files** (folder tree + notes),
   **tags**, and **images**; the selected tab persists across sessions
@@ -239,6 +262,9 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 ## Folder management
 
 - A folder can be created from the new-item affordance ("New Folder").
+- Creating, renaming, moving, or deleting notes and folders returns one
+  committed store mutation containing both ordered note changes and the final
+  folder projection. Shells do not rescan the vault after local workflows.
 - Folder names must be unique among siblings (case-insensitive) and
   filesystem-safe; the shared sanitize rules apply. Enforced on Tauri
   (`folderOperations.ts`), Android (`NewFolderDialog.kt`), and iOS native
@@ -257,16 +283,18 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   > **Gap:** the native shells expose no folder-rename affordance yet — the
   > folder long-press menu offers Delete only (iOS `NoteListView.swift`, Android
   > `NoteListScreen.kt`). The shared `NoteStore.renameFolder` contract exists;
-  > only the native UI affordance remains. *(native shells)*
+  > only the native UI affordance remains. _(native shells)_
 - Notes and folders can be moved by drag-and-drop in the tree (note → folder,
   folder → folder, folder → root). A name collision on move resolves with a
   `-2`/`-3` suffix. Hovering a folder while dragging auto-expands it. →
-  FolderTreeView.svelte *(desktop)*
-  > **Gap:** the native shells can move a *note* into a folder ("Move to
+  FolderTreeView.svelte _(desktop)_
+  Moving a note creates its destination directory as part of the same Rust
+  workflow; native folder pickers do not issue a separate create-folder call.
+  > **Gap:** the native shells can move a _note_ into a folder ("Move to
   > Folder…") but expose no folder-move affordance — moving a folder itself
   > belongs in the folder long-press menu alongside Rename and Delete, and the
-  > shared `NoteStore` FFI facade has no move-folder primitive. *(native
-  > shells)*
+  > shared `NoteStore` FFI facade has no move-folder primitive. _(native
+  > shells)_
 - A folder can be **deleted**, behind a destructive confirmation ("Delete
   this folder? Notes inside it will be moved to the parent folder."), with
   **one converged semantic on every surface**: non-destructive move-up —

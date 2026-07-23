@@ -153,7 +153,7 @@ read the one for the layer you're editing.
 src/                    ← Shared Svelte 5 app (UI, reactive state, sync coordination)
   lib/rules.ts          ← Hot-path shim re-exporting the note rules from @futo-notes/editor
   lib/localNoteStore.ts ← Note/folder/search adapter; Rust in production, memory in browser tests
-  lib/platform/         ← Non-note shell storage/images/capabilities, pathSafety, tauriPaths
+  lib/platform/         ← Non-note shell storage/images/capabilities, pathSafety, tauri/notesRoot
   editor-embed/         ← Entry for the single-file editor.html embedded in the native shells
 crates/
   futo-notes-core/      ← Hashing, E2EE crypto, 3-way merge, conflict naming,
@@ -320,9 +320,11 @@ to do one, stop and apply the rule.
   (`futo-notes-model`), then regenerates fixtures (`pnpm exec tsx tests/conformance/generate.mjs`)
   and runs BOTH consumers (§7.3). CI's `--check` will catch you, but locally is cheaper.
 - **M8 — Editing generated files.** `docs/spec/GAPS.md`, `ToolbarSpec.swift`/`ToolbarSpec.kt`,
-  `apps/ios/Sources/Generated/*`, Android `uniffi/` bindings + `jniLibs`, `editor.html`.
-  **Rule:** edit the source of truth (spec gap notes / `packages/editor/src/toolbar.ts` / the FFI
-  crate / the web editor) and regenerate (`just spec-gaps`, `just toolbar-spec`,
+  `TitleSpec.swift`/`TitleSpec.kt`, `apps/ios/Sources/Generated/*`, Android `uniffi/` bindings +
+  `jniLibs`, `editor.html`.
+  **Rule:** edit the source of truth (spec gap notes / `packages/editor/src/toolbar.ts` /
+  `packages/editor/src/filename.ts` / the FFI crate / the web editor) and regenerate
+  (`just spec-gaps`, `just toolbar-spec`, `just title-spec`,
   `scripts/build-rust-{ios,android}.sh`, `vite build --config vite.editor.config.ts`).
 - **M9 — Stale FFI bindings.** Changing `futo-notes-ffi` (or a crate it re-exports) and testing
   against a native app built with old bindings — symptoms look like "my change did nothing" or
@@ -402,7 +404,9 @@ to do one, stop and apply the rule.
 
 ## 7. Quality bar per deliverable (checkable)
 
-Run `pnpm exec tsc --noEmit | head -30` before any full build; pipe builds through `| tail -20`.
+`just build` runs `tsc --noEmit` and `vite build`, truncated to `head -30`/`tail -20` under
+`pipefail` so a real failure still exits nonzero — run it rather than piping `tsc`/`vite build`
+through `head`/`tail` yourself without `pipefail`, which would swallow the exit code.
 Every logic change ships with a test — no exceptions. A bug fix's regression test must fail before
 the fix and pass after. In your final report, include commands run, pass/fail, and key observed
 behavior.
@@ -598,18 +602,28 @@ what you actually waited for. A second bump on the same job is forbidden (M15).
 ## 12. Drift watchlist (same logic in ≥2 places — move in lockstep)
 
 Conformance-locked or generated (safe, but regenerate on change): note and image rules TS↔Rust;
-safe note IDs TS↔Rust; toolbar and bridge manifests → generated native specs; Rust vault image
-extensions → generated UniFFI bindings for Swift/Kotlin; Rust Tauri sync records → generated TS.
+safe note IDs TS↔Rust; toolbar and bridge manifests → generated native specs; title-validation
+constants (`packages/editor/src/filename.ts` → `scripts/gen-title-spec.ts` →
+`TitleSpec.swift`/`TitleSpec.kt`); Rust vault image extensions → generated UniFFI bindings for
+Swift/Kotlin; Rust Tauri sync records → generated TS.
 
-Partially locked: `validateServerUrl` ×3 (TS and Swift read the full shared fixture — Swift via
-`apps/ios/Tests/ServerUrlConformanceTests.swift`; **Kotlin hand-mirrors only a 5-case subset**);
-title constraints across the hot-path/native surfaces.
+Fully locked: `validateServerUrl` ×3 (TS, Swift, and Kotlin all read the full shared fixture;
+Swift via `apps/ios/Tests/ServerUrlConformanceTests.swift`, Kotlin via
+`apps/android/app/src/test/java/com/futo/notes/SyncManagerDefaultsTest.kt`).
+
+Partially locked: title length + visible forbidden characters are generated from
+`packages/editor/src/filename.ts`, while control-character handling remains platform-specific in
+`scripts/gen-title-spec.ts` (Android matches the TS C0 + DEL set; iOS matches Rust's wider Unicode
+control set).
 
 **Not locked — real drift risk.** If you touch one, touch all, and say so in the commit:
 - Default notes-root split, 3 independent copies: Rust `vault_location.rs`, iOS `NotesStore.swift`,
-  Android `NotesStore.kt`.
-- Note sort order (`modified desc, id asc`): `notes.svelte.ts`, Rust store snapshots, iOS
-  `resortInPlace`.
+  Android `NotesStorage.kt`.
+- Note sort order (`modified desc, id asc`): Rust store (canonical — sorted snapshots + per-note
+  mutation positions, `vault::note_list_order`) + the browser in-memory harness
+  (`localNoteStore.ts` `compareNoteOrder`). The former shell copies are GONE — shells apply
+  engine-reported positions as verbatim splices (ADR-0001); never reintroduce a shell comparator
+  or a shell final-id heuristic.
 - Unique note-ID generation in Rust, TypeScript, Swift, and Kotlin.
 
 ## 13. Own the E2E experience
