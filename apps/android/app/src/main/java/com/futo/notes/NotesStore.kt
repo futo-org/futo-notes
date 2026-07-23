@@ -9,6 +9,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.futo.notes.storage.NotesStorage
+import com.futo.notes.storage.StorageMigrationGate
 import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.NoteMutation
 import uniffi.futo_notes_ffi.NoteStore

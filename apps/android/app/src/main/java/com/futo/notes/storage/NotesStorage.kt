@@ -1,4 +1,4 @@
-package com.futo.notes
+package com.futo.notes.storage
 
 import android.content.Context
 import android.os.Build
@@ -53,9 +53,16 @@ object NotesStorage {
     fun storageRecoveryDecision(
         savedMode: String?,
         pending: PendingStorageMigration,
+        sourceExists: Boolean = true,
     ): StorageRecoveryDecision {
         val activeMode = when (pending.phase) {
             StorageMigrationPhase.PREPARED -> pending.from
+            StorageMigrationPhase.FINALIZING -> {
+                check(!sourceExists) {
+                    "An interrupted finalization with a retained source requires intervention"
+                }
+                pending.to
+            }
             StorageMigrationPhase.ACTIVATED -> pending.to
         }
         val saved = savedMode?.let { runCatching { StorageMode.valueOf(it) }.getOrNull() }

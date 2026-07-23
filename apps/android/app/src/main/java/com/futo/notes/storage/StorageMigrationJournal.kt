@@ -1,11 +1,11 @@
-package com.futo.notes
+package com.futo.notes.storage
 
 import android.system.Os
 import android.system.OsConstants
 import java.io.File
 import java.io.FileOutputStream
 
-enum class StorageMigrationPhase { PREPARED, ACTIVATED }
+enum class StorageMigrationPhase { PREPARED, FINALIZING, ACTIVATED }
 
 data class PendingStorageMigration(
     val from: StorageMode,

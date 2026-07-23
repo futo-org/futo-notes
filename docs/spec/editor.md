@@ -203,6 +203,15 @@ native shells edit tags as text in the body, which is not a gap.
   `wikilinkClickHandler`, MainActivity.kt `onOpenNote` (push),
   NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`,
   tests/editor-embed-bridge.spec.ts
+- Native Back and resolved-wikilink navigation wait for every admitted editor
+  mutation, capture the latest live CM6 body, and persist-or-park a dirty
+  snapshot through the Rust draft workflow before changing the navigation
+  stack. A concurrent peer edit therefore keeps both versions instead of being
+  overwritten. A failed commit keeps the same editor visible and dirty and
+  surfaces the save failure. Android applies this to toolbar Back, system Back,
+  and wikilinks; iOS uses its custom navigation Back and wikilinks. →
+  `EditorNavigationCommit.kt`, `NoteEditorScreen.kt`,
+  `EditorHost.captureCurrentContent`, `NoteEditorView.requestNavigation`
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
   `[[Archive/Markdown demo]]`) and **self-referencing links inside the renamed
@@ -427,6 +436,14 @@ EditorWebView.swift, EditorWebView.kt
   `saveImageDataIntoVault` (Android), EditorWebView.swift `saveImageData` +
   `clipboardImageData` + EditorImages.swift `VaultImages.save` (iOS),
   fs_paste_clipboard_image (Tauri), tests/editor-embed-bridge.spec.ts
+- A delayed native picker/clipboard completion belongs to the editor attachment
+  generation that started it. Detaching, deleting, or adopting another note
+  invalidates the completion, so it cannot insert Markdown into a different
+  note. Android holds both the editor mutation permit and vault gate through
+  confirmed WebView insertion, and cancellation cannot leave a queued main-
+  thread insertion behind; iOS checks the adopted WebView generation before
+  inserting. → `EditorAttachmentGate.kt`, `EditorWebView.insertImageAndWait`,
+  `EditorWebView.swift` generation checks
 
 > **Gap:** Clipboard image paste is verified on Linux (WebKitGTK), Windows
 > (WebView2), native Android (emulator, 2026-06-22), and **macOS desktop**

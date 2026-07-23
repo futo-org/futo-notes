@@ -1,4 +1,4 @@
-package com.futo.notes
+package com.futo.notes.storage
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock

@@ -84,4 +84,41 @@ struct NativeMutationOutcomeTests {
             shouldHandleEditorDisappear(isDeleteConfirmationPresented: false)
         )
     }
+
+    @Test("navigation commits only a loaded dirty editor")
+    func navigationCommitDecision() {
+        #expect(
+            needsEditorCommitBeforeNavigation(
+                loaded: true,
+                content: "local edit",
+                savedContent: "base"
+            )
+        )
+        #expect(
+            !needsEditorCommitBeforeNavigation(
+                loaded: true,
+                content: "same",
+                savedContent: "same"
+            )
+        )
+        #expect(
+            !needsEditorCommitBeforeNavigation(
+                loaded: false,
+                content: "placeholder",
+                savedContent: ""
+            )
+        )
+    }
+
+    @Test("navigation completes after any durable persist-or-park outcome")
+    func navigationFlushDecision() {
+        #expect(shouldCompleteEditorNavigation(.wrote))
+        #expect(shouldCompleteEditorNavigation(.converged))
+        #expect(
+            shouldCompleteEditorNavigation(
+                .parkedConflict(parkedId: "note (conflict 2026-07-23)")
+            )
+        )
+        #expect(!shouldCompleteEditorNavigation(nil))
+    }
 }

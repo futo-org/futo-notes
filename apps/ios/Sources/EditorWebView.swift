@@ -389,6 +389,36 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             "window.FutoEditor && window.FutoEditor.blur();", completionHandler: nil)
     }
 
+    /// Blur and read the exact CodeMirror document owned by the current
+    /// attachment. A later editor adoption invalidates the completion.
+    func captureCurrentContent() async -> String? {
+        let capturedGeneration = generation
+        guard isReady else { return nil }
+        return await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(
+                """
+                (() => {
+                  if (!window.FutoEditor) return null;
+                  window.FutoEditor.blur();
+                  return window.FutoEditor.getContent();
+                })()
+                """
+            ) { [weak self] result, error in
+                guard let self,
+                      error == nil,
+                      shouldDeliverEditorCompletion(
+                        capturedGeneration: capturedGeneration,
+                        currentGeneration: self.generation
+                      )
+                else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: result as? String)
+            }
+        }
+    }
+
     // MARK: WKScriptMessageHandler
 
     func userContentController(

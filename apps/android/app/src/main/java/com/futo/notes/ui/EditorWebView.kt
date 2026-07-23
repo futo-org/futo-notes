@@ -173,8 +173,7 @@ class EditorHost private constructor(appContext: Context) {
     private var desiredImageBaseUrl: String? = null
     private var currentImageBaseUrl: String? = null
 
-    // Incremented per attach; detach only clears if its token is still current.
-    private var generation = 0
+    private val attachments = EditorAttachmentGate()
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -339,7 +338,7 @@ class EditorHost private constructor(appContext: Context) {
     /** Bind a note's callbacks. Returns a token for the matching [detach].
      *  If the editor is already warm, fires [onReady] (and focuses) now so the
      *  "ready for this note" contract holds for reused opens too. */
-    fun attach(
+    internal fun attach(
         autoFocus: Boolean,
         onChange: (String) -> Unit,
         onReady: () -> Unit,
@@ -347,7 +346,7 @@ class EditorHost private constructor(appContext: Context) {
         onPickImage: (String) -> Unit = {},
         onSaveImageData: (String, String) -> Unit = { _, _ -> },
         onMigrationSnapshot: (String) -> Unit = {},
-    ): Int {
+    ): EditorAttachmentToken {
         this.onChange = onChange
         this.onReady = onReady
         this.onOpenNote = onOpenNote
@@ -355,16 +354,18 @@ class EditorHost private constructor(appContext: Context) {
         this.onSaveImageData = onSaveImageData
         this.onMigrationSnapshot = onMigrationSnapshot
         this.autoFocus = autoFocus
+        val token = attachments.attach()
         if (isReady) {
             onReady()
             if (autoFocus) focusEditor()
         }
-        return ++generation
+        return token
     }
 
     /** Unbind, unless a newer [attach] has already taken over. */
-    fun detach(token: Int) {
-        if (token != generation) return
+    internal fun detach(token: EditorAttachmentToken) {
+        if (!attachments.permits(token)) return
+        attachments.detach(token)
         onChange = {}
         onReady = {}
         onOpenNote = {}
@@ -376,6 +377,11 @@ class EditorHost private constructor(appContext: Context) {
         // clear the flag so a reopened note doesn't flash a stale toolbar.
         editorFocused = false
     }
+
+    internal fun currentAttachment(): EditorAttachmentToken? = attachments.current()
+
+    internal fun isCurrentAttachment(token: EditorAttachmentToken): Boolean =
+        attachments.permits(token)
 
     fun setContent(content: String) {
         desiredContent = content
@@ -412,10 +418,21 @@ class EditorHost private constructor(appContext: Context) {
 
     /** Insert `![](filename)` and wait until CodeMirror has applied the
      * transaction. Storage migration keeps its vault gate until this returns,
-     * so a following editor snapshot cannot run in the post-save callback gap. */
-    suspend fun insertImageAndWait(filename: String): Boolean =
+     * so a following editor snapshot cannot run in the post-save callback gap.
+     * Callers enter on Main.immediate: dispatching another runnable here would
+     * let cancellation unwind while a stale insertion remained queued. */
+    internal suspend fun insertImageAndWait(
+        filename: String,
+        attachment: EditorAttachmentToken,
+    ): Boolean =
         suspendCancellableCoroutine { continuation ->
-            webView.post {
+            val permit = EditorAttachmentOperationPermit(attachments, attachment)
+            continuation.invokeOnCancellation { permit.cancel() }
+            val insert = Runnable {
+                if (!permit.mayRun()) {
+                    if (continuation.isActive) continuation.resume(false)
+                    return@Runnable
+                }
                 webView.evaluateJavascript(
                     """
                     (() => {
@@ -428,6 +445,51 @@ class EditorHost private constructor(appContext: Context) {
                     if (continuation.isActive) continuation.resume(result == "true")
                 }
             }
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                if (continuation.isActive) continuation.resume(false)
+                return@suspendCancellableCoroutine
+            }
+            insert.run()
+        }
+
+    /** Blur and read the live CodeMirror document for save-before-navigation.
+     * The attachment check prevents a delayed callback from supplying bytes
+     * from whichever note adopts the shared WebView next. */
+    internal suspend fun captureContentAndWait(
+        attachment: EditorAttachmentToken,
+    ): String? =
+        suspendCancellableCoroutine { continuation ->
+            val permit = EditorAttachmentOperationPermit(attachments, attachment)
+            continuation.invokeOnCancellation { permit.cancel() }
+            val capture = Runnable {
+                if (!permit.mayRun()) {
+                    if (continuation.isActive) continuation.resume(null)
+                    return@Runnable
+                }
+                webView.evaluateJavascript(
+                    """
+                    (() => {
+                      if (!window.FutoEditor) return null;
+                      window.FutoEditor.blur();
+                      return window.FutoEditor.getContent();
+                    })()
+                    """.trimIndent(),
+                ) { result ->
+                    if (!continuation.isActive) return@evaluateJavascript
+                    if (!attachments.permits(attachment)) {
+                        continuation.resume(null)
+                        return@evaluateJavascript
+                    }
+                    val captured = decodeJavascriptString(result)
+                    if (captured != null) lastPushedContent = captured
+                    continuation.resume(captured)
+                }
+            }
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                if (continuation.isActive) continuation.resume(null)
+                return@suspendCancellableCoroutine
+            }
+            capture.run()
         }
 
     /** Run a shared toolbar command (TOOLBAR_EXEC in markdownToolbar.ts) by

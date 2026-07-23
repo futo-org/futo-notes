@@ -21,6 +21,7 @@ struct NoteEditorView: View {
     /// for the latest task therefore waits for every older in-flight flush too.
     @State private var adoptionTask: Task<Void, Never>?
     @State private var moveTask: Task<Void, Never>?
+    @State private var navigationTask: Task<Void, Never>?
     /// CRITICAL: never block the editor's first frame on a disk read (F9 / the
     /// never-gate-render rule). The body starts empty and is read OFF the main
     /// actor in `.task`; until it lands, `loaded` is false, which gates the
@@ -167,9 +168,21 @@ struct NoteEditorView: View {
             )
             .ignoresSafeArea(.container, edges: .bottom)
         }
+        .allowsHitTesting(navigationTask == nil)
         .background(Theme.background)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    requestNavigation {
+                        if !navPath.isEmpty { navPath.removeLast() }
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(navigationTask != nil)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
@@ -201,6 +214,7 @@ struct NoteEditorView: View {
                     Image(systemName: "ellipsis.circle")
                 }
                 .tint(Theme.primary)
+                .disabled(navigationTask != nil)
             }
         }
         .alert("Rename note", isPresented: $showRename) {
@@ -653,7 +667,61 @@ struct NoteEditorView: View {
     /// Back. Skip a self-link (a wikilink to the note you're already on).
     private func openLinkedNote(_ id: String) {
         guard id != noteId else { return }
-        navPath.append(.note(id))
+        requestNavigation {
+            navPath.append(.note(id))
+        }
+    }
+
+    /// Back and resolved-wikilink navigation are mutations of the editor
+    /// session: wait for every already-admitted identity workflow, then commit
+    /// the latest body snapshot. A failed commit leaves this editor visible and
+    /// dirty so navigation can be retried without losing the draft.
+    private func requestNavigation(_ navigate: @escaping () -> Void) {
+        guard navigationTask == nil, !isClosing else { return }
+        let pendingRename = renameTask
+        let pendingAdoption = adoptionTask
+        let pendingMove = moveTask
+        navigationTask = Task { @MainActor in
+            await pendingRename?.value
+            await pendingAdoption?.value
+            await pendingMove?.value
+            guard !Task.isCancelled, !isClosing else {
+                navigationTask = nil
+                return
+            }
+
+            let pendingSave = saveTask
+            pendingSave?.cancel()
+            await pendingSave?.value
+
+            guard let flushed = await EditorHost.shared.captureCurrentContent() else {
+                navigationTask = nil
+                store.showTransient(
+                    "Couldn't read the latest note. Navigation is paused while your changes remain pending."
+                )
+                return
+            }
+            content = flushed
+            if needsEditorCommitBeforeNavigation(
+                loaded: loaded,
+                content: flushed,
+                savedContent: savedContent
+            ) {
+                let disposition = await store.flushDraft(
+                    PendingDraft(id: noteId, base: savedContent, content: flushed))
+                guard shouldCompleteEditorNavigation(disposition) else {
+                    navigationTask = nil
+                    store.showTransient(
+                        "Couldn't save note. Navigation is paused while your changes remain pending."
+                    )
+                    return
+                }
+                savedContent = flushed
+            }
+
+            navigationTask = nil
+            navigate()
+        }
     }
 
     /// Nav-bar "Move to Folder…": flush the pending body edit to the CURRENT id
@@ -800,6 +868,18 @@ func shouldFlushEditorOnDisappear(
 
 func shouldHandleEditorDisappear(isDeleteConfirmationPresented: Bool) -> Bool {
     !isDeleteConfirmationPresented
+}
+
+func needsEditorCommitBeforeNavigation(
+    loaded: Bool,
+    content: String,
+    savedContent: String
+) -> Bool {
+    loaded && content != savedContent
+}
+
+func shouldCompleteEditorNavigation(_ disposition: FlushDisposition?) -> Bool {
+    disposition != nil
 }
 
 /// The state the unsaved-draft derivation reads, bundled into one Equatable

@@ -1,4 +1,4 @@
-package com.futo.notes
+package com.futo.notes.storage
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

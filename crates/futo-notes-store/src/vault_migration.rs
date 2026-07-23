@@ -4,7 +4,16 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(test)]
+use std::cell::RefCell;
+
 use sha2::{Digest, Sha256};
+
+#[cfg(test)]
+thread_local! {
+    static DIRECTORY_SYNC_HOOK: RefCell<Option<Box<dyn FnMut(&Path) -> Result<(), String>>>> =
+        RefCell::new(None);
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VaultMigrationStatus {
@@ -75,6 +84,13 @@ pub(super) fn stage(source: &Path, destination: &Path) -> Result<VaultMigrationO
     if let Some(destination_manifest) = destination_manifest {
         if !destination_manifest.is_empty() {
             if destination_manifest == source_manifest {
+                make_existing_destination_durable(&destination, &source_manifest).map_err(
+                    |error| {
+                        format!(
+                            "unable to make the verified notes copy durable: {error}; the original notes folder remains unchanged"
+                        )
+                    },
+                )?;
                 return Ok(VaultMigrationOutcome {
                     status: VaultMigrationStatus::Migrated,
                     files: file_count(&source_manifest),
@@ -90,6 +106,7 @@ pub(super) fn stage(source: &Path, destination: &Path) -> Result<VaultMigrationO
     let parent = destination
         .parent()
         .ok_or_else(|| "unable to resolve the new notes folder parent".to_owned())?;
+    let existing_parent_ancestor = nearest_existing_directory(parent)?;
     fs::create_dir_all(parent).map_err(io_error)?;
     let staging = create_staging_directory(parent, &destination)?;
     let staged = copy_manifest(&source, &staging, &source_manifest)
@@ -100,7 +117,8 @@ pub(super) fn stage(source: &Path, destination: &Path) -> Result<VaultMigrationO
             } else {
                 Err("the notes copy could not be verified".into())
             }
-        });
+        })
+        .and_then(|()| sync_manifest_directories(&staging, &source_manifest));
     if let Err(error) = staged {
         let _ = fs::remove_dir_all(&staging);
         return Err(format!(
@@ -120,6 +138,11 @@ pub(super) fn stage(source: &Path, destination: &Path) -> Result<VaultMigrationO
     }
     if manifest(&destination)? != source_manifest {
         return Err("the installed notes copy could not be verified".into());
+    }
+    if let Err(error) = sync_directory_chain(parent, &existing_parent_ancestor) {
+        return Err(format!(
+            "unable to make the verified notes copy durable: {error}; the original notes folder remains unchanged"
+        ));
     }
 
     Ok(VaultMigrationOutcome {
@@ -293,6 +316,104 @@ fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
     output.sync_all().map_err(io_error)
 }
 
+fn make_existing_destination_durable(
+    destination: &Path,
+    manifest: &BTreeMap<PathBuf, ManifestEntry>,
+) -> Result<(), String> {
+    for (relative, entry) in manifest {
+        if !entry.is_directory {
+            fs::File::open(destination.join(relative))
+                .and_then(|file| file.sync_all())
+                .map_err(io_error)?;
+        }
+    }
+    sync_manifest_directories(destination, manifest)?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "unable to resolve the new notes folder parent".to_owned())?;
+    sync_directory(parent)
+}
+
+fn sync_manifest_directories(
+    root: &Path,
+    manifest: &BTreeMap<PathBuf, ManifestEntry>,
+) -> Result<(), String> {
+    let mut directories = manifest
+        .iter()
+        .filter(|(_, entry)| entry.is_directory)
+        .map(|(relative, _)| root.join(relative))
+        .collect::<Vec<_>>();
+    directories.sort_by(|left, right| {
+        right
+            .components()
+            .count()
+            .cmp(&left.components().count())
+            .then_with(|| left.cmp(right))
+    });
+    for directory in directories {
+        sync_directory(&directory)?;
+    }
+    sync_directory(root)
+}
+
+fn nearest_existing_directory(path: &Path) -> Result<PathBuf, String> {
+    let mut candidate = path;
+    loop {
+        match fs::metadata(candidate) {
+            Ok(metadata) if metadata.is_dir() => return Ok(candidate.to_path_buf()),
+            Ok(_) => {
+                return Err(format!(
+                    "the new notes folder parent is not a directory: {}",
+                    candidate.display()
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                candidate = candidate
+                    .parent()
+                    .ok_or_else(|| "unable to resolve an existing destination parent".to_owned())?;
+            }
+            Err(error) => return Err(io_error(error)),
+        }
+    }
+}
+
+fn sync_directory_chain(path: &Path, inclusive_ancestor: &Path) -> Result<(), String> {
+    let mut directory = path;
+    loop {
+        sync_directory(directory)?;
+        if directory == inclusive_ancestor {
+            return Ok(());
+        }
+        directory = directory.parent().ok_or_else(|| {
+            "the destination parent escaped its existing ancestor during installation".to_owned()
+        })?;
+    }
+}
+
+fn sync_directory(path: &Path) -> Result<(), String> {
+    #[cfg(test)]
+    if DIRECTORY_SYNC_HOOK.with(|hook| hook.borrow().is_some()) {
+        return DIRECTORY_SYNC_HOOK.with(|hook| {
+            hook.borrow_mut()
+                .as_mut()
+                .expect("directory sync hook disappeared")(path)
+        });
+    }
+
+    #[cfg(unix)]
+    {
+        fs::File::open(path)
+            .and_then(|directory| directory.sync_all())
+            .map_err(io_error)
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 fn sha256(path: &Path) -> Result<String, String> {
     let mut input = fs::File::open(path).map_err(io_error)?;
     let mut digest = Sha256::new();
@@ -318,4 +439,212 @@ fn file_count(manifest: &BTreeMap<PathBuf, ManifestEntry>) -> u32 {
 
 fn io_error(error: std::io::Error) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "futo-notes-vault-migration-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    struct DirectorySyncHookGuard;
+
+    impl Drop for DirectorySyncHookGuard {
+        fn drop(&mut self) {
+            DIRECTORY_SYNC_HOOK.with(|hook| {
+                hook.borrow_mut().take();
+            });
+        }
+    }
+
+    fn with_directory_sync_hook<T>(
+        hook: impl FnMut(&Path) -> Result<(), String> + 'static,
+        action: impl FnOnce() -> T,
+    ) -> T {
+        DIRECTORY_SYNC_HOOK.with(|slot| {
+            assert!(slot.borrow().is_none(), "directory sync hook already set");
+            *slot.borrow_mut() = Some(Box::new(hook));
+        });
+        let _guard = DirectorySyncHookGuard;
+        action()
+    }
+
+    #[test]
+    fn stage_syncs_copied_directories_before_installing_destination() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        let destination = root.0.join("destination");
+        fs::create_dir_all(source.join("Nested/Deep")).unwrap();
+        fs::write(source.join("Nested/Deep/note.md"), "body").unwrap();
+        let synced = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&synced);
+
+        let outcome = with_directory_sync_hook(
+            move |path| {
+                observed.lock().unwrap().push(path.to_path_buf());
+                Ok(())
+            },
+            || stage(&source, &destination),
+        )
+        .unwrap();
+
+        assert_eq!(outcome.status, VaultMigrationStatus::Migrated);
+        let synced = synced.lock().unwrap();
+        let deep = synced
+            .iter()
+            .position(|path| path.ends_with("Nested/Deep"))
+            .expect("deep staged directory was not synced");
+        let nested = synced
+            .iter()
+            .position(|path| path.ends_with("Nested"))
+            .expect("nested staged directory was not synced");
+        let staging = synced
+            .iter()
+            .position(|path| {
+                path.parent() == Some(root.0.as_path())
+                    && path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with(".destination.migration-"))
+            })
+            .expect("staging root was not synced");
+        let destination_parent = synced
+            .iter()
+            .rposition(|path| path == &root.0)
+            .expect("destination parent was not synced");
+        assert!(deep < nested);
+        assert!(nested < staging);
+        assert!(staging < destination_parent);
+    }
+
+    #[test]
+    fn stage_does_not_install_when_staged_directory_sync_fails() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        let destination = root.0.join("destination");
+        fs::create_dir_all(source.join("Nested")).unwrap();
+        fs::write(source.join("Nested/note.md"), "body").unwrap();
+
+        let result = with_directory_sync_hook(
+            |_| Err("injected directory sync failure".into()),
+            || stage(&source, &destination),
+        );
+
+        assert_eq!(
+            result.unwrap_err(),
+            "injected directory sync failure; the original notes folder remains unchanged"
+        );
+        assert!(source.join("Nested/note.md").exists());
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn stage_syncs_new_destination_parent_entries_through_the_existing_ancestor() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        let new_parent = root.0.join("New/Deep");
+        let destination = new_parent.join("destination");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("note.md"), "body").unwrap();
+        let synced = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&synced);
+
+        with_directory_sync_hook(
+            move |path| {
+                observed.lock().unwrap().push(path.to_path_buf());
+                Ok(())
+            },
+            || stage(&source, &destination),
+        )
+        .unwrap();
+
+        let synced = synced.lock().unwrap();
+        let deep = synced
+            .iter()
+            .rposition(|path| path == &new_parent)
+            .expect("destination parent was not synced");
+        let new = synced
+            .iter()
+            .rposition(|path| path == &root.0.join("New"))
+            .expect("new parent entry was not synced");
+        let existing = synced
+            .iter()
+            .rposition(|path| path == &root.0)
+            .expect("existing ancestor was not synced");
+        assert!(deep < new);
+        assert!(new < existing);
+    }
+
+    #[test]
+    fn stage_retries_durability_for_an_already_installed_matching_destination() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        let destination = root.0.join("destination");
+        fs::create_dir_all(source.join("Nested")).unwrap();
+        fs::write(source.join("Nested/note.md"), "body").unwrap();
+        let parent = root.0.clone();
+
+        let first_result = with_directory_sync_hook(
+            move |path| {
+                if path == parent {
+                    Err("injected destination-parent sync failure".into())
+                } else {
+                    Ok(())
+                }
+            },
+            || stage(&source, &destination),
+        );
+        assert!(first_result.is_err());
+        assert!(destination.join("Nested/note.md").exists());
+
+        let synced = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&synced);
+        let retry = with_directory_sync_hook(
+            move |path| {
+                observed.lock().unwrap().push(path.to_path_buf());
+                Ok(())
+            },
+            || stage(&source, &destination),
+        )
+        .unwrap();
+
+        assert_eq!(retry.status, VaultMigrationStatus::Migrated);
+        let synced = synced.lock().unwrap();
+        assert!(
+            synced
+                .iter()
+                .any(|path| path == &destination.join("Nested")),
+            "matching destination directory was not re-synced"
+        );
+        assert!(
+            synced.iter().any(|path| path == &destination),
+            "matching destination root was not re-synced"
+        );
+        assert!(
+            synced.iter().any(|path| path == &root.0),
+            "matching destination parent was not re-synced"
+        );
+    }
 }

@@ -1,4 +1,4 @@
-package com.futo.notes
+package com.futo.notes.storage
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -64,6 +64,39 @@ class StorageMigrationJournalTest {
 
         assertEquals(StorageMode.DEVICE, decision.activeMode)
         assertEquals(StorageMode.DEVICE, decision.repairPreferenceTo)
+    }
+
+    @Test
+    fun `finalizing journal selects destination only after source removal`() {
+        val pending = PendingStorageMigration(
+            from = StorageMode.APP,
+            to = StorageMode.DEVICE,
+            phase = StorageMigrationPhase.FINALIZING,
+            cleanupRequired = false,
+        )
+
+        val decision = NotesStorage.storageRecoveryDecision(
+            StorageMode.APP.name,
+            pending,
+            sourceExists = false,
+        )
+
+        assertEquals(StorageMode.DEVICE, decision.activeMode)
+        assertEquals(StorageMode.DEVICE, decision.repairPreferenceTo)
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun `finalizing journal refuses to guess while source remains`() {
+        NotesStorage.storageRecoveryDecision(
+            savedMode = StorageMode.APP.name,
+            pending = PendingStorageMigration(
+                from = StorageMode.APP,
+                to = StorageMode.DEVICE,
+                phase = StorageMigrationPhase.FINALIZING,
+                cleanupRequired = false,
+            ),
+            sourceExists = true,
+        )
     }
 
     @Test

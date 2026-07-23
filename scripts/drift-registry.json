@@ -144,7 +144,7 @@
       "concept": "notes-root-triplet",
       "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md \u00a76 explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
       "lockStatus": "unlocked",
-      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md \u00a76 non-goals \u2014 do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. CORRECTION to AGENTS.md \u00a712: the Android copy is NOT in NotesStore.kt (that class only takes a resolved `notesRoot: File`) \u2014 the actual dev/prod guard lives in NotesStorage.kt's `deviceFolderName`, and Android's split works differently (a distinct DEVICE-mode folder name, 'FUTO Notes Dev' vs 'FUTO Notes', since its APP/INTERNAL modes already isolate via the `.dev` applicationId on package-scoped paths) rather than the desktop/iOS 'fake-notes' vs 'futo-notes' directory-name split.",
+      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md \u00a76 non-goals \u2014 do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. CORRECTION to AGENTS.md \u00a712: the Android copy is NOT in NotesStore.kt (that class only takes a resolved `notesRoot: File`) \u2014 the actual dev/prod guard lives in storage/NotesStorage.kt's `deviceFolderName`, and Android's split works differently (a distinct DEVICE-mode folder name, 'FUTO Notes Dev' vs 'FUTO Notes', since its APP/INTERNAL modes already isolate via the `.dev` applicationId on package-scoped paths) rather than the desktop/iOS 'fake-notes' vs 'futo-notes' directory-name split.",
       "copies": [
         {
           "location": "apps/tauri/src-tauri/src/vault_location.rs",
@@ -155,7 +155,7 @@
           "pattern": "fake-notes"
         },
         {
-          "location": "apps/android/app/src/main/java/com/futo/notes/NotesStorage.kt",
+          "location": "apps/android/app/src/main/java/com/futo/notes/storage/NotesStorage.kt",
           "pattern": "FUTO Notes Dev"
         }
       ]

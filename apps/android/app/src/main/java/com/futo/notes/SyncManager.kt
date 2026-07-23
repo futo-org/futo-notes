@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.futo.notes.storage.StorageMigrationGate
 import uniffi.futo_notes_ffi.SyncClient
 import uniffi.futo_notes_ffi.SyncEventListener
 import uniffi.futo_notes_ffi.SyncException

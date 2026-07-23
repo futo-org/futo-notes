@@ -3,6 +3,8 @@ package com.futo.notes.ui
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import java.io.File
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -131,7 +133,73 @@ fun NoteEditorScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
     val mutationGate = remember(initialNoteId) { EditorMutationGate() }
+    val navigationAdmission = remember(initialNoteId) { EditorNavigationAdmission() }
     val theme = if (darkTheme) "dark" else "light"
+
+    fun navigateAfterSaving(navigate: () -> Unit) {
+        val attachment = host.currentAttachment() ?: return
+        if (!navigationAdmission.tryBegin()) return
+        host.blur()
+        scope.launch {
+            val canNavigate = mutationGate.runEditorMutation {
+                if (!host.isCurrentAttachment(attachment)) return@runEditorMutation false
+                saveJob?.cancel()
+                val capturedContent =
+                    host.captureContentAndWait(attachment) ?: return@runEditorMutation false
+                content = capturedContent
+                val commit = commitEditorNavigationSnapshot(
+                    savedContent = savedContent,
+                    content = capturedContent,
+                    flush = { base, snapshot ->
+                        store.flushDraft(PendingDraft(noteId, base, snapshot))
+                    },
+                )
+                savedContent = commit.savedContent
+                commit.canNavigate && host.isCurrentAttachment(attachment)
+            } ?: false
+            if (canNavigate) {
+                navigate()
+            } else {
+                navigationAdmission.retryAfterFailure()
+                if (host.isCurrentAttachment(attachment)) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't save note. Your changes are still pending.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    }
+
+    fun saveImageForAttachment(
+        attachment: EditorAttachmentToken,
+        failureMessage: String,
+        save: (File) -> String?,
+    ) {
+        scope.launch {
+            val name = mutationGate.runEditorMutation {
+                if (!host.isCurrentAttachment(attachment)) {
+                    return@runEditorMutation null
+                }
+                store.saveImageIntoVault(
+                    save = save,
+                    useSavedImage = { filename ->
+                        withContext(Dispatchers.Main.immediate) {
+                            check(host.insertImageAndWait(filename, attachment)) {
+                                "The editor was unavailable for image insertion"
+                            }
+                        }
+                    },
+                )
+            }
+            if (name == null && host.isCurrentAttachment(attachment)) {
+                Toast.makeText(context, failureMessage, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    BackHandler { navigateAfterSaving(onBack) }
 
     // The editor's note universe [editor.md:77]: id/title/modifiedMs/tags JSON
     // for the wikilink suffix resolver + autocomplete. Rebuilt only when the
@@ -341,24 +409,11 @@ fun NoteEditorScreen(
     // by the native toolbar's camera/image items and the bridge `pickImage`
     // message (kept for older bundles).
     val pickImage: (String) -> Unit = { source ->
+        val attachment = host.currentAttachment()
         val handle: (Uri?) -> Unit = { uri ->
-            if (uri != null) {
-                scope.launch {
-                    val name = store.saveImageIntoVault(
-                        save = { root ->
-                            saveImageIntoVault(context.contentResolver, root, uri)
-                        },
-                        useSavedImage = { filename ->
-                            withContext(Dispatchers.Main.immediate) {
-                                check(host.insertImageAndWait(filename)) {
-                                    "The editor was unavailable for image insertion"
-                                }
-                            }
-                        },
-                    )
-                    if (name == null) {
-                        Toast.makeText(context, "Unsupported image type", Toast.LENGTH_SHORT).show()
-                    }
+            if (uri != null && attachment != null) {
+                saveImageForAttachment(attachment, "Unsupported image type") { root ->
+                    saveImageIntoVault(context.contentResolver, root, uri)
                 }
             }
         }
@@ -373,22 +428,11 @@ fun NoteEditorScreen(
     // vault root (IMAGE_EXTENSIONS only) → insertImage back. Same vault
     // destination as the picker above, so paste and pick are indistinguishable.
     val saveImageData: (String, String) -> Unit = { base64, ext ->
-        scope.launch {
-            val name = store.saveImageIntoVault(
-                save = { root ->
-                    val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
-                    saveImageDataIntoVault(root, bytes, ext)
-                },
-                useSavedImage = { filename ->
-                    withContext(Dispatchers.Main.immediate) {
-                        check(host.insertImageAndWait(filename)) {
-                            "The editor was unavailable for image insertion"
-                        }
-                    }
-                },
-            )
-            if (name == null) {
-                Toast.makeText(context, "Couldn't paste image", Toast.LENGTH_SHORT).show()
+        val attachment = host.currentAttachment()
+        if (attachment != null) {
+            saveImageForAttachment(attachment, "Couldn't paste image") { root ->
+                val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+                saveImageDataIntoVault(root, bytes, ext)
             }
         }
     }
@@ -410,7 +454,7 @@ fun NoteEditorScreen(
             TopAppBar(
                 title = {},
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { navigateAfterSaving(onBack) }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
                     }
                 },
@@ -535,7 +579,11 @@ fun NoteEditorScreen(
                     // [editor.md:121] (allowFileAccess stays on, see EditorHost).
                     imageBaseUrl = "file://${store.rootPath}/",
                     modifier = Modifier.fillMaxSize(),
-                    onOpenNote = onOpenNote,
+                    onOpenNote = { linkedNoteId ->
+                        if (linkedNoteId != noteId) {
+                            navigateAfterSaving { onOpenNote(linkedNoteId) }
+                        }
+                    },
                     onPickImage = pickImage,
                     onSaveImageData = saveImageData,
                     onMigrationSnapshot = { capturedContent ->

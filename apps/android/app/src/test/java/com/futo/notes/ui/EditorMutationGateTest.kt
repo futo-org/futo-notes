@@ -51,4 +51,31 @@ class EditorMutationGateTest {
 
         assertEquals(listOf("editor", "delete"), order)
     }
+
+    @Test
+    fun `navigation waits for an in-flight image workflow`() = runBlocking {
+        val gate = EditorMutationGate()
+        val imageStarted = CompletableDeferred<Unit>()
+        val releaseImage = CompletableDeferred<Unit>()
+        val order = mutableListOf<String>()
+
+        val image = launch {
+            gate.runEditorMutation {
+                imageStarted.complete(Unit)
+                releaseImage.await()
+                order += "image inserted"
+            }
+        }
+        imageStarted.await()
+        val navigation = launch {
+            gate.runEditorMutation {
+                order += "navigation saved"
+            }
+        }
+        releaseImage.complete(Unit)
+        image.join()
+        navigation.join()
+
+        assertEquals(listOf("image inserted", "navigation saved"), order)
+    }
 }

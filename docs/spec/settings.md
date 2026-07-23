@@ -34,14 +34,18 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   storage shows a blocking migration state and relaunches only after the whole
   vault is verified and an app-private migration journal is durably activated.
   The journal is the authority across preference-commit ambiguity and process
-  death: `PREPARED` selects the old root, while `ACTIVATED` selects the verified
-  destination and retains an uncleared source as a backup if final cleanup could
-  not finish. Failure before activation leaves the current mode active and
-  surfaces an actionable toast; a different non-empty destination is never
-  merged into or deleted. The editor remains composed behind the blocking
-  overlay so its live draft can be flushed before the Rust-owned whole-vault
-  migration begins. → `MainActivity.performSwitch`,
-  `StorageMigrationJournal`, `futo-notes-store::vault_migration`
+  death: `PREPARED` selects the old root; `FINALIZING` records that source
+  cleanup has begun and selects the destination on recovery only when the source
+  is absent; `ACTIVATED` selects the verified destination and may retain an
+  uncleared source as a backup if final cleanup could not finish. A late source
+  edit aborts activation and keeps the current mode active. Failure before
+  activation surfaces an actionable toast; a different non-empty destination
+  is never merged into or deleted. The editor remains composed behind the
+  blocking overlay so its live draft can be flushed before the Rust-owned
+  whole-vault migration begins. Startup reads the journal and storage
+  preferences on `Dispatchers.IO` after the first composition. →
+  `MainActivity.performSwitch`, Android `storage/`,
+  `futo-notes-store::vault_migration`
 - **About**: an open-source link (GitLab) and the app version.
 - **Crash reporting**: "Share crash reports" toggle with a nested "Always
   send automatically" (see app.md for the dialog flow).

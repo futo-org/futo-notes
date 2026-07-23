@@ -7,7 +7,10 @@ Behaviors and constraints that hold across every surface and platform.
 - The UI shell renders immediately. **Never gate first render on filesystem
   I/O.** Theme, prefs, notes, and the search index load in the background and
   apply reactively. → CLAUDE.md "Key Constraints"; `App.svelte` flips
-  `initialized` synchronously.
+  `initialized` synchronously. Native Android likewise reaches its first
+  composition before reading theme/storage preferences or the migration
+  journal; startup recovery then runs on `Dispatchers.IO` and applies
+  reactively. → `MainActivity.onCreate`, `recoverStorageStartup`
 - `plugin-fs` reads (`readTextFile`, `exists`) can hang indefinitely on a cold
   sandbox — never `await` one before first render. _(desktop Tauri; originally
   observed on the since-removed iOS Tauri shell — the native iOS app doesn't
@@ -72,14 +75,19 @@ Behaviors and constraints that hold across every surface and platform.
     `FutoEditor.getContent()` before taking the vault snapshot, so a bridge
     change still waiting for animation-frame delivery is included; failure to
     read the live editor aborts the switch. The engine stages the copy, verifies
-    every relative path and file digest. Before and after activation it records
-    a fsynced, atomically replaced app-private journal. `PREPARED` makes the old
-    root authoritative after a crash; `ACTIVATED` makes the verified destination
-    authoritative even if the SharedPreferences commit result is ambiguous, so
-    recovery never rolls back to a source that may already have been cleaned up.
-    Source cleanup occurs only after activation; a failed cleanup leaves the
-    source intact as a backup while the destination remains canonical. A failed
-    copy/verification keeps the old mode/root active and reports the failure.
+    every relative path and file digest, fsyncs copied files and directories,
+    and fsyncs the destination-parent chain after installation. Before each
+    authority transition it records a fsynced, atomically replaced app-private
+    journal. `PREPARED` makes the old root authoritative after a crash.
+    `FINALIZING` is written before source cleanup: recovery promotes the verified
+    destination only when the source is absent, and otherwise stops visibly
+    with both roots retained instead of guessing after a partial cleanup.
+    `ACTIVATED` makes the verified destination authoritative even if the
+    SharedPreferences commit result is ambiguous. A late source edit yields
+    `DESTINATION_CHANGED`, aborts activation, and keeps the old root visible.
+    A cleanup failure may retain the source as a backup after activation. A
+    failed copy/verification keeps the old mode/root active and reports the
+    failure.
     An open editor's pending draft must first produce a committed mutation or
     already match the bytes on disk; a skipped/missing/divergent flush aborts the
     switch instead of relaunching with an older draft. A non-empty destination is
@@ -88,8 +96,8 @@ Behaviors and constraints that hold across every surface and platform.
     empty source directory is a valid switch, but a missing or non-directory
     active root is a failure (never interpreted as an empty vault). The move is
     transparent to sync because the object map is keyed by relative filename. →
-    [sync.md](sync.md), `NotesStorage.kt`, `MainActivity.performSwitch`,
-    `NotesStorageTest`
+    [sync.md](sync.md), Android `storage/`, `MainActivity.performSwitch`,
+    `NotesStorageTest`, `futo-notes-store::vault_migration`
 - **No silent relocation of existing installs.** An Android install that predates
   the picker is grandfathered on its legacy internal location
   (`filesDir/futo-notes`); it gains Files-app access only by opting in via

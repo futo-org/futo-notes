@@ -334,7 +334,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   exclusive vault gate, so sync/editor/store/image writes cannot race the staged
   copy and manifest verification. →
   `SyncSession::stop_live_and_wait`, `SyncManager.quiesceForStorageMigration`,
-  `NotesStore.migrateVault`, `StorageMigrationGateTest`
+  `NotesStore.migrateVault`, Android `storage/StorageMigrationGateTest`
 
 ## Live sync (SSE)
 

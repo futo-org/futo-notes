@@ -1,4 +1,4 @@
-package com.futo.notes
+package com.futo.notes.storage
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
