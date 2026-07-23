@@ -88,7 +88,7 @@ private const val ALL = "__all" // sentinel; real folders are never empty+this
 fun NoteListScreen(
     store: NotesStore,
     // Hoisted to MainActivity so the scroll position survives navigation
-    // [list.md:26] — this screen leaves composition whenever another screen
+    // [list.md:59] — this screen leaves composition whenever another screen
     // is pushed, so a screen-local rememberLazyListState would reset on pop.
     listState: LazyListState,
     onOpenNote: (String) -> Unit,
@@ -108,15 +108,6 @@ fun NoteListScreen(
     var moveTarget by remember { mutableStateOf<String?>(null) }
     var newFolderDialog by remember { mutableStateOf(false) }
     var confirmDeleteFolder by remember { mutableStateOf<String?>(null) }
-
-    // NOTE: the resort-on-return + at-top re-pin [list.md:24] does NOT live in
-    // this composable — it runs in AppShell's pop() (MainActivity), BEFORE this
-    // screen re-enters composition. Doing either here (e.g. in a LaunchedEffect)
-    // races the re-entering LazyColumn's first measure: the measure runs against
-    // the pre-resort row order, records the OLD top row as LazyListState's key
-    // anchor, and the post-resort measure then follows that key downward —
-    // parking the real top row above the viewport (the invisible-new-note /
-    // 2px-sliver bug).
 
     val scrolled by remember {
         derivedStateOf {
@@ -376,12 +367,8 @@ fun NoteListScreen(
 internal fun folderDeletedToast(moved: UInt): String =
     "Folder deleted; moved $moved " + if (moved == 1u) "note" else "notes"
 
-/** Viewport-at-top predicate for the rank-change re-pin [list.md:24]: only a
- *  viewport the user left at the ABSOLUTE top snaps back to index 0 after a
- *  rank-changing create/edit; deep scroll positions are preserved
- *  [list.md:26]. A few px of slop absorbs sub-row settle from overscroll /
- *  fling rounding. Shared by the FAB create path (NoteListScreen) and the
- *  return-to-list re-pin (AppShell.pop) — pinned by NoteListRepinTest. */
+/** Rank changes re-pin only an at-top viewport; the four-pixel allowance
+ *  absorbs overscroll settling without disturbing deep scrolls [list.md:41,59]. */
 internal fun isAtListTop(firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int): Boolean =
     firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset <= 4
 

@@ -38,7 +38,7 @@ import com.futo.notes.ui.theme.FutoType
  * "Move to folder" bottom-sheet picker [list.md:62, list.md:71]: a Root row,
  * one row per folder (full path, like the drawer), and an inline "New Folder…"
  * that names a folder and picks it in one step. [onPick] receives the chosen
- * folder path ("" = root) and whether it still needs to be created.
+ * folder path ("" = root) and whether it must be created as part of the move.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

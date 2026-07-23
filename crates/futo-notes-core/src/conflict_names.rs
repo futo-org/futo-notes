@@ -1,5 +1,18 @@
 use std::collections::HashSet;
 
+/// Today's UTC date as the `YYYY-MM-DD` token [`conflict_filename`] embeds —
+/// the one definition shared by sync's dirty-merge parks and the note
+/// engine's draft parks, so every conflict copy carries the same date shape.
+pub fn current_conflict_date() -> String {
+    let date = time::OffsetDateTime::now_utc().date();
+    format!(
+        "{:04}-{:02}-{:02}",
+        date.year(),
+        u8::from(date.month()),
+        date.day()
+    )
+}
+
 pub fn collision_conflict_filename(canonical_name: &str, loser_object_id: &str) -> String {
     let (base, extension) = split_conflict_name_parts(canonical_name);
     let short_id = object_id_short(loser_object_id);

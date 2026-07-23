@@ -8,7 +8,6 @@ import {
   moveSidebarNote,
   moveSidebarNoteToFolder,
   moveSidebarNoteToRoot,
-  refreshSidebarFolders,
   renameSidebarFolder,
 } from './sidebarFolderMutations';
 
@@ -69,7 +68,6 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     );
     if (!result.ok) return result.error ?? 'Failed to create folder';
     closeCreateFolder();
-    await refreshSidebarFolders();
     return null;
   }
 

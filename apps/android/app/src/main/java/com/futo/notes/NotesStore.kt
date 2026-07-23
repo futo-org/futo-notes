@@ -6,13 +6,11 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import uniffi.futo_notes_ffi.CreateOutcome
-import uniffi.futo_notes_ffi.FlushOutcome
+import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.NoteMutation
 import uniffi.futo_notes_ffi.NoteStore
 import uniffi.futo_notes_ffi.NoteMetadata
@@ -20,9 +18,6 @@ import uniffi.futo_notes_ffi.SearchHit
 import uniffi.futo_notes_ffi.VaultMigrationStatus
 import uniffi.futo_notes_ffi.VaultMigrationFinalization
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /** A single note for the UI. Mirrors the iOS `NoteItem`; `tags` are canonical
  *  lowercase names WITHOUT the leading `#`. */
@@ -41,12 +36,10 @@ data class NoteItem(
     val tags: List<String>,
 )
 
-/** The list's display order: most-recently-modified first, id ascending as the
- *  tiebreaker — matches the bootstrap scan's `(modified_ms desc, id asc)`
- *  (futo-notes-model `scan_notes`) so an in-place resort is identical to a
- *  fresh reload. Pinned by NoteListRepinTest. */
-internal val noteListOrder: Comparator<NoteItem> =
-    compareByDescending<NoteItem> { it.modifiedMs }.thenBy { it.id }
+/** Budget handed to the engine's bounded search-readiness wait
+ *  (`NoteStore.waitUntilSearchReady`) — the 200×25ms this shell's former poll
+ *  loop allowed. */
+internal const val SEARCH_READY_TIMEOUT_MS: ULong = 5_000uL
 
 /** An open editor's unsaved draft: the note [id] to persist, the [content] to
  *  write, and [base] — the content the editor believes is on disk (its
@@ -89,17 +82,17 @@ internal fun derivePendingDraft(
 ): PendingDraft? =
     if (loaded && content != savedContent) PendingDraft(noteId, savedContent, content) else null
 
-/** Whether a migration flush proved that the live draft is represented on disk. */
-internal fun pendingDraftIsDurable(
-    outcome: FlushOutcome,
-    hasMutation: Boolean,
-    diskContent: String?,
-    draftContent: String,
-): Boolean = when (outcome) {
-    FlushOutcome.WROTE -> hasMutation || diskContent == draftContent
-    FlushOutcome.SKIPPED_CHANGED -> diskContent == draftContent
-    FlushOutcome.SKIPPED_MISSING -> false
-}
+internal enum class AdoptFlushOutcome { KEEP_DRAFT, RELOAD_DISK, RETRY_LATER }
+
+internal fun adoptFlushOutcome(disposition: FlushDisposition?): AdoptFlushOutcome =
+    when (disposition) {
+        FlushDisposition.Wrote,
+        FlushDisposition.Converged,
+        FlushDisposition.Recreated,
+        -> AdoptFlushOutcome.KEEP_DRAFT
+        is FlushDisposition.ParkedConflict -> AdoptFlushOutcome.RELOAD_DISK
+        null -> AdoptFlushOutcome.RETRY_LATER
+    }
 
 /**
  * The open editor's unsaved-draft register and its leave-foreground flush,
@@ -264,73 +257,25 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  suspend, so the final save runs on the store's scope (which outlives the
      *  screen).
      *
-     *  A conditional write (`write_if_unchanged`): persist `draft.content` only
-     *  if the note still holds `draft.base` (the content the editor last saw).
-     *  One FFI call replaces the old `exists()`-then-`write()` sequence,
-     *  collapsing its cross-FFI TOCTOU. A deleted note is conditionally
-     *  re-created for edit-wins dirty-keep; a changed note parks the local draft
-     *  as a conflict copy, so neither peer content nor the draft is lost. */
+     *  Rust's one `flush_draft` workflow writes, converges, recreates, or parks
+     *  the draft under the store's mutation gate. */
     fun flushAsync(draft: PendingDraft) {
         scope.launch {
-            if (flush(draft)) pendingEditor.complete(draft)
+            if (flushDraft(draft) != null) pendingEditor.complete(draft)
         }
     }
 
-    /** Persist-or-park the exact editor snapshot. A peer change is never
-     * overwritten: an incompatible draft becomes a visible conflict note. */
-    suspend fun flush(draft: PendingDraft): Boolean = try {
-        val result = withCore {
-            core.writeIfUnchanged(draft.id, draft.base, draft.content)
-        }
+    /** Persist-or-park one exact editor snapshot through the Rust workflow. */
+    suspend fun flushDraft(draft: PendingDraft): FlushDisposition? = try {
+        val result = withCore { core.flushDraft(draft.id, draft.base, draft.content) }
         result.mutation?.let {
             applyMutation(it)
             signalLocalChange()
         }
-        when (result.outcome) {
-            FlushOutcome.WROTE -> result.mutation != null || read(draft.id) == draft.content
-            FlushOutcome.SKIPPED_CHANGED ->
-                if (read(draft.id) == draft.content) true else parkDraft(draft)
-            FlushOutcome.SKIPPED_MISSING -> {
-                when (withCore { core.createIfAbsent(draft.id, draft.content) }) {
-                    CreateOutcome.CREATED -> {
-                        reload()
-                        signalLocalChange()
-                        true
-                    }
-                    CreateOutcome.EXISTED ->
-                        if (read(draft.id) == draft.content) true else parkDraft(draft)
-                }
-            }
-        }
+        result.disposition
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "flush failed for ${draft.id}", e)
-        false
-    }
-
-    private suspend fun parkDraft(draft: PendingDraft): Boolean = try {
-        val folder = draft.id.substringBeforeLast('/', "")
-        val title = draft.id.substringAfterLast('/')
-        val stamp = SimpleDateFormat("yyyy-MM-dd HHmmss", Locale.US).format(Date())
-        val mutation = withCore {
-            val prefix = "$title (conflict "
-            val alreadyParked = core.scan().notes.any { note ->
-                note.folder == folder &&
-                    note.title.startsWith(prefix) &&
-                    core.read(note.id) == draft.content
-            }
-            if (alreadyParked) null else {
-                core.createNote("$title (conflict $stamp)", folder, draft.content)
-            }
-        }
-        mutation?.let {
-            applyMutation(it)
-            refreshFolders()
-            signalLocalChange()
-        }
-        true
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "could not park editor draft for ${draft.id}", e)
-        false
+        null
     }
 
     /** The open editors' unsaved-draft register (F8 jetsam guard). Each editor
@@ -377,21 +322,18 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         val outcome = withContext(Dispatchers.IO) {
             vaultAccess.withLock {
                 val flushFailed = drafts.any { draft ->
-                    val result = core.writeIfUnchanged(draft.id, draft.base, draft.content)
-                    val mutation = result.mutation
-                    val diskContent = if (result.outcome != FlushOutcome.WROTE || mutation == null) {
-                        if (core.exists(draft.id)) core.read(draft.id) else null
-                    } else {
-                        null
+                    try {
+                        val result = core.flushDraft(draft.id, draft.base, draft.content)
+                        result.mutation?.let(mutations::add)
+                        false
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "NotesStore",
+                            "migration draft flush failed for ${draft.id}",
+                            e,
+                        )
+                        true
                     }
-                    val durable = pendingDraftIsDurable(
-                        outcome = result.outcome,
-                        hasMutation = mutation != null,
-                        diskContent = diskContent,
-                        draftContent = draft.content,
-                    )
-                    if (durable) mutation?.let(mutations::add)
-                    !durable
                 }
                 if (flushFailed) {
                     NotesStorage.MigrationOutcome.Failed(
@@ -439,32 +381,19 @@ class NotesStore(notesRoot: File, searchIndex: File) {
             NoteMutationOutcome.Failed
         }
 
-    /** Re-sort the in-memory list most-recently-modified first WITHOUT a rescan
-     *  [list.md:24]. `write` keeps row identity/order stable while typing (so a
-     *  resort can't pop the open editor out from under the user); this sorts what
-     *  is already in memory and is called when a pop lands back on the list
-     *  (AppShell.pop). Pure state swap on main — no FFI, no I/O. */
-    fun resortInPlace() {
-        notes = notes.sortedWith(noteListOrder)
-    }
-
     suspend fun createNote(title: String, folder: String = ""): String? = try {
         val mutation = withCore { core.createNote(title, folder, "") }
         applyMutation(mutation)
-        refreshFolders()
         signalLocalChange()
-        mutation.finalId(title)
+        mutation.finalId ?: title
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "createNote failed", e); null
     }
 
     suspend fun delete(id: String): NoteMutationOutcome<Unit> =
         try {
-            val (mutation, folderPaths) = withCore {
-                core.delete(id) to core.scan().folders
-            }
+            val mutation = withCore { core.delete(id) }
             applyMutation(mutation)
-            folders = folderPaths
             signalLocalChange()
             NoteMutationOutcome.Committed(Unit)
         } catch (e: Exception) {
@@ -483,9 +412,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     suspend fun rename(oldId: String, newId: String): String = try {
         val mutation = withCore { core.rename(oldId, newId) }
         applyMutation(mutation)
-        refreshFolders()
         signalLocalChange()
-        mutation.finalId(oldId)
+        mutation.finalId ?: oldId
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "rename failed", e); oldId
     }
@@ -495,18 +423,16 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         toFolder: String,
         createFolder: Boolean = false,
     ): NoteMutationOutcome<String> = try {
-        val (mutation, folderPaths) = withCore {
-            val moved = if (createFolder) {
+        val mutation = withCore {
+            if (createFolder) {
                 core.moveNoteToNewFolder(id, toFolder)
             } else {
                 core.moveNote(id, toFolder)
             }
-            moved to core.scan().folders
         }
         applyMutation(mutation)
-        folders = folderPaths
         signalLocalChange()
-        NoteMutationOutcome.Committed(mutation.finalId(id))
+        NoteMutationOutcome.Committed(mutation.finalId ?: id)
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "moveNote failed", e)
         NoteMutationOutcome.Failed
@@ -514,11 +440,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     suspend fun createFolder(path: String): NoteMutationOutcome<Unit> =
         try {
-            val folderPaths = withCore {
-                core.createFolder(path)
-                core.scan().folders
-            }
-            folders = folderPaths
+            val mutation = withCore { core.createFolder(path) }
+            applyMutation(mutation)
             signalLocalChange()
             NoteMutationOutcome.Committed(Unit)
         } catch (e: Exception) {
@@ -534,9 +457,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     suspend fun deleteFolder(path: String): UInt? = try {
         val mutation = withCore { core.deleteFolder(path) }
         applyMutation(mutation)
-        refreshFolders()
         signalLocalChange()
-        mutation.renamed.size.toUInt()
+        mutation.removed.size.toUInt()
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "deleteFolder failed for $path", e); null
     }
@@ -560,17 +482,16 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         }
     }
 
-    /** No shell-owned search or fallback: wait briefly for the Rust owner and
-     *  return its ranked result set. */
-    suspend fun search(query: String, limit: UInt = 50u): List<SearchHit> {
-        repeat(200) {
-            if (withCore { core.keywordReady() }) {
-                return withCore { core.search(query, limit) }
+    /** The engine owns the bounded readiness wait; a timeout returns an empty
+     *  result while the self-healing index continues in the background. */
+    suspend fun search(query: String, limit: UInt = 50u): List<SearchHit> =
+        withContext(Dispatchers.IO) {
+            if (core.waitUntilSearchReady(SEARCH_READY_TIMEOUT_MS)) {
+                core.search(query, limit)
+            } else {
+                emptyList()
             }
-            delay(25)
         }
-        return emptyList()
-    }
 
     private fun signalLocalChange() {
         if (!suppressAutoPush) onLocalChange?.invoke()
@@ -600,28 +521,20 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         folders = folderPaths
     }
 
-    /** The sole incremental cache seam. Rust has already committed collision
-     *  outcomes and every backlink rewrite represented by this result. */
+    /** Positions are post-removal; clamp them against a stale shell cache. */
     private fun applyMutation(mutation: NoteMutation) {
-        val removed = mutation.removed.toSet()
-        val next = notes.filterNot { it.id in removed }.toMutableList()
-        mutation.upserted.forEach { metadata ->
-            val item = metadata.toItem()
-            val index = next.indexOfFirst { it.id == item.id }
-            if (index >= 0) next[index] = item else next.add(0, item)
+        val affected = mutation.removed.toSet() + mutation.upserted.map { it.note.id }
+        val next = notes.filterNot { it.id in affected }.toMutableList()
+        mutation.upserted.forEach { entry ->
+            val position = entry.position.toInt().coerceIn(0, next.size)
+            next.add(position, entry.note.toItem())
         }
         notes = next
+        folders = mutation.folders
         mutation.warnings.forEach {
             android.util.Log.w("NotesStore", "local-note mutation: $it")
         }
     }
-
-    private suspend fun refreshFolders() {
-        folders = withCore { core.scan().folders }
-    }
-
-    private fun NoteMutation.finalId(fallback: String): String =
-        renamed.lastOrNull()?.to ?: upserted.firstOrNull()?.id ?: fallback
 
     private fun NoteMetadata.toItem() =
         NoteItem(id, title, folder, modifiedMs, preview, richPreview, tags)

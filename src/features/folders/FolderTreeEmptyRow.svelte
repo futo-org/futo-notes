@@ -14,7 +14,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="folder-empty-row"
-  style="--row-indent: {node.depth * indentPixels}px"
+  style="--indent: {node.depth * indentPixels}px"
   {ondragover}
   {ondrop}
   data-folder-path={node.parentPath}

@@ -1,12 +1,11 @@
 package com.futo.notes
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import uniffi.futo_notes_ffi.FlushOutcome
+import uniffi.futo_notes_ffi.FlushDisposition
 
 /**
  * Regression for the Android editor's unsaved-draft register (F5 lifecycle
@@ -72,51 +71,26 @@ class EditorLifecycleFlushTest {
     }
 
     @Test
-    fun migrationRejectsConditionalFlushThatDidNotPreserveTheDraft() {
-        assertFalse(
-            pendingDraftIsDurable(
-                FlushOutcome.SKIPPED_CHANGED,
-                hasMutation = false,
-                diskContent = "peer edit",
-                draftContent = "live draft",
-            ),
+    fun conflictAdoptionReloadsOnlyAfterTheEngineParksTheDraft() {
+        assertEquals(
+            AdoptFlushOutcome.RELOAD_DISK,
+            adoptFlushOutcome(FlushDisposition.ParkedConflict("parked")),
         )
-        assertFalse(
-            pendingDraftIsDurable(
-                FlushOutcome.SKIPPED_MISSING,
-                hasMutation = false,
-                diskContent = null,
-                draftContent = "live draft",
-            ),
-        )
-        assertFalse(
-            pendingDraftIsDurable(
-                FlushOutcome.WROTE,
-                hasMutation = false,
-                diskContent = "older bytes",
-                draftContent = "live draft",
-            ),
+        assertEquals(
+            AdoptFlushOutcome.RETRY_LATER,
+            adoptFlushOutcome(null),
         )
     }
 
     @Test
-    fun migrationAcceptsOnlyACommittedMutationOrMatchingDiskBytes() {
-        assertTrue(
-            pendingDraftIsDurable(
-                FlushOutcome.WROTE,
-                hasMutation = true,
-                diskContent = null,
-                draftContent = "live draft",
-            ),
-        )
-        assertTrue(
-            pendingDraftIsDurable(
-                FlushOutcome.SKIPPED_CHANGED,
-                hasMutation = false,
-                diskContent = "live draft",
-                draftContent = "live draft",
-            ),
-        )
+    fun conflictAdoptionKeepsDraftForEveryEngineOutcomeThatOwnsTheOriginalId() {
+        listOf(
+            FlushDisposition.Wrote,
+            FlushDisposition.Converged,
+            FlushDisposition.Recreated,
+        ).forEach { disposition ->
+            assertEquals(AdoptFlushOutcome.KEEP_DRAFT, adoptFlushOutcome(disposition))
+        }
     }
 
     // ── pull derivation: flush persists whatever the closure derives NOW ──

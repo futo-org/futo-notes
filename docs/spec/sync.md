@@ -497,6 +497,46 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   futo-notes-sync sync module
 - Renames are paired — a rename is not seen as delete + create. → migration plan
   Phase 5
+- **Sync reports rename intent; shells never infer renames from id patterns.**
+  Every relocation the sync engine performs — paired local moves, mapping
+  relocations, merge-target moves, and collision placements that relocate a
+  locally-mapped note (the loser's move to `name (conflict <oid8>)`) — is
+  reported in the locally-computed `SyncSummary.renamed` (no sync payload or
+  protocol change; a byte-identical collision loser adopts silently and
+  reports no rename). The desktop follows the open tab/editor through a
+  reported rename verbatim; its former id-pattern inference
+  (`findActiveSyncRename` / `isCollisionVariantId`) is deleted. →
+  futo-notes-sync `sync/collision_resolution.rs` (guarded by
+  `collision_placement_reports_the_relocated_local_note_as_a_rename` and
+  `identical_content_collision_dedup_reports_no_rename` in
+  `sync/behavior_tests.rs`); desktop `reconcileSyncCompletion.ts` (guarded by
+  "follows a reported collision-placement rename before pruning deletions" in
+  src/features/sync/syncManager.test.ts and the cross-platform scenario
+  "collision placement follows open note" in tests/cross-platform-sync.mjs)
+- **A rename never hides a real update OR deletion of its target.** Summary
+  ghost-stripping removes only the rename's from-side from
+  `deletedIds`/`peerDeletedIds` (the "delete at the old name" byproduct every
+  relocation records); nothing is recorded against the target side, so an id
+  recorded there — an update OR a deletion — is always a real, subsequent
+  same-cycle event and stays shell-visible. A same-cycle peer edit to a
+  collision-relocated note keeps its entry in `updatedIds`/`peerUpdatedIds`, so
+  the shell that followed the rename reloads the peer's content instead of
+  keeping the stale relocated draft (whose next save would overwrite the peer
+  edit on every client); a same-cycle tombstone of it keeps its entry in
+  `deletedIds`/`peerDeletedIds`, so the shell runs its deleted-during-sync
+  close/keep-draft flow instead of leaving the editor bound to a nonexistent
+  note. Consequently a relocation records its byproduct against the SOURCE id
+  only — the "delete at the old name" plus the rename pair — never a synthetic
+  update against the target. → futo-notes-sync `sync/outcome.rs`
+  `remove_rename_ghost_ids` + `sync/collision_resolution.rs`
+  `move_collision_loser` (guarded by
+  `same_cycle_update_of_a_collision_relocated_note_survives_ghost_stripping`
+  and
+  `same_cycle_tombstone_of_a_collision_relocated_note_survives_ghost_stripping`
+  in `sync/behavior_tests.rs`); desktop guarded by "reloads a followed rename
+  target that also received a real update in the same cycle" and "closes the
+  open note when a followed rename target was tombstoned in the same cycle" in
+  src/features/sync/syncManager.test.ts
 - A push checkpoint is written every 50 objects. → migration plan Phase 5
 - A legacy `.app-state.json` is migrated on first run. → migration plan Phase 5
 - **Concurrent-move dedup keys on OBJECT IDENTITY, never on (content-hash,
@@ -734,18 +774,28 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 - A **dirty draft against a real remote change** (draft still inside the
   save debounce when the pull rewrites the file) is parked, not kept: the
   pending save is cancelled, the draft is written to a
-  `<title> (conflict YYYY-MM-DD)` copy (uniqued like every create), the
-  remote content is adopted into the editor, and a "Conflicting edits saved
-  to a copy" toast fires. A draft that already reached disk is covered by
-  the push-first 409 machinery above instead. On Android the local edit is
-  captured after the conflict-copy id is minted and immediately before the
-  copy is written; the copy lands on DISK first and the remote is adopted
-  last (crash-durable: a process death mid-flow never loses the captured
-  edit; a stale background flush can't clobber the adopted remote because
-  the conditional write skips on changed base — PKT-12 final ordering).
-  Verified on the emulator 2026-06-09 (held-dirty draft + peer edit → copy
-  contained the draft, editor showed the remote).
-  → NoteEditorScreen.kt / NoteEditorView.swift
+  `<title> (conflict YYYY-MM-DD)` copy, the remote content is adopted into
+  the editor, and a "Conflicting edits saved to a copy" toast fires. A draft
+  that already reached disk is covered by the push-first 409 machinery above
+  instead. On iOS the park rides the engine's one flush verb
+  (`flush_draft` — the same persist-or-park path as the leave/background
+  flush, see editor.md "Saving & rename"), so the copy is named by the
+  engine's conflict-naming rule and an identical double-park mints one copy;
+  if the engine's serialized re-check instead finds the note back at the
+  draft's base, gone, or already holding the draft's exact bytes (an in-flight
+  autosave landed it first — Converged), the draft wins at the original id and
+  nothing is parked: the editor keeps the draft and never adopts the pre-flush
+  disk snapshot, so the just-persisted draft is not clobbered by the next
+  keystroke's autosave (a converged flush is grouped with wrote/recreated, not
+  with the park arm — issue #37). On Android the local edit is captured after the conflict-copy id
+  is minted and immediately before the copy is written; the copy lands on
+  DISK first and the remote is adopted last (crash-durable: a process death
+  mid-flow never loses the captured edit; a stale background flush can't
+  clobber the adopted remote because the conditional write skips on changed
+  base — PKT-12 final ordering). Verified on the emulator 2026-06-09
+  (held-dirty draft + peer edit → copy contained the draft, editor showed
+  the remote). → futo-notes-store `flush_draft` (iOS);
+  NoteEditorScreen.kt / NoteEditorView.swift `adoptExternalChange`
 - A peer **deleting the currently-open note** closes the open session (route →
   home, "Note was deleted during sync" toast) instead of adopting its content;
   an unsaved local draft is kept open with an "Open note was deleted during
@@ -757,10 +807,12 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   fleet-wide (F4). iOS branches on the note no longer existing on disk after a
   live pull (`store.exists` false in `adoptExternalChange`), acts only for the
   visible editor (a buried wikilink editor must not pop the stack top), and
-  relies on the conditional flush (`write_if_unchanged` → SkippedMissing) so a
-  clean note is never resurrected even before the close runs. The dirty-keep
-  path is edit-wins: the debounced save re-creates the note with the local
-  edits. → syncManager `handleSyncComplete` (guarded by "peer delete of open
+  relies on the engine's flush verb (`flush_draft` — a clean editor never
+  flushes) so a clean note is never resurrected even before the close runs.
+  The dirty-keep path is edit-wins: the debounced save re-creates the note
+  with the local edits, and a leave/background flush of the kept draft
+  converges on the same home via the verb's Recreated arm.
+  → syncManager `handleSyncComplete` (guarded by "peer delete of open
   note closes editor" in tests/cross-platform-sync.mjs + the F4 seam tests in
   src/features/sync/syncManager.test.ts); iOS NoteEditorView `handleOpenNoteDeleted`.
   > **Gap:** Android leaves the open editor bound to the deleted id (its

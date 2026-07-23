@@ -54,6 +54,7 @@ pub(crate) fn run() {
             crate::local_notes::local_notes_read,
             crate::local_notes::local_notes_exists,
             crate::local_notes::local_notes_save,
+            crate::local_notes::local_notes_flush_draft,
             crate::local_notes::local_notes_delete,
             crate::local_notes::local_notes_move,
             crate::local_notes::local_notes_create_folder,
@@ -61,7 +62,7 @@ pub(crate) fn run() {
             crate::local_notes::local_notes_delete_folder,
             crate::local_notes::local_notes_reset,
             crate::local_notes::local_notes_search,
-            crate::local_notes::local_notes_search_status,
+            crate::local_notes::local_notes_wait_until_search_ready,
             crate::local_notes::local_notes_rescan,
         ])
         .run(tauri::generate_context!())

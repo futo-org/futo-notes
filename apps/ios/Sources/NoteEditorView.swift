@@ -280,11 +280,9 @@ struct NoteEditorView: View {
                 store.delete(noteId)
             } else if content != savedContent {
                 // POP flush (navigating back isn't a background signal, so the
-                // scenePhase handler won't fire). Conditional write via the draft:
-                // `flushAsync` writes only if the note still holds `savedContent`,
-                // so a note deleted / sync-adopted while open is neither
-                // resurrected nor clobbered, and a no-edit open/close never bumps
-                // mtime. Mirrors Android's onDispose flush.
+                // scenePhase handler won't fire). Persist-or-park through the
+                // engine, retaining this exact draft until the async flush is
+                // durable so an I/O failure remains eligible for lifecycle retry.
                 let draft = PendingDraft(id: noteId, base: savedContent, content: content)
                 store.publishDraft(token: draftToken, draft)
                 store.retainDraftUntilFlushed(token: draftToken)
@@ -496,17 +494,55 @@ struct NoteEditorView: View {
             savedContent = disk
         } else {
             // True three-way conflict: cancel the pending save (it would clobber
-            // the remote edit — store.write is unconditional), park the draft as a
-            // conflict copy, then adopt. Uses the shared `parkDraftCopy` so the
-            // flush and the live-pull path can't drift on the conflict-copy naming.
+            // the remote edit — store.write is unconditional), then route the
+            // draft through the engine's ONE flush verb, so the live-pull path
+            // and the leave/background flush share the park semantics and the
+            // conflict-copy naming by construction.
             saveTask?.cancel()
-            let parked = await store.parkDraftCopy(
-                PendingDraft(id: id, base: savedContent, content: content))
-            guard parked else { return }
+            // Snapshot the draft BEFORE the suspending flush: a keystroke landing
+            // during the await (main-actor reentrancy — the PKT-12 F1 hazard
+            // applyRename/scheduleSave avoid) must stay dirty, not be marked
+            // saved and lost on pop/jetsam. The engine persists exactly this
+            // snapshot; assigning `flushed` (not the live `content`) leaves any
+            // newer keystroke dirty for the next flush.
+            let flushed = content
+            let disposition = await store.flushDraft(
+                PendingDraft(id: id, base: savedContent, content: flushed))
             guard noteId == id else { return }
-            if isVisible { EditorHost.shared.applyExternal(content: disk) }
-            content = disk
-            savedContent = disk
+            switch adoptFlushOutcome(for: disposition) {
+            case .keepDraft:
+                // wrote / recreated / converged: the flushed draft is on disk at
+                // the original id (converged = an in-flight autosave landed it
+                // first). Keep the draft in the editor — do NOT adopt the stale
+                // pre-flush `disk` snapshot, which is gone from disk; adopting it
+                // clean would let the next keystroke's unconditional autosave
+                // destroy the just-persisted draft with no copy (F3).
+                savedContent = flushed
+            case .reloadDisk:
+                // Parked as a conflict copy. The engine decided that outcome
+                // from a serialized re-check, so the pre-flush `disk` snapshot
+                // is no longer authoritative. Re-read before adopting.
+                guard content == flushed else {
+                    // A newer keystroke landed during the flush. Re-evaluate it
+                    // against current disk instead of replacing it or letting
+                    // its unconditional autosave clobber the peer version.
+                    await adoptExternalChange()
+                    return
+                }
+                let refreshedDisk = await store.read(id)
+                guard noteId == id else { return }
+                guard content == flushed else {
+                    await adoptExternalChange()
+                    return
+                }
+                if isVisible { EditorHost.shared.applyExternal(content: refreshedDisk) }
+                content = refreshedDisk
+                savedContent = refreshedDisk
+            case .retryLater:
+                // Flush failed (I/O): leave the draft dirty so the next signal
+                // (autosave, background flush, re-adopt) retries.
+                return
+            }
         }
     }
 
@@ -522,8 +558,9 @@ struct NoteEditorView: View {
     /// re-adopt when the user navigates back to it (H2), so a peer-deleted buried
     /// note is closed/kept on return rather than staying bound to a dead id where
     /// the next keystroke's unconditional autosave would resurrect it. The
-    /// background/leave flush is anti-resurrection (persist-or-park →
-    /// SkippedMissing parks a copy, never recreates the original id).
+    /// background/leave flush honors the same edit-wins promise through the
+    /// engine's flush verb (a dirty draft of a deleted note is Recreated at the
+    /// original id; a clean editor never flushes).
     private func handleOpenNoteDeleted() {
         guard isVisible, !isClosing else { return }
         if content == savedContent {
@@ -632,16 +669,6 @@ private struct DraftInputs: Equatable {
     let content: String
 }
 
-/// Characters forbidden in a note title — mirrors the Rust `is_forbidden_char`
-/// (futo-notes-core) and the TS `FORBIDDEN_CHARS_RE`: `< > : " / \ | ? *` plus
-/// all control characters. Used only for live input filtering; the authoritative
-/// validation + messages come from the shared `validateTitle` (FFI).
-private let forbiddenTitleScalars: CharacterSet =
-    CharacterSet(charactersIn: "<>:\"/\\|?*").union(.controlCharacters)
-
-/// Max title length (chars) — matches the shared `MAX_TITLE_LENGTH` (200).
-private let titleMaxLength = 200
-
 /// A note title that is still the auto-assigned placeholder: exactly "Untitled",
 /// or a dedup variant "Untitled-N" (see the Rust store's `unique_note_id`, which
 /// appends `-2`, `-3`, …). Tapping such a title selects it whole so a keystroke
@@ -702,9 +729,9 @@ private struct TitleTextField: UIViewRepresentable {
             let raw = (tf.text ?? "").replacingOccurrences(of: "\n", with: "")
             // Strip forbidden filesystem chars in-place (desktop parity — the
             // illegal char never persists) and cap at the title length limit.
-            var cleaned = String(raw.unicodeScalars.filter { !forbiddenTitleScalars.contains($0) })
+            var cleaned = String(raw.unicodeScalars.filter { !TitleSpec.forbiddenScalars.contains($0) })
             let forbidden = cleaned != raw
-            if cleaned.count > titleMaxLength { cleaned = String(cleaned.prefix(titleMaxLength)) }
+            if cleaned.count > TitleSpec.maxLength { cleaned = String(cleaned.prefix(TitleSpec.maxLength)) }
             if tf.text != cleaned {
                 // Keep the caret roughly where it was: a stripped forbidden char
                 // shifts it back one; a length cap clamps it to the end.

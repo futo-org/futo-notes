@@ -1,5 +1,5 @@
 import { clearDragHoverExpanded } from '$features/folders/folderExpansion.svelte';
-import { getEmptyFolders, refreshEmptyFolders } from '$features/folders/emptyFolders.svelte';
+import { getEmptyFolders } from '$features/folders/emptyFolders.svelte';
 import { deleteFolder, renameOrMoveFolder } from '$features/folders/folderOperations';
 import { deleteNote, getAllNotes, moveNote } from '$features/notes/notes.svelte';
 import { idLeaf } from '$lib/platform/pathSafety';
@@ -60,10 +60,6 @@ export function collectSiblingFolders(parentPath: string): string[] {
   return [...siblings];
 }
 
-export async function refreshSidebarFolders(): Promise<void> {
-  await refreshEmptyFolders(getAllNotes());
-}
-
 export async function renameSidebarFolder(
   path: string,
   newName: string,
@@ -83,7 +79,6 @@ export async function renameSidebarFolder(
     if (!result.ok) return result.error ?? 'Failed to rename';
     options.onNoteIdsRenamed(result.renames ?? []);
     retargetActiveNote(result.renames, options);
-    await refreshSidebarFolders();
     return null;
   });
 }
@@ -104,7 +99,6 @@ export async function moveSidebarNote(
       if (movingActiveNote) {
         options.onActiveNoteMoved(fromId, result.id, idLeaf(result.id));
       }
-      await refreshSidebarFolders();
       showGlobalToast(target ? `Moved to ${target}` : 'Moved to Notes');
     };
     if (movingActiveNote) await options.runWithActiveNoteLock(move);
@@ -172,7 +166,6 @@ export async function confirmDeleteSidebarFolder(
       return;
     }
     options.onNoteIdsRenamed(result.renames ?? []);
-    await refreshSidebarFolders();
     const movedNotes = new Map(result.renames?.map((rename) => [rename.from, rename.to]) ?? []);
 
     const activeId = options.getActiveNoteId();
@@ -228,7 +221,6 @@ export async function moveSidebarFolder(
     }
     options.onNoteIdsRenamed(result.renames ?? []);
     retargetActiveNote(result.renames, options);
-    await refreshSidebarFolders();
     showGlobalToast(`Moved to ${targetPath}`);
     clearDragHoverExpanded();
   });
@@ -248,7 +240,6 @@ export async function moveSidebarFolderToRoot(
     }
     options.onNoteIdsRenamed(result.renames ?? []);
     retargetActiveNote(result.renames, options);
-    await refreshSidebarFolders();
     showGlobalToast('Moved to Notes');
     clearDragHoverExpanded();
   });

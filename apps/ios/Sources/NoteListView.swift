@@ -9,6 +9,17 @@ enum Route: Hashable {
     case newNote(String)
 }
 
+/// Toggles state without the implicit view-transition animation, so a
+/// transparent `fullScreenCover` pops in place (like the `.alert`/
+/// `.confirmationDialog` it replaces) instead of sliding up. Shared by the
+/// New Folder dialog and the destructive delete confirmations below — see
+/// `DestructiveConfirmDialog`.
+private func presentWithoutAnimation(_ mutate: () -> Void) {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction, mutate)
+}
+
 struct NoteListView: View {
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
@@ -84,15 +95,19 @@ struct NoteListView: View {
                     .environmentObject(sync)
                     .environmentObject(store)
             }
-            .confirmationDialog(
-                "Delete this note? This action cannot be undone.",
-                isPresented: $showSearchDelete, titleVisibility: .visible
-            ) {
-                Button("Delete Note", role: .destructive) {
-                    for id in searchDeleteIds { store.delete(id) }
-                    searchDeleteIds = []
-                }
-                Button("Cancel", role: .cancel) { searchDeleteIds = [] }
+            // Centered fullScreenCover, not a .confirmationDialog — see
+            // DestructiveConfirmDialog for why (arrow-popover misanchoring).
+            .fullScreenCover(isPresented: $showSearchDelete) {
+                DestructiveConfirmDialog(
+                    message: "Delete this note? This action cannot be undone.",
+                    destructiveLabel: "Delete Note",
+                    onCancel: { setSearchDelete([], visible: false) },
+                    onDestructive: {
+                        for id in searchDeleteIds { store.delete(id) }
+                        setSearchDelete([], visible: false)
+                    }
+                )
+                .presentationBackground(.clear)
             }
             .navigationDestination(for: Route.self) { route in
                 switch route {
@@ -180,8 +195,16 @@ struct NoteListView: View {
 
     private func deleteSearchRows(_ offsets: IndexSet) {
         // Destructive: stash the ids and confirm before deleting (list.md).
-        searchDeleteIds = offsets.map { filtered[$0].id }
-        showSearchDelete = true
+        setSearchDelete(offsets.map { filtered[$0].id }, visible: true)
+    }
+
+    /// Sets the search-results delete-confirmation target without the
+    /// implicit slide-up transition (see `presentWithoutAnimation`).
+    private func setSearchDelete(_ ids: [String], visible: Bool) {
+        presentWithoutAnimation {
+            searchDeleteIds = ids
+            showSearchDelete = visible
+        }
     }
 }
 
@@ -259,15 +282,6 @@ struct FolderContentsView: View {
         }
         .background(Theme.background)
         .navigationTitle(title)
-        .onAppear {
-            // Resort the list when it re-appears — including when a pushed
-            // editor pops back in this NavigationStack. `write` refreshes the
-            // edited row's modified date in place (no resort) so editing doesn't
-            // churn the list; we settle the order here, once, on return. Cheap
-            // in-memory sort, no rescan; first-appear is already-sorted → no-op.
-            // [list.md:24]
-            store.resortInPlace()
-        }
         .toolbar {
             ToolbarItem(id: "create", placement: .topBarTrailing) {
                 Menu {
@@ -329,31 +343,37 @@ struct FolderContentsView: View {
             MoveToFolderSheet(note: note, currentFolder: folder)
                 .environmentObject(store)
         }
-        .confirmationDialog(
-            "Delete this note? This action cannot be undone.",
-            isPresented: Binding(
-                get: { deleteTarget != nil },
-                set: { if !$0 { deleteTarget = nil } }),
-            titleVisibility: .visible
+        // Centered fullScreenCover, not a .confirmationDialog — see
+        // DestructiveConfirmDialog for why (arrow-popover misanchoring).
+        .fullScreenCover(isPresented: Binding(
+            get: { deleteTarget != nil },
+            set: { if !$0 { setDeleteTarget(nil) } })
         ) {
-            Button("Delete Note", role: .destructive) {
-                if let note = deleteTarget { store.delete(note.id) }
-                deleteTarget = nil
-            }
-            Button("Cancel", role: .cancel) { deleteTarget = nil }
+            DestructiveConfirmDialog(
+                message: "Delete this note? This action cannot be undone.",
+                destructiveLabel: "Delete Note",
+                onCancel: { setDeleteTarget(nil) },
+                onDestructive: {
+                    if let note = deleteTarget { store.delete(note.id) }
+                    setDeleteTarget(nil)
+                }
+            )
+            .presentationBackground(.clear)
         }
-        .confirmationDialog(
-            "Delete this folder? Notes inside it will be moved to the parent folder.",
-            isPresented: Binding(
-                get: { folderDeleteTarget != nil },
-                set: { if !$0 { folderDeleteTarget = nil } }),
-            titleVisibility: .visible
+        .fullScreenCover(isPresented: Binding(
+            get: { folderDeleteTarget != nil },
+            set: { if !$0 { setFolderDeleteTarget(nil) } })
         ) {
-            Button("Delete Folder", role: .destructive) {
-                if let target = folderDeleteTarget { store.deleteFolder(target) }
-                folderDeleteTarget = nil
-            }
-            Button("Cancel", role: .cancel) { folderDeleteTarget = nil }
+            DestructiveConfirmDialog(
+                message: "Delete this folder? Notes inside it will be moved to the parent folder.",
+                destructiveLabel: "Delete Folder",
+                onCancel: { setFolderDeleteTarget(nil) },
+                onDestructive: {
+                    if let target = folderDeleteTarget { store.deleteFolder(target) }
+                    setFolderDeleteTarget(nil)
+                }
+            )
+            .presentationBackground(.clear)
         }
     }
 
@@ -376,14 +396,14 @@ struct FolderContentsView: View {
                         // the row away even though we only show a confirmation.
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
-                                folderDeleteTarget = child
+                                setFolderDeleteTarget(child)
                             } label: {
                                 Label("Delete Folder…", systemImage: "trash")
                             }
                         }
                         .contextMenu {
                             Button(role: .destructive) {
-                                folderDeleteTarget = child
+                                setFolderDeleteTarget(child)
                             } label: {
                                 Label("Delete Folder…", systemImage: "trash")
                             }
@@ -401,7 +421,7 @@ struct FolderContentsView: View {
                         // allowsFullSwipe off — see the folder rows above.
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
-                                deleteTarget = note
+                                setDeleteTarget(note)
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
@@ -419,7 +439,7 @@ struct FolderContentsView: View {
                                 Label("Move to Folder…", systemImage: "folder")
                             }
                             Button(role: .destructive) {
-                                deleteTarget = note
+                                setDeleteTarget(note)
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
@@ -471,9 +491,19 @@ struct FolderContentsView: View {
     /// so its transparent fullScreenCover pops in place like the .alert it
     /// replaced instead of playing the cover's default slide-up.
     private func setNewFolderDialog(visible: Bool) {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { showingNewFolder = visible }
+        presentWithoutAnimation { showingNewFolder = visible }
+    }
+
+    /// Sets/clears the note delete-confirmation target without the implicit
+    /// slide-up transition (see `presentWithoutAnimation`).
+    private func setDeleteTarget(_ note: NoteItem?) {
+        presentWithoutAnimation { deleteTarget = note }
+    }
+
+    /// Sets/clears the folder delete-confirmation target without the implicit
+    /// slide-up transition (see `presentWithoutAnimation`).
+    private func setFolderDeleteTarget(_ path: String?) {
+        presentWithoutAnimation { folderDeleteTarget = path }
     }
 }
 
@@ -549,6 +579,59 @@ private struct NewFolderDialog: View {
                 // the .alert this replaced always raised the keyboard.
                 DispatchQueue.main.async { nameFocused = true }
             }
+        }
+    }
+}
+
+/// Alert-look-alike card for a destructive confirmation (delete note, delete
+/// folder), hosted in a transparent `fullScreenCover`. Replaces
+/// `.confirmationDialog`, which — attached at a container view far from the
+/// swiped/long-pressed row — can render as an arrow popover anchored to that
+/// container in a regular-width horizontal size class (some large iPhones),
+/// pointing the arrow at an unrelated row instead of the one being deleted.
+/// A transparent fullScreenCover is always centered, never anchored to a
+/// source view. Mirrors `NewFolderDialog` above.
+private struct DestructiveConfirmDialog: View {
+    /// The full confirmation prompt (e.g. "Delete this note? This action
+    /// cannot be undone."), rendered as one centered headline — matching what
+    /// `.confirmationDialog(_:titleVisibility: .visible)` showed.
+    let message: String
+    let destructiveLabel: String
+    let onCancel: () -> Void
+    let onDestructive: () -> Void
+
+    var body: some View {
+        ZStack {
+            // The same dim a real alert/action sheet draws. Taps on it do NOT
+            // dismiss — parity with the .confirmationDialog this replaced.
+            Color.black.opacity(0.2)
+                .ignoresSafeArea()
+            VStack(spacing: 0) {
+                Text(message)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 19)
+                    .padding(.bottom, 16)
+                Divider()
+                HStack(spacing: 0) {
+                    Button(action: onCancel) {
+                        Text("Cancel")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    Divider()
+                        .frame(height: 44)
+                    Button(role: .destructive, action: onDestructive) {
+                        Text(destructiveLabel)
+                            .foregroundStyle(Theme.danger)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                }
+            }
+            .frame(width: 270)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
         }
     }
 }
@@ -650,11 +733,8 @@ struct MoveToFolderSheet: View {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let dest = currentFolder.isEmpty ? name : currentFolder + "/" + name
-        // Create the folder then move into it — ordered so the destination
-        // exists before the move. createFolder is fire-and-forget (Task-wrapped
-        // internally); the move must observe its result, so chain explicitly.
         Task {
-            let finalId = await store.moveNoteCreatingFolder(note.id, folder: dest)
+            let finalId = await store.moveNote(note.id, toFolder: dest)
             onMoved?(finalId)
         }
         dismiss()
@@ -696,12 +776,28 @@ struct NoteRow: View {
     /// `*italic*` / `` `code` `` become real styling, and line breaks are kept
     /// (`.inlineOnlyPreservingWhitespace` parses only inline syntax — the block
     /// markdown was already rewritten into glyphs by `make_rich_preview`). Falls
-    /// back to the raw string if markdown parsing ever fails.
+    /// back to the raw string if markdown parsing ever fails. Link attributes
+    /// the markdown parser auto-attaches to URL-shaped text are stripped —
+    /// preview text sits inside a row wrapped in a NavigationLink, and an
+    /// active `.link` run intercepts the tap, opening the URL instead of the
+    /// note (list.md: preview text must never be actionable).
     private var richPreview: AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible)
-        return (try? AttributedString(markdown: note.richPreview, options: options))
+        let parsed = (try? AttributedString(markdown: note.richPreview, options: options))
             ?? AttributedString(note.richPreview)
+        return NoteRow.stripLinkAttributes(from: parsed)
+    }
+
+    /// Removes the `.link` attribute from every run, leaving other inline
+    /// styling (bold/italic/code/strikethrough) untouched. Pulled out as a
+    /// static, testable helper — see `NoteRowPreviewLinksTests`.
+    static func stripLinkAttributes(from attributed: AttributedString) -> AttributedString {
+        var result = attributed
+        for run in result.runs where run.link != nil {
+            result[run.range].link = nil
+        }
+        return result
     }
 }

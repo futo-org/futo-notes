@@ -3,9 +3,9 @@ mod sync;
 
 pub use notes::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
-    sanitize_title, split_id, validate_title, ConditionalWrite, CreateOutcome, FlushOutcome,
-    NoteBootstrap, NoteError, NoteIdParts, NoteMetadata, NoteMutation, NoteRename, NoteSnapshot,
-    NoteStore, SearchHit, TitleIssue,
+    sanitize_title, split_id, validate_title, ConditionalWrite, CreateOutcome, FlushDisposition,
+    FlushDraftResult, FlushOutcome, NoteBootstrap, NoteError, NoteIdParts, NoteMetadata,
+    NoteMutation, NoteSnapshot, NoteStore, SearchHit, TitleIssue, UpsertedNote,
 };
 pub use sync::{
     ConnectInfo, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus, SyncSummary,

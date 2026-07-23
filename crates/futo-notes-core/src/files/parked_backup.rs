@@ -145,28 +145,27 @@ fn recover_parked_backup(dir: &Path, name: &str) -> Option<RecoveredBackup> {
         return None;
     }
     let destination = dir.join(leaf);
-    // A no-replace move also works on Android storage, where hard links are denied.
+    // A no-replace move installs the backup at its canonical name without a
+    // check-then-write race and consumes the backup on success.
     match move_no_replace(&backup, &destination) {
         Ok(true) => {
             let _ = fs::remove_file(&sidecar);
             None
         }
-        Ok(false) => {
-            match (fs::read(&backup), fs::read(&destination)) {
-                (Ok(backup_bytes), Ok(live_bytes)) if backup_bytes == live_bytes => {
-                    remove_parked_files(&backup, &sidecar);
-                    None
-                }
-                _ => {
-                    // A later canonical restore could resurrect stale content after live deletion.
-                    Some(RecoveredBackup {
-                        leaf: leaf.to_owned(),
-                        backup,
-                        sidecar,
-                    })
-                }
+        Ok(false) => match (fs::read(&backup), fs::read(&destination)) {
+            (Ok(backup_bytes), Ok(live_bytes)) if backup_bytes == live_bytes => {
+                remove_parked_files(&backup, &sidecar);
+                None
             }
-        }
+            _ => {
+                // A later canonical restore could resurrect stale content after live deletion.
+                Some(RecoveredBackup {
+                    leaf: leaf.to_owned(),
+                    backup,
+                    sidecar,
+                })
+            }
+        },
         Err(_) => None,
     }
 }

@@ -36,28 +36,6 @@ interface SyncCompletionOptions {
   writeSuppressor: WriteSuppressor;
 }
 
-function isCollisionVariantId(sourceId: string, candidateId: string): boolean {
-  return candidateId.startsWith(`${sourceId} (`) && /\(\d+\)$/.test(candidateId);
-}
-
-export function findActiveSyncRename(
-  summary: Pick<SyncSummary, 'updatedIds' | 'deletedIds' | 'renamed'>,
-  originalId: string,
-  recentRenameTarget?: string | null,
-): { fromId: string; toId: string } | null {
-  const explicitRename = summary.renamed.find((rename) => rename.fromId === originalId);
-  if (explicitRename) return explicitRename;
-  if (recentRenameTarget && recentRenameTarget !== originalId) {
-    return { fromId: originalId, toId: recentRenameTarget };
-  }
-  if (!summary.deletedIds.includes(originalId)) return null;
-
-  const collisionRenameTarget = summary.updatedIds.find((id) =>
-    isCollisionVariantId(originalId, id),
-  );
-  return collisionRenameTarget ? { fromId: originalId, toId: collisionRenameTarget } : null;
-}
-
 export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
   const { dependencies, externalChanges, writeSuppressor } = options;
 
@@ -93,19 +71,13 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     setTimeout(() => void externalChanges.runRescan(), 50);
   }
 
+  // The sync engine reports rename intent for every relocation it performs
+  // (including collision placements), so reported renames are applied
+  // verbatim — the open tab/editor follows through applyRename with no
+  // shell-side rename inference.
   function reconcileRenames(summary: SyncSummary): void {
-    const activeBeforeRenames = dependencies.session.originalId;
-    const activeRename = activeBeforeRenames
-      ? findActiveSyncRename(summary, activeBeforeRenames)
-      : null;
-    const applied = new Set<string>();
     for (const rename of summary.renamed) {
       applyRename(rename.fromId, rename.toId);
-      applied.add(`${rename.fromId}\n${rename.toId}`);
-    }
-    if (activeRename && !applied.has(`${activeRename.fromId}\n${activeRename.toId}`)) {
-      writeSuppressor.recordRemoteRename(activeRename.fromId, activeRename.toId);
-      applyRename(activeRename.fromId, activeRename.toId);
     }
   }
 

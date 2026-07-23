@@ -52,9 +52,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.futo.notes.ImagePicker
+import com.futo.notes.AdoptFlushOutcome
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
 import com.futo.notes.PendingDraft
+import com.futo.notes.adoptFlushOutcome
 import com.futo.notes.confirmedSavedContent
 import com.futo.notes.derivePendingDraft
 import com.futo.notes.saveImageDataIntoVault
@@ -79,9 +81,6 @@ import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
 import uniffi.futo_notes_ffi.validateTitle
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /** A note title that is still the auto-assigned placeholder: exactly "Untitled",
  *  or a dedup variant "Untitled-N" (the Rust store's `unique_note_id` appends `-2`,
@@ -90,15 +89,6 @@ import java.util.Locale
 private val UNTITLED_PLACEHOLDER = Regex("""^Untitled(-\d+)?$""")
 
 internal fun isPlaceholderTitle(title: String): Boolean = UNTITLED_PLACEHOLDER.matches(title)
-
-/** Characters forbidden in a note title — mirrors the Rust `is_forbidden_char`
- *  (futo-notes-core) and the TS `FORBIDDEN_CHARS_RE`: `< > : " / \ | ? *` plus
- *  all control characters. Live input filtering only; the authoritative
- *  validation + messages come from the shared `validateTitle` (FFI). */
-private val FORBIDDEN_TITLE_CHARS = Regex("[<>:\"/\\\\|?*\\x00-\\x1F\\x7F]")
-
-/** Max title length (chars) — matches the shared `MAX_TITLE_LENGTH` (200). */
-private const val TITLE_MAX_LENGTH = 200
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, FlowPreview::class)
 @Composable
@@ -254,41 +244,46 @@ fun NoteEditorScreen(
                     savedContent = disk
                 }
                 disk != savedContent -> {
-                    // Dirty draft + a real remote change: park the local edit as a
-                    // conflict copy, then adopt the remote content — neither side is
-                    // lost. Ordering absorbs all three review rounds' constraints:
-                    //  * createNote FIRST — its suspension captures nothing, so a
-                    //    keystroke typed while the id is being minted is NOT lost
-                    //    (PKT-12 G2: capturing before createNote enlarged the window);
-                    //  * THEN capture localEdit from the live buffer, as late as
-                    //    possible, folding in every keystroke up to now (item 5);
-                    //  * write the copy to DISK before adopting in-memory (copy-first,
-                    //    F5) so a process death mid-adoption can't lose the captured
-                    //    edit;
-                    //  * adopt last.
-                    // The only residual window is the copy write itself — unavoidable
-                    // without freezing input, which we must not do (M5). A background
-                    // flush during any of this can't clobber: the conditional write's
-                    // base is the pre-adopt saved content, which differs from the
-                    // on-disk remote → SkippedChanged. iOS adoptExternalChange parity.
+                    // Snapshot before each suspending engine flush. If the user
+                    // types while it runs, loop with the newer buffer rather than
+                    // replacing those keystrokes with the peer version.
                     saveJob?.cancel()
-                    val parts = splitId(noteId)
-                    val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                    val copyId = store.createNote("${parts.title} (conflict $date)", parts.folder)
-                    val localEdit = content
-                    val copyOutcome = copyId?.let { store.write(it, localEdit) }
-                    if (copyOutcome !is NoteMutationOutcome.Committed) {
-                        Toast.makeText(
-                            context,
-                            "Couldn't preserve conflicting edits. Your draft is still open.",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        return@collect
+                    val conflictId = noteId
+                    while (noteId == conflictId) {
+                        val flushed = content
+                        val disposition = store.flushDraft(
+                            PendingDraft(conflictId, savedContent, flushed),
+                        )
+                        when (adoptFlushOutcome(disposition)) {
+                            AdoptFlushOutcome.KEEP_DRAFT -> {
+                                savedContent = flushed
+                                break
+                            }
+                            AdoptFlushOutcome.RELOAD_DISK -> {
+                                if (content != flushed) continue
+                                val refreshedDisk = store.read(conflictId)
+                                if (noteId != conflictId) return@collect
+                                if (content != flushed) continue
+                                host.applyExternalContent(refreshedDisk)
+                                content = refreshedDisk
+                                savedContent = refreshedDisk
+                                Toast.makeText(
+                                    context,
+                                    "Conflicting edits saved to a copy",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                break
+                            }
+                            AdoptFlushOutcome.RETRY_LATER -> {
+                                Toast.makeText(
+                                    context,
+                                    "Couldn't preserve conflicting edits. Your draft is still open.",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                return@collect
+                            }
+                        }
                     }
-                    host.applyExternalContent(disk)
-                    content = disk
-                    savedContent = disk
-                    Toast.makeText(context, "Conflicting edits saved to a copy", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -463,9 +458,9 @@ fun NoteEditorScreen(
                     // Strip forbidden filesystem chars in-place (desktop parity —
                     // the illegal char never persists) + cap at the length limit.
                     val noNewline = v.text.replace("\n", "")
-                    val cleaned = FORBIDDEN_TITLE_CHARS.replace(noNewline, "")
+                    val cleaned = TitleSpec.forbiddenChars.replace(noNewline, "")
                     val forbidden = cleaned != noNewline
-                    val capped = if (cleaned.length > TITLE_MAX_LENGTH) cleaned.take(TITLE_MAX_LENGTH) else cleaned
+                    val capped = if (cleaned.length > TitleSpec.maxLength) cleaned.take(TitleSpec.maxLength) else cleaned
                     titleValue =
                         if (capped == v.text) v
                         else TextFieldValue(capped, TextRange(minOf(v.selection.end, capped.length)))
