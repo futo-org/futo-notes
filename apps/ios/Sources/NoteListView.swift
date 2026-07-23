@@ -95,12 +95,8 @@ struct NoteListView: View {
                     .environmentObject(sync)
                     .environmentObject(store)
             }
-            // NOT a .confirmationDialog: in a regular-width size class (some
-            // large iPhones) it renders as an arrow popover anchored to THIS
-            // view (attached at the NavigationStack root) rather than the
-            // swiped row, pointing the arrow at an unrelated element near the
-            // top of the screen. A transparent fullScreenCover is always
-            // centered, never anchored — mirrors NewFolderDialog above.
+            // Centered fullScreenCover, not a .confirmationDialog — see
+            // DestructiveConfirmDialog for why (arrow-popover misanchoring).
             .fullScreenCover(isPresented: $showSearchDelete) {
                 DestructiveConfirmDialog(
                     message: "Delete this note? This action cannot be undone.",
@@ -347,12 +343,8 @@ struct FolderContentsView: View {
             MoveToFolderSheet(note: note, currentFolder: folder)
                 .environmentObject(store)
         }
-        // NOT .confirmationDialog: it renders as an arrow popover anchored to
-        // THIS view (attached at the folder-contents root) in a regular-width
-        // size class (some large iPhones), pointing at an unrelated row near
-        // the top of the screen instead of the swiped/long-pressed one. A
-        // transparent fullScreenCover is always centered — mirrors
-        // NewFolderDialog above.
+        // Centered fullScreenCover, not a .confirmationDialog — see
+        // DestructiveConfirmDialog for why (arrow-popover misanchoring).
         .fullScreenCover(isPresented: Binding(
             get: { deleteTarget != nil },
             set: { if !$0 { setDeleteTarget(nil) } })
