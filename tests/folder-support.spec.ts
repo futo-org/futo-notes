@@ -417,4 +417,69 @@ test.describe('Folder support', () => {
     expect(deepest.left).toBeGreaterThan(geometry.rows[0].left);
     expect(deepest.width).toBeGreaterThan(100);
   });
+
+  test('deeply nested rows stay usable at the minimum sidebar width', async ({ page }) => {
+    // Adversarial regression: folder depth is unbounded and the sidebar can
+    // shrink to MIN_SIDEBAR_WIDTH (200px). With a raw depth indent, a deep
+    // enough row consumes the entire width (depth 10 * 16px = 160px indent vs
+    // ~184px content) and renders as a blank, titleless click target. The
+    // indent is capped at 50% of the row so every row keeps a usable,
+    // title-bearing width at any depth and sidebar width.
+    const DEPTH = 10; // matches "folder depth allowed" + DEPTH_INDENT_PX = 16
+    await openSidebar(page);
+    const leafId = await page.evaluate(async (depth) => {
+      const win = window as unknown as {
+        __testNotes: {
+          createFolder: (path: string) => Promise<unknown>;
+          createNote: (id: string, body: string) => Promise<unknown>;
+        };
+      };
+      const parts: string[] = [];
+      for (let i = 1; i <= depth; i++) {
+        parts.push(`d${i}`);
+        await win.__testNotes.createFolder(parts.join('/'));
+      }
+      const id = `${parts.join('/')}/leaf`;
+      await win.__testNotes.createNote(id, 'deep note body');
+      return id;
+    }, DEPTH);
+
+    // Expand every ancestor folder so the leaf row renders.
+    const parts: string[] = [];
+    for (let i = 1; i <= DEPTH; i++) {
+      parts.push(`d${i}`);
+      await page
+        .locator(`.folder-row[data-folder-path="${parts.join('/')}"]`)
+        .first()
+        .click();
+    }
+
+    // Pin the tree to the minimum supported sidebar width so the 50% cap
+    // resolves against 200px, the worst supported case.
+    await page.evaluate(() => {
+      const scroll = document.querySelector<HTMLElement>('.folder-tree-scroll')!;
+      scroll.style.flex = '0 0 200px';
+      scroll.style.width = '200px';
+    });
+
+    const leaf = page.locator(`.note-row[data-note-id="${leafId}"]`);
+    await expect(leaf).toBeVisible();
+
+    const box = await leaf.evaluate((row) => {
+      const scroll = row.closest<HTMLElement>('.folder-tree-scroll')!;
+      const style = getComputedStyle(row);
+      const rect = row.getBoundingClientRect();
+      const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      return {
+        contentWidth: rect.width - padX,
+        rowRight: rect.right,
+        scrollRight: scroll.getBoundingClientRect().right,
+      };
+    });
+
+    // The deepest row must keep a usable, title-bearing content width — the
+    // old raw indent left 0px here. And its right edge stays in the viewport.
+    expect(box.contentWidth).toBeGreaterThan(40);
+    expect(box.rowRight).toBeLessThanOrEqual(box.scrollRight + 1);
+  });
 });

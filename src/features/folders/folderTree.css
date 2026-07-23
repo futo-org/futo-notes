@@ -34,12 +34,19 @@
      shrink-wraps to its content (the title text), producing a ragged,
      title-width pill instead of a uniform column. An explicit width forces
      every row (folder or note) to the same fixed width.
-     Nested rows carry a positive `margin-left` (depth * indentPixels, set
-     inline as --indent). A plain width: 100% would then make the margin box
-     wider than .folder-tree-scroll, and its `overflow-x: hidden` would clip
-     each nested row's right edge. Subtract the indent so the row's right
-     edge stays flush inside the viewport at every depth. */
-  width: calc(100% - var(--indent, 0px));
+     Nested rows are indented by depth * indentPixels (set inline as
+     --indent). We apply that indent as margin-left AND subtract it from the
+     width so the row's right edge stays flush inside .folder-tree-scroll
+     (whose overflow-x: hidden would otherwise clip a plain width: 100% row).
+     The indent is capped at 50% of the row's containing block: a deep folder
+     in a narrow sidebar (min 200px) would otherwise consume the whole row —
+     depth 10 leaves 0 usable px — leaving a blank, titleless click target.
+     Capping keeps every row at least half-width (title visible) at any depth
+     and sidebar width; only pathologically deep rows lose depth distinction.
+     min() with mixed px/% resolves against the containing block at use time. */
+  --indent-effective: min(var(--indent, 0px), 50%);
+  margin-left: var(--indent-effective);
+  width: calc(100% - var(--indent-effective));
   height: 48px;
   border: none;
   border-radius: 10px;
@@ -48,7 +55,8 @@
   text-align: left;
   cursor: pointer;
   padding: 0 12px;
-  margin: 1px 0;
+  /* margin-block only — must not reset the margin-left indent set above. */
+  margin-block: 1px;
   box-sizing: border-box;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
