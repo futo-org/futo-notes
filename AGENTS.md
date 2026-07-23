@@ -404,7 +404,9 @@ to do one, stop and apply the rule.
 
 ## 7. Quality bar per deliverable (checkable)
 
-Run `pnpm exec tsc --noEmit | head -30` before any full build; pipe builds through `| tail -20`.
+`just build` runs `tsc --noEmit` and `vite build`, truncated to `head -30`/`tail -20` under
+`pipefail` so a real failure still exits nonzero — run it rather than piping `tsc`/`vite build`
+through `head`/`tail` yourself without `pipefail`, which would swallow the exit code.
 Every logic change ships with a test — no exceptions. A bug fix's regression test must fail before
 the fix and pass after. In your final report, include commands run, pass/fail, and key observed
 behavior.
