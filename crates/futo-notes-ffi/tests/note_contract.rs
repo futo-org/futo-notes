@@ -190,15 +190,44 @@ fn note_store_projects_complete_workflow_results() {
     assert_eq!(folder_renamed.removed, ["Projects/Nested/Gamma"]);
     assert_eq!(folder_renamed.folders, ["Archive", "Projects"]);
 
-    let folder_deleted = store.delete_folder("Archive".to_owned()).unwrap();
-    assert_eq!(folder_deleted.removed, ["Archive/Gamma"]);
-    assert_eq!(folder_deleted.folders, ["Projects"]);
-    assert!(store.exists("Gamma".to_owned()));
+    store
+        .create_folder("Destination/Archive".to_owned())
+        .unwrap();
+    let folder_moved = store
+        .move_folder("Archive".to_owned(), "Destination".to_owned())
+        .unwrap();
+    assert_eq!(
+        folder_moved.final_folder.as_deref(),
+        Some("Destination/Archive-2")
+    );
+    assert_eq!(folder_moved.removed, ["Archive/Gamma"]);
+    assert_eq!(
+        folder_moved.folders,
+        [
+            "Destination",
+            "Destination/Archive",
+            "Destination/Archive-2",
+            "Projects"
+        ]
+    );
+
+    let folder_deleted = store
+        .delete_folder("Destination/Archive-2".to_owned())
+        .unwrap();
+    assert_eq!(folder_deleted.removed, ["Destination/Archive-2/Gamma"]);
+    assert_eq!(
+        folder_deleted.folders,
+        ["Destination", "Destination/Archive", "Projects"]
+    );
+    assert!(store.exists("Destination/Gamma".to_owned()));
 
     let missing_delete = store.delete("missing".to_owned()).unwrap();
     assert!(missing_delete.upserted.is_empty());
     assert!(missing_delete.removed.is_empty());
-    assert_eq!(missing_delete.folders, ["Projects"]);
+    assert_eq!(
+        missing_delete.folders,
+        ["Destination", "Destination/Archive", "Projects"]
+    );
 
     store.reset().unwrap();
     let after_reset = store.scan();
@@ -343,18 +372,21 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
         removed,
         folders,
         final_id,
+        final_folder,
         warnings,
     } = NoteMutation {
         upserted: Vec::new(),
         removed: vec!["before.md".to_owned()],
         folders: vec!["folder".to_owned()],
         final_id: Some("after.md".to_owned()),
+        final_folder: Some("folder".to_owned()),
         warnings: vec!["warning".to_owned()],
     };
     assert!(upserted.is_empty());
     assert_eq!(removed, vec!["before.md"]);
     assert_eq!(folders, vec!["folder"]);
     assert_eq!(final_id.as_deref(), Some("after.md"));
+    assert_eq!(final_folder.as_deref(), Some("folder"));
     assert_eq!(warnings, vec!["warning"]);
 
     let NoteBootstrap {

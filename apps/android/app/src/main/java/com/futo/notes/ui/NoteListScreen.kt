@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Layers
@@ -105,6 +106,8 @@ fun NoteListScreen(
     var deleteTarget by remember { mutableStateOf<String?>(null) }
     var moveTarget by remember { mutableStateOf<String?>(null) }
     var newFolderDialog by remember { mutableStateOf(false) }
+    var renameFolderTarget by remember { mutableStateOf<String?>(null) }
+    var moveFolderTarget by remember { mutableStateOf<String?>(null) }
     var confirmDeleteFolder by remember { mutableStateOf<String?>(null) }
 
     val scrolled by remember {
@@ -127,6 +130,8 @@ fun NoteListScreen(
                     currentFolder = it
                     scope.launch { drawerState.close() }
                 },
+                onRenameFolder = { renameFolderTarget = it },
+                onMoveFolder = { moveFolderTarget = it },
                 onDeleteFolder = { confirmDeleteFolder = it },
                 onSettings = {
                     scope.launch { drawerState.close() }
@@ -306,6 +311,61 @@ fun NoteListScreen(
         )
     }
 
+    renameFolderTarget?.let { target ->
+        val parent = target.substringBeforeLast('/', "")
+        NewFolderDialog(
+            parent = parent,
+            store = store,
+            initialName = target.substringAfterLast('/'),
+            title = "Rename folder",
+            confirmLabel = "Rename",
+            excludePath = target,
+            onCreate = { newPath ->
+                renameFolderTarget = null
+                scope.launch {
+                    val finalFolder = store.renameFolder(target, newPath)
+                    if (finalFolder != null) {
+                        currentFolder = rebaseFolderPath(currentFolder, target, finalFolder)
+                        Toast.makeText(context, "Folder renamed", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Couldn't rename folder", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onDismiss = { renameFolderTarget = null },
+        )
+    }
+
+    moveFolderTarget?.let { target ->
+        FolderPickerSheet(
+            store = store,
+            title = "Move \"${target.substringAfterLast('/')}\"",
+            excludePaths = listOf(target),
+            allowCreate = false,
+            onDismiss = { moveFolderTarget = null },
+            onPick = { destination ->
+                moveFolderTarget = null
+                scope.launch {
+                    val finalFolder = store.moveFolder(target, destination)
+                    if (finalFolder != null) {
+                        currentFolder = rebaseFolderPath(currentFolder, target, finalFolder)
+                        Toast.makeText(
+                            context,
+                            "Moved to ${destination.ifEmpty { "Root" }}",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "Couldn't move folder — nothing was changed",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            },
+        )
+    }
+
     confirmDeleteFolder?.let { folder ->
         ConfirmDialog(
             title = "Delete this folder?",
@@ -341,11 +401,19 @@ internal fun folderDeletedToast(moved: UInt): String =
 internal fun isAtListTop(firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int): Boolean =
     firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset <= 4
 
+internal fun rebaseFolderPath(current: String, from: String, to: String): String = when {
+    current == from -> to
+    current.startsWith("$from/") -> "$to/${current.removePrefix("$from/")}"
+    else -> current
+}
+
 @Composable
 private fun LibraryDrawer(
     store: NotesStore,
     currentFolder: String,
     onSelectFolder: (String) -> Unit,
+    onRenameFolder: (String) -> Unit,
+    onMoveFolder: (String) -> Unit,
     onDeleteFolder: (String) -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -390,6 +458,34 @@ private fun LibraryDrawer(
                     onLongClick = { folderMenu = folder },
                 )
                 DropdownMenu(expanded = folderMenu == folder, onDismissRequest = { folderMenu = null }) {
+                    DropdownMenuItem(
+                        text = { Text("Rename") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.Edit,
+                                contentDescription = null,
+                                tint = c.textSecondary,
+                            )
+                        },
+                        onClick = {
+                            folderMenu = null
+                            onRenameFolder(folder)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Move to Folder…") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.AutoMirrored.Filled.DriveFileMove,
+                                contentDescription = null,
+                                tint = c.textSecondary,
+                            )
+                        },
+                        onClick = {
+                            folderMenu = null
+                            onMoveFolder(folder)
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text("Delete folder", color = c.danger) },
                         leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },

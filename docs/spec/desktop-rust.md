@@ -43,7 +43,7 @@ The current frontend contract is:
   `local_notes_flush_draft`
 - `local_notes_delete`, `local_notes_move`
 - `local_notes_create_folder`, `local_notes_rename_folder`,
-  `local_notes_delete_folder`
+  `local_notes_move_folder`, `local_notes_delete_folder`
 - `local_notes_reset`
 - `local_notes_search`, `local_notes_wait_until_search_ready`,
   `local_notes_rescan`

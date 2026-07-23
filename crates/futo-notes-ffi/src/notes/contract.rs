@@ -61,6 +61,7 @@ pub struct NoteMutation {
     pub removed: Vec<String>,
     pub folders: Vec<String>,
     pub final_id: Option<String>,
+    pub final_folder: Option<String>,
     pub warnings: Vec<String>,
 }
 
@@ -71,6 +72,7 @@ impl From<store::MutationResult> for NoteMutation {
             removed: mutation.removed,
             folders: mutation.folders,
             final_id: mutation.final_id,
+            final_folder: mutation.final_folder,
             warnings: mutation.warnings,
         }
     }

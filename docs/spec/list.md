@@ -276,25 +276,24 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   idempotent `create_dir_all` from silently merging into an existing folder. →
   folderOperations.ts, NewFolderDialog.kt, NoteListView.swift
 - A folder can be renamed; the rename updates every note path beneath it and
-  rewrites wikilinks pointing at those notes. On **Tauri** rename is in the
-  folder context menu; on the native shells it belongs in the folder long-press
-  menu alongside Move and Delete. → folderOperations.ts,
-  `apps/tauri/src-tauri/src/local_notes.rs`
-  > **Gap:** the native shells expose no folder-rename affordance yet — the
-  > folder long-press menu offers Delete only (iOS `NoteListView.swift`, Android
-  > `NoteListScreen.kt`). The shared `NoteStore.renameFolder` contract exists;
-  > only the native UI affordance remains. _(native shells)_
-- Notes and folders can be moved by drag-and-drop in the tree (note → folder,
-  folder → folder, folder → root). A name collision on move resolves with a
-  `-2`/`-3` suffix. Hovering a folder while dragging auto-expands it. →
-  FolderTreeView.svelte _(desktop)_
+  rewrites wikilinks pointing at those notes. Every folder row exposes the same
+  discoverable action set: **Rename**, **Move to Folder…**, **Delete** — through
+  right-click on desktop and long-press on iOS/Android. Rename validates the new
+  name against the shared folder-name rules and case-insensitive siblings before
+  committing one `rename_folder` mutation. → folderOperations.ts,
+  NoteListView.swift, NoteListScreen.kt
+- A folder can be moved to Root or any existing folder except itself or one of
+  its descendants. The picker omits those invalid destinations. The shared
+  `move_folder` workflow preserves the entire subtree, rewrites wikilinks to
+  every moved note, and returns the collision-resolved final folder path; a
+  sibling collision resolves with `-2`/`-3`, never an overwrite. Desktop also
+  supports drag-and-drop in the tree (folder → folder, folder → root), and
+  hovering a folder while dragging auto-expands it. The context-menu picker and
+  drag-and-drop call the same store workflow. → futo-notes-store
+  `LocalNoteStore::move_folder`, FolderTreeView.svelte / DrawerSidebar.svelte,
+  NoteListView.swift, FolderPickerSheet.kt
   Moving a note creates its destination directory as part of the same Rust
   workflow; native folder pickers do not issue a separate create-folder call.
-  > **Gap:** the native shells can move a _note_ into a folder ("Move to
-  > Folder…") but expose no folder-move affordance — moving a folder itself
-  > belongs in the folder long-press menu alongside Rename and Delete, and the
-  > shared `NoteStore` FFI facade has no move-folder primitive. _(native
-  > shells)_
 - A folder can be **deleted**, behind a destructive confirmation ("Delete
   this folder? Notes inside it will be moved to the parent folder."), with
   **one converged semantic on every surface**: non-destructive move-up —

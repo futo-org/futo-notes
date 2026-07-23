@@ -69,7 +69,12 @@ export async function renameOrMoveFolder(
   fromPath: string,
   toPath: string,
   siblings: Iterable<string>,
-): Promise<{ ok: boolean; error?: string; renames?: LocalNoteRename[] }> {
+): Promise<{
+  ok: boolean;
+  error?: string;
+  renames?: LocalNoteRename[];
+  finalFolder?: string;
+}> {
   if (fromPath === toPath) return { ok: true };
   if (folderDepth(toPath) > MAX_FOLDER_DEPTH) {
     return { ok: false, error: `Folder depth cannot exceed ${MAX_FOLDER_DEPTH}` };
@@ -93,10 +98,32 @@ export async function renameOrMoveFolder(
     const mutation = await (await getLocalNoteStore()).renameFolder(fromPath, toPath);
     const { _applyLocalMutation } = await import('$features/notes/notes.svelte');
     _applyLocalMutation(mutation);
-    rebaseOpenFolders(fromPath, toPath);
-    return { ok: true, renames: mutation.renamed };
+    const finalFolder = mutation.finalFolder ?? toPath;
+    rebaseOpenFolders(fromPath, finalFolder);
+    return { ok: true, renames: mutation.renamed, finalFolder };
   } catch (cause) {
     return { ok: false, error: folderOperationError(cause, 'Failed to rename folder') };
+  }
+}
+
+export async function moveFolder(
+  fromPath: string,
+  destinationParent: string,
+): Promise<{
+  ok: boolean;
+  error?: string;
+  renames?: LocalNoteRename[];
+  finalFolder?: string;
+}> {
+  try {
+    const mutation = await (await getLocalNoteStore()).moveFolder(fromPath, destinationParent);
+    const { _applyLocalMutation } = await import('$features/notes/notes.svelte');
+    _applyLocalMutation(mutation);
+    const finalFolder = mutation.finalFolder ?? fromPath;
+    rebaseOpenFolders(fromPath, finalFolder);
+    return { ok: true, renames: mutation.renamed, finalFolder };
+  } catch (cause) {
+    return { ok: false, error: folderOperationError(cause, 'Failed to move folder') };
   }
 }
 
