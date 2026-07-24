@@ -21,6 +21,23 @@ class EditorNavigationCommitTest {
     }
 
     @Test
+    fun `navigation commits a valid title without waiting for the debounce`() = runBlocking {
+        var renamed: Pair<String, String>? = null
+
+        val finalId = commitEditorTitleSnapshot(
+            currentId = "Folder/Old title",
+            rawTitle = "New title",
+            existingIds = setOf("Folder/Old title"),
+        ) { oldId, targetId ->
+            renamed = oldId to targetId
+            targetId
+        }
+
+        assertEquals("Folder/New title", finalId)
+        assertEquals("Folder/Old title" to "Folder/New title", renamed)
+    }
+
+    @Test
     fun `navigation admission rejects a second request until failure permits retry`() {
         val admission = EditorNavigationAdmission()
 
