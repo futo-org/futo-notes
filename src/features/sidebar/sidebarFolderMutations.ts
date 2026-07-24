@@ -1,6 +1,6 @@
 import { clearDragHoverExpanded } from '$features/folders/folderExpansion.svelte';
 import { getEmptyFolders } from '$features/folders/emptyFolders.svelte';
-import { deleteFolder, renameOrMoveFolder } from '$features/folders/folderOperations';
+import { deleteFolder, moveFolder, renameOrMoveFolder } from '$features/folders/folderOperations';
 import { deleteNote, getAllNotes, moveNote } from '$features/notes/notes.svelte';
 import { idLeaf } from '$lib/platform/pathSafety';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
@@ -212,9 +212,8 @@ export async function moveSidebarFolder(
   options: SidebarMutationOptions,
 ): Promise<void> {
   if (folderPath === targetPath || targetPath.startsWith(`${folderPath}/`)) return;
-  const newPath = `${targetPath}/${idLeaf(folderPath)}`;
   await runWithActiveNoteLockIfInFolder(folderPath, options, async () => {
-    const result = await renameOrMoveFolder(folderPath, newPath, collectSiblingFolders(targetPath));
+    const result = await moveFolder(folderPath, targetPath);
     if (!result.ok) {
       showGlobalToast(result.error ?? 'Failed to move folder');
       return;
@@ -233,7 +232,7 @@ export async function moveSidebarFolderToRoot(
   const leaf = idLeaf(folderPath);
   if (folderPath === leaf) return;
   await runWithActiveNoteLockIfInFolder(folderPath, options, async () => {
-    const result = await renameOrMoveFolder(folderPath, leaf, collectSiblingFolders(''));
+    const result = await moveFolder(folderPath, '');
     if (!result.ok) {
       showGlobalToast(result.error ?? 'Failed to move folder');
       return;

@@ -67,6 +67,7 @@ import kotlinx.coroutines.launch
 enum class ThemeMode { LIGHT, DARK, AUTO }
 
 private const val SOURCE_URL = "https://gitlab.futo.org/futo-notes/futo-notes"
+private const val ISSUE_TRACKER_URL = "https://github.com/futo-org/futo-notes/issues"
 
 private fun storageModeLabel(mode: StorageMode): String = when (mode) {
     StorageMode.DEVICE -> "Shared folder · visible in Files"
@@ -139,10 +140,10 @@ fun SettingsScreen(
                 }
             }
 
-            // Crash reporting [settings.md:43]. Reports never leave the device
+            // Issue reporting [settings.md]. Reports never leave the device
             // without the toggle being on (and either a per-crash OK or the
             // always-send opt-in).
-            SettingsGroup("Crash reporting") {
+            SettingsGroup("Issue reporting") {
                 SettingsRow(title = "Share crash reports", subtitle = "Reports are saved locally first") {
                     Switch(
                         checked = crashEnabled,
@@ -155,7 +156,7 @@ fun SettingsScreen(
                 }
                 if (crashEnabled) {
                     Divider()
-                    SettingsRow(title = "Always send automatically", subtitle = "Skip the crash dialog") {
+                    SettingsRow(title = "Send crashes automatically", subtitle = "Skip the crash dialog") {
                         Switch(
                             checked = crashAlwaysSend,
                             onCheckedChange = {
@@ -165,6 +166,23 @@ fun SettingsScreen(
                             colors = SwitchDefaults.colors(checkedTrackColor = c.accent),
                         )
                     }
+                }
+                Divider()
+                SettingsRow(
+                    title = "Report an issue",
+                    subtitle = "Open the GitHub issue tracker",
+                    onClick = {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ISSUE_TRACKER_URL)))
+                        }
+                    },
+                ) {
+                    Icon(
+                        Icons.Filled.NorthEast,
+                        contentDescription = null,
+                        tint = c.textMuted,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
 

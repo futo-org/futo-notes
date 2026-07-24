@@ -4,7 +4,6 @@
     "src/app/components/TitleBar.svelte",
     "src/app/startNativeShell.ts",
     "src/features/editor/imagePaste.ts",
-    "src/features/editor/openUrl.ts",
     "src/features/settings/SettingsScreen.svelte",
     "src/features/sync/autoSyncV2.ts",
     "src/features/sync/syncManager.svelte.ts",

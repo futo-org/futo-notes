@@ -27,6 +27,14 @@
   margin-top: 0;
 }
 
+.settings-toggle-row.settings-issue-first-row {
+  border-radius: 12px 12px 0 0;
+}
+
+.settings-toggle-row.settings-issue-middle-row {
+  border-radius: 0;
+}
+
 .settings-toggle-text {
   display: flex;
   flex-direction: column;

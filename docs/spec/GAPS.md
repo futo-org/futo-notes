@@ -20,8 +20,6 @@ flag gaps the codebase suggests have been implemented.
 
 - [list.md:50](list.md#L50) — _(Android)_ A **sync live pull** that creates or re-ranks a note while the list is composed at the top still relies on LazyListState key anchoring, so the remotely-changed row can land above the viewport until the user drags. Same anchoring class as the local-edit invisibility bug fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem` on the FAB path and a pop-time re-pin in `AppShell.pop()`); the `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt `reloadAsync`, MainActivity.kt `AppShell.pop`
 - [list.md:80](list.md#L80) — Tauri desktop sidebar note rows show the **title only** — no body preview at all. The single-line, markdown-opaque `make_preview` snippet appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar rows. The rich multi-line preview is native-only (iOS + Android) for now.
-- [list.md:283](list.md#L283) — the native shells expose no folder-rename affordance yet — the folder long-press menu offers Delete only (iOS `NoteListView.swift`, Android `NoteListScreen.kt`). The shared `NoteStore.renameFolder` contract exists; only the native UI affordance remains. _(native shells)_
-- [list.md:293](list.md#L293) — the native shells can move a _note_ into a folder ("Move to Folder…") but expose no folder-move affordance — moving a folder itself belongs in the folder long-press menu alongside Rename and Delete, and the shared `NoteStore` FFI facade has no move-folder primitive. _(native shells)_
 
 ## nav.md
 
@@ -32,4 +30,4 @@ flag gaps the codebase suggests have been implemented.
 
 - [sync.md:783](sync.md#L783) — Android leaves the open editor bound to the deleted id (its snapshotFlow adopt early-returns on the missing note); the peer-delete close/keep + banner is not yet ported there.
 
-_12 gaps._
+_10 gaps._

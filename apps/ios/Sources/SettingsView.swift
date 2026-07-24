@@ -2,9 +2,11 @@ import SwiftUI
 
 /// App settings sheet (gear button in the note list). Mirrors the desktop
 /// Settings surface (settings.md): a single "Self-hosted sync" row, appearance,
-/// storage readout, crash reporting, about, and the danger-zone full reset.
+/// storage readout, issue reporting, about, and the danger-zone full reset.
 /// Sync details/actions stay in SyncView — the Sync row just opens it.
 struct SettingsView: View {
+    private let issueTrackerURL = URL(string: "https://github.com/futo-org/futo-notes/issues")!
+
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
     @Environment(\.dismiss) private var dismiss
@@ -76,10 +78,17 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Crash reporting") {
+                Section("Issue reporting") {
                     Toggle("Share crash reports", isOn: $crashEnabled)
-                    Toggle("Always send automatically", isOn: $crashAlwaysSend)
+                    Toggle("Send crashes automatically", isOn: $crashAlwaysSend)
                         .disabled(!crashEnabled)
+                    Link(destination: issueTrackerURL) {
+                        HStack {
+                            Text("Report an issue")
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                        }
+                    }
                 }
 
                 Section("About") {

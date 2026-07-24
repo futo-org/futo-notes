@@ -293,7 +293,7 @@ struct CrashReportSheet: View {
                         .lineLimit(2...5)
                 }
                 Section {
-                    Toggle("Always send automatically", isOn: $alwaysSend)
+                    Toggle("Send crashes automatically", isOn: $alwaysSend)
                 }
                 Section {
                     Button {

@@ -617,6 +617,50 @@ fn deleting_a_folder_moves_notes_up_with_collisions_before_removing_the_tree() {
 }
 
 #[test]
+fn moving_a_folder_is_one_collision_safe_workflow_and_rewrites_links() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("Projects/Plans/roadmap", "body", None).unwrap();
+    store
+        .write("Archive/Plans/existing", "occupied", None)
+        .unwrap();
+    store
+        .write("pointer", "[[Projects/Plans/roadmap]]", None)
+        .unwrap();
+
+    let mutation = store.move_folder("Projects/Plans", "Archive").unwrap();
+
+    assert_eq!(mutation.final_folder.as_deref(), Some("Archive/Plans-2"));
+    assert_eq!(
+        mutation.renamed,
+        [NoteRename {
+            from: "Projects/Plans/roadmap".to_owned(),
+            to: "Archive/Plans-2/roadmap".to_owned(),
+        }]
+    );
+    assert_eq!(store.read("Archive/Plans-2/roadmap"), "body");
+    assert_eq!(store.read("pointer"), "[[Archive/Plans-2/roadmap]]");
+    assert!(!root.0.join("Projects/Plans").exists());
+}
+
+#[test]
+fn moving_a_folder_refuses_itself_or_a_descendant_without_changing_the_vault() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("Projects/Plans/roadmap", "body", None).unwrap();
+
+    for destination in ["Projects", "Projects/Plans", "Projects/Plans/Child"] {
+        assert!(
+            store.move_folder("Projects", destination).is_err(),
+            "accepted destination {destination:?}"
+        );
+    }
+
+    assert_eq!(store.read("Projects/Plans/roadmap"), "body");
+    assert_eq!(store.snapshot().folders, ["Projects", "Projects/Plans"]);
+}
+
+#[test]
 fn destructive_operations_refuse_the_vault_root_and_traversal() {
     let root = TestRoot::new();
     let store = store(&root);
