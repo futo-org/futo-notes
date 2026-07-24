@@ -31,7 +31,9 @@ signed updater artifact + `.sig` (minisign), which `release:` assembles into one
 `latest.json`. Per-OS the re-sign is always the LAST touch on the bytes:
 
 - **Linux** — build the AppImage keyless → AppImage patch (Mesa 26 library strip +
-  Wayland-backend hook rewrite) → `cargo tauri signer sign`.
+  Wayland-backend hook rewrite) → `cargo tauri signer sign`. The patcher repacks
+  with a version-pinned, SHA-256-verified `appimagetool` and removes updater
+  signing variables from every extract/repack child process.
 - **Windows** — build the setup.exe keyless on the VM → `windows:sign` does
   Authenticode (jsign) → re-minisign via `npx @tauri-apps/cli signer sign` (so
   the signing key never reaches the Windows VM).
@@ -47,6 +49,11 @@ adds `latest.json` as a release asset with `filepath:/latest.json`, so the baked
 content — the key has no password; `-p ""` / `--ci` supply the empty passphrase
 the minisign format requires, so there is no password variable). `release:gate`
 blocks the release unless every `.sig` + the macOS `.app.tar.gz` are present.
+
+The manual MR form of `build:linux-appimage` cannot receive that protected
+variable. It signs and verifies its rehearsal artifact with the committed
+localdev fixture key instead. Production clients reject that signature by
+construction; tag pipelines continue to require and verify the production key.
 
 ## Channel = stable only
 

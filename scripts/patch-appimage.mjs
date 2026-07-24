@@ -30,7 +30,8 @@
 //   node scripts/patch-appimage.mjs --dir target/release/bundle/appimage
 
 import { spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync } from 'node:fs';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -43,6 +44,9 @@ const PREFERRED_GDK_BACKEND =
 const FORCED_GDK_BACKEND_PATTERN =
   /^[ \t]*(?:export[ \t]+)?GDK_BACKEND[ \t]*=[ \t]*(?:"x11"|'x11'|x11)[ \t]*(?:#.*)?$/gm;
 const WAYLAND_CLIENT_LIBRARY_PATTERN = /^libwayland-client\.so(?:\.|$)/;
+const APPIMAGETOOL_VERSION = '1.9.1';
+const APPIMAGETOOL_SHA256 = 'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0';
+const APPIMAGETOOL_URL = `https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage`;
 
 export function rewriteForcedGdkBackend(hookText) {
   if (FORCED_GDK_BACKEND_PATTERN.test(hookText)) {
@@ -91,6 +95,13 @@ function run(cmd, args, opts = {}) {
   }
 }
 
+function childEnvironment(environment, overrides = {}) {
+  const child = { ...environment, ...overrides };
+  delete child.TAURI_SIGNING_PRIVATE_KEY;
+  delete child.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+  return child;
+}
+
 function findAppImage(dirPath) {
   const entries = readdirSync(dirPath)
     .filter((f) => f.toLowerCase().endsWith('.appimage'))
@@ -104,70 +115,41 @@ function findAppImage(dirPath) {
   return entries[0];
 }
 
-async function downloadAppimagetool() {
-  // Ubuntu doesn't package appimagetool; fetch the upstream continuous build.
-  const url =
-    'https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage';
-  const cacheDir = join(tmpdir(), 'futo-notes-appimagetool');
-  await mkdir(cacheDir, { recursive: true });
-  const target = join(cacheDir, 'appimagetool');
-  if (existsSync(target)) return target;
-  log(`downloading appimagetool from ${url}`);
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok) throw new Error(`fetch failed: ${res.status} ${res.statusText}`);
-  const out = createWriteStream(target);
-  await new Promise((done, fail) => {
-    const body = res.body;
-    body.pipeTo(
-      new WritableStream({
-        write(chunk) {
-          return new Promise((r, rj) => {
-            out.write(chunk, (err) => (err ? rj(err) : r()));
-          });
-        },
-        close() {
-          out.end(done);
-        },
-        abort(err) {
-          out.destroy(err);
-          fail(err);
-        },
-      }),
-    );
-  });
-  await chmod(target, 0o755);
-  return target;
+export function verifySha256(bytes, expected) {
+  const actual = createHash('sha256').update(bytes).digest('hex');
+  if (actual !== expected) {
+    throw new Error(`appimagetool checksum mismatch: expected ${expected}, received ${actual}`);
+  }
 }
 
 async function ensureAppimagetool() {
-  const candidates = [process.env.APPIMAGETOOL].filter(Boolean);
-  for (const dir of (process.env.PATH || '').split(':')) {
-    if (dir) candidates.push(join(dir, 'appimagetool'));
+  // Ubuntu doesn't package appimagetool. Use one immutable release asset and
+  // verify its bytes before either caching or executing it.
+  const cacheDir = join(tmpdir(), 'futo-notes-appimagetool');
+  await mkdir(cacheDir, { recursive: true });
+  const target = join(cacheDir, `appimagetool-${APPIMAGETOOL_VERSION}`);
+  if (existsSync(target)) {
+    const cached = await readFile(target);
+    verifySha256(cached, APPIMAGETOOL_SHA256);
+    return target;
   }
-  candidates.push('/usr/local/bin/appimagetool', '/usr/bin/appimagetool');
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  return downloadAppimagetool();
+
+  log(`downloading pinned appimagetool ${APPIMAGETOOL_VERSION} from ${APPIMAGETOOL_URL}`);
+  const res = await fetch(APPIMAGETOOL_URL, { redirect: 'follow' });
+  if (!res.ok) throw new Error(`fetch failed: ${res.status} ${res.statusText}`);
+  const bytes = Buffer.from(await res.arrayBuffer());
+  verifySha256(bytes, APPIMAGETOOL_SHA256);
+  const download = `${target}.${process.pid}.download`;
+  await writeFile(download, bytes);
+  await chmod(download, 0o755);
+  await rename(download, target);
+  return target;
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  let targetPath = null;
-  for (let i = 0; i < args.length; i += 1) {
-    if (args[i] === '--dir') {
-      const dir = args[i + 1];
-      if (!dir) throw new Error('--dir requires a path');
-      targetPath = findAppImage(resolve(dir));
-      i += 1;
-    } else if (!args[i].startsWith('-')) {
-      targetPath = resolve(args[i]);
-    }
-  }
-  if (!targetPath) {
-    console.error('usage: node scripts/patch-appimage.mjs <appimage> | --dir <bundle_dir>');
-    process.exit(2);
-  }
+export async function patchAppImage(
+  targetPath,
+  { environment = process.env, ensureTool = ensureAppimagetool, execute = run } = {},
+) {
   if (!existsSync(targetPath)) throw new Error(`not found: ${targetPath}`);
 
   log(`patching ${targetPath}`);
@@ -177,10 +159,10 @@ async function main() {
 
   await chmod(targetPath, 0o755);
 
-  run(targetPath, ['--appimage-extract'], {
+  execute(targetPath, ['--appimage-extract'], {
     cwd: workDir,
     stdio: 'pipe',
-    env: { ...process.env, APPIMAGE_EXTRACT_AND_RUN: '1' },
+    env: childEnvironment(environment, { APPIMAGE_EXTRACT_AND_RUN: '1' }),
   });
   if (!existsSync(extractDir)) {
     throw new Error(`extraction did not produce ${extractDir}`);
@@ -220,16 +202,19 @@ async function main() {
     return;
   }
 
-  const appimagetool = await ensureAppimagetool();
+  const appimagetool = await ensureTool();
   log(`repacking with ${appimagetool}`);
   const tmpOut = `${targetPath}.patched`;
   if (existsSync(tmpOut)) await rm(tmpOut);
   // ARCH=x86_64 is required when running appimagetool without a .DirIcon arch hint.
   // APPIMAGE_EXTRACT_AND_RUN=1 lets appimagetool (itself an AppImage) work in
   // containers / sandboxes that don't have fusermount (e.g. ubuntu:22.04 CI image).
-  run(appimagetool, [extractDir, tmpOut], {
+  execute(appimagetool, [extractDir, tmpOut], {
     cwd: workDir,
-    env: { ...process.env, ARCH: 'x86_64', APPIMAGE_EXTRACT_AND_RUN: '1' },
+    env: childEnvironment(environment, {
+      ARCH: 'x86_64',
+      APPIMAGE_EXTRACT_AND_RUN: '1',
+    }),
   });
 
   await rm(targetPath);
@@ -238,6 +223,26 @@ async function main() {
   await rename(tmpOut, targetPath);
   await chmod(targetPath, 0o755);
   log(`done: ${targetPath}`);
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  let targetPath = null;
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === '--dir') {
+      const dir = args[i + 1];
+      if (!dir) throw new Error('--dir requires a path');
+      targetPath = findAppImage(resolve(dir));
+      i += 1;
+    } else if (!args[i].startsWith('-')) {
+      targetPath = resolve(args[i]);
+    }
+  }
+  if (!targetPath) {
+    console.error('usage: node scripts/patch-appimage.mjs <appimage> | --dir <bundle_dir>');
+    process.exit(2);
+  }
+  await patchAppImage(targetPath);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

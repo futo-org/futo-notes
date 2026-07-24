@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   buildOne,
@@ -164,6 +165,23 @@ describe('AppImage artifact finalization', () => {
     expect(() => patchAppImage('/bundle/appimage', missingScript)).toThrow(
       `AppImage patch script missing at ${missingScript}`,
     );
+  });
+});
+
+describe('AppImage CI rehearsal', () => {
+  it('uses the fixture key only for MRs and verifies the one produced artifact', () => {
+    const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
+    const job = ci.slice(
+      ci.indexOf('build:linux-appimage:'),
+      ci.indexOf('build:ci-android-image:'),
+    );
+
+    expect(job).toContain('if [ -n "$CI_COMMIT_TAG" ]');
+    expect(job).toContain('unset TAURI_SIGNING_PRIVATE_KEY');
+    expect(job).toContain('keys/localdev-updater.key');
+    expect(job).toContain('TAURI_SIGNING_PRIVATE_KEY="$SIGNING_KEY" cargo tauri signer sign');
+    expect(job).toContain('expected exactly one AppImage');
+    expect(job).toContain('scripts/verify-updater-signature.mjs');
   });
 });
 

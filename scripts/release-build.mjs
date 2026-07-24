@@ -227,30 +227,43 @@ export const bumpPatch = (v) => {
  * there is no "reuse a stale artifact" path (cargo's incremental cache makes
  * rebuilds cheap enough).
  */
-function buildOne({ profile, version }) {
-  const t = hostTarget();
-  setVersion(version);
-  rmSync(t.dir, { recursive: true, force: true });
+export function buildOne({ profile, version }, dependencies = {}) {
+  const t = dependencies.target ?? hostTarget();
+  const setBuildVersion = dependencies.setBuildVersion ?? setVersion;
+  const removeBundle =
+    dependencies.removeBundle ?? ((dir) => rmSync(dir, { recursive: true, force: true }));
+  const executeBuild =
+    dependencies.executeBuild ??
+    (() =>
+      run(
+        'cargo',
+        ['tauri', 'build', '--bundles', t.bundle, '--config', PROFILES[profile].overlay, '--ci'],
+        {
+          cwd: TAURI_DIR,
+          env: { ...signingEnv(profile), NO_STRIP: 'true' },
+        },
+      ));
+  const locateArtifact = dependencies.locateArtifact ?? findArtifact;
+  const finalizeArtifact = dependencies.finalizeArtifact ?? finalizeAppImageArtifact;
+  const fileExists = dependencies.fileExists ?? existsSync;
+  const getProfilePubkey = dependencies.getProfilePubkey ?? profilePubkey;
+  const verifySignature = dependencies.verifySignature ?? verifyArtifactFile;
+
+  setBuildVersion(version);
+  removeBundle(t.dir);
   // --ci: non-interactive + use the key's empty passphrase for createUpdaterArtifacts
   // (no password prompt, no password variable).
-  run(
-    'cargo',
-    ['tauri', 'build', '--bundles', t.bundle, '--config', PROFILES[profile].overlay, '--ci'],
-    {
-      cwd: TAURI_DIR,
-      env: { ...signingEnv(profile), NO_STRIP: 'true' },
-    },
-  );
-  const artifact = findArtifact(t.dir, t.suffix);
+  executeBuild();
+  const artifact = locateArtifact(t.dir, t.suffix);
   if (!artifact) die(`no ${t.suffix} produced in ${t.dir}`);
   // The AppImage patch rewrites the artifact → its build-time .sig is now stale. Re-sign
   // so the .sig matches the bytes the client downloads. (Same shape as the
   // Windows Authenticode / macOS notarize re-sign in CI.)
   if (t.patchAppImage) {
-    finalizeAppImageArtifact({ dir: t.dir, artifact, profile });
+    finalizeArtifact({ dir: t.dir, artifact, profile });
   }
   const sig = `${artifact}.sig`;
-  if (!existsSync(sig))
+  if (!fileExists(sig))
     die(
       `no ${t.suffix}.sig — is createUpdaterArtifacts on in ${PROFILES[profile].overlay} and the signing key valid?`,
     );
@@ -258,8 +271,8 @@ function buildOne({ profile, version }) {
   // client will. Catches the irreversible signing-key/baked-pubkey mismatch
   // (#1) and a stale/post-mutation .sig (#3) here, not as a silent client-side
   // rejection after publish. The localdev/e2e flow thus rehearses the real check.
-  const v = verifyArtifactFile({
-    pubkeyB64: profilePubkey(profile),
+  const v = verifySignature({
+    pubkeyB64: getProfilePubkey(profile),
     artifactPath: artifact,
     sigPath: sig,
   });
