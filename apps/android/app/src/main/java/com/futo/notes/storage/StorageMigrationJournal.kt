@@ -10,7 +10,7 @@ enum class StorageMigrationPhase { PREPARED, FINALIZING, ACTIVATED }
 /**
  * @property cleanupRequired an activated destination still has a retained
  * source, so recovery keeps the journal until that source is absent.
- * @property sourceRemovalForbidden FUTO Notes must never delete the source;
+ * @property isSourceRemovalForbidden FUTO Notes must never delete the source;
  * external writers may still remove it independently.
  */
 data class PendingStorageMigration(
@@ -18,7 +18,7 @@ data class PendingStorageMigration(
     val to: StorageMode,
     val phase: StorageMigrationPhase,
     val cleanupRequired: Boolean,
-    val sourceRemovalForbidden: Boolean = false,
+    val isSourceRemovalForbidden: Boolean = false,
 )
 
 /**
@@ -83,12 +83,12 @@ internal fun encodeStorageMigrationJournal(record: PendingStorageMigration): Str
         record.from.name,
         record.to.name,
         record.cleanupRequired.toString(),
-        record.sourceRemovalForbidden.toString(),
+        record.isSourceRemovalForbidden.toString(),
     ).joinToString("\n", postfix = "\n")
 
 internal fun decodeStorageMigrationJournal(raw: String): PendingStorageMigration {
     val lines = raw.lineSequence().filter { it.isNotEmpty() }.toList()
-    val sourceRemovalForbidden = when (lines.firstOrNull()) {
+    val isSourceRemovalForbidden = when (lines.firstOrNull()) {
         "FUTO_STORAGE_MIGRATION_V1" -> {
             require(lines.size == 5) { "The storage migration journal is invalid" }
             false
@@ -104,6 +104,6 @@ internal fun decodeStorageMigrationJournal(raw: String): PendingStorageMigration
         from = StorageMode.valueOf(lines[2]),
         to = StorageMode.valueOf(lines[3]),
         cleanupRequired = lines[4].toBooleanStrict(),
-        sourceRemovalForbidden = sourceRemovalForbidden,
+        isSourceRemovalForbidden = isSourceRemovalForbidden,
     )
 }

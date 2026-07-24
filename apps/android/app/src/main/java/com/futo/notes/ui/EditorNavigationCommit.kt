@@ -15,7 +15,7 @@ internal data class EditorNavigationCommit(
 
 internal data class EditorTitleCommit(
     val id: String,
-    val committed: Boolean,
+    val isCommitted: Boolean,
 )
 
 internal class EditorNavigationAdmission {
@@ -44,13 +44,13 @@ internal suspend fun commitEditorTitleSnapshot(
     rename: suspend (oldId: String, targetId: String) -> NoteMutationOutcome<String>,
 ): EditorTitleCommit {
     if (targetId == null || targetId == currentId) {
-        return EditorTitleCommit(currentId, committed = true)
+        return EditorTitleCommit(currentId, isCommitted = true)
     }
     return when (val outcome = rename(currentId, targetId)) {
         is NoteMutationOutcome.Committed ->
-            EditorTitleCommit(outcome.value, committed = true)
+            EditorTitleCommit(outcome.value, isCommitted = true)
         NoteMutationOutcome.Failed ->
-            EditorTitleCommit(currentId, committed = false)
+            EditorTitleCommit(currentId, isCommitted = false)
     }
 }
 

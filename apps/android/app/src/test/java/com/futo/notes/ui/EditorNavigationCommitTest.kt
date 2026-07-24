@@ -34,7 +34,7 @@ class EditorNavigationCommitTest {
         }
 
         assertEquals("Folder/New title", result.id)
-        assertTrue(result.committed)
+        assertTrue(result.isCommitted)
         assertEquals("Folder/Old title" to "Folder/New title", renamed)
     }
 
@@ -48,7 +48,7 @@ class EditorNavigationCommitTest {
         }
 
         assertEquals("Folder/Old title", result.id)
-        assertFalse(result.committed)
+        assertFalse(result.isCommitted)
     }
 
     @Test

@@ -50,7 +50,7 @@ struct NativeMutationOutcomeTests {
         )
 
         #expect(result.id == "Folder/Old title")
-        #expect(!result.committed)
+        #expect(!result.isCommitted)
     }
 
     @Test("delete stops when its dirty draft write fails")

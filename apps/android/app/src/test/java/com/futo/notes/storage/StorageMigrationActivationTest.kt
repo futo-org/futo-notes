@@ -80,9 +80,9 @@ class StorageMigrationActivationTest {
             records.map { it.phase },
         )
         assertFalse(records.first().cleanupRequired)
-        assertTrue(records.first().sourceRemovalForbidden)
+        assertTrue(records.first().isSourceRemovalForbidden)
         assertTrue(records.last().cleanupRequired)
-        assertTrue(records.last().sourceRemovalForbidden)
+        assertTrue(records.last().isSourceRemovalForbidden)
     }
 
     @Test

@@ -61,7 +61,7 @@ object NotesStorage {
             StorageMigrationPhase.PREPARED -> pending.from
             StorageMigrationPhase.FINALIZING -> {
                 when {
-                    pending.sourceRemovalForbidden &&
+                    pending.isSourceRemovalForbidden &&
                         sourceState == StorageRootState.PRESENT ->
                         pending.from
                     sourceState == StorageRootState.ABSENT -> pending.to

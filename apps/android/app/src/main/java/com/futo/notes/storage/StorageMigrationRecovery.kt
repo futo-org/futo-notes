@@ -37,7 +37,7 @@ internal fun recoverStorageStartup(
         if (migration.phase == StorageMigrationPhase.FINALIZING) {
             when (sourceState) {
                 StorageRootState.PRESENT ->
-                    if (!migration.sourceRemovalForbidden) {
+                    if (!migration.isSourceRemovalForbidden) {
                         return StorageStartupRecovery(
                             startup = null,
                             error =
@@ -71,7 +71,7 @@ internal fun recoverStorageStartup(
             StorageMigrationPhase.PREPARED -> journal.clear()
             StorageMigrationPhase.FINALIZING -> {
                 if (
-                    migration.sourceRemovalForbidden &&
+                    migration.isSourceRemovalForbidden &&
                     sourceState == StorageRootState.PRESENT
                 ) {
                     journal.clear()

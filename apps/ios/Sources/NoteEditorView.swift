@@ -3,7 +3,7 @@ import UIKit
 
 struct RenameResolution {
     let id: String
-    let committed: Bool
+    let isCommitted: Bool
 }
 
 func resolvedRename(
@@ -12,9 +12,9 @@ func resolvedRename(
 ) -> RenameResolution {
     switch outcome {
     case .committed(let finalId):
-        RenameResolution(id: finalId, committed: true)
+        RenameResolution(id: finalId, isCommitted: true)
     case .failed:
-        RenameResolution(id: currentId, committed: false)
+        RenameResolution(id: currentId, isCommitted: false)
     }
 }
 
@@ -478,7 +478,7 @@ struct NoteEditorView: View {
             currentId: noteId,
             outcome: await store.rename(oldId: noteId, newId: targetId)
         )
-        guard resolution.committed else {
+        guard resolution.isCommitted else {
             store.showTransient("Couldn't rename note. Your title is still pending.")
             return false
         }

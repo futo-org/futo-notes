@@ -76,7 +76,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -179,10 +178,10 @@ fun NoteEditorScreen(
                         rename = store::rename,
                     )
                 } else {
-                    EditorTitleCommit(noteId, committed = false)
+                    EditorTitleCommit(noteId, isCommitted = false)
                 }
                 noteId = titleCommit.id
-                titleCommit.committed && host.isCurrentAttachment(attachment)
+                titleCommit.isCommitted && host.isCurrentAttachment(attachment)
             } ?: false
             if (canNavigate) {
                 navigate()
@@ -393,7 +392,7 @@ fun NoteEditorScreen(
     // Debounced rename (500 ms) — the filename IS the title; Rust resolves
     // collisions and returns the final id.
     LaunchedEffect(initialNoteId) {
-        snapshotFlow { titleValue.text }.debounce(500).collectLatest { next ->
+        snapshotFlow { titleValue.text }.debounce(500).collect { next ->
             // Flush any pending body edit to the CURRENT id and cancel the
             // in-flight save before the file moves — otherwise a stale save
             // would recreate a ghost note at the old id (data loss). The derived
@@ -430,7 +429,7 @@ fun NoteEditorScreen(
                     rename = store::rename,
                 )
                 noteId = titleCommit.id
-                if (!titleCommit.committed) {
+                if (!titleCommit.isCommitted) {
                     Toast.makeText(
                         context,
                         "Couldn't rename note. Your title is still pending.",

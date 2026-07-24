@@ -3,10 +3,14 @@ package com.futo.notes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.futo.notes.storage.NotesStorage
@@ -72,6 +76,15 @@ internal fun shouldContinueDeleteAfterEditorWrite(
     hasPendingChanges: Boolean,
     outcome: NoteMutationOutcome<Unit>?,
 ): Boolean = !hasPendingChanges || outcome is NoteMutationOutcome.Committed
+
+internal suspend fun <T> runIdentityMutationTransaction(
+    transaction: suspend () -> T,
+): T {
+    currentCoroutineContext().ensureActive()
+    return withContext(NonCancellable) {
+        transaction()
+    }
+}
 
 /** The open editor's unsaved-draft derivation — the ONE definition of "is there
  *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
@@ -458,16 +471,22 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     }
 
     suspend fun delete(id: String): NoteMutationOutcome<Unit> {
+        currentCoroutineContext().ensureActive()
         val identity = editorDraftCoordinator.beginIdentityMutation(id)
         val pendingFlushes = editorDraftTail
         return try {
             pendingFlushes?.join()
-            val mutation = withCore { core.delete(id) }
-            applyMutation(mutation)
-            pendingEditor.discardNote(id)
-            editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
-            signalLocalChange()
-            NoteMutationOutcome.Committed(Unit)
+            runIdentityMutationTransaction {
+                val mutation = withCore { core.delete(id) }
+                applyMutation(mutation)
+                pendingEditor.discardNote(id)
+                editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
+                signalLocalChange()
+                NoteMutationOutcome.Committed(Unit)
+            }
+        } catch (e: CancellationException) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            throw e
         } catch (e: Exception) {
             editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
             android.util.Log.e("NotesStore", "delete failed", e)
@@ -484,18 +503,24 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     }
 
     suspend fun rename(oldId: String, newId: String): NoteMutationOutcome<String> {
+        currentCoroutineContext().ensureActive()
         val identity = editorDraftCoordinator.beginIdentityMutation(oldId)
         val pendingFlushes = editorDraftTail
         return try {
             pendingFlushes?.join()
-            val mutation = withCore { core.rename(oldId, newId) }
-            val finalId = mutation.finalId ?: oldId
-            applyMutation(mutation)
-            pendingEditor.retargetRetainedNote(oldId, finalId)
-            editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
-            editorDraftCoordinator.reopen(finalId)
-            signalLocalChange()
-            NoteMutationOutcome.Committed(finalId)
+            runIdentityMutationTransaction {
+                val mutation = withCore { core.rename(oldId, newId) }
+                val finalId = mutation.finalId ?: oldId
+                applyMutation(mutation)
+                pendingEditor.retargetRetainedNote(oldId, finalId)
+                editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
+                editorDraftCoordinator.reopen(finalId)
+                signalLocalChange()
+                NoteMutationOutcome.Committed(finalId)
+            }
+        } catch (e: CancellationException) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            throw e
         } catch (e: Exception) {
             editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
             android.util.Log.e("NotesStore", "rename failed", e)
@@ -508,24 +533,30 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         toFolder: String,
         createFolder: Boolean = false,
     ): NoteMutationOutcome<String> {
+        currentCoroutineContext().ensureActive()
         val identity = editorDraftCoordinator.beginIdentityMutation(id)
         val pendingFlushes = editorDraftTail
         return try {
             pendingFlushes?.join()
-            val mutation = withCore {
-                if (createFolder) {
-                    core.moveNoteToNewFolder(id, toFolder)
-                } else {
-                    core.moveNote(id, toFolder)
+            runIdentityMutationTransaction {
+                val mutation = withCore {
+                    if (createFolder) {
+                        core.moveNoteToNewFolder(id, toFolder)
+                    } else {
+                        core.moveNote(id, toFolder)
+                    }
                 }
+                val finalId = mutation.finalId ?: id
+                applyMutation(mutation)
+                pendingEditor.retargetRetainedNote(id, finalId)
+                editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
+                editorDraftCoordinator.reopen(finalId)
+                signalLocalChange()
+                NoteMutationOutcome.Committed(finalId)
             }
-            val finalId = mutation.finalId ?: id
-            applyMutation(mutation)
-            pendingEditor.retargetRetainedNote(id, finalId)
-            editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
-            editorDraftCoordinator.reopen(finalId)
-            signalLocalChange()
-            NoteMutationOutcome.Committed(finalId)
+        } catch (e: CancellationException) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            throw e
         } catch (e: Exception) {
             editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
             android.util.Log.e("NotesStore", "moveNote failed", e)

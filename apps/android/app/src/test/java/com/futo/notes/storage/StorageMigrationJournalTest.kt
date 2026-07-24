@@ -29,7 +29,7 @@ class StorageMigrationJournalTest {
             to = StorageMode.DEVICE,
             phase = StorageMigrationPhase.ACTIVATED,
             cleanupRequired = true,
-            sourceRemovalForbidden = true,
+            isSourceRemovalForbidden = true,
         )
 
         journal(file).write(record).getOrThrow()
@@ -52,7 +52,7 @@ class StorageMigrationJournalTest {
 
         assertEquals(StorageMigrationPhase.ACTIVATED, record.phase)
         assertTrue(record.cleanupRequired)
-        assertEquals(false, record.sourceRemovalForbidden)
+        assertEquals(false, record.isSourceRemovalForbidden)
     }
 
     @Test
@@ -111,7 +111,7 @@ class StorageMigrationJournalTest {
             to = StorageMode.APP,
             phase = StorageMigrationPhase.FINALIZING,
             cleanupRequired = false,
-            sourceRemovalForbidden = true,
+            isSourceRemovalForbidden = true,
         )
 
         val decision = NotesStorage.storageRecoveryDecision(
