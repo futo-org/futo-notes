@@ -34,6 +34,7 @@ export interface LocalNoteMutation {
   renamed: LocalNoteRename[];
   folders: string[];
   finalId: string | null;
+  finalFolder: string | null;
   warnings: string[];
 }
 
@@ -96,6 +97,7 @@ export interface LocalNoteStore {
   delete(id: string): Promise<LocalNoteMutation>;
   createFolder(path: string): Promise<LocalNoteMutation>;
   renameFolder(from: string, to: string): Promise<LocalNoteMutation>;
+  moveFolder(from: string, destinationParent: string): Promise<LocalNoteMutation>;
   deleteFolder(path: string): Promise<LocalNoteMutation>;
   reset(): Promise<void>;
   search(query: string, limit?: number): Promise<LocalSearchHit[]>;
@@ -313,7 +315,26 @@ export class BrowserLocalNoteStore implements LocalNoteStore {
       upsertedIds: changed,
       removed: renames.map((rename) => rename.from),
       renamed: renames,
+      finalFolder: to,
     });
+  }
+
+  async moveFolder(from: string, destinationParent: string): Promise<LocalNoteMutation> {
+    if (destinationParent === from || destinationParent.startsWith(`${from}/`)) {
+      throw new Error('cannot move a folder into itself or a descendant');
+    }
+    const leaf = from.slice(from.lastIndexOf('/') + 1);
+    const wanted = destinationParent ? `${destinationParent}/${leaf}` : leaf;
+    const occupied = new Set(
+      this.folderPaths()
+        .filter((path) => path !== from)
+        .map(collisionKey),
+    );
+    let to = wanted;
+    for (let suffix = 2; occupied.has(collisionKey(to)); suffix += 1) {
+      to = `${wanted}-${suffix}`;
+    }
+    return this.renameFolder(from, to);
   }
 
   async deleteFolder(path: string): Promise<LocalNoteMutation> {
@@ -423,6 +444,7 @@ export class BrowserLocalNoteStore implements LocalNoteStore {
     removed?: string[];
     renamed?: LocalNoteRename[];
     finalId?: string | null;
+    finalFolder?: string | null;
   }): LocalNoteMutation {
     const order = [...this.notes]
       .map(([id, note]) => ({ id, modifiedMs: note.mtime }))
@@ -441,6 +463,7 @@ export class BrowserLocalNoteStore implements LocalNoteStore {
       renamed: input.renamed ?? [],
       folders: this.folderPaths(),
       finalId: input.finalId ?? null,
+      finalFolder: input.finalFolder ?? null,
       warnings: [],
     };
   }

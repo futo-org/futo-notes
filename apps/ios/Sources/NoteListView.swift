@@ -214,8 +214,10 @@ struct FolderContentsView: View {
     @State private var deleteTarget: NoteItem?
     /// Subfolder pending the delete-folder confirmation.
     @State private var folderDeleteTarget: String?
-
-    /// Subfolder path pending deletion (drives the destructive confirmation).
+    /// Subfolder being renamed or moved.
+    @State private var folderRenameTarget: String?
+    @State private var renameFolderName = ""
+    @State private var folderMoveTarget: String?
 
     private var subfolders: [String] { store.subfolders(of: folder) }
     private var notes: [NoteItem] { store.notes(in: folder) }
@@ -232,10 +234,11 @@ struct FolderContentsView: View {
     /// MERGE into the existing folder. Same lastPathComponent comparison Android
     /// uses (NewFolderDialog.kt). [list.md:152]
     private var newFolderIsDuplicate: Bool {
-        !newFolderClean.isEmpty && subfolders.contains { child in
-            (child.split(separator: "/").last.map(String.init) ?? child)
-                .lowercased() == newFolderClean.lowercased()
-        }
+        !newFolderClean.isEmpty
+            && subfolders.contains { child in
+                (child.split(separator: "/").last.map(String.init) ?? child)
+                    .lowercased() == newFolderClean.lowercased()
+            }
     }
 
     /// True when the typed name only survives sanitization via the "Untitled"
@@ -246,6 +249,36 @@ struct FolderContentsView: View {
     private var newFolderSanitizesAway: Bool {
         newFolderClean == "Untitled"
             && newFolderName.trimmingCharacters(in: .whitespacesAndNewlines) != "Untitled"
+    }
+
+    private var renameFolderClean: String {
+        sanitizeTitle(title: renameFolderName.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private var renameFolderParent: String {
+        guard let target = folderRenameTarget, let slash = target.lastIndex(of: "/") else {
+            return ""
+        }
+        return String(target[..<slash])
+    }
+
+    private var renameFolderIsDuplicate: Bool {
+        guard let target = folderRenameTarget, !renameFolderClean.isEmpty else { return false }
+        return store.subfolders(of: renameFolderParent).contains { child in
+            child != target
+                && (child.split(separator: "/").last.map(String.init) ?? child)
+                    .lowercased() == renameFolderClean.lowercased()
+        }
+    }
+
+    private var renameFolderSanitizesAway: Bool {
+        renameFolderClean == "Untitled"
+            && renameFolderName.trimmingCharacters(in: .whitespacesAndNewlines) != "Untitled"
+    }
+
+    private var renamedFolderPath: String {
+        renameFolderParent.isEmpty
+            ? renameFolderClean : renameFolderParent + "/" + renameFolderClean
     }
 
     private var title: String {
@@ -306,6 +339,8 @@ struct FolderContentsView: View {
         // re-renders live — the message flips to the warning as the user types.
         .fullScreenCover(isPresented: $showingNewFolder) {
             NewFolderDialog(
+                title: "New Folder",
+                confirmLabel: "Create",
                 message: newFolderIsDuplicate
                     ? "A folder with this name already exists"
                     : (newFolderSanitizesAway
@@ -332,11 +367,48 @@ struct FolderContentsView: View {
             MoveToFolderSheet(note: note, currentFolder: folder)
                 .environmentObject(store)
         }
+        .sheet(
+            isPresented: Binding(
+                get: { folderMoveTarget != nil },
+                set: { if !$0 { folderMoveTarget = nil } })
+        ) {
+            if let target = folderMoveTarget {
+                MoveFolderSheet(folder: target)
+                    .environmentObject(store)
+            }
+        }
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { folderRenameTarget != nil },
+                set: { if !$0 { setFolderRenameTarget(nil) } })
+        ) {
+            NewFolderDialog(
+                title: "Rename Folder",
+                confirmLabel: "Rename",
+                message: renameFolderIsDuplicate
+                    ? "A folder with this name already exists"
+                    : (renameFolderSanitizesAway
+                        && !renameFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "Enter a valid folder name"
+                        : "Enter a new folder name."),
+                messageIsWarning: renameFolderIsDuplicate
+                    || (renameFolderSanitizesAway
+                        && !renameFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+                name: $renameFolderName,
+                canCreate: !renameFolderClean.isEmpty && !renameFolderIsDuplicate
+                    && !renameFolderSanitizesAway
+                    && renamedFolderPath != folderRenameTarget,
+                onCancel: { setFolderRenameTarget(nil) },
+                onCreate: { renameFolder() }
+            )
+            .presentationBackground(.clear)
+        }
         // Centered fullScreenCover, not a .confirmationDialog — see
         // DestructiveConfirmDialog for why (arrow-popover misanchoring).
-        .fullScreenCover(isPresented: Binding(
-            get: { deleteTarget != nil },
-            set: { if !$0 { setDeleteTarget(nil) } })
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { deleteTarget != nil },
+                set: { if !$0 { setDeleteTarget(nil) } })
         ) {
             DestructiveConfirmDialog(
                 message: "Delete this note? This action cannot be undone.",
@@ -349,9 +421,10 @@ struct FolderContentsView: View {
             )
             .presentationBackground(.clear)
         }
-        .fullScreenCover(isPresented: Binding(
-            get: { folderDeleteTarget != nil },
-            set: { if !$0 { setFolderDeleteTarget(nil) } })
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { folderDeleteTarget != nil },
+                set: { if !$0 { setFolderDeleteTarget(nil) } })
         ) {
             DestructiveConfirmDialog(
                 message: "Delete this folder? Notes inside it will be moved to the parent folder.",
@@ -391,6 +464,16 @@ struct FolderContentsView: View {
                             }
                         }
                         .contextMenu {
+                            Button {
+                                setFolderRenameTarget(child)
+                            } label: {
+                                Label("Rename", systemImage: "pencil")
+                            }
+                            Button {
+                                folderMoveTarget = child
+                            } label: {
+                                Label("Move to Folder…", systemImage: "folder")
+                            }
                             Button(role: .destructive) {
                                 setFolderDeleteTarget(child)
                             } label: {
@@ -476,6 +559,19 @@ struct FolderContentsView: View {
         store.createFolder(folder.isEmpty ? clean : folder + "/" + clean)
     }
 
+    private func renameFolder() {
+        guard let target = folderRenameTarget else { return }
+        let destination = renamedFolderPath
+        Task {
+            if await store.renameFolder(from: target, to: destination) != nil {
+                store.showTransient("Folder renamed")
+            } else {
+                store.showTransient("Couldn't rename folder")
+            }
+            setFolderRenameTarget(nil)
+        }
+    }
+
     /// Show/hide the New Folder dialog with presentation animations disabled,
     /// so its transparent fullScreenCover pops in place like the .alert it
     /// replaced instead of playing the cover's default slide-up.
@@ -494,6 +590,13 @@ struct FolderContentsView: View {
     private func setFolderDeleteTarget(_ path: String?) {
         presentWithoutAnimation { folderDeleteTarget = path }
     }
+
+    private func setFolderRenameTarget(_ path: String?) {
+        presentWithoutAnimation {
+            folderRenameTarget = path
+            renameFolderName = path?.split(separator: "/").last.map(String.init) ?? ""
+        }
+    }
 }
 
 /// Alert-look-alike card for creating a folder, hosted in a transparent
@@ -503,6 +606,8 @@ struct FolderContentsView: View {
 /// Mirrors Android's NewFolderDialog.kt: inline duplicate error, Create
 /// disabled on empty/duplicate names.
 private struct NewFolderDialog: View {
+    let title: String
+    let confirmLabel: String
     /// Live status line under the title: the create hint or, on a
     /// case-insensitive sibling collision, the duplicate warning.
     let message: String
@@ -525,7 +630,7 @@ private struct NewFolderDialog: View {
                 .ignoresSafeArea()
             VStack(spacing: 0) {
                 VStack(spacing: 6) {
-                    Text("New Folder")
+                    Text(title)
                         .font(.headline)
                     Text(message)
                         .font(.footnote)
@@ -553,7 +658,7 @@ private struct NewFolderDialog: View {
                     Divider()
                         .frame(height: 44)
                     Button(action: onCreate) {
-                        Text("Create")
+                        Text(confirmLabel)
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .disabled(!canCreate)
@@ -600,8 +705,9 @@ struct MoveToFolderSheet: View {
                     Button {
                         move(to: "")
                     } label: {
-                        rowLabel(text: "Root", system: "house.fill",
-                                 isCurrent: note.folder.isEmpty)
+                        rowLabel(
+                            text: "Root", system: "house.fill",
+                            isCurrent: note.folder.isEmpty)
                     }
                 }
                 if !store.folders.isEmpty {
@@ -610,8 +716,9 @@ struct MoveToFolderSheet: View {
                             Button {
                                 move(to: path)
                             } label: {
-                                rowLabel(text: path, system: "folder.fill",
-                                         isCurrent: note.folder == path)
+                                rowLabel(
+                                    text: path, system: "folder.fill",
+                                    isCurrent: note.folder == path)
                             }
                         }
                     }
@@ -639,7 +746,9 @@ struct MoveToFolderSheet: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Create & Move") { createAndMove() }
             } message: {
-                Text("Create a folder\(currentFolder.isEmpty ? "" : " in \(currentFolder)") and move the note into it.")
+                Text(
+                    "Create a folder\(currentFolder.isEmpty ? "" : " in \(currentFolder)") and move the note into it."
+                )
             }
         }
     }
@@ -688,6 +797,90 @@ struct MoveToFolderSheet: View {
     }
 }
 
+struct MoveFolderSheet: View {
+    @EnvironmentObject private var store: NotesStore
+    @Environment(\.dismiss) private var dismiss
+
+    let folder: String
+
+    private var sourceParent: String {
+        guard let slash = folder.lastIndex(of: "/") else { return "" }
+        return String(folder[..<slash])
+    }
+
+    private var destinations: [String] {
+        store.folders.filter { path in
+            path != folder && !path.hasPrefix(folder + "/")
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        move(to: "")
+                    } label: {
+                        rowLabel(
+                            text: "Root", system: "house.fill", isCurrent: sourceParent.isEmpty)
+                    }
+                }
+                if !destinations.isEmpty {
+                    Section("Folders") {
+                        ForEach(destinations, id: \.self) { path in
+                            Button {
+                                move(to: path)
+                            } label: {
+                                rowLabel(
+                                    text: path,
+                                    system: "folder.fill",
+                                    isCurrent: sourceParent == path)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(
+                "Move \"\(folder.split(separator: "/").last.map(String.init) ?? folder)\""
+            )
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                        .tint(Theme.primary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowLabel(text: String, system: String, isCurrent: Bool) -> some View {
+        HStack {
+            Label {
+                Text(text).foregroundStyle(.primary)
+            } icon: {
+                Image(systemName: system).foregroundStyle(Theme.primary)
+            }
+            Spacer()
+            if isCurrent {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(Theme.primary)
+            }
+        }
+    }
+
+    private func move(to destination: String) {
+        Task {
+            if await store.moveFolder(from: folder, destinationParent: destination) != nil {
+                store.showTransient("Moved to \(destination.isEmpty ? "Root" : destination)")
+            } else {
+                store.showTransient("Couldn't move folder — nothing was changed")
+            }
+        }
+        dismiss()
+    }
+}
+
 struct NoteRow: View {
     let note: NoteItem
     /// Whether to show the folder label (true in flat search results).
@@ -732,7 +925,8 @@ struct NoteRow: View {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible)
-        let parsed = (try? AttributedString(markdown: note.richPreview, options: options))
+        let parsed =
+            (try? AttributedString(markdown: note.richPreview, options: options))
             ?? AttributedString(note.richPreview)
         return NoteRow.stripLinkAttributes(from: parsed)
     }

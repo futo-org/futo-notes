@@ -539,6 +539,29 @@ class NotesStore(notesRoot: File, searchIndex: File) {
             NoteMutationOutcome.Failed
         }
 
+    suspend fun renameFolder(from: String, to: String): String? = try {
+        val mutation = withCore { core.renameFolder(from, to) }
+        applyMutation(mutation)
+        signalLocalChange()
+        mutation.finalFolder ?: to
+    } catch (e: Exception) {
+        android.util.Log.e("NotesStore", "renameFolder failed $from -> $to", e); null
+    }
+
+    suspend fun moveFolder(from: String, destinationParent: String): String? = try {
+        val mutation = withCore { core.moveFolder(from, destinationParent) }
+        applyMutation(mutation)
+        signalLocalChange()
+        mutation.finalFolder ?: from
+    } catch (e: Exception) {
+        android.util.Log.e(
+            "NotesStore",
+            "moveFolder failed $from -> $destinationParent",
+            e,
+        )
+        null
+    }
+
     /** MOVE-UP folder delete (Tauri parity, [list.md:121]): notes under
      *  [path] move to the parent (Rust bails atomically — if ANY move fails
      *  nothing is deleted), wikilinks are relinked, then the folder tree goes.

@@ -62,6 +62,10 @@ class TauriLocalNoteStore implements LocalNoteStore {
     return invoke<LocalNoteMutation>('local_notes_rename_folder', { from, to });
   }
 
+  moveFolder(from: string, destinationParent: string) {
+    return invoke<LocalNoteMutation>('local_notes_move_folder', { from, destinationParent });
+  }
+
   deleteFolder(path: string) {
     return invoke<LocalNoteMutation>('local_notes_delete_folder', { path });
   }

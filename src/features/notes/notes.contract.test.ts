@@ -43,6 +43,7 @@ function mutation(overrides: Partial<LocalNoteMutation> = {}): LocalNoteMutation
     renamed: [],
     folders: [],
     finalId: null,
+    finalFolder: null,
     warnings: [],
     ...overrides,
   };

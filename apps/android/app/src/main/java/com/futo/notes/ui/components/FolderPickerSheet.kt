@@ -38,7 +38,8 @@ import com.futo.notes.ui.theme.FutoType
  * "Move to folder" bottom-sheet picker [list.md:62, list.md:71]: a Root row,
  * one row per folder (full path, like the drawer), and an inline "New Folder…"
  * that names a folder and picks it in one step. [onPick] receives the chosen
- * folder path ("" = root) and whether it must be created as part of the move.
+ * folder path ("" = root) and whether the picker created it for an atomic note
+ * move. Folder moves disable creation and ignore that second value.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +47,9 @@ fun FolderPickerSheet(
     store: NotesStore,
     onPick: (folder: String, isNew: Boolean) -> Unit,
     onDismiss: () -> Unit,
+    title: String = "Move to folder",
+    excludePaths: List<String> = emptyList(),
+    allowCreate: Boolean = true,
 ) {
     val c = FutoTheme.colors
     var newFolder by remember { mutableStateOf(false) }
@@ -57,18 +61,20 @@ fun FolderPickerSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp),
         ) {
-            MicroLabel("Move to folder", Modifier.padding(start = 24.dp, bottom = 8.dp))
+            MicroLabel(title, Modifier.padding(start = 24.dp, bottom = 8.dp))
             SheetRow(label = "Root", icon = Icons.Filled.Home) { onPick("", false) }
-            store.folders.forEach { folder ->
+            eligibleFolderDestinations(store.folders, excludePaths).forEach { folder ->
                 SheetRow(label = folder, icon = Icons.Filled.Folder) { onPick(folder, false) }
             }
-            HorizontalDivider(color = c.border, modifier = Modifier.padding(vertical = 6.dp))
-            SheetRow(
-                label = "New Folder…",
-                icon = Icons.Filled.CreateNewFolder,
-                tint = c.textAccent,
-                labelColor = c.textAccent,
-            ) { newFolder = true }
+            if (allowCreate) {
+                HorizontalDivider(color = c.border, modifier = Modifier.padding(vertical = 6.dp))
+                SheetRow(
+                    label = "New Folder…",
+                    icon = Icons.Filled.CreateNewFolder,
+                    tint = c.textAccent,
+                    labelColor = c.textAccent,
+                ) { newFolder = true }
+            }
         }
     }
 
@@ -83,6 +89,13 @@ fun FolderPickerSheet(
             onDismiss = { newFolder = false },
         )
     }
+}
+
+internal fun eligibleFolderDestinations(
+    folders: List<String>,
+    excludePaths: List<String>,
+): List<String> = folders.filter { folder ->
+    excludePaths.none { excluded -> folder == excluded || folder.startsWith("$excluded/") }
 }
 
 @Composable

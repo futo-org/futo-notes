@@ -34,7 +34,7 @@ Each shell renders settings with its own native idioms. These differences are
 | Storage / notes dir     | **Storage** section — shows path, "Change directory" (folder picker + app restart), "Reset to default"                      | **Storage** section — "Storage location" path readout + storage-**mode** switcher (Device/App storage — see app.md); no free directory picker | **Storage** section — read-only "Notes folder" path readout (selectable, monospaced); no picker (fixed sandbox)   |
 | Editor note             | Absent                                                                                                                      | Absent — the "Editor" / "file over app" caption was removed (see settings.md)                                                                 | Absent                                                                                                            |
 | About / source link     | Absent (version footer only)                                                                                                | **About** section — "Open source" row linking to GitLab + a Version row                                                                       | **About** section — "Open source" link to GitLab + a "Version" row                                                |
-| Crash reporting toggles | Present (switch + "always send" sub-row)                                                                                    | Present — "Share crash reports" `Switch` + nested "Always send automatically" (shown only while the first is on)                              | Present — "Share crash reports" `Toggle` + "Always send automatically" `Toggle` (disabled while the first is off) |
+| Issue reporting         | Present — "Share crash reports", nested "Send crashes automatically", and "Report an issue" link                               | Present — "Share crash reports" `Switch`, nested "Send crashes automatically" (shown only while the first is on), and "Report an issue" link | Present — "Share crash reports" `Toggle`, "Send crashes automatically" `Toggle` (disabled while the first is off), and "Report an issue" link |
 | Danger zone             | "Full reset" (modal confirm) + dev-only "Test crash"                                                                        | "Full reset" (modal `ConfirmDialog`) + debug-only "Test crash" (in a Debug group)                                                             | "Full reset" (`confirmationDialog`) + `#if DEBUG` "Test crash"                                                    |
 | Benchmark               | Absent — the Benchmark section was removed from the desktop component                                                       | Absent                                                                                                                                        | Absent                                                                                                            |
 | Blocking progress       | In-panel overlay (spinner + phase / error) for Connect and Full reset                                                       | Full-screen overlay ("Deleting all notes…") during Full reset; Connect handled on the Sync screen                                             | Full-screen overlay ("Deleting all notes…") during Full reset; Connect handled in `SyncView`                      |
@@ -67,9 +67,11 @@ same meanings. This is the part that belongs to the app, not the shell.
     simpler "Connecting…"/"Syncing…" states, and a fast local sync may only
     ever show a generic spinner)_.
   - See `sync.md` for the authoritative sync behavior.
-- **Crash reporting** — opt-in **"Share crash reports"**; when on, a nested
-  **"Always send automatically"** option. Persisted in preferences
-  (`crashReporting.enabled`, `crashReporting.alwaysSend`).
+- **Issue reporting** — opt-in **"Share crash reports"**; when on, a nested
+  **"Send crashes automatically"** option. A **"Report an issue"** link opens
+  the FUTO Notes GitHub issue tracker
+  (`https://github.com/futo-org/futo-notes/issues`). Crash preferences persist
+  as `crashReporting.enabled` and `crashReporting.alwaysSend`.
 - **Full reset (danger)** — permanently delete all notes and app data. Must be
   **guarded by an explicit modal confirmation dialog**: tapping "Full reset"
   opens a confirm dialog ("Permanently delete all notes and app data? This

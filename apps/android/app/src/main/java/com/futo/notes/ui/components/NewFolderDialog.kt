@@ -33,9 +33,13 @@ fun NewFolderDialog(
     store: NotesStore,
     onCreate: (path: String) -> Unit,
     onDismiss: () -> Unit,
+    initialName: String = "",
+    title: String = "New folder",
+    confirmLabel: String = "Create",
+    excludePath: String? = null,
 ) {
     val c = FutoTheme.colors
-    var name by remember { mutableStateOf("") }
+    var name by remember(initialName) { mutableStateOf(initialName) }
     val raw = name.trim()
     val clean = sanitizeTitle(raw)
     // sanitizeTitle falls back to "Untitled" when the input strips to nothing
@@ -44,12 +48,13 @@ fun NewFolderDialog(
     // as invalid. Literally typing "Untitled" stays allowed.
     val sanitizesAway = clean == "Untitled" && raw != "Untitled"
     val duplicate = clean.isNotEmpty() && store.subfolders(parent)
+        .filter { it != excludePath }
         .any { it.substringAfterLast('/').equals(clean, ignoreCase = true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = c.surface,
-        title = { Text("New folder", style = FutoType.title, color = c.textPrimary) },
+        title = { Text(title, style = FutoType.title, color = c.textPrimary) },
         text = {
             Column {
                 // The dialog is its own window — the app-root install (#24)
@@ -88,7 +93,7 @@ fun NewFolderDialog(
             TextButton(
                 enabled = canCreate,
                 onClick = { onCreate(if (parent.isEmpty()) clean else "$parent/$clean") },
-            ) { Text("Create", color = if (canCreate) c.textAccent else c.textMuted) }
+            ) { Text(confirmLabel, color = if (canCreate) c.textAccent else c.textMuted) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel", color = c.textSecondary) }

@@ -224,10 +224,10 @@ Behaviors and constraints that hold across every surface and platform.
   `shouldCompleteNoteAction`, NoteActionCompletionTest
 - An uncaught error/crash is queued; the **next launch** shows a Crash Report
   dialog: expandable "View report", an optional "What were you doing?" field,
-  an "Always send crash reports" checkbox, and Send / Don't Send. "Always
-  send" (also a Settings toggle) auto-sends future reports without the
-  dialog. Rust-side panics persist the same schema under `.crashlogs` before
-  the next-launch scan. → CrashReportDialog.svelte, crashHandler.ts,
+  a **"Send crashes automatically"** checkbox, and Send / Don't Send. Enabling
+  it (also available as a Settings toggle) auto-sends future reports without
+  the dialog. Rust-side panics persist the same schema under `.crashlogs`
+  before the next-launch scan. → CrashReportDialog.svelte, crashHandler.ts,
   `apps/tauri/src-tauri/src/panic_reporter.rs` _(Tauri)_
 - The native shells run the same pipeline: an uncaught-exception handler
   (Android `Thread.setDefaultUncaughtExceptionHandler`; iOS

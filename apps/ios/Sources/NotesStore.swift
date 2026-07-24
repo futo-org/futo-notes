@@ -58,6 +58,10 @@ actor NoteVault {
         try core.renameFolder(from: from, to: to)
     }
 
+    func moveFolder(from: String, destinationParent: String) throws -> NoteMutation {
+        try core.moveFolder(from: from, destinationParent: destinationParent)
+    }
+
     func deleteFolder(_ folder: String) throws -> NoteMutation {
         try core.deleteFolder(folder: folder)
     }
@@ -365,7 +369,9 @@ final class NotesStore: ObservableObject {
         do {
             let result = try await vault.bootstrap(indexDir: Self.resolveSearchIndex().path)
             applySnapshot(result.snapshot)
-            result.warnings.forEach { print("local-note bootstrap: \($0)") }
+            for warning in result.warnings {
+                print("local-note bootstrap: \(warning)")
+            }
         } catch {
             print("local-note bootstrap failed: \(error)")
             applySnapshot(await vault.scan())
@@ -404,7 +410,9 @@ final class NotesStore: ObservableObject {
         }
         notes = next
         folders = mutation.folders
-        mutation.warnings.forEach { print("local-note mutation: \($0)") }
+        for warning in mutation.warnings {
+            print("local-note mutation: \(warning)")
+        }
     }
 
     func read(_ id: String) async -> String { await vault.read(id) }
@@ -575,14 +583,28 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    func renameFolder(from: String, to: String) async -> Bool {
+    func renameFolder(from: String, to: String) async -> String? {
         do {
-            applyMutation(try await vault.renameFolder(from: from, to: to))
+            let mutation = try await vault.renameFolder(from: from, to: to)
+            applyMutation(mutation)
             onLocalChange?()
-            return true
+            return mutation.finalFolder ?? to
         } catch {
             print("renameFolder failed \(from) -> \(to): \(error)")
-            return false
+            return nil
+        }
+    }
+
+    func moveFolder(from: String, destinationParent: String) async -> String? {
+        do {
+            let mutation = try await vault.moveFolder(
+                from: from, destinationParent: destinationParent)
+            applyMutation(mutation)
+            onLocalChange?()
+            return mutation.finalFolder ?? from
+        } catch {
+            print("moveFolder failed \(from) -> \(destinationParent): \(error)")
+            return nil
         }
     }
 
