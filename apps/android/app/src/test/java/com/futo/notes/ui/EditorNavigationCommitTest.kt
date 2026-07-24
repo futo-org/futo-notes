@@ -15,6 +15,12 @@ class EditorNavigationCommitTest {
     }
 
     @Test
+    fun `pending navigation consumes back without starting a second navigation`() {
+        assertTrue(shouldStartEditorBackNavigation(navigationPending = false))
+        assertFalse(shouldStartEditorBackNavigation(navigationPending = true))
+    }
+
+    @Test
     fun `navigation admission rejects a second request until failure permits retry`() {
         val admission = EditorNavigationAdmission()
 
