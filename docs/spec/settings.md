@@ -32,8 +32,11 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   crash-test relaunch).
 - **Storage**: a notes-directory path readout.
 - **About**: an open-source link (GitLab) and the app version.
-- **Crash reporting**: "Share crash reports" toggle with a nested "Always
-  send automatically" (see app.md for the dialog flow).
+- **Issue reporting**: "Share crash reports" toggle with a nested **"Send
+  crashes automatically"**, plus a **"Report an issue"** link that opens the
+  FUTO Notes GitHub issue tracker
+  (`https://github.com/futo-org/futo-notes/issues`). See app.md for the crash
+  dialog flow.
 - **Danger zone — Full reset**: same modal-confirmation contract as the Tauri
   shell below — tapping **Full reset** opens a confirmation dialog
   ("Permanently delete all notes and app data? This cannot be undone."); only
@@ -53,7 +56,7 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 ## Tauri shell
 
 - Settings is a sheet/modal (mobile: bottom sheet over the current screen)
-  with sections: Storage, Appearance, Sync, Crash reporting, Updates, then
+  with sections: Storage, Appearance, Sync, Issue reporting, Updates, then
   Danger zone last, and a version footer. → SettingsScreen.svelte (see
   settings-visual.md for the platform-split and shared content model)
 - **Storage:** the displayed active/default roots come from the Tauri platform
@@ -75,8 +78,10 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   (keyring unavailable or forgotten), a "Vault password — required after
   restart" field appears for on-demand re-entry (see sync.md). →
   SyncSettingsSection.svelte, createSyncSettings.svelte.ts
-- **Crash reporting**: a "Share crash reports" toggle (anonymous crash logs);
-  see app.md for the crash dialog flow.
+- **Issue reporting**: a "Share crash reports" toggle (anonymous crash logs), a
+  nested **"Send crashes automatically"** option, and a **"Report an issue"**
+  link that opens `https://github.com/futo-org/futo-notes/issues`; see app.md
+  for the crash dialog flow.
 - Dev builds additionally show a **Sync error test** section (fabricated
   sync-failure scenarios that exercise the failure-message UI) and a **Test
   crash** button in the Danger zone; neither ships in release builds

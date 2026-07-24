@@ -140,6 +140,17 @@ impl NoteStore {
             .map_err(NoteError::Io)
     }
 
+    pub fn move_folder(
+        &self,
+        from: String,
+        destination_parent: String,
+    ) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .move_folder(&from, &destination_parent)
+            .map(Into::into)
+            .map_err(NoteError::Io)
+    }
+
     /// Moves contained notes to the parent and rewrites their links before removing the folder.
     pub fn delete_folder(&self, folder: String) -> Result<NoteMutation, NoteError> {
         self.inner

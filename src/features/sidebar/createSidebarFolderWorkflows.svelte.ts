@@ -85,6 +85,10 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
           },
         },
         {
+          label: 'Move to folder',
+          onclick: () => openMoveFolderPicker(path),
+        },
+        {
           label: 'Delete',
           destructive: true,
           onclick: () => void confirmDeleteSidebarFolder(path, options),
@@ -118,6 +122,20 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
       excludePaths: [],
       onpick: (target) => void moveNoteFromPicker(noteId, target),
     };
+  }
+
+  function openMoveFolderPicker(folderPath: string): void {
+    const components = folderPath.split('/');
+    folderPicker = {
+      title: `Move "${components[components.length - 1] ?? folderPath}"`,
+      excludePaths: [folderPath],
+      onpick: (target) => void moveFolderFromPicker(folderPath, target),
+    };
+  }
+
+  async function moveFolderFromPicker(folderPath: string, target: string): Promise<void> {
+    await moveSidebarFolder(folderPath, target, options);
+    folderPicker = null;
   }
 
   async function moveNoteFromPicker(noteId: string, target: string): Promise<void> {

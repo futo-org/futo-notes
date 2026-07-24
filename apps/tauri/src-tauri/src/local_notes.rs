@@ -248,6 +248,25 @@ pub async fn local_notes_rename_folder(
     blocking(move || store.rename_folder(&from, &to)).await
 }
 
+fn local_notes_move_folder_impl(
+    store: &LocalNoteStore,
+    from: &str,
+    destination_parent: &str,
+) -> Result<MutationResult, String> {
+    store.move_folder(from, destination_parent)
+}
+
+#[tauri::command]
+pub async fn local_notes_move_folder(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    from: String,
+    destination_parent: String,
+) -> Result<MutationResult, String> {
+    let store = store(&app, &state)?;
+    blocking(move || local_notes_move_folder_impl(&store, &from, &destination_parent)).await
+}
+
 #[tauri::command]
 pub async fn local_notes_delete_folder(
     app: AppHandle,
@@ -334,8 +353,27 @@ mod tests {
 
         let result = local_notes_flush_draft_impl(&store, "note", "base", "draft").unwrap();
 
-        assert_eq!(result.disposition, futo_notes_store::FlushDisposition::Wrote);
+        assert_eq!(
+            result.disposition,
+            futo_notes_store::FlushDisposition::Wrote
+        );
         assert_eq!(store.read("note"), "draft");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn move_folder_impl_projects_the_collision_resolved_folder() {
+        let root = temp_root();
+        let store = LocalNoteStore::new(root.clone());
+        store.write("Source/Plans/note", "body", None).unwrap();
+        store
+            .write("Target/Plans/existing", "occupied", None)
+            .unwrap();
+
+        let mutation = local_notes_move_folder_impl(&store, "Source/Plans", "Target").unwrap();
+
+        assert_eq!(mutation.final_folder.as_deref(), Some("Target/Plans-2"));
+        assert_eq!(store.read("Target/Plans-2/note"), "body");
         std::fs::remove_dir_all(root).unwrap();
     }
 }
