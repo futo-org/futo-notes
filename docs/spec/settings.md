@@ -30,7 +30,28 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   theme follows; persisted in UserDefaults `futo.themeMode` / Android
   SharedPreferences `theme_mode`; survives relaunch — verified via the
   crash-test relaunch).
-- **Storage**: a notes-directory path readout.
+- **Storage**: a notes-directory path readout. On Android, changing Device/App
+  storage shows a blocking migration state and relaunches only after the whole
+  vault is verified and an app-private migration journal is durably activated.
+  The journal is the authority across preference-commit ambiguity and process
+  death: `PREPARED` selects the old root; `FINALIZING` records that source
+  cleanup has begun after the destination was fully verified; recovery selects
+  that destination when a removable source is absent or still present, retaining
+  a present source as a backup. A source-removal-forbidden Device migration
+  instead rolls back to its still-present source until activation is durably
+  recorded. `ACTIVATED` selects the verified destination and may retain an
+  uncleared source as a backup if final cleanup could not finish. A Device
+  source is always retained as that backup because other apps can still write
+  it outside FUTO Notes' migration gate. Unmounted or permission-denied storage
+  is unavailable, not absent or present, and still fails closed. A late source
+  edit aborts activation and keeps the current mode active. Failure before
+  activation surfaces an actionable toast; a different non-empty destination
+  is never merged into or deleted. The editor remains composed behind the
+  blocking overlay so its live draft can be flushed before the Rust-owned
+  whole-vault migration begins. Startup reads the journal and storage
+  preferences on `Dispatchers.IO` after the first composition. →
+  `MainActivity.performSwitch`, Android `storage/`,
+  `futo-notes-store::vault_migration`
 - **About**: an open-source link (GitLab) and the app version.
 - **Issue reporting**: "Share crash reports" toggle with a nested **"Send
   crashes automatically"**, plus a **"Report an issue"** link that opens the

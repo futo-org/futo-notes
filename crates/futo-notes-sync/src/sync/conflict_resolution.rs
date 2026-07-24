@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use futo_notes_core::conflict_names::conflict_filename;
 use futo_notes_core::e2ee;
-use futo_notes_core::files::{classify_incoming_sync_path, set_file_mtime_ms, IncomingSyncPath};
+use futo_notes_core::files::{classify_incoming_sync_path, IncomingSyncPath};
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::is_image_filename;
 use futo_notes_core::merge::{three_way_merge, MergeResult};
@@ -14,6 +14,7 @@ use super::encrypted_note::{decrypt, encrypt, object_state, state_from_remote, R
 use super::outcome::note_id;
 use super::push::{create_fresh, PushContext, Upload};
 use super::vault::{conflict_date, local_files, remove_local, write_content, LocalFile};
+use super::vault_fs;
 use super::{FailureKind, RenamePair, SyncFailure};
 
 async fn create_from_content(
@@ -91,7 +92,7 @@ fn adopt_matching_remote(
     }
     if let Some(modified) = state_from_remote(remote).mtime_ms {
         (context.pre_write)(&remote_name);
-        let _ = set_file_mtime_ms(&context.root.join(&remote_name), modified);
+        let _ = vault_fs::set_mtime_ms(context.root, &remote_name, modified);
     }
     Some((remote_name, state_from_remote(remote)))
 }
@@ -151,7 +152,7 @@ fn apply_merged_write(
         return MergeAttempt::Failed;
     }
     let modified = timestamp_ms(&write.object.updated_at);
-    let _ = set_file_mtime_ms(&context.root.join(&target), modified);
+    let _ = vault_fs::set_mtime_ms(context.root, &target, modified);
     context.state.max_version = context.state.max_version.max(write.collection_version);
     context.summary.uploaded += 1;
     context.summary.local_writes_applied += 1;
@@ -222,10 +223,17 @@ async fn create_conflict_copy(
     file: &LocalFile,
     local: &str,
 ) -> Option<String> {
-    let names: HashSet<String> = local_files(context.root)
-        .into_iter()
-        .map(|file| file.name)
-        .collect();
+    let names: HashSet<String> = match local_files(context.root) {
+        Ok(files) => files.into_iter().map(|file| file.name).collect(),
+        Err(_) => {
+            context.summary.failures.push(SyncFailure {
+                filename: file.name.clone(),
+                kind: FailureKind::Upload,
+                status_code: None,
+            });
+            return None;
+        }
+    };
     let copy = conflict_filename(&file.name, &conflict_date(), &names);
     if write_content(context.root, &copy, local, context.pre_write).is_err() {
         context.summary.failures.push(SyncFailure {
@@ -257,21 +265,18 @@ fn try_adopt_remote_conflict_winner(
     remote_name: &str,
     copy: &str,
     current: &Object,
-) {
-    if write_content(
+) -> Result<(), String> {
+    write_content(
         context.root,
         remote_name,
         &remote.content,
         context.pre_write,
-    )
-    .is_err()
-        || (remote_name != file.name
-            && remove_local(context.root, &file.name, context.pre_write).is_err())
-    {
-        return;
+    )?;
+    if remote_name != file.name {
+        remove_local(context.root, &file.name, context.pre_write)?;
     }
     let modified = timestamp_ms(&current.updated_at);
-    let _ = set_file_mtime_ms(&context.root.join(remote_name), modified);
+    let _ = vault_fs::set_mtime_ms(context.root, remote_name, modified);
     context.summary.local_writes_applied += 2;
     context.summary.conflicts += 1;
     context.summary.updated_ids.push(note_id(remote_name));
@@ -284,6 +289,7 @@ fn try_adopt_remote_conflict_winner(
             to_id: note_id(remote_name),
         });
     }
+    Ok(())
 }
 
 async fn write_conflict_pair(
@@ -295,7 +301,15 @@ async fn write_conflict_pair(
     current: &Object,
 ) -> Option<(String, ObjectState)> {
     let copy = create_conflict_copy(context, file, local).await?;
-    try_adopt_remote_conflict_winner(context, file, remote, &remote_name, &copy, current);
+    if try_adopt_remote_conflict_winner(context, file, remote, &remote_name, &copy, current).is_err()
+    {
+        context.summary.failures.push(SyncFailure {
+            filename: file.name.clone(),
+            kind: FailureKind::Upload,
+            status_code: None,
+        });
+        return None;
+    }
     Some((remote_name, state_from_remote(remote)))
 }
 

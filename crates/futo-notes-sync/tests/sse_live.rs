@@ -22,9 +22,6 @@ struct Recorded {
     errors: Vec<String>,
 }
 
-/// Records the live loop's lifecycle callbacks. Implements the new
-/// `SyncSessionListener` trait the loop projects events onto (replacing the
-/// old per-callback `LiveHandle` fields).
 struct Recorder(Arc<std::sync::Mutex<Recorded>>);
 
 impl SyncSessionListener for Recorder {

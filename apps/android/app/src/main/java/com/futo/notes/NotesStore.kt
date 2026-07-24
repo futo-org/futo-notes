@@ -3,15 +3,25 @@ package com.futo.notes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.futo.notes.storage.NotesStorage
+import com.futo.notes.storage.StorageMigrationGate
+import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.NoteMutation
 import uniffi.futo_notes_ffi.NoteStore
 import uniffi.futo_notes_ffi.NoteMetadata
 import uniffi.futo_notes_ffi.SearchHit
+import uniffi.futo_notes_ffi.VaultMigrationStatus
+import uniffi.futo_notes_ffi.VaultMigrationFinalization
 import java.io.File
 
 /** A single note for the UI. Mirrors the iOS `NoteItem`; `tags` are canonical
@@ -45,6 +55,37 @@ internal const val SEARCH_READY_TIMEOUT_MS: ULong = 5_000uL
  *  `pendingDraft` tuple. */
 data class PendingDraft(val id: String, val base: String, val content: String)
 
+sealed interface NoteMutationOutcome<out T> {
+    data class Committed<T>(val value: T) : NoteMutationOutcome<T>
+    data object Failed : NoteMutationOutcome<Nothing>
+}
+
+internal fun confirmedSavedContent(
+    previousSavedContent: String,
+    writtenContent: String,
+    outcome: NoteMutationOutcome<Unit>,
+): String = when (outcome) {
+    is NoteMutationOutcome.Committed -> writtenContent
+    NoteMutationOutcome.Failed -> previousSavedContent
+}
+
+internal fun shouldCompleteNoteAction(outcome: NoteMutationOutcome<*>): Boolean =
+    outcome is NoteMutationOutcome.Committed
+
+internal fun shouldContinueDeleteAfterEditorWrite(
+    hasPendingChanges: Boolean,
+    outcome: NoteMutationOutcome<Unit>?,
+): Boolean = !hasPendingChanges || outcome is NoteMutationOutcome.Committed
+
+internal suspend fun <T> runMutationTransaction(
+    transaction: suspend () -> T,
+): T {
+    currentCoroutineContext().ensureActive()
+    return withContext(NonCancellable) {
+        transaction()
+    }
+}
+
 /** The open editor's unsaved-draft derivation — the ONE definition of "is there
  *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
  *  LIVE [noteId] (so it re-keys by construction after a rename) whenever the body
@@ -59,6 +100,18 @@ internal fun derivePendingDraft(
     content: String,
 ): PendingDraft? =
     if (loaded && content != savedContent) PendingDraft(noteId, savedContent, content) else null
+
+internal enum class AdoptFlushOutcome { KEEP_DRAFT, RELOAD_DISK, RETRY_LATER }
+
+internal fun adoptFlushOutcome(disposition: FlushDisposition?): AdoptFlushOutcome =
+    when (disposition) {
+        FlushDisposition.Wrote,
+        FlushDisposition.Converged,
+        FlushDisposition.Recreated,
+        -> AdoptFlushOutcome.KEEP_DRAFT
+        is FlushDisposition.ParkedConflict -> AdoptFlushOutcome.RELOAD_DISK
+        null -> AdoptFlushOutcome.RETRY_LATER
+    }
 
 /**
  * The open editor's unsaved-draft register and its leave-foreground flush,
@@ -93,6 +146,7 @@ internal fun derivePendingDraft(
 internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> Unit) {
     private var seq: Long = 0
     private val providers = LinkedHashMap<Long, () -> PendingDraft?>()
+    private val retained = LinkedHashMap<Long, PendingDraft>()
 
     /** A newly-composed editor claims an entry; returns its unique generation
      *  token (the map key). Registration/removal are keyed by it, so editors
@@ -105,10 +159,36 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
         providers[token] = provider
     }
 
-    /** The editor left composition — removes only its own entry, leaving any
-     *  overlapping editor's provider intact. */
+    /** The editor left composition. Keep its last dirty value until a storage
+     *  operation proves that exact draft durable. */
     fun release(token: Long) {
-        providers.remove(token)
+        providers.remove(token)?.invoke()?.let { retained[token] = it }
+    }
+
+    fun complete(draft: PendingDraft) {
+        retained.entries.removeAll { it.value == draft }
+    }
+
+    /** Snapshot retained drafts present when an ordinary save starts. */
+    fun retainedSnapshot(id: String): Map<Long, PendingDraft> =
+        retained.filterValues { it.id == id }
+
+    /** Clear only snapshots that are still the admitted values. */
+    fun completeSnapshot(snapshot: Map<Long, PendingDraft>) {
+        snapshot.forEach { (token, draft) ->
+            if (retained[token] == draft) retained.remove(token)
+        }
+    }
+
+    fun discardNote(id: String) {
+        retained.entries.removeAll { it.value.id == id }
+        providers.entries.removeAll { it.value()?.id == id }
+    }
+
+    fun retargetRetainedNote(oldId: String, finalId: String) {
+        retained.replaceAll { _, draft ->
+            if (draft.id == oldId) draft.copy(id = finalId) else draft
+        }
     }
 
     /** Persist every live editor's current draft by pulling each provider
@@ -124,9 +204,15 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
      *  LAST-registered provider's draft (LinkedHashMap insertion order): the
      *  incoming editor is the user's current view, so its content wins. */
     fun flush() {
+        currentDrafts().forEach { persist(it) }
+    }
+
+    /** Snapshot and coalesce the live drafts for an exclusive vault operation. */
+    fun currentDrafts(): List<PendingDraft> {
         val byId = LinkedHashMap<String, PendingDraft>()
+        retained.values.forEach { byId[it.id] = it }
         providers.values.toList().forEach { provider -> provider()?.let { byId[it.id] = it } }
-        byId.values.forEach { persist(it) }
+        return byId.values.toList()
     }
 }
 
@@ -165,6 +251,11 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  the iOS `NoteVault` actor (the handle only ever lives off-main). */
     private val core: NoteStore by lazy { NoteStore(rootPath) }
 
+    /** Serializes every vault-root access, including image writes, with migration. */
+    private val storageMigrationGate = StorageMigrationGate()
+    val isVaultMigrationStarted: Boolean
+        get() = storageMigrationGate.isMigrationStarted
+
     /** Owns the background scan + every FFI mutation. State writes hop back to
      *  [Dispatchers.Main.immediate] (this scope's dispatcher) so Compose state is
      *  only ever touched on the main thread — same discipline as [SyncManager]. */
@@ -174,7 +265,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         // Bootstrap, migrations, seeding, and search startup are one Rust call,
         // kept off-main so first render never waits for disk I/O.
         scope.launch {
-            val bootstrap = withContext(Dispatchers.IO) {
+            val bootstrap = withCore {
                 core.bootstrap(searchIndex.absolutePath)
             }
             applySnapshot(bootstrap.snapshot.notes, bootstrap.snapshot.folders)
@@ -196,47 +287,66 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     /** Rescan the vault off the main thread, then publish on the main thread. */
     suspend fun reload() {
-        val snapshot = withContext(Dispatchers.IO) { core.scan() }
+        val snapshot = withCore { core.scan() }
         applySnapshot(snapshot.notes, snapshot.folders)
     }
 
-    suspend fun read(id: String): String = withContext(Dispatchers.IO) { core.read(id) }
-    suspend fun exists(id: String): Boolean = withContext(Dispatchers.IO) { core.exists(id) }
+    suspend fun read(id: String): String = withCore { core.read(id) }
+    suspend fun exists(id: String): Boolean = withCore { core.exists(id) }
+
+    /** Save an editor image and consume its filename while holding the same
+     * migration gate as note workflows. The consumer is part of the operation:
+     * image insertion reaches the WebView before migration may snapshot it. */
+    suspend fun saveImageIntoVault(
+        save: (File) -> String?,
+        useSavedImage: suspend (String) -> Unit,
+    ): String? =
+        try {
+            withVaultAccess {
+                val filename = save(File(rootPath))
+                if (filename != null) useSavedImage(filename)
+                filename
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "image save failed", e)
+            null
+        }
 
     /** Fire-and-forget flush for the editor's leave paths (`onDispose` on pop,
      *  and the register's onPause flush): a composable's dispose callback can't
      *  suspend, so the final save runs on the store's scope (which outlives the
      *  screen).
      *
-     *  A conditional write (`write_if_unchanged`): persist `draft.content` only
-     *  if the note still holds `draft.base` (the content the editor last saw).
-     *  One FFI call replaces the old `exists()`-then-`write()` sequence,
-     *  collapsing its cross-FFI TOCTOU — a note deleted while backgrounded
-     *  returns SkippedMissing (never resurrected), and content a live-sync pull
-     *  adopted since the editor's last read returns SkippedChanged (never
-     *  clobbered). Check-then-atomic-write, not a true CAS (a narrow residual
-     *  syscall window is accepted — see the Rust doc). Only a genuine write
-     *  (WROTE) updates in-memory state. */
+     *  Rust's one `flush_draft` workflow writes, converges, recreates, or parks
+     *  the draft under the store's mutation gate. */
     fun flushAsync(draft: PendingDraft) {
-        scope.launch {
-            // Swallow-and-log, mirroring [write]. `writeIfUnchanged` throws
-            // NoteException on a non-NotFound IO error (temp-write ENOSPC, EACCES
-            // read); this runs on a fire-and-forget scope with no exception
-            // handler, so an uncaught throw here would crash the process at
-            // leave-foreground. A failed background flush must degrade to "not
-            // flushed" (the debounce / next flush retries), never crash.
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    core.writeIfUnchanged(draft.id, draft.base, draft.content)
-                }
-                result.mutation?.let {
-                    applyMutation(it)
-                    signalLocalChange()
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("NotesStore", "flush failed for ${draft.id}", e)
-            }
+        val admission = editorDraftCoordinator.admit(draft.id) ?: return
+        val previous = editorDraftTail
+        editorDraftTail = scope.launch {
+            previous?.join()
+            if (!editorDraftCoordinator.permits(admission)) return@launch
+            if (flushDraftDirect(draft) != null) pendingEditor.complete(draft)
         }
+    }
+
+    /** Persist-or-park one exact editor snapshot through the Rust workflow. */
+    suspend fun flushDraft(draft: PendingDraft): FlushDisposition? =
+        flushDraftDirect(draft)
+
+    private suspend fun flushDraftDirect(draft: PendingDraft): FlushDisposition? = try {
+        runMutationTransaction {
+            val result = withCore { core.flushDraft(draft.id, draft.base, draft.content) }
+            result.mutation?.let {
+                applyMutation(it)
+                signalLocalChange()
+            }
+            result.disposition
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        android.util.Log.e("NotesStore", "flush failed for ${draft.id}", e)
+        null
     }
 
     /** The open editors' unsaved-draft register (F8 jetsam guard). Each editor
@@ -247,6 +357,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  still overlapping during a nav cross-fade — is persisted before the OS can
      *  kill the backgrounded process. Mirrors iOS `NotesStore.pendingDraft`. */
     private val pendingEditor = PendingEditorDraft { draft -> flushAsync(draft) }
+    private val editorDraftCoordinator = EditorDraftCoordinator()
+    private var editorDraftTail: Job? = null
 
     /** A newly-composed editor claims a register entry; returns its unique token.
      *  Entries are keyed by it, so editors overlapping during the AnimatedContent
@@ -259,44 +371,141 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     fun setDraftProvider(token: Long, provider: () -> PendingDraft?) =
         pendingEditor.setProvider(token, provider)
 
-    /** The editor left composition — removes only its own entry, leaving any
-     *  overlapping editor's provider intact. */
+    /** The editor left composition. Its dirty value remains retained until the
+     *  asynchronous flush proves it durable. */
     fun releaseDraftOwnership(token: Long) = pendingEditor.release(token)
 
     /** Flush the open editor's pending draft to disk if it has unsaved edits.
      *  Called from MainActivity.onPause (the first leave-foreground signal).
-     *  Fire-and-forget via [flushAsync], which re-checks existence off-main so a
-     *  note deleted while open is never resurrected. Mirrors iOS `flushPendingEditor`.
+     *  Fire-and-forget via [flushAsync], which uses persist-or-park semantics.
+     *  Mirrors iOS `flushPendingEditor`.
      *  Best-effort: the write is fire-and-forget, so an immediate process death
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
 
+    /** Freeze store access before the WebView's final synchronous snapshot.
+     * Refuse while a write is active: image saves complete with a later editor
+     * callback, so merely waiting for their file I/O would snapshot too early. */
+    fun tryBeginStorageMigration(): Boolean =
+        storageMigrationGate.tryBeginMigrationWhenIdle()
+
+    /**
+     * Flush live editor drafts and hold the vault gate across migration. Existing
+     * store operations finish before the copy starts; the Activity blocks new UI
+     * input and pauses sync before calling this method.
+     */
+    suspend fun migrateVault(to: File): NotesStorage.MigrationOutcome {
+        val drafts = pendingEditor.currentDrafts()
+        val mutations = mutableListOf<NoteMutation>()
+        val outcome = withContext(Dispatchers.IO) {
+            storageMigrationGate.runMigration {
+                val flushFailed = drafts.any { draft ->
+                    try {
+                        val result = core.flushDraft(draft.id, draft.base, draft.content)
+                        result.mutation?.let(mutations::add)
+                        false
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "NotesStore",
+                            "migration draft flush failed for ${draft.id}",
+                            e,
+                        )
+                        true
+                    }
+                }
+                if (flushFailed) {
+                    NotesStorage.MigrationOutcome.Failed(
+                        "An open editor change could not be saved. The storage mode was not changed.",
+                    )
+                } else {
+                    val staged = core.stageVaultMigration(to.absolutePath)
+                    when (staged.status) {
+                        VaultMigrationStatus.MIGRATED ->
+                            NotesStorage.MigrationOutcome.Migrated(staged.files.toInt())
+                        VaultMigrationStatus.EMPTY_SOURCE ->
+                            NotesStorage.MigrationOutcome.EmptySource
+                        VaultMigrationStatus.ALREADY_AT_DESTINATION ->
+                            NotesStorage.MigrationOutcome.AlreadyAtDestination
+                    }
+                }
+            }
+        }
+        mutations.forEach(::applyMutation)
+        return outcome
+    }
+
+    /** Re-open the old root after a migration or preference-commit failure. */
+    fun resumeAfterStorageMigrationFailure() {
+        storageMigrationGate.resume()
+    }
+
+    suspend fun finalizeVaultMigration(
+        to: File,
+        allowSourceRemoval: Boolean,
+    ): VaultMigrationFinalization =
+        withContext(Dispatchers.IO) {
+            storageMigrationGate.runMigration {
+                core.finalizeVaultMigration(to.absolutePath, allowSourceRemoval)
+            }
+        }
+
     /** Write one note and consume the complete committed mutation. */
-    suspend fun write(id: String, content: String) {
+    suspend fun write(id: String, content: String): NoteMutationOutcome<Unit> =
         try {
-            val mutation = withContext(Dispatchers.IO) { core.write(id, content) }
-            applyMutation(mutation)
-            signalLocalChange()
+            runMutationTransaction {
+                val retainedAtAdmission = pendingEditor.retainedSnapshot(id)
+                val mutation = withCore { core.write(id, content) }
+                applyMutation(mutation)
+                pendingEditor.completeSnapshot(retainedAtAdmission)
+                signalLocalChange()
+                NoteMutationOutcome.Committed(Unit)
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "write failed for $id", e)
+            NoteMutationOutcome.Failed
         }
-    }
 
-    suspend fun createNote(title: String, folder: String = ""): String? = try {
-        val mutation = withContext(Dispatchers.IO) { core.createNote(title, folder, "") }
-        applyMutation(mutation)
-        signalLocalChange()
-        mutation.finalId ?: title
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "createNote failed", e); null
-    }
-
-    suspend fun delete(id: String) {
+    suspend fun createNote(title: String, folder: String = ""): String? =
         try {
-            val mutation = withContext(Dispatchers.IO) { core.delete(id) }
-            applyMutation(mutation)
-            signalLocalChange()
-        } catch (e: Exception) { android.util.Log.e("NotesStore", "delete failed", e) }
+            runMutationTransaction {
+                val mutation = withCore { core.createNote(title, folder, "") }
+                applyMutation(mutation)
+                val createdId = mutation.finalId ?: title
+                editorDraftCoordinator.reopen(createdId)
+                signalLocalChange()
+                createdId
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "createNote failed", e)
+            null
+        }
+
+    suspend fun delete(id: String): NoteMutationOutcome<Unit> {
+        currentCoroutineContext().ensureActive()
+        val identity = editorDraftCoordinator.beginIdentityMutation(id)
+        val pendingFlushes = editorDraftTail
+        return try {
+            pendingFlushes?.join()
+            runMutationTransaction {
+                val mutation = withCore { core.delete(id) }
+                applyMutation(mutation)
+                pendingEditor.discardNote(id)
+                editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
+                signalLocalChange()
+                NoteMutationOutcome.Committed(Unit)
+            }
+        } catch (e: CancellationException) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            throw e
+        } catch (e: Exception) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            android.util.Log.e("NotesStore", "delete failed", e)
+            NoteMutationOutcome.Failed
+        }
     }
 
     /** Fire-and-forget delete for the editor's `onDispose` (can't suspend; the
@@ -307,86 +516,154 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         scope.launch { delete(id) }
     }
 
-    suspend fun rename(oldId: String, newId: String): String = try {
-        val mutation = withContext(Dispatchers.IO) { core.rename(oldId, newId) }
-        applyMutation(mutation)
-        signalLocalChange()
-        mutation.finalId ?: oldId
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "rename failed", e); oldId
-    }
-
-    suspend fun moveNote(id: String, toFolder: String): String = try {
-        val mutation = withContext(Dispatchers.IO) { core.moveNote(id, toFolder) }
-        applyMutation(mutation)
-        signalLocalChange()
-        mutation.finalId ?: id
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "moveNote failed", e); id
-    }
-
-    suspend fun createFolder(path: String) {
-        try {
-            val mutation = withContext(Dispatchers.IO) { core.createFolder(path) }
-            applyMutation(mutation)
-            signalLocalChange()
+    suspend fun rename(oldId: String, newId: String): NoteMutationOutcome<String> {
+        currentCoroutineContext().ensureActive()
+        val identity = editorDraftCoordinator.beginIdentityMutation(oldId)
+        val pendingFlushes = editorDraftTail
+        return try {
+            pendingFlushes?.join()
+            runMutationTransaction {
+                val mutation = withCore { core.rename(oldId, newId) }
+                val finalId = mutation.finalId ?: oldId
+                applyMutation(mutation)
+                pendingEditor.retargetRetainedNote(oldId, finalId)
+                editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
+                editorDraftCoordinator.reopen(finalId)
+                signalLocalChange()
+                NoteMutationOutcome.Committed(finalId)
+            }
+        } catch (e: CancellationException) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            throw e
         } catch (e: Exception) {
-            android.util.Log.e("NotesStore", "createFolder failed", e)
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            android.util.Log.e("NotesStore", "rename failed", e)
+            NoteMutationOutcome.Failed
         }
     }
 
-    suspend fun renameFolder(from: String, to: String): String? = try {
-        val mutation = withContext(Dispatchers.IO) { core.renameFolder(from, to) }
-        applyMutation(mutation)
-        signalLocalChange()
-        mutation.finalFolder ?: to
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "renameFolder failed $from -> $to", e); null
+    suspend fun moveNote(
+        id: String,
+        toFolder: String,
+        createFolder: Boolean = false,
+    ): NoteMutationOutcome<String> {
+        currentCoroutineContext().ensureActive()
+        val identity = editorDraftCoordinator.beginIdentityMutation(id)
+        val pendingFlushes = editorDraftTail
+        return try {
+            pendingFlushes?.join()
+            runMutationTransaction {
+                val mutation = withCore {
+                    if (createFolder) {
+                        core.moveNoteToNewFolder(id, toFolder)
+                    } else {
+                        core.moveNote(id, toFolder)
+                    }
+                }
+                val finalId = mutation.finalId ?: id
+                applyMutation(mutation)
+                pendingEditor.retargetRetainedNote(id, finalId)
+                editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
+                editorDraftCoordinator.reopen(finalId)
+                signalLocalChange()
+                NoteMutationOutcome.Committed(finalId)
+            }
+        } catch (e: CancellationException) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            throw e
+        } catch (e: Exception) {
+            editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
+            android.util.Log.e("NotesStore", "moveNote failed", e)
+            NoteMutationOutcome.Failed
+        }
     }
 
-    suspend fun moveFolder(from: String, destinationParent: String): String? = try {
-        val mutation = withContext(Dispatchers.IO) { core.moveFolder(from, destinationParent) }
-        applyMutation(mutation)
-        signalLocalChange()
-        mutation.finalFolder ?: from
-    } catch (e: Exception) {
-        android.util.Log.e(
-            "NotesStore",
-            "moveFolder failed $from -> $destinationParent",
-            e,
-        )
-        null
-    }
+    suspend fun createFolder(path: String): NoteMutationOutcome<Unit> =
+        try {
+            runMutationTransaction {
+                val mutation = withCore { core.createFolder(path) }
+                applyMutation(mutation)
+                signalLocalChange()
+                NoteMutationOutcome.Committed(Unit)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "createFolder failed", e)
+            NoteMutationOutcome.Failed
+        }
+
+    suspend fun renameFolder(from: String, to: String): String? =
+        try {
+            runMutationTransaction {
+                val mutation = withCore { core.renameFolder(from, to) }
+                applyMutation(mutation)
+                signalLocalChange()
+                mutation.finalFolder ?: to
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "renameFolder failed $from -> $to", e)
+            null
+        }
+
+    suspend fun moveFolder(from: String, destinationParent: String): String? =
+        try {
+            runMutationTransaction {
+                val mutation = withCore { core.moveFolder(from, destinationParent) }
+                applyMutation(mutation)
+                signalLocalChange()
+                mutation.finalFolder ?: from
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "NotesStore",
+                "moveFolder failed $from -> $destinationParent",
+                e,
+            )
+            null
+        }
 
     /** MOVE-UP folder delete (Tauri parity, [list.md:121]): notes under
      *  [path] move to the parent (Rust bails atomically — if ANY move fails
      *  nothing is deleted), wikilinks are relinked, then the folder tree goes.
      *  Returns the moved-note count, or null when the FFI rejected the delete
      *  (the folder is left intact). */
-    suspend fun deleteFolder(path: String): UInt? = try {
-        val mutation = withContext(Dispatchers.IO) { core.deleteFolder(path) }
-        applyMutation(mutation)
-        signalLocalChange()
-        mutation.removed.size.toUInt()
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "deleteFolder failed for $path", e); null
-    }
+    suspend fun deleteFolder(path: String): UInt? =
+        try {
+            runMutationTransaction {
+                val mutation = withCore { core.deleteFolder(path) }
+                applyMutation(mutation)
+                signalLocalChange()
+                mutation.removed.size.toUInt()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "deleteFolder failed for $path", e)
+            null
+        }
 
     /** Full reset [settings.md:43]: delete every note, folder, and `.crashlogs`
      *  under the vault root. Parity model: desktop `resetAllNotes`
      *  (src/app/resetAllNotes.ts). Callers pause sync + set [suppressAutoPush]
      *  for the duration and disconnect sync afterwards. */
     suspend fun deleteAll() {
-        withContext(Dispatchers.IO) { core.reset() }
-        notes = emptyList()
-        folders = emptyList()
+        runMutationTransaction {
+            withCore { core.reset() }
+            notes = emptyList()
+            folders = emptyList()
+        }
     }
 
     /** A live pull bypassed local mutations. Reconcile the same store-owned
      *  index, then project one fresh durable snapshot. */
     fun liveDataChanged() {
         scope.launch {
-            withContext(Dispatchers.IO) { core.rescan() }
+            withCore { core.rescan() }
             reload()
         }
     }
@@ -405,6 +682,13 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     private fun signalLocalChange() {
         if (!suppressAutoPush) onLocalChange?.invoke()
     }
+
+    private suspend fun <T> withVaultAccess(block: suspend () -> T): T =
+        withContext(Dispatchers.IO) {
+            storageMigrationGate.runAccess { block() }
+        }
+
+    private suspend fun <T> withCore(block: () -> T): T = withVaultAccess(block)
 
     /** Immediate child folders of `folder` ("" = root). */
     fun subfolders(of: String): List<String> {

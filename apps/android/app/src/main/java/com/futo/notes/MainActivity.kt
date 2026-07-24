@@ -21,9 +21,14 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,11 +37,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.futo.notes.ui.CrashReportDialog
 import com.futo.notes.ui.EditorHost
+import com.futo.notes.storage.NotesStorage
+import com.futo.notes.storage.PendingStorageMigration
+import com.futo.notes.storage.StorageActivationOutcome
+import com.futo.notes.storage.StorageMigrationJournal
+import com.futo.notes.storage.StorageMigrationPhase
+import com.futo.notes.storage.StorageMode
+import com.futo.notes.storage.StorageStartupRecovery
+import com.futo.notes.storage.activateStagedStorageMigration
+import com.futo.notes.storage.recoverStorageStartup
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
 import com.futo.notes.ui.NoteEditorScreen
 import com.futo.notes.ui.NoteListScreen
@@ -64,6 +79,20 @@ sealed interface Screen {
     data object Sync : Screen
 }
 
+internal data class VaultSurfaceState(
+    val renderShell: Boolean,
+    val showMovingOverlay: Boolean,
+)
+
+internal fun vaultSurfaceState(
+    hasStore: Boolean,
+    needsRegrant: Boolean,
+    storageSwitching: Boolean,
+): VaultSurfaceState = VaultSurfaceState(
+    renderShell = hasStore,
+    showMovingOverlay = hasStore && storageSwitching && !needsRegrant,
+)
+
 class MainActivity : ComponentActivity() {
     // Hoisted so onStart/onStop can pause/resume the SSE live stream — the
     // stream shouldn't stay open while backgrounded; re-foregrounding gets a
@@ -83,11 +112,16 @@ class MainActivity : ComponentActivity() {
     // setContent shows the shell only once initVault has run. Resolved early in
     // onCreate (no disk on the main thread — see initVault).
     private lateinit var prefs: android.content.SharedPreferences
+    private lateinit var storageMigrationJournal: StorageMigrationJournal
     private lateinit var notesRoot: File
     private val store = mutableStateOf<NotesStore?>(null)
     private val showOnboarding = mutableStateOf(false)
     private val showRegrant = mutableStateOf(false)
     private val showStoragePicker = mutableStateOf(false)
+    private val storageSwitching = mutableStateOf(false)
+    private val storageResolving = mutableStateOf(true)
+    private val storageRecoveryError = mutableStateOf<String?>(null)
+    private val themeMode = mutableStateOf(ThemeMode.AUTO)
 
     // The All-files-access settings screen returns no result code, so we
     // re-check the actual permission state on return and run the continuation.
@@ -145,24 +179,10 @@ class MainActivity : ComponentActivity() {
         // setters internally, so the Play warning would persist (see build.gradle.kts).
         enableEdgeToEdge()
 
-        // `getSharedPreferences` + the internal-vault stat each do a one-time
-        // framework disk read to resolve the app's private dirs. Not note-domain
-        // hot paths (scan + CRUD FFI run off-main, see NotesStore); they're
-        // unavoidable cold-start resolution. Permit them inside a narrow window so
-        // the debug StrictMode policy stays a clean tripwire for note I/O that
-        // slips onto the UI thread.
-        val startup = android.os.StrictMode.allowThreadDiskReads().let { saved ->
-            try {
-                prefs = getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE)
-                NotesStorage.decideStartup(
-                    savedMode = prefs.getString(Prefs.STORAGE_MODE, null),
-                    internalVaultExists = NotesStorage.looksLikeExistingVault(NotesStorage.internalRoot(this)),
-                    deviceModeSupported = NotesStorage.deviceModeSupported(),
-                )
-            } finally {
-                android.os.StrictMode.setThreadPolicy(saved)
-            }
-        }
+        // Construct the preferences handle synchronously, but do not read it
+        // before the first composition. Theme and storage recovery load on IO
+        // after setContent, preserving the never-gate-render invariant.
+        prefs = getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE)
 
         // Re-check the All-files grant when we return from the system settings
         // screen, then run whatever device-storage action was pending.
@@ -182,36 +202,13 @@ class MainActivity : ComponentActivity() {
 
         imagePicker = ImagePicker(this)
 
-        // Pre-warm the editor WebView (Chromium renderer + ~2 MB bundle parse +
-        // CodeMirror mount) while the list screen is up, so opening a note is a
-        // setContent call rather than a cold boot. See EditorHost.
-        EditorHost.prewarm(this)
-
-        // Resolve where the vault lives. A known location boots straight into the
-        // shell; a fresh install shows the picker; a DEVICE vault whose permission
-        // was revoked shows the re-grant screen instead of an empty vault.
-        if (startup.needsOnboarding) {
-            showOnboarding.value = true
-        } else {
-            val mode = startup.mode!!
-            // Pin the derived mode (grandfathered INTERNAL / pre-11 APP) so later
-            // launches resolve deterministically without re-detecting.
-            prefs.edit().putString(Prefs.STORAGE_MODE, mode.name).apply()
-            if (mode == StorageMode.DEVICE && !NotesStorage.hasDeviceAccess()) {
-                showRegrant.value = true
-            } else {
-                initVault(NotesStorage.rootFor(this, mode, BuildConfig.DEBUG))
-            }
-        }
-
         setContent {
             if (BuildConfig.DEBUG) {
                 LaunchedEffect(Unit) { android.util.Log.i("FutoStartup", "first composition reached") }
             }
-            var themeMode by remember {
-                mutableStateOf(runCatching { ThemeMode.valueOf(prefs.getString(Prefs.THEME, "AUTO")!!) }.getOrDefault(ThemeMode.AUTO))
-            }
-            val dark = when (themeMode) {
+            LaunchedEffect(Unit) { EditorHost.prewarm(this@MainActivity) }
+            val selectedTheme = themeMode.value
+            val dark = when (selectedTheme) {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
                 ThemeMode.AUTO -> isSystemInDarkTheme()
@@ -223,14 +220,54 @@ class MainActivity : ComponentActivity() {
                 // focused field's caret (#24) — native fields via clearFocus,
                 // the editor WebView's DOM caret via a bridge blur (it
                 // survives clearFocus). Dialog windows install their own.
-                val editorHost = remember { EditorHost.get(this) }
                 ClearFocusOnImeDismiss {
+                    val editorHost = EditorHost.get(this)
                     if (editorHost.editorFocused) editorHost.blur()
                 }
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val s = store.value
+                    val vaultSurface = vaultSurfaceState(
+                        hasStore = s != null,
+                        needsRegrant = showRegrant.value,
+                        storageSwitching = storageSwitching.value,
+                    )
                     when {
-                        s == null && showRegrant.value -> StorageRegrantScreen(
+                        storageRecoveryError.value != null -> Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            Text(storageRecoveryError.value!!)
+                        }
+                        storageResolving.value -> Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                        vaultSurface.renderShell -> Box(modifier = Modifier.fillMaxSize()) {
+                            AppShell(s!!, selectedTheme, onThemeMode = {
+                                themeMode.value = it
+                                prefs.edit().putString(Prefs.THEME, it.name).apply()
+                            }, dark = dark)
+                            if (vaultSurface.showMovingOverlay) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable(onClick = {}),
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.fillMaxSize(),
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            CircularProgressIndicator()
+                                            Text("Moving notes…")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        showRegrant.value -> StorageRegrantScreen(
                             onGrant = { requestDeviceAccess { showRegrant.value = false; initVault(NotesStorage.deviceRoot(BuildConfig.DEBUG)) } },
                             onUseAppStorage = {
                                 // commit() — restartApp() kills the process before an
@@ -244,14 +281,52 @@ class MainActivity : ComponentActivity() {
                             deviceModeSupported = NotesStorage.deviceModeSupported(),
                             onConfirm = { chooseStorage(it) },
                         )
-                        else -> AppShell(s, themeMode, onThemeMode = {
-                            themeMode = it
-                            prefs.edit().putString(Prefs.THEME, it.name).apply()
-                        }, dark = dark)
                     }
                 }
             }
         }
+
+        lifecycleScope.launch {
+            val recovered = withContext(Dispatchers.IO) {
+                storageMigrationJournal =
+                    StorageMigrationJournal(File(filesDir, ".storage-migration"))
+                val storedTheme =
+                    runCatching {
+                        ThemeMode.valueOf(prefs.getString(Prefs.THEME, "AUTO")!!)
+                    }.getOrDefault(ThemeMode.AUTO)
+                storedTheme to recoverStorageStartup(
+                    context = this@MainActivity,
+                    preferences = prefs,
+                    journal = storageMigrationJournal,
+                    isDebug = BuildConfig.DEBUG,
+                )
+            }
+            themeMode.value = recovered.first
+            applyStorageStartup(recovered.second)
+        }
+    }
+
+    private fun applyStorageStartup(recovery: StorageStartupRecovery) {
+        storageRecoveryError.value = recovery.error
+        val startup = recovery.startup
+        if (startup == null) {
+            storageResolving.value = false
+            return
+        }
+        if (startup.needsOnboarding) {
+            showOnboarding.value = true
+        } else {
+            val mode = startup.mode!!
+            // Pin the derived mode (grandfathered INTERNAL / pre-11 APP) so later
+            // launches resolve deterministically without re-detecting.
+            prefs.edit().putString(Prefs.STORAGE_MODE, mode.name).apply()
+            if (mode == StorageMode.DEVICE && !NotesStorage.hasDeviceAccess()) {
+                showRegrant.value = true
+            } else {
+                initVault(NotesStorage.rootFor(this, mode, BuildConfig.DEBUG))
+            }
+        }
+        storageResolving.value = false
     }
 
     /** The normal app once the vault location is known. */
@@ -458,19 +533,96 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun performSwitch(newMode: StorageMode) {
+        if (storageSwitching.value) return
         val current = store.value ?: return
-        val from = File(current.rootPath)
+        val previousMode = currentMode()
         val to = NotesStorage.rootFor(this, newMode, BuildConfig.DEBUG)
-        lifecycleScope.launch(Dispatchers.IO) {
-            NotesStorage.migrate(from, to)
-            // commit() (synchronous) — NOT apply(): restartApp() kills the process
-            // immediately, and an async apply() write would be lost before it
-            // flushes, stranding the app back in the old mode + re-seeding.
-            prefs.edit().putString(Prefs.STORAGE_MODE, newMode.name).commit()
-            // A vault move changes the path captured by the process-singleton
-            // search engine + sync client, so relaunch the process to rebuild
-            // them cleanly (desktop's "the app will restart" parity).
-            withContext(Dispatchers.Main) { restartApp() }
+        storageSwitching.value = true
+        if (!current.tryBeginStorageMigration()) {
+            storageSwitching.value = false
+            Toast.makeText(
+                this,
+                "A note or image is still being saved. Try changing storage again.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        // Latch BOTH vault owners synchronously. onStop may fire as soon as the
+        // picker Activity loses focus; it must not abort the graceful sync stop.
+        sync.beginStorageMigration()
+        current.suppressAutoPush = true
+        lifecycleScope.launch {
+            val prepared = PendingStorageMigration(
+                from = previousMode,
+                to = newMode,
+                phase = StorageMigrationPhase.PREPARED,
+                cleanupRequired = false,
+            )
+            val outcome = runCatching {
+                check(EditorHost.get(this@MainActivity).freezeAndCaptureContent()) {
+                    "The open editor could not be snapshotted"
+                }
+                sync.quiesceForStorageMigration()
+                withContext(Dispatchers.IO) {
+                    storageMigrationJournal.write(prepared).getOrThrow()
+                }
+                current.migrateVault(to)
+            }.getOrElse {
+                NotesStorage.MigrationOutcome.Failed(
+                    "The notes folder could not be moved. The original notes are unchanged.",
+                )
+            }
+            val decision = NotesStorage.storageSwitchDecision(outcome)
+            val activation = activateStagedStorageMigration(
+                prepared = prepared,
+                decision = decision,
+                writeJournal = { record ->
+                    withContext(Dispatchers.IO) {
+                        storageMigrationJournal.write(record).isSuccess
+                    }
+                },
+                finalizeSource = {
+                    runCatching {
+                        current.finalizeVaultMigration(
+                            to,
+                            allowSourceRemoval = previousMode != StorageMode.DEVICE,
+                        )
+                    }.getOrNull()
+                },
+                commitPreference = { mode ->
+                    withContext(Dispatchers.IO) {
+                        prefs.edit().putString(Prefs.STORAGE_MODE, mode.name).commit()
+                    }
+                },
+                clearJournal = {
+                    withContext(Dispatchers.IO) { storageMigrationJournal.clear() }
+                },
+            )
+            if (activation == StorageActivationOutcome.Restart) {
+                restartApp()
+                return@launch
+            }
+
+            // PREPARED (or no journal) means the source remains authoritative.
+            // Clearing is best effort: a surviving PREPARED record also selects
+            // the source on the next launch.
+            withContext(Dispatchers.IO) {
+                storageMigrationJournal.clear()
+                prefs.edit()
+                    .putString(Prefs.STORAGE_MODE, previousMode.name)
+                    .commit()
+            }
+            current.suppressAutoPush = false
+            current.resumeAfterStorageMigrationFailure()
+            EditorHost.get(this@MainActivity).resumeAfterStorageMigrationFailure()
+            storageSwitching.value = false
+            sync.resumeAfterStorageMigrationFailure()
+            Toast.makeText(
+                this@MainActivity,
+                (activation as? StorageActivationOutcome.KeepSource)?.feedback
+                    ?: "The storage move could not be activated. The original notes remain active.",
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
 

@@ -1,4 +1,4 @@
-package com.futo.notes
+package com.futo.notes.storage
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,7 +10,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * Pure-logic guard for the vault storage resolver + migration (no Android
+ * Pure-logic guard for the vault storage resolver + switch decision (no Android
  * framework — same JVM-unit-test discipline as [SyncManagerDefaultsTest]). The
  * production wiring feeds the real Context/Environment/BuildConfig into these
  * same functions.
@@ -102,57 +102,30 @@ class NotesStorageTest {
         assertTrue(NotesStorage.looksLikeExistingVault(vault))
     }
 
-    // ── migrate ──
-
     @Test
-    fun migrateCopiesDotfilesAndImagesThenDeletesSource() {
-        val from = tmp.newFolder("from")
-        File(from, "note.md").writeText("# hello")
-        File(from, "Folder").mkdirs()
-        File(from, "Folder/nested.md").writeText("nested")
-        File(from, "image.png").writeBytes(byteArrayOf(1, 2, 3))
-        // dotfiles: sync state + crash logs must travel with the vault
-        File(from, ".futo").mkdirs()
-        File(from, ".futo/.e2ee-state.json").writeText("{\"objectMap\":{}}")
-        File(from, ".crashlogs").mkdirs()
-        File(from, ".crashlogs/crash-1.json").writeText("{}")
+    fun storageSwitchDecisionCommitsOnlySafeOutcomes() {
+        val migrated = NotesStorage.storageSwitchDecision(
+            NotesStorage.MigrationOutcome.Migrated(files = 2),
+        )
+        val empty = NotesStorage.storageSwitchDecision(NotesStorage.MigrationOutcome.EmptySource)
+        val alreadySelected = NotesStorage.storageSwitchDecision(
+            NotesStorage.MigrationOutcome.AlreadyAtDestination,
+        )
+        val failed = NotesStorage.storageSwitchDecision(
+            NotesStorage.MigrationOutcome.Failed("Copy verification failed."),
+        )
 
-        val to = File(tmp.root, "to")
-        val result = NotesStorage.migrate(from, to)
-
-        assertTrue(result.migrated)
-        assertEquals(5, result.files)
-        assertTrue(File(to, "note.md").exists())
-        assertTrue(File(to, "Folder/nested.md").exists())
-        assertTrue(File(to, "image.png").exists())
-        assertEquals("{\"objectMap\":{}}", File(to, ".futo/.e2ee-state.json").readText())
-        assertTrue(File(to, ".crashlogs/crash-1.json").exists())
-        // verify-before-delete: source is gone only after a reconciled copy
-        assertFalse(from.exists())
+        assertTrue(migrated.commitPreference)
+        assertTrue(migrated.restart)
+        assertTrue(migrated.requiresFinalization)
+        assertTrue(empty.commitPreference)
+        assertTrue(empty.restart)
+        assertFalse(empty.requiresFinalization)
+        assertFalse(alreadySelected.requiresFinalization)
+        assertFalse(failed.commitPreference)
+        assertFalse(failed.restart)
+        assertFalse(failed.requiresFinalization)
+        assertEquals("Copy verification failed.", failed.feedback)
     }
 
-    @Test
-    fun migrateIsIdempotentWhenRerun() {
-        val from = tmp.newFolder("from2")
-        File(from, "a.md").writeText("a")
-        val to = File(tmp.root, "to2")
-
-        val first = NotesStorage.migrate(from, to)
-        assertTrue(first.migrated)
-        // Re-running with the (now-deleted) source is a no-op, not a crash.
-        val second = NotesStorage.migrate(from, to)
-        assertFalse(second.migrated)
-        assertTrue(File(to, "a.md").exists())
-    }
-
-    @Test
-    fun migrateNoOpsOnEmptyOrSamePath() {
-        val empty = tmp.newFolder("empty2")
-        assertFalse(NotesStorage.migrate(empty, File(tmp.root, "dest")).migrated)
-
-        val same = tmp.newFolder("same")
-        File(same, "x.md").writeText("x")
-        assertFalse(NotesStorage.migrate(same, same).migrated)
-        assertTrue(File(same, "x.md").exists())
-    }
 }

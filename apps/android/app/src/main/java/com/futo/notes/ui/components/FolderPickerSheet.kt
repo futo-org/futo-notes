@@ -38,13 +38,14 @@ import com.futo.notes.ui.theme.FutoType
  * "Move to folder" bottom-sheet picker [list.md:62, list.md:71]: a Root row,
  * one row per folder (full path, like the drawer), and an inline "New Folder…"
  * that names a folder and picks it in one step. [onPick] receives the chosen
- * folder path ("" = root). Note moves create their destination directory.
+ * folder path ("" = root) and whether the picker created it for an atomic note
+ * move. Folder moves disable creation and ignore that second value.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FolderPickerSheet(
     store: NotesStore,
-    onPick: (folder: String) -> Unit,
+    onPick: (folder: String, isNew: Boolean) -> Unit,
     onDismiss: () -> Unit,
     title: String = "Move to folder",
     excludePaths: List<String> = emptyList(),
@@ -61,9 +62,9 @@ fun FolderPickerSheet(
                 .padding(bottom = 24.dp),
         ) {
             MicroLabel(title, Modifier.padding(start = 24.dp, bottom = 8.dp))
-            SheetRow(label = "Root", icon = Icons.Filled.Home) { onPick("") }
+            SheetRow(label = "Root", icon = Icons.Filled.Home) { onPick("", false) }
             eligibleFolderDestinations(store.folders, excludePaths).forEach { folder ->
-                SheetRow(label = folder, icon = Icons.Filled.Folder) { onPick(folder) }
+                SheetRow(label = folder, icon = Icons.Filled.Folder) { onPick(folder, false) }
             }
             if (allowCreate) {
                 HorizontalDivider(color = c.border, modifier = Modifier.padding(vertical = 6.dp))
@@ -83,7 +84,7 @@ fun FolderPickerSheet(
             store = store,
             onCreate = { path ->
                 newFolder = false
-                onPick(path)
+                onPick(path, true)
             },
             onDismiss = { newFolder = false },
         )

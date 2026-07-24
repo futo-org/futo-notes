@@ -4,7 +4,7 @@ use std::path::Path;
 use futo_notes_core::e2ee::{self, KeyMaterial};
 
 use crate::checkpoint::{self, ConnectedState};
-use crate::server::{Http, HttpError};
+use crate::server::{Collection, Http, HttpError};
 use crate::sync::{ConnectInfo, SyncErrorKind};
 
 fn http_error(error: HttpError) -> SyncErrorKind {
@@ -56,9 +56,19 @@ async fn load_or_create_key_material(
         ));
     }
     let fresh = create_key_material(password).await?;
-    http.put_key(collection_id, &fresh)
-        .await
-        .map_err(collection_error)
+    match http.put_key(collection_id, &fresh).await {
+        Ok(material) => Ok(material),
+        Err(error) if error.is(409) => http
+            .key(collection_id)
+            .await
+            .map_err(collection_error)?
+            .ok_or_else(|| {
+                SyncErrorKind::Crypto(
+                    "vault key claim conflicted but the authoritative key is missing".into(),
+                )
+            }),
+        Err(error) => Err(collection_error(error)),
+    }
 }
 
 async fn unlock_vault_key(
@@ -94,6 +104,17 @@ fn connected_state(
     }
 }
 
+fn canonical_collection_id(collections: Vec<Collection>) -> Option<String> {
+    collections
+        .into_iter()
+        .min_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.id.cmp(&right.id))
+        })
+        .map(|collection| collection.id)
+}
+
 pub(crate) async fn connect(
     root: &Path,
     server: &str,
@@ -106,9 +127,15 @@ pub(crate) async fn connect(
         .await
         .map_err(|error| SyncErrorKind::Auth(error.to_string()))?;
     let http = anonymous.token(token.clone());
-    let collection_id = match http.collections().await.map_err(http_error)?.first() {
-        Some(id) => id.clone(),
-        None => http.create_collection().await.map_err(http_error)?,
+    let collection_id = match canonical_collection_id(http.collections().await.map_err(http_error)?)
+    {
+        Some(id) => id,
+        None => {
+            http.create_collection().await.map_err(http_error)?;
+            canonical_collection_id(http.collections().await.map_err(http_error)?).ok_or_else(
+                || SyncErrorKind::Http("server returned no collection after creation".into()),
+            )?
+        }
     };
     let material = load_or_create_key_material(&http, &collection_id, password).await?;
     let vault_key = unlock_vault_key(password, material).await?;
@@ -176,5 +203,33 @@ mod tests {
 
         assert!(matches!(error, SyncErrorKind::Auth(_)));
         assert_eq!(error.to_string(), "HTTP 401: session expired or invalid");
+    }
+
+    #[test]
+    fn canonical_collection_prefers_earliest_creation_then_id() {
+        let collections = vec![
+            Collection {
+                id: "later".into(),
+                created_at: "2026-07-24T14:30:40.500Z".into(),
+            },
+            Collection {
+                id: "second-at-same-time".into(),
+                created_at: "2026-07-24T14:30:40.400Z".into(),
+            },
+            Collection {
+                id: "first-at-same-time".into(),
+                created_at: "2026-07-24T14:30:40.400Z".into(),
+            },
+        ];
+
+        assert_eq!(
+            canonical_collection_id(collections).as_deref(),
+            Some("first-at-same-time")
+        );
+    }
+
+    #[test]
+    fn canonical_collection_rejects_an_empty_list() {
+        assert_eq!(canonical_collection_id(Vec::new()), None);
     }
 }

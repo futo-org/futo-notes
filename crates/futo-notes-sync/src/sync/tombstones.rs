@@ -1,10 +1,13 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+#[cfg(test)]
+use std::path::PathBuf;
+
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use futo_notes_core::conflict_names::{collision_conflict_filename, conflict_filename};
-use futo_notes_core::files::{
-    classify_incoming_sync_path, read_blob_as_base64, write_atomic_text, IncomingSyncPath,
-};
+use futo_notes_core::files::{classify_incoming_sync_path, IncomingSyncPath};
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::is_image_filename;
 
@@ -14,30 +17,34 @@ use crate::server::Object;
 use super::object_map::mapped_name;
 use super::outcome::note_id;
 use super::vault::{conflict_date, local_files};
+use super::vault_fs;
 use super::{PreWrite, SyncSummary};
 
 const CLAIM_PREFIX: &str = ".sf-tomb-";
 const CLAIM_SIDECAR_SUFFIX: &str = ".path";
 
-pub(super) fn claim_paths(root: &Path, name: &str, object_id: &str) -> (PathBuf, PathBuf) {
+fn claim_names(name: &str, object_id: &str) -> (String, String) {
     let digest = hash_sha256(&format!("{object_id}\0{name}"));
-    let claim = root.join(format!("{CLAIM_PREFIX}{digest}"));
-    let sidecar = root.join(format!("{CLAIM_PREFIX}{digest}{CLAIM_SIDECAR_SUFFIX}"));
+    let claim = format!("{CLAIM_PREFIX}{digest}");
+    let sidecar = format!("{claim}{CLAIM_SIDECAR_SUFFIX}");
     (claim, sidecar)
 }
 
-fn remove_if_present(path: &Path) -> Result<(), String> {
-    match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.to_string()),
-    }
+#[cfg(test)]
+pub(super) fn claim_paths(root: &Path, name: &str, object_id: &str) -> (PathBuf, PathBuf) {
+    let (claim, sidecar) = claim_names(name, object_id);
+    (root.join(claim), root.join(sidecar))
+}
+
+fn remove_if_present(root: &Path, name: &str) -> Result<(), String> {
+    vault_fs::remove(root, name).map(|_| ())
 }
 
 fn recover_stale_claim(root: &Path, name: &str, pre_write: &PreWrite) {
-    let claim = root.join(name);
-    let sidecar = root.join(format!("{name}{CLAIM_SIDECAR_SUFFIX}"));
-    let Ok(original) = std::fs::read_to_string(&sidecar) else {
+    let sidecar = format!("{name}{CLAIM_SIDECAR_SUFFIX}");
+    let Ok(original) = vault_fs::read(root, &sidecar)
+        .and_then(|bytes| String::from_utf8(bytes).map_err(|error| error.to_string()))
+    else {
         return;
     };
     if !matches!(
@@ -46,20 +53,17 @@ fn recover_stale_claim(root: &Path, name: &str, pre_write: &PreWrite) {
     ) {
         return;
     }
-    let destination = root.join(&original);
-    if destination.exists() {
-        let _ = remove_if_present(&claim);
-        let _ = remove_if_present(&sidecar);
+    let Ok(destination_exists) = vault_fs::exists(root, &original) else {
+        return;
+    };
+    if destination_exists {
+        let _ = remove_if_present(root, name);
+        let _ = remove_if_present(root, &sidecar);
         return;
     }
-    if let Some(parent) = destination.parent() {
-        if std::fs::create_dir_all(parent).is_err() {
-            return;
-        }
-    }
     pre_write(&original);
-    if std::fs::rename(&claim, &destination).is_ok() {
-        let _ = remove_if_present(&sidecar);
+    if matches!(vault_fs::rename(root, name, &original), Ok(true)) {
+        let _ = remove_if_present(root, &sidecar);
     }
 }
 
@@ -69,8 +73,8 @@ fn remove_orphan_sidecars(root: &Path, names: &[String]) {
         .filter(|name| name.ends_with(CLAIM_SIDECAR_SUFFIX))
     {
         let claim_name = name.trim_end_matches(CLAIM_SIDECAR_SUFFIX);
-        if !root.join(claim_name).exists() {
-            let _ = remove_if_present(&root.join(name));
+        if vault_fs::exists(root, claim_name).is_ok_and(|exists| !exists) {
+            let _ = remove_if_present(root, name);
         }
     }
 }
@@ -94,44 +98,55 @@ pub(super) fn recover_stale_claims(root: &Path, pre_write: &PreWrite) {
     remove_orphan_sidecars(root, &names);
 }
 
+fn claim_local_names(
+    root: &Path,
+    name: &str,
+    object_id: &str,
+    pre_write: &PreWrite,
+) -> Result<Option<(String, String)>, String> {
+    let (claim, sidecar) = claim_names(name, object_id);
+    vault_fs::write_atomic(root, &sidecar, name.as_bytes())?;
+    pre_write(name);
+    match vault_fs::rename(root, name, &claim) {
+        Ok(true) => Ok(Some((claim, sidecar))),
+        Ok(false) => {
+            let _ = remove_if_present(root, &sidecar);
+            Ok(None)
+        }
+        Err(error) => {
+            // A rename error may be a directory-fsync failure after the claim
+            // moved. Keep its recovery authority; the stale sweep removes the
+            // sidecar if the rename truly did not happen.
+            Err(error)
+        }
+    }
+}
+
+#[cfg(test)]
 pub(super) fn claim_local(
     root: &Path,
     name: &str,
     object_id: &str,
     pre_write: &PreWrite,
 ) -> Result<Option<(PathBuf, PathBuf)>, String> {
-    let (claim, sidecar) = claim_paths(root, name, object_id);
-    write_atomic_text(&sidecar, name)?;
-    pre_write(name);
-    match std::fs::rename(root.join(name), &claim) {
-        Ok(()) => Ok(Some((claim, sidecar))),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let _ = remove_if_present(&sidecar);
-            Ok(None)
-        }
-        Err(error) => {
-            let _ = remove_if_present(&sidecar);
-            Err(error.to_string())
-        }
+    claim_local_names(root, name, object_id, pre_write)
+        .map(|claimed| claimed.map(|(claim, sidecar)| (root.join(claim), root.join(sidecar))))
+}
+
+fn restore_claim(root: &Path, claim: &str, sidecar: &str, destination: &str) {
+    if vault_fs::exists(root, destination).is_ok_and(|exists| !exists)
+        && matches!(vault_fs::rename(root, claim, destination), Ok(true))
+    {
+        let _ = remove_if_present(root, sidecar);
     }
 }
 
-fn restore_claim(claim: &Path, sidecar: &Path, destination: &Path) {
-    if !destination.exists() {
-        if let Some(parent) = destination.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if std::fs::rename(claim, destination).is_ok() {
-            let _ = remove_if_present(sidecar);
-        }
-    }
-}
-
-fn claim_content(claim: &Path, original_name: &str) -> Result<String, String> {
+fn claim_content(root: &Path, claim: &str, original_name: &str) -> Result<String, String> {
+    let bytes = vault_fs::read(root, claim)?;
     if is_image_filename(original_name) {
-        read_blob_as_base64(claim)
+        Ok(BASE64.encode(bytes))
     } else {
-        std::fs::read_to_string(claim).map_err(|error| error.to_string())
+        String::from_utf8(bytes).map_err(|error| error.to_string())
     }
 }
 
@@ -160,26 +175,30 @@ fn park_divergent_claim(
     root: &Path,
     name: &str,
     object_id: &str,
-    claim_paths: (&Path, &Path),
+    claim_names: (&str, &str),
     pre_write: &PreWrite,
     summary: &mut SyncSummary,
 ) -> Result<(), String> {
-    let (claim, sidecar) = claim_paths;
-    let names = local_files(root)
+    let (claim, sidecar) = claim_names;
+    let names = local_files(root)?
         .into_iter()
         .map(|file| file.name)
         .collect();
     let mut copy = collision_conflict_filename(name, object_id);
-    if root.join(&copy).exists() {
+    if vault_fs::exists(root, &copy)? {
         copy = conflict_filename(name, &conflict_date(), &names);
     }
     pre_write(&copy);
-    if let Some(parent) = root.join(&copy).parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    if let Err(error) = std::fs::rename(claim, root.join(&copy)) {
-        restore_claim(claim, sidecar, &root.join(name));
-        return Err(error.to_string());
+    match vault_fs::rename(root, claim, &copy) {
+        Ok(true) => {}
+        Ok(false) => {
+            restore_claim(root, claim, sidecar, name);
+            return Err(format!("tombstone claim disappeared: {claim}"));
+        }
+        Err(error) => {
+            restore_claim(root, claim, sidecar, name);
+            return Err(error);
+        }
     }
     summary.conflicts += 1;
     summary.local_writes_applied += 1;
@@ -199,20 +218,20 @@ pub(super) fn apply_tombstone(
     let Some((name, expected_hash)) = tombstone_target(state, &object.id, ancestry) else {
         return Ok(());
     };
-    let Some((claim, sidecar)) = claim_local(root, &name, &object.id, pre_write)? else {
+    let Some((claim, sidecar)) = claim_local_names(root, &name, &object.id, pre_write)? else {
         state.object_map.remove(&name);
         return Ok(());
     };
-    let current = match claim_content(&claim, &name) {
+    let current = match claim_content(root, &claim, &name) {
         Ok(content) => content,
         Err(error) => {
-            restore_claim(&claim, &sidecar, &root.join(&name));
+            restore_claim(root, &claim, &sidecar, &name);
             return Err(error);
         }
     };
     if hash_sha256(&current) == expected_hash {
-        if let Err(error) = remove_if_present(&claim) {
-            restore_claim(&claim, &sidecar, &root.join(&name));
+        if let Err(error) = remove_if_present(root, &claim) {
+            restore_claim(root, &claim, &sidecar, &name);
             return Err(error);
         }
         summary.local_writes_applied += 1;
@@ -226,7 +245,7 @@ pub(super) fn apply_tombstone(
             summary,
         )?;
     }
-    remove_if_present(&sidecar)?;
+    remove_if_present(root, &sidecar)?;
     state.object_map.remove(&name);
     summary.deleted += 1;
     summary.deleted_ids.push(note_id(&name));

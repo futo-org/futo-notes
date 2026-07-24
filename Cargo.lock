@@ -1673,6 +1673,7 @@ dependencies = [
  "futo-notes-search",
  "rayon",
  "serde",
+ "sha2",
  "walkdir",
 ]
 
@@ -1680,9 +1681,11 @@ dependencies = [
 name = "futo-notes-sync"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "futo-notes-core",
  "futures-util",
  "reqwest 0.12.28",
+ "rustix",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

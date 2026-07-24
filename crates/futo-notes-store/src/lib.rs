@@ -2,6 +2,7 @@
 
 mod paths;
 mod vault;
+mod vault_migration;
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -20,6 +21,9 @@ use serde::{Deserialize, Serialize};
 
 pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
 pub use futo_notes_search::{SearchHit, SearchStatus};
+pub use vault_migration::{
+    VaultMigrationFinalization, VaultMigrationOutcome, VaultMigrationStatus,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -707,6 +711,31 @@ impl LocalNoteStore {
         self.rename(id, &wanted)
     }
 
+    /// Creates a new folder and moves one note into it as one serialized
+    /// workflow. If the move fails, the newly-created empty folder is removed.
+    pub fn move_note_to_new_folder(
+        &self,
+        id: &str,
+        folder: &str,
+    ) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        let folder = sanitize_folder_path(folder);
+        if folder.is_empty() {
+            return Err("new folder path is empty".into());
+        }
+        let folder_path = paths::folder_path(&self.root, &folder)?;
+        fs::create_dir(&folder_path).map_err(io_error)?;
+        let (_, title) = split_id(id);
+        let wanted = format!("{folder}/{title}");
+        match self.rename_raw(id, &wanted) {
+            Ok(mutation) => Ok(mutation),
+            Err(error) => {
+                let _ = fs::remove_dir(&folder_path);
+                Err(error)
+            }
+        }
+    }
+
     pub fn delete(&self, id: &str) -> Result<MutationResult, String> {
         self.delete_with(id, |path| match fs::remove_file(path) {
             Ok(()) => Ok(()),
@@ -949,6 +978,25 @@ impl LocalNoteStore {
         }
         self.rebuild_search();
         Ok(())
+    }
+
+    /// Stages a verified whole-vault copy while keeping the source intact.
+    pub fn stage_vault_migration(
+        &self,
+        destination: &Path,
+    ) -> Result<VaultMigrationOutcome, String> {
+        let _gate = self.lock_gate()?;
+        vault_migration::stage(&self.root, destination)
+    }
+
+    /// Deletes the source vault only when the shell can exclude external writers.
+    pub fn finalize_vault_migration(
+        &self,
+        destination: &Path,
+        allow_source_removal: bool,
+    ) -> Result<VaultMigrationFinalization, String> {
+        let _gate = self.lock_gate()?;
+        vault_migration::finalize(&self.root, destination, allow_source_removal)
     }
 
     fn rename_raw(&self, old_id: &str, wanted_id: &str) -> Result<MutationResult, String> {

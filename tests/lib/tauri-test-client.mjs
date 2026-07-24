@@ -8,6 +8,7 @@ import { URL } from 'node:url';
 import { executeJs, sleep } from './mcp-client.mjs';
 
 const SCRIPT_EXECUTION_TIMEOUT = 'Script execution timeout';
+const MAIN_WINDOW_NOT_FOUND = "Window 'main' not found";
 const EXECUTE_JS_RETRY_ATTEMPTS = 3;
 
 export async function waitForTestHooks(
@@ -31,8 +32,10 @@ export async function waitForTestHooks(
       lastError = null;
     } catch (error) {
       // The bridge can accept WebSocket connections before the webview is
-      // ready to run JS. Treat early execute_js timeouts like a missing hook.
-      if (error.message !== SCRIPT_EXECUTION_TIMEOUT) throw error;
+      // ready to run JS or before Tauri registers the main window.
+      if (error.message !== SCRIPT_EXECUTION_TIMEOUT && error.message !== MAIN_WINDOW_NOT_FOUND) {
+        throw error;
+      }
       lastError = error;
     }
     await sleep(intervalMs);

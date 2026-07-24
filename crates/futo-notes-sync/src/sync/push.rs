@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use futo_notes_core::files::{classify_incoming_sync_path, set_file_mtime_ms, IncomingSyncPath};
+use futo_notes_core::files::{classify_incoming_sync_path, IncomingSyncPath};
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::is_syncable_filename;
 
@@ -11,12 +11,13 @@ use crate::session::connect::{client, collection_error};
 
 use super::conflict_resolution::resolve_update_conflict;
 use super::encrypted_note::{decrypt, encrypt, object_state, state_from_remote};
-use super::outcome::{append_derived_renames, note_id};
+use super::outcome::{append_derived_renames, note_id, record_checkpoint_failure};
 use super::tombstones::recover_stale_claims;
 use super::vault::{local_files, read_content, write_content, LocalFile};
+use super::vault_fs;
 use super::{
-    FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure, SyncProgress,
-    SyncSummary,
+    CycleFailure, FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind,
+    SyncFailure, SyncProgress, SyncSummary,
 };
 
 pub(super) struct Upload<'a> {
@@ -186,19 +187,16 @@ fn detect_local_renames(
     files: &[LocalFile],
     missing: &[(String, ObjectState)],
     summary: &mut SyncSummary,
-) -> (HashSet<String>, HashSet<String>) {
+) -> Result<(HashSet<String>, HashSet<String>), String> {
     let unmapped: Vec<_> = files
         .iter()
         .filter(|file| !state.object_map.contains_key(&file.name))
         .collect();
-    let hashes: HashMap<_, _> = unmapped
-        .iter()
-        .filter_map(|file| {
-            read_content(root, &file.name)
-                .ok()
-                .map(|content| (file.name.as_str(), hash_sha256(&content)))
-        })
-        .collect();
+    let mut hashes = HashMap::new();
+    for file in &unmapped {
+        let content = read_content(root, &file.name)?;
+        hashes.insert(file.name.as_str(), hash_sha256(&content));
+    }
     let mut claimed_missing = HashSet::new();
     let mut renamed_files = HashSet::new();
 
@@ -222,7 +220,7 @@ fn detect_local_renames(
         });
     }
 
-    (claimed_missing, renamed_files)
+    Ok((claimed_missing, renamed_files))
 }
 
 fn reuse_unchanged_object(
@@ -238,7 +236,7 @@ fn reuse_unchanged_object(
     if let Some(server_mtime) = existing.mtime_ms {
         if server_mtime != file.mtime {
             (context.pre_write)(&file.name);
-            let _ = set_file_mtime_ms(&context.root.join(&file.name), server_mtime);
+            let _ = vault_fs::set_mtime_ms(context.root, &file.name, server_mtime);
         }
     }
     let mut entry = existing.clone();
@@ -298,7 +296,7 @@ async fn push_local_file(mut context: PushContext<'_>, file: &LocalFile, renamed
     if let Some((target, entry)) = result {
         if let Some(modified) = entry.mtime_ms {
             (context.pre_write)(&target);
-            let _ = set_file_mtime_ms(&context.root.join(&target), modified);
+            let _ = vault_fs::set_mtime_ms(context.root, &target, modified);
         }
         if target != file.name {
             context.state.object_map.remove(&file.name);
@@ -313,19 +311,10 @@ fn checkpoint_progress(
     state: &ConnectedState,
     summary: &mut SyncSummary,
     completed: usize,
+    save_checkpoint: &SaveCheckpoint,
 ) {
-    if completed % 50 == 0
-        && checkpoint::save(root, state).is_err()
-        && !summary
-            .failures
-            .iter()
-            .any(|failure| failure.kind == FailureKind::Checkpoint)
-    {
-        summary.failures.push(SyncFailure {
-            filename: String::new(),
-            kind: FailureKind::Checkpoint,
-            status_code: None,
-        });
+    if completed % 50 == 0 && save_checkpoint(root, state).is_err() {
+        record_checkpoint_failure(summary);
     }
 }
 
@@ -370,7 +359,7 @@ async fn apply_delete_conflict(
         .map_err(SyncErrorKind::Io)?;
     let remote_state = state_from_remote(&remote);
     if let Some(mtime) = remote_state.mtime_ms {
-        let _ = set_file_mtime_ms(&context.root.join(&target), mtime);
+        let _ = vault_fs::set_mtime_ms(context.root, &target, mtime);
     }
     context.state.object_map.remove(name);
     context
@@ -437,14 +426,37 @@ pub(crate) async fn push(
     progress: &Progress,
     pre_write: &PreWrite,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
+    push_with_checkpoint(state, root, progress, pre_write, &checkpoint::save)
+        .await
+        .map_err(|failure| failure.kind)
+}
+
+pub(crate) async fn push_with_checkpoint(
+    state: &ConnectedState,
+    root: &Path,
+    progress: &Progress,
+    pre_write: &PreWrite,
+    save_checkpoint: &SaveCheckpoint,
+) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
     recover_stale_claims(root, pre_write);
-    let http = client(state)?;
+    let files = local_files(root).map_err(|error| CycleFailure {
+        kind: SyncErrorKind::Io(error),
+        state: state.clone(),
+    })?;
+    let http = client(state).map_err(|kind| CycleFailure {
+        kind,
+        state: state.clone(),
+    })?;
     let mut next = state.clone();
-    let files = local_files(root);
     let missing = missing_local_files(&next, &files);
     let mut summary = SyncSummary::default();
     let (claimed_missing, renamed_files) =
-        detect_local_renames(&mut next, root, &files, &missing, &mut summary);
+        detect_local_renames(&mut next, root, &files, &missing, &mut summary).map_err(|error| {
+            CycleFailure {
+                kind: SyncErrorKind::Io(error),
+                state: next.clone(),
+            }
+        })?;
 
     progress(SyncProgress {
         phase: "pushing",
@@ -471,10 +483,10 @@ pub(crate) async fn push(
                 current: completed,
                 total: files.len() + missing.len(),
             });
-            checkpoint_progress(root, &next, &mut summary, completed);
+            checkpoint_progress(root, &next, &mut summary, completed, save_checkpoint);
         }
     }
-    delete_missing_objects(
+    if let Err(kind) = delete_missing_objects(
         &http,
         &mut next,
         root,
@@ -483,17 +495,26 @@ pub(crate) async fn push(
         pre_write,
         &mut summary,
     )
-    .await?;
+    .await
+    {
+        return Err(CycleFailure { kind, state: next });
+    }
     append_derived_renames(&mut summary, &state.object_map, &next.object_map);
-    checkpoint::save(root, &next).map_err(SyncErrorKind::Io)?;
+    if save_checkpoint(root, &next).is_err() {
+        record_checkpoint_failure(&mut summary);
+    }
     Ok((summary, next))
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
     use super::*;
 
@@ -540,11 +561,98 @@ mod tests {
         }
     }
 
+    fn mutation_server() -> (String, Arc<AtomicUsize>, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let mutations = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&mutations);
+        let handle = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut request = [0; 4096];
+                        let read = stream.read(&mut request).unwrap_or(0);
+                        if request[..read].starts_with(b"DELETE ") {
+                            observed.fetch_add(1, Ordering::Relaxed);
+                        }
+                        let body = r#"{"error":"injected"}"#;
+                        write!(
+                            stream,
+                            "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .unwrap();
+                        return;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("mutation server failed: {error}"),
+                }
+            }
+        });
+        (format!("http://{address}"), mutations, handle)
+    }
+
+    #[tokio::test]
+    async fn incomplete_root_scan_stops_before_remote_deletion() {
+        let root = TempRoot::new();
+        std::fs::remove_dir(root.path()).unwrap();
+        let (base_url, mutations, server) = mutation_server();
+        let mut state = connected();
+        state.base_url = base_url;
+        state.object_map.insert(
+            "healthy.md".into(),
+            ObjectState {
+                object_id: "healthy-object".into(),
+                version: 1,
+                blob_key: "healthy-blob".into(),
+                hash: Some(hash_sha256("healthy")),
+                mtime_ms: Some(1),
+                size_bytes: Some(7),
+            },
+        );
+
+        let result = push(&state, root.path(), &no_progress, &no_pre_write).await;
+        server.join().unwrap();
+
+        assert!(matches!(result, Err(SyncErrorKind::Io(_))));
+        assert_eq!(mutations.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn rename_read_failure_stops_before_remote_deletion() {
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("note.md"), [0xff]).unwrap();
+        let (base_url, mutations, server) = mutation_server();
+        let mut state = connected();
+        state.base_url = base_url;
+        state.object_map.insert(
+            "folder/note.md".into(),
+            ObjectState {
+                object_id: "healthy-object".into(),
+                version: 1,
+                blob_key: "healthy-blob".into(),
+                hash: Some(hash_sha256("healthy")),
+                mtime_ms: Some(1),
+                size_bytes: Some(7),
+            },
+        );
+
+        let result = push(&state, root.path(), &no_progress, &no_pre_write).await;
+        server.join().unwrap();
+
+        assert!(matches!(result, Err(SyncErrorKind::Io(_))));
+        assert_eq!(mutations.load(Ordering::Relaxed), 0);
+    }
+
     #[tokio::test]
     async fn push_skips_an_oversize_flagged_file_without_uploading_or_deleting_it() {
         let root = TempRoot::new();
         std::fs::write(root.path().join("big.md"), "too big for the server").unwrap();
-        let file = local_files(root.path()).remove(0);
+        let file = local_files(root.path()).unwrap().remove(0);
         let mut state = connected();
         state.oversize_skip.insert(file.name.clone(), file.mtime);
 
@@ -563,7 +671,7 @@ mod tests {
     async fn push_retries_an_oversize_flagged_file_after_its_mtime_changes() {
         let root = TempRoot::new();
         std::fs::write(root.path().join("big.md"), "shrunk").unwrap();
-        let file = local_files(root.path()).remove(0);
+        let file = local_files(root.path()).unwrap().remove(0);
         let mut state = connected();
         state
             .oversize_skip
@@ -585,7 +693,7 @@ mod tests {
     async fn push_preserves_the_pull_cursor() {
         let root = TempRoot::new();
         std::fs::write(root.path().join("note.md"), "synced body").unwrap();
-        let file = local_files(root.path()).remove(0);
+        let file = local_files(root.path()).unwrap().remove(0);
         let mut state = connected();
         state.pull_cursor = 42;
         state.max_version = 99;

@@ -1,6 +1,7 @@
 import { isTauri } from '$lib/platform';
 import { getConfig, saveConfig } from '$lib/platform/tauri';
 import { getAllNotes, whenNotesReady } from '$features/notes/notes.svelte';
+import { clampSidebarWidth } from '$features/sidebar/sidebarWidth';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
 
 export const SIDEBAR_COLLAPSED_KEY = 'futo-notes:sidebarCollapsed';
@@ -28,7 +29,9 @@ export function startTabsPersistence(deps: TabsPersistenceDeps): () => void {
       try {
         const config = await getConfig();
         if (disposed) return;
-        if (typeof config.sidebarWidth === 'number') deps.setSidebarWidth(config.sidebarWidth);
+        if (typeof config.sidebarWidth === 'number') {
+          deps.setSidebarWidth(clampSidebarWidth(config.sidebarWidth));
+        }
         persistedTabs = config.openTabs ?? null;
       } catch (error) {
         console.warn('Failed to load tab config:', error);

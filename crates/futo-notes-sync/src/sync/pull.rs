@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use futo_notes_core::files::{classify_incoming_sync_path, set_file_mtime_ms, IncomingSyncPath};
+use futo_notes_core::files::{classify_incoming_sync_path, IncomingSyncPath};
 use futo_notes_core::hash::hash_sha256;
 
 use crate::checkpoint::{self, Ancestry, ConnectedState};
@@ -11,12 +11,13 @@ use crate::session::connect::{client, collection_error};
 use super::collision_resolution::place_collision;
 use super::encrypted_note::{decrypt, state_from_remote, RemoteNote};
 use super::object_map::{mapped_name, object_is_current};
-use super::outcome::{append_derived_renames, note_id};
+use super::outcome::{append_derived_renames, note_id, record_checkpoint_failure};
 use super::tombstones::{apply_tombstone, recover_stale_claims};
-use super::vault::{content_hash, park_local, remove_local, write_content};
+use super::vault::{content_hash, park_local, path_exists, remove_local, write_content};
+use super::vault_fs;
 use super::{
-    FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure, SyncProgress,
-    SyncSummary,
+    FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind, SyncFailure,
+    SyncProgress, SyncSummary,
 };
 
 fn ancestry_for<'a>(
@@ -75,7 +76,7 @@ fn reconcile_bootstrap_ancestry(
             replace_unmapped_target: false,
         });
     };
-    if !context.root.join(old_name).exists() {
+    if !path_exists(context.root, old_name)? {
         return Ok(BootstrapAction::Continue {
             replace_unmapped_target: false,
         });
@@ -122,7 +123,7 @@ fn relocate_existing_mapping(
     if old_name == target {
         return Ok(());
     }
-    if context.root.join(&old_name).exists() {
+    if path_exists(context.root, &old_name)? {
         let expected = context
             .state
             .object_map
@@ -159,7 +160,7 @@ fn preserve_unmapped_target(
     remote_hash: &str,
     replace_unmapped_target: bool,
 ) -> Result<(), String> {
-    if !context.root.join(target).exists()
+    if !path_exists(context.root, target)?
         || context.state.object_map.contains_key(target)
         || replace_unmapped_target
     {
@@ -186,11 +187,13 @@ fn commit_remote_file(
     if content_hash(context.root, &target).as_deref() != Some(remote_hash) {
         write_content(context.root, &target, &remote.content, context.pre_write)?;
         context.summary.local_writes_applied += 1;
+    } else {
+        vault_fs::sync_parent(context.root, &target)?;
     }
     let modified = timestamp_ms(&remote.object.updated_at);
     if modified > 0 {
         (context.pre_write)(&target);
-        let _ = set_file_mtime_ms(&context.root.join(&target), modified);
+        let _ = vault_fs::set_mtime_ms(context.root, &target, modified);
     }
     context
         .state
@@ -378,6 +381,17 @@ pub(crate) async fn pull(
     progress: &Progress,
     pre_write: &PreWrite,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
+    pull_with_checkpoint(state, root, since, progress, pre_write, &checkpoint::save).await
+}
+
+pub(crate) async fn pull_with_checkpoint(
+    state: &ConnectedState,
+    root: &Path,
+    since: u64,
+    progress: &Progress,
+    pre_write: &PreWrite,
+    save_checkpoint: &SaveCheckpoint,
+) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
     recover_stale_claims(root, pre_write);
     let http = client(state)?;
     let objects = http
@@ -419,8 +433,11 @@ pub(crate) async fn pull(
     append_derived_renames(&mut summary, &state.object_map, &next.object_map);
     next.max_version = cursor.value();
     next.pull_cursor = cursor.value();
-    checkpoint::save(root, &next).map_err(SyncErrorKind::Io)?;
-    if !cursor.has_failures() {
+    let checkpoint_saved = save_checkpoint(root, &next).is_ok();
+    if !checkpoint_saved {
+        record_checkpoint_failure(&mut summary);
+    }
+    if checkpoint_saved && !cursor.has_failures() {
         checkpoint::clear_ancestry(root);
     }
     Ok((summary, next))

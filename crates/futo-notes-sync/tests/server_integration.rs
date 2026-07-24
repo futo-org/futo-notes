@@ -123,13 +123,11 @@ async fn connect_bootstrap_and_shared_vault() {
     common::cleanup(&vb);
 }
 
-/// Regression for the single-vault invariant: two devices that set up sync
+/// Regression for the canonical-vault invariant: two devices that set up sync
 /// against the SAME fresh server *concurrently* must converge on ONE vault, not
-/// fork into two. Pre-fix the server minted a fresh collection (and a fresh
-/// vault key) for each racing connect, so the two devices ended up isolated —
-/// the silent split-brain self-hosters reported. This test fails pre-fix (the
-/// collection ids diverge) and passes once the server enforces one vault per
-/// account + first-write-wins key material.
+/// fork into two. The server preserves plural collection rows for data safety,
+/// so each racing connect may create a row. Clients must re-list and select the
+/// same earliest row before claiming first-write-wins key material.
 ///
 /// Run against a FRESH/clean-DB server (no pre-existing collection), since the
 /// race only manifests when both connects see an empty collection list.
@@ -184,10 +182,10 @@ async fn concurrent_connect_converges_to_one_vault() {
 }
 
 /// The desktop heal signal. When a device's persisted vault is gone from the
-/// server (e.g. a duplicate collapsed by the single-vault migration), `resume()`
-/// surfaces `CollectionGone` (message prefixed `collection-gone:`) — which the
-/// desktop catches to re-connect — and a fresh `connect()` then lands on a live
-/// vault. (Native shells already self-heal: they only ever connect().)
+/// server, `resume()` surfaces `CollectionGone` (message prefixed
+/// `collection-gone:`) — which the desktop catches to re-connect — and a fresh
+/// `connect()` then lands on a live vault. (Native shells already self-heal:
+/// they only ever connect().)
 #[tokio::test]
 #[ignore = "requires a running FUTO_TEST_SERVER"]
 async fn resume_after_vault_deleted_signals_collection_gone_then_reconnects() {
@@ -202,8 +200,7 @@ async fn resume_after_vault_deleted_signals_collection_gone_then_reconnects() {
         .await
         .expect("connect");
 
-    // Delete the vault server-side — the stand-in for the migration collapsing a
-    // duplicate the device was pinned to.
+    // Delete the vault server-side to exercise a stale persisted collection id.
     let res = reqwest::Client::new()
         .delete(format!("{server}/api/collections/{}", info.collection_id))
         .bearer_auth(&info.token)

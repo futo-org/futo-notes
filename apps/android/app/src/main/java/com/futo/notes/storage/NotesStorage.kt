@@ -1,4 +1,4 @@
-package com.futo.notes
+package com.futo.notes.storage
 
 import android.content.Context
 import android.os.Build
@@ -7,6 +7,8 @@ import java.io.File
 
 /** Where the note vault lives on disk. Mirrors Obsidian's two storage modes. */
 enum class StorageMode { DEVICE, APP, INTERNAL }
+
+enum class StorageRootState { PRESENT, ABSENT, UNAVAILABLE }
 
 /**
  * The single source of truth for the vault location + how to move it.
@@ -44,6 +46,38 @@ object NotesStorage {
     fun deviceModeSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
     data class Startup(val mode: StorageMode?, val needsOnboarding: Boolean)
+
+    data class StorageRecoveryDecision(
+        val activeMode: StorageMode,
+        val repairPreferenceTo: StorageMode?,
+    )
+
+    fun storageRecoveryDecision(
+        savedMode: String?,
+        pending: PendingStorageMigration,
+        sourceState: StorageRootState = StorageRootState.PRESENT,
+    ): StorageRecoveryDecision {
+        val activeMode = when (pending.phase) {
+            StorageMigrationPhase.PREPARED -> pending.from
+            StorageMigrationPhase.FINALIZING -> {
+                when {
+                    pending.isSourceRemovalForbidden &&
+                        sourceState == StorageRootState.PRESENT ->
+                        pending.from
+                    sourceState != StorageRootState.UNAVAILABLE -> pending.to
+                    else -> error(
+                        "An interrupted finalization without a confirmed source removal requires intervention"
+                    )
+                }
+            }
+            StorageMigrationPhase.ACTIVATED -> pending.to
+        }
+        val saved = savedMode?.let { runCatching { StorageMode.valueOf(it) }.getOrNull() }
+        return StorageRecoveryDecision(
+            activeMode = activeMode,
+            repairPreferenceTo = activeMode.takeIf { it != saved },
+        )
+    }
 
     /**
      * Decide the vault location at launch (PURE).
@@ -89,6 +123,41 @@ object NotesStorage {
         StorageMode.DEVICE -> deviceRoot(isDebug)
     }
 
+    fun sourceStateForRecovery(
+        context: Context,
+        mode: StorageMode,
+        isDebug: Boolean,
+    ): StorageRootState {
+        val root = when (mode) {
+            StorageMode.INTERNAL -> internalRoot(context)
+            StorageMode.APP -> {
+                val external = context.getExternalFilesDir(null)
+                    ?: return StorageRootState.UNAVAILABLE
+                File(external, VAULT_DIR)
+            }
+            StorageMode.DEVICE -> {
+                if (!deviceModeSupported() || !hasDeviceAccess()) {
+                    return StorageRootState.UNAVAILABLE
+                }
+                val mediaState = Environment.getExternalStorageState()
+                if (
+                    mediaState != Environment.MEDIA_MOUNTED &&
+                    mediaState != Environment.MEDIA_MOUNTED_READ_ONLY
+                ) {
+                    return StorageRootState.UNAVAILABLE
+                }
+                deviceRoot(isDebug)
+            }
+        }
+        if (root.exists()) return StorageRootState.PRESENT
+        val parent = root.parentFile
+        return if (parent?.isDirectory == true && parent.canRead()) {
+            StorageRootState.ABSENT
+        } else {
+            StorageRootState.UNAVAILABLE
+        }
+    }
+
     /** True when DEVICE mode is writable RIGHT NOW (permission actually held). */
     fun hasDeviceAccess(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
@@ -107,28 +176,34 @@ object NotesStorage {
 
     // ── Migration (PURE) ──
 
-    data class MigrationResult(val migrated: Boolean, val files: Int)
+    sealed interface MigrationOutcome {
+        val migrated: Boolean get() = this is Migrated
+        val files: Int get() = if (this is Migrated) this.files else 0
 
-    /**
-     * Copy the whole vault tree (INCLUDING dotfiles — the `.futo` /
-     * `.e2ee-state.json` sync state, `.crashlogs`, and images) from [from] to
-     * [to], VERIFY the copy reconciles, then delete the source. Idempotent and
-     * verify-before-delete: if the file count doesn't reconcile, the source is
-     * left intact. Sync survives the move because the object map is keyed by
-     * relative filename [sync.md], not absolute path.
-     */
-    fun migrate(from: File, to: File): MigrationResult {
-        if (!from.exists() || from.canonicalFile == to.canonicalFile) return MigrationResult(false, 0)
-        val srcFiles = countFiles(from)
-        if (srcFiles == 0) return MigrationResult(false, 0)
-        to.mkdirs()
-        val copied = runCatching { from.copyRecursively(to, overwrite = true) }.getOrDefault(false)
-        if (copied && countFiles(to) >= srcFiles) {
-            from.deleteRecursively()
-            return MigrationResult(true, srcFiles)
-        }
-        return MigrationResult(false, srcFiles)
+        data class Migrated(override val files: Int) : MigrationOutcome
+
+        data object EmptySource : MigrationOutcome
+        data object AlreadyAtDestination : MigrationOutcome
+        data class Failed(val message: String) : MigrationOutcome
     }
 
-    private fun countFiles(dir: File): Int = dir.walkTopDown().count { it.isFile }
+    data class StorageSwitchDecision(
+        val commitPreference: Boolean,
+        val restart: Boolean,
+        val requiresFinalization: Boolean,
+        val feedback: String?,
+    )
+
+    /** The preference/restart boundary consumes only an explicit safe outcome. */
+    fun storageSwitchDecision(outcome: MigrationOutcome): StorageSwitchDecision =
+        when (outcome) {
+            is MigrationOutcome.Failed ->
+                StorageSwitchDecision(false, false, false, outcome.message)
+            is MigrationOutcome.Migrated ->
+                StorageSwitchDecision(true, true, true, null)
+            MigrationOutcome.EmptySource,
+            MigrationOutcome.AlreadyAtDestination,
+            -> StorageSwitchDecision(true, true, false, null)
+        }
+
 }

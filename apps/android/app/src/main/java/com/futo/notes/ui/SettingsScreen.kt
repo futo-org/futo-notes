@@ -55,14 +55,16 @@ import androidx.compose.ui.unit.dp
 import com.futo.notes.BuildConfig
 import com.futo.notes.NotesStore
 import com.futo.notes.Prefs
-import com.futo.notes.StorageMode
+import com.futo.notes.storage.StorageMode
 import com.futo.notes.SyncManager
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class ThemeMode { LIGHT, DARK, AUTO }
 
@@ -263,8 +265,10 @@ fun SettingsScreen(
                     sync.pauseLive()
                     store.suppressAutoPush = true
                     try {
-                        store.deleteAll()
-                        sync.disconnect()
+                        withContext(NonCancellable) {
+                            store.deleteAll()
+                            sync.disconnect()
+                        }
                     } finally {
                         store.suppressAutoPush = false
                         resetting = false

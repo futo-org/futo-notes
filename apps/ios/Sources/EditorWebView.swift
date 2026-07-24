@@ -6,6 +6,43 @@ import ObjectiveC
 import ObjectiveC.runtime
 import os
 
+func shouldDeliverEditorCompletion(
+    capturedGeneration: Int,
+    currentGeneration: Int
+) -> Bool {
+    capturedGeneration == currentGeneration
+}
+
+func editorGenerationAfterDetach(
+    detachedToken: Int,
+    currentGeneration: Int
+) -> Int {
+    detachedToken == currentGeneration ? currentGeneration + 1 : currentGeneration
+}
+
+@MainActor
+final class EditorCompletionQueue {
+    private var tail: Task<Void, Never>?
+    private var admission = 0
+
+    func enqueue(_ operation: @escaping @MainActor () async -> Void) {
+        let previous = tail
+        admission += 1
+        tail = Task { @MainActor in
+            await previous?.value
+            await operation()
+        }
+    }
+
+    func waitForCurrent() async {
+        while true {
+            let admitted = admission
+            await tail?.value
+            if admitted == admission { return }
+        }
+    }
+}
+
 /// SwiftUI wrapper around a single, app-lifetime WKWebView that hosts the
 /// bundled markdown editor — the iOS counterpart of Android's `EditorHost`
 /// (apps/android/.../ui/EditorWebView.kt).
@@ -209,6 +246,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// Incremented per attach; detach only clears if its token is still current.
     private var generation = 0
+    private let completionQueue = EditorCompletionQueue()
 
     /// Reactive inputs for the NATIVE markdown toolbar (bridge v3
     /// cursorContext drives Indent/Outdent visibility).
@@ -320,7 +358,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// Unbind, unless a newer [attach] has already taken over.
     func detach(_ token: Int) {
-        guard token == generation else { return }
+        let nextGeneration = editorGenerationAfterDetach(
+            detachedToken: token,
+            currentGeneration: generation
+        )
+        guard nextGeneration != generation else { return }
+        generation = nextGeneration
         onChange = { _ in }
         onReady = nil
         onOpenNote = nil
@@ -358,11 +401,85 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
-    /// Host → editor: insert `![](filename)\n` at the cursor. Called after a
-    /// picked image has been saved into the vault root.
-    func insertImage(_ filename: String) {
-        let js = "window.FutoEditor && window.FutoEditor.insertImage(\(jsLiteral(filename)));"
-        webView.evaluateJavaScript(js, completionHandler: nil)
+    /// Host → editor: insert `![](filename)\n` only if the editor that started
+    /// the asynchronous image operation still owns the shared WebView.
+    @discardableResult
+    private func insertImage(_ filename: String, for capturedGeneration: Int) async -> Bool {
+        guard shouldDeliverEditorCompletion(
+            capturedGeneration: capturedGeneration,
+            currentGeneration: generation
+        ) else { return false }
+        do {
+            // The editor posts its change callback on requestAnimationFrame.
+            // Wait for that frame so capture/navigation cannot rebind the shared
+            // bridge while the old note's callback is still queued.
+            let inserted = try await webView.callAsyncJavaScript(
+                """
+                if (!window.FutoEditor) return false;
+                window.FutoEditor.insertImage(filename);
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                return true;
+                """,
+                arguments: ["filename": filename],
+                in: nil,
+                contentWorld: .page
+            )
+            return inserted as? Bool == true
+                && shouldDeliverEditorCompletion(
+                    capturedGeneration: capturedGeneration,
+                    currentGeneration: generation
+                )
+        } catch {
+            return false
+        }
+    }
+
+    /// Invalidate completions owned by the current editor before a committed
+    /// delete exposes another note in the shared WebView.
+    func invalidateAsyncCompletions() {
+        generation += 1
+    }
+
+    /// Freeze user editing before a destructive native workflow. The resulting
+    /// bridge callback is still guarded by the owning editor's closing latch.
+    func blur() {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.blur();", completionHandler: nil)
+    }
+
+    /// Blur and read the exact CodeMirror document owned by the current
+    /// attachment. A later editor adoption invalidates the completion.
+    func captureCurrentContent() async -> String? {
+        let capturedGeneration = generation
+        await completionQueue.waitForCurrent()
+        guard shouldDeliverEditorCompletion(
+            capturedGeneration: capturedGeneration,
+            currentGeneration: generation
+        ) else { return nil }
+        guard isReady else { return nil }
+        return await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(
+                """
+                (() => {
+                  if (!window.FutoEditor) return null;
+                  window.FutoEditor.blur();
+                  return window.FutoEditor.getContent();
+                })()
+                """
+            ) { [weak self] result, error in
+                guard let self,
+                      error == nil,
+                      shouldDeliverEditorCompletion(
+                        capturedGeneration: capturedGeneration,
+                        currentGeneration: self.generation
+                      )
+                else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: result as? String)
+            }
+        }
     }
 
     // MARK: WKScriptMessageHandler
@@ -439,7 +556,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // the SAME path as the picker and hand the filename back.
             if let base64 = body["data"] as? String,
                let ext = body["ext"] as? String {
-                Task { @MainActor in
+                let targetGeneration = generation
+                completionQueue.enqueue { [weak self] in
+                    guard let self else { return }
                     // Decode in a detached task so it runs off the main actor.
                     // (Kept out of the `guard` condition: a trailing closure
                     // inside a guard condition fails to parse.)
@@ -449,7 +568,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     guard let data = decoded else { return }
                     guard let filename = await VaultImages.save(
                         data: data, preferredExtension: ext) else { return }
-                    self.insertImage(filename)
+                    let inserted = await self.insertImage(filename, for: targetGeneration)
+                    if !inserted {
+                        await VaultImages.remove(filename: filename)
+                    }
                 }
             }
         case .pasteClipboardImage:
@@ -461,10 +583,15 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // otherwise re-encode UIPasteboard's UIImage as PNG. No-op when the
             // pasteboard holds no image.
             if let (data, ext) = clipboardImageData() {
-                Task { @MainActor in
+                let targetGeneration = generation
+                completionQueue.enqueue { [weak self] in
+                    guard let self else { return }
                     guard let filename = await VaultImages.save(
                         data: data, preferredExtension: ext) else { return }
-                    self.insertImage(filename)
+                    let inserted = await self.insertImage(filename, for: targetGeneration)
+                    if !inserted {
+                        await VaultImages.remove(filename: filename)
+                    }
                 }
             } else {
                 EditorHost.logger.info("pasteClipboardImage: no image on the pasteboard")
@@ -493,12 +620,20 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// library on devices/simulators without one), save into the vault root
     /// honoring the shared image-extension rules, then insertImage(filename).
     private func presentImagePicker(source: String) {
-        ImagePicker.present(source: source) { [weak self] data, ext in
-            guard let self, let data else { return }
-            Task { @MainActor in
-                guard let filename = await VaultImages.save(
-                    data: data, preferredExtension: ext) else { return }
-                self.insertImage(filename)
+        let targetGeneration = generation
+        completionQueue.enqueue { [weak self] in
+            guard let self else { return }
+            let picked: (Data?, String) = await withCheckedContinuation { continuation in
+                ImagePicker.present(source: source) { data, ext in
+                    continuation.resume(returning: (data, ext))
+                }
+            }
+            guard let data = picked.0 else { return }
+            guard let filename = await VaultImages.save(
+                data: data, preferredExtension: picked.1) else { return }
+            let inserted = await self.insertImage(filename, for: targetGeneration)
+            if !inserted {
+                await VaultImages.remove(filename: filename)
             }
         }
     }
@@ -516,8 +651,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         case .pickImage(let source):
             presentImagePicker(source: source)
         case .dismiss:
-            webView.evaluateJavaScript(
-                "window.FutoEditor && window.FutoEditor.blur();", completionHandler: nil)
+            blur()
         }
     }
 

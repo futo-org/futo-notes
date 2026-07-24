@@ -2,10 +2,9 @@
 
 ## Purpose
 
-Place this document at a stable path inside the codebase and treat it as the
-standing architecture and code-organization standard. Every AI coding agent and
-human contributor must read and apply it before adding, changing, moving,
-renaming, or deleting code.
+This is the mandatory architecture and code-organization standard for every
+repository change. Every AI coding agent and human contributor must read and
+apply it before adding, changing, moving, renaming, or deleting code.
 
 The repository's normal task instructions, contributor guidance, or automation
 entry point should reference this document with an instruction equivalent to:
@@ -24,6 +23,29 @@ for from names and placement alone.
 This standard is intentionally framework-tolerant. Adapt reserved filenames
 such as route, page, layout, controller, handler, or middleware to the framework
 in use, while preserving the ownership and dependency rules below.
+
+## Mandatory Compliance for Changes
+
+This standard is a repository requirement, not optional guidance.
+
+Every newly created code file, module, test, configuration file, and documentation
+file MUST comply with this standard. Every new code path or structural addition to
+an existing file MUST also comply.
+
+Existing noncompliant code is not precedent for adding more noncompliant code.
+Copying an existing pattern does not waive this requirement.
+
+A change that violates this standard is incomplete and MUST NOT be committed,
+submitted for review, or merged. Passing tests, compiling successfully, minimizing
+the diff, or preserving an agent's implementation does not override this rule.
+
+Before implementation, the modifying agent MUST identify the narrowest owner and
+planned placement. Before acceptance, the author or reviewing agent MUST review
+the resulting diff against this standard. Organization violations are blocking
+review findings and must be corrected before the change is accepted.
+
+The only exception is an explicit conflict with a higher-priority requirement.
+The conflict and resulting exception MUST be reported in the change.
 
 ## Standing Authority and Required Use
 

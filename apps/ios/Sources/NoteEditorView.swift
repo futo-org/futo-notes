@@ -1,6 +1,31 @@
 import SwiftUI
 import UIKit
 
+struct RenameResolution {
+    let id: String
+    let isCommitted: Bool
+}
+
+func resolvedRename(
+    currentId: String,
+    outcome: NoteMutationOutcome<String>
+) -> RenameResolution {
+    switch outcome {
+    case .committed(let finalId):
+        RenameResolution(id: finalId, isCommitted: true)
+    case .failed:
+        RenameResolution(id: currentId, isCommitted: false)
+    }
+}
+
+func editorDeleteContent(
+    capturedContent: String?,
+    quarantinedContent: String?
+) -> String? {
+    guard let capturedContent else { return nil }
+    return quarantinedContent ?? capturedContent
+}
+
 struct NoteEditorView: View {
     @EnvironmentObject private var store: NotesStore
     @Environment(\.colorScheme) private var colorScheme
@@ -16,7 +41,13 @@ struct NoteEditorView: View {
     @State private var savedContent = ""
     @State private var saveTask: Task<Void, Never>?
     /// Debounced inline-title rename (Android parity) — rescheduled per keystroke.
-    @State private var renameTask: Task<Void, Never>?
+    @State private var renameTask: Task<Bool, Never>?
+    /// Consecutive adoption requests form one cancellation-aware chain. Waiting
+    /// for the latest task therefore waits for every older in-flight flush too.
+    @State private var adoptionTask: Task<Void, Never>?
+    @State private var moveTask: Task<Void, Never>?
+    @State private var navigationTask: Task<Void, Never>?
+    @State private var isMoveCommitting = false
     /// CRITICAL: never block the editor's first frame on a disk read (F9 / the
     /// never-gate-render rule). The body starts empty and is read OFF the main
     /// actor in `.task`; until it lands, `loaded` is false, which gates the
@@ -57,6 +88,10 @@ struct NoteEditorView: View {
     /// "deleted during sync" banner + a double pop in a wikilink chain). A
     /// one-way latch for this view instance.
     @State private var isClosing = false
+    /// A bridge change that arrives after delete starts is quarantined. A
+    /// committed delete discards it; a failed delete restores it so no late
+    /// animation-frame edit is silently lost.
+    @State private var closingContent: String?
 
     /// Path of the enclosing NavigationStack. A resolved-wikilink tap PUSHES a
     /// new editor entry (Back returns to the note you came from — a chain of
@@ -129,7 +164,15 @@ struct NoteEditorView: View {
                     // with the new note's content via setContent and can emit an echo
                     // before the disk read returns; saving that echo could clobber the
                     // note on disk. Once loaded, all edits flow through.
-                    guard loaded else { return }
+                    switch editorChangeDisposition(loaded: loaded, isClosing: isClosing) {
+                    case .ignore:
+                        return
+                    case .quarantine:
+                        closingContent = newContent
+                        return
+                    case .apply:
+                        break
+                    }
                     content = newContent
                     // Publish the derived draft SYNCHRONOUSLY here, not only via the
                     // async `.onChange(of: draftInputs)` below. The scenePhase
@@ -151,9 +194,21 @@ struct NoteEditorView: View {
             )
             .ignoresSafeArea(.container, edges: .bottom)
         }
+        .allowsHitTesting(navigationTask == nil && !isMoveCommitting)
         .background(Theme.background)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    requestNavigation {
+                        if !navPath.isEmpty { navPath.removeLast() }
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(navigationTask != nil || isMoveCommitting)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
@@ -177,7 +232,7 @@ struct NoteEditorView: View {
                     }
                     Divider()
                     Button(role: .destructive) {
-                        showDeleteConfirm = true
+                        presentWithoutAnimation { showDeleteConfirm = true }
                     } label: {
                         Label("Delete Note", systemImage: "trash")
                     }
@@ -185,6 +240,7 @@ struct NoteEditorView: View {
                     Image(systemName: "ellipsis.circle")
                 }
                 .tint(Theme.primary)
+                .disabled(navigationTask != nil || isMoveCommitting)
             }
         }
         .alert("Rename note", isPresented: $showRename) {
@@ -194,21 +250,24 @@ struct NoteEditorView: View {
         } message: {
             Text("Enter a new name for this note.")
         }
-        .confirmationDialog(
-            "Delete this note? This action cannot be undone.",
-            isPresented: $showDeleteConfirm, titleVisibility: .visible
-        ) {
-            Button("Delete Note", role: .destructive) { deleteNote() }
-            Button("Cancel", role: .cancel) {}
+        .fullScreenCover(isPresented: $showDeleteConfirm) {
+            DestructiveConfirmDialog(
+                message: "Delete this note? This action cannot be undone.",
+                destructiveLabel: "Delete Note",
+                onCancel: {
+                    presentWithoutAnimation { showDeleteConfirm = false }
+                },
+                onDestructive: { deleteNote() }
+            )
+            .presentationBackground(.clear)
         }
         .sheet(isPresented: $showMove) {
-            // Keep the note open under its new id after the move (onMoved).
+            // Keep the complete move in this editor's tracked mutation chain.
             MoveToFolderSheet(
                 note: currentItem,
                 currentFolder: splitId(id: noteId).folder,
-                onMoved: { newId in
-                    noteId = newId
-                    titleField = splitId(id: newId).title
+                onMoveRequested: { folder in
+                    moveNote(to: folder)
                 }
             )
             .environmentObject(store)
@@ -234,7 +293,7 @@ struct NoteEditorView: View {
             // (and on exit, SAVES BACK) a stale base — silently clobbering the
             // remote edit. See adoptExternalChange for the clean/dirty rules.
             guard loaded else { return }
-            Task { await adoptExternalChange() }
+            scheduleExternalAdoption()
         }
         .onAppear {
             isVisible = true
@@ -251,7 +310,7 @@ struct NoteEditorView: View {
             // resurrects it fleet-wide (H2). adoptExternalChange applies the same
             // close/keep/adopt decision as a live pull. Gated on `loaded` so it
             // never runs before the initial read (a fresh open is already current).
-            if loaded { Task { await adoptExternalChange() } }
+            if loaded { scheduleExternalAdoption() }
         }
         // Keep the register's derivation current: any change to loaded/noteId/
         // savedContent/content re-publishes this editor's draft (or clears it the
@@ -260,6 +319,11 @@ struct NoteEditorView: View {
         // set/clear calls (PKT-1 R1-R4, PKT-12 R5).
         .onChange(of: draftInputs) { _, _ in publishDraft() }
         .onDisappear {
+            // Presenting the centered delete confirmation covers this view but
+            // is not navigation. Preserve its save chain and draft ownership.
+            guard shouldHandleEditorDisappear(
+                isDeleteConfirmationPresented: showDeleteConfirm
+            ) else { return }
             // Covered (a wikilink pushed a new editor) or popped: no longer the
             // visible editor, so it must stop driving the shared WebView.
             isVisible = false
@@ -275,23 +339,29 @@ struct NoteEditorView: View {
                 autoFocus && noteId == originalId
                 && titleField == splitId(id: originalId).title
                 && content.isEmpty && savedContent.isEmpty
-            if untouched {
-                store.delete(noteId)
-            } else if content != savedContent {
+            var shouldReleaseDraft = true
+            if !isClosing && untouched {
+                store.deleteAsync(noteId)
+            } else if shouldFlushEditorOnDisappear(
+                loaded: loaded,
+                isClosing: isClosing,
+                content: content,
+                savedContent: savedContent
+            ) {
                 // POP flush (navigating back isn't a background signal, so the
-                // scenePhase handler won't fire). Persist-or-park via the engine's
-                // flush verb: the draft is written only if the note still holds
-                // `savedContent`, recreated if a peer deleted it, or parked as a
-                // conflict copy if a peer changed it — never silently dropped, and
-                // a no-edit open/close never bumps mtime. Mirrors Android's
-                // onDispose flush.
-                store.flushAsync(PendingDraft(id: noteId, base: savedContent, content: content))
-                savedContent = content
+                // scenePhase handler won't fire). Persist-or-park through the
+                // engine, retaining this exact draft until the async flush is
+                // durable so an I/O failure remains eligible for lifecycle retry.
+                let draft = PendingDraft(id: noteId, base: savedContent, content: content)
+                store.publishDraft(token: draftToken, draft)
+                store.retainDraftUntilFlushed(token: draftToken)
+                store.flushAsync(draft)
+                shouldReleaseDraft = false
             }
-            // Remove this editor's register entry LAST, so the flush above (and
-            // any concurrent scenePhase flush) still sees the draft; releasing
-            // leaves any overlapping sibling editor's draft intact.
-            store.releaseDraftOwnership(token: draftToken)
+            // A clean/untouched editor releases its own entry. A dirty editor's
+            // entry stays retained until the asynchronous flush is durable, so
+            // a failed leave save remains eligible for a later lifecycle retry.
+            if shouldReleaseDraft { store.releaseDraftOwnership(token: draftToken) }
             draftToken = 0
         }
     }
@@ -315,32 +385,47 @@ struct NoteEditorView: View {
     }
 
     private func scheduleSave(_ newContent: String) {
-        saveTask?.cancel()
+        let previous = saveTask
+        previous?.cancel()
         saveTask = Task { @MainActor in
+            await previous?.value
             try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s debounce
-            if Task.isCancelled { return }
+            if Task.isCancelled || isClosing { return }
             // Re-read `noteId` at FIRE time (not schedule time) so a save that
             // lands after a rename writes to the renamed note, not the stale id.
             // This is the second half of the ghost-note fix (F7); the first half
             // is the flush+cancel in commitRename. Mirrors Android's
             // NoteEditorScreen.kt re-read at the debounce fire.
-            await store.write(noteId, content: newContent)
-            savedContent = newContent
+            let outcome = await store.write(noteId, content: newContent)
+            savedContent = confirmedSavedContent(
+                previousSavedContent: savedContent,
+                writtenContent: newContent,
+                outcome: outcome
+            )
         }
     }
 
     private func commitRename() {
-        Task { await applyRename(renameField) }
+        let requestedTitle = renameField
+        let previous = renameTask
+        previous?.cancel()
+        renameTask = Task { @MainActor in
+            await previous?.value
+            guard !Task.isCancelled, !isClosing else { return false }
+            return await applyRename(requestedTitle)
+        }
     }
 
     /// Debounced inline-title rename (Android parity): reschedule on each
     /// keystroke and rename once typing settles. Cancelled on leave/delete.
     private func scheduleRename(_ newTitle: String) {
-        renameTask?.cancel()
+        let previous = renameTask
+        previous?.cancel()
         renameTask = Task { @MainActor in
+            await previous?.value
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s debounce
-            if Task.isCancelled { return }
-            await applyRename(newTitle)
+            if Task.isCancelled || isClosing { return false }
+            return await applyRename(newTitle)
         }
     }
 
@@ -353,19 +438,20 @@ struct NoteEditorView: View {
     /// a stale save (which captured the OLD id) would run after the rename and
     /// recreate a ghost note at the old path (write_note creates files
     /// unconditionally) — data loss. Mirrors Android's NoteEditorScreen.kt.
-    private func applyRename(_ rawTitle: String) async {
+    private func applyRename(_ rawTitle: String) async -> Bool {
+        guard !isClosing else { return false }
         let parts = splitId(id: noteId)
         let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         // Reject empty (sanitizeTitle would coerce to "Untitled" and lose the
         // note's identity).
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return true }
         // Block the rename while the title is illegal (dot/too-long — forbidden
         // chars are already stripped in the field) or would collide with an
         // existing note. The inline warning stays up; desktop parity.
-        guard validateTitle(title: trimmed).allSatisfy({ $0.kind == "empty" }) else { return }
-        guard !isDuplicateTitle(trimmed) else { return }
+        guard validateTitle(title: trimmed).allSatisfy({ $0.kind == "empty" }) else { return true }
+        guard !isDuplicateTitle(trimmed) else { return true }
         let sanitized = sanitizeTitle(title: trimmed)
-        guard sanitized != parts.title else { return }
+        guard sanitized != parts.title else { return true }
 
         saveTask?.cancel()
         // Snapshot the body BEFORE the suspending write and advance savedContent
@@ -378,14 +464,27 @@ struct NoteEditorView: View {
         // clear is needed.
         let flushed = content
         if flushed != savedContent {
-            await store.write(noteId, content: flushed)
-            savedContent = flushed
+            let outcome = await store.write(noteId, content: flushed)
+            savedContent = confirmedSavedContent(
+                previousSavedContent: savedContent,
+                writtenContent: flushed,
+                outcome: outcome
+            )
+            guard case .committed = outcome else { return false }
         }
 
         let targetId = makeId(folder: parts.folder, title: sanitized)
-        let finalId = await store.rename(oldId: noteId, newId: targetId)
-        noteId = finalId
-        titleField = splitId(id: finalId).title
+        let resolution = resolvedRename(
+            currentId: noteId,
+            outcome: await store.rename(oldId: noteId, newId: targetId)
+        )
+        guard resolution.isCommitted else {
+            store.showTransient("Couldn't rename note. Your title is still pending.")
+            return false
+        }
+        noteId = resolution.id
+        titleField = splitId(id: resolution.id).title
+        return true
     }
 
     /// Inline title editing (desktop parity): update the persistent warning for
@@ -451,6 +550,7 @@ struct NoteEditorView: View {
     /// the draft is parked as a "<title> (conflict YYYY-MM-DD)" copy and the
     /// disk content adopted, so neither side is silently lost.
     private func adoptExternalChange() async {
+        guard !isClosing else { return }
         // Snapshot the id: a debounced rename/move can change `noteId` DURING the
         // awaits below. Acting on the stale id would (a) treat a rename's
         // "old id no longer exists" as a peer delete and pop the renamed editor
@@ -496,8 +596,10 @@ struct NoteEditorView: View {
             // snapshot; assigning `flushed` (not the live `content`) leaves any
             // newer keystroke dirty for the next flush.
             let flushed = content
+            guard !isClosing else { return }
             let disposition = await store.flushDraft(
                 PendingDraft(id: id, base: savedContent, content: flushed))
+            guard !isClosing else { return }
             guard noteId == id else { return }
             switch adoptFlushOutcome(for: disposition) {
             case .keepDraft:
@@ -599,26 +701,151 @@ struct NoteEditorView: View {
     /// Back. Skip a self-link (a wikilink to the note you're already on).
     private func openLinkedNote(_ id: String) {
         guard id != noteId else { return }
-        navPath.append(.note(id))
+        requestNavigation {
+            navPath.append(.note(id))
+        }
     }
 
-    /// Nav-bar "Move to Folder…": flush the pending body edit to the CURRENT id
-    /// before the file can move (same ghost-note class as commitRename — a
-    /// stale debounced save would recreate the old path), then open the sheet.
-    private func prepareMove() {
-        Task {
-            saveTask?.cancel()
-            // Snapshot before the suspending write; advance savedContent to that
-            // snapshot, not live `content`, so a keystroke typed during the write
-            // stays dirty in the derived register and survives a later background
-            // flush (PKT-12 F1 — same as the rename path). The register re-keys to
-            // the moved id afterwards, so no manual clear is needed.
-            let flushed = content
-            if flushed != savedContent {
-                await store.write(noteId, content: flushed)
+    /// Back and resolved-wikilink navigation are mutations of the editor
+    /// session: wait for every already-admitted identity workflow, then commit
+    /// the latest body snapshot. A failed commit leaves this editor visible and
+    /// dirty so navigation can be retried without losing the draft.
+    private func requestNavigation(_ navigate: @escaping () -> Void) {
+        guard navigationTask == nil, !isClosing else { return }
+        let pendingRename = renameTask
+        let pendingAdoption = adoptionTask
+        let pendingMove = moveTask
+        navigationTask = Task { @MainActor in
+            await pendingAdoption?.value
+            await pendingMove?.value
+            guard !Task.isCancelled, !isClosing else {
+                navigationTask = nil
+                return
+            }
+
+            var renameCommitted = await pendingRename?.value ?? true
+            if !renameCommitted {
+                renameCommitted = await applyRename(titleField)
+            }
+            guard renameCommitted else {
+                navigationTask = nil
+                store.showTransient(
+                    "Couldn't rename note. Navigation is paused while your title remains pending."
+                )
+                return
+            }
+
+            let pendingSave = saveTask
+            pendingSave?.cancel()
+            await pendingSave?.value
+
+            guard let flushed = await EditorHost.shared.captureCurrentContent() else {
+                navigationTask = nil
+                store.showTransient(
+                    "Couldn't read the latest note. Navigation is paused while your changes remain pending."
+                )
+                return
+            }
+            content = flushed
+            if needsEditorCommitBeforeNavigation(
+                loaded: loaded,
+                content: flushed,
+                savedContent: savedContent
+            ) {
+                let disposition = await store.flushDraft(
+                    PendingDraft(id: noteId, base: savedContent, content: flushed))
+                guard shouldCompleteEditorNavigation(disposition) else {
+                    navigationTask = nil
+                    store.showTransient(
+                        "Couldn't save note. Navigation is paused while your changes remain pending."
+                    )
+                    return
+                }
                 savedContent = flushed
             }
+
+            navigationTask = nil
+            navigate()
+        }
+    }
+
+    /// Nav-bar "Move to Folder…": wait for already-admitted identity work before
+    /// presenting destinations. The final live body is captured and committed
+    /// only after the user chooses a destination in [moveNote].
+    private func prepareMove() {
+        let previous = moveTask
+        let pendingRename = renameTask
+        let pendingAdoption = adoptionTask
+        previous?.cancel()
+        moveTask = Task { @MainActor in
+            await previous?.value
+            await pendingRename?.value
+            await pendingAdoption?.value
+            guard !Task.isCancelled, !isClosing else { return }
             showMove = true
+        }
+    }
+
+    /// The move sheet hands the destination back synchronously so this editor
+    /// owns the complete capture, persist-or-park, and move transaction. Delete
+    /// can then cancel/await that exact task and, if the move already committed,
+    /// target its final id.
+    private func moveNote(to folder: String) {
+        let previous = moveTask
+        let pendingRename = renameTask
+        let pendingAdoption = adoptionTask
+        isMoveCommitting = true
+        moveTask = Task { @MainActor in
+            defer {
+                if !isClosing { isMoveCommitting = false }
+            }
+            await previous?.value
+            await pendingRename?.value
+            await pendingAdoption?.value
+            guard !Task.isCancelled, !isClosing else { return }
+
+            let pendingSave = saveTask
+            pendingSave?.cancel()
+            await pendingSave?.value
+
+            guard let flushed = await EditorHost.shared.captureCurrentContent() else {
+                store.showTransient(
+                    "Couldn't read the latest note. Move is paused while your changes remain pending."
+                )
+                return
+            }
+            content = flushed
+
+            var sourceId = noteId
+            if flushed != savedContent {
+                let disposition = await store.flushDraft(
+                    PendingDraft(id: sourceId, base: savedContent, content: flushed))
+                guard let disposition else {
+                    store.showTransient(
+                        "Couldn't save note. Move is paused while your changes remain pending."
+                    )
+                    return
+                }
+                savedContent = flushed
+                sourceId = editorMoveSourceId(currentId: sourceId, disposition: disposition)
+                if sourceId != noteId {
+                    noteId = sourceId
+                    titleField = splitId(id: sourceId).title
+                }
+            }
+
+            let outcome = await store.moveNote(sourceId, toFolder: folder)
+            switch outcome {
+            case .committed(let finalId):
+                // Apply even if delete set `isClosing` while the actor call was in
+                // flight. Delete awaits this task and must see the committed id.
+                noteId = finalId
+                titleField = splitId(id: finalId).title
+            case .failed:
+                if !isClosing {
+                    store.showTransient("Couldn't move note. It remains in its current folder.")
+                }
+            }
         }
     }
 
@@ -626,22 +853,159 @@ struct NoteEditorView: View {
     /// path FIRST (a write after the delete would resurrect the file — the Rust
     /// write creates files unconditionally), then delete and pop the editor.
     private func deleteNote() {
+        let pendingSave = saveTask
+        let pendingRename = renameTask
+        let pendingAdoption = adoptionTask
+        let pendingMove = moveTask
         saveTask?.cancel()
         renameTask?.cancel()
+        adoptionTask?.cancel()
+        moveTask?.cancel()
         // Latch closing so the local delete's reload doesn't trip the peer-delete
         // path (adoptExternalChange → handleOpenNoteDeleted).
         isClosing = true
-        // Mark the draft clean so both the derived register (content==savedContent
-        // → nil) and onDisappear's flush are no-ops; the file won't be resurrected.
-        savedContent = content
-        // Publish SYNCHRONOUSLY to clear this editor's register entry NOW. The
-        // register still holds the last dirty publish until onDisappear releases
-        // the token; a background landing in that sub-frame window would otherwise
-        // flush → skippedMissing → recreate the note the user just deleted (the
-        // unconditional recreate un-deletes it). Same fix pattern as N1.
-        publishDraft()
-        store.delete(noteId)
-        if !navPath.isEmpty { navPath.removeLast() }
+        closingContent = nil
+        EditorHost.shared.blur()
+        Task { @MainActor in
+            await pendingSave?.value
+            await pendingRename?.value
+            await pendingAdoption?.value
+            await pendingMove?.value
+
+            let capturedContent = await EditorHost.shared.captureCurrentContent()
+            guard let capturedDeleteContent = editorDeleteContent(
+                capturedContent: capturedContent,
+                quarantinedContent: closingContent
+            ) else {
+                content = closingContent ?? content
+                closingContent = nil
+                isClosing = false
+                presentWithoutAnimation { showDeleteConfirm = false }
+                publishDraft()
+                if content != savedContent { scheduleSave(content) }
+                store.showTransient(
+                    "Couldn't read the latest note. Delete is paused while your changes remain pending."
+                )
+                return
+            }
+
+            var finalContent = capturedDeleteContent
+            closingContent = nil
+            while true {
+                let hasPendingChanges = finalContent != savedContent
+                let writeOutcome = hasPendingChanges
+                    ? await store.write(noteId, content: finalContent)
+                    : nil
+                if let writeOutcome {
+                    savedContent = confirmedSavedContent(
+                        previousSavedContent: savedContent,
+                        writtenContent: finalContent,
+                        outcome: writeOutcome
+                    )
+                }
+                guard shouldContinueDeleteAfterEditorWrite(
+                    hasPendingChanges: hasPendingChanges,
+                    outcome: writeOutcome
+                ) else {
+                    content = closingContent ?? finalContent
+                    closingContent = nil
+                    isClosing = false
+                    presentWithoutAnimation { showDeleteConfirm = false }
+                    publishDraft()
+                    scheduleSave(content)
+                    store.showTransient(
+                        "Couldn't save note. Delete is paused while your changes remain pending."
+                    )
+                    return
+                }
+                guard let laterContent = closingContent else { break }
+                closingContent = nil
+                finalContent = laterContent
+            }
+
+            content = finalContent
+            savedContent = finalContent
+            // Clear the draft register only after every dirty snapshot commits.
+            // A retained draft cannot then recreate the note after Delete.
+            publishDraft()
+            let outcome = await store.delete(noteId)
+            if case .committed = outcome {
+                closingContent = nil
+                EditorHost.shared.invalidateAsyncCompletions()
+                presentWithoutAnimation { showDeleteConfirm = false }
+                if !navPath.isEmpty { navPath.removeLast() }
+            } else {
+                let lateContent = closingContent
+                closingContent = nil
+                isClosing = false
+                if let lateContent {
+                    content = lateContent
+                    scheduleSave(lateContent)
+                }
+                presentWithoutAnimation { showDeleteConfirm = false }
+                publishDraft()
+                store.showTransient("Couldn't delete note. It remains in your notes.")
+            }
+        }
+    }
+
+    /// Coalesce live-reload signals without abandoning an older in-flight
+    /// engine flush. The latest task represents the whole predecessor chain,
+    /// which lets local delete await every adoption before deleting last.
+    private func scheduleExternalAdoption() {
+        guard !isClosing else { return }
+        let previous = adoptionTask
+        previous?.cancel()
+        adoptionTask = Task { @MainActor in
+            await previous?.value
+            guard !Task.isCancelled, !isClosing else { return }
+            await adoptExternalChange()
+        }
+    }
+}
+
+enum EditorChangeDisposition: Equatable {
+    case ignore
+    case quarantine
+    case apply
+}
+
+func editorChangeDisposition(loaded: Bool, isClosing: Bool) -> EditorChangeDisposition {
+    if !loaded { return .ignore }
+    return isClosing ? .quarantine : .apply
+}
+
+func shouldFlushEditorOnDisappear(
+    loaded: Bool,
+    isClosing: Bool,
+    content: String,
+    savedContent: String
+) -> Bool {
+    loaded && !isClosing && content != savedContent
+}
+
+func shouldHandleEditorDisappear(isDeleteConfirmationPresented: Bool) -> Bool {
+    !isDeleteConfirmationPresented
+}
+
+func needsEditorCommitBeforeNavigation(
+    loaded: Bool,
+    content: String,
+    savedContent: String
+) -> Bool {
+    loaded && content != savedContent
+}
+
+func shouldCompleteEditorNavigation(_ disposition: FlushDisposition?) -> Bool {
+    disposition != nil
+}
+
+func editorMoveSourceId(currentId: String, disposition: FlushDisposition) -> String {
+    switch disposition {
+    case .parkedConflict(let parkedId):
+        return parkedId
+    case .wrote, .converged, .recreated:
+        return currentId
     }
 }
 

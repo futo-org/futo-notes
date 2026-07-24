@@ -1,65 +1,134 @@
 use std::collections::HashSet;
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use futo_notes_core::conflict_names::{collision_conflict_filename, conflict_filename};
-use futo_notes_core::files::{
-    file_mtime_ms, read_blob_as_base64, write_atomic_text, write_base64_as_blob,
-};
+use futo_notes_core::files::file_mtime_ms;
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::{is_image_filename, is_syncable_filename};
 
+use super::vault_fs;
 use super::PreWrite;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct LocalFile {
     pub(super) name: String,
     pub(super) mtime: i64,
     pub(super) size: u64,
 }
 
-pub(super) fn local_files(root: &Path) -> Vec<LocalFile> {
-    fn walk(root: &Path, dir: &Path, files: &mut Vec<LocalFile>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let name = entry.file_name();
+struct ScanEntry {
+    path: PathBuf,
+    file_name: OsString,
+}
+
+struct ScanMetadata {
+    is_dir: bool,
+    is_symlink: bool,
+    mtime: i64,
+    size: u64,
+}
+
+trait FileScanner {
+    fn entries(&self, dir: &Path) -> std::io::Result<Vec<std::io::Result<ScanEntry>>>;
+    fn metadata(&self, path: &Path) -> std::io::Result<ScanMetadata>;
+}
+
+struct RealFileScanner;
+
+impl FileScanner for RealFileScanner {
+    fn entries(&self, dir: &Path) -> std::io::Result<Vec<std::io::Result<ScanEntry>>> {
+        Ok(std::fs::read_dir(dir)?
+            .map(|entry| {
+                entry.map(|entry| ScanEntry {
+                    path: entry.path(),
+                    file_name: entry.file_name(),
+                })
+            })
+            .collect())
+    }
+
+    fn metadata(&self, path: &Path) -> std::io::Result<ScanMetadata> {
+        let metadata = std::fs::symlink_metadata(path)?;
+        Ok(ScanMetadata {
+            is_dir: metadata.is_dir(),
+            is_symlink: metadata.file_type().is_symlink(),
+            mtime: file_mtime_ms(&metadata),
+            size: metadata.len(),
+        })
+    }
+}
+
+fn scan_error(operation: &str, path: &Path, error: std::io::Error) -> String {
+    format!(
+        "local vault scan failed to {operation} {}: {error}",
+        path.display()
+    )
+}
+
+fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<Vec<LocalFile>, String> {
+    fn walk(
+        root: &Path,
+        dir: &Path,
+        scanner: &impl FileScanner,
+        files: &mut Vec<LocalFile>,
+    ) -> Result<(), String> {
+        let entries = scanner
+            .entries(dir)
+            .map_err(|error| scan_error("read directory", dir, error))?;
+        for entry in entries {
+            let entry = entry.map_err(|error| scan_error("read entry in", dir, error))?;
+            let name = entry.file_name;
             if name.to_string_lossy().starts_with('.') {
                 continue;
             }
-            let path = entry.path();
-            if path.is_dir() {
-                walk(root, &path, files);
+            let metadata = scanner
+                .metadata(&entry.path)
+                .map_err(|error| scan_error("read metadata for", &entry.path, error))?;
+            if metadata.is_symlink {
                 continue;
             }
-            let Ok(relative) = path.strip_prefix(root) else {
+            if metadata.is_dir {
+                walk(root, &entry.path, scanner, files)?;
                 continue;
-            };
+            }
+            let relative = entry.path.strip_prefix(root).map_err(|error| {
+                format!(
+                    "local vault scan found path outside {}: {} ({error})",
+                    root.display(),
+                    entry.path.display()
+                )
+            })?;
             let name = relative.to_string_lossy().replace('\\', "/");
             if !is_syncable_filename(&name) {
                 continue;
             }
-            if let Ok(metadata) = entry.metadata() {
-                files.push(LocalFile {
-                    name,
-                    mtime: file_mtime_ms(&metadata),
-                    size: metadata.len(),
-                });
-            }
+            files.push(LocalFile {
+                name,
+                mtime: metadata.mtime,
+                size: metadata.size,
+            });
         }
+        Ok(())
     }
     let mut files = Vec::new();
-    walk(root, root, &mut files);
+    walk(root, root, scanner, &mut files)?;
     files.sort_by(|left, right| left.name.cmp(&right.name));
-    files
+    Ok(files)
+}
+
+pub(super) fn local_files(root: &Path) -> Result<Vec<LocalFile>, String> {
+    local_files_with(root, &RealFileScanner)
 }
 
 pub(super) fn read_content(root: &Path, name: &str) -> Result<String, String> {
-    let path = root.join(name);
+    let bytes = vault_fs::read(root, name)?;
     if is_image_filename(name) {
-        read_blob_as_base64(&path)
+        Ok(BASE64.encode(bytes))
     } else {
-        std::fs::read_to_string(path).map_err(|error| error.to_string())
+        String::from_utf8(bytes).map_err(|error| error.to_string())
     }
 }
 
@@ -70,21 +139,27 @@ pub(super) fn write_content(
     pre_write: &PreWrite,
 ) -> Result<(), String> {
     pre_write(name);
-    let path = root.join(name);
-    if is_image_filename(name) {
-        write_base64_as_blob(&path, content)
+    let bytes = if is_image_filename(name) {
+        BASE64
+            .decode(content)
+            .map_err(|error| format!("invalid base64 image: {error}"))?
     } else {
-        write_atomic_text(&path, content)
-    }
+        content.as_bytes().to_vec()
+    };
+    vault_fs::write_atomic(root, name, &bytes)
 }
 
 pub(super) fn remove_local(root: &Path, name: &str, pre_write: &PreWrite) -> Result<bool, String> {
     pre_write(name);
-    match std::fs::remove_file(root.join(name)) {
-        Ok(()) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error.to_string()),
-    }
+    vault_fs::remove(root, name)
+}
+
+pub(super) fn path_exists(root: &Path, name: &str) -> Result<bool, String> {
+    vault_fs::exists(root, name)
+}
+
+pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
+    vault_fs::rename(root, source, destination)
 }
 
 pub(super) fn conflict_date() -> String {
@@ -98,8 +173,8 @@ pub(super) fn park_local(
     pre_write: &PreWrite,
 ) -> Result<String, String> {
     let mut target = collision_conflict_filename(name, object_id);
-    if root.join(&target).exists() {
-        let names: HashSet<_> = local_files(root)
+    if path_exists(root, &target)? {
+        let names: HashSet<_> = local_files(root)?
             .into_iter()
             .map(|file| file.name)
             .collect();
@@ -107,10 +182,9 @@ pub(super) fn park_local(
     }
     pre_write(name);
     pre_write(&target);
-    if let Some(parent) = root.join(&target).parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    if !rename_local(root, name, &target)? {
+        return Err(format!("rename source disappeared: {name}"));
     }
-    std::fs::rename(root.join(name), root.join(&target)).map_err(|error| error.to_string())?;
     Ok(target)
 }
 
@@ -118,4 +192,227 @@ pub(super) fn content_hash(root: &Path, name: &str) -> Option<String> {
     read_content(root, name)
         .ok()
         .map(|content| hash_sha256(&content))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
+
+    struct TempRoot(PathBuf);
+
+    impl TempRoot {
+        fn new() -> Self {
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "futo-sync-vault-test-{}-{n}",
+                futo_notes_core::files::now_ms()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+    }
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    enum Fault {
+        ReadDirectory(PathBuf),
+        ReadEntry(PathBuf),
+        Metadata(PathBuf),
+    }
+
+    struct FaultingScanner {
+        fault: Fault,
+    }
+
+    impl FileScanner for FaultingScanner {
+        fn entries(&self, dir: &Path) -> std::io::Result<Vec<std::io::Result<ScanEntry>>> {
+            match &self.fault {
+                Fault::ReadDirectory(path) if path == dir => {
+                    Err(std::io::Error::other("injected read_dir failure"))
+                }
+                Fault::ReadEntry(path) if path == dir => {
+                    Ok(vec![Err(std::io::Error::other("injected entry failure"))])
+                }
+                _ => RealFileScanner.entries(dir),
+            }
+        }
+
+        fn metadata(&self, path: &Path) -> std::io::Result<ScanMetadata> {
+            match &self.fault {
+                Fault::Metadata(failed) if failed == path => {
+                    Err(std::io::Error::other("injected metadata failure"))
+                }
+                _ => RealFileScanner.metadata(path),
+            }
+        }
+    }
+
+    #[test]
+    fn scan_reports_root_directory_failure() {
+        let root = TempRoot::new();
+        let error = local_files_with(
+            &root.0,
+            &FaultingScanner {
+                fault: Fault::ReadDirectory(root.0.clone()),
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("read directory"));
+        assert!(error.contains(root.0.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn scan_reports_nested_directory_failure() {
+        let root = TempRoot::new();
+        let nested = root.0.join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let error = local_files_with(
+            &root.0,
+            &FaultingScanner {
+                fault: Fault::ReadDirectory(nested.clone()),
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("read directory"));
+        assert!(error.contains(nested.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn scan_reports_directory_entry_failure() {
+        let root = TempRoot::new();
+        let error = local_files_with(
+            &root.0,
+            &FaultingScanner {
+                fault: Fault::ReadEntry(root.0.clone()),
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("read entry"));
+        assert!(error.contains(root.0.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn scan_reports_metadata_failure() {
+        let root = TempRoot::new();
+        let note = root.0.join("note.md");
+        std::fs::write(&note, "body").unwrap();
+        let error = local_files_with(
+            &root.0,
+            &FaultingScanner {
+                fault: Fault::Metadata(note.clone()),
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("read metadata"));
+        assert!(error.contains(note.to_string_lossy().as_ref()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_never_follows_file_or_directory_symlinks_outside_the_vault() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempRoot::new();
+        let outside = TempRoot::new();
+        std::fs::write(outside.0.join("secret.md"), "outside").unwrap();
+        symlink(outside.0.join("secret.md"), root.0.join("linked-file.md")).unwrap();
+        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
+
+        let names = local_files(&root.0)
+            .unwrap()
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        assert!(
+            names.is_empty(),
+            "symlinked paths leaked into sync: {names:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_reads_never_follow_file_or_parent_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempRoot::new();
+        let outside = TempRoot::new();
+        let secret = outside.0.join("secret.md");
+        std::fs::write(&secret, "outside").unwrap();
+        symlink(&secret, root.0.join("linked-file.md")).unwrap();
+        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
+
+        assert!(read_content(&root.0, "linked-file.md").is_err());
+        assert!(read_content(&root.0, "linked-directory/secret.md").is_err());
+        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_writes_never_follow_symlinked_parents() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempRoot::new();
+        let outside = TempRoot::new();
+        let secret = outside.0.join("secret.md");
+        std::fs::write(&secret, "outside").unwrap();
+        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
+
+        assert!(write_content(
+            &root.0,
+            "linked-directory/secret.md",
+            "replacement",
+            &|_| {}
+        )
+        .is_err());
+        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_removals_never_follow_symlinked_parents() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempRoot::new();
+        let outside = TempRoot::new();
+        let secret = outside.0.join("secret.md");
+        std::fs::write(&secret, "outside").unwrap();
+        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
+
+        assert!(remove_local(&root.0, "linked-directory/secret.md", &|_| {}).is_err());
+        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_renames_never_follow_symlinked_parents() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempRoot::new();
+        let outside = TempRoot::new();
+        let secret = outside.0.join("secret.md");
+        std::fs::write(&secret, "outside").unwrap();
+        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
+
+        assert!(park_local(
+            &root.0,
+            "linked-directory/secret.md",
+            "outside-object",
+            &|_| {}
+        )
+        .is_err());
+        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
+        assert_eq!(std::fs::read_dir(&outside.0).unwrap().count(), 1);
+    }
 }
