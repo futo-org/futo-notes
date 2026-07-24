@@ -117,7 +117,9 @@ export class TableEditorWidget extends WidgetType {
     const structural = prevRowCount !== rowCount || prevColCount !== colCount;
 
     if (structural) {
-      table.replaceChildren();
+      // textContent = '' (not replaceChildren, which is Chromium 86) so the
+      // table rebuild runs on older Android WebViews too (github#8).
+      table.textContent = '';
       this.cellEls = [];
       this.headerEls = [];
       this.buildHead(table, t);

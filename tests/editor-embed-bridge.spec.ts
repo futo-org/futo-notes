@@ -1,6 +1,9 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { test as base, expect, type Page } from '@playwright/test';
 
-import { EDITOR_URL } from './editorEmbedBundle';
+import { EDITOR_BUNDLE_PATH, EDITOR_URL } from './editorEmbedBundle';
 
 /**
  * futoBridge v6 protocol contract — executable.
@@ -520,6 +523,154 @@ test('setTheme flips the documentElement theme attribute', async ({ page }) => {
 
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setTheme('light'));
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+});
+
+// ============================================================
+// Legacy WebView (Chromium < 99) theme fallback — github#8
+// ============================================================
+//
+// Non-updated Android 8-10 system WebViews predate @layer support and drop
+// EVERY rule inside Tailwind's @layer blocks — including the theme variables
+// and the body/.cm-editor text color. Both native hosts render the editor
+// web view transparent over a native surface, so in dark mode the lost text
+// color degrades to UA black-on-dark: invisible notes. These tests emulate
+// that engine class exactly (an engine without @layer ignores those rules
+// wholesale) by stripping every @layer statement/block from the bundle's CSS,
+// and assert the unlayered fallback in editor.html keeps text legible in both
+// themes. Reproduced for real on Chromium 98 (r950370) headless, 2026-07-23.
+
+/**
+ * Remove `@layer a, b;` statements and balanced `@layer ... { ... }` blocks.
+ * Comments go first (a browser ignores them; the scanner must too — the
+ * editor.html inline style talks ABOUT @layer in prose).
+ */
+function stripCssLayerRules(rawCss: string): string {
+  const css = rawCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  let out = '';
+  let i = 0;
+  for (;;) {
+    const at = css.indexOf('@layer', i);
+    if (at === -1) {
+      out += css.slice(i);
+      return out;
+    }
+    out += css.slice(i, at);
+    let j = at + '@layer'.length;
+    while (j < css.length && css[j] !== '{' && css[j] !== ';') j++;
+    if (css[j] === ';') {
+      i = j + 1;
+      continue;
+    }
+    let depth = 0;
+    do {
+      if (css[j] === '{') depth++;
+      else if (css[j] === '}') depth--;
+      j++;
+    } while (j < css.length && depth > 0);
+    i = j;
+  }
+}
+
+/** The bundle as a pre-@layer engine sees it: all layered CSS discarded. */
+function writeLegacyWebViewBundle(): string {
+  const html = readFileSync(EDITOR_BUNDLE_PATH, 'utf8');
+  const stripped = html.replace(
+    /<style([^>]*)>([\s\S]*?)<\/style>/g,
+    (_m, attrs: string, css: string) => `<style${attrs}>${stripCssLayerRules(css)}</style>`,
+  );
+  const legacyPath = path.join(path.dirname(EDITOR_BUNDLE_PATH), 'editor-legacy-webview-test.html');
+  writeFileSync(legacyPath, stripped);
+  return `file://${legacyPath}`;
+}
+
+// Expected text colors come from the theme tokens so this spec can never
+// drift from src/styles/theme.css.
+function themeTextColor(theme: 'light' | 'dark'): string {
+  const css = readFileSync(path.resolve('src/styles/theme.css'), 'utf8');
+  const scope =
+    theme === 'dark'
+      ? css.slice(css.indexOf("[data-theme='dark']"))
+      : css.slice(0, css.indexOf("[data-theme='dark']"));
+  const hex = /--color-text:\s*#([0-9a-fA-F]{6})/.exec(scope)?.[1];
+  if (!hex) throw new Error(`--color-text (${theme}) not found in src/styles/theme.css`);
+  const [r, g, b] = [0, 2, 4].map((o) => parseInt(hex.slice(o, o + 2), 16));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+async function editorContentColor(
+  browser: import('@playwright/test').Browser,
+  url: string,
+  theme: 'light' | 'dark',
+): Promise<string> {
+  const context = await browser.newContext({ hasTouch: true });
+  await context.addInitScript(installFakeAndroidHost);
+  const page = await context.newPage();
+  await page.goto(url);
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+  );
+  await page.evaluate((t) => {
+    const w = window as unknown as FakeHostWindow;
+    w.FutoEditor.setTheme(t);
+    w.FutoEditor.setContent('legible text probe');
+  }, theme);
+  await flushFrames(page);
+  const color = await page.locator('.cm-content').evaluate((el) => getComputedStyle(el).color);
+  await context.close();
+  return color;
+}
+
+test('legacy WebView (no @layer): dark theme text keeps the dark token color', async ({
+  browser,
+}) => {
+  const url = writeLegacyWebViewBundle();
+  expect(await editorContentColor(browser, url, 'dark')).toBe(themeTextColor('dark'));
+});
+
+test('legacy WebView (no @layer): light theme text keeps the light token color', async ({
+  browser,
+}) => {
+  const url = writeLegacyWebViewBundle();
+  expect(await editorContentColor(browser, url, 'light')).toBe(themeTextColor('light'));
+});
+
+test('modern engine: the unlayered fallback does not fight the layered theme', async ({
+  browser,
+}) => {
+  expect(await editorContentColor(browser, EDITOR_URL, 'dark')).toBe(themeTextColor('dark'));
+  expect(await editorContentColor(browser, EDITOR_URL, 'light')).toBe(themeTextColor('light'));
+});
+
+// Regression guard for the Chromium 80–84 compatibility branch (github#8). The
+// Playwright engine has a native String.prototype.replaceAll, so the editor.html
+// shim is otherwise never exercised. Delete the native method before any page
+// script runs (as a pre-85 WebView lacks it): Svelte 5's runtime calls it on
+// mount, so the editor only reaches `ready` and renders if the classic-script
+// shim restored it first. Remove the shim and this test times out at `ready`.
+test('legacy WebView (no native replaceAll): the editor.html shim lets the bundle mount', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ hasTouch: true });
+  await context.addInitScript(() => {
+    delete (String.prototype as { replaceAll?: unknown }).replaceAll;
+  });
+  await context.addInitScript(installFakeAndroidHost);
+  const page = await context.newPage();
+  await page.goto(EDITOR_URL);
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+  );
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setContent('legacy shim probe'),
+  );
+  await flushFrames(page);
+  await expect(page.locator('.cm-content')).toContainText('legacy shim probe');
+  // The shim fills in only when the method is missing, so its presence now
+  // proves the shim ran (not a native method that was never removed).
+  expect(
+    await page.evaluate(() => typeof (String.prototype as { replaceAll?: unknown }).replaceAll),
+  ).toBe('function');
+  await context.close();
 });
 
 test('setNativeToolbar(true) hides the embed web toolbar shown on focus', async ({ page }) => {

@@ -18,6 +18,27 @@ this file states the behaviors a human cares about.
   surface) shows through and the editor pane matches the surrounding UI in
   both light and dark. → editor.html, EditorWebView.swift, EditorWebView.kt,
   tests/editor-embed-bridge.spec.ts
+- Editor text stays legible on legacy Android system WebViews (Chromium < 99,
+  no `@layer` support — they drop every Tailwind-layered rule, including the
+  light theme tokens and the `body`/`.cm-editor` colors): editor.html carries
+  an unlayered inherited text-color fallback on `html`, resolving the dark
+  token via the unlayered `[data-theme='dark']` variables and falling back to
+  the literal light token. _(Android)_ → editor.html,
+  tests/editor-embed-bridge.spec.ts (legacy WebView tests)
+- The editor needs a System WebView of **Chromium 80 or newer**: the bundle
+  targets ES2020, an `editor.html` `String.prototype.replaceAll` shim covers
+  Chromium 80–84 (Svelte 5's runtime would otherwise throw), and the editor uses
+  `textContent = ''` rather than `Element.replaceChildren` (Chromium 86) in its
+  own DOM code so tables and the slash menu work down to the floor too. Below the
+  floor — or when there is no WebView provider at all — the shell shows a native
+  "update Android System WebView" notice in place of a blank editor pane; the
+  rest of the app (native list/search/settings) still works. _(Android)_ →
+  editor.html, slashMenuRenderer.ts, tableEditorWidget.ts, vite.editor.config.ts,
+  LegacyWebViewNotice.kt, NoteEditorScreen.kt
+- Minimum supported OS is **Android 9 (API 28)** — `minSdk 28`. This is an OS
+  floor independent of the System WebView (which updates through the store), so a
+  supported Android 9/10 device can still fall below the Chromium floor above and
+  get the update-WebView notice. _(Android)_ → apps/android/app/build.gradle.kts
 
 ## Live preview
 
@@ -542,3 +563,15 @@ EditorWebView.swift, EditorWebView.kt
     the only surviving artifact is the `WRY_RUSTWEBVIEW_CLASS_EXTENSION` override
     in `apps/tauri/src-tauri/.cargo/config.toml`, still marked DO-NOT-REMOVE for
     the Tauri-Android build path.)
+- Typing must be free of IME/caret glitches on every WebView the editor runs in.
+  _(Android)_
+  > **Gap:** on some old Android System WebViews (the Chromium 80–98 tier that
+  > runs the editor but predates `@layer`), users report the shift key re-arming
+  > after each character, the caret jumping to the start of the line after the
+  > first character, and content scrolling out of view while typing (github#8).
+  > These are CM6-on-old-engine input limitations. They did **not** reproduce on
+  > the Chromium-83 emulator even with FUTO Keyboard as the IME (per-keystroke,
+  > fast-burst, and glide typing all behaved), so the cause is likely
+  > physical-device IME timing or a specific WebView build. Unaddressed — the
+  > legacy-WebView work fixes the black-text half and the sub-floor blank-editor
+  > case, not these input glitches.
