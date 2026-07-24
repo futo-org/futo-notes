@@ -574,10 +574,17 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   local I/O failure into fleet-wide deletion of healthy remote objects. The
   scanner reads symlink metadata and never follows file or directory symlinks,
   so a vault link cannot upload content outside the selected root or recurse
-  through a directory cycle. The same fallible scanner is used by conflict/
-  tombstone copy naming; no sync call site receives a best-effort file list. →
-  futo-notes-sync `sync/vault.rs` + `sync/push.rs`; regression tests
-  `scan_reports_*`, `scan_never_follows_*`, and
+  through a directory cycle. On Unix platforms, every later note/blob read,
+  atomic write, remove, timestamp update, tombstone claim, and conflict
+  relocation resolves each parent from an open vault-root directory descriptor
+  with `NOFOLLOW`; a scan-to-use symlink swap therefore cannot escape the vault.
+  Other platforms reject symlinks observed while resolving the path, but do not
+  yet provide the same descriptor-relative race guarantee. The same fallible
+  scanner is used by conflict/tombstone copy naming; no sync call site receives
+  a best-effort file list. → futo-notes-sync `sync/vault.rs`,
+  `sync/vault_fs.rs`, and `sync/push.rs`; regression tests `scan_reports_*`,
+  `scan_never_follows_*`, `content_*_never_follow_*`,
+  `collision_placement_never_renames_*`, and
   `incomplete_root_scan_stops_before_remote_deletion`
 - **The persisted pull cursor never advances past changes we have actually
   pulled — even across a crash mid-push.** State carries TWO watermarks:

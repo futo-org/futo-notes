@@ -2,13 +2,14 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use futo_notes_core::conflict_names::{collision_conflict_filename, conflict_filename};
-use futo_notes_core::files::{
-    file_mtime_ms, read_blob_as_base64, write_atomic_text, write_base64_as_blob,
-};
+use futo_notes_core::files::file_mtime_ms;
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::{is_image_filename, is_syncable_filename};
 
+use super::vault_fs;
 use super::PreWrite;
 
 #[derive(Clone, Debug)]
@@ -123,11 +124,11 @@ pub(super) fn local_files(root: &Path) -> Result<Vec<LocalFile>, String> {
 }
 
 pub(super) fn read_content(root: &Path, name: &str) -> Result<String, String> {
-    let path = root.join(name);
+    let bytes = vault_fs::read(root, name)?;
     if is_image_filename(name) {
-        read_blob_as_base64(&path)
+        Ok(BASE64.encode(bytes))
     } else {
-        std::fs::read_to_string(path).map_err(|error| error.to_string())
+        String::from_utf8(bytes).map_err(|error| error.to_string())
     }
 }
 
@@ -138,21 +139,27 @@ pub(super) fn write_content(
     pre_write: &PreWrite,
 ) -> Result<(), String> {
     pre_write(name);
-    let path = root.join(name);
-    if is_image_filename(name) {
-        write_base64_as_blob(&path, content)
+    let bytes = if is_image_filename(name) {
+        BASE64
+            .decode(content)
+            .map_err(|error| format!("invalid base64 image: {error}"))?
     } else {
-        write_atomic_text(&path, content)
-    }
+        content.as_bytes().to_vec()
+    };
+    vault_fs::write_atomic(root, name, &bytes)
 }
 
 pub(super) fn remove_local(root: &Path, name: &str, pre_write: &PreWrite) -> Result<bool, String> {
     pre_write(name);
-    match std::fs::remove_file(root.join(name)) {
-        Ok(()) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error.to_string()),
-    }
+    vault_fs::remove(root, name)
+}
+
+pub(super) fn path_exists(root: &Path, name: &str) -> Result<bool, String> {
+    vault_fs::exists(root, name)
+}
+
+pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
+    vault_fs::rename(root, source, destination)
 }
 
 pub(super) fn conflict_date() -> String {
@@ -166,7 +173,7 @@ pub(super) fn park_local(
     pre_write: &PreWrite,
 ) -> Result<String, String> {
     let mut target = collision_conflict_filename(name, object_id);
-    if root.join(&target).exists() {
+    if path_exists(root, &target)? {
         let names: HashSet<_> = local_files(root)?
             .into_iter()
             .map(|file| file.name)
@@ -175,10 +182,9 @@ pub(super) fn park_local(
     }
     pre_write(name);
     pre_write(&target);
-    if let Some(parent) = root.join(&target).parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    if !rename_local(root, name, &target)? {
+        return Err(format!("rename source disappeared: {name}"));
     }
-    std::fs::rename(root.join(name), root.join(&target)).map_err(|error| error.to_string())?;
     Ok(target)
 }
 
@@ -329,6 +335,84 @@ mod tests {
             .map(|file| file.name)
             .collect::<Vec<_>>();
 
-        assert!(names.is_empty(), "symlinked paths leaked into sync: {names:?}");
+        assert!(
+            names.is_empty(),
+            "symlinked paths leaked into sync: {names:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_reads_never_follow_file_or_parent_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempRoot::new();
+        let outside = TempRoot::new();
+        let secret = outside.0.join("secret.md");
+        std::fs::write(&secret, "outside").unwrap();
+        symlink(&secret, root.0.join("linked-file.md")).unwrap();
+        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
+
+        assert!(read_content(&root.0, "linked-file.md").is_err());
+        assert!(read_content(&root.0, "linked-directory/secret.md").is_err());
+        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_writes_never_follow_symlinked_parents() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempRoot::new();
+        let outside = TempRoot::new();
+        let secret = outside.0.join("secret.md");
+        std::fs::write(&secret, "outside").unwrap();
+        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
+
+        assert!(write_content(
+            &root.0,
+            "linked-directory/secret.md",
+            "replacement",
+            &|_| {}
+        )
+        .is_err());
+        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_removals_never_follow_symlinked_parents() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempRoot::new();
+        let outside = TempRoot::new();
+        let secret = outside.0.join("secret.md");
+        std::fs::write(&secret, "outside").unwrap();
+        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
+
+        assert!(remove_local(&root.0, "linked-directory/secret.md", &|_| {}).is_err());
+        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_renames_never_follow_symlinked_parents() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempRoot::new();
+        let outside = TempRoot::new();
+        let secret = outside.0.join("secret.md");
+        std::fs::write(&secret, "outside").unwrap();
+        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
+
+        assert!(park_local(
+            &root.0,
+            "linked-directory/secret.md",
+            "outside-object",
+            &|_| {}
+        )
+        .is_err());
+        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
+        assert_eq!(std::fs::read_dir(&outside.0).unwrap().count(), 1);
     }
 }

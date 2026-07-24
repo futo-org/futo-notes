@@ -11,6 +11,7 @@ mod pull;
 mod push;
 mod tombstones;
 mod vault;
+mod vault_fs;
 
 use outcome::combine;
 pub use outcome::{

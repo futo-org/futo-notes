@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use futo_notes_core::files::{classify_incoming_sync_path, set_file_mtime_ms, IncomingSyncPath};
+use futo_notes_core::files::{classify_incoming_sync_path, IncomingSyncPath};
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::is_syncable_filename;
 
@@ -14,6 +14,7 @@ use super::encrypted_note::{decrypt, encrypt, object_state, state_from_remote};
 use super::outcome::{append_derived_renames, note_id, record_checkpoint_failure};
 use super::tombstones::recover_stale_claims;
 use super::vault::{local_files, read_content, write_content, LocalFile};
+use super::vault_fs;
 use super::{
     CycleFailure, FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind,
     SyncFailure, SyncProgress, SyncSummary,
@@ -238,7 +239,7 @@ fn reuse_unchanged_object(
     if let Some(server_mtime) = existing.mtime_ms {
         if server_mtime != file.mtime {
             (context.pre_write)(&file.name);
-            let _ = set_file_mtime_ms(&context.root.join(&file.name), server_mtime);
+            let _ = vault_fs::set_mtime_ms(context.root, &file.name, server_mtime);
         }
     }
     let mut entry = existing.clone();
@@ -298,7 +299,7 @@ async fn push_local_file(mut context: PushContext<'_>, file: &LocalFile, renamed
     if let Some((target, entry)) = result {
         if let Some(modified) = entry.mtime_ms {
             (context.pre_write)(&target);
-            let _ = set_file_mtime_ms(&context.root.join(&target), modified);
+            let _ = vault_fs::set_mtime_ms(context.root, &target, modified);
         }
         if target != file.name {
             context.state.object_map.remove(&file.name);
@@ -361,7 +362,7 @@ async fn apply_delete_conflict(
         .map_err(SyncErrorKind::Io)?;
     let remote_state = state_from_remote(&remote);
     if let Some(mtime) = remote_state.mtime_ms {
-        let _ = set_file_mtime_ms(&context.root.join(&target), mtime);
+        let _ = vault_fs::set_mtime_ms(context.root, &target, mtime);
     }
     context.state.object_map.remove(name);
     context

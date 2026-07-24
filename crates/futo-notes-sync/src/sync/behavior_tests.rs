@@ -408,6 +408,42 @@ fn collision_placement_reports_the_relocated_local_note_as_a_rename() {
     assert_eq!(summary.renamed[0].to_id, note_id(&conflict));
 }
 
+#[cfg(unix)]
+#[test]
+fn collision_placement_never_renames_through_a_symlinked_parent() {
+    use std::os::unix::fs::symlink;
+
+    let root = TempRoot::new();
+    let outside = TempRoot::new();
+    let ancestry = HashMap::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+    let outside_note = outside.path().join("note.md");
+    std::fs::write(&outside_note, "outside text").unwrap();
+    symlink(outside.path(), root.path().join("linked")).unwrap();
+    state.object_map.insert(
+        "linked/note.md".into(),
+        entry("z-local", Some(&hash_sha256("outside text"))),
+    );
+
+    assert!(apply_remote(
+        &mut state,
+        root.path(),
+        &remote("a-remote", "linked/note.md", "remote text"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .is_err());
+
+    assert_eq!(
+        std::fs::read_to_string(&outside_note).unwrap(),
+        "outside text"
+    );
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 1);
+}
+
 #[test]
 fn identical_content_collision_dedup_reports_no_rename() {
     let root = TempRoot::new();

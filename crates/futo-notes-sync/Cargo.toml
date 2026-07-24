@@ -16,3 +16,7 @@ serde_json = "1"
 thiserror = "1"
 url = "2.5"
 time = { version = "0.3", features = ["parsing"] }
+base64 = "0.22"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"] }

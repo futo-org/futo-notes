@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use futo_notes_core::files::{classify_incoming_sync_path, set_file_mtime_ms, IncomingSyncPath};
+use futo_notes_core::files::{classify_incoming_sync_path, IncomingSyncPath};
 use futo_notes_core::hash::hash_sha256;
 
 use crate::checkpoint::{self, Ancestry, ConnectedState};
@@ -13,7 +13,8 @@ use super::encrypted_note::{decrypt, state_from_remote, RemoteNote};
 use super::object_map::{mapped_name, object_is_current};
 use super::outcome::{append_derived_renames, note_id, record_checkpoint_failure};
 use super::tombstones::{apply_tombstone, recover_stale_claims};
-use super::vault::{content_hash, park_local, remove_local, write_content};
+use super::vault::{content_hash, park_local, path_exists, remove_local, write_content};
+use super::vault_fs;
 use super::{
     FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind, SyncFailure,
     SyncProgress, SyncSummary,
@@ -75,7 +76,7 @@ fn reconcile_bootstrap_ancestry(
             replace_unmapped_target: false,
         });
     };
-    if !context.root.join(old_name).exists() {
+    if !path_exists(context.root, old_name)? {
         return Ok(BootstrapAction::Continue {
             replace_unmapped_target: false,
         });
@@ -122,7 +123,7 @@ fn relocate_existing_mapping(
     if old_name == target {
         return Ok(());
     }
-    if context.root.join(&old_name).exists() {
+    if path_exists(context.root, &old_name)? {
         let expected = context
             .state
             .object_map
@@ -159,7 +160,7 @@ fn preserve_unmapped_target(
     remote_hash: &str,
     replace_unmapped_target: bool,
 ) -> Result<(), String> {
-    if !context.root.join(target).exists()
+    if !path_exists(context.root, target)?
         || context.state.object_map.contains_key(target)
         || replace_unmapped_target
     {
@@ -190,7 +191,7 @@ fn commit_remote_file(
     let modified = timestamp_ms(&remote.object.updated_at);
     if modified > 0 {
         (context.pre_write)(&target);
-        let _ = set_file_mtime_ms(&context.root.join(&target), modified);
+        let _ = vault_fs::set_mtime_ms(context.root, &target, modified);
     }
     context
         .state
