@@ -265,18 +265,15 @@ fn try_adopt_remote_conflict_winner(
     remote_name: &str,
     copy: &str,
     current: &Object,
-) {
-    if write_content(
+) -> Result<(), String> {
+    write_content(
         context.root,
         remote_name,
         &remote.content,
         context.pre_write,
-    )
-    .is_err()
-        || (remote_name != file.name
-            && remove_local(context.root, &file.name, context.pre_write).is_err())
-    {
-        return;
+    )?;
+    if remote_name != file.name {
+        remove_local(context.root, &file.name, context.pre_write)?;
     }
     let modified = timestamp_ms(&current.updated_at);
     let _ = vault_fs::set_mtime_ms(context.root, remote_name, modified);
@@ -292,6 +289,7 @@ fn try_adopt_remote_conflict_winner(
             to_id: note_id(remote_name),
         });
     }
+    Ok(())
 }
 
 async fn write_conflict_pair(
@@ -303,7 +301,15 @@ async fn write_conflict_pair(
     current: &Object,
 ) -> Option<(String, ObjectState)> {
     let copy = create_conflict_copy(context, file, local).await?;
-    try_adopt_remote_conflict_winner(context, file, remote, &remote_name, &copy, current);
+    if try_adopt_remote_conflict_winner(context, file, remote, &remote_name, &copy, current).is_err()
+    {
+        context.summary.failures.push(SyncFailure {
+            filename: file.name.clone(),
+            kind: FailureKind::Upload,
+            status_code: None,
+        });
+        return None;
+    }
     Some((remote_name, state_from_remote(remote)))
 }
 
