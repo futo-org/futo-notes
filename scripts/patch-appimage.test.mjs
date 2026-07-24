@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { rewriteForcedGdkBackend, stripBundledWaylandClients } from './patch-appimage.mjs';
+import {
+  patchAppImage,
+  rewriteForcedGdkBackend,
+  stripBundledWaylandClients,
+  verifySha256,
+} from './patch-appimage.mjs';
 
 const FORCED_GDK_BACKEND =
   'export GDK_BACKEND=x11 # Crash with Wayland backend on Wayland - We tested it without it and ended up with this: https://github.com/tauri-apps/tauri/issues/8541';
@@ -100,5 +106,64 @@ describe('stripBundledWaylandClients', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('AppImage patch orchestration', () => {
+  it('extracts, rewrites, strips, and repacks without exposing signing secrets', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'futo-appimage-flow-test-'));
+    const target = join(root, 'FUTO-Notes.AppImage');
+    const childEnvironments = [];
+    try {
+      await writeFile(target, 'unpatched');
+
+      await patchAppImage(target, {
+        environment: {
+          PATH: '/usr/bin',
+          TAURI_SIGNING_PRIVATE_KEY: 'production-secret',
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: 'production-password',
+        },
+        ensureTool: async () => '/pinned/appimagetool',
+        execute(command, args, options) {
+          childEnvironments.push(options.env);
+          if (command === target) {
+            const hook = join(root, 'squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh');
+            const library = join(root, 'squashfs-root/usr/lib/libwayland-client.so.0');
+            mkdirSync(dirname(hook), { recursive: true });
+            mkdirSync(dirname(library), { recursive: true });
+            writeFileSync(hook, TAURI_BUNDLER_GTK_HOOK);
+            writeFileSync(library, 'bundled');
+            return;
+          }
+
+          expect(command).toBe('/pinned/appimagetool');
+          const extractDir = args[0];
+          const hook = readFileSync(
+            join(extractDir, 'apprun-hooks/linuxdeploy-plugin-gtk.sh'),
+            'utf8',
+          );
+          expect(hook).toContain(PREFERRED_GDK_BACKEND);
+          expect(hook).not.toContain(FORCED_GDK_BACKEND);
+          expect(existsSync(join(extractDir, 'usr/lib/libwayland-client.so.0'))).toBe(false);
+          writeFileSync(args[1], 'repacked');
+        },
+      });
+
+      expect(readFileSync(target, 'utf8')).toBe('repacked');
+      expect(childEnvironments).toHaveLength(2);
+      for (const environment of childEnvironments) {
+        expect(environment.PATH).toBe('/usr/bin');
+        expect(environment.TAURI_SIGNING_PRIVATE_KEY).toBeUndefined();
+        expect(environment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD).toBeUndefined();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects tool bytes that do not match the pinned checksum', () => {
+    expect(() => verifySha256(Buffer.from('downloaded bytes'), '0'.repeat(64))).toThrow(
+      /appimagetool checksum mismatch/,
+    );
   });
 });

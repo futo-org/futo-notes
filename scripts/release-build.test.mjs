@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
+  buildOne,
   bumpPatch,
   finalizeAppImageArtifact,
   hostTarget,
@@ -109,6 +110,50 @@ describe('AppImage artifact finalization', () => {
       ['patch', '/bundle/appimage'],
       ['sign', '/bundle/appimage/FUTO-Notes.AppImage', 'prod'],
     ]);
+  });
+
+  it('the production build workflow patches before accepting and verifying the final signature', () => {
+    const artifact = '/bundle/appimage/FUTO-Notes.AppImage';
+    const events = [];
+
+    const result = buildOne(
+      { profile: 'prod', version: '1.2.3' },
+      {
+        target: {
+          platform: 'linux-x86_64',
+          bundle: 'appimage',
+          dir: '/bundle/appimage',
+          suffix: '.AppImage',
+          patchAppImage: true,
+        },
+        setBuildVersion: (version) => events.push(['version', version]),
+        removeBundle: (dir) => events.push(['remove', dir]),
+        executeBuild: () => events.push(['build']),
+        locateArtifact: () => artifact,
+        finalizeArtifact: ({ dir, artifact: finalArtifact, profile }) =>
+          events.push(['finalize', dir, finalArtifact, profile]),
+        fileExists: (path) => path === `${artifact}.sig`,
+        getProfilePubkey: () => 'test-pubkey',
+        verifySignature: ({ artifactPath, sigPath }) => {
+          events.push(['verify', artifactPath, sigPath]);
+          return { ok: true };
+        },
+      },
+    );
+
+    expect(events).toEqual([
+      ['version', '1.2.3'],
+      ['remove', '/bundle/appimage'],
+      ['build'],
+      ['finalize', '/bundle/appimage', artifact, 'prod'],
+      ['verify', artifact, `${artifact}.sig`],
+    ]);
+    expect(result).toEqual({
+      platform: 'linux-x86_64',
+      artifact,
+      sig: `${artifact}.sig`,
+      suffix: '.AppImage',
+    });
   });
 
   it('fails when the required AppImage patch script is missing', () => {
