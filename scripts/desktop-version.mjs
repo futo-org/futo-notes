@@ -20,6 +20,12 @@ export function readTauriConfigVersion(confPath = TAURI_CONF) {
   return JSON.parse(readFileSync(confPath, 'utf8')).version;
 }
 
+export function resolveCiDesktopVersion(commitTag, confPath = TAURI_CONF) {
+  const version = commitTag ? commitTag.replace(/^v/, '') : readTauriConfigVersion(confPath);
+  assertSemver(version);
+  return version;
+}
+
 export function setTauriConfigVersion(version, confPath = TAURI_CONF) {
   assertSemver(version);
   const conf = JSON.parse(readFileSync(confPath, 'utf8'));
@@ -95,6 +101,10 @@ export function restoreDesktopVersions(versions, paths = {}) {
 }
 
 function main(argv) {
+  if (argv[0] === '--resolve-ci') {
+    process.stdout.write(resolveCiDesktopVersion(argv[1] ?? ''));
+    return;
+  }
   const version = argv[0];
   if (!version) {
     process.stderr.write('usage: node scripts/desktop-version.mjs <semver>\n');

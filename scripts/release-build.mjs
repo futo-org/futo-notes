@@ -8,7 +8,7 @@
  *   2. signing   — the private key used at build time (TAURI_SIGNING_PRIVATE_KEY)
  *   3. verifying — the pubkey baked into the app (in the chosen config overlay)
  *
- * Everything downstream — createUpdaterArtifacts signing, the mesa-patch→re-sign
+ * Everything downstream — createUpdaterArtifacts signing, the AppImage-patch→re-sign
  * ordering, manifest assembly (build-updater-manifest.mjs), and the client's
  * check→download→verify→swap→relaunch — is identical.
  *
@@ -93,18 +93,25 @@ const PROFILES = {
  *  password; the empty passphrase the minisign format requires is supplied inline
  *  (`signer sign -p ""`, `cargo tauri build --ci`) so there is no password
  *  variable to manage. */
-function signingEnv(profile) {
+function signingEnv(profile, environment = process.env) {
   const p = PROFILES[profile];
   if (p.keyPath) {
     if (!existsSync(p.keyPath))
       die(
         `localdev signing key missing at ${p.keyPath} (regenerate: cargo tauri signer generate -w ${p.keyPath} -p "" -f --ci)`,
       );
-    return { ...process.env, TAURI_SIGNING_PRIVATE_KEY: readFileSync(p.keyPath, 'utf8') };
+    const signingEnvironment = {
+      ...environment,
+      TAURI_SIGNING_PRIVATE_KEY: readFileSync(p.keyPath, 'utf8'),
+    };
+    delete signingEnvironment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+    return signingEnvironment;
   }
-  if (!process.env.TAURI_SIGNING_PRIVATE_KEY)
+  if (!environment.TAURI_SIGNING_PRIVATE_KEY)
     die('prod profile requires TAURI_SIGNING_PRIVATE_KEY in the environment (CI secret)');
-  return { ...process.env };
+  const signingEnvironment = { ...environment };
+  delete signingEnvironment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+  return signingEnvironment;
 }
 
 // ── Per-OS updater artifact shape ────────────────────────────────────────────
@@ -122,7 +129,7 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
         bundle: 'appimage',
         dir: join(ROOT, 'target', 'release', 'bundle', 'appimage'),
         suffix: '.AppImage',
-        mesaPatch: true,
+        patchAppImage: true,
       };
     case 'darwin':
       return {
@@ -130,7 +137,7 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
         bundle: 'app',
         dir: join(ROOT, 'target', 'release', 'bundle', 'macos'),
         suffix: '.app.tar.gz',
-        mesaPatch: false,
+        patchAppImage: false,
       };
     case 'win32':
       return {
@@ -138,11 +145,34 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
         bundle: 'nsis',
         dir: join(ROOT, 'target', 'release', 'bundle', 'nsis'),
         suffix: '-setup.exe',
-        mesaPatch: false,
+        patchAppImage: false,
       };
     default:
       return die(`unsupported platform: ${platform}`);
   }
+}
+
+export function buildConfigArguments(profile, target) {
+  const arguments_ = ['--config', PROFILES[profile].overlay];
+  if (target.patchAppImage) {
+    arguments_.push(
+      '--config',
+      JSON.stringify({
+        bundle: { createUpdaterArtifacts: false },
+      }),
+    );
+  }
+  return arguments_;
+}
+
+export function buildCommandEnvironment(profile, target, environment = process.env) {
+  if (!target.patchAppImage) {
+    return { ...signingEnv(profile, environment), NO_STRIP: 'true' };
+  }
+  const buildEnvironment = { ...environment, NO_STRIP: 'true' };
+  delete buildEnvironment.TAURI_SIGNING_PRIVATE_KEY;
+  delete buildEnvironment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+  return buildEnvironment;
 }
 
 function findArtifact(dir, suffix) {
@@ -155,7 +185,7 @@ function findArtifact(dir, suffix) {
 }
 
 /** Re-sign a file in place (regenerates `<file>.sig`). The detached updater
- *  signature must be the LAST touch — after the mesa patch (Linux) or any OS
+ *  signature must be the LAST touch — after the AppImage patch (Linux) or any OS
  *  signing/notarization step that rewrites the artifact bytes. */
 function resign(file, profile) {
   rmSync(`${file}.sig`, { force: true });
@@ -167,13 +197,30 @@ function resign(file, profile) {
   });
 }
 
-function mesaPatch(dir) {
-  const patch = join(ROOT, 'scripts', 'patch-appimage-mesa26.mjs');
-  if (!existsSync(patch)) {
-    log('mesa26 patch script absent — skipping');
-    return;
-  }
-  run('node', [patch, '--dir', dir]);
+export function patchAppImage(
+  dir,
+  {
+    scriptPath = join(ROOT, 'scripts', 'patch-appimage.mjs'),
+    environment = process.env,
+    execute = run,
+  } = {},
+) {
+  if (!existsSync(scriptPath)) die(`AppImage patch script missing at ${scriptPath}`);
+  const patchEnvironment = { ...environment };
+  delete patchEnvironment.TAURI_SIGNING_PRIVATE_KEY;
+  delete patchEnvironment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+  execute('node', [scriptPath, '--dir', dir], { env: patchEnvironment });
+}
+
+export function finalizeAppImageArtifact({
+  dir,
+  artifact,
+  profile,
+  patch = patchAppImage,
+  sign = resign,
+}) {
+  patch(dir);
+  sign(artifact, profile);
 }
 
 /** Stamp both desktop version sources: Tauri's generated package info reads
@@ -220,32 +267,43 @@ export const bumpPatch = (v) => {
  * there is no "reuse a stale artifact" path (cargo's incremental cache makes
  * rebuilds cheap enough).
  */
-function buildOne({ profile, version }) {
-  const t = hostTarget();
-  setVersion(version);
-  if (process.platform === 'linux') run('node', [join(ROOT, 'scripts', 'fetch-ort-linux.mjs')]);
-  rmSync(t.dir, { recursive: true, force: true });
+export function buildOne({ profile, version }, dependencies = {}) {
+  const t = dependencies.target ?? hostTarget();
+  const setBuildVersion = dependencies.setBuildVersion ?? setVersion;
+  const removeBundle =
+    dependencies.removeBundle ?? ((dir) => rmSync(dir, { recursive: true, force: true }));
+  const executeBuild =
+    dependencies.executeBuild ??
+    (() =>
+      run(
+        'cargo',
+        ['tauri', 'build', '--bundles', t.bundle, ...buildConfigArguments(profile, t), '--ci'],
+        {
+          cwd: TAURI_DIR,
+          env: buildCommandEnvironment(profile, t),
+        },
+      ));
+  const locateArtifact = dependencies.locateArtifact ?? findArtifact;
+  const finalizeArtifact = dependencies.finalizeArtifact ?? finalizeAppImageArtifact;
+  const fileExists = dependencies.fileExists ?? existsSync;
+  const getProfilePubkey = dependencies.getProfilePubkey ?? profilePubkey;
+  const verifySignature = dependencies.verifySignature ?? verifyArtifactFile;
+
+  setBuildVersion(version);
+  removeBundle(t.dir);
   // --ci: non-interactive + use the key's empty passphrase for createUpdaterArtifacts
   // (no password prompt, no password variable).
-  run(
-    'cargo',
-    ['tauri', 'build', '--bundles', t.bundle, '--config', PROFILES[profile].overlay, '--ci'],
-    {
-      cwd: TAURI_DIR,
-      env: { ...signingEnv(profile), NO_STRIP: 'true' },
-    },
-  );
-  const artifact = findArtifact(t.dir, t.suffix);
+  executeBuild();
+  const artifact = locateArtifact(t.dir, t.suffix);
   if (!artifact) die(`no ${t.suffix} produced in ${t.dir}`);
-  // Mesa patch rewrites the AppImage → its build-time .sig is now stale. Re-sign
+  // The AppImage patch rewrites the artifact → its build-time .sig is now stale. Re-sign
   // so the .sig matches the bytes the client downloads. (Same shape as the
   // Windows Authenticode / macOS notarize re-sign in CI.)
-  if (t.mesaPatch) {
-    mesaPatch(t.dir);
-    resign(artifact, profile);
+  if (t.patchAppImage) {
+    finalizeArtifact({ dir: t.dir, artifact, profile });
   }
   const sig = `${artifact}.sig`;
-  if (!existsSync(sig))
+  if (!fileExists(sig))
     die(
       `no ${t.suffix}.sig — is createUpdaterArtifacts on in ${PROFILES[profile].overlay} and the signing key valid?`,
     );
@@ -253,8 +311,8 @@ function buildOne({ profile, version }) {
   // client will. Catches the irreversible signing-key/baked-pubkey mismatch
   // (#1) and a stale/post-mutation .sig (#3) here, not as a silent client-side
   // rejection after publish. The localdev/e2e flow thus rehearses the real check.
-  const v = verifyArtifactFile({
-    pubkeyB64: profilePubkey(profile),
+  const v = verifySignature({
+    pubkeyB64: getProfilePubkey(profile),
     artifactPath: artifact,
     sigPath: sig,
   });

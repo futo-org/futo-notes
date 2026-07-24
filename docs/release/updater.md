@@ -11,7 +11,10 @@ in `keys/README.md`. This doc covers the build/release/CI wiring.
 
 One runner, `scripts/release-build.mjs --profile <localdev|prod>`, does the
 identical build→re-sign→`build-updater-manifest.mjs` chain; only three inputs
-differ (host endpoint, signing private key, baked verify pubkey):
+differ (host endpoint, signing private key, baked verify pubkey). Linux
+AppImages are built with updater-artifact generation disabled, so Cargo and
+dependency build scripts never receive the signing key; the key is supplied
+only to the final signer after patching:
 
 - **prod** — `tauri.updater-release.conf.json` (prod endpoint + pubkey from
   base), signed by `TAURI_SIGNING_PRIVATE_KEY` (CI secret). Artifacts + manifest
@@ -30,7 +33,12 @@ The localdev↔prod trust boundary (why the localdev key is safe to commit) is i
 signed updater artifact + `.sig` (minisign), which `release:` assembles into one
 `latest.json`. Per-OS the re-sign is always the LAST touch on the bytes:
 
-- **Linux** — build the AppImage keyless → mesa patch → `cargo tauri signer sign`.
+- **Linux** — build the AppImage keyless → AppImage patch (Mesa 26 library strip +
+  Wayland-backend hook rewrite) → `cargo tauri signer sign`. The patcher repacks
+  with a version-pinned, SHA-256-verified `appimagetool` and removes updater
+  signing variables from both its parent and every extract/repack child process.
+  It executes the same open file descriptor whose bytes passed verification,
+  rather than reopening the mutable cache pathname.
 - **Windows** — build the setup.exe keyless on the VM → `windows:sign` does
   Authenticode (jsign) → re-minisign via `npx @tauri-apps/cli signer sign` (so
   the signing key never reaches the Windows VM).
@@ -46,6 +54,15 @@ adds `latest.json` as a release asset with `filepath:/latest.json`, so the baked
 content — the key has no password; `-p ""` / `--ci` supply the empty passphrase
 the minisign format requires, so there is no password variable). `release:gate`
 blocks the release unless every `.sig` + the macOS `.app.tar.gz` are present.
+
+The manual MR form of `build:linux-appimage` cannot receive that protected
+variable. It signs and verifies its rehearsal artifact with the committed
+localdev fixture key instead. Production clients reject that signature by
+construction; tag pipelines continue to require and verify the production key.
+Tags stamp the tag version, while untagged MR rehearsals retain the checked-in
+desktop version. Before either build, CI removes only the generated
+`target/release/bundle/appimage` directory so a restored Cargo cache cannot add
+an older-version AppImage to the new output.
 
 ## Channel = stable only
 
@@ -76,11 +93,11 @@ instead of shipping a permanently-unupdateable client.
 
 ## Re-sign ordering (critical)
 
-The detached `.sig` must be the LAST touch on an artifact — after the Linux mesa
-patch and after macOS notarize / Windows Authenticode (jsign). `release-build.mjs`
-re-signs after the mesa patch; CI must re-sign after the OS-signing step. (The
-`release:` signature-verify step above is a second backstop: a `.sig` made before
-a byte-mutating step fails verification.)
+The detached `.sig` must be the LAST touch on an artifact — after the Linux
+AppImage patch and after macOS notarize / Windows Authenticode (jsign).
+`release-build.mjs` re-signs after the AppImage patch; CI must re-sign after the
+OS-signing step. The `release:` signature-verify step above is a second backstop:
+a `.sig` made before a byte-mutating step fails verification.
 
 ## Not yet validated end-to-end
 
@@ -101,7 +118,8 @@ localdev-key may appear), the stable-only channel-regex guard
 `scripts/release-channel.test.mjs`, the signature verifier
 `scripts/verify-updater-signature.test.mjs` (real localdev-signed fixture →
 verifies; prod pubkey / tampered bytes / corrupted key → rejected), and
-`scripts/{build-updater-manifest,release-build}.test.mjs`. All run in
+`scripts/{build-updater-manifest,release-build}.test.mjs`, including executable
+tag/MR signing-environment checks. All run in
 `test:unit:minimal` (so CI gates them). The real download→verify→swap→relaunch
 is a per-release manual smoke per OS (an OS-level op, not unit-testable) —
 `just updater-localdev` is the closest automated rehearsal.

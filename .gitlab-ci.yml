@@ -226,10 +226,11 @@ collect-secrets-from-op:
 .set-version:
   script:
     - |
-      VERSION="${CI_COMMIT_TAG#v}"
-      echo "VERSION=$VERSION" >> build.env
-      echo "Building version $VERSION from tag $CI_COMMIT_TAG"
-      node scripts/desktop-version.mjs "$VERSION"
+      VERSION="$(node "$CI_PROJECT_DIR/scripts/desktop-version.mjs" --resolve-ci "${CI_COMMIT_TAG:-}")"
+      test -n "$VERSION" || { echo "desktop version is empty"; exit 1; }
+      echo "VERSION=$VERSION" >> "$CI_PROJECT_DIR/build.env"
+      echo "Building desktop version $VERSION"
+      node "$CI_PROJECT_DIR/scripts/desktop-version.mjs" "$VERSION"
 
 # Clone the E2EE sync server (separate repo, public) and install its deps.
 # tests/lib/sync-test-server.mjs reads FUTO_NOTES_E2EE_SERVER_REPO to locate it.
@@ -361,10 +362,11 @@ collect-secrets-from-op:
 
 # Separate caches for the release Linux builds. Both packages (.deb/.rpm) and the
 # AppImage build on ubuntu:22.04 (glibc 2.35, wide forward-compat; jammy-security
-# WebKitGTK is new enough for the EGL platform API — the AppImage's Mesa 26 issue
-# is handled by scripts/patch-appimage-mesa26.mjs, not by a newer base). Test jobs
-# use the kitchensink image. Each base gets its own cache key — sharing a target/
-# across images wastes bandwidth and invalidates oddly.
+# WebKitGTK is new enough for the EGL platform API). The post-bundle pass in
+# scripts/patch-appimage.mjs strips the Mesa 26-incompatible Wayland library and
+# rewrites tauri-bundler's forced-X11 hook to prefer Wayland. Test jobs use the
+# kitchensink image. Each base gets its own cache key — sharing a target/ across
+# images wastes bandwidth and invalidates oddly.
 .cache-cargo-tauri-linux-packages:
   cache:
     key:
@@ -386,6 +388,7 @@ collect-secrets-from-op:
       - .cargo-home/
       - target/
     policy: pull-push
+    when: always
 
 .cache-playwright:
   cache:
@@ -950,6 +953,10 @@ build:linux-packages:
     - job: test
   image: ubuntu:22.04
   before_script: &linux-before-script
+    # Protected tag variables are present before setup begins. Preserve the
+    # updater key only as a non-exported shell value, then remove both signing
+    # variables before apt, curl, package managers, or build tools run.
+    - . "$CI_PROJECT_DIR/scripts/prepare-appimage-signing-environment.sh"
     - apt-get update
     - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates build-essential git file pkg-config
     - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
@@ -980,15 +987,14 @@ build:linux-packages:
     - if: $CI_COMMIT_TAG
 
 # AppImage bundles its entire userland (WebKitGTK, GLib, GStreamer, libwayland,
-# ...) and relies on the *host's* Mesa at runtime. The failure mode we hit on
-# Mesa 26 (CachyOS / Arch / Fedora 40+): linuxdeploy bundles the build base's
-# libwayland-client.so.0 into the AppImage, and that bundled copy mismatches
-# the host's libEGL — eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, …) fails
-# with "Could not create default EGL display: EGL_BAD_PARAMETER. Aborting…"
-# and WebKit exits before rendering. Confirmed reproducible on v1.2.0 against
-# CachyOS (Mesa 26.0.5). Fix: delete libwayland-client.so.0 from the AppImage
-# via scripts/patch-appimage-mesa26.mjs so the host's copy is used instead —
-# host libwayland and host libEGL always match because they ship together.
+# ...) and relies on the *host's* Mesa at runtime. The post-bundle patch handles
+# two launch failures. First, linuxdeploy bundles a libwayland-client.so.0 that
+# mismatches the host's Mesa 26 libEGL and aborts WebKit with EGL_BAD_PARAMETER;
+# deleting it makes host libwayland and host libEGL load together. Second,
+# tauri-bundler's GTK hook unconditionally exports GDK_BACKEND=x11; rewriting
+# that line makes unset environments prefer native Wayland with an X11 fallback
+# while preserving a user-selected backend. Both fixes live in
+# scripts/patch-appimage.mjs and ship in the same extract→modify→repack pass.
 #
 # Base is ubuntu:22.04 for the widest glibc floor (2.35). jammy-security
 # already ships WebKitGTK 2.50 (libwebkit2gtk-4.1 2.50.4-0ubuntu0.22.04.1),
@@ -1011,24 +1017,51 @@ build:linux-appimage:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - !reference [.set-version, script]
-    - cd apps/tauri && cargo tauri build --bundles appimage && cd ../..
-    # Strip the bundled libwayland-client.so.0 so the AppImage boots on Mesa 26.
-    # Script auto-downloads appimagetool if it isn't already on PATH.
-    - node scripts/patch-appimage-mesa26.mjs --dir target/release/bundle/appimage
-    # Updater signature — minisign the FINAL (mesa-patched) AppImage so the .sig
+    # A Cargo cache can restore an AppImage from an older version. Remove only
+    # the generated AppImage bundle directory and verify cleanup before build.
+    - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --clean-dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
+    - (cd "$CI_PROJECT_DIR/apps/tauri" && cargo tauri build --bundles appimage)
+    # Strip the incompatible libwayland client and prefer Wayland in the GTK hook.
+    # Script downloads a pinned appimagetool release and verifies its SHA-256.
+    - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
+    # Updater signature — minisign the FINAL (patched) AppImage so the .sig
     # matches the bytes clients download. MUST be the last touch on the artifact.
-    # TAURI_SIGNING_PRIVATE_KEY is a protected CI variable; the key has no password
-    # (-p "" supplies the empty passphrase). The .sig content is embedded into
-    # latest.json by the release: job.
+    # Tags use the protected production key. MR rehearsals cannot receive
+    # protected variables, so they sign and verify with the committed localdev
+    # fixture key, which production clients reject by construction.
     - |
-      test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }
-      for f in target/release/bundle/appimage/*.AppImage; do
-        cargo tauri signer sign -p "" "$f"
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        test -n "$RELEASE_SIGNING_KEY" || { echo "TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }
+        SIGNING_KEY="$RELEASE_SIGNING_KEY"
+        VERIFY_CONFIG="$CI_PROJECT_DIR/apps/tauri/src-tauri/tauri.conf.json"
+      else
+        SIGNING_KEY="$(cat "$CI_PROJECT_DIR/keys/localdev-updater.key")"
+        VERIFY_CONFIG="$CI_PROJECT_DIR/apps/tauri/src-tauri/tauri.updater-localdev.conf.json"
+        echo "MR rehearsal: signing with the non-production localdev fixture key"
+      fi
+
+      mapfile -d '' APPIMAGES < <(find "$CI_PROJECT_DIR/target/release/bundle/appimage" -maxdepth 1 -type f -name "*.AppImage" -print0)
+      if [ "${#APPIMAGES[@]}" -ne 1 ]; then
+        echo "expected exactly one AppImage, found ${#APPIMAGES[@]}"
+        exit 1
+      fi
+
+      for f in "${APPIMAGES[@]}"; do
+        (cd "$CI_PROJECT_DIR/apps/tauri" && TAURI_SIGNING_PRIVATE_KEY="$SIGNING_KEY" cargo tauri signer sign -p "" "$f")
+        test -f "$f.sig" || { echo "signing produced no $f.sig"; exit 1; }
+        VERIFY_KEY="$(node -e 'const fs = require("node:fs"); const c = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(c.plugins.updater.pubkey)' "$VERIFY_CONFIG")"
+        node "$CI_PROJECT_DIR/scripts/verify-updater-signature.mjs" \
+          --pubkey "$VERIFY_KEY" \
+          --artifact "$f" \
+          --sig "$f.sig"
       done
+      VERIFY_STATUS=$?
+      unset SIGNING_KEY RELEASE_SIGNING_KEY
+      exit "$VERIFY_STATUS"
   after_script:
     - |
       echo "=== Linux AppImage artifact ==="
-      find target/release/bundle -type f \( -name "*.AppImage" -o -name "*.AppImage.sig" \) 2>/dev/null
+      find "$CI_PROJECT_DIR/target/release/bundle" -type f \( -name "*.AppImage" -o -name "*.AppImage.sig" \) 2>/dev/null
   artifacts:
     paths:
       - target/release/bundle/appimage/*.AppImage
@@ -1036,6 +1069,16 @@ build:linux-appimage:
     expire_in: 4 weeks
   rules:
     - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - scripts/patch-appimage.mjs
+        - scripts/patch-appimage.test.mjs
+        - scripts/prepare-appimage-signing-environment.sh
+        - scripts/release-build.mjs
+        - scripts/release-build.test.mjs
+      when: manual
+      allow_failure: true
 
 # Rebuild the pre-baked Android CI image (JDK + SDK/NDK + Rust targets +
 # emulator + system image + desktop Tauri deps). Manual trigger only —

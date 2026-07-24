@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   readDesktopVersions,
+  resolveCiDesktopVersion,
   restoreDesktopVersions,
   setDesktopVersion,
   setTauriCargoVersion,
@@ -91,5 +92,17 @@ describe('desktop release version stamping', () => {
   it('rejects non-semver versions', () => {
     const paths = fixture();
     expect(() => setDesktopVersion('v1.6.0', paths)).toThrow(/invalid desktop version/);
+  });
+
+  it('uses the tag version in release pipelines', () => {
+    const paths = fixture();
+
+    expect(resolveCiDesktopVersion('v1.6.0', paths.confPath)).toBe('1.6.0');
+  });
+
+  it('uses the checked-in desktop version in untagged MR rehearsals', () => {
+    const paths = fixture();
+
+    expect(resolveCiDesktopVersion('', paths.confPath)).toBe('0.1.0');
   });
 });
