@@ -1055,7 +1055,9 @@ build:linux-appimage:
           --artifact "$f" \
           --sig "$f.sig"
       done
+      VERIFY_STATUS=$?
       unset SIGNING_KEY RELEASE_SIGNING_KEY
+      exit "$VERIFY_STATUS"
   after_script:
     - |
       echo "=== Linux AppImage artifact ==="

@@ -243,6 +243,31 @@ describe('AppImage CI rehearsal', () => {
     expect(job).toContain('scripts/patch-appimage.mjs" --clean-dir');
   });
 
+  it('leaves signature verification as the AppImage signing block exit status', () => {
+    const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
+    const job = ci.slice(
+      ci.indexOf('build:linux-appimage:'),
+      ci.indexOf('build:ci-android-image:'),
+    );
+    const signingBlock = job.slice(
+      job.indexOf('# Updater signature'),
+      job.indexOf('after_script:'),
+    );
+    const trailingCommands = signingBlock.slice(signingBlock.lastIndexOf('\n      done') + 11);
+
+    expect(signingBlock).toContain('scripts/verify-updater-signature.mjs');
+    expect(
+      trailingCommands
+        .trim()
+        .split('\n')
+        .map((line) => line.trim()),
+    ).toEqual([
+      'VERIFY_STATUS=$?',
+      'unset SIGNING_KEY RELEASE_SIGNING_KEY',
+      'exit "$VERIFY_STATUS"',
+    ]);
+  });
+
   it('falls back to the checked-in desktop version when an MR has no tag', () => {
     const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
     const setVersion = ci.slice(
