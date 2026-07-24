@@ -1,6 +1,31 @@
 import SwiftUI
 import UIKit
 
+struct RenameResolution {
+    let id: String
+    let committed: Bool
+}
+
+func resolvedRename(
+    currentId: String,
+    outcome: NoteMutationOutcome<String>
+) -> RenameResolution {
+    switch outcome {
+    case .committed(let finalId):
+        RenameResolution(id: finalId, committed: true)
+    case .failed:
+        RenameResolution(id: currentId, committed: false)
+    }
+}
+
+func editorDeleteContent(
+    capturedContent: String?,
+    quarantinedContent: String?
+) -> String? {
+    guard let capturedContent else { return nil }
+    return quarantinedContent ?? capturedContent
+}
+
 struct NoteEditorView: View {
     @EnvironmentObject private var store: NotesStore
     @Environment(\.colorScheme) private var colorScheme
@@ -16,7 +41,7 @@ struct NoteEditorView: View {
     @State private var savedContent = ""
     @State private var saveTask: Task<Void, Never>?
     /// Debounced inline-title rename (Android parity) — rescheduled per keystroke.
-    @State private var renameTask: Task<Void, Never>?
+    @State private var renameTask: Task<Bool, Never>?
     /// Consecutive adoption requests form one cancellation-aware chain. Waiting
     /// for the latest task therefore waits for every older in-flight flush too.
     @State private var adoptionTask: Task<Void, Never>?
@@ -386,8 +411,8 @@ struct NoteEditorView: View {
         previous?.cancel()
         renameTask = Task { @MainActor in
             await previous?.value
-            guard !Task.isCancelled, !isClosing else { return }
-            await applyRename(requestedTitle)
+            guard !Task.isCancelled, !isClosing else { return false }
+            return await applyRename(requestedTitle)
         }
     }
 
@@ -399,8 +424,8 @@ struct NoteEditorView: View {
         renameTask = Task { @MainActor in
             await previous?.value
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s debounce
-            if Task.isCancelled || isClosing { return }
-            await applyRename(newTitle)
+            if Task.isCancelled || isClosing { return false }
+            return await applyRename(newTitle)
         }
     }
 
@@ -413,20 +438,20 @@ struct NoteEditorView: View {
     /// a stale save (which captured the OLD id) would run after the rename and
     /// recreate a ghost note at the old path (write_note creates files
     /// unconditionally) — data loss. Mirrors Android's NoteEditorScreen.kt.
-    private func applyRename(_ rawTitle: String) async {
-        guard !isClosing else { return }
+    private func applyRename(_ rawTitle: String) async -> Bool {
+        guard !isClosing else { return false }
         let parts = splitId(id: noteId)
         let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         // Reject empty (sanitizeTitle would coerce to "Untitled" and lose the
         // note's identity).
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return true }
         // Block the rename while the title is illegal (dot/too-long — forbidden
         // chars are already stripped in the field) or would collide with an
         // existing note. The inline warning stays up; desktop parity.
-        guard validateTitle(title: trimmed).allSatisfy({ $0.kind == "empty" }) else { return }
-        guard !isDuplicateTitle(trimmed) else { return }
+        guard validateTitle(title: trimmed).allSatisfy({ $0.kind == "empty" }) else { return true }
+        guard !isDuplicateTitle(trimmed) else { return true }
         let sanitized = sanitizeTitle(title: trimmed)
-        guard sanitized != parts.title else { return }
+        guard sanitized != parts.title else { return true }
 
         saveTask?.cancel()
         // Snapshot the body BEFORE the suspending write and advance savedContent
@@ -445,13 +470,21 @@ struct NoteEditorView: View {
                 writtenContent: flushed,
                 outcome: outcome
             )
-            guard case .committed = outcome else { return }
+            guard case .committed = outcome else { return false }
         }
 
         let targetId = makeId(folder: parts.folder, title: sanitized)
-        let finalId = await store.rename(oldId: noteId, newId: targetId)
-        noteId = finalId
-        titleField = splitId(id: finalId).title
+        let resolution = resolvedRename(
+            currentId: noteId,
+            outcome: await store.rename(oldId: noteId, newId: targetId)
+        )
+        guard resolution.committed else {
+            store.showTransient("Couldn't rename note. Your title is still pending.")
+            return false
+        }
+        noteId = resolution.id
+        titleField = splitId(id: resolution.id).title
+        return true
     }
 
     /// Inline title editing (desktop parity): update the persistent warning for
@@ -683,11 +716,22 @@ struct NoteEditorView: View {
         let pendingAdoption = adoptionTask
         let pendingMove = moveTask
         navigationTask = Task { @MainActor in
-            await pendingRename?.value
             await pendingAdoption?.value
             await pendingMove?.value
             guard !Task.isCancelled, !isClosing else {
                 navigationTask = nil
+                return
+            }
+
+            var renameCommitted = await pendingRename?.value ?? true
+            if !renameCommitted {
+                renameCommitted = await applyRename(titleField)
+            }
+            guard renameCommitted else {
+                navigationTask = nil
+                store.showTransient(
+                    "Couldn't rename note. Navigation is paused while your title remains pending."
+                )
                 return
             }
 
@@ -828,7 +872,24 @@ struct NoteEditorView: View {
             await pendingAdoption?.value
             await pendingMove?.value
 
-            var finalContent = closingContent ?? content
+            let capturedContent = await EditorHost.shared.captureCurrentContent()
+            guard let capturedDeleteContent = editorDeleteContent(
+                capturedContent: capturedContent,
+                quarantinedContent: closingContent
+            ) else {
+                content = closingContent ?? content
+                closingContent = nil
+                isClosing = false
+                presentWithoutAnimation { showDeleteConfirm = false }
+                publishDraft()
+                if content != savedContent { scheduleSave(content) }
+                store.showTransient(
+                    "Couldn't read the latest note. Delete is paused while your changes remain pending."
+                )
+                return
+            }
+
+            var finalContent = capturedDeleteContent
             closingContent = nil
             while true {
                 let hasPendingChanges = finalContent != savedContent

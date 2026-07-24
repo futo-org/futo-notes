@@ -483,7 +483,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         scope.launch { delete(id) }
     }
 
-    suspend fun rename(oldId: String, newId: String): String {
+    suspend fun rename(oldId: String, newId: String): NoteMutationOutcome<String> {
         val identity = editorDraftCoordinator.beginIdentityMutation(oldId)
         val pendingFlushes = editorDraftTail
         return try {
@@ -495,11 +495,11 @@ class NotesStore(notesRoot: File, searchIndex: File) {
             editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
             editorDraftCoordinator.reopen(finalId)
             signalLocalChange()
-            finalId
+            NoteMutationOutcome.Committed(finalId)
         } catch (e: Exception) {
             editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
             android.util.Log.e("NotesStore", "rename failed", e)
-            oldId
+            NoteMutationOutcome.Failed
         }
     }
 

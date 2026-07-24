@@ -1,5 +1,6 @@
 package com.futo.notes.ui
 
+import com.futo.notes.NoteMutationOutcome
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -24,16 +25,30 @@ class EditorNavigationCommitTest {
     fun `navigation commits a valid title without waiting for the debounce`() = runBlocking {
         var renamed: Pair<String, String>? = null
 
-        val finalId = commitEditorTitleSnapshot(
+        val result = commitEditorTitleSnapshot(
             currentId = "Folder/Old title",
             targetId = "Folder/New title",
         ) { oldId, targetId ->
             renamed = oldId to targetId
-            targetId
+            NoteMutationOutcome.Committed(targetId)
         }
 
-        assertEquals("Folder/New title", finalId)
+        assertEquals("Folder/New title", result.id)
+        assertTrue(result.committed)
         assertEquals("Folder/Old title" to "Folder/New title", renamed)
+    }
+
+    @Test
+    fun `failed title rename keeps the current id and blocks navigation`() = runBlocking {
+        val result = commitEditorTitleSnapshot(
+            currentId = "Folder/Old title",
+            targetId = "Folder/New title",
+        ) { _, _ ->
+            NoteMutationOutcome.Failed
+        }
+
+        assertEquals("Folder/Old title", result.id)
+        assertFalse(result.committed)
     }
 
     @Test

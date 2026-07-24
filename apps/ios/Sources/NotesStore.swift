@@ -482,7 +482,7 @@ final class NotesStore: ObservableObject {
     }
 
     @discardableResult
-    func rename(oldId: String, newId: String) async -> String {
+    func rename(oldId: String, newId: String) async -> NoteMutationOutcome<String> {
         let identity = editorDraftCoordinator.beginIdentityMutation(oldId)
         let pendingFlushes = editorDraftTail
         do {
@@ -494,11 +494,11 @@ final class NotesStore: ObservableObject {
             editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
             editorDraftCoordinator.reopen(finalId)
             onLocalChange?()
-            return finalId
+            return .committed(finalId)
         } catch {
             editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("rename failed \(oldId) -> \(newId): \(error)")
-            return oldId
+            return .failed
         }
     }
 

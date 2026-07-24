@@ -1,5 +1,6 @@
 package com.futo.notes.ui
 
+import com.futo.notes.NoteMutationOutcome
 import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
@@ -10,6 +11,11 @@ internal data class EditorNavigationCommit(
     val savedContent: String,
     val canNavigate: Boolean,
     val disposition: FlushDisposition? = null,
+)
+
+internal data class EditorTitleCommit(
+    val id: String,
+    val committed: Boolean,
 )
 
 internal class EditorNavigationAdmission {
@@ -35,10 +41,17 @@ internal fun shouldStartEditorBackNavigation(navigationPending: Boolean): Boolea
 internal suspend fun commitEditorTitleSnapshot(
     currentId: String,
     targetId: String?,
-    rename: suspend (oldId: String, targetId: String) -> String,
-): String {
-    if (targetId == null || targetId == currentId) return currentId
-    return rename(currentId, targetId)
+    rename: suspend (oldId: String, targetId: String) -> NoteMutationOutcome<String>,
+): EditorTitleCommit {
+    if (targetId == null || targetId == currentId) {
+        return EditorTitleCommit(currentId, committed = true)
+    }
+    return when (val outcome = rename(currentId, targetId)) {
+        is NoteMutationOutcome.Committed ->
+            EditorTitleCommit(outcome.value, committed = true)
+        NoteMutationOutcome.Failed ->
+            EditorTitleCommit(currentId, committed = false)
+    }
 }
 
 internal fun editorTitleTarget(

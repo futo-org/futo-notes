@@ -20,6 +20,29 @@ func editorGenerationAfterDetach(
     detachedToken == currentGeneration ? currentGeneration + 1 : currentGeneration
 }
 
+@MainActor
+final class EditorCompletionQueue {
+    private var tail: Task<Void, Never>?
+    private var admission = 0
+
+    func enqueue(_ operation: @escaping @MainActor () async -> Void) {
+        let previous = tail
+        admission += 1
+        tail = Task { @MainActor in
+            await previous?.value
+            await operation()
+        }
+    }
+
+    func waitForCurrent() async {
+        while true {
+            let admitted = admission
+            await tail?.value
+            if admitted == admission { return }
+        }
+    }
+}
+
 /// SwiftUI wrapper around a single, app-lifetime WKWebView that hosts the
 /// bundled markdown editor — the iOS counterpart of Android's `EditorHost`
 /// (apps/android/.../ui/EditorWebView.kt).
@@ -223,6 +246,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// Incremented per attach; detach only clears if its token is still current.
     private var generation = 0
+    private let completionQueue = EditorCompletionQueue()
 
     /// Reactive inputs for the NATIVE markdown toolbar (bridge v3
     /// cursorContext drives Indent/Outdent visibility).
@@ -380,14 +404,40 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// Host → editor: insert `![](filename)\n` only if the editor that started
     /// the asynchronous image operation still owns the shared WebView.
     @discardableResult
-    private func insertImage(_ filename: String, for capturedGeneration: Int) -> Bool {
+    private func insertImage(_ filename: String, for capturedGeneration: Int) async -> Bool {
         guard shouldDeliverEditorCompletion(
             capturedGeneration: capturedGeneration,
             currentGeneration: generation
         ) else { return false }
-        let js = "window.FutoEditor && window.FutoEditor.insertImage(\(jsLiteral(filename)));"
-        webView.evaluateJavaScript(js, completionHandler: nil)
-        return true
+        return await withCheckedContinuation { continuation in
+            // The editor posts its change callback on requestAnimationFrame.
+            // Wait for that frame so capture/navigation cannot rebind the shared
+            // bridge while the old note's callback is still queued.
+            webView.callAsyncJavaScript(
+                """
+                if (!window.FutoEditor) return false;
+                window.FutoEditor.insertImage(filename);
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                return true;
+                """,
+                arguments: ["filename": filename],
+                in: nil,
+                contentWorld: .page
+            ) { [weak self] result in
+                guard let self,
+                      case .success(let inserted) = result,
+                      inserted as? Bool == true,
+                      shouldDeliverEditorCompletion(
+                        capturedGeneration: capturedGeneration,
+                        currentGeneration: self.generation
+                      )
+                else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                continuation.resume(returning: true)
+            }
+        }
     }
 
     /// Invalidate completions owned by the current editor before a committed
@@ -407,6 +457,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// attachment. A later editor adoption invalidates the completion.
     func captureCurrentContent() async -> String? {
         let capturedGeneration = generation
+        await completionQueue.waitForCurrent()
+        guard shouldDeliverEditorCompletion(
+            capturedGeneration: capturedGeneration,
+            currentGeneration: generation
+        ) else { return nil }
         guard isReady else { return nil }
         return await withCheckedContinuation { continuation in
             webView.evaluateJavaScript(
@@ -508,7 +563,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             if let base64 = body["data"] as? String,
                let ext = body["ext"] as? String {
                 let targetGeneration = generation
-                Task { @MainActor in
+                completionQueue.enqueue { [weak self] in
+                    guard let self else { return }
                     // Decode in a detached task so it runs off the main actor.
                     // (Kept out of the `guard` condition: a trailing closure
                     // inside a guard condition fails to parse.)
@@ -518,7 +574,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     guard let data = decoded else { return }
                     guard let filename = await VaultImages.save(
                         data: data, preferredExtension: ext) else { return }
-                    if !self.insertImage(filename, for: targetGeneration) {
+                    let inserted = await self.insertImage(filename, for: targetGeneration)
+                    if !inserted {
                         await VaultImages.remove(filename: filename)
                     }
                 }
@@ -533,10 +590,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // pasteboard holds no image.
             if let (data, ext) = clipboardImageData() {
                 let targetGeneration = generation
-                Task { @MainActor in
+                completionQueue.enqueue { [weak self] in
+                    guard let self else { return }
                     guard let filename = await VaultImages.save(
                         data: data, preferredExtension: ext) else { return }
-                    if !self.insertImage(filename, for: targetGeneration) {
+                    let inserted = await self.insertImage(filename, for: targetGeneration)
+                    if !inserted {
                         await VaultImages.remove(filename: filename)
                     }
                 }
@@ -568,14 +627,19 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// honoring the shared image-extension rules, then insertImage(filename).
     private func presentImagePicker(source: String) {
         let targetGeneration = generation
-        ImagePicker.present(source: source) { [weak self] data, ext in
-            guard let self, let data else { return }
-            Task { @MainActor in
-                guard let filename = await VaultImages.save(
-                    data: data, preferredExtension: ext) else { return }
-                if !self.insertImage(filename, for: targetGeneration) {
-                    await VaultImages.remove(filename: filename)
+        completionQueue.enqueue { [weak self] in
+            guard let self else { return }
+            let picked: (Data?, String) = await withCheckedContinuation { continuation in
+                ImagePicker.present(source: source) { data, ext in
+                    continuation.resume(returning: (data, ext))
                 }
+            }
+            guard let data = picked.0 else { return }
+            guard let filename = await VaultImages.save(
+                data: data, preferredExtension: picked.1) else { return }
+            let inserted = await self.insertImage(filename, for: targetGeneration)
+            if !inserted {
+                await VaultImages.remove(filename: filename)
             }
         }
     }

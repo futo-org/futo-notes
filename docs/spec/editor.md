@@ -208,10 +208,14 @@ native shells edit tags as text in the body, which is not a gap.
   snapshot through the Rust draft workflow before changing the navigation
   stack. A concurrent peer edit therefore keeps both versions instead of being
   overwritten. A failed commit keeps the same editor visible and dirty and
-  surfaces the save failure. Android applies this to toolbar Back, system Back,
-  and wikilinks; iOS uses its custom navigation Back and wikilinks. →
+  surfaces the save failure. This includes a valid pending title whose Rust
+  rename fails and, on iOS, an admitted image insertion: navigation waits for
+  the insertion's CodeMirror transaction and deferred bridge callback before
+  capturing. Android applies this to toolbar Back, system Back, and wikilinks;
+  iOS uses its custom navigation Back and wikilinks. →
   `EditorNavigationCommit.kt`, `NoteEditorScreen.kt`,
-  `EditorHost.captureCurrentContent`, `NoteEditorView.requestNavigation`
+  `EditorHost.captureCurrentContent`, `EditorCompletionQueue`,
+  `NoteEditorView.requestNavigation`
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
   `[[Archive/Markdown demo]]`) and **self-referencing links inside the renamed
@@ -442,10 +446,12 @@ EditorWebView.swift, EditorWebView.kt
   note. Android holds both the editor mutation permit and vault gate through
   confirmed WebView insertion, and cancellation cannot leave a queued main-
   thread insertion behind; iOS checks the adopted WebView generation before
-  inserting, increments that generation on detach, and removes a just-saved
-  image when its attachment became stale before insertion. →
+  and after inserting, increments that generation on detach, queues every image
+  completion, and drains the queue through the editor's next animation frame
+  before a navigation capture. It removes a just-saved image when its attachment
+  became stale before insertion. →
   `EditorAttachmentGate.kt`, `EditorWebView.insertImageAndWait`,
-  `EditorHost.detach`, `VaultImages.remove`
+  `EditorHost.detach`, `EditorCompletionQueue`, `VaultImages.remove`
 
 > **Gap:** Clipboard image paste is verified on Linux (WebKitGTK), Windows
 > (WebView2), native Android (emulator, 2026-06-22), and **macOS desktop**

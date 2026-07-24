@@ -168,8 +168,8 @@ fun NoteEditorScreen(
                 if (commit.disposition is FlushDisposition.ParkedConflict) {
                     noteId = commit.disposition.parkedId
                 }
-                if (commit.canNavigate) {
-                    noteId = commitEditorTitleSnapshot(
+                val titleCommit = if (commit.canNavigate) {
+                    commitEditorTitleSnapshot(
                         currentId = noteId,
                         targetId = editorTitleTarget(
                             currentId = noteId,
@@ -178,8 +178,11 @@ fun NoteEditorScreen(
                         ),
                         rename = store::rename,
                     )
+                } else {
+                    EditorTitleCommit(noteId, committed = false)
                 }
-                commit.canNavigate && host.isCurrentAttachment(attachment)
+                noteId = titleCommit.id
+                titleCommit.committed && host.isCurrentAttachment(attachment)
             } ?: false
             if (canNavigate) {
                 navigate()
@@ -417,7 +420,7 @@ fun NoteEditorScreen(
                         return@runEditorMutation
                     }
                 }
-                noteId = commitEditorTitleSnapshot(
+                val titleCommit = commitEditorTitleSnapshot(
                     currentId = noteId,
                     targetId = editorTitleTarget(
                         currentId = noteId,
@@ -426,6 +429,14 @@ fun NoteEditorScreen(
                     ),
                     rename = store::rename,
                 )
+                noteId = titleCommit.id
+                if (!titleCommit.committed) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't rename note. Your title is still pending.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
             }
         }
     }

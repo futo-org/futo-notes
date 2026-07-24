@@ -42,6 +42,17 @@ struct NativeMutationOutcomeTests {
         )
     }
 
+    @Test("a failed rename keeps the current identity and blocks navigation")
+    func failedRenameKeepsCurrentIdentity() {
+        let result = resolvedRename(
+            currentId: "Folder/Old title",
+            outcome: NoteMutationOutcome<String>.failed
+        )
+
+        #expect(result.id == "Folder/Old title")
+        #expect(!result.committed)
+    }
+
     @Test("delete stops when its dirty draft write fails")
     func deleteStopsAfterFailedDraftWrite() {
         #expect(
@@ -68,6 +79,28 @@ struct NativeMutationOutcomeTests {
         )
     }
 
+    @Test("delete requires a live editor capture and keeps the latest quarantined callback")
+    func deleteCaptureDecision() {
+        #expect(
+            editorDeleteContent(
+                capturedContent: nil,
+                quarantinedContent: "late image markdown"
+            ) == nil
+        )
+        #expect(
+            editorDeleteContent(
+                capturedContent: "captured image markdown",
+                quarantinedContent: nil
+            ) == "captured image markdown"
+        )
+        #expect(
+            editorDeleteContent(
+                capturedContent: "captured image markdown",
+                quarantinedContent: "later bridge callback"
+            ) == "later bridge callback"
+        )
+    }
+
     @Test("closing editor quarantines bridge changes until delete resolves")
     func closingEditorQuarantinesBridgeChanges() {
         #expect(editorChangeDisposition(loaded: false, isClosing: false) == .ignore)
@@ -85,6 +118,24 @@ struct NativeMutationOutcomeTests {
         #expect(
             editorGenerationAfterDetach(detachedToken: 6, currentGeneration: 7) == 7
         )
+    }
+
+    @Test("navigation capture waits for admitted editor completions")
+    @MainActor
+    func navigationWaitsForEditorCompletions() async {
+        let queue = EditorCompletionQueue()
+        var events: [String] = []
+
+        queue.enqueue {
+            events.append("save")
+            queue.enqueue {
+                events.append("insert")
+            }
+        }
+        await queue.waitForCurrent()
+        events.append("capture")
+
+        #expect(events == ["save", "insert", "capture"])
     }
 
     @Test("closing editor never flushes a newly dirty buffer on disappear")
