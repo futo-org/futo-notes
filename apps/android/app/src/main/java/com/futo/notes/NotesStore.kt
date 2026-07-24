@@ -652,9 +652,11 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  (src/app/resetAllNotes.ts). Callers pause sync + set [suppressAutoPush]
      *  for the duration and disconnect sync afterwards. */
     suspend fun deleteAll() {
-        withCore { core.reset() }
-        notes = emptyList()
-        folders = emptyList()
+        runMutationTransaction {
+            withCore { core.reset() }
+            notes = emptyList()
+            folders = emptyList()
+        }
     }
 
     /** A live pull bypassed local mutations. Reconcile the same store-owned

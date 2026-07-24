@@ -62,7 +62,9 @@ import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class ThemeMode { LIGHT, DARK, AUTO }
 
@@ -263,8 +265,10 @@ fun SettingsScreen(
                     sync.pauseLive()
                     store.suppressAutoPush = true
                     try {
-                        store.deleteAll()
-                        sync.disconnect()
+                        withContext(NonCancellable) {
+                            store.deleteAll()
+                            sync.disconnect()
+                        }
                     } finally {
                         store.suppressAutoPush = false
                         resetting = false
