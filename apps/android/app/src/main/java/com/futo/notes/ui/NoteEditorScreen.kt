@@ -115,6 +115,9 @@ fun NoteEditorScreen(
     // EditorWebView props) for the bridge-v2 imperative calls:
     // applyExternalContent (sync adopt) and insertImage (picker round-trip).
     val host = remember { EditorHost.get(context) }
+    // Gate the editor pane on the System WebView being new enough to run the
+    // bundle (github#8); the provider is fixed for the app's lifetime.
+    val webViewTooOld = remember { isWebViewTooOldForEditor() }
 
     var noteId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
     // TextFieldValue (not String) so we can control the selection: tapping a
@@ -606,73 +609,82 @@ fun NoteEditorScreen(
             Spacer(Modifier.size(8.dp))
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                EditorWebView(
-                    content = content,
-                    // Quick capture: a brand-new note (autoFocus) opens with the
-                    // BODY focused — keyboard on the editor, not the title field —
-                    // so the first keystrokes are the note, not its name. Opening
-                    // an existing note leaves the keyboard down (autoFocus false).
-                    // [list.md]
-                    theme = theme,
-                    autoFocus = autoFocus,
-                    notesJson = notesJson,
-                    // Local ![](image.png) resolves against the vault root
-                    // [editor.md:121] (allowFileAccess stays on, see EditorHost).
-                    imageBaseUrl = "file://${store.rootPath}/",
-                    modifier = Modifier.fillMaxSize(),
-                    onOpenNote = { linkedNoteId ->
-                        if (linkedNoteId != noteId) {
-                            navigateAfterSaving { onOpenNote(linkedNoteId) }
-                        }
-                    },
-                    onPickImage = pickImage,
-                    onSaveImageData = saveImageData,
-                    onMigrationSnapshot = { capturedContent ->
-                        saveJob?.cancel()
-                        content = capturedContent
-                    },
-                    onChange = { newContent ->
-                        // Data-loss guard: ignore editor change events until the
-                        // off-main initial read has landed (`loaded`). The WebView
-                        // mounts with "" and can emit a setContent echo before the
-                        // real body loads; saving that empty echo would clobber the
-                        // note on disk. Once loaded, all edits flow through.
-                        if (
-                            loaded &&
-                            !mutationGate.isDestructiveActionStarted &&
-                            !store.isVaultMigrationStarted
-                        ) {
-                            // Just update the buffer state. The unsaved-draft
-                            // register follows from the snapshotFlow derivation
-                            // (content != savedContent) — no manual publish; the
-                            // register goes clean the instant the debounced save
-                            // sets savedContent (PKT-12 R5). F8 jetsam guard.
-                            content = newContent
+                // A System WebView older than the editor bundle's engine floor
+                // can't run the editor at all (blank pane, github#8) — show a
+                // native "update WebView" notice there instead. Read once: the
+                // provider can't change while the app is running.
+                if (webViewTooOld) {
+                    LegacyWebViewNotice()
+                } else {
+                    EditorWebView(
+                        content = content,
+                        // Quick capture: a brand-new note (autoFocus) opens with the
+                        // BODY focused — keyboard on the editor, not the title field —
+                        // so the first keystrokes are the note, not its name. Opening
+                        // an existing note leaves the keyboard down (autoFocus false).
+                        // [list.md]
+                        theme = theme,
+                        autoFocus = autoFocus,
+                        notesJson = notesJson,
+                        // Local ![](image.png) resolves against the vault root
+                        // [editor.md:121] (allowFileAccess stays on, see EditorHost).
+                        imageBaseUrl = "file://${store.rootPath}/",
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenNote = { linkedNoteId ->
+                            if (linkedNoteId != noteId) {
+                                navigateAfterSaving { onOpenNote(linkedNoteId) }
+                            }
+                        },
+                        onPickImage = pickImage,
+                        onSaveImageData = saveImageData,
+                        onMigrationSnapshot = { capturedContent ->
                             saveJob?.cancel()
-                            saveJob = scope.launch {
-                                delay(400)
-                                // Re-read noteId at fire time so a save that lands
-                                // after a rename writes to the renamed note, not the
-                                // stale id.
-                                val outcome = mutationGate.runEditorMutation {
-                                    store.write(noteId, newContent)
-                                } ?: return@launch
-                                savedContent = confirmedSavedContent(
-                                    savedContent,
-                                    newContent,
-                                    outcome,
-                                )
-                                if (outcome === NoteMutationOutcome.Failed) {
-                                    Toast.makeText(
-                                        context,
-                                        "Couldn't save note. Your changes are still pending.",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
+                            content = capturedContent
+                        },
+                        onChange = { newContent ->
+                            // Data-loss guard: ignore editor change events until the
+                            // off-main initial read has landed (`loaded`). The WebView
+                            // mounts with "" and can emit a setContent echo before the
+                            // real body loads; saving that empty echo would clobber the
+                            // note on disk. Once loaded, all edits flow through.
+                            if (
+                                loaded &&
+                                !mutationGate.isDestructiveActionStarted &&
+                                !store.isVaultMigrationStarted
+                            ) {
+                                // Just update the buffer state. The unsaved-draft
+                                // register follows from the snapshotFlow derivation
+                                // (content != savedContent) — no manual publish; the
+                                // register goes clean the instant the debounced save
+                                // sets savedContent (PKT-12 R5). F8 jetsam guard.
+                                content = newContent
+                                saveJob?.cancel()
+                                saveJob = scope.launch {
+                                    delay(400)
+                                    // Re-read noteId at fire time so a save that lands
+                                    // after a rename writes to the renamed note, not the
+                                    // stale id.
+                                    val outcome = mutationGate.runEditorMutation {
+                                        store.write(noteId, newContent)
+                                    } ?: return@launch
+                                    savedContent = confirmedSavedContent(
+                                        savedContent,
+                                        newContent,
+                                        outcome,
+                                    )
+                                    if (outcome === NoteMutationOutcome.Failed) {
+                                        Toast.makeText(
+                                            context,
+                                            "Couldn't save note. Your changes are still pending.",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
                                 }
                             }
                         }
-                    },
-                )
+                        },
+                    )
+                }
             }
 
             // Native markdown toolbar [editor.md]: rendered from the generated

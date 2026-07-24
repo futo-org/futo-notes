@@ -92,7 +92,9 @@ class SlashMenuRenderer implements PluginValue {
   }
 
   private render(): void {
-    this.listElement.replaceChildren();
+    // textContent = '' (not replaceChildren) to clear: replaceChildren is
+    // Chromium 86, and the editor must run on older Android WebViews (github#8).
+    this.listElement.textContent = '';
     if (!this.filteredCommands.length) {
       this.listElement.style.display = 'none';
       this.emptyElement.style.display = '';
