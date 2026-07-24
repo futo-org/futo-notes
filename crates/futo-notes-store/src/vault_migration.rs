@@ -669,4 +669,23 @@ mod tests {
             "matching destination existing ancestor was not re-synced"
         );
     }
+
+    #[test]
+    fn finalize_rechecks_a_retained_source_before_activation() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        let destination = root.0.join("destination");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("note.md"), "staged body").unwrap();
+
+        stage(&source, &destination).unwrap();
+        fs::write(source.join("note.md"), "late external edit").unwrap();
+
+        assert_eq!(
+            finalize(&source, &destination, false).unwrap(),
+            VaultMigrationFinalization::DestinationChanged
+        );
+        assert!(source.exists());
+        assert!(destination.exists());
+    }
 }

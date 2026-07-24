@@ -42,6 +42,32 @@ struct NativeMutationOutcomeTests {
         )
     }
 
+    @Test("delete stops when its dirty draft write fails")
+    func deleteStopsAfterFailedDraftWrite() {
+        #expect(
+            !shouldContinueDeleteAfterEditorWrite(
+                hasPendingChanges: true,
+                outcome: NoteMutationOutcome<Void>.failed
+            )
+        )
+    }
+
+    @Test("delete continues for a clean or successfully written draft")
+    func deleteContinuesAfterDurableDraft() {
+        #expect(
+            shouldContinueDeleteAfterEditorWrite(
+                hasPendingChanges: false,
+                outcome: nil
+            )
+        )
+        #expect(
+            shouldContinueDeleteAfterEditorWrite(
+                hasPendingChanges: true,
+                outcome: NoteMutationOutcome<Void>.committed(())
+            )
+        )
+    }
+
     @Test("closing editor quarantines bridge changes until delete resolves")
     func closingEditorQuarantinesBridgeChanges() {
         #expect(editorChangeDisposition(loaded: false, isClosing: false) == .ignore)
