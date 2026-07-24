@@ -1320,6 +1320,8 @@ build:ios-native:
 
 # Native iOS unit tests on a concrete simulator via Cirrus. This separately
 # enforces the FutoNotesNativeTests target that build:ios-native only compiles.
+# Keep this hard gate for iOS-impacting MRs and releases while the single
+# macscript runner is constrained. Other MRs retain an optional manual run.
 test:ios-native:
   stage: test
   needs: []
@@ -1345,6 +1347,9 @@ test:ios-native:
         - scripts/build-rust-ios.sh
         - .cirrus.yml
         - .gitlab-ci.yml
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-ios-test-changes
     - if: $CI_COMMIT_TAG

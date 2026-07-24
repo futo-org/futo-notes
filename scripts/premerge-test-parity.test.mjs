@@ -106,6 +106,17 @@ describe('pre-merge JavaScript test routing', () => {
     expect(releaseGate).toContain('- job: test:rust:ffi-android');
   });
 
+  it('keeps iOS tests required for iOS changes while exposing an optional MR run', () => {
+    const iosTestJob = topLevelBlock(gitlabPipeline, /^test:ios-native:$/m);
+
+    expect(iosTestJob).toContain('changes: &native-ios-test-changes');
+    expect(iosTestJob).toMatch(
+      /- \.gitlab-ci\.yml\n    - if: \$CI_MERGE_REQUEST_IID\n      when: manual\n      allow_failure: true/,
+    );
+    expect(iosTestJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
+    expect(iosTestJob).toContain('$CI_COMMIT_TAG');
+  });
+
   it('skips slow sync scenarios only on MR pipelines, never on main or tags', () => {
     const syncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:$/m);
 
