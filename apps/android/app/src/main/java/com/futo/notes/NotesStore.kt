@@ -334,12 +334,16 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         flushDraftDirect(draft)
 
     private suspend fun flushDraftDirect(draft: PendingDraft): FlushDisposition? = try {
-        val result = withCore { core.flushDraft(draft.id, draft.base, draft.content) }
-        result.mutation?.let {
-            applyMutation(it)
-            signalLocalChange()
+        runMutationTransaction {
+            val result = withCore { core.flushDraft(draft.id, draft.base, draft.content) }
+            result.mutation?.let {
+                applyMutation(it)
+                signalLocalChange()
+            }
+            result.disposition
         }
-        result.disposition
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "flush failed for ${draft.id}", e)
         null
@@ -448,27 +452,37 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     /** Write one note and consume the complete committed mutation. */
     suspend fun write(id: String, content: String): NoteMutationOutcome<Unit> =
         try {
-            val retainedAtAdmission = pendingEditor.retainedSnapshot(id)
-            val mutation = withCore { core.write(id, content) }
-            applyMutation(mutation)
-            pendingEditor.completeSnapshot(retainedAtAdmission)
-            signalLocalChange()
-            NoteMutationOutcome.Committed(Unit)
+            runMutationTransaction {
+                val retainedAtAdmission = pendingEditor.retainedSnapshot(id)
+                val mutation = withCore { core.write(id, content) }
+                applyMutation(mutation)
+                pendingEditor.completeSnapshot(retainedAtAdmission)
+                signalLocalChange()
+                NoteMutationOutcome.Committed(Unit)
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "write failed for $id", e)
             NoteMutationOutcome.Failed
         }
 
-    suspend fun createNote(title: String, folder: String = ""): String? = try {
-        val mutation = withCore { core.createNote(title, folder, "") }
-        applyMutation(mutation)
-        val createdId = mutation.finalId ?: title
-        editorDraftCoordinator.reopen(createdId)
-        signalLocalChange()
-        createdId
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "createNote failed", e); null
-    }
+    suspend fun createNote(title: String, folder: String = ""): String? =
+        try {
+            runMutationTransaction {
+                val mutation = withCore { core.createNote(title, folder, "") }
+                applyMutation(mutation)
+                val createdId = mutation.finalId ?: title
+                editorDraftCoordinator.reopen(createdId)
+                signalLocalChange()
+                createdId
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "createNote failed", e)
+            null
+        }
 
     suspend fun delete(id: String): NoteMutationOutcome<Unit> {
         currentCoroutineContext().ensureActive()
