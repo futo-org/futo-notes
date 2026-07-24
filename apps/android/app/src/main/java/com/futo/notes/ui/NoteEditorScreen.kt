@@ -681,7 +681,6 @@ fun NoteEditorScreen(
                                     }
                                 }
                             }
-                        }
                         },
                     )
                 }
