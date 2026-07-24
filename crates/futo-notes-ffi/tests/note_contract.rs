@@ -309,8 +309,12 @@ fn bootstrap_makes_existing_note_content_searchable_through_bm25() {
     let store = NoteStore::new(path_string(&notes_root));
     store.bootstrap(path_string(&index_root)).unwrap();
 
+    // 60s, not 10s: this waits for the background Tantivy indexer thread to
+    // finish its first reconcile+commit, and on a contended CI runner (the
+    // workspace suite runs alongside the pipeline's heavy jobs) that landed
+    // just past 10s once — pipeline 32195 / job 201804.
     assert!(
-        store.wait_until_search_ready(10_000),
+        store.wait_until_search_ready(60_000),
         "keyword index never became ready"
     );
 

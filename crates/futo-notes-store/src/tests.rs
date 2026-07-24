@@ -591,8 +591,11 @@ fn wait_until_search_ready_reports_readiness_of_a_real_engine() {
         .bootstrap_with_search(root.0.join("index"), observer)
         .unwrap();
 
+    // 60s, not 10s: same background-indexer wait as the ffi note_contract
+    // bootstrap test, which timed out just past 10s on a contended CI runner
+    // (pipeline 32195 / job 201804).
     assert!(
-        store.wait_until_search_ready(10_000),
+        store.wait_until_search_ready(60_000),
         "keyword index never became ready"
     );
     assert!(store.search_status().keyword.ready);
