@@ -94,6 +94,22 @@ describe('waitForTestHooks', () => {
     expect(ws.sent).toHaveLength(2);
   });
 
+  it('retries while the bridge is available before the main window', async () => {
+    const ws = new FakeWs([
+      new Error("Window 'main' not found"),
+      JSON.stringify({ testSync: 'object', notesShell: 'object' }),
+    ]);
+
+    await expect(
+      waitForTestHooks(ws, 'client-a', {
+        initialDelayMs: 0,
+        attempts: 2,
+        intervalMs: 0,
+      }),
+    ).resolves.toBeUndefined();
+    expect(ws.sent).toHaveLength(2);
+  });
+
   it('fails immediately when the startup probe returns a non-timeout error', async () => {
     const ws = new FakeWs([
       new Error('startup probe syntax error'),

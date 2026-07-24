@@ -50,6 +50,21 @@ pub struct SyncFailure {
     pub status_code: Option<u16>,
 }
 
+pub(super) fn record_checkpoint_failure(summary: &mut SyncSummary) {
+    if summary
+        .failures
+        .iter()
+        .any(|failure| failure.kind == FailureKind::Checkpoint)
+    {
+        return;
+    }
+    summary.failures.push(SyncFailure {
+        filename: String::new(),
+        kind: FailureKind::Checkpoint,
+        status_code: None,
+    });
+}
+
 #[derive(Debug, Clone)]
 pub struct RenamePair {
     pub from_id: String,
@@ -277,7 +292,16 @@ pub(super) fn combine(mut push: SyncSummary, pull: SyncSummary) -> SyncSummary {
     push.deleted += pull.deleted;
     push.conflicts += pull.conflicts;
     push.local_writes_applied += pull.local_writes_applied;
-    push.failures.extend(pull.failures);
+    for failure in pull.failures {
+        if failure.kind != FailureKind::Checkpoint
+            || !push
+                .failures
+                .iter()
+                .any(|existing| existing.kind == FailureKind::Checkpoint)
+        {
+            push.failures.push(failure);
+        }
+    }
     append_unique(&mut push.updated_ids, pull.updated_ids);
     append_unique(&mut push.deleted_ids, pull.deleted_ids);
     append_unique(&mut push.peer_updated_ids, pull.peer_updated_ids);

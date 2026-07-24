@@ -163,6 +163,64 @@ fn combined_summary_keeps_counts_failures_and_unique_ids() {
 }
 
 #[test]
+fn combined_summary_records_checkpoint_failure_once_per_cycle() {
+    let push = SyncSummary {
+        failures: vec![failure(FailureKind::Checkpoint, None)],
+        ..Default::default()
+    };
+    let pull = SyncSummary {
+        failures: vec![failure(FailureKind::Checkpoint, None)],
+        ..Default::default()
+    };
+
+    let combined = combine(push, pull);
+
+    assert_eq!(combined.failures.len(), 1);
+    assert_eq!(combined.failures[0].kind, FailureKind::Checkpoint);
+}
+
+#[cfg(unix)]
+#[test]
+fn matching_remote_retry_resyncs_before_advancing_the_object_map() {
+    let root = TempRoot::new();
+    let remote = remote("remote", "note.md", "body");
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+    super::vault_fs::fail_directory_sync_on_call(2);
+
+    let first = apply_remote(
+        &mut state,
+        root.path(),
+        &remote,
+        &HashMap::new(),
+        false,
+        &no_pre,
+        &mut summary,
+    );
+
+    assert!(first.is_err());
+    assert!(state.object_map.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("note.md")).unwrap(),
+        "body"
+    );
+
+    super::vault_fs::fail_directory_sync_on_call(1);
+    let retry = apply_remote(
+        &mut state,
+        root.path(),
+        &remote,
+        &HashMap::new(),
+        false,
+        &no_pre,
+        &mut summary,
+    );
+
+    assert!(retry.is_err());
+    assert!(state.object_map.is_empty());
+}
+
+#[test]
 fn rename_strips_the_from_side_ghost_delete_but_keeps_target_updates() {
     let push = SyncSummary {
         deleted_ids: vec!["old".into()],
@@ -247,6 +305,7 @@ fn local_scan_ignores_hidden_and_legacy_files_but_keeps_images() {
     std::fs::create_dir(root.path().join(".hidden")).unwrap();
     std::fs::write(root.path().join(".hidden/note.md"), "hidden").unwrap();
     let names: Vec<_> = local_files(root.path())
+        .unwrap()
         .into_iter()
         .map(|file| file.name)
         .collect();
@@ -331,7 +390,7 @@ fn colliding_remote_notes_both_survive_but_identical_content_deduplicates() {
         &mut summary,
     )
     .unwrap();
-    let files = local_files(root.path());
+    let files = local_files(root.path()).unwrap();
     assert_eq!(files.len(), 2);
     let contents: HashSet<_> = files
         .iter()
@@ -339,7 +398,7 @@ fn colliding_remote_notes_both_survive_but_identical_content_deduplicates() {
         .collect();
     assert_eq!(contents, HashSet::from(["first".into(), "second".into()]));
 
-    let before = local_files(root.path()).len();
+    let before = local_files(root.path()).unwrap().len();
     apply_remote(
         &mut state,
         root.path(),
@@ -350,7 +409,7 @@ fn colliding_remote_notes_both_survive_but_identical_content_deduplicates() {
         &mut summary,
     )
     .unwrap();
-    assert_eq!(local_files(root.path()).len(), before);
+    assert_eq!(local_files(root.path()).unwrap().len(), before);
 }
 
 #[test]
@@ -390,6 +449,85 @@ fn collision_placement_reports_the_relocated_local_note_as_a_rename() {
     assert_eq!(summary.renamed[0].to_id, note_id(&conflict));
 }
 
+#[cfg(unix)]
+#[test]
+fn collision_rename_retry_resyncs_the_destination_before_state_advances() {
+    let root = TempRoot::new();
+    let ancestry = HashMap::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+    std::fs::write(root.path().join("note.md"), "local text").unwrap();
+    state.object_map.insert(
+        "note.md".into(),
+        entry("z-local", Some(&hash_sha256("local text"))),
+    );
+    let incoming = remote("a-remote", "note.md", "remote text");
+    super::vault_fs::fail_directory_sync_on_call(1);
+
+    assert!(apply_remote(
+        &mut state,
+        root.path(),
+        &incoming,
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .is_err());
+    assert!(state.object_map.contains_key("note.md"));
+
+    super::vault_fs::fail_directory_sync_on_call(2);
+    let retry = apply_remote(
+        &mut state,
+        root.path(),
+        &incoming,
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap_err();
+
+    assert!(retry.contains("sync destination directory after rename"));
+    assert!(state.object_map.contains_key("note.md"));
+}
+
+#[cfg(unix)]
+#[test]
+fn collision_placement_never_renames_through_a_symlinked_parent() {
+    use std::os::unix::fs::symlink;
+
+    let root = TempRoot::new();
+    let outside = TempRoot::new();
+    let ancestry = HashMap::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+    let outside_note = outside.path().join("note.md");
+    std::fs::write(&outside_note, "outside text").unwrap();
+    symlink(outside.path(), root.path().join("linked")).unwrap();
+    state.object_map.insert(
+        "linked/note.md".into(),
+        entry("z-local", Some(&hash_sha256("outside text"))),
+    );
+
+    assert!(apply_remote(
+        &mut state,
+        root.path(),
+        &remote("a-remote", "linked/note.md", "remote text"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .is_err());
+
+    assert_eq!(
+        std::fs::read_to_string(&outside_note).unwrap(),
+        "outside text"
+    );
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 1);
+}
+
 #[test]
 fn identical_content_collision_dedup_reports_no_rename() {
     let root = TempRoot::new();
@@ -417,7 +555,7 @@ fn identical_content_collision_dedup_reports_no_rename() {
     .unwrap();
 
     assert!(summary.renamed.is_empty());
-    assert_eq!(local_files(root.path()).len(), 1);
+    assert_eq!(local_files(root.path()).unwrap().len(), 1);
 }
 
 #[test]
@@ -601,6 +739,30 @@ fn stale_tombstone_claim_is_restored_after_a_crash() {
     assert!(claim.exists());
     assert!(sidecar.exists());
     assert!(!root.path().join("note.md").exists());
+
+    recover_stale_claims(root.path(), &no_pre);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("note.md")).unwrap(),
+        "recover me"
+    );
+    assert!(!claim.exists());
+    assert!(!sidecar.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn tombstone_claim_keeps_recovery_sidecar_after_uncertain_rename() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("note.md"), "recover me").unwrap();
+    let (claim, sidecar) = claim_paths(root.path(), "note.md", "o1");
+    super::vault_fs::fail_directory_sync_on_call(2);
+
+    let error = claim_local(root.path(), "note.md", "o1", &no_pre).unwrap_err();
+
+    assert!(error.contains("sync source directory after rename"));
+    assert!(!root.path().join("note.md").exists());
+    assert_eq!(std::fs::read_to_string(&claim).unwrap(), "recover me");
+    assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), "note.md");
 
     recover_stale_claims(root.path(), &no_pre);
     assert_eq!(

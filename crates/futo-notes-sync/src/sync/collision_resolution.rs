@@ -8,6 +8,7 @@ use crate::checkpoint::{ConnectedState, ObjectState};
 
 use super::encrypted_note::RemoteNote;
 use super::outcome::note_id;
+use super::vault::{path_exists, rename_local};
 use super::{PreWrite, RenamePair, SyncSummary};
 
 fn collision_rivals(
@@ -51,17 +52,12 @@ fn move_collision_loser(
         context.state.object_map.remove(&name);
         return Ok(());
     }
-    if !context.root.join(&name).exists() {
-        return Ok(());
-    }
     let target = collision_conflict_filename(context.requested, &entry.object_id);
     (context.pre_write)(&name);
     (context.pre_write)(&target);
-    if let Some(parent) = context.root.join(&target).parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    if !rename_local(context.root, &name, &target)? {
+        return Ok(());
     }
-    std::fs::rename(context.root.join(&name), context.root.join(&target))
-        .map_err(|error| error.to_string())?;
     context.state.object_map.remove(&name);
     context.state.object_map.insert(target.clone(), entry);
     context.summary.local_writes_applied += 1;
@@ -95,10 +91,10 @@ pub(super) fn place_collision(
     }
     let remote_hash = hash_sha256(&remote.content);
     if !remote_wins_collision(&rivals, &remote.object.id) {
-        if rivals.iter().any(|(name, entry)| {
-            entry.hash.as_ref() == Some(&remote_hash) && root.join(name).exists()
-        }) {
-            return Ok(None);
+        for (name, entry) in &rivals {
+            if entry.hash.as_ref() == Some(&remote_hash) && path_exists(root, name)? {
+                return Ok(None);
+            }
         }
         return Ok(Some(collision_conflict_filename(
             requested,

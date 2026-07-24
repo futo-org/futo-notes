@@ -3,6 +3,10 @@ package com.futo.notes.ui
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import java.io.File
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -46,17 +50,24 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.futo.notes.ImagePicker
+import com.futo.notes.AdoptFlushOutcome
+import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
 import com.futo.notes.PendingDraft
+import com.futo.notes.adoptFlushOutcome
+import com.futo.notes.confirmedSavedContent
 import com.futo.notes.derivePendingDraft
 import com.futo.notes.saveImageDataIntoVault
 import com.futo.notes.saveImageIntoVault
+import com.futo.notes.shouldCompleteNoteAction
+import com.futo.notes.shouldContinueDeleteAfterEditorWrite
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.theme.FutoType
@@ -65,20 +76,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
 import uniffi.futo_notes_ffi.validateTitle
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /** A note title that is still the auto-assigned placeholder: exactly "Untitled",
  *  or a dedup variant "Untitled-N" (the Rust store's `unique_note_id` appends `-2`,
@@ -102,11 +109,15 @@ fun NoteEditorScreen(
     val c = FutoTheme.colors
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     // The shared pre-warmed editor host — needed directly (beyond the
     // EditorWebView props) for the bridge-v2 imperative calls:
     // applyExternalContent (sync adopt) and insertImage (picker round-trip).
     val host = remember { EditorHost.get(context) }
+    // Gate the editor pane on the System WebView being new enough to run the
+    // bundle (github#8); the provider is fixed for the app's lifetime.
+    val webViewTooOld = remember { isWebViewTooOldForEditor() }
 
     var noteId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
     // TextFieldValue (not String) so we can control the selection: tapping a
@@ -129,7 +140,106 @@ fun NoteEditorScreen(
     var saveJob by remember { mutableStateOf<Job?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
+    val mutationGate = remember(initialNoteId) { EditorMutationGate() }
+    val navigationAdmission = remember(initialNoteId) { EditorNavigationAdmission() }
+    var navigationPending by remember(initialNoteId) { mutableStateOf(false) }
+    val interactionEnabled = isEditorInteractionEnabled(navigationPending)
     val theme = if (darkTheme) "dark" else "light"
+
+    fun navigateAfterSaving(navigate: () -> Unit) {
+        val attachment = host.currentAttachment()
+        if (attachment == null) {
+            if (canNavigateWithoutEditorAttachment(webViewTooOld)) {
+                navigate()
+            }
+            return
+        }
+        if (!navigationAdmission.tryBegin()) return
+        navigationPending = true
+        focusManager.clearFocus(force = true)
+        host.blur()
+        scope.launch {
+            val canNavigate = mutationGate.runEditorMutation {
+                if (!host.isCurrentAttachment(attachment)) return@runEditorMutation false
+                saveJob?.cancel()
+                val capturedContent =
+                    host.captureContentAndWait(attachment) ?: return@runEditorMutation false
+                content = capturedContent
+                val commit = commitEditorNavigationSnapshot(
+                    savedContent = savedContent,
+                    content = capturedContent,
+                    flush = { base, snapshot ->
+                        store.flushDraft(PendingDraft(noteId, base, snapshot))
+                    },
+                )
+                savedContent = commit.savedContent
+                if (commit.disposition is FlushDisposition.ParkedConflict) {
+                    noteId = commit.disposition.parkedId
+                }
+                val titleCommit = if (commit.canNavigate) {
+                    commitEditorTitleSnapshot(
+                        currentId = noteId,
+                        targetId = editorTitleTarget(
+                            currentId = noteId,
+                            rawTitle = titleValue.text,
+                            existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
+                        ),
+                        rename = store::rename,
+                    )
+                } else {
+                    EditorTitleCommit(noteId, isCommitted = false)
+                }
+                noteId = titleCommit.id
+                titleCommit.isCommitted && host.isCurrentAttachment(attachment)
+            } ?: false
+            if (canNavigate) {
+                navigate()
+            } else {
+                navigationAdmission.retryAfterFailure()
+                navigationPending = false
+                if (host.isCurrentAttachment(attachment)) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't save note. Your changes are still pending.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    }
+
+    fun saveImageForAttachment(
+        attachment: EditorAttachmentToken,
+        failureMessage: String,
+        save: (File) -> String?,
+    ) {
+        scope.launch {
+            val name = mutationGate.runEditorMutation {
+                if (!host.isCurrentAttachment(attachment)) {
+                    return@runEditorMutation null
+                }
+                store.saveImageIntoVault(
+                    save = save,
+                    useSavedImage = { filename ->
+                        withContext(Dispatchers.Main.immediate) {
+                            check(host.insertImageAndWait(filename, attachment)) {
+                                "The editor was unavailable for image insertion"
+                            }
+                        }
+                    },
+                )
+            }
+            if (name == null && host.isCurrentAttachment(attachment)) {
+                Toast.makeText(context, failureMessage, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    BackHandler {
+        if (shouldStartEditorBackNavigation(navigationPending)) {
+            navigateAfterSaving(onBack)
+        }
+    }
 
     // The editor's note universe [editor.md:77]: id/title/modifiedMs/tags JSON
     // for the wikilink suffix resolver + autocomplete. Rebuilt only when the
@@ -241,33 +351,48 @@ fun NoteEditorScreen(
                     savedContent = disk
                 }
                 disk != savedContent -> {
-                    // Dirty draft + a real remote change: park the local edit as a
-                    // conflict copy, then adopt the remote content — neither side is
-                    // lost. Ordering absorbs all three review rounds' constraints:
-                    //  * createNote FIRST — its suspension captures nothing, so a
-                    //    keystroke typed while the id is being minted is NOT lost
-                    //    (PKT-12 G2: capturing before createNote enlarged the window);
-                    //  * THEN capture localEdit from the live buffer, as late as
-                    //    possible, folding in every keystroke up to now (item 5);
-                    //  * write the copy to DISK before adopting in-memory (copy-first,
-                    //    F5) so a process death mid-adoption can't lose the captured
-                    //    edit;
-                    //  * adopt last.
-                    // The only residual window is the copy write itself — unavoidable
-                    // without freezing input, which we must not do (M5). A background
-                    // flush during any of this can't clobber: the conditional write's
-                    // base is the pre-adopt saved content, which differs from the
-                    // on-disk remote → SkippedChanged. iOS adoptExternalChange parity.
+                    // Snapshot before each suspending engine flush. If the user
+                    // types while it runs, loop with the newer buffer rather than
+                    // replacing those keystrokes with the peer version.
                     saveJob?.cancel()
-                    val parts = splitId(noteId)
-                    val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                    val copyId = store.createNote("${parts.title} (conflict $date)", parts.folder)
-                    val localEdit = content
-                    if (copyId != null) store.write(copyId, localEdit)
-                    host.applyExternalContent(disk)
-                    content = disk
-                    savedContent = disk
-                    Toast.makeText(context, "Conflicting edits saved to a copy", Toast.LENGTH_SHORT).show()
+                    val conflictId = noteId
+                    while (noteId == conflictId) {
+                        val flushed = content
+                        val disposition = mutationGate.runEditorMutation {
+                            store.flushDraft(
+                                PendingDraft(conflictId, savedContent, flushed),
+                            )
+                        } ?: return@collect
+                        when (adoptFlushOutcome(disposition)) {
+                            AdoptFlushOutcome.KEEP_DRAFT -> {
+                                savedContent = flushed
+                                break
+                            }
+                            AdoptFlushOutcome.RELOAD_DISK -> {
+                                if (content != flushed) continue
+                                val refreshedDisk = store.read(conflictId)
+                                if (noteId != conflictId) return@collect
+                                if (content != flushed) continue
+                                host.applyExternalContent(refreshedDisk)
+                                content = refreshedDisk
+                                savedContent = refreshedDisk
+                                Toast.makeText(
+                                    context,
+                                    "Conflicting edits saved to a copy",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                break
+                            }
+                            AdoptFlushOutcome.RETRY_LATER -> {
+                                Toast.makeText(
+                                    context,
+                                    "Couldn't preserve conflicting edits. Your draft is still open.",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                return@collect
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -276,33 +401,51 @@ fun NoteEditorScreen(
     // Debounced rename (500 ms) — the filename IS the title; Rust resolves
     // collisions and returns the final id.
     LaunchedEffect(initialNoteId) {
-        snapshotFlow { titleValue.text }.debounce(500).collectLatest { next ->
-            val parts = splitId(noteId)
-            val trimmed = next.trim()
-            if (trimmed.isEmpty()) return@collectLatest
-            // Block the rename while the title is illegal (dot/too-long — forbidden
-            // chars are stripped in the field) or would collide with another note.
-            // The inline warning stays up; desktop parity.
-            if (validateTitle(trimmed).any { it.kind != "empty" }) return@collectLatest
-            val clean = sanitizeTitle(trimmed)
-            if (clean == parts.title) return@collectLatest
-            val target = makeId(parts.folder, clean)
-            if (target != noteId && store.notes.any { it.id == target }) return@collectLatest
+        snapshotFlow { titleValue.text }.debounce(500).collect { next ->
             // Flush any pending body edit to the CURRENT id and cancel the
             // in-flight save before the file moves — otherwise a stale save
             // would recreate a ghost note at the old id (data loss). The derived
             // register re-keys to the new id after the rename (its content follows
             // the live noteId), so no manual draft repointing is needed (PKT-1 R4).
-            saveJob?.cancel()
-            // Snapshot the body BEFORE the suspending write and advance savedContent
-            // to exactly that snapshot — never to the live `content`. If the user
-            // types during the suspended write, `content` moves ahead of the bytes
-            // on disk; assigning savedContent from live `content` would mark that
-            // newer keystroke as saved and the register would go clean, losing it on
-            // background/process death (PKT-12 F1).
-            val flushed = content
-            if (flushed != savedContent) { store.write(noteId, flushed); savedContent = flushed }
-            noteId = store.rename(noteId, target)
+            mutationGate.runEditorMutation {
+                saveJob?.cancel()
+                // Snapshot the body BEFORE the suspending write and advance savedContent
+                // to exactly that snapshot — never to the live `content`. If the user
+                // types during the suspended write, `content` moves ahead of the bytes
+                // on disk; assigning savedContent from live `content` would mark that
+                // newer keystroke as saved and the register would go clean, losing it on
+                // background/process death (PKT-12 F1).
+                val flushed = content
+                if (flushed != savedContent) {
+                    val outcome = store.write(noteId, flushed)
+                    savedContent = confirmedSavedContent(savedContent, flushed, outcome)
+                    if (outcome === NoteMutationOutcome.Failed) {
+                        Toast.makeText(
+                            context,
+                            "Couldn't save note. Your changes are still pending.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        return@runEditorMutation
+                    }
+                }
+                val titleCommit = commitEditorTitleSnapshot(
+                    currentId = noteId,
+                    targetId = editorTitleTarget(
+                        currentId = noteId,
+                        rawTitle = next,
+                        existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
+                    ),
+                    rename = store::rename,
+                )
+                noteId = titleCommit.id
+                if (!titleCommit.isCommitted) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't rename note. Your title is still pending.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
         }
     }
 
@@ -311,17 +454,11 @@ fun NoteEditorScreen(
     // by the native toolbar's camera/image items and the bridge `pickImage`
     // message (kept for older bundles).
     val pickImage: (String) -> Unit = { source ->
+        val attachment = host.currentAttachment()
         val handle: (Uri?) -> Unit = { uri ->
-            if (uri != null) {
-                scope.launch {
-                    val name = withContext(Dispatchers.IO) {
-                        saveImageIntoVault(context.contentResolver, File(store.rootPath), uri)
-                    }
-                    if (name != null) {
-                        host.insertImage(name)
-                    } else {
-                        Toast.makeText(context, "Unsupported image type", Toast.LENGTH_SHORT).show()
-                    }
+            if (uri != null && attachment != null) {
+                saveImageForAttachment(attachment, "Unsupported image type") { root ->
+                    saveImageIntoVault(context.contentResolver, root, uri)
                 }
             }
         }
@@ -336,17 +473,11 @@ fun NoteEditorScreen(
     // vault root (IMAGE_EXTENSIONS only) → insertImage back. Same vault
     // destination as the picker above, so paste and pick are indistinguishable.
     val saveImageData: (String, String) -> Unit = { base64, ext ->
-        scope.launch {
-            val name = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
-                    saveImageDataIntoVault(File(store.rootPath), bytes, ext)
-                }.getOrNull()
-            }
-            if (name != null) {
-                host.insertImage(name)
-            } else {
-                Toast.makeText(context, "Couldn't paste image", Toast.LENGTH_SHORT).show()
+        val attachment = host.currentAttachment()
+        if (attachment != null) {
+            saveImageForAttachment(attachment, "Couldn't paste image") { root ->
+                val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+                saveImageDataIntoVault(root, bytes, ext)
             }
         }
     }
@@ -362,18 +493,22 @@ fun NoteEditorScreen(
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = c.surface,
         topBar = {
             TopAppBar(
                 title = {},
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        enabled = interactionEnabled,
+                        onClick = { navigateAfterSaving(onBack) },
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
+                    IconButton(enabled = interactionEnabled, onClick = {
                         val share = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TITLE, titleValue.text)
@@ -384,7 +519,7 @@ fun NoteEditorScreen(
                         Icon(Icons.Filled.Share, contentDescription = "Share", tint = c.textSecondary)
                     }
                     var menu by remember { mutableStateOf(false) }
-                    IconButton(onClick = { menu = true }) {
+                    IconButton(enabled = interactionEnabled, onClick = { menu = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = c.textSecondary)
                     }
                     // Overflow parity with the list rows [list.md:62].
@@ -426,6 +561,7 @@ fun NoteEditorScreen(
                 .imePadding(),
         ) {
             BasicTextField(
+                enabled = interactionEnabled,
                 value = titleValue,
                 onValueChange = { v ->
                     // Strip forbidden filesystem chars in-place (desktop parity —
@@ -479,48 +615,81 @@ fun NoteEditorScreen(
             Spacer(Modifier.size(8.dp))
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                EditorWebView(
-                    content = content,
-                    // Quick capture: a brand-new note (autoFocus) opens with the
-                    // BODY focused — keyboard on the editor, not the title field —
-                    // so the first keystrokes are the note, not its name. Opening
-                    // an existing note leaves the keyboard down (autoFocus false).
-                    // [list.md]
-                    theme = theme,
-                    autoFocus = autoFocus,
-                    notesJson = notesJson,
-                    // Local ![](image.png) resolves against the vault root
-                    // [editor.md:121] (allowFileAccess stays on, see EditorHost).
-                    imageBaseUrl = "file://${store.rootPath}/",
-                    modifier = Modifier.fillMaxSize(),
-                    onOpenNote = onOpenNote,
-                    onPickImage = pickImage,
-                    onSaveImageData = saveImageData,
-                    onChange = { newContent ->
-                        // Data-loss guard: ignore editor change events until the
-                        // off-main initial read has landed (`loaded`). The WebView
-                        // mounts with "" and can emit a setContent echo before the
-                        // real body loads; saving that empty echo would clobber the
-                        // note on disk. Once loaded, all edits flow through.
-                        if (loaded) {
-                            // Just update the buffer state. The unsaved-draft
-                            // register follows from the snapshotFlow derivation
-                            // (content != savedContent) — no manual publish; the
-                            // register goes clean the instant the debounced save
-                            // sets savedContent (PKT-12 R5). F8 jetsam guard.
-                            content = newContent
-                            saveJob?.cancel()
-                            saveJob = scope.launch {
-                                delay(400)
-                                // Re-read noteId at fire time so a save that lands
-                                // after a rename writes to the renamed note, not the
-                                // stale id.
-                                store.write(noteId, newContent)
-                                savedContent = newContent
+                // A System WebView older than the editor bundle's engine floor
+                // can't run the editor at all (blank pane, github#8) — show a
+                // native "update WebView" notice there instead. Read once: the
+                // provider can't change while the app is running.
+                if (webViewTooOld) {
+                    LegacyWebViewNotice()
+                } else {
+                    EditorWebView(
+                        content = content,
+                        // Quick capture: a brand-new note (autoFocus) opens with the
+                        // BODY focused — keyboard on the editor, not the title field —
+                        // so the first keystrokes are the note, not its name. Opening
+                        // an existing note leaves the keyboard down (autoFocus false).
+                        // [list.md]
+                        theme = theme,
+                        autoFocus = autoFocus,
+                        notesJson = notesJson,
+                        // Local ![](image.png) resolves against the vault root
+                        // [editor.md:121] (allowFileAccess stays on, see EditorHost).
+                        imageBaseUrl = "file://${store.rootPath}/",
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenNote = { linkedNoteId ->
+                            if (linkedNoteId != noteId) {
+                                navigateAfterSaving { onOpenNote(linkedNoteId) }
                             }
-                        }
-                    },
-                )
+                        },
+                        onPickImage = pickImage,
+                        onSaveImageData = saveImageData,
+                        onMigrationSnapshot = { capturedContent ->
+                            saveJob?.cancel()
+                            content = capturedContent
+                        },
+                        onChange = { newContent ->
+                            // Data-loss guard: ignore editor change events until the
+                            // off-main initial read has landed (`loaded`). The WebView
+                            // mounts with "" and can emit a setContent echo before the
+                            // real body loads; saving that empty echo would clobber the
+                            // note on disk. Once loaded, all edits flow through.
+                            if (
+                                loaded &&
+                                !mutationGate.isDestructiveActionStarted &&
+                                !store.isVaultMigrationStarted
+                            ) {
+                                // Just update the buffer state. The unsaved-draft
+                                // register follows from the snapshotFlow derivation
+                                // (content != savedContent) — no manual publish; the
+                                // register goes clean the instant the debounced save
+                                // sets savedContent (PKT-12 R5). F8 jetsam guard.
+                                content = newContent
+                                saveJob?.cancel()
+                                saveJob = scope.launch {
+                                    delay(400)
+                                    // Re-read noteId at fire time so a save that lands
+                                    // after a rename writes to the renamed note, not the
+                                    // stale id.
+                                    val outcome = mutationGate.runEditorMutation {
+                                        store.write(noteId, newContent)
+                                    } ?: return@launch
+                                    savedContent = confirmedSavedContent(
+                                        savedContent,
+                                        newContent,
+                                        outcome,
+                                    )
+                                    if (outcome === NoteMutationOutcome.Failed) {
+                                        Toast.makeText(
+                                            context,
+                                            "Couldn't save note. Your changes are still pending.",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
             }
 
             // Native markdown toolbar [editor.md]: rendered from the generated
@@ -545,6 +714,18 @@ fun NoteEditorScreen(
             }
         }
     }
+        if (navigationPending) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    ),
+            )
+        }
+    }
 
     if (confirmDelete) {
         ConfirmDialog(
@@ -553,21 +734,56 @@ fun NoteEditorScreen(
             confirmLabel = "Delete",
             onConfirm = {
                 confirmDelete = false
+                mutationGate.beginDestructiveAction()
                 saveJob?.cancel()
-                // Mark clean so neither the onDispose flush nor the derived
-                // register can resurrect the note (content==savedContent makes
-                // the register null this note's draft), then fire the suspend
-                // delete on the composable scope (FFI on IO) and pop back
-                // immediately. Toast synchronously BEFORE the pop: onBack()
-                // cancels this screen's coroutine scope, so a toast awaited inside
-                // the launch could be cut off before it shows. store.delete
-                // swallows its own errors (never throws), so there's no failure
-                // state to withhold the confirmation for. The `write_if_unchanged`
-                // flush backstops this too — a deleted note returns SkippedMissing.
-                savedContent = content
-                scope.launch { store.delete(noteId) }
-                Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
-                onBack()
+                host.blur()
+                scope.launch {
+                    var saveFailed = false
+                    val outcome = mutationGate.runDestructiveMutation {
+                        val flushed = content
+                        val hasPendingChanges = flushed != savedContent
+                        val writeOutcome = if (hasPendingChanges) {
+                            store.write(noteId, flushed)
+                        } else {
+                            null
+                        }
+                        if (writeOutcome != null) {
+                            savedContent = confirmedSavedContent(
+                                savedContent,
+                                flushed,
+                                writeOutcome,
+                            )
+                        }
+                        if (
+                            !shouldContinueDeleteAfterEditorWrite(
+                                hasPendingChanges,
+                                writeOutcome,
+                            )
+                        ) {
+                            saveFailed = true
+                            return@runDestructiveMutation NoteMutationOutcome.Failed
+                        }
+                        store.delete(noteId)
+                    }
+                    if (shouldCompleteNoteAction(outcome)) {
+                        // Mark clean only after delete commits, so onDispose
+                        // cannot recreate the deleted note from its dirty draft.
+                        savedContent = content
+                        Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
+                        onBack()
+                    } else {
+                        mutationGate.cancelDestructiveAction()
+                        Toast.makeText(
+                            context,
+                            if (saveFailed) {
+                                "Couldn't save note. Delete is paused while your changes remain pending."
+                            } else {
+                                "Couldn't delete note. It remains in your notes."
+                            },
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
             },
             onDismiss = { confirmDelete = false },
         )
@@ -577,22 +793,59 @@ fun NoteEditorScreen(
         FolderPickerSheet(
             store = store,
             onDismiss = { showMoveSheet = false },
-            onPick = { folder ->
-                showMoveSheet = false
+            onPick = { folder, isNew ->
                 scope.launch {
                     // Flush the draft to the CURRENT id before the file moves —
                     // a stale save would recreate a ghost at the old id. The
                     // derived register re-keys to the moved id afterwards (its
                     // content follows the live noteId), so no manual clear (R4).
-                    saveJob?.cancel()
-                    // Snapshot before the suspending write; advance savedContent to
-                    // the snapshot, not live `content`, so a keystroke typed during
-                    // the write stays dirty in the register and survives a later
-                    // background flush (PKT-12 F1 — same as the rename path).
-                    val flushed = content
-                    if (flushed != savedContent) { store.write(noteId, flushed); savedContent = flushed }
-                    noteId = store.moveNote(noteId, folder)
-                    Toast.makeText(context, "Moved to ${folder.ifEmpty { "Root" }}", Toast.LENGTH_SHORT).show()
+                    val outcome = mutationGate.runEditorMutation {
+                        saveJob?.cancel()
+                        // Snapshot before the suspending write; advance savedContent to
+                        // the snapshot, not live `content`, so a keystroke typed during
+                        // the write stays dirty in the register and survives a later
+                        // background flush (PKT-12 F1 — same as the rename path).
+                        val flushed = content
+                        if (flushed != savedContent) {
+                            val writeOutcome = store.write(noteId, flushed)
+                            savedContent =
+                                confirmedSavedContent(savedContent, flushed, writeOutcome)
+                            if (writeOutcome === NoteMutationOutcome.Failed) {
+                                Toast.makeText(
+                                    context,
+                                    "Couldn't save note. Your changes are still pending.",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                return@runEditorMutation NoteMutationOutcome.Failed
+                            }
+                        }
+                        val moveOutcome = store.moveNote(
+                            noteId,
+                            folder,
+                            createFolder = isNew,
+                        )
+                        if (moveOutcome is NoteMutationOutcome.Committed) {
+                            // Update the live id before releasing the gate. A delete
+                            // already waiting behind this move must target the final id.
+                            noteId = moveOutcome.value
+                        }
+                        moveOutcome
+                    } ?: return@launch
+                    when (outcome) {
+                        is NoteMutationOutcome.Committed -> {
+                            showMoveSheet = false
+                            Toast.makeText(
+                                context,
+                                "Moved to ${folder.ifEmpty { "Root" }}",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        NoteMutationOutcome.Failed -> Toast.makeText(
+                            context,
+                            "Couldn't move note. It remains in its current folder.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
                 }
             },
         )

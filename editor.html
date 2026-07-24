@@ -5,6 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#ffffff" />
   <title>FUTO Notes Editor</title>
+  <!-- Legacy Android System WebView runtime shim (github#8). The editor bundle
+       targets ES2020 (syntax floor: Chromium 80), but Svelte 5's client runtime
+       calls String.prototype.replaceAll (Chromium 85), so without this the whole
+       app throws on Chromium 80-84 and the editor never mounts. A classic (non-
+       module) script runs before the deferred module bundle. Engines below the
+       ES2020 syntax floor are caught natively (see Android EditorWebView). -->
+  <script>
+    if (!String.prototype.replaceAll) {
+      String.prototype.replaceAll = function (search, replacement) {
+        if (Object.prototype.toString.call(search) === '[object RegExp]') {
+          if (!search.global) {
+            throw new TypeError('replaceAll must be called with a global RegExp');
+          }
+          return String.prototype.replace.call(this, search, replacement);
+        }
+        var escaped = String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return String.prototype.replace.call(this, new RegExp(escaped, 'g'), replacement);
+      };
+    }
+  </script>
   <style>
     /* ------------------------------------------------------------------ *
      * Embedded editor layout for the native-iOS WKWebView host.
@@ -48,6 +68,21 @@
        * surfaces — so the editor pane visibly mismatches the surrounding
        * native UI in dark mode. Unlayered, so it beats the layered rule. */
       background: transparent;
+    }
+
+    /* Legacy-WebView text-color fallback (github#8). Non-updated Android 8-10
+     * system WebViews predate @layer (Chromium 99) and drop EVERY rule inside
+     * Tailwind's layers — including the @theme light tokens and the
+     * body/.cm-editor color rules — leaving UA-black text over the hosts'
+     * surface (invisible in dark mode). The [data-theme='dark'] variable
+     * overrides in theme.css stay unlayered, so var() still resolves there;
+     * the literal fallback covers light mode, where the @layer'd token is
+     * lost. Inherited from html, so it never outranks the layered rules that
+     * modern engines apply on body/.cm-editor. The hex must equal theme.css's
+     * light --color-text (locked by the legacy-WebView tests in
+     * tests/editor-embed-bridge.spec.ts). */
+    html {
+      color: var(--color-text, #0f0f0f);
     }
 
     #editor {

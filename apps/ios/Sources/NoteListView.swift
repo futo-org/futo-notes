@@ -9,17 +9,6 @@ enum Route: Hashable {
     case newNote(String)
 }
 
-/// Toggles state without the implicit view-transition animation, so a
-/// transparent `fullScreenCover` pops in place (like the `.alert`/
-/// `.confirmationDialog` it replaces) instead of sliding up. Shared by the
-/// New Folder dialog and the destructive delete confirmations below — see
-/// `DestructiveConfirmDialog`.
-private func presentWithoutAnimation(_ mutate: () -> Void) {
-    var transaction = Transaction()
-    transaction.disablesAnimations = true
-    withTransaction(transaction, mutate)
-}
-
 struct NoteListView: View {
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
@@ -103,7 +92,7 @@ struct NoteListView: View {
                     destructiveLabel: "Delete Note",
                     onCancel: { setSearchDelete([], visible: false) },
                     onDestructive: {
-                        for id in searchDeleteIds { store.delete(id) }
+                        for id in searchDeleteIds { store.deleteAsync(id) }
                         setSearchDelete([], visible: false)
                     }
                 )
@@ -426,7 +415,7 @@ struct FolderContentsView: View {
                 destructiveLabel: "Delete Note",
                 onCancel: { setDeleteTarget(nil) },
                 onDestructive: {
-                    if let note = deleteTarget { store.delete(note.id) }
+                    if let note = deleteTarget { store.deleteAsync(note.id) }
                     setDeleteTarget(nil)
                 }
             )
@@ -688,59 +677,6 @@ private struct NewFolderDialog: View {
     }
 }
 
-/// Alert-look-alike card for a destructive confirmation (delete note, delete
-/// folder), hosted in a transparent `fullScreenCover`. Replaces
-/// `.confirmationDialog`, which — attached at a container view far from the
-/// swiped/long-pressed row — can render as an arrow popover anchored to that
-/// container in a regular-width horizontal size class (some large iPhones),
-/// pointing the arrow at an unrelated row instead of the one being deleted.
-/// A transparent fullScreenCover is always centered, never anchored to a
-/// source view. Mirrors `NewFolderDialog` above.
-private struct DestructiveConfirmDialog: View {
-    /// The full confirmation prompt (e.g. "Delete this note? This action
-    /// cannot be undone."), rendered as one centered headline — matching what
-    /// `.confirmationDialog(_:titleVisibility: .visible)` showed.
-    let message: String
-    let destructiveLabel: String
-    let onCancel: () -> Void
-    let onDestructive: () -> Void
-
-    var body: some View {
-        ZStack {
-            // The same dim a real alert/action sheet draws. Taps on it do NOT
-            // dismiss — parity with the .confirmationDialog this replaced.
-            Color.black.opacity(0.2)
-                .ignoresSafeArea()
-            VStack(spacing: 0) {
-                Text(message)
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 19)
-                    .padding(.bottom, 16)
-                Divider()
-                HStack(spacing: 0) {
-                    Button(action: onCancel) {
-                        Text("Cancel")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    Divider()
-                        .frame(height: 44)
-                    Button(role: .destructive, action: onDestructive) {
-                        Text(destructiveLabel)
-                            .foregroundStyle(Theme.danger)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                }
-            }
-            .frame(width: 270)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        }
-    }
-}
-
 /// Sheet for moving a note to a destination folder. Lists Root, every existing
 /// folder, and a "New Folder…" option that creates a folder (under the note's
 /// current folder) and moves the note into it.
@@ -755,6 +691,9 @@ struct MoveToFolderSheet: View {
     /// Invoked with the note's FINAL id once the move lands (a move changes the
     /// id). The open editor uses this to keep the note open under its new id.
     var onMoved: ((String) -> Void)? = nil
+    /// The editor supplies this synchronous handoff so it owns and tracks the
+    /// complete asynchronous move. List-row moves use the default store task.
+    var onMoveRequested: ((String) -> Void)? = nil
 
     @State private var showingNewFolder = false
     @State private var newFolderName = ""
@@ -831,21 +770,29 @@ struct MoveToFolderSheet: View {
     }
 
     private func move(to folder: String) {
-        Task {
-            let finalId = await store.moveNote(note.id, toFolder: folder)
-            onMoved?(finalId)
-        }
+        performMove(to: folder)
         dismiss()
+    }
+
+    private func performMove(to folder: String) {
+        if let onMoveRequested {
+            onMoveRequested(folder)
+        } else {
+            Task {
+                if case .committed(let finalId) =
+                    await store.moveNote(note.id, toFolder: folder)
+                {
+                    onMoved?(finalId)
+                }
+            }
+        }
     }
 
     private func createAndMove() {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let dest = currentFolder.isEmpty ? name : currentFolder + "/" + name
-        Task {
-            let finalId = await store.moveNote(note.id, toFolder: dest)
-            onMoved?(finalId)
-        }
+        performMove(to: dest)
         dismiss()
     }
 }

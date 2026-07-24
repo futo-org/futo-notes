@@ -25,7 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.BuildConfig
+import kotlinx.coroutines.suspendCancellableCoroutine
+import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.coroutines.resume
 
 /**
  * Whether a top-level navigation may load inside the reused editor WebView.
@@ -73,6 +76,7 @@ fun EditorWebView(
     onOpenNote: (String) -> Unit = {},
     onPickImage: (String) -> Unit = {},
     onSaveImageData: (String, String) -> Unit = { _, _ -> },
+    onMigrationSnapshot: (String) -> Unit = {},
     onReady: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -91,8 +95,15 @@ fun EditorWebView(
     // note before this one's onDispose runs (it would otherwise clobber the
     // newer binding).
     DisposableEffect(Unit) {
-        val token =
-            host.attach(autoFocus, onChange, onReady, onOpenNote, onPickImage, onSaveImageData)
+        val token = host.attach(
+            autoFocus,
+            onChange,
+            onReady,
+            onOpenNote,
+            onPickImage,
+            onSaveImageData,
+            onMigrationSnapshot,
+        )
         onDispose { host.detach(token) }
     }
 
@@ -114,6 +125,14 @@ fun EditorWebView(
     }
 }
 
+internal fun decodeJavascriptString(result: String?): String? {
+    if (result == null) return null
+    return runCatching {
+        val wrapped = JSONArray("[$result]")
+        if (wrapped.isNull(0)) null else wrapped.getString(0)
+    }.getOrNull()
+}
+
 /**
  * Owns the single, app-lifetime editor WebView. Pre-warmed once so it has
  * already reached `ready` (bundle parsed, CodeMirror mounted) by the time the
@@ -130,6 +149,7 @@ class EditorHost private constructor(appContext: Context) {
     private var onOpenNote: (String) -> Unit = {}
     private var onPickImage: (String) -> Unit = {}
     private var onSaveImageData: (String, String) -> Unit = { _, _ -> }
+    private var onMigrationSnapshot: (String) -> Unit = {}
     private var autoFocus = false
 
     // Reactive inputs for the NATIVE Compose toolbar (EditorToolbar.kt), fed by
@@ -153,8 +173,7 @@ class EditorHost private constructor(appContext: Context) {
     private var desiredImageBaseUrl: String? = null
     private var currentImageBaseUrl: String? = null
 
-    // Incremented per attach; detach only clears if its token is still current.
-    private var generation = 0
+    private val attachments = EditorAttachmentGate()
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -319,40 +338,50 @@ class EditorHost private constructor(appContext: Context) {
     /** Bind a note's callbacks. Returns a token for the matching [detach].
      *  If the editor is already warm, fires [onReady] (and focuses) now so the
      *  "ready for this note" contract holds for reused opens too. */
-    fun attach(
+    internal fun attach(
         autoFocus: Boolean,
         onChange: (String) -> Unit,
         onReady: () -> Unit,
         onOpenNote: (String) -> Unit = {},
         onPickImage: (String) -> Unit = {},
         onSaveImageData: (String, String) -> Unit = { _, _ -> },
-    ): Int {
+        onMigrationSnapshot: (String) -> Unit = {},
+    ): EditorAttachmentToken {
         this.onChange = onChange
         this.onReady = onReady
         this.onOpenNote = onOpenNote
         this.onPickImage = onPickImage
         this.onSaveImageData = onSaveImageData
+        this.onMigrationSnapshot = onMigrationSnapshot
         this.autoFocus = autoFocus
+        val token = attachments.attach()
         if (isReady) {
             onReady()
             if (autoFocus) focusEditor()
         }
-        return ++generation
+        return token
     }
 
     /** Unbind, unless a newer [attach] has already taken over. */
-    fun detach(token: Int) {
-        if (token != generation) return
+    internal fun detach(token: EditorAttachmentToken) {
+        if (!attachments.permits(token)) return
+        attachments.detach(token)
         onChange = {}
         onReady = {}
         onOpenNote = {}
         onPickImage = {}
         onSaveImageData = { _, _ -> }
+        onMigrationSnapshot = {}
         autoFocus = false
         // Leaving the editor screen detaches the WebView without a blur event;
         // clear the flag so a reopened note doesn't flash a stale toolbar.
         editorFocused = false
     }
+
+    internal fun currentAttachment(): EditorAttachmentToken? = attachments.current()
+
+    internal fun isCurrentAttachment(token: EditorAttachmentToken): Boolean =
+        attachments.permits(token)
 
     fun setContent(content: String) {
         desiredContent = content
@@ -387,11 +416,81 @@ class EditorHost private constructor(appContext: Context) {
         eval("window.FutoEditor && window.FutoEditor.applyExternalContent(${JSONObject.quote(markdown)});")
     }
 
-    /** Insert `![](filename)` at the cursor — called after a pickImage
-     *  round-trip saves the image into the vault root. */
-    fun insertImage(filename: String) {
-        eval("window.FutoEditor && window.FutoEditor.insertImage(${JSONObject.quote(filename)});")
-    }
+    /** Insert `![](filename)` and wait until CodeMirror has applied the
+     * transaction. Storage migration keeps its vault gate until this returns,
+     * so a following editor snapshot cannot run in the post-save callback gap.
+     * Callers enter on Main.immediate: dispatching another runnable here would
+     * let cancellation unwind while a stale insertion remained queued. */
+    internal suspend fun insertImageAndWait(
+        filename: String,
+        attachment: EditorAttachmentToken,
+    ): Boolean =
+        suspendCancellableCoroutine { continuation ->
+            val permit = EditorAttachmentOperationPermit(attachments, attachment)
+            continuation.invokeOnCancellation { permit.cancel() }
+            val insert = Runnable {
+                if (!permit.mayRun()) {
+                    if (continuation.isActive) continuation.resume(false)
+                    return@Runnable
+                }
+                webView.evaluateJavascript(
+                    """
+                    (() => {
+                      if (!window.FutoEditor) return false;
+                      window.FutoEditor.insertImage(${JSONObject.quote(filename)});
+                      return true;
+                    })()
+                    """.trimIndent(),
+                ) { result ->
+                    if (continuation.isActive) continuation.resume(result == "true")
+                }
+            }
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                if (continuation.isActive) continuation.resume(false)
+                return@suspendCancellableCoroutine
+            }
+            insert.run()
+        }
+
+    /** Blur and read the live CodeMirror document for save-before-navigation.
+     * The attachment check prevents a delayed callback from supplying bytes
+     * from whichever note adopts the shared WebView next. */
+    internal suspend fun captureContentAndWait(
+        attachment: EditorAttachmentToken,
+    ): String? =
+        suspendCancellableCoroutine { continuation ->
+            val permit = EditorAttachmentOperationPermit(attachments, attachment)
+            continuation.invokeOnCancellation { permit.cancel() }
+            val capture = Runnable {
+                if (!permit.mayRun()) {
+                    if (continuation.isActive) continuation.resume(null)
+                    return@Runnable
+                }
+                webView.evaluateJavascript(
+                    """
+                    (() => {
+                      if (!window.FutoEditor) return null;
+                      window.FutoEditor.blur();
+                      return window.FutoEditor.getContent();
+                    })()
+                    """.trimIndent(),
+                ) { result ->
+                    if (!continuation.isActive) return@evaluateJavascript
+                    if (!attachments.permits(attachment)) {
+                        continuation.resume(null)
+                        return@evaluateJavascript
+                    }
+                    val captured = decodeJavascriptString(result)
+                    if (captured != null) lastPushedContent = captured
+                    continuation.resume(captured)
+                }
+            }
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                if (continuation.isActive) continuation.resume(null)
+                return@suspendCancellableCoroutine
+            }
+            capture.run()
+        }
 
     /** Run a shared toolbar command (TOOLBAR_EXEC in markdownToolbar.ts) by
      *  manifest id — how the native toolbar's Exec items dispatch (bridge v3).
@@ -404,6 +503,39 @@ class EditorHost private constructor(appContext: Context) {
      *  message) hides the native toolbar. The toolbar's dismiss chevron. */
     fun blur() {
         eval("window.FutoEditor && window.FutoEditor.blur();")
+    }
+
+    /**
+     * Blur first so no later keystroke can enter the document, then read the
+     * live CM6 bytes instead of relying on the bridge's rAF-coalesced change.
+     */
+    suspend fun freezeAndCaptureContent(): Boolean {
+        webView.isEnabled = false
+        if (!isReady) return true
+        return suspendCancellableCoroutine { continuation ->
+            webView.post {
+                webView.evaluateJavascript(
+                    """
+                    (() => {
+                      if (!window.FutoEditor) return null;
+                      window.FutoEditor.blur();
+                      return window.FutoEditor.getContent();
+                    })()
+                    """.trimIndent(),
+                ) { result ->
+                    val content = decodeJavascriptString(result)
+                    if (content != null) {
+                        lastPushedContent = content
+                        onMigrationSnapshot(content)
+                    }
+                    if (continuation.isActive) continuation.resume(content != null)
+                }
+            }
+        }
+    }
+
+    fun resumeAfterStorageMigrationFailure() {
+        webView.isEnabled = true
     }
 
     /** Open an external link (`openUrl` bridge message) in the system browser —

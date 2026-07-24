@@ -43,6 +43,36 @@ async function measureRowFit(
 }
 
 test.describe('Folder support', () => {
+  test('note hit zones span the remaining sidebar width at every depth', async ({ page }) => {
+    await openSidebar(page);
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('root-note', 'root');
+      await win.__testNotes.createNote('Nested/child-note', 'nested');
+    });
+
+    await page.locator('[data-folder-path="Nested"]').first().click();
+    await expect(page.locator('[data-note-id="Nested/child-note"]')).toBeVisible();
+
+    const rightEdgeOffsets = await page.evaluate(() => {
+      const scroll = document.querySelector('.folder-tree-scroll');
+      if (!(scroll instanceof HTMLElement)) throw new Error('Folder tree is missing');
+
+      const contentRight =
+        scroll.getBoundingClientRect().right -
+        Number.parseFloat(getComputedStyle(scroll).paddingRight);
+      return ['root-note', 'Nested/child-note'].map((id) => {
+        const row = document.querySelector(`[data-note-id="${id}"]`);
+        if (!(row instanceof HTMLElement)) throw new Error(`Note row is missing: ${id}`);
+        return contentRight - row.getBoundingClientRect().right;
+      });
+    });
+
+    expect(rightEdgeOffsets).toEqual([0, 0]);
+  });
+
   test('the new-folder button opens the create-folder modal', async ({ page }) => {
     await openSidebar(page);
     const button = page.getByTestId('new-folder-btn');

@@ -288,18 +288,21 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   pre-port file that predates `e2eeCollectionId` carries no tag and resets as
   UNKNOWN provenance (the empty-map reconcile then hash-dedups). →
   futo-notes-sync `checkpoint.rs`
-- **A server instance holds exactly one vault (collection) per account.** The
-  protocol is single-vault, but the server used to mint a fresh collection on
-  every `POST /api/collections`, so two devices connecting *concurrently* each
-  created their own vault — with its own random key — and never saw each other's
-  notes (silent split-brain; reproduced 2026-06-30 via concurrent `connect()`).
-  The server now enforces it: `UNIQUE(user_id)` on `collections`, an idempotent
-  `POST /api/collections` (claim-or-return), and **first-write-wins** key
-  material on `PUT /api/collections/:id/key` (a racing second client gets the
-  authoritative key back instead of overwriting it). Pre-existing splits are
-  collapsed by **migration 008** — keep the earliest vault per account (the one
-  `connect()` picks), delete the rest (objects cascade). → futo-notes-server
-  `collections/routes.ts`, `db/migrations/008_single_collection_per_user.ts`
+- **Clients use one canonical vault (collection) per account even though the
+  server preserves plural collection rows.** The server must retain every
+  pre-existing collection during upgrades — deleting extras would destroy
+  opaque user data — so `POST /api/collections` may create independent rows.
+  On connect, the client selects the earliest collection (creation time, then
+  id); when the list is empty it creates a row and then **re-lists before
+  claiming key material**. Two devices connecting concurrently therefore both
+  converge on the earliest row instead of each claiming the row its own POST
+  returned. Key material remains first-write-wins: a racing `PUT …/key` 409
+  makes the loser fetch and adopt the authoritative key. Extra empty rows from
+  a setup race remain harmless and are never selected while an earlier vault
+  exists. This prevents the silent split-brain reproduced by
+  `concurrent_connect_converges_to_one_vault` without a destructive server
+  migration. → futo-notes-sync `session/connect.rs`; futo-notes-server
+  `collections/routes.ts`, `db/migrations/009_restore_plural_collections.ts`
 - **Clients re-point to the surviving vault automatically — cold start AND while
   running.** The client adopts the authoritative key the server returns from
   `PUT …/key` (so concurrent connects converge on one key, not just one
@@ -326,6 +329,15 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   the object map is keyed by **relative** filename (not absolute path) and the
   `.e2ee-state.json` travels inside the vault, so the session picks up at
   the new root with no re-upload — provided the move carries the dotfiles.
+  Android storage migration synchronously closes a session-operation gate, then
+  drains credential restore/heal, connect, manual sync, and live-resume work
+  before gracefully cancelling and joining the live task and awaiting the Rust
+  session's cycle gate. It never aborts an in-flight cycle before that cycle
+  installs its advanced in-memory/checkpoint state. It then takes the store's
+  exclusive vault gate, so sync/editor/store/image writes cannot race the staged
+  copy and manifest verification. →
+  `SyncSession::stop_live_and_wait`, `SyncManager.quiesceForStorageMigration`,
+  `NotesStore.migrateVault`, Android `storage/StorageMigrationGateTest`
 
 ## Live sync (SSE)
 
@@ -557,6 +569,38 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   the conflict — silent data loss, `conflicts == 0` (F1). → futo-notes-ffi
   `SyncClient::sync_now` + `SyncSession::start_live`; server/cross-platform
   integration suites
+- **A push may infer local deletions only from a complete vault scan.** Failure
+  to read the vault root, any nested directory entry, or any file metadata
+  aborts the cycle before the HTTP client is constructed and before any remote
+  create, update, or tombstone. A partial scan is never treated as an
+  authoritative list of missing files, because that could turn a transient
+  local I/O failure into fleet-wide deletion of healthy remote objects.
+  Likewise, a post-scan content-read failure while pairing a possible rename
+  aborts before any HTTP mutation; the unreadable replacement is never skipped
+  while its old mapped name continues into remote deletion. The
+  scanner reads symlink metadata and never follows file or directory symlinks,
+  so a vault link cannot upload content outside the selected root or recurse
+  through a directory cycle. On Unix platforms, every later note/blob read,
+  atomic write, remove, timestamp update, tombstone claim, and conflict
+  relocation resolves each parent from an open vault-root directory descriptor
+  with `NOFOLLOW`; a scan-to-use symlink swap therefore cannot escape the vault.
+  Successful namespace writes/removes/renames fsync their affected parent
+  directories and surface a directory-sync failure instead of reporting durable
+  success. Because that error arrives after the namespace mutation, callers
+  treat it as an uncertain commit and retry idempotently: the retry re-fsyncs
+  even when the desired bytes already match, the removed leaf is already
+  absent, or the rename has already reached its destination. Every newly
+  created parent entry is also fsynced in its containing directory before use,
+  including when retry finds an uncertain prior `mkdir` already present; only
+  then may object-map/cursor checkpoints advance.
+  Other platforms reject symlinks observed while resolving the path, but do not
+  yet provide the same descriptor-relative race guarantee. The same fallible
+  scanner is used by conflict/tombstone copy naming; no sync call site receives
+  a best-effort file list. → futo-notes-sync `sync/vault.rs`,
+  `sync/vault_fs.rs`, and `sync/push.rs`; regression tests `scan_reports_*`,
+  `scan_never_follows_*`, `content_*_never_follow_*`,
+  `collision_placement_never_renames_*`, and
+  `incomplete_root_scan_stops_before_remote_deletion`
 - **The persisted pull cursor never advances past changes we have actually
   pulled — even across a crash mid-push.** State carries TWO watermarks:
   `max_version` (the highest `change_seq` seen; push folds its uploads in and
@@ -578,6 +622,29 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   idempotent (`first_pass` hash/identity-dedupes, no re-downloads or conflict
   copies for already-synced notes) — and RETROACTIVELY heals any install already
   carrying hidden F32 damage. → futo-notes-sync `checkpoint.rs` + `sync/`
+- **A final checkpoint write failure does not discard successful in-memory sync
+  progress.** Push and pull return the updated `ConnectedState`, record one
+  `FailureKind::Checkpoint` in the combined `SyncSummary`, and let
+  `SyncSession` install that state. A retry in the same running session therefore
+  retains uploaded object IDs and downloaded mappings/cursors instead of
+  POSTing duplicate server objects. Pull ancestry is cleared only after its
+  checkpoint is durably saved. This preserves the push-first sequence and both
+  watermarks; it changes only how the local persistence failure is reported and
+  installed. Guarded by
+  `uploaded_state_survives_final_checkpoint_failure_in_the_running_session` and
+  `downloaded_state_survives_final_checkpoint_failure_in_the_running_session`.
+  A pull failure after a successful push preserves the same pushed state even
+  when its interim checkpoint also failed; guarded by
+  `uploaded_state_survives_when_checkpoint_and_following_pull_fail`.
+  A fatal push-side delete-conflict recovery after earlier successful uploads
+  likewise returns the partially advanced push state to the session; guarded by
+  `uploaded_state_survives_a_later_fatal_delete_conflict`.
+  **Crash/restart limit:** if the process exits before a later checkpoint save
+  succeeds, disk still contains the older map/cursors, so a restart can repeat a
+  successful remote create. Eliminating that window requires a server-side
+  idempotency/protocol guarantee and is outside this client-only behavior; the
+  visible checkpoint failure remains the signal that durable local state is
+  behind. → futo-notes-sync `sync/{push,pull}.rs` + `session/`
 - **A pure case-only / NFC-vs-NFD rename keeps its requested form.** Renaming
   `note` → `Note` (or a composed↔decomposed accent) on a
   case/normalization-insensitive filesystem (default APFS on macOS/iOS, NTFS)

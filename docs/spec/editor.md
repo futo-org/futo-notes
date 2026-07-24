@@ -18,6 +18,27 @@ this file states the behaviors a human cares about.
   surface) shows through and the editor pane matches the surrounding UI in
   both light and dark. → editor.html, EditorWebView.swift, EditorWebView.kt,
   tests/editor-embed-bridge.spec.ts
+- Editor text stays legible on legacy Android system WebViews (Chromium < 99,
+  no `@layer` support — they drop every Tailwind-layered rule, including the
+  light theme tokens and the `body`/`.cm-editor` colors): editor.html carries
+  an unlayered inherited text-color fallback on `html`, resolving the dark
+  token via the unlayered `[data-theme='dark']` variables and falling back to
+  the literal light token. _(Android)_ → editor.html,
+  tests/editor-embed-bridge.spec.ts (legacy WebView tests)
+- The editor needs a System WebView of **Chromium 80 or newer**: the bundle
+  targets ES2020, an `editor.html` `String.prototype.replaceAll` shim covers
+  Chromium 80–84 (Svelte 5's runtime would otherwise throw), and the editor uses
+  `textContent = ''` rather than `Element.replaceChildren` (Chromium 86) in its
+  own DOM code so tables and the slash menu work down to the floor too. Below the
+  floor — or when there is no WebView provider at all — the shell shows a native
+  "update Android System WebView" notice in place of a blank editor pane; the
+  rest of the app (native list/search/settings) still works. _(Android)_ →
+  editor.html, slashMenuRenderer.ts, tableEditorWidget.ts, vite.editor.config.ts,
+  LegacyWebViewNotice.kt, NoteEditorScreen.kt
+- Minimum supported OS is **Android 9 (API 28)** — `minSdk 28`. This is an OS
+  floor independent of the System WebView (which updates through the store), so a
+  supported Android 9/10 device can still fall below the Chromium floor above and
+  get the update-WebView notice. _(Android)_ → apps/android/app/build.gradle.kts
 
 ## Live preview
 
@@ -203,6 +224,19 @@ native shells edit tags as text in the body, which is not a gap.
   `wikilinkClickHandler`, MainActivity.kt `onOpenNote` (push),
   NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`,
   tests/editor-embed-bridge.spec.ts
+- Native Back and resolved-wikilink navigation wait for every admitted editor
+  mutation, capture the latest live CM6 body, and persist-or-park a dirty
+  snapshot through the Rust draft workflow before changing the navigation
+  stack. A concurrent peer edit therefore keeps both versions instead of being
+  overwritten. A failed commit keeps the same editor visible and dirty and
+  surfaces the save failure. This includes a valid pending title whose Rust
+  rename fails and, on iOS, an admitted image insertion: navigation waits for
+  the insertion's CodeMirror transaction and deferred bridge callback before
+  capturing. Android applies this to toolbar Back, system Back, and wikilinks;
+  iOS uses its custom navigation Back and wikilinks. →
+  `EditorNavigationCommit.kt`, `NoteEditorScreen.kt`,
+  `EditorHost.captureCurrentContent`, `EditorCompletionQueue`,
+  `NoteEditorView.requestNavigation`
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
   `[[Archive/Markdown demo]]`) and **self-referencing links inside the renamed
@@ -428,6 +462,18 @@ EditorWebView.swift, EditorWebView.kt
   `saveImageDataIntoVault` (Android), EditorWebView.swift `saveImageData` +
   `clipboardImageData` + EditorImages.swift `VaultImages.save` (iOS),
   fs_paste_clipboard_image (Tauri), tests/editor-embed-bridge.spec.ts
+- A delayed native picker/clipboard completion belongs to the editor attachment
+  generation that started it. Detaching, deleting, or adopting another note
+  invalidates the completion, so it cannot insert Markdown into a different
+  note. Android holds both the editor mutation permit and vault gate through
+  confirmed WebView insertion, and cancellation cannot leave a queued main-
+  thread insertion behind; iOS checks the adopted WebView generation before
+  and after inserting, increments that generation on detach, queues every image
+  completion, and drains the queue through the editor's next animation frame
+  before a navigation capture. It removes a just-saved image when its attachment
+  became stale before insertion. →
+  `EditorAttachmentGate.kt`, `EditorWebView.insertImageAndWait`,
+  `EditorHost.detach`, `EditorCompletionQueue`, `VaultImages.remove`
 
 > **Gap:** Clipboard image paste is verified on Linux (WebKitGTK), Windows
 > (WebView2), native Android (emulator, 2026-06-22), and **macOS desktop**
@@ -454,6 +500,31 @@ EditorWebView.swift, EditorWebView.kt
   note id at fire time, so a save landing **after** a rename writes to the
   renamed note, not a stale id. → NoteEditorScreen.kt / NoteEditorView.swift
   `scheduleSave`
+- Native saves return an explicit committed/failed outcome. A failed write does
+  not advance the editor's saved snapshot, so the draft remains dirty and a
+  visible message tells the user it is still pending. Rename and move stop
+  before changing the note's identity when their required body flush fails;
+  conflict adoption likewise waits until the local conflict copy is durable.
+  A dirty native editor that leaves the screen retains its final draft registration
+  until the asynchronous leave flush writes or parks it successfully. A later
+  successful ordinary save clears only the exact retained revision it observed,
+  so it cannot accidentally discard a newer retained edit. Identity mutations
+  advance a store-owned draft generation before suspending: delete first commits
+  every dirty editor snapshot and aborts visibly when that write fails, then
+  discards the old identity's live and retained drafts only after the delete
+  commits; rename/move retarget retained drafts to the authoritative final id.
+  Failed identity mutations reopen a fresh generation. A queued or failed leave
+  flush from the old generation therefore cannot resurrect a deleted note or
+  create an old-id ghost after rename/move. Android keeps the editor Back handler
+  installed while a navigation commit is pending, consuming repeated Back presses
+  instead of letting the parent route pop early; after its final CM6 capture it
+  also commits a valid visible title immediately rather than waiting for the
+  rename debounce. The iOS move captures the final live CM6 document
+  after destination selection, persists or parks it through the draft workflow,
+  and moves the parked conflict identity when that is where the local draft was
+  committed. _(iOS, Android)_ → `NotesStore.write`,
+  NoteEditorScreen.kt / NoteEditorView.swift,
+  NativeMutationOutcomeTest / NativeMutationOutcomeTests
 - Title edits debounce (~500 ms) into a rename (iOS commits via the rename
   dialog instead). Before the file moves, any pending body save is flushed to
   the _current_ id and the in-flight save is cancelled — otherwise a stale save
@@ -461,6 +532,23 @@ EditorWebView.swift, EditorWebView.kt
   NoteEditorView.swift `commitRename`
 - Leaving the editor flushes a pending save only if the content changed. The
   engine then decides whether the note is written, recreated, or parked.
+- A confirmed local delete is the final editor mutation for that note. Android
+  serializes body saves, title flush/rename, conflict adoption, the complete
+  flush-and-move transaction (including its final id update), and delete through
+  one editor mutation gate. iOS cancellation chains own the actual committed
+  move—not only presentation of its picker—and delete awaits the complete
+  save/rename/adoption/move chain before removing the final id. Once closing
+  starts, iOS blurs the WebView, quarantines late bridge changes, and never
+  flushes that closing view on disappear. Its centered delete card is a
+  transparent cover, and presenting that cover is explicitly excluded from the
+  editor's navigation-disappear cleanup. A committed delete discards the
+  quarantine; a failed delete restores and autosaves it, so the note is neither
+  recreated after success nor stripped of a late edit after failure. An
+  in-flight conflict flush, move, title debounce, or queued bridge callback
+  therefore cannot recreate or rename a note after its delete commits. _(iOS,
+  Android)_ → `EditorMutationGate`,
+  `EditorDraftCoordinator`, NoteEditorScreen.kt, NoteEditorView.swift,
+  NativeMutationOutcomeTests
 - Backgrounding the app makes a **best-effort** flush of the open editor's
   pending edit at the first leave-foreground signal, so an edit caught inside the
   autosave debounce is usually persisted before the OS jetsams the process. The
@@ -485,17 +573,17 @@ EditorWebView.swift, EditorWebView.kt
   abandoned note is never resurrected. Conflict copies are named by the
   engine's one conflict-naming rule ("<title> (conflict YYYY-MM-DD)", counter
   suffix on a same-day collision), and parking is idempotent — a crash-window
-  double-park mints ONE copy. _(iOS; Android/desktop adopt in #38 — Android's
-  flush still drops on skip, desktop saves unconditionally.)_ →
+  double-park mints ONE copy. _(iOS, Android; desktop saves unconditionally.)_ →
   `futo_notes_store::LocalNoteStore::flush_draft` via FFI `flush_draft`;
-  `NotesStore.flushDraft`/`flushAsync`; conflict naming
+  native `NotesStore.flushDraft`/`flushAsync`; conflict naming
   `futo_notes_core::conflict_names`. Guarded by the flush_draft unit tests in
   crates/futo-notes-store/src/tests.rs (all four dispositions, converged/park
   boundary, recreate-vs-reappeared window, park idempotency, recreate-arm
   mutation positioning), the FFI note_contract test, and
-  apps/ios/Tests/FlushDraftVerbTests.swift. Earlier behavior verified on iOS
-  2026-07-13 (sim); verb wiring verified via `just test-ios-native`
-  2026-07-21.
+  apps/ios/Tests/FlushDraftVerbTests.swift and Android's
+  `EditorLifecycleFlushTest`. Earlier behavior verified on iOS 2026-07-13
+  (sim); iOS verb wiring verified via `just test-ios-native` 2026-07-21 and
+  Android verb/adoption wiring via `just test-android-native` 2026-07-23.
 - The open editor's unsaved-draft register is **derived** from the editor's live
   state (note id, buffer, saved content, loaded) rather than hand-synced, so it
   goes clean the instant a save completes or a remote is adopted (no stale draft
@@ -542,3 +630,15 @@ EditorWebView.swift, EditorWebView.kt
     the only surviving artifact is the `WRY_RUSTWEBVIEW_CLASS_EXTENSION` override
     in `apps/tauri/src-tauri/.cargo/config.toml`, still marked DO-NOT-REMOVE for
     the Tauri-Android build path.)
+- Typing must be free of IME/caret glitches on every WebView the editor runs in.
+  _(Android)_
+  > **Gap:** on some old Android System WebViews (the Chromium 80–98 tier that
+  > runs the editor but predates `@layer`), users report the shift key re-arming
+  > after each character, the caret jumping to the start of the line after the
+  > first character, and content scrolling out of view while typing (github#8).
+  > These are CM6-on-old-engine input limitations. They did **not** reproduce on
+  > the Chromium-83 emulator even with FUTO Keyboard as the IME (per-keystroke,
+  > fast-burst, and glide typing all behaved), so the cause is likely
+  > physical-device IME timing or a specific WebView build. Unaddressed — the
+  > legacy-WebView work fixes the black-text half and the sub-floor blank-editor
+  > case, not these input glitches.

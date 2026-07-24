@@ -7,7 +7,10 @@ Behaviors and constraints that hold across every surface and platform.
 - The UI shell renders immediately. **Never gate first render on filesystem
   I/O.** Theme, prefs, notes, and the search index load in the background and
   apply reactively. → CLAUDE.md "Key Constraints"; `App.svelte` flips
-  `initialized` synchronously.
+  `initialized` synchronously. Native Android likewise reaches its first
+  composition before reading theme/storage preferences or the migration
+  journal; startup recovery then runs on `Dispatchers.IO` and applies
+  reactively. → `MainActivity.onCreate`, `recoverStorageStartup`
 - `plugin-fs` reads (`readTextFile`, `exists`) can hang indefinitely on a cold
   sandbox — never `await` one before first render. _(desktop Tauri; originally
   observed on the since-removed iOS Tauri shell — the native iOS app doesn't
@@ -60,9 +63,50 @@ Behaviors and constraints that hold across every surface and platform.
     shown before the system dialog. Android 11+ only.
   - **App storage** — `Android/data/<pkg>/files/futo-notes`: no permission, but
     invisible to the stock Files app on Android 11+ and deleted on uninstall.
-    Switching modes migrates the whole vault (including the `.futo` sync state) and
-    relaunches; the move is transparent to sync (object map is keyed by relative
-    filename → [sync.md](sync.md)).
+    Switching modes migrates the whole vault (including the `.futo` sync state)
+    and relaunches. The switch blocks editor/store writes—including image-picker
+    and clipboard image files—and pauses live sync. It refuses to begin while a
+    vault write is active, because an image write completes with a later editor
+    insertion that must be confirmed by the WebView before the storage gate
+    opens; the user can retry after that save finishes. A newly queued save is
+    rejected once migration is latched. That same synchronous latch makes an
+    Activity `onStop` unable to abort live sync before the migration's graceful
+    sync stop completes. It disables and blurs the Android WebView, then reads
+    `FutoEditor.getContent()` before taking the vault snapshot, so a bridge
+    change still waiting for animation-frame delivery is included; failure to
+    read the live editor aborts the switch. The engine stages the copy, verifies
+    every relative path and file digest, fsyncs copied files and directories,
+    and fsyncs the destination-parent chain after installation. Before each
+    authority transition it records a fsynced, atomically replaced app-private
+    journal. `PREPARED` makes the old root authoritative after a crash.
+    `FINALIZING` is written before source cleanup. Its versioned journal records
+    whether policy forbids removing the source (with backward-compatible V1
+    decoding). The destination has already been fully verified at this point, so
+    recovery promotes it when cleanup of a removable source was interrupted and
+    retains the still-present source as a backup. A source-removal-forbidden
+    Device migration instead safely rolls back to its still-present source if
+    activation was not durably recorded.
+    `ACTIVATED` makes the verified destination authoritative even if the
+    SharedPreferences commit result is ambiguous. A late source edit yields
+    `DESTINATION_CHANGED`, aborts activation, and keeps the old root visible.
+    Because external writers to shared Device storage cannot be fenced, a
+    successful switch away from Device storage retains that source as a backup
+    after activation instead of deleting it through a check-then-delete window.
+    Other cleanup failures may likewise retain the source as a backup. Recovery
+    distinguishes a present or proven-absent source from storage that is
+    unmounted, permission-denied, or otherwise uninspectable; an unavailable
+    source never authorizes destination promotion. A failed copy/verification
+    keeps the old mode/root active and reports the failure.
+    An open editor's pending draft must first produce a committed mutation or
+    already match the bytes on disk; a skipped/missing/divergent flush aborts the
+    switch instead of relaunching with an older draft. A non-empty destination is
+    accepted only when its complete manifest already matches the source, so an
+    unrelated pre-existing vault is never overwritten or cleaned up. An existing
+    empty source directory is a valid switch, but a missing or non-directory
+    active root is a failure (never interpreted as an empty vault). The move is
+    transparent to sync because the object map is keyed by relative filename. →
+    [sync.md](sync.md), Android `storage/`, `MainActivity.performSwitch`,
+    `NotesStorageTest`, `futo-notes-store::vault_migration`
 - **No silent relocation of existing installs.** An Android install that predates
   the picker is grandfathered on its legacy internal location
   (`filesDir/futo-notes`); it gains Files-app access only by opting in via
@@ -199,6 +243,11 @@ Behaviors and constraints that hold across every surface and platform.
   native shows the same platform toasts — delete now toasts "Note deleted" from
   both the editor ⋮ menu and the list long-press)_ → shared/notifications/toastBus.ts,
   NoteEditorScreen.kt, NoteListScreen.kt
+- Android emits delete/move success feedback only after the Rust store returns
+  a committed mutation. A failed action instead reports that the note remains
+  in place; it never navigates away from the editor or dismisses the move
+  picker as though the mutation succeeded. → `NoteMutationOutcome`,
+  `shouldCompleteNoteAction`, NoteActionCompletionTest
 - An uncaught error/crash is queued; the **next launch** shows a Crash Report
   dialog: expandable "View report", an optional "What were you doing?" field,
   a **"Send crashes automatically"** checkbox, and Send / Don't Send. Enabling

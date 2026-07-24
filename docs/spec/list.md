@@ -179,7 +179,9 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   > the swiped/long-pressed row, could render as a popover anchored to that
   > container in a regular-width horizontal size class (some large iPhones) —
   > pointing the arrow at an unrelated row instead of the one being deleted
-  > (fixed 2026-07-22). → NoteListView.swift `DestructiveConfirmDialog`
+  > (fixed 2026-07-22). The editor menu uses the same presentation, and opening
+  > its cover does not trigger editor-leave draft cleanup. →
+  > DestructiveConfirmDialog.swift, NoteListView.swift, NoteEditorView.swift
 - **iOS native** note rows expose **Move to Folder…** and **Delete** via
   long-press context menu / swipe actions; the move sheet lists Root, every
   folder, and an inline "New Folder…" option, and the move is applied on
@@ -192,6 +194,16 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   overwrites a note that appears concurrently (verified on emulator 2026-07-21;
   race regression added 2026-07-21). →
   NoteListScreen.kt, FolderPickerSheet.kt
+- Android note delete/move actions consume an explicit committed/failed store
+  outcome. Success toasts, editor navigation, note-id changes, and move-sheet
+  dismissal occur only after commit. On failure the editor/list and current
+  folder identity remain in place, the move picker stays open for retry, and a
+  failure toast states that the note was not deleted or moved. Creating an
+  inline destination folder is likewise a prerequisite: its failure stops the
+  move. The standalone New Folder dialog also dismisses only after a committed
+  create; failure leaves it open for retry and shows a failure toast. →
+  NotesStore.kt, NoteEditorScreen.kt, NoteListScreen.kt,
+  NoteActionCompletionTest
 - **Both native shells create notes as quick capture** (iOS "+" menu → New
   Note; Android FAB → New note): an "Untitled" note is created in the current
   folder and the editor opens with the **body** focused — no blocking title
@@ -258,6 +270,9 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - The sidebar files tree stays responsive on large vaults (target: 10,000
   notes) — scrolling, expanding/collapsing, and drag & drop remain usable.
   The implementation is not required to virtualize rows. → FolderTreeView.svelte
+- Every folder-tree note, folder, and empty-state row spans the remaining
+  sidebar width after its nesting indent, so hover, selection, context-menu,
+  and drag/drop hit zones stay full-width at every depth. → folderTree.css
 
 ## Folder management
 

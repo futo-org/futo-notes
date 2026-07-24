@@ -5,6 +5,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.futo_notes_ffi.FlushDisposition
 
 /**
  * Regression for the Android editor's unsaved-draft register (F5 lifecycle
@@ -67,6 +68,29 @@ class EditorLifecycleFlushTest {
             "renamed",
             derivePendingDraft(loaded = true, noteId = "renamed", savedContent = "A", content = "AB")!!.id,
         )
+    }
+
+    @Test
+    fun conflictAdoptionReloadsOnlyAfterTheEngineParksTheDraft() {
+        assertEquals(
+            AdoptFlushOutcome.RELOAD_DISK,
+            adoptFlushOutcome(FlushDisposition.ParkedConflict("parked")),
+        )
+        assertEquals(
+            AdoptFlushOutcome.RETRY_LATER,
+            adoptFlushOutcome(null),
+        )
+    }
+
+    @Test
+    fun conflictAdoptionKeepsDraftForEveryEngineOutcomeThatOwnsTheOriginalId() {
+        listOf(
+            FlushDisposition.Wrote,
+            FlushDisposition.Converged,
+            FlushDisposition.Recreated,
+        ).forEach { disposition ->
+            assertEquals(AdoptFlushOutcome.KEEP_DRAFT, adoptFlushOutcome(disposition))
+        }
     }
 
     // ── pull derivation: flush persists whatever the closure derives NOW ──
@@ -180,7 +204,7 @@ class EditorLifecycleFlushTest {
     }
 
     @Test
-    fun releaseRemovesOnlyItsOwnEntry() {
+    fun releaseRetainsItsDirtyDraftWithoutTouchingAnotherOwner() {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
         val a = pending.claim()
@@ -189,10 +213,16 @@ class EditorLifecycleFlushTest {
         val b = pending.claim()
         val bState = EditorState(noteId = "b", savedContent = "", content = "edit B")
         pending.setProvider(b, bState::derive)
-        // A disposes; its release must not touch B's entry.
+        // A disposes; its dirty draft is retained and B stays live.
         pending.release(a)
         pending.flush()
-        assertEquals(listOf(PendingDraft("b", "", "edit B")), rec.writes)
+        assertEquals(
+            listOf(
+                PendingDraft("a", "", "edit A"),
+                PendingDraft("b", "", "edit B"),
+            ),
+            rec.writes,
+        )
     }
 
     @Test
@@ -200,13 +230,121 @@ class EditorLifecycleFlushTest {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
         val token = pending.claim()
-        val st = EditorState(savedContent = "", content = "buy milk")
+        val st = EditorState(savedContent = "saved", content = "saved")
         pending.setProvider(token, st::derive)
         // The only/last editor left composition (true pop) → entry removed, so a
         // later background flush is a no-op.
         pending.release(token)
         pending.flush()
         assertTrue(rec.writes.isEmpty())
+    }
+
+    @Test
+    fun completedRetainedDraftIsNotRetried() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val token = pending.claim()
+        val draft = PendingDraft("todo", "saved", "saved + edit")
+        pending.setProvider(token) { draft }
+        pending.release(token)
+        pending.complete(draft)
+
+        pending.flush()
+
+        assertTrue(rec.writes.isEmpty())
+    }
+
+    @Test
+    fun newerCommittedSaveSupersedesOlderRetainedDraftForSameNote() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val token = pending.claim()
+        pending.setProvider(token) {
+            PendingDraft("todo", "old base", "older unsaved edit")
+        }
+        pending.release(token)
+
+        val admitted = pending.retainedSnapshot("todo")
+        pending.completeSnapshot(admitted)
+        pending.flush()
+
+        assertTrue(
+            "a newer committed save must prevent the stale leave snapshot from parking later",
+            rec.writes.isEmpty(),
+        )
+    }
+
+    @Test
+    fun ordinarySaveDoesNotClearAnewerRetainedDraft() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val oldToken = pending.claim()
+        pending.setProvider(oldToken) { PendingDraft("todo", "A", "old") }
+        pending.release(oldToken)
+        val admitted = pending.retainedSnapshot("todo")
+
+        val newToken = pending.claim()
+        pending.setProvider(newToken) { PendingDraft("todo", "A", "new") }
+        pending.release(newToken)
+        pending.completeSnapshot(admitted)
+        pending.flush()
+
+        assertEquals(listOf(PendingDraft("todo", "A", "new")), rec.writes)
+    }
+
+    @Test
+    fun identityMutationRetargetsRetainedDraftToAuthoritativeFinalId() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val token = pending.claim()
+        pending.setProvider(token) { PendingDraft("old", "A", "draft") }
+        pending.release(token)
+
+        pending.retargetRetainedNote("old", "folder/final-2")
+        pending.flush()
+
+        assertEquals(
+            listOf(PendingDraft("folder/final-2", "A", "draft")),
+            rec.writes,
+        )
+    }
+
+    @Test
+    fun committedDeleteDiscardsLiveAndRetainedDrafts() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val retainedToken = pending.claim()
+        pending.setProvider(retainedToken) { PendingDraft("note", "A", "retained") }
+        pending.release(retainedToken)
+        pending.setProvider(pending.claim()) { PendingDraft("note", "A", "live") }
+
+        pending.discardNote("note")
+        pending.flush()
+
+        assertTrue(rec.writes.isEmpty())
+    }
+
+    @Test
+    fun dirtyEditorReleaseRetainsItsDraftForLifecycleRetry() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val token = pending.claim()
+        val state = EditorState(
+            noteId = "todo",
+            savedContent = "saved",
+            content = "saved + unsaved",
+        )
+        pending.setProvider(token, state::derive)
+
+        // Navigation disposes the editor before the asynchronous leave flush can
+        // prove durability. A later lifecycle flush must still see the draft.
+        pending.release(token)
+        pending.flush()
+
+        assertEquals(
+            listOf(PendingDraft("todo", "saved", "saved + unsaved")),
+            rec.writes,
+        )
     }
 
     /**

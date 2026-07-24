@@ -10,6 +10,7 @@
   import SettingsScreen from '$features/settings/SettingsScreen.svelte';
   import DrawerSidebar from '$features/sidebar/DrawerSidebar.svelte';
   import type { SidebarView } from '$features/sidebar/components/SidebarViewSelector.svelte';
+  import { clampSidebarWidth } from '$features/sidebar/sidebarWidth';
   import { createSyncManager } from '$features/sync/syncManager.svelte';
   import SyncStatusBar from '$features/sync/SyncStatusBar.svelte';
   import { tabsStore, type OpenMode } from '$features/tabs/tabsStore.svelte';
@@ -32,8 +33,6 @@
   import { startNativeShell } from './startNativeShell';
   import { SIDEBAR_COLLAPSED_KEY, startTabsPersistence } from './startTabsPersistence';
 
-  const MIN_SIDEBAR_WIDTH = 200;
-  const MAX_SIDEBAR_WIDTH = 600;
   const DEFAULT_SIDEBAR_WIDTH = 280;
   const SIDEBAR_VIEW_KEY = 'futo-notes:sidebarView';
 
@@ -164,12 +163,12 @@
   }
 
   function resizeSidebar(width: number): void {
-    sidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
+    sidebarWidth = clampSidebarWidth(width);
     sidebarResizing = true;
   }
 
   function finishSidebarResize(width: number): void {
-    sidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
+    sidebarWidth = clampSidebarWidth(width);
     sidebarResizing = false;
     if (isDesktop) {
       void saveConfig({ sidebarWidth }).catch((error) =>
@@ -222,7 +221,7 @@
     getRequestedNoteId: requestedNoteIdFromHash,
     setSidebarCollapsed,
     setSidebarWidth: (width) => {
-      sidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
+      sidebarWidth = clampSidebarWidth(width);
     },
   });
   const stopSync = sync.start();
