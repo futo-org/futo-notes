@@ -57,8 +57,8 @@ To drive/debug the running app from Claude Code, copy the example config:
 cp .mcp.json.example .mcp.json   # .mcp.json is gitignored
 ```
 
-This wires up the Tauri MCP bridge (`@hypothesi/tauri-mcp-server`). See
-AGENTS.md → "Browser Tools".
+This wires up the Tauri MCP bridge (`@hypothesi/tauri-mcp-server`). The driving
+playbook lives in the `/verify` skill's `references/desktop.md`.
 
 ## 5. Sync server (for sync tests only)
 

@@ -142,12 +142,22 @@ Run `just build` first, then the chain for your layer, reporting commands + resu
   the maximal gate. Tests co-locate with the code they verify. A new CI test job goes in
   `release:gate.needs` the same commit (M14).
 
+## Committing
+
+`type(scope): imperative summary` — types `feat|fix|docs|chore|ci|perf|refactor|build|test`, scopes
+are surfaces or platforms (`android`, `ios`, `editor`, `sync`, `ci`, …). A nontrivial fix's body names
+the exact failure (pipeline number, error string), the root cause, and a `Verified:` line with the
+commands run. Features and risky work go through a branch + GitLab MR; small self-contained fixes may
+land on main. Land migrations and perf work as small per-concern commits so pieces can be reverted
+individually. Releases go through `/release`.
+
 ## Driving the apps
 
 Web/desktop: `agent-browser`; Tauri debug builds ship the MCP bridge (`driver_session`, `webview_*`).
 Native has no bridge — iOS via `xcrun simctl` + `idb`, Android via `adb`/uiautomator + CDP
 (`just cdp-forward`). Sync in debug builds: prefer the `window.__testSync` hook
-(`connect`/`connectE2ee`/`syncNow`/`status`/`disconnect`). Parallel isolation: `just qa-claim` /
+(`connect`/`status`/`syncNow`/`disconnect`/`pauseAutoSync`/`resumeAutoSync` — the surface is
+`src/features/sync/testSync.ts`; the old `*E2ee` aliases are gone). Parallel isolation: `just qa-claim` /
 `qa-status` / `qa-release` / `qa-server`. Logs: `just emu-logs` / `sim-logs`. Full playbooks: `/verify`.
 
 ## Spec is the source of truth
@@ -178,11 +188,18 @@ Two-strikes: same fix failed twice → re-diagnose from scratch (`/codex:rescue`
 evidence contradicts the task premise → report before acting. Flake: root-cause first; one commented
 timeout bump max (M15).
 
-## Drift watchlist (touch all copies in lockstep — `just check-drift`)
+## Drift watchlist
 
-Conformance-locked/generated (regenerate on change): note/image rules TS↔Rust, safe note IDs,
-toolbar/bridge manifests → native specs, Rust sync records → TS. Fully locked: `validateServerUrl` ×3
-(TS/Swift/Kotlin). **Not locked — real risk, move together:** the default notes-root split (Rust
-`vault_location.rs` / iOS `NotesStore.swift` / Android `NotesStorage.kt`); note sort order
-(`modified desc, id asc`) across `notes.svelte.ts` / Rust snapshots / iOS `resortInPlace`; unique
-note-ID generation in Rust, TypeScript, Swift, and Kotlin.
+Some logic legitimately exists in more than one place. **`scripts/drift-registry.json` is the
+watchlist** — every permitted duplicate is enumerated there with its copies, a regex per copy, and a
+`lockStatus` of `locked` (a fixture/conformance test holds the copies together), `partial` (only some
+constants are generated), or `unlocked` (**nothing but you keeps these in sync — touch all copies in
+one commit and say so**). `just check-drift` is deny-by-default: it fails on a stale entry *and* on a
+new file that matches a registered concept's scan pattern without being a registered copy. Adding a
+duplicate means adding a registry entry, so keep the list there, not here — a prose copy of a
+drift list is itself drift.
+
+Two `unlocked` entries deserve their reasoning recorded: `notes-root-triplet` is the dev/prod split
+(M3), and `sort-tiebreaker-modified-id` is note sort order, where the Rust store is canonical —
+shells splice engine-reported positions verbatim (ADR-0001), so never reintroduce a shell comparator
+or a shell final-id heuristic; its only permitted twin is the browser test harness.
