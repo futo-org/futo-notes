@@ -22,6 +22,12 @@ class EditorNavigationCommitTest {
     }
 
     @Test
+    fun `legacy WebView notice can navigate without an editor attachment`() {
+        assertTrue(canNavigateWithoutEditorAttachment(webViewTooOld = true))
+        assertFalse(canNavigateWithoutEditorAttachment(webViewTooOld = false))
+    }
+
+    @Test
     fun `navigation commits a valid title without waiting for the debounce`() = runBlocking {
         var renamed: Pair<String, String>? = null
 

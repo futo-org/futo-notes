@@ -147,7 +147,13 @@ fun NoteEditorScreen(
     val theme = if (darkTheme) "dark" else "light"
 
     fun navigateAfterSaving(navigate: () -> Unit) {
-        val attachment = host.currentAttachment() ?: return
+        val attachment = host.currentAttachment()
+        if (attachment == null) {
+            if (canNavigateWithoutEditorAttachment(webViewTooOld)) {
+                navigate()
+            }
+            return
+        }
         if (!navigationAdmission.tryBegin()) return
         navigationPending = true
         focusManager.clearFocus(force = true)

@@ -38,6 +38,9 @@ internal fun isEditorInteractionEnabled(navigationPending: Boolean): Boolean =
 internal fun shouldStartEditorBackNavigation(navigationPending: Boolean): Boolean =
     !navigationPending
 
+internal fun canNavigateWithoutEditorAttachment(webViewTooOld: Boolean): Boolean =
+    webViewTooOld
+
 internal suspend fun commitEditorTitleSnapshot(
     currentId: String,
     targetId: String?,
