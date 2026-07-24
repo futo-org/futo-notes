@@ -571,13 +571,20 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   aborts the cycle before the HTTP client is constructed and before any remote
   create, update, or tombstone. A partial scan is never treated as an
   authoritative list of missing files, because that could turn a transient
-  local I/O failure into fleet-wide deletion of healthy remote objects. The
+  local I/O failure into fleet-wide deletion of healthy remote objects.
+  Likewise, a post-scan content-read failure while pairing a possible rename
+  aborts before any HTTP mutation; the unreadable replacement is never skipped
+  while its old mapped name continues into remote deletion. The
   scanner reads symlink metadata and never follows file or directory symlinks,
   so a vault link cannot upload content outside the selected root or recurse
   through a directory cycle. On Unix platforms, every later note/blob read,
   atomic write, remove, timestamp update, tombstone claim, and conflict
   relocation resolves each parent from an open vault-root directory descriptor
   with `NOFOLLOW`; a scan-to-use symlink swap therefore cannot escape the vault.
+  Successful namespace writes/removes/renames fsync their affected parent
+  directories and surface a directory-sync failure instead of reporting durable
+  success. Because that error arrives after the namespace mutation, callers
+  treat it as an uncertain commit and retry idempotently.
   Other platforms reject symlinks observed while resolving the path, but do not
   yet provide the same descriptor-relative race guarantee. The same fallible
   scanner is used by conflict/tombstone copy naming; no sync call site receives

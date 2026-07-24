@@ -16,6 +16,8 @@ fn relative_components(relative: &str) -> Result<Vec<&std::ffi::OsStr>, String> 
 
 #[cfg(unix)]
 mod platform {
+    #[cfg(test)]
+    use std::cell::Cell;
     use std::ffi::{OsStr, OsString};
     use std::fs::File;
     use std::io::{Read, Write};
@@ -35,8 +37,41 @@ mod platform {
         leaf: OsString,
     }
 
+    #[cfg(test)]
+    thread_local! {
+        static FAIL_DIRECTORY_SYNC_ON_CALL: Cell<Option<usize>> = const { Cell::new(None) };
+    }
+
     fn context(operation: &str, relative: &str, error: impl std::fmt::Display) -> String {
         format!("{operation} vault path {relative}: {error}")
+    }
+
+    fn sync_directory(directory: OwnedFd, operation: &str, relative: &str) -> Result<(), String> {
+        #[cfg(test)]
+        FAIL_DIRECTORY_SYNC_ON_CALL.with(|failure| {
+            if let Some(call) = failure.get() {
+                if call == 1 {
+                    failure.set(None);
+                    return Err(context(
+                        operation,
+                        relative,
+                        std::io::Error::other("injected directory sync failure"),
+                    ));
+                }
+                failure.set(Some(call - 1));
+            }
+            Ok(())
+        })?;
+
+        File::from(directory)
+            .sync_all()
+            .map_err(|error| context(operation, relative, error))
+    }
+
+    #[cfg(test)]
+    pub(super) fn fail_directory_sync_on_call(call: usize) {
+        assert!(call > 0);
+        FAIL_DIRECTORY_SYNC_ON_CALL.with(|failure| failure.set(Some(call)));
     }
 
     fn open_root(root: &Path) -> Result<OwnedFd, String> {
@@ -154,7 +189,9 @@ mod platform {
                     let _ = renameat(&parent.directory, &backup, &parent.directory, &parent.leaf);
                     return Err(context("install temporary file for", relative, error));
                 }
-                let _ = unlinkat(&parent.directory, &backup, AtFlags::empty());
+                unlinkat(&parent.directory, &backup, AtFlags::empty()).map_err(|error| {
+                    context("remove parked backup after writing", relative, error)
+                })?;
                 Ok(())
             }
             Err(error) => Err(context("install temporary file for", relative, error)),
@@ -192,10 +229,8 @@ mod platform {
         }
         let result = install_temp(&parent, &temp, relative);
         let _ = unlinkat(&parent.directory, &temp, AtFlags::empty());
-        if result.is_ok() {
-            let _ = File::from(parent.directory).sync_all();
-        }
-        result
+        result?;
+        sync_directory(parent.directory, "sync directory after write", relative)
     }
 
     pub(super) fn remove(root: &Path, relative: &str) -> Result<bool, String> {
@@ -207,7 +242,7 @@ mod platform {
         reject_symlink(&parent, "remove", relative)?;
         match unlinkat(&parent.directory, &parent.leaf, AtFlags::empty()) {
             Ok(()) => {
-                let _ = File::from(parent.directory).sync_all();
+                sync_directory(parent.directory, "sync directory after remove", relative)?;
                 Ok(true)
             }
             Err(rustix::io::Errno::NOENT) => Ok(false),
@@ -238,8 +273,18 @@ mod platform {
                 ));
             }
         }
-        let _ = File::from(source_parent.directory).sync_all();
-        let _ = File::from(destination_parent.directory).sync_all();
+        let source_sync = sync_directory(
+            source_parent.directory,
+            "sync source directory after rename",
+            source,
+        );
+        let destination_sync = sync_directory(
+            destination_parent.directory,
+            "sync destination directory after rename",
+            destination,
+        );
+        source_sync?;
+        destination_sync?;
         Ok(true)
     }
 
@@ -399,4 +444,72 @@ pub(super) fn exists(root: &Path, relative: &str) -> Result<bool, String> {
 
 pub(super) fn set_mtime_ms(root: &Path, relative: &str, modified_at_ms: i64) -> Result<(), String> {
     platform::set_mtime_ms(root, relative, modified_at_ms)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
+
+    struct TempRoot(PathBuf);
+
+    impl TempRoot {
+        fn new() -> Self {
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "futo-sync-vault-fs-test-{}-{}-{n}",
+                std::process::id(),
+                futo_notes_core::files::now_ms()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn write_reports_directory_sync_failure() {
+        let root = TempRoot::new();
+        platform::fail_directory_sync_on_call(1);
+
+        let error = write_atomic(root.path(), "note.md", b"body").unwrap_err();
+
+        assert!(error.contains("sync directory after write"));
+    }
+
+    #[test]
+    fn remove_reports_directory_sync_failure() {
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("note.md"), "body").unwrap();
+        platform::fail_directory_sync_on_call(1);
+
+        let error = remove(root.path(), "note.md").unwrap_err();
+
+        assert!(error.contains("sync directory after remove"));
+    }
+
+    #[test]
+    fn rename_reports_destination_directory_sync_failure() {
+        let root = TempRoot::new();
+        std::fs::create_dir(root.path().join("source")).unwrap();
+        std::fs::create_dir(root.path().join("destination")).unwrap();
+        std::fs::write(root.path().join("source/note.md"), "body").unwrap();
+        platform::fail_directory_sync_on_call(2);
+
+        let error = rename(root.path(), "source/note.md", "destination/note.md").unwrap_err();
+
+        assert!(error.contains("sync destination directory after rename"));
+    }
 }

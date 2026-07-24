@@ -187,19 +187,16 @@ fn detect_local_renames(
     files: &[LocalFile],
     missing: &[(String, ObjectState)],
     summary: &mut SyncSummary,
-) -> (HashSet<String>, HashSet<String>) {
+) -> Result<(HashSet<String>, HashSet<String>), String> {
     let unmapped: Vec<_> = files
         .iter()
         .filter(|file| !state.object_map.contains_key(&file.name))
         .collect();
-    let hashes: HashMap<_, _> = unmapped
-        .iter()
-        .filter_map(|file| {
-            read_content(root, &file.name)
-                .ok()
-                .map(|content| (file.name.as_str(), hash_sha256(&content)))
-        })
-        .collect();
+    let mut hashes = HashMap::new();
+    for file in &unmapped {
+        let content = read_content(root, &file.name)?;
+        hashes.insert(file.name.as_str(), hash_sha256(&content));
+    }
     let mut claimed_missing = HashSet::new();
     let mut renamed_files = HashSet::new();
 
@@ -223,7 +220,7 @@ fn detect_local_renames(
         });
     }
 
-    (claimed_missing, renamed_files)
+    Ok((claimed_missing, renamed_files))
 }
 
 fn reuse_unchanged_object(
@@ -454,7 +451,12 @@ pub(crate) async fn push_with_checkpoint(
     let missing = missing_local_files(&next, &files);
     let mut summary = SyncSummary::default();
     let (claimed_missing, renamed_files) =
-        detect_local_renames(&mut next, root, &files, &missing, &mut summary);
+        detect_local_renames(&mut next, root, &files, &missing, &mut summary).map_err(|error| {
+            CycleFailure {
+                kind: SyncErrorKind::Io(error),
+                state: next.clone(),
+            }
+        })?;
 
     progress(SyncProgress {
         phase: "pushing",
@@ -603,6 +605,32 @@ mod tests {
         state.base_url = base_url;
         state.object_map.insert(
             "healthy.md".into(),
+            ObjectState {
+                object_id: "healthy-object".into(),
+                version: 1,
+                blob_key: "healthy-blob".into(),
+                hash: Some(hash_sha256("healthy")),
+                mtime_ms: Some(1),
+                size_bytes: Some(7),
+            },
+        );
+
+        let result = push(&state, root.path(), &no_progress, &no_pre_write).await;
+        server.join().unwrap();
+
+        assert!(matches!(result, Err(SyncErrorKind::Io(_))));
+        assert_eq!(mutations.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn rename_read_failure_stops_before_remote_deletion() {
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("note.md"), [0xff]).unwrap();
+        let (base_url, mutations, server) = mutation_server();
+        let mut state = connected();
+        state.base_url = base_url;
+        state.object_map.insert(
+            "folder/note.md".into(),
             ObjectState {
                 object_id: "healthy-object".into(),
                 version: 1,
