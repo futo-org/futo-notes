@@ -61,6 +61,12 @@ pub(crate) struct Object {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct Collection {
+    pub id: String,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Write {
     pub object: Object,
@@ -198,11 +204,7 @@ impl Http {
         Ok((body.user.id, body.token))
     }
 
-    pub async fn collections(&self) -> Result<Vec<String>, HttpError> {
-        #[derive(Deserialize)]
-        struct Collection {
-            id: String,
-        }
+    pub async fn collections(&self) -> Result<Vec<Collection>, HttpError> {
         #[derive(Deserialize)]
         struct Body {
             collections: Vec<Collection>,
@@ -210,10 +212,7 @@ impl Http {
         Ok(
             Self::json::<Body>(self.request(Method::GET, "/api/collections"))
                 .await?
-                .collections
-                .into_iter()
-                .map(|c| c.id)
-                .collect(),
+                .collections,
         )
     }
 

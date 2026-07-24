@@ -288,18 +288,21 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   pre-port file that predates `e2eeCollectionId` carries no tag and resets as
   UNKNOWN provenance (the empty-map reconcile then hash-dedups). →
   futo-notes-sync `checkpoint.rs`
-- **A server instance holds exactly one vault (collection) per account.** The
-  protocol is single-vault, but the server used to mint a fresh collection on
-  every `POST /api/collections`, so two devices connecting *concurrently* each
-  created their own vault — with its own random key — and never saw each other's
-  notes (silent split-brain; reproduced 2026-06-30 via concurrent `connect()`).
-  The server now enforces it: `UNIQUE(user_id)` on `collections`, an idempotent
-  `POST /api/collections` (claim-or-return), and **first-write-wins** key
-  material on `PUT /api/collections/:id/key` (a racing second client gets the
-  authoritative key back instead of overwriting it). Pre-existing splits are
-  collapsed by **migration 008** — keep the earliest vault per account (the one
-  `connect()` picks), delete the rest (objects cascade). → futo-notes-server
-  `collections/routes.ts`, `db/migrations/008_single_collection_per_user.ts`
+- **Clients use one canonical vault (collection) per account even though the
+  server preserves plural collection rows.** The server must retain every
+  pre-existing collection during upgrades — deleting extras would destroy
+  opaque user data — so `POST /api/collections` may create independent rows.
+  On connect, the client selects the earliest collection (creation time, then
+  id); when the list is empty it creates a row and then **re-lists before
+  claiming key material**. Two devices connecting concurrently therefore both
+  converge on the earliest row instead of each claiming the row its own POST
+  returned. Key material remains first-write-wins: a racing `PUT …/key` 409
+  makes the loser fetch and adopt the authoritative key. Extra empty rows from
+  a setup race remain harmless and are never selected while an earlier vault
+  exists. This prevents the silent split-brain reproduced by
+  `concurrent_connect_converges_to_one_vault` without a destructive server
+  migration. → futo-notes-sync `session/connect.rs`; futo-notes-server
+  `collections/routes.ts`, `db/migrations/009_restore_plural_collections.ts`
 - **Clients re-point to the surviving vault automatically — cold start AND while
   running.** The client adopts the authoritative key the server returns from
   `PUT …/key` (so concurrent connects converge on one key, not just one
