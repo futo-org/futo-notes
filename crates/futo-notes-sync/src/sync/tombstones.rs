@@ -114,7 +114,9 @@ fn claim_local_names(
             Ok(None)
         }
         Err(error) => {
-            let _ = remove_if_present(root, &sidecar);
+            // A rename error may be a directory-fsync failure after the claim
+            // moved. Keep its recovery authority; the stale sweep removes the
+            // sidecar if the rename truly did not happen.
             Err(error)
         }
     }

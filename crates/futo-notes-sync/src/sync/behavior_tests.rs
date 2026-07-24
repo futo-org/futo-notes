@@ -749,6 +749,30 @@ fn stale_tombstone_claim_is_restored_after_a_crash() {
     assert!(!sidecar.exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn tombstone_claim_keeps_recovery_sidecar_after_uncertain_rename() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("note.md"), "recover me").unwrap();
+    let (claim, sidecar) = claim_paths(root.path(), "note.md", "o1");
+    super::vault_fs::fail_directory_sync_on_call(2);
+
+    let error = claim_local(root.path(), "note.md", "o1", &no_pre).unwrap_err();
+
+    assert!(error.contains("sync source directory after rename"));
+    assert!(!root.path().join("note.md").exists());
+    assert_eq!(std::fs::read_to_string(&claim).unwrap(), "recover me");
+    assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), "note.md");
+
+    recover_stale_claims(root.path(), &no_pre);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("note.md")).unwrap(),
+        "recover me"
+    );
+    assert!(!claim.exists());
+    assert!(!sidecar.exists());
+}
+
 #[test]
 fn recreated_original_wins_over_a_stale_claim() {
     let root = TempRoot::new();
