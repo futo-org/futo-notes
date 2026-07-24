@@ -53,6 +53,12 @@ struct NativeMutationOutcomeTests {
     func editorCompletionGeneration() {
         #expect(shouldDeliverEditorCompletion(capturedGeneration: 7, currentGeneration: 7))
         #expect(!shouldDeliverEditorCompletion(capturedGeneration: 7, currentGeneration: 8))
+        #expect(
+            editorGenerationAfterDetach(detachedToken: 7, currentGeneration: 7) == 8
+        )
+        #expect(
+            editorGenerationAfterDetach(detachedToken: 6, currentGeneration: 7) == 7
+        )
     }
 
     @Test("closing editor never flushes a newly dirty buffer on disappear")
@@ -120,5 +126,19 @@ struct NativeMutationOutcomeTests {
             )
         )
         #expect(!shouldCompleteEditorNavigation(nil))
+    }
+
+    @Test("move follows a draft parked under a conflict identity")
+    func moveSourceIdentity() {
+        #expect(
+            editorMoveSourceId(currentId: "Folder/Note", disposition: .wrote)
+                == "Folder/Note"
+        )
+        #expect(
+            editorMoveSourceId(
+                currentId: "Folder/Note",
+                disposition: .parkedConflict(parkedId: "Folder/Note (conflict 2026-07-23)")
+            ) == "Folder/Note (conflict 2026-07-23)"
+        )
     }
 }
