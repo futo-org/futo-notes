@@ -79,9 +79,13 @@ Behaviors and constraints that hold across every surface and platform.
     and fsyncs the destination-parent chain after installation. Before each
     authority transition it records a fsynced, atomically replaced app-private
     journal. `PREPARED` makes the old root authoritative after a crash.
-    `FINALIZING` is written before source cleanup: recovery promotes the verified
-    destination only when the source is absent, and otherwise stops visibly
-    with both roots retained instead of guessing after a partial cleanup.
+    `FINALIZING` is written before source cleanup. Its versioned journal records
+    whether policy forbids removing the source (with backward-compatible V1
+    decoding): a removable source that is still present remains fail-closed
+    because cleanup may be partial, while a source-removal-forbidden Device
+    migration safely rolls back to its still-present source if activation was
+    not durably recorded. Recovery promotes the verified destination only when
+    the source is proven absent.
     `ACTIVATED` makes the verified destination authoritative even if the
     SharedPreferences commit result is ambiguous. A late source edit yields
     `DESTINATION_CHANGED`, aborts activation, and keeps the old root visible.

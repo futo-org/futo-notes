@@ -53,6 +53,39 @@ class StorageMigrationActivationTest {
     }
 
     @Test
+    fun `journal failure after retained source restarts with a recoverable journal`() = runBlocking {
+        val records = mutableListOf<PendingStorageMigration>()
+        val retainedSource = prepared.copy(
+            from = StorageMode.DEVICE,
+            to = StorageMode.APP,
+        )
+
+        val outcome = activateStagedStorageMigration(
+            prepared = retainedSource,
+            decision = NotesStorage.storageSwitchDecision(
+                NotesStorage.MigrationOutcome.Migrated(2)
+            ),
+            writeJournal = { record ->
+                records += record
+                records.size == 1
+            },
+            finalizeSource = { VaultMigrationFinalization.SOURCE_RETAINED },
+            commitPreference = { error("preference must not be committed") },
+            clearJournal = {},
+        )
+
+        assertEquals(StorageActivationOutcome.Restart, outcome)
+        assertEquals(
+            listOf(StorageMigrationPhase.FINALIZING, StorageMigrationPhase.ACTIVATED),
+            records.map { it.phase },
+        )
+        assertFalse(records.first().cleanupRequired)
+        assertTrue(records.first().sourceRemovalForbidden)
+        assertTrue(records.last().cleanupRequired)
+        assertTrue(records.last().sourceRemovalForbidden)
+    }
+
+    @Test
     fun `activated journal remains authoritative when preference commit fails`() = runBlocking {
         val records = mutableListOf<PendingStorageMigration>()
         var cleared = false

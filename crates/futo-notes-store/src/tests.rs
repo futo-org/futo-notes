@@ -1337,6 +1337,32 @@ fn vault_migration_finalize_refuses_to_delete_a_changed_source() {
     assert_eq!(store.read("late"), "new edit");
 }
 
+#[cfg(unix)]
+#[test]
+fn vault_migration_finalize_does_not_treat_an_uninspectable_source_as_absent() {
+    use std::os::unix::fs::symlink;
+
+    let source = TestRoot::new();
+    let destination = TestRoot::new();
+    let store = store(&source);
+    store.write("note", "source", None).unwrap();
+    store.stage_vault_migration(&destination.0).unwrap();
+
+    fs::remove_dir_all(&source.0).unwrap();
+    symlink(&source.0, &source.0).unwrap();
+    fs::write(destination.0.join("note.md"), "changed destination").unwrap();
+
+    let error = store
+        .finalize_vault_migration(&destination.0, true)
+        .unwrap_err();
+
+    assert!(error.contains("unable to inspect the current notes folder"));
+    assert_eq!(
+        fs::read_to_string(destination.0.join("note.md")).unwrap(),
+        "changed destination"
+    );
+}
+
 #[test]
 fn vault_migration_retains_a_shared_source_that_external_writers_can_reach() {
     let source = TestRoot::new();

@@ -7,11 +7,18 @@ import java.io.FileOutputStream
 
 enum class StorageMigrationPhase { PREPARED, FINALIZING, ACTIVATED }
 
+/**
+ * @property cleanupRequired an activated destination still has a retained
+ * source, so recovery keeps the journal until that source is absent.
+ * @property sourceRemovalForbidden FUTO Notes must never delete the source;
+ * external writers may still remove it independently.
+ */
 data class PendingStorageMigration(
     val from: StorageMode,
     val to: StorageMode,
     val phase: StorageMigrationPhase,
     val cleanupRequired: Boolean,
+    val sourceRemovalForbidden: Boolean = false,
 )
 
 /**
@@ -71,22 +78,32 @@ private fun fsyncDirectory(directory: File?) {
 
 internal fun encodeStorageMigrationJournal(record: PendingStorageMigration): String =
     listOf(
-        "FUTO_STORAGE_MIGRATION_V1",
+        "FUTO_STORAGE_MIGRATION_V2",
         record.phase.name,
         record.from.name,
         record.to.name,
         record.cleanupRequired.toString(),
+        record.sourceRemovalForbidden.toString(),
     ).joinToString("\n", postfix = "\n")
 
 internal fun decodeStorageMigrationJournal(raw: String): PendingStorageMigration {
     val lines = raw.lineSequence().filter { it.isNotEmpty() }.toList()
-    require(lines.size == 5 && lines[0] == "FUTO_STORAGE_MIGRATION_V1") {
-        "The storage migration journal is invalid"
+    val sourceRemovalForbidden = when (lines.firstOrNull()) {
+        "FUTO_STORAGE_MIGRATION_V1" -> {
+            require(lines.size == 5) { "The storage migration journal is invalid" }
+            false
+        }
+        "FUTO_STORAGE_MIGRATION_V2" -> {
+            require(lines.size == 6) { "The storage migration journal is invalid" }
+            lines[5].toBooleanStrict()
+        }
+        else -> error("The storage migration journal is invalid")
     }
     return PendingStorageMigration(
         phase = StorageMigrationPhase.valueOf(lines[1]),
         from = StorageMode.valueOf(lines[2]),
         to = StorageMode.valueOf(lines[3]),
         cleanupRequired = lines[4].toBooleanStrict(),
+        sourceRemovalForbidden = sourceRemovalForbidden,
     )
 }

@@ -29,11 +29,30 @@ class StorageMigrationJournalTest {
             to = StorageMode.DEVICE,
             phase = StorageMigrationPhase.ACTIVATED,
             cleanupRequired = true,
+            sourceRemovalForbidden = true,
         )
 
         journal(file).write(record).getOrThrow()
 
         assertEquals(record, journal(file).read().getOrThrow())
+        assertTrue(file.readText().startsWith("FUTO_STORAGE_MIGRATION_V2\n"))
+    }
+
+    @Test
+    fun `version one journal decodes without a source-removal restriction`() {
+        val record = decodeStorageMigrationJournal(
+            """
+            FUTO_STORAGE_MIGRATION_V1
+            ACTIVATED
+            INTERNAL
+            DEVICE
+            true
+            """.trimIndent() + "\n"
+        )
+
+        assertEquals(StorageMigrationPhase.ACTIVATED, record.phase)
+        assertTrue(record.cleanupRequired)
+        assertEquals(false, record.sourceRemovalForbidden)
     }
 
     @Test
@@ -79,6 +98,26 @@ class StorageMigrationJournalTest {
             StorageMode.APP.name,
             pending,
             sourceState = StorageRootState.ABSENT,
+        )
+
+        assertEquals(StorageMode.DEVICE, decision.activeMode)
+        assertEquals(StorageMode.DEVICE, decision.repairPreferenceTo)
+    }
+
+    @Test
+    fun `finalizing retained-source journal rolls back to a present source`() {
+        val pending = PendingStorageMigration(
+            from = StorageMode.DEVICE,
+            to = StorageMode.APP,
+            phase = StorageMigrationPhase.FINALIZING,
+            cleanupRequired = false,
+            sourceRemovalForbidden = true,
+        )
+
+        val decision = NotesStorage.storageRecoveryDecision(
+            StorageMode.APP.name,
+            pending,
+            sourceState = StorageRootState.PRESENT,
         )
 
         assertEquals(StorageMode.DEVICE, decision.activeMode)

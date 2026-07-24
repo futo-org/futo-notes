@@ -156,8 +156,14 @@ pub(super) fn finalize(
     destination: &Path,
     allow_source_removal: bool,
 ) -> Result<VaultMigrationFinalization, String> {
-    if !source.exists() {
-        return Ok(VaultMigrationFinalization::Finalized);
+    match source.try_exists() {
+        Ok(false) => return Ok(VaultMigrationFinalization::Finalized),
+        Ok(true) => {}
+        Err(error) => {
+            return Err(format!(
+                "unable to inspect the current notes folder: {error}"
+            ));
+        }
     }
     let source = canonical_existing_directory(source, "current notes folder")?;
     let source_manifest = manifest(&source)?;

@@ -60,10 +60,15 @@ object NotesStorage {
         val activeMode = when (pending.phase) {
             StorageMigrationPhase.PREPARED -> pending.from
             StorageMigrationPhase.FINALIZING -> {
-                check(sourceState == StorageRootState.ABSENT) {
-                    "An interrupted finalization without a confirmed source removal requires intervention"
+                when {
+                    pending.sourceRemovalForbidden &&
+                        sourceState == StorageRootState.PRESENT ->
+                        pending.from
+                    sourceState == StorageRootState.ABSENT -> pending.to
+                    else -> error(
+                        "An interrupted finalization without a confirmed source removal requires intervention"
+                    )
                 }
-                pending.to
             }
             StorageMigrationPhase.ACTIVATED -> pending.to
         }

@@ -23,10 +23,13 @@ internal suspend fun activateStagedStorageMigration(
         return StorageActivationOutcome.KeepSource(decision.feedback)
     }
 
+    val sourceRemovalForbidden =
+        decision.requiresFinalization && prepared.from == StorageMode.DEVICE
     val cleanupRequired = if (decision.requiresFinalization) {
         val finalizing = prepared.copy(
             phase = StorageMigrationPhase.FINALIZING,
             cleanupRequired = false,
+            sourceRemovalForbidden = sourceRemovalForbidden,
         )
         if (!writeJournal(finalizing)) {
             return StorageActivationOutcome.KeepSource(
@@ -52,6 +55,7 @@ internal suspend fun activateStagedStorageMigration(
     val activated = prepared.copy(
         phase = StorageMigrationPhase.ACTIVATED,
         cleanupRequired = cleanupRequired,
+        sourceRemovalForbidden = sourceRemovalForbidden,
     )
     if (!writeJournal(activated)) {
         return if (decision.requiresFinalization) {

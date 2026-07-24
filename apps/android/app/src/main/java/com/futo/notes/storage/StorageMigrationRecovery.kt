@@ -12,9 +12,10 @@ internal data class StorageStartupRecovery(
 /**
  * Resolve an interrupted storage switch entirely off the main thread.
  *
- * FINALIZING is deliberately fail-closed while the source still exists: the
- * process may have died before cleanup or during a partial removal, so neither
- * root is selected until a future recovery flow can compare them.
+ * FINALIZING is deliberately fail-closed while a removable source still
+ * exists: the process may have died before cleanup or during a partial
+ * removal. A retained-source record safely rolls back because it was persisted
+ * before a Device source that policy forbids deleting was inspected.
  */
 internal fun recoverStorageStartup(
     context: Context,
@@ -36,11 +37,13 @@ internal fun recoverStorageStartup(
         if (migration.phase == StorageMigrationPhase.FINALIZING) {
             when (sourceState) {
                 StorageRootState.PRESENT ->
-                    return StorageStartupRecovery(
-                        startup = null,
-                        error =
-                            "A storage move was interrupted during cleanup. Both note folders were retained.",
-                    )
+                    if (!migration.sourceRemovalForbidden) {
+                        return StorageStartupRecovery(
+                            startup = null,
+                            error =
+                                "A storage move was interrupted during cleanup. Both note folders were retained.",
+                        )
+                    }
                 StorageRootState.UNAVAILABLE ->
                     return StorageStartupRecovery(
                         startup = null,
@@ -66,13 +69,21 @@ internal fun recoverStorageStartup(
 
         when (migration.phase) {
             StorageMigrationPhase.PREPARED -> journal.clear()
-            StorageMigrationPhase.FINALIZING ->
-                journal.write(
-                    migration.copy(
-                        phase = StorageMigrationPhase.ACTIVATED,
-                        cleanupRequired = false,
+            StorageMigrationPhase.FINALIZING -> {
+                if (
+                    migration.sourceRemovalForbidden &&
+                    sourceState == StorageRootState.PRESENT
+                ) {
+                    journal.clear()
+                } else {
+                    journal.write(
+                        migration.copy(
+                            phase = StorageMigrationPhase.ACTIVATED,
+                            cleanupRequired = false,
+                        )
                     )
-                )
+                }
+            }
             StorageMigrationPhase.ACTIVATED -> {
                 if (
                     !migration.cleanupRequired ||
