@@ -214,6 +214,19 @@ describe('AppImage artifact finalization', () => {
 });
 
 describe('AppImage CI rehearsal', () => {
+  it('removes updater keys before the first Linux release setup command', () => {
+    const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
+    const linuxSetup = ci.slice(
+      ci.indexOf('before_script: &linux-before-script'),
+      ci.indexOf('# AppImage bundles its entire userland'),
+    );
+
+    const keyBoundary = linuxSetup.indexOf('prepare-appimage-signing-environment.sh');
+    const firstInstall = linuxSetup.indexOf('apt-get update');
+    expect(keyBoundary).toBeGreaterThan(-1);
+    expect(firstInstall).toBeGreaterThan(keyBoundary);
+  });
+
   it('uses the fixture key only for MRs and verifies the one produced artifact', () => {
     const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
     const job = ci.slice(
@@ -222,7 +235,7 @@ describe('AppImage CI rehearsal', () => {
     );
 
     expect(job).toContain('if [ -n "$CI_COMMIT_TAG" ]');
-    expect(job).toContain('prepare-appimage-signing-environment.sh');
+    expect(job).toContain('before_script: *linux-before-script');
     expect(job).toContain('keys/localdev-updater.key');
     expect(job).toContain('TAURI_SIGNING_PRIVATE_KEY="$SIGNING_KEY" cargo tauri signer sign');
     expect(job).toContain('expected exactly one AppImage');
@@ -260,7 +273,7 @@ describe('AppImage CI rehearsal', () => {
       'bash',
       [
         '-c',
-        '. "$1"; printf "%s|%s|%s" "${RELEASE_SIGNING_KEY:-}" "${TAURI_SIGNING_PRIVATE_KEY+set}" "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+set}"',
+        '. "$1"; printf "%s|%s|%s|" "${RELEASE_SIGNING_KEY:-}" "${TAURI_SIGNING_PRIVATE_KEY+set}" "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+set}"; if env | grep -qE "^(RELEASE_SIGNING_KEY|SIGNING_KEY|TAURI_SIGNING_PRIVATE_KEY|TAURI_SIGNING_PRIVATE_KEY_PASSWORD)="; then printf leaked; else printf clean; fi',
         'bash',
         script,
       ],
@@ -269,6 +282,8 @@ describe('AppImage CI rehearsal', () => {
         env: {
           PATH: process.env.PATH,
           CI_COMMIT_TAG: tag,
+          RELEASE_SIGNING_KEY: 'stale-exported-release-secret',
+          SIGNING_KEY: 'stale-exported-signing-secret',
           TAURI_SIGNING_PRIVATE_KEY: 'production-secret',
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: 'production-password',
         },
@@ -276,7 +291,7 @@ describe('AppImage CI rehearsal', () => {
     );
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toBe(`${expectedRetainedKey}||`);
+    expect(result.stdout).toBe(`${expectedRetainedKey}|||clean`);
   });
 
   it('retains the AppImage Cargo cache after failed tag-only rehearsals', () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -213,6 +213,46 @@ describe('AppImage patch orchestration', () => {
     }
   });
 
+  it('keeps the original artifact when extracted-directory cleanup fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'futo-appimage-cleanup-failure-test-'));
+    const target = join(root, 'FUTO-Notes.AppImage');
+    const extractDir = join(root, 'squashfs-root');
+    let hasRepacked = false;
+    try {
+      await writeFile(target, 'unpatched');
+
+      await expect(
+        patchAppImage(target, {
+          ensureTool: async () => '/pinned/appimagetool',
+          execute(command, args) {
+            if (command === target) {
+              const hook = join(extractDir, 'apprun-hooks/linuxdeploy-plugin-gtk.sh');
+              const library = join(extractDir, 'usr/lib/libwayland-client.so.0');
+              mkdirSync(dirname(hook), { recursive: true });
+              mkdirSync(dirname(library), { recursive: true });
+              writeFileSync(hook, TAURI_BUNDLER_GTK_HOOK);
+              writeFileSync(library, 'bundled');
+              return;
+            }
+
+            writeFileSync(args[1], 'repacked');
+            hasRepacked = true;
+          },
+          async removePath(path, options) {
+            if (path === extractDir && hasRepacked) {
+              throw new Error('injected cleanup failure');
+            }
+            await rm(path, options);
+          },
+        }),
+      ).rejects.toThrow(/injected cleanup failure/);
+
+      expect(readFileSync(target, 'utf8')).toBe('unpatched');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects tool bytes that do not match the pinned checksum', () => {
     expect(() => verifySha256(Buffer.from('downloaded bytes'), '0'.repeat(64))).toThrow(
       /appimagetool checksum mismatch/,
@@ -259,9 +299,35 @@ describe('AppImage patch orchestration', () => {
     }
   });
 
-  it('executes an already-open verified tool descriptor instead of reopening its pathname', () => {
-    expect(appimagetoolExecutionPath({ fd: 42 })).toBe('/proc/self/fd/42');
-  });
+  it.runIf(process.platform === 'linux')(
+    'executes the verified open tool descriptor instead of reopening its pathname',
+    async () => {
+      const cacheDir = await mkdtemp(join(tmpdir(), 'futo-appimagetool-execution-test-'));
+      const bytes = await readFile('/bin/true');
+      const expectedSha256 = createHash('sha256').update(bytes).digest('hex');
+      try {
+        const tool = await ensureAppimagetool({
+          cacheDir,
+          expectedSha256,
+          fetchImpl: async () => ({
+            ok: true,
+            arrayBuffer: async () =>
+              bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+          }),
+          toolName: 'verified-tool',
+          url: 'https://example.invalid/verified-tool',
+        });
+        try {
+          const result = spawnSync(appimagetoolExecutionPath(tool));
+          expect(result.status, result.stderr?.toString()).toBe(0);
+        } finally {
+          await tool.close();
+        }
+      } finally {
+        await rm(cacheDir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('removes cached AppImage output before a new bundle build', async () => {
     const root = await mkdtemp(join(tmpdir(), 'futo-appimage-output-test-'));

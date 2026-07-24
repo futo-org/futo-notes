@@ -194,14 +194,21 @@ export async function cleanAppImageOutput(outputDir) {
 
 export async function patchAppImage(
   targetPath,
-  { environment = process.env, ensureTool = ensureAppimagetool, execute = run } = {},
+  {
+    environment = process.env,
+    ensureTool = ensureAppimagetool,
+    execute = run,
+    removePath = rm,
+  } = {},
 ) {
   if (!existsSync(targetPath)) throw new Error(`not found: ${targetPath}`);
 
   log(`patching ${targetPath}`);
   const workDir = dirname(targetPath);
   const extractDir = join(workDir, 'squashfs-root');
-  if (existsSync(extractDir)) await rm(extractDir, { recursive: true, force: true });
+  if (existsSync(extractDir)) {
+    await removePath(extractDir, { recursive: true, force: true });
+  }
 
   await chmod(targetPath, 0o755);
 
@@ -244,7 +251,7 @@ export async function patchAppImage(
 
   if (stripped.length === 0 && !rewrittenHook.changed) {
     log('AppImage already patched — leaving original in place');
-    await rm(extractDir, { recursive: true, force: true });
+    await removePath(extractDir, { recursive: true, force: true });
     return;
   }
 
@@ -253,7 +260,7 @@ export async function patchAppImage(
     typeof appimagetool === 'string' ? appimagetool : appimagetoolExecutionPath(appimagetool);
   log(`repacking with ${appimagetoolPath}`);
   const tmpOut = `${targetPath}.patched`;
-  if (existsSync(tmpOut)) await rm(tmpOut);
+  if (existsSync(tmpOut)) await removePath(tmpOut);
   // ARCH=x86_64 is required when running appimagetool without a .DirIcon arch hint.
   // APPIMAGE_EXTRACT_AND_RUN=1 lets appimagetool (itself an AppImage) work in
   // containers / sandboxes that don't have fusermount (e.g. ubuntu:22.04 CI image).
@@ -271,7 +278,7 @@ export async function patchAppImage(
 
   // Keep the original artifact intact until cleanup succeeds, then atomically
   // replace it with the patched output.
-  await rm(extractDir, { recursive: true, force: true });
+  await removePath(extractDir, { recursive: true, force: true });
   await rename(tmpOut, targetPath);
   await chmod(targetPath, 0o755);
   log(`done: ${targetPath}`);
