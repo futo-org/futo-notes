@@ -124,9 +124,9 @@ class StorageMigrationJournalTest {
         assertEquals(StorageMode.DEVICE, decision.repairPreferenceTo)
     }
 
-    @Test(expected = IllegalStateException::class)
-    fun `finalizing journal refuses to guess while source remains`() {
-        NotesStorage.storageRecoveryDecision(
+    @Test
+    fun `finalizing removable source journal rolls forward when source remains`() {
+        val decision = NotesStorage.storageRecoveryDecision(
             savedMode = StorageMode.APP.name,
             pending = PendingStorageMigration(
                 from = StorageMode.APP,
@@ -136,6 +136,9 @@ class StorageMigrationJournalTest {
             ),
             sourceState = StorageRootState.PRESENT,
         )
+
+        assertEquals(StorageMode.DEVICE, decision.activeMode)
+        assertEquals(StorageMode.DEVICE, decision.repairPreferenceTo)
     }
 
     @Test(expected = IllegalStateException::class)

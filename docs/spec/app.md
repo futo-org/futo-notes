@@ -81,11 +81,11 @@ Behaviors and constraints that hold across every surface and platform.
     journal. `PREPARED` makes the old root authoritative after a crash.
     `FINALIZING` is written before source cleanup. Its versioned journal records
     whether policy forbids removing the source (with backward-compatible V1
-    decoding): a removable source that is still present remains fail-closed
-    because cleanup may be partial, while a source-removal-forbidden Device
-    migration safely rolls back to its still-present source if activation was
-    not durably recorded. Recovery promotes the verified destination only when
-    the source is proven absent.
+    decoding). The destination has already been fully verified at this point, so
+    recovery promotes it when cleanup of a removable source was interrupted and
+    retains the still-present source as a backup. A source-removal-forbidden
+    Device migration instead safely rolls back to its still-present source if
+    activation was not durably recorded.
     `ACTIVATED` makes the verified destination authoritative even if the
     SharedPreferences commit result is ambiguous. A late source edit yields
     `DESTINATION_CHANGED`, aborts activation, and keeps the old root visible.
@@ -93,10 +93,10 @@ Behaviors and constraints that hold across every surface and platform.
     successful switch away from Device storage retains that source as a backup
     after activation instead of deleting it through a check-then-delete window.
     Other cleanup failures may likewise retain the source as a backup. Recovery
-    distinguishes a proven-absent source from storage that is unmounted,
-    permission-denied, or otherwise uninspectable; an unavailable source never
-    authorizes destination promotion. A failed copy/verification keeps the old
-    mode/root active and reports the failure.
+    distinguishes a present or proven-absent source from storage that is
+    unmounted, permission-denied, or otherwise uninspectable; an unavailable
+    source never authorizes destination promotion. A failed copy/verification
+    keeps the old mode/root active and reports the failure.
     An open editor's pending draft must first produce a committed mutation or
     already match the bytes on disk; a skipped/missing/divergent flush aborts the
     switch instead of relaunching with an older draft. A non-empty destination is

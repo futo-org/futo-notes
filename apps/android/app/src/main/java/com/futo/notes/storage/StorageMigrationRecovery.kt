@@ -12,10 +12,10 @@ internal data class StorageStartupRecovery(
 /**
  * Resolve an interrupted storage switch entirely off the main thread.
  *
- * FINALIZING is deliberately fail-closed while a removable source still
- * exists: the process may have died before cleanup or during a partial
- * removal. A retained-source record safely rolls back because it was persisted
- * before a Device source that policy forbids deleting was inspected.
+ * FINALIZING selects its verified destination even when interrupted cleanup
+ * leaves a removable source behind as a backup. A retained-source record
+ * safely rolls back because it was persisted before a Device source that
+ * policy forbids deleting was inspected.
  */
 internal fun recoverStorageStartup(
     context: Context,
@@ -36,14 +36,7 @@ internal fun recoverStorageStartup(
             NotesStorage.sourceStateForRecovery(context, migration.from, isDebug)
         if (migration.phase == StorageMigrationPhase.FINALIZING) {
             when (sourceState) {
-                StorageRootState.PRESENT ->
-                    if (!migration.isSourceRemovalForbidden) {
-                        return StorageStartupRecovery(
-                            startup = null,
-                            error =
-                                "A storage move was interrupted during cleanup. Both note folders were retained.",
-                        )
-                    }
+                StorageRootState.PRESENT -> Unit
                 StorageRootState.UNAVAILABLE ->
                     return StorageStartupRecovery(
                         startup = null,
@@ -79,7 +72,7 @@ internal fun recoverStorageStartup(
                     journal.write(
                         migration.copy(
                             phase = StorageMigrationPhase.ACTIVATED,
-                            cleanupRequired = false,
+                            cleanupRequired = sourceState == StorageRootState.PRESENT,
                         )
                     )
                 }

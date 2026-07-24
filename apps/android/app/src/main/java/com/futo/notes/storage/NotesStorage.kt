@@ -64,7 +64,7 @@ object NotesStorage {
                     pending.isSourceRemovalForbidden &&
                         sourceState == StorageRootState.PRESENT ->
                         pending.from
-                    sourceState == StorageRootState.ABSENT -> pending.to
+                    sourceState != StorageRootState.UNAVAILABLE -> pending.to
                     else -> error(
                         "An interrupted finalization without a confirmed source removal requires intervention"
                     )
