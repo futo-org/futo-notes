@@ -17,7 +17,7 @@
   box-shadow:
     0 2px 8px rgba(var(--primary-rgb), 0.25),
     0 0 0 1px rgba(var(--primary-rgb), 0.1);
-  z-index: 100;
+  z-index: var(--z-app-chrome);
   -webkit-user-select: none;
   user-select: none;
   display: flex;
@@ -49,7 +49,7 @@
   font-size: 22px;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(var(--ink-rgb), 0.15);
-  z-index: 99;
+  z-index: calc(var(--z-app-chrome) - 1);
   -webkit-user-select: none;
   user-select: none;
   display: flex;
