@@ -52,9 +52,6 @@ fn move_collision_loser(
         context.state.object_map.remove(&name);
         return Ok(());
     }
-    if !path_exists(context.root, &name)? {
-        return Ok(());
-    }
     let target = collision_conflict_filename(context.requested, &entry.object_id);
     (context.pre_write)(&name);
     (context.pre_write)(&target);

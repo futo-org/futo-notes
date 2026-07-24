@@ -26,8 +26,8 @@ mod platform {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use rustix::fs::{
-        futimens, mkdirat, open, openat, renameat, statat, unlinkat, AtFlags, FileType, Mode,
-        OFlags, Timespec, Timestamps, UTIME_OMIT,
+        fsync, futimens, mkdirat, open, openat, renameat, statat, unlinkat, AtFlags, FileType,
+        Mode, OFlags, Timespec, Timestamps, UTIME_OMIT,
     };
 
     use super::relative_components;
@@ -35,6 +35,19 @@ mod platform {
     struct Parent {
         directory: OwnedFd,
         leaf: OsString,
+    }
+
+    enum OpenParentError {
+        NotFound(String),
+        Other(String),
+    }
+
+    impl OpenParentError {
+        fn message(self) -> String {
+            match self {
+                Self::NotFound(message) | Self::Other(message) => message,
+            }
+        }
     }
 
     #[cfg(test)]
@@ -46,7 +59,7 @@ mod platform {
         format!("{operation} vault path {relative}: {error}")
     }
 
-    fn sync_directory(directory: OwnedFd, operation: &str, relative: &str) -> Result<(), String> {
+    fn sync_directory(directory: &OwnedFd, operation: &str, relative: &str) -> Result<(), String> {
         #[cfg(test)]
         FAIL_DIRECTORY_SYNC_ON_CALL.with(|failure| {
             if let Some(call) = failure.get() {
@@ -63,9 +76,7 @@ mod platform {
             Ok(())
         })?;
 
-        File::from(directory)
-            .sync_all()
-            .map_err(|error| context(operation, relative, error))
+        fsync(directory).map_err(|error| context(operation, relative, error))
     }
 
     #[cfg(test)]
@@ -74,13 +85,22 @@ mod platform {
         FAIL_DIRECTORY_SYNC_ON_CALL.with(|failure| failure.set(Some(call)));
     }
 
-    fn open_root(root: &Path) -> Result<OwnedFd, String> {
-        open(
+    fn open_root(root: &Path) -> Result<OwnedFd, OpenParentError> {
+        match open(
             root,
             OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
             Mode::empty(),
-        )
-        .map_err(|error| format!("open vault root {}: {error}", root.display()))
+        ) {
+            Ok(directory) => Ok(directory),
+            Err(rustix::io::Errno::NOENT) => Err(OpenParentError::NotFound(format!(
+                "open vault root {}: no such file or directory",
+                root.display()
+            ))),
+            Err(error) => Err(OpenParentError::Other(format!(
+                "open vault root {}: {error}",
+                root.display()
+            ))),
+        }
     }
 
     fn open_directory(parent: &OwnedFd, name: &OsStr) -> rustix::io::Result<OwnedFd> {
@@ -92,14 +112,14 @@ mod platform {
         )
     }
 
-    fn open_parent(root: &Path, relative: &str, create: bool) -> Result<Parent, String> {
-        let components = relative_components(relative)?;
+    fn open_parent(root: &Path, relative: &str, create: bool) -> Result<Parent, OpenParentError> {
+        let components = relative_components(relative).map_err(OpenParentError::Other)?;
         let (leaf, parents) = components
             .split_last()
             .expect("relative_components rejects empty paths");
         let mut directory = open_root(root)?;
         for component in parents {
-            directory = match open_directory(&directory, component) {
+            let next = match open_directory(&directory, component) {
                 Ok(next) => next,
                 Err(rustix::io::Errno::NOENT) if create => {
                     match mkdirat(
@@ -115,14 +135,41 @@ mod platform {
                     ) {
                         Ok(()) | Err(rustix::io::Errno::EXIST) => {}
                         Err(error) => {
-                            return Err(context("create parent for", relative, error));
+                            return Err(OpenParentError::Other(context(
+                                "create parent for",
+                                relative,
+                                error,
+                            )));
                         }
                     }
-                    open_directory(&directory, component)
-                        .map_err(|error| context("open created parent for", relative, error))?
+                    open_directory(&directory, component).map_err(|error| {
+                        OpenParentError::Other(context("open created parent for", relative, error))
+                    })?
                 }
-                Err(error) => return Err(context("open parent for", relative, error)),
+                Err(rustix::io::Errno::NOENT) => {
+                    return Err(OpenParentError::NotFound(context(
+                        "open parent for",
+                        relative,
+                        rustix::io::Errno::NOENT,
+                    )));
+                }
+                Err(error) => {
+                    return Err(OpenParentError::Other(context(
+                        "open parent for",
+                        relative,
+                        error,
+                    )));
+                }
             };
+            if create {
+                sync_directory(
+                    &directory,
+                    "sync parent directory before mutation",
+                    relative,
+                )
+                .map_err(OpenParentError::Other)?;
+            }
+            directory = next;
         }
         Ok(Parent {
             directory,
@@ -199,7 +246,7 @@ mod platform {
     }
 
     pub(super) fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
-        let parent = open_parent(root, relative, false)?;
+        let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
         let file = openat(
             &parent.directory,
             &parent.leaf,
@@ -215,7 +262,7 @@ mod platform {
     }
 
     pub(super) fn write_atomic(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
-        let parent = open_parent(root, relative, true)?;
+        let parent = open_parent(root, relative, true).map_err(OpenParentError::message)?;
         reject_symlink(&parent, "write", relative)?;
         let (temp, mut file) = create_temp(&parent, relative)?;
         let write_result = file
@@ -230,34 +277,58 @@ mod platform {
         let result = install_temp(&parent, &temp, relative);
         let _ = unlinkat(&parent.directory, &temp, AtFlags::empty());
         result?;
-        sync_directory(parent.directory, "sync directory after write", relative)
+        sync_directory(&parent.directory, "sync directory after write", relative)
     }
 
     pub(super) fn remove(root: &Path, relative: &str) -> Result<bool, String> {
         let parent = match open_parent(root, relative, false) {
             Ok(parent) => parent,
-            Err(error) if error.contains("No such file or directory") => return Ok(false),
-            Err(error) => return Err(error),
+            Err(OpenParentError::NotFound(_)) => return Ok(false),
+            Err(error) => return Err(error.message()),
         };
         reject_symlink(&parent, "remove", relative)?;
         match unlinkat(&parent.directory, &parent.leaf, AtFlags::empty()) {
             Ok(()) => {
-                sync_directory(parent.directory, "sync directory after remove", relative)?;
+                sync_directory(&parent.directory, "sync directory after remove", relative)?;
                 Ok(true)
             }
-            Err(rustix::io::Errno::NOENT) => Ok(false),
+            Err(rustix::io::Errno::NOENT) => {
+                sync_directory(&parent.directory, "sync directory after remove", relative)?;
+                Ok(false)
+            }
             Err(error) => Err(context("remove", relative, error)),
         }
+    }
+
+    fn sync_rename_directories(
+        source_directory: OwnedFd,
+        destination_directory: OwnedFd,
+        source: &str,
+        destination: &str,
+    ) -> Result<(), String> {
+        let source_sync = sync_directory(
+            &source_directory,
+            "sync source directory after rename",
+            source,
+        );
+        let destination_sync = sync_directory(
+            &destination_directory,
+            "sync destination directory after rename",
+            destination,
+        );
+        source_sync?;
+        destination_sync
     }
 
     pub(super) fn rename(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
         let source_parent = match open_parent(root, source, false) {
             Ok(parent) => parent,
-            Err(error) if error.contains("No such file or directory") => return Ok(false),
-            Err(error) => return Err(error),
+            Err(OpenParentError::NotFound(_)) => return Ok(false),
+            Err(error) => return Err(error.message()),
         };
         reject_symlink(&source_parent, "rename source", source)?;
-        let destination_parent = open_parent(root, destination, true)?;
+        let destination_parent =
+            open_parent(root, destination, true).map_err(OpenParentError::message)?;
         reject_symlink(&destination_parent, "rename destination", destination)?;
         match renameat(
             &source_parent.directory,
@@ -266,38 +337,58 @@ mod platform {
             &destination_parent.leaf,
         ) {
             Ok(()) => {}
-            Err(rustix::io::Errno::NOENT) => return Ok(false),
+            Err(rustix::io::Errno::NOENT) => {
+                let destination_exists = match statat(
+                    &destination_parent.directory,
+                    &destination_parent.leaf,
+                    AtFlags::SYMLINK_NOFOLLOW,
+                ) {
+                    Ok(_) => true,
+                    Err(rustix::io::Errno::NOENT) => false,
+                    Err(error) => {
+                        return Err(context("inspect rename destination", destination, error));
+                    }
+                };
+                sync_rename_directories(
+                    source_parent.directory,
+                    destination_parent.directory,
+                    source,
+                    destination,
+                )?;
+                return Ok(destination_exists);
+            }
             Err(error) => {
                 return Err(format!(
                     "rename vault path {source} to {destination}: {error}"
                 ));
             }
         }
-        let source_sync = sync_directory(
+        sync_rename_directories(
             source_parent.directory,
-            "sync source directory after rename",
-            source,
-        );
-        let destination_sync = sync_directory(
             destination_parent.directory,
-            "sync destination directory after rename",
+            source,
             destination,
-        );
-        source_sync?;
-        destination_sync?;
+        )?;
         Ok(true)
     }
 
     pub(super) fn exists(root: &Path, relative: &str) -> Result<bool, String> {
         let parent = match open_parent(root, relative, false) {
             Ok(parent) => parent,
-            Err(error) if error.contains("No such file or directory") => return Ok(false),
-            Err(error) => return Err(error),
+            Err(OpenParentError::NotFound(_)) => return Ok(false),
+            Err(error) => return Err(error.message()),
         };
         reject_symlink(&parent, "inspect", relative)?;
         match statat(&parent.directory, &parent.leaf, AtFlags::SYMLINK_NOFOLLOW) {
             Ok(_) => Ok(true),
-            Err(rustix::io::Errno::NOENT) => Ok(false),
+            Err(rustix::io::Errno::NOENT) => {
+                sync_directory(
+                    &parent.directory,
+                    "sync directory before trusting absent path",
+                    relative,
+                )?;
+                Ok(false)
+            }
             Err(error) => Err(context("inspect", relative, error)),
         }
     }
@@ -307,7 +398,7 @@ mod platform {
         relative: &str,
         modified_at_ms: i64,
     ) -> Result<(), String> {
-        let parent = open_parent(root, relative, false)?;
+        let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
         let file = openat(
             &parent.directory,
             &parent.leaf,
@@ -330,6 +421,15 @@ mod platform {
             },
         )
         .map_err(|error| context("update timestamp for", relative, error))
+    }
+
+    pub(super) fn sync_parent(root: &Path, relative: &str) -> Result<(), String> {
+        let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
+        sync_directory(
+            &parent.directory,
+            "sync directory before adopting existing content",
+            relative,
+        )
     }
 }
 
@@ -420,6 +520,10 @@ mod platform {
             modified_at_ms,
         )
     }
+
+    pub(super) fn sync_parent(_root: &Path, _relative: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub(super) fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
@@ -444,6 +548,15 @@ pub(super) fn exists(root: &Path, relative: &str) -> Result<bool, String> {
 
 pub(super) fn set_mtime_ms(root: &Path, relative: &str, modified_at_ms: i64) -> Result<(), String> {
     platform::set_mtime_ms(root, relative, modified_at_ms)
+}
+
+pub(super) fn sync_parent(root: &Path, relative: &str) -> Result<(), String> {
+    platform::sync_parent(root, relative)
+}
+
+#[cfg(all(test, unix))]
+pub(super) fn fail_directory_sync_on_call(call: usize) {
+    platform::fail_directory_sync_on_call(call);
 }
 
 #[cfg(all(test, unix))]
@@ -490,6 +603,31 @@ mod tests {
     }
 
     #[test]
+    fn write_syncs_each_parent_entry_before_using_it() {
+        let root = TempRoot::new();
+        platform::fail_directory_sync_on_call(1);
+
+        let first_error = write_atomic(root.path(), "folder/note.md", b"body").unwrap_err();
+
+        assert!(first_error.contains("sync parent directory before mutation"));
+        assert!(root.path().join("folder").is_dir());
+        assert!(!root.path().join("folder/note.md").exists());
+
+        platform::fail_directory_sync_on_call(1);
+        let retry_error = write_atomic(root.path(), "folder/note.md", b"body").unwrap_err();
+
+        assert!(retry_error.contains("sync parent directory before mutation"));
+        assert!(!root.path().join("folder/note.md").exists());
+
+        platform::fail_directory_sync_on_call(2);
+        let nested_error = write_atomic(root.path(), "folder/nested/note.md", b"body").unwrap_err();
+
+        assert!(nested_error.contains("sync parent directory before mutation"));
+        assert!(root.path().join("folder/nested").is_dir());
+        assert!(!root.path().join("folder/nested/note.md").exists());
+    }
+
+    #[test]
     fn remove_reports_directory_sync_failure() {
         let root = TempRoot::new();
         std::fs::write(root.path().join("note.md"), "body").unwrap();
@@ -501,15 +639,69 @@ mod tests {
     }
 
     #[test]
+    fn remove_retry_resyncs_when_the_leaf_is_already_absent() {
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("note.md"), "body").unwrap();
+        platform::fail_directory_sync_on_call(1);
+        remove(root.path(), "note.md").unwrap_err();
+        platform::fail_directory_sync_on_call(1);
+
+        let error = remove(root.path(), "note.md").unwrap_err();
+
+        assert!(error.contains("sync directory after remove"));
+    }
+
+    #[test]
+    fn absent_inspection_resyncs_before_callers_trust_the_missing_leaf() {
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("note.md"), "body").unwrap();
+        platform::fail_directory_sync_on_call(1);
+        remove(root.path(), "note.md").unwrap_err();
+        platform::fail_directory_sync_on_call(1);
+
+        let error = exists(root.path(), "note.md").unwrap_err();
+
+        assert!(error.contains("sync directory before trusting absent path"));
+    }
+
+    #[test]
+    fn path_text_cannot_turn_a_non_missing_parent_error_into_not_found() {
+        let root = TempRoot::new();
+        std::fs::write(
+            root.path().join("No such file or directory"),
+            "not a directory",
+        )
+        .unwrap();
+        let relative = "No such file or directory/note.md";
+
+        assert!(remove(root.path(), relative).is_err());
+        assert!(exists(root.path(), relative).is_err());
+        assert!(rename(root.path(), relative, "destination.md").is_err());
+    }
+
+    #[test]
     fn rename_reports_destination_directory_sync_failure() {
         let root = TempRoot::new();
         std::fs::create_dir(root.path().join("source")).unwrap();
         std::fs::create_dir(root.path().join("destination")).unwrap();
         std::fs::write(root.path().join("source/note.md"), "body").unwrap();
-        platform::fail_directory_sync_on_call(2);
+        platform::fail_directory_sync_on_call(3);
 
         let error = rename(root.path(), "source/note.md", "destination/note.md").unwrap_err();
 
         assert!(error.contains("sync destination directory after rename"));
+    }
+
+    #[test]
+    fn rename_retry_resyncs_when_only_the_destination_remains() {
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("source.md"), "body").unwrap();
+        platform::fail_directory_sync_on_call(1);
+        rename(root.path(), "source.md", "destination.md").unwrap_err();
+        platform::fail_directory_sync_on_call(1);
+
+        let error = rename(root.path(), "source.md", "destination.md").unwrap_err();
+
+        assert!(error.contains("sync source directory after rename"));
     }
 }

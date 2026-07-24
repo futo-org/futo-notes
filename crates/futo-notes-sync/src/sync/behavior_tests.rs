@@ -179,6 +179,47 @@ fn combined_summary_records_checkpoint_failure_once_per_cycle() {
     assert_eq!(combined.failures[0].kind, FailureKind::Checkpoint);
 }
 
+#[cfg(unix)]
+#[test]
+fn matching_remote_retry_resyncs_before_advancing_the_object_map() {
+    let root = TempRoot::new();
+    let remote = remote("remote", "note.md", "body");
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+    super::vault_fs::fail_directory_sync_on_call(2);
+
+    let first = apply_remote(
+        &mut state,
+        root.path(),
+        &remote,
+        &HashMap::new(),
+        false,
+        &no_pre,
+        &mut summary,
+    );
+
+    assert!(first.is_err());
+    assert!(state.object_map.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("note.md")).unwrap(),
+        "body"
+    );
+
+    super::vault_fs::fail_directory_sync_on_call(1);
+    let retry = apply_remote(
+        &mut state,
+        root.path(),
+        &remote,
+        &HashMap::new(),
+        false,
+        &no_pre,
+        &mut summary,
+    );
+
+    assert!(retry.is_err());
+    assert!(state.object_map.is_empty());
+}
+
 #[test]
 fn rename_strips_the_from_side_ghost_delete_but_keeps_target_updates() {
     let push = SyncSummary {
@@ -406,6 +447,49 @@ fn collision_placement_reports_the_relocated_local_note_as_a_rename() {
     assert_eq!(summary.renamed.len(), 1);
     assert_eq!(summary.renamed[0].from_id, "note");
     assert_eq!(summary.renamed[0].to_id, note_id(&conflict));
+}
+
+#[cfg(unix)]
+#[test]
+fn collision_rename_retry_resyncs_the_destination_before_state_advances() {
+    let root = TempRoot::new();
+    let ancestry = HashMap::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+    std::fs::write(root.path().join("note.md"), "local text").unwrap();
+    state.object_map.insert(
+        "note.md".into(),
+        entry("z-local", Some(&hash_sha256("local text"))),
+    );
+    let incoming = remote("a-remote", "note.md", "remote text");
+    super::vault_fs::fail_directory_sync_on_call(1);
+
+    assert!(apply_remote(
+        &mut state,
+        root.path(),
+        &incoming,
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .is_err());
+    assert!(state.object_map.contains_key("note.md"));
+
+    super::vault_fs::fail_directory_sync_on_call(2);
+    let retry = apply_remote(
+        &mut state,
+        root.path(),
+        &incoming,
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap_err();
+
+    assert!(retry.contains("sync destination directory after rename"));
+    assert!(state.object_map.contains_key("note.md"));
 }
 
 #[cfg(unix)]

@@ -187,6 +187,8 @@ fn commit_remote_file(
     if content_hash(context.root, &target).as_deref() != Some(remote_hash) {
         write_content(context.root, &target, &remote.content, context.pre_write)?;
         context.summary.local_writes_applied += 1;
+    } else {
+        vault_fs::sync_parent(context.root, &target)?;
     }
     let modified = timestamp_ms(&remote.object.updated_at);
     if modified > 0 {

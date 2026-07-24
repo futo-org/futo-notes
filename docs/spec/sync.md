@@ -584,7 +584,12 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   Successful namespace writes/removes/renames fsync their affected parent
   directories and surface a directory-sync failure instead of reporting durable
   success. Because that error arrives after the namespace mutation, callers
-  treat it as an uncertain commit and retry idempotently.
+  treat it as an uncertain commit and retry idempotently: the retry re-fsyncs
+  even when the desired bytes already match, the removed leaf is already
+  absent, or the rename has already reached its destination. Every newly
+  created parent entry is also fsynced in its containing directory before use,
+  including when retry finds an uncertain prior `mkdir` already present; only
+  then may object-map/cursor checkpoints advance.
   Other platforms reject symlinks observed while resolving the path, but do not
   yet provide the same descriptor-relative race guarantee. The same fallible
   scanner is used by conflict/tombstone copy naming; no sync call site receives
