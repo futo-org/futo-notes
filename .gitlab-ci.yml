@@ -1798,6 +1798,9 @@ release:gate:
 publish:ios:
   stage: release
   interruptible: false
+  # Shared with publish:ios:main so two pipelines can never run altool against
+  # the same App Store Connect app concurrently (main pushes are frequent).
+  resource_group: ios-testflight
   tags:
     - macscript
   needs:
@@ -1822,6 +1825,8 @@ publish:ios:
 publish:ios:main:
   stage: release
   interruptible: false
+  # See publish:ios — one TestFlight upload at a time, project-wide.
+  resource_group: ios-testflight
   tags:
     - macscript
   needs:

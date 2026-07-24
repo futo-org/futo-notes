@@ -64,7 +64,16 @@ async function main() {
         projectId: process.env.CI_PROJECT_ID,
         token: process.env.CI_JOB_TOKEN,
       });
-  process.stdout.write(resolveMarketingVersion({ tag, latestReleaseTag }));
+  const version = resolveMarketingVersion({ tag, latestReleaseTag });
+  // The fallback means the releases lookup failed. Harmless for upload ordering
+  // (the build number governs that) but the build is mislabeled, so say so
+  // rather than shipping 0.0.1 to TestFlight silently.
+  if (version === FALLBACK_VERSION && !tag) {
+    process.stderr.write(
+      `warning: could not resolve the latest release; labeling this build ${FALLBACK_VERSION}\n`,
+    );
+  }
+  process.stdout.write(version);
 }
 
 // Run only when invoked directly so the test can import the pure helpers.
