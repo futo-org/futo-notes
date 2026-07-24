@@ -162,9 +162,33 @@ describe('AppImage artifact finalization', () => {
       new URL('./definitely-missing-patch-appimage.mjs', import.meta.url),
     );
 
-    expect(() => patchAppImage('/bundle/appimage', missingScript)).toThrow(
+    expect(() => patchAppImage('/bundle/appimage', { scriptPath: missingScript })).toThrow(
       `AppImage patch script missing at ${missingScript}`,
     );
+  });
+
+  it('does not expose updater signing variables to the patch process', () => {
+    const scriptPath = fileURLToPath(new URL('./patch-appimage.mjs', import.meta.url));
+    const calls = [];
+
+    patchAppImage('/bundle/appimage', {
+      scriptPath,
+      environment: {
+        PATH: '/usr/bin',
+        TAURI_SIGNING_PRIVATE_KEY: 'production-secret',
+        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: 'production-password',
+      },
+      execute: (command, args, options) => calls.push({ command, args, options }),
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      command: 'node',
+      args: [scriptPath, '--dir', '/bundle/appimage'],
+    });
+    expect(calls[0].options.env.PATH).toBe('/usr/bin');
+    expect(calls[0].options.env.TAURI_SIGNING_PRIVATE_KEY).toBeUndefined();
+    expect(calls[0].options.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD).toBeUndefined();
   });
 });
 
@@ -182,6 +206,17 @@ describe('AppImage CI rehearsal', () => {
     expect(job).toContain('TAURI_SIGNING_PRIVATE_KEY="$SIGNING_KEY" cargo tauri signer sign');
     expect(job).toContain('expected exactly one AppImage');
     expect(job).toContain('scripts/verify-updater-signature.mjs');
+  });
+
+  it('falls back to the checked-in desktop version when an MR has no tag', () => {
+    const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
+    const setVersion = ci.slice(
+      ci.indexOf('.set-version:'),
+      ci.indexOf('.setup-futo-notes-server:'),
+    );
+
+    expect(setVersion).toContain('--resolve-ci "${CI_COMMIT_TAG:-}"');
+    expect(setVersion).toContain('node "$CI_PROJECT_DIR/scripts/desktop-version.mjs" "$VERSION"');
   });
 });
 

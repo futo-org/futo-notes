@@ -167,9 +167,19 @@ function resign(file, profile) {
   });
 }
 
-export function patchAppImage(dir, scriptPath = join(ROOT, 'scripts', 'patch-appimage.mjs')) {
+export function patchAppImage(
+  dir,
+  {
+    scriptPath = join(ROOT, 'scripts', 'patch-appimage.mjs'),
+    environment = process.env,
+    execute = run,
+  } = {},
+) {
   if (!existsSync(scriptPath)) die(`AppImage patch script missing at ${scriptPath}`);
-  run('node', [scriptPath, '--dir', dir]);
+  const patchEnvironment = { ...environment };
+  delete patchEnvironment.TAURI_SIGNING_PRIVATE_KEY;
+  delete patchEnvironment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+  execute('node', [scriptPath, '--dir', dir], { env: patchEnvironment });
 }
 
 export function finalizeAppImageArtifact({

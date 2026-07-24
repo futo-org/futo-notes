@@ -54,6 +54,8 @@ The manual MR form of `build:linux-appimage` cannot receive that protected
 variable. It signs and verifies its rehearsal artifact with the committed
 localdev fixture key instead. Production clients reject that signature by
 construction; tag pipelines continue to require and verify the production key.
+Tags stamp the tag version, while untagged MR rehearsals retain the checked-in
+desktop version.
 
 ## Channel = stable only
 
