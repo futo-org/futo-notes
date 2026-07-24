@@ -31,17 +31,28 @@ internal fun recoverStorageStartup(
     }
     val savedMode = preferences.getString(Prefs.STORAGE_MODE, null)
     val effectiveMode = pending?.let { migration ->
-        val sourceExists = NotesStorage.rootFor(context, migration.from, isDebug).exists()
-        if (migration.phase == StorageMigrationPhase.FINALIZING && sourceExists) {
-            return StorageStartupRecovery(
-                startup = null,
-                error =
-                    "A storage move was interrupted during cleanup. Both note folders were retained.",
-            )
+        val sourceState =
+            NotesStorage.sourceStateForRecovery(context, migration.from, isDebug)
+        if (migration.phase == StorageMigrationPhase.FINALIZING) {
+            when (sourceState) {
+                StorageRootState.PRESENT ->
+                    return StorageStartupRecovery(
+                        startup = null,
+                        error =
+                            "A storage move was interrupted during cleanup. Both note folders were retained.",
+                    )
+                StorageRootState.UNAVAILABLE ->
+                    return StorageStartupRecovery(
+                        startup = null,
+                        error =
+                            "The previous notes folder cannot be inspected. Reconnect its storage and restart.",
+                    )
+                StorageRootState.ABSENT -> Unit
+            }
         }
 
         val recovery =
-            NotesStorage.storageRecoveryDecision(savedMode, migration, sourceExists)
+            NotesStorage.storageRecoveryDecision(savedMode, migration, sourceState)
         val preferenceReady = recovery.repairPreferenceTo?.let { repair ->
             preferences.edit().putString(Prefs.STORAGE_MODE, repair.name).commit()
         } ?: true
@@ -63,7 +74,12 @@ internal fun recoverStorageStartup(
                     )
                 )
             StorageMigrationPhase.ACTIVATED -> {
-                if (!migration.cleanupRequired || !sourceExists) journal.clear()
+                if (
+                    !migration.cleanupRequired ||
+                    sourceState == StorageRootState.ABSENT
+                ) {
+                    journal.clear()
+                }
             }
         }
         recovery.activeMode.name

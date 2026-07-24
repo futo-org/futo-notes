@@ -582,7 +582,12 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 finalizeSource = {
-                    runCatching { current.finalizeVaultMigration(to) }.getOrNull()
+                    runCatching {
+                        current.finalizeVaultMigration(
+                            to,
+                            allowSourceRemoval = previousMode != StorageMode.DEVICE,
+                        )
+                    }.getOrNull()
                 },
                 commitPreference = { mode ->
                     withContext(Dispatchers.IO) {

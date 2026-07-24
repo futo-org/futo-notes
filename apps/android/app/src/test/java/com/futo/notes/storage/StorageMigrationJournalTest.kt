@@ -78,7 +78,7 @@ class StorageMigrationJournalTest {
         val decision = NotesStorage.storageRecoveryDecision(
             StorageMode.APP.name,
             pending,
-            sourceExists = false,
+            sourceState = StorageRootState.ABSENT,
         )
 
         assertEquals(StorageMode.DEVICE, decision.activeMode)
@@ -95,7 +95,21 @@ class StorageMigrationJournalTest {
                 phase = StorageMigrationPhase.FINALIZING,
                 cleanupRequired = false,
             ),
-            sourceExists = true,
+            sourceState = StorageRootState.PRESENT,
+        )
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun `finalizing journal refuses to treat unavailable storage as removed`() {
+        NotesStorage.storageRecoveryDecision(
+            savedMode = StorageMode.APP.name,
+            pending = PendingStorageMigration(
+                from = StorageMode.DEVICE,
+                to = StorageMode.APP,
+                phase = StorageMigrationPhase.FINALIZING,
+                cleanupRequired = false,
+            ),
+            sourceState = StorageRootState.UNAVAILABLE,
         )
     }
 

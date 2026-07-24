@@ -417,10 +417,13 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         storageMigrationGate.resume()
     }
 
-    suspend fun finalizeVaultMigration(to: File): VaultMigrationFinalization =
+    suspend fun finalizeVaultMigration(
+        to: File,
+        allowSourceRemoval: Boolean,
+    ): VaultMigrationFinalization =
         withContext(Dispatchers.IO) {
             storageMigrationGate.runMigration {
-                core.finalizeVaultMigration(to.absolutePath)
+                core.finalizeVaultMigration(to.absolutePath, allowSourceRemoval)
             }
         }
 

@@ -1249,7 +1249,9 @@ fn vault_migration_copies_every_entry_and_deletes_source_only_after_finalize() {
     assert!(source.0.join("Folder/note.md").exists());
 
     assert_eq!(
-        store.finalize_vault_migration(&destination.0).unwrap(),
+        store
+            .finalize_vault_migration(&destination.0, true)
+            .unwrap(),
         VaultMigrationFinalization::Finalized
     );
     assert!(!source.0.exists());
@@ -1282,11 +1284,48 @@ fn vault_migration_finalize_refuses_to_delete_a_changed_source() {
     store.write("late", "new edit", None).unwrap();
 
     assert_eq!(
-        store.finalize_vault_migration(&destination.0).unwrap(),
+        store
+            .finalize_vault_migration(&destination.0, true)
+            .unwrap(),
         VaultMigrationFinalization::DestinationChanged
     );
     assert!(source.0.exists());
     assert_eq!(store.read("late"), "new edit");
+}
+
+#[test]
+fn vault_migration_retains_a_shared_source_that_external_writers_can_reach() {
+    let source = TestRoot::new();
+    let destination = TestRoot::new();
+    let store = store(&source);
+    store.write("note", "source", None).unwrap();
+    store.stage_vault_migration(&destination.0).unwrap();
+
+    assert_eq!(
+        store
+            .finalize_vault_migration(&destination.0, false)
+            .unwrap(),
+        VaultMigrationFinalization::SourceRetained
+    );
+    assert_eq!(store.read("note"), "source");
+}
+
+#[test]
+fn vault_migration_retains_an_empty_shared_source() {
+    let source = TestRoot::new();
+    let destination = source.0.with_extension("new-shared-location");
+    let store = store(&source);
+
+    let outcome = store.stage_vault_migration(&destination).unwrap();
+
+    assert_eq!(outcome.status, VaultMigrationStatus::EmptySource);
+    assert_eq!(
+        store
+            .finalize_vault_migration(&destination, false)
+            .unwrap(),
+        VaultMigrationFinalization::SourceRetained
+    );
+    assert!(source.0.is_dir());
 }
 
 #[test]
@@ -1300,7 +1339,9 @@ fn empty_vault_migration_does_not_require_a_destination_to_finalize() {
     assert_eq!(outcome.status, VaultMigrationStatus::EmptySource);
     assert!(!destination.exists());
     assert_eq!(
-        store.finalize_vault_migration(&destination).unwrap(),
+        store
+            .finalize_vault_migration(&destination, true)
+            .unwrap(),
         VaultMigrationFinalization::Finalized
     );
     assert!(!source.0.exists());

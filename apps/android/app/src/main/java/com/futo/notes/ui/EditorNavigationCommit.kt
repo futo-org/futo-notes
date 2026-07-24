@@ -21,6 +21,9 @@ internal class EditorNavigationAdmission {
     }
 }
 
+internal fun isEditorInteractionEnabled(navigationPending: Boolean): Boolean =
+    !navigationPending
+
 internal suspend fun commitEditorNavigationSnapshot(
     savedContent: String,
     content: String,

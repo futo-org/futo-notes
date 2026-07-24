@@ -13,6 +13,13 @@ func shouldDeliverEditorCompletion(
     capturedGeneration == currentGeneration
 }
 
+func editorGenerationAfterDetach(
+    detachedToken: Int,
+    currentGeneration: Int
+) -> Int {
+    detachedToken == currentGeneration ? currentGeneration + 1 : currentGeneration
+}
+
 /// SwiftUI wrapper around a single, app-lifetime WKWebView that hosts the
 /// bundled markdown editor — the iOS counterpart of Android's `EditorHost`
 /// (apps/android/.../ui/EditorWebView.kt).
@@ -327,7 +334,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// Unbind, unless a newer [attach] has already taken over.
     func detach(_ token: Int) {
-        guard token == generation else { return }
+        let nextGeneration = editorGenerationAfterDetach(
+            detachedToken: token,
+            currentGeneration: generation
+        )
+        guard nextGeneration != generation else { return }
+        generation = nextGeneration
         onChange = { _ in }
         onReady = nil
         onOpenNote = nil
@@ -367,13 +379,15 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// Host → editor: insert `![](filename)\n` only if the editor that started
     /// the asynchronous image operation still owns the shared WebView.
-    private func insertImage(_ filename: String, for capturedGeneration: Int) {
+    @discardableResult
+    private func insertImage(_ filename: String, for capturedGeneration: Int) -> Bool {
         guard shouldDeliverEditorCompletion(
             capturedGeneration: capturedGeneration,
             currentGeneration: generation
-        ) else { return }
+        ) else { return false }
         let js = "window.FutoEditor && window.FutoEditor.insertImage(\(jsLiteral(filename)));"
         webView.evaluateJavaScript(js, completionHandler: nil)
+        return true
     }
 
     /// Invalidate completions owned by the current editor before a committed
@@ -504,7 +518,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     guard let data = decoded else { return }
                     guard let filename = await VaultImages.save(
                         data: data, preferredExtension: ext) else { return }
-                    self.insertImage(filename, for: targetGeneration)
+                    if !self.insertImage(filename, for: targetGeneration) {
+                        await VaultImages.remove(filename: filename)
+                    }
                 }
             }
         case .pasteClipboardImage:
@@ -520,7 +536,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 Task { @MainActor in
                     guard let filename = await VaultImages.save(
                         data: data, preferredExtension: ext) else { return }
-                    self.insertImage(filename, for: targetGeneration)
+                    if !self.insertImage(filename, for: targetGeneration) {
+                        await VaultImages.remove(filename: filename)
+                    }
                 }
             } else {
                 EditorHost.logger.info("pasteClipboardImage: no image on the pasteboard")
@@ -555,7 +573,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             Task { @MainActor in
                 guard let filename = await VaultImages.save(
                     data: data, preferredExtension: ext) else { return }
-                self.insertImage(filename, for: targetGeneration)
+                if !self.insertImage(filename, for: targetGeneration) {
+                    await VaultImages.remove(filename: filename)
+                }
             }
         }
     }

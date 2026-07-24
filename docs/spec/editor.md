@@ -442,8 +442,10 @@ EditorWebView.swift, EditorWebView.kt
   note. Android holds both the editor mutation permit and vault gate through
   confirmed WebView insertion, and cancellation cannot leave a queued main-
   thread insertion behind; iOS checks the adopted WebView generation before
-  inserting. → `EditorAttachmentGate.kt`, `EditorWebView.insertImageAndWait`,
-  `EditorWebView.swift` generation checks
+  inserting, increments that generation on detach, and removes a just-saved
+  image when its attachment became stale before insertion. →
+  `EditorAttachmentGate.kt`, `EditorWebView.insertImageAndWait`,
+  `EditorHost.detach`, `VaultImages.remove`
 
 > **Gap:** Clipboard image paste is verified on Linux (WebKitGTK), Windows
 > (WebView2), native Android (emulator, 2026-06-22), and **macOS desktop**
@@ -484,7 +486,10 @@ EditorWebView.swift, EditorWebView.kt
   retarget retained drafts to the authoritative final id. Failed identity
   mutations reopen a fresh generation. A queued or failed leave flush from the
   old generation therefore cannot resurrect a deleted note or create an old-id
-  ghost after rename/move. _(iOS, Android)_ → `NotesStore.write`,
+  ghost after rename/move. The iOS move captures the final live CM6 document
+  after destination selection, persists or parks it through the draft workflow,
+  and moves the parked conflict identity when that is where the local draft was
+  committed. _(iOS, Android)_ → `NotesStore.write`,
   NoteEditorScreen.kt / NoteEditorView.swift,
   NativeMutationOutcomeTest / NativeMutationOutcomeTests
 - Title edits debounce (~500 ms) into a rename (iOS commits via the rename

@@ -5,6 +5,8 @@ import android.net.Uri
 import android.widget.Toast
 import java.io.File
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -48,6 +50,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -105,6 +108,7 @@ fun NoteEditorScreen(
     val c = FutoTheme.colors
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     // The shared pre-warmed editor host — needed directly (beyond the
     // EditorWebView props) for the bridge-v2 imperative calls:
@@ -134,11 +138,15 @@ fun NoteEditorScreen(
     var showMoveSheet by remember { mutableStateOf(false) }
     val mutationGate = remember(initialNoteId) { EditorMutationGate() }
     val navigationAdmission = remember(initialNoteId) { EditorNavigationAdmission() }
+    var navigationPending by remember(initialNoteId) { mutableStateOf(false) }
+    val interactionEnabled = isEditorInteractionEnabled(navigationPending)
     val theme = if (darkTheme) "dark" else "light"
 
     fun navigateAfterSaving(navigate: () -> Unit) {
         val attachment = host.currentAttachment() ?: return
         if (!navigationAdmission.tryBegin()) return
+        navigationPending = true
+        focusManager.clearFocus(force = true)
         host.blur()
         scope.launch {
             val canNavigate = mutationGate.runEditorMutation {
@@ -161,6 +169,7 @@ fun NoteEditorScreen(
                 navigate()
             } else {
                 navigationAdmission.retryAfterFailure()
+                navigationPending = false
                 if (host.isCurrentAttachment(attachment)) {
                     Toast.makeText(
                         context,
@@ -199,7 +208,7 @@ fun NoteEditorScreen(
         }
     }
 
-    BackHandler { navigateAfterSaving(onBack) }
+    BackHandler(enabled = interactionEnabled) { navigateAfterSaving(onBack) }
 
     // The editor's note universe [editor.md:77]: id/title/modifiedMs/tags JSON
     // for the wikilink suffix resolver + autocomplete. Rebuilt only when the
@@ -448,18 +457,22 @@ fun NoteEditorScreen(
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = c.surface,
         topBar = {
             TopAppBar(
                 title = {},
                 navigationIcon = {
-                    IconButton(onClick = { navigateAfterSaving(onBack) }) {
+                    IconButton(
+                        enabled = interactionEnabled,
+                        onClick = { navigateAfterSaving(onBack) },
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
+                    IconButton(enabled = interactionEnabled, onClick = {
                         val share = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TITLE, titleValue.text)
@@ -470,7 +483,7 @@ fun NoteEditorScreen(
                         Icon(Icons.Filled.Share, contentDescription = "Share", tint = c.textSecondary)
                     }
                     var menu by remember { mutableStateOf(false) }
-                    IconButton(onClick = { menu = true }) {
+                    IconButton(enabled = interactionEnabled, onClick = { menu = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = c.textSecondary)
                     }
                     // Overflow parity with the list rows [list.md:62].
@@ -512,6 +525,7 @@ fun NoteEditorScreen(
                 .imePadding(),
         ) {
             BasicTextField(
+                enabled = interactionEnabled,
                 value = titleValue,
                 onValueChange = { v ->
                     // Strip forbidden filesystem chars in-place (desktop parity —
@@ -654,6 +668,18 @@ fun NoteEditorScreen(
                     },
                 )
             }
+        }
+    }
+        if (navigationPending) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    ),
+            )
         }
     }
 

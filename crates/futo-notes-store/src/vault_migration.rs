@@ -154,11 +154,15 @@ pub(super) fn stage(source: &Path, destination: &Path) -> Result<VaultMigrationO
 pub(super) fn finalize(
     source: &Path,
     destination: &Path,
+    allow_source_removal: bool,
 ) -> Result<VaultMigrationFinalization, String> {
     if !source.exists() {
         return Ok(VaultMigrationFinalization::Finalized);
     }
     let source = canonical_existing_directory(source, "current notes folder")?;
+    if !allow_source_removal {
+        return Ok(VaultMigrationFinalization::SourceRetained);
+    }
     let source_manifest = manifest(&source)?;
     if source_manifest.is_empty() && !destination.exists() {
         return Ok(remove_source(&source));
@@ -331,7 +335,7 @@ fn make_existing_destination_durable(
     let parent = destination
         .parent()
         .ok_or_else(|| "unable to resolve the new notes folder parent".to_owned())?;
-    sync_directory(parent)
+    sync_directory_ancestors(parent)
 }
 
 fn sync_manifest_directories(
@@ -388,6 +392,15 @@ fn sync_directory_chain(path: &Path, inclusive_ancestor: &Path) -> Result<(), St
             "the destination parent escaped its existing ancestor during installation".to_owned()
         })?;
     }
+}
+
+fn sync_directory_ancestors(path: &Path) -> Result<(), String> {
+    let mut directory = Some(path);
+    while let Some(current) = directory {
+        sync_directory(current)?;
+        directory = current.parent();
+    }
+    Ok(())
 }
 
 fn sync_directory(path: &Path) -> Result<(), String> {
@@ -601,14 +614,15 @@ mod tests {
     fn stage_retries_durability_for_an_already_installed_matching_destination() {
         let root = TestDirectory::new();
         let source = root.0.join("source");
-        let destination = root.0.join("destination");
+        let new_parent = root.0.join("New/Deep");
+        let destination = new_parent.join("destination");
         fs::create_dir_all(source.join("Nested")).unwrap();
         fs::write(source.join("Nested/note.md"), "body").unwrap();
-        let parent = root.0.clone();
+        let failed_parent = root.0.join("New");
 
         let first_result = with_directory_sync_hook(
             move |path| {
-                if path == parent {
+                if path == failed_parent {
                     Err("injected destination-parent sync failure".into())
                 } else {
                     Ok(())
@@ -643,8 +657,16 @@ mod tests {
             "matching destination root was not re-synced"
         );
         assert!(
+            synced.iter().any(|path| path == &new_parent),
+            "matching destination immediate parent was not re-synced"
+        );
+        assert!(
+            synced.iter().any(|path| path == &root.0.join("New")),
+            "matching destination ancestor was not re-synced"
+        );
+        assert!(
             synced.iter().any(|path| path == &root.0),
-            "matching destination parent was not re-synced"
+            "matching destination existing ancestor was not re-synced"
         );
     }
 }

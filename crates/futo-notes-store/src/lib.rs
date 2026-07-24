@@ -931,13 +931,14 @@ impl LocalNoteStore {
         vault_migration::stage(&self.root, destination)
     }
 
-    /// Deletes the source vault only after the shell durably selects the verified destination.
+    /// Deletes the source vault only when the shell can exclude external writers.
     pub fn finalize_vault_migration(
         &self,
         destination: &Path,
+        allow_source_removal: bool,
     ) -> Result<VaultMigrationFinalization, String> {
         let _gate = self.lock_gate()?;
-        vault_migration::finalize(&self.root, destination)
+        vault_migration::finalize(&self.root, destination, allow_source_removal)
     }
 
     fn rename_raw(&self, old_id: &str, wanted_id: &str) -> Result<MutationResult, String> {

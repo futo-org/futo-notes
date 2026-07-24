@@ -8,6 +8,8 @@ import java.io.File
 /** Where the note vault lives on disk. Mirrors Obsidian's two storage modes. */
 enum class StorageMode { DEVICE, APP, INTERNAL }
 
+enum class StorageRootState { PRESENT, ABSENT, UNAVAILABLE }
+
 /**
  * The single source of truth for the vault location + how to move it.
  *
@@ -53,13 +55,13 @@ object NotesStorage {
     fun storageRecoveryDecision(
         savedMode: String?,
         pending: PendingStorageMigration,
-        sourceExists: Boolean = true,
+        sourceState: StorageRootState = StorageRootState.PRESENT,
     ): StorageRecoveryDecision {
         val activeMode = when (pending.phase) {
             StorageMigrationPhase.PREPARED -> pending.from
             StorageMigrationPhase.FINALIZING -> {
-                check(!sourceExists) {
-                    "An interrupted finalization with a retained source requires intervention"
+                check(sourceState == StorageRootState.ABSENT) {
+                    "An interrupted finalization without a confirmed source removal requires intervention"
                 }
                 pending.to
             }
@@ -114,6 +116,41 @@ object NotesStorage {
         StorageMode.INTERNAL -> internalRoot(context)
         StorageMode.APP -> appRoot(context)
         StorageMode.DEVICE -> deviceRoot(isDebug)
+    }
+
+    fun sourceStateForRecovery(
+        context: Context,
+        mode: StorageMode,
+        isDebug: Boolean,
+    ): StorageRootState {
+        val root = when (mode) {
+            StorageMode.INTERNAL -> internalRoot(context)
+            StorageMode.APP -> {
+                val external = context.getExternalFilesDir(null)
+                    ?: return StorageRootState.UNAVAILABLE
+                File(external, VAULT_DIR)
+            }
+            StorageMode.DEVICE -> {
+                if (!deviceModeSupported() || !hasDeviceAccess()) {
+                    return StorageRootState.UNAVAILABLE
+                }
+                val mediaState = Environment.getExternalStorageState()
+                if (
+                    mediaState != Environment.MEDIA_MOUNTED &&
+                    mediaState != Environment.MEDIA_MOUNTED_READ_ONLY
+                ) {
+                    return StorageRootState.UNAVAILABLE
+                }
+                deviceRoot(isDebug)
+            }
+        }
+        if (root.exists()) return StorageRootState.PRESENT
+        val parent = root.parentFile
+        return if (parent?.isDirectory == true && parent.canRead()) {
+            StorageRootState.ABSENT
+        } else {
+            StorageRootState.UNAVAILABLE
+        }
     }
 
     /** True when DEVICE mode is writable RIGHT NOW (permission actually held). */

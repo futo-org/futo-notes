@@ -129,6 +129,24 @@ enum VaultImages {
             }
         }.value
     }
+
+    /// Remove a generated image whose asynchronous editor attachment went
+    /// stale before insertion. The bare-name and extension checks keep this
+    /// cleanup narrower than the scheme handler's already-flat asset surface.
+    static func remove(filename: String) async {
+        guard (filename as NSString).lastPathComponent == filename,
+              mimeType(for: filename) != nil else { return }
+        let root = NotesStore.resolveNotesRoot()
+        await Task.detached(priority: .utility) {
+            do {
+                try FileManager.default.removeItem(at: root.appendingPathComponent(filename))
+            } catch where (error as NSError).code == NSFileNoSuchFileError {
+                return
+            } catch {
+                print("VaultImages.remove failed: \(error)")
+            }
+        }.value
+    }
 }
 
 // MARK: - Native pickers

@@ -25,6 +25,7 @@ struct ScanEntry {
 
 struct ScanMetadata {
     is_dir: bool,
+    is_symlink: bool,
     mtime: i64,
     size: u64,
 }
@@ -49,9 +50,10 @@ impl FileScanner for RealFileScanner {
     }
 
     fn metadata(&self, path: &Path) -> std::io::Result<ScanMetadata> {
-        let metadata = std::fs::metadata(path)?;
+        let metadata = std::fs::symlink_metadata(path)?;
         Ok(ScanMetadata {
             is_dir: metadata.is_dir(),
+            is_symlink: metadata.file_type().is_symlink(),
             mtime: file_mtime_ms(&metadata),
             size: metadata.len(),
         })
@@ -84,6 +86,9 @@ fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<Vec<Local
             let metadata = scanner
                 .metadata(&entry.path)
                 .map_err(|error| scan_error("read metadata for", &entry.path, error))?;
+            if metadata.is_symlink {
+                continue;
+            }
             if metadata.is_dir {
                 walk(root, &entry.path, scanner, files)?;
                 continue;
@@ -305,5 +310,25 @@ mod tests {
 
         assert!(error.contains("read metadata"));
         assert!(error.contains(note.to_string_lossy().as_ref()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_never_follows_file_or_directory_symlinks_outside_the_vault() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempRoot::new();
+        let outside = TempRoot::new();
+        std::fs::write(outside.0.join("secret.md"), "outside").unwrap();
+        symlink(outside.0.join("secret.md"), root.0.join("linked-file.md")).unwrap();
+        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
+
+        let names = local_files(&root.0)
+            .unwrap()
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        assert!(names.is_empty(), "symlinked paths leaked into sync: {names:?}");
     }
 }

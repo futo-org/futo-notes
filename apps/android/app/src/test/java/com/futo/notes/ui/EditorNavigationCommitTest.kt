@@ -9,6 +9,12 @@ import uniffi.futo_notes_ffi.FlushDisposition
 
 class EditorNavigationCommitTest {
     @Test
+    fun `pending navigation disables editor interaction`() {
+        assertTrue(isEditorInteractionEnabled(navigationPending = false))
+        assertFalse(isEditorInteractionEnabled(navigationPending = true))
+    }
+
+    @Test
     fun `navigation admission rejects a second request until failure permits retry`() {
         val admission = EditorNavigationAdmission()
 

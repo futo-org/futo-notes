@@ -85,9 +85,14 @@ Behaviors and constraints that hold across every surface and platform.
     `ACTIVATED` makes the verified destination authoritative even if the
     SharedPreferences commit result is ambiguous. A late source edit yields
     `DESTINATION_CHANGED`, aborts activation, and keeps the old root visible.
-    A cleanup failure may retain the source as a backup after activation. A
-    failed copy/verification keeps the old mode/root active and reports the
-    failure.
+    Because external writers to shared Device storage cannot be fenced, a
+    successful switch away from Device storage retains that source as a backup
+    after activation instead of deleting it through a check-then-delete window.
+    Other cleanup failures may likewise retain the source as a backup. Recovery
+    distinguishes a proven-absent source from storage that is unmounted,
+    permission-denied, or otherwise uninspectable; an unavailable source never
+    authorizes destination promotion. A failed copy/verification keeps the old
+    mode/root active and reports the failure.
     An open editor's pending draft must first produce a committed mutation or
     already match the bytes on disk; a skipped/missing/divergent flush aborts the
     switch instead of relaunching with an older draft. A non-empty destination is

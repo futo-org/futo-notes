@@ -176,9 +176,10 @@ impl NoteStore {
     pub fn finalize_vault_migration(
         &self,
         destination: String,
+        allow_source_removal: bool,
     ) -> Result<VaultMigrationFinalization, NoteError> {
         self.inner
-            .finalize_vault_migration(&PathBuf::from(destination))
+            .finalize_vault_migration(&PathBuf::from(destination), allow_source_removal)
             .map(Into::into)
             .map_err(NoteError::Io)
     }

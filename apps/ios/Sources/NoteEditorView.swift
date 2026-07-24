@@ -22,6 +22,7 @@ struct NoteEditorView: View {
     @State private var adoptionTask: Task<Void, Never>?
     @State private var moveTask: Task<Void, Never>?
     @State private var navigationTask: Task<Void, Never>?
+    @State private var isMoveCommitting = false
     /// CRITICAL: never block the editor's first frame on a disk read (F9 / the
     /// never-gate-render rule). The body starts empty and is read OFF the main
     /// actor in `.task`; until it lands, `loaded` is false, which gates the
@@ -168,7 +169,7 @@ struct NoteEditorView: View {
             )
             .ignoresSafeArea(.container, edges: .bottom)
         }
-        .allowsHitTesting(navigationTask == nil)
+        .allowsHitTesting(navigationTask == nil && !isMoveCommitting)
         .background(Theme.background)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -181,7 +182,7 @@ struct NoteEditorView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                 }
-                .disabled(navigationTask != nil)
+                .disabled(navigationTask != nil || isMoveCommitting)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -214,7 +215,7 @@ struct NoteEditorView: View {
                     Image(systemName: "ellipsis.circle")
                 }
                 .tint(Theme.primary)
-                .disabled(navigationTask != nil)
+                .disabled(navigationTask != nil || isMoveCommitting)
             }
         }
         .alert("Rename note", isPresented: $showRename) {
@@ -724,44 +725,71 @@ struct NoteEditorView: View {
         }
     }
 
-    /// Nav-bar "Move to Folder…": flush the pending body edit to the CURRENT id
-    /// before the file can move (same ghost-note class as commitRename — a
-    /// stale debounced save would recreate the old path), then open the sheet.
+    /// Nav-bar "Move to Folder…": wait for already-admitted identity work before
+    /// presenting destinations. The final live body is captured and committed
+    /// only after the user chooses a destination in [moveNote].
     private func prepareMove() {
         let previous = moveTask
+        let pendingRename = renameTask
+        let pendingAdoption = adoptionTask
         previous?.cancel()
         moveTask = Task { @MainActor in
             await previous?.value
-            guard !isClosing else { return }
-            saveTask?.cancel()
-            // Snapshot before the suspending write; advance savedContent to that
-            // snapshot, not live `content`, so a keystroke typed during the write
-            // stays dirty in the derived register and survives a later background
-            // flush (PKT-12 F1 — same as the rename path). The register re-keys to
-            // the moved id afterwards, so no manual clear is needed.
-            let flushed = content
-            if flushed != savedContent {
-                let outcome = await store.write(noteId, content: flushed)
-                savedContent = confirmedSavedContent(
-                    previousSavedContent: savedContent,
-                    writtenContent: flushed,
-                    outcome: outcome
-                )
-                guard case .committed = outcome else { return }
-            }
+            await pendingRename?.value
+            await pendingAdoption?.value
+            guard !Task.isCancelled, !isClosing else { return }
             showMove = true
         }
     }
 
     /// The move sheet hands the destination back synchronously so this editor
-    /// owns the complete move task. Delete can then cancel/await that exact task
-    /// and, if the move already committed, target its final id.
+    /// owns the complete capture, persist-or-park, and move transaction. Delete
+    /// can then cancel/await that exact task and, if the move already committed,
+    /// target its final id.
     private func moveNote(to folder: String) {
         let previous = moveTask
+        let pendingRename = renameTask
+        let pendingAdoption = adoptionTask
+        isMoveCommitting = true
         moveTask = Task { @MainActor in
+            defer {
+                if !isClosing { isMoveCommitting = false }
+            }
             await previous?.value
+            await pendingRename?.value
+            await pendingAdoption?.value
             guard !Task.isCancelled, !isClosing else { return }
-            let sourceId = noteId
+
+            let pendingSave = saveTask
+            pendingSave?.cancel()
+            await pendingSave?.value
+
+            guard let flushed = await EditorHost.shared.captureCurrentContent() else {
+                store.showTransient(
+                    "Couldn't read the latest note. Move is paused while your changes remain pending."
+                )
+                return
+            }
+            content = flushed
+
+            var sourceId = noteId
+            if flushed != savedContent {
+                let disposition = await store.flushDraft(
+                    PendingDraft(id: sourceId, base: savedContent, content: flushed))
+                guard let disposition else {
+                    store.showTransient(
+                        "Couldn't save note. Move is paused while your changes remain pending."
+                    )
+                    return
+                }
+                savedContent = flushed
+                sourceId = editorMoveSourceId(currentId: sourceId, disposition: disposition)
+                if sourceId != noteId {
+                    noteId = sourceId
+                    titleField = splitId(id: sourceId).title
+                }
+            }
+
             let outcome = await store.moveNote(sourceId, toFolder: folder)
             switch outcome {
             case .committed(let finalId):
@@ -880,6 +908,15 @@ func needsEditorCommitBeforeNavigation(
 
 func shouldCompleteEditorNavigation(_ disposition: FlushDisposition?) -> Bool {
     disposition != nil
+}
+
+func editorMoveSourceId(currentId: String, disposition: FlushDisposition) -> String {
+    switch disposition {
+    case .parkedConflict(let parkedId):
+        return parkedId
+    case .wrote, .converged, .recreated:
+        return currentId
+    }
 }
 
 /// The state the unsaved-draft derivation reads, bundled into one Equatable

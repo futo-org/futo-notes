@@ -37,13 +37,17 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   death: `PREPARED` selects the old root; `FINALIZING` records that source
   cleanup has begun and selects the destination on recovery only when the source
   is absent; `ACTIVATED` selects the verified destination and may retain an
-  uncleared source as a backup if final cleanup could not finish. A late source
-  edit aborts activation and keeps the current mode active. Failure before
-  activation surfaces an actionable toast; a different non-empty destination
-  is never merged into or deleted. The editor remains composed behind the
-  blocking overlay so its live draft can be flushed before the Rust-owned
-  whole-vault migration begins. Startup reads the journal and storage
-  preferences on `Dispatchers.IO` after the first composition. →
+  uncleared source as a backup if final cleanup could not finish. A Device
+  source is always retained as that backup because other apps can still write
+  it outside FUTO Notes' migration gate. Recovery promotes a `FINALIZING`
+  destination only after proving the source absent; unmounted or permission-
+  denied storage is unavailable, not absent. A late source edit aborts
+  activation and keeps the current mode active. Failure before activation
+  surfaces an actionable toast; a different non-empty destination is never
+  merged into or deleted. The editor remains composed behind the blocking
+  overlay so its live draft can be flushed before the Rust-owned whole-vault
+  migration begins. Startup reads the journal and storage preferences on
+  `Dispatchers.IO` after the first composition. →
   `MainActivity.performSwitch`, Android `storage/`,
   `futo-notes-store::vault_migration`
 - **About**: an open-source link (GitLab) and the app version.
