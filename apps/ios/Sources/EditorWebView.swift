@@ -409,11 +409,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             capturedGeneration: capturedGeneration,
             currentGeneration: generation
         ) else { return false }
-        return await withCheckedContinuation { continuation in
+        do {
             // The editor posts its change callback on requestAnimationFrame.
             // Wait for that frame so capture/navigation cannot rebind the shared
             // bridge while the old note's callback is still queued.
-            webView.callAsyncJavaScript(
+            let inserted = try await webView.callAsyncJavaScript(
                 """
                 if (!window.FutoEditor) return false;
                 window.FutoEditor.insertImage(filename);
@@ -423,20 +423,14 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 arguments: ["filename": filename],
                 in: nil,
                 contentWorld: .page
-            ) { [weak self] result in
-                guard let self,
-                      case .success(let inserted) = result,
-                      inserted as? Bool == true,
-                      shouldDeliverEditorCompletion(
-                        capturedGeneration: capturedGeneration,
-                        currentGeneration: self.generation
-                      )
-                else {
-                    continuation.resume(returning: false)
-                    return
-                }
-                continuation.resume(returning: true)
-            }
+            )
+            return inserted as? Bool == true
+                && shouldDeliverEditorCompletion(
+                    capturedGeneration: capturedGeneration,
+                    currentGeneration: generation
+                )
+        } catch {
+            return false
         }
     }
 
