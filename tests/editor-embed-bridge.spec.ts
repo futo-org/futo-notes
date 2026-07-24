@@ -641,6 +641,38 @@ test('modern engine: the unlayered fallback does not fight the layered theme', a
   expect(await editorContentColor(browser, EDITOR_URL, 'light')).toBe(themeTextColor('light'));
 });
 
+// Regression guard for the Chromium 80–84 compatibility branch (github#8). The
+// Playwright engine has a native String.prototype.replaceAll, so the editor.html
+// shim is otherwise never exercised. Delete the native method before any page
+// script runs (as a pre-85 WebView lacks it): Svelte 5's runtime calls it on
+// mount, so the editor only reaches `ready` and renders if the classic-script
+// shim restored it first. Remove the shim and this test times out at `ready`.
+test('legacy WebView (no native replaceAll): the editor.html shim lets the bundle mount', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ hasTouch: true });
+  await context.addInitScript(() => {
+    delete (String.prototype as { replaceAll?: unknown }).replaceAll;
+  });
+  await context.addInitScript(installFakeAndroidHost);
+  const page = await context.newPage();
+  await page.goto(EDITOR_URL);
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+  );
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setContent('legacy shim probe'),
+  );
+  await flushFrames(page);
+  await expect(page.locator('.cm-content')).toContainText('legacy shim probe');
+  // The shim fills in only when the method is missing, so its presence now
+  // proves the shim ran (not a native method that was never removed).
+  expect(
+    await page.evaluate(() => typeof (String.prototype as { replaceAll?: unknown }).replaceAll),
+  ).toBe('function');
+  await context.close();
+});
+
 test('setNativeToolbar(true) hides the embed web toolbar shown on focus', async ({ page }) => {
   await hostSetContent(page, 'doc');
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());

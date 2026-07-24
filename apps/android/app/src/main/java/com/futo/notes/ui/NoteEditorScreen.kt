@@ -489,48 +489,48 @@ fun NoteEditorScreen(
                 if (webViewTooOld) {
                     LegacyWebViewNotice()
                 } else {
-                EditorWebView(
-                    content = content,
-                    // Quick capture: a brand-new note (autoFocus) opens with the
-                    // BODY focused — keyboard on the editor, not the title field —
-                    // so the first keystrokes are the note, not its name. Opening
-                    // an existing note leaves the keyboard down (autoFocus false).
-                    // [list.md]
-                    theme = theme,
-                    autoFocus = autoFocus,
-                    notesJson = notesJson,
-                    // Local ![](image.png) resolves against the vault root
-                    // [editor.md:121] (allowFileAccess stays on, see EditorHost).
-                    imageBaseUrl = "file://${store.rootPath}/",
-                    modifier = Modifier.fillMaxSize(),
-                    onOpenNote = onOpenNote,
-                    onPickImage = pickImage,
-                    onSaveImageData = saveImageData,
-                    onChange = { newContent ->
-                        // Data-loss guard: ignore editor change events until the
-                        // off-main initial read has landed (`loaded`). The WebView
-                        // mounts with "" and can emit a setContent echo before the
-                        // real body loads; saving that empty echo would clobber the
-                        // note on disk. Once loaded, all edits flow through.
-                        if (loaded) {
-                            // Just update the buffer state. The unsaved-draft
-                            // register follows from the snapshotFlow derivation
-                            // (content != savedContent) — no manual publish; the
-                            // register goes clean the instant the debounced save
-                            // sets savedContent (PKT-12 R5). F8 jetsam guard.
-                            content = newContent
-                            saveJob?.cancel()
-                            saveJob = scope.launch {
-                                delay(400)
-                                // Re-read noteId at fire time so a save that lands
-                                // after a rename writes to the renamed note, not the
-                                // stale id.
-                                store.write(noteId, newContent)
-                                savedContent = newContent
+                    EditorWebView(
+                        content = content,
+                        // Quick capture: a brand-new note (autoFocus) opens with the
+                        // BODY focused — keyboard on the editor, not the title field —
+                        // so the first keystrokes are the note, not its name. Opening
+                        // an existing note leaves the keyboard down (autoFocus false).
+                        // [list.md]
+                        theme = theme,
+                        autoFocus = autoFocus,
+                        notesJson = notesJson,
+                        // Local ![](image.png) resolves against the vault root
+                        // [editor.md:121] (allowFileAccess stays on, see EditorHost).
+                        imageBaseUrl = "file://${store.rootPath}/",
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenNote = onOpenNote,
+                        onPickImage = pickImage,
+                        onSaveImageData = saveImageData,
+                        onChange = { newContent ->
+                            // Data-loss guard: ignore editor change events until the
+                            // off-main initial read has landed (`loaded`). The WebView
+                            // mounts with "" and can emit a setContent echo before the
+                            // real body loads; saving that empty echo would clobber the
+                            // note on disk. Once loaded, all edits flow through.
+                            if (loaded) {
+                                // Just update the buffer state. The unsaved-draft
+                                // register follows from the snapshotFlow derivation
+                                // (content != savedContent) — no manual publish; the
+                                // register goes clean the instant the debounced save
+                                // sets savedContent (PKT-12 R5). F8 jetsam guard.
+                                content = newContent
+                                saveJob?.cancel()
+                                saveJob = scope.launch {
+                                    delay(400)
+                                    // Re-read noteId at fire time so a save that lands
+                                    // after a rename writes to the renamed note, not the
+                                    // stale id.
+                                    store.write(noteId, newContent)
+                                    savedContent = newContent
+                                }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
                 }
             }
 

@@ -67,9 +67,17 @@ fun isSupportedWebViewVersion(versionName: String?): Boolean {
 fun webViewChromiumMajor(): Int? =
     parseChromiumMajor(WebView.getCurrentWebViewPackage()?.versionName)
 
-/** True when the System WebView is too old to run the editor (below the floor). */
-fun isWebViewTooOldForEditor(): Boolean =
-    !isSupportedWebViewVersion(WebView.getCurrentWebViewPackage()?.versionName)
+/**
+ * True when the editor can't run in the current System WebView: either there is
+ * no provider at all (`getCurrentWebViewPackage()` null — the WebView can't even
+ * be constructed) or the provider is below the floor. A provider whose version
+ * string is merely unparseable is treated as supported, so a parse quirk never
+ * hides a working editor behind the notice.
+ */
+fun isWebViewTooOldForEditor(): Boolean {
+    val provider = WebView.getCurrentWebViewPackage() ?: return true
+    return !isSupportedWebViewVersion(provider.versionName)
+}
 
 /**
  * Shown in place of the editor WebView when [isWebViewTooOldForEditor] is true.
