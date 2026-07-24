@@ -19,7 +19,7 @@ class NativeMutationOutcomeTest {
 
         val mutation = launch {
             val callerJob = currentCoroutineContext().job
-            runIdentityMutationTransaction {
+            runMutationTransaction {
                 isDiskCommitted = true
                 callerJob.cancel()
                 isShellProjected = true

@@ -67,7 +67,7 @@ internal fun recoverStorageStartup(
             )
         }
 
-        when (migration.phase) {
+        val journalUpdated = when (migration.phase) {
             StorageMigrationPhase.PREPARED -> journal.clear()
             StorageMigrationPhase.FINALIZING -> {
                 if (
@@ -90,8 +90,15 @@ internal fun recoverStorageStartup(
                     sourceState == StorageRootState.ABSENT
                 ) {
                     journal.clear()
-                }
+                } else Result.success(Unit)
             }
+        }
+        if (journalUpdated.isFailure) {
+            return StorageStartupRecovery(
+                startup = null,
+                error =
+                    "The recovered storage state could not be recorded. Both note folders were retained.",
+            )
         }
         recovery.activeMode.name
     } ?: savedMode

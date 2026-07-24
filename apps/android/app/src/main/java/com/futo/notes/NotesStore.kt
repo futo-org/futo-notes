@@ -77,7 +77,7 @@ internal fun shouldContinueDeleteAfterEditorWrite(
     outcome: NoteMutationOutcome<Unit>?,
 ): Boolean = !hasPendingChanges || outcome is NoteMutationOutcome.Committed
 
-internal suspend fun <T> runIdentityMutationTransaction(
+internal suspend fun <T> runMutationTransaction(
     transaction: suspend () -> T,
 ): T {
     currentCoroutineContext().ensureActive()
@@ -476,7 +476,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         val pendingFlushes = editorDraftTail
         return try {
             pendingFlushes?.join()
-            runIdentityMutationTransaction {
+            runMutationTransaction {
                 val mutation = withCore { core.delete(id) }
                 applyMutation(mutation)
                 pendingEditor.discardNote(id)
@@ -508,7 +508,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         val pendingFlushes = editorDraftTail
         return try {
             pendingFlushes?.join()
-            runIdentityMutationTransaction {
+            runMutationTransaction {
                 val mutation = withCore { core.rename(oldId, newId) }
                 val finalId = mutation.finalId ?: oldId
                 applyMutation(mutation)
@@ -538,7 +538,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         val pendingFlushes = editorDraftTail
         return try {
             pendingFlushes?.join()
-            runIdentityMutationTransaction {
+            runMutationTransaction {
                 val mutation = withCore {
                     if (createFolder) {
                         core.moveNoteToNewFolder(id, toFolder)
@@ -566,51 +566,72 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     suspend fun createFolder(path: String): NoteMutationOutcome<Unit> =
         try {
-            val mutation = withCore { core.createFolder(path) }
-            applyMutation(mutation)
-            signalLocalChange()
-            NoteMutationOutcome.Committed(Unit)
+            runMutationTransaction {
+                val mutation = withCore { core.createFolder(path) }
+                applyMutation(mutation)
+                signalLocalChange()
+                NoteMutationOutcome.Committed(Unit)
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "createFolder failed", e)
             NoteMutationOutcome.Failed
         }
 
-    suspend fun renameFolder(from: String, to: String): String? = try {
-        val mutation = withCore { core.renameFolder(from, to) }
-        applyMutation(mutation)
-        signalLocalChange()
-        mutation.finalFolder ?: to
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "renameFolder failed $from -> $to", e); null
-    }
+    suspend fun renameFolder(from: String, to: String): String? =
+        try {
+            runMutationTransaction {
+                val mutation = withCore { core.renameFolder(from, to) }
+                applyMutation(mutation)
+                signalLocalChange()
+                mutation.finalFolder ?: to
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "renameFolder failed $from -> $to", e)
+            null
+        }
 
-    suspend fun moveFolder(from: String, destinationParent: String): String? = try {
-        val mutation = withCore { core.moveFolder(from, destinationParent) }
-        applyMutation(mutation)
-        signalLocalChange()
-        mutation.finalFolder ?: from
-    } catch (e: Exception) {
-        android.util.Log.e(
-            "NotesStore",
-            "moveFolder failed $from -> $destinationParent",
-            e,
-        )
-        null
-    }
+    suspend fun moveFolder(from: String, destinationParent: String): String? =
+        try {
+            runMutationTransaction {
+                val mutation = withCore { core.moveFolder(from, destinationParent) }
+                applyMutation(mutation)
+                signalLocalChange()
+                mutation.finalFolder ?: from
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "NotesStore",
+                "moveFolder failed $from -> $destinationParent",
+                e,
+            )
+            null
+        }
 
     /** MOVE-UP folder delete (Tauri parity, [list.md:121]): notes under
      *  [path] move to the parent (Rust bails atomically — if ANY move fails
      *  nothing is deleted), wikilinks are relinked, then the folder tree goes.
      *  Returns the moved-note count, or null when the FFI rejected the delete
      *  (the folder is left intact). */
-    suspend fun deleteFolder(path: String): UInt? = try {
-        val mutation = withCore { core.deleteFolder(path) }
-        applyMutation(mutation)
-        signalLocalChange()
-        mutation.removed.size.toUInt()
-    } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "deleteFolder failed for $path", e); null
-    }
+    suspend fun deleteFolder(path: String): UInt? =
+        try {
+            runMutationTransaction {
+                val mutation = withCore { core.deleteFolder(path) }
+                applyMutation(mutation)
+                signalLocalChange()
+                mutation.removed.size.toUInt()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "deleteFolder failed for $path", e)
+            null
+        }
 
     /** Full reset [settings.md:43]: delete every note, folder, and `.crashlogs`
      *  under the vault root. Parity model: desktop `resetAllNotes`
