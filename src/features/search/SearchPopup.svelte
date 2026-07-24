@@ -184,7 +184,7 @@
     position: fixed;
     inset: 0;
     background: rgba(var(--ink-rgb), 0.35);
-    z-index: 200;
+    z-index: var(--z-overlay);
     display: flex;
     align-items: flex-start;
     justify-content: center;

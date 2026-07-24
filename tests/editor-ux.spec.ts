@@ -55,6 +55,24 @@ async function setCursor(page: Page, pos: number): Promise<void> {
   await page.waitForTimeout(60);
 }
 
+async function selectionToolbarReceivesHitAtCenter(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const toolbarElement = document.querySelector('.sf-selection-toolbar');
+    if (!(toolbarElement instanceof HTMLElement)) {
+      throw new Error('Selection toolbar not found');
+    }
+    const rect = toolbarElement.getBoundingClientRect();
+    const hitElement = document.elementFromPoint(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+    );
+    if (!(hitElement instanceof Element)) {
+      throw new Error('No element found at selection toolbar center');
+    }
+    return hitElement.closest('.sf-selection-toolbar') !== null;
+  });
+}
+
 // ============================================================================
 // SELECTION TOOLBAR
 // ============================================================================
@@ -69,6 +87,37 @@ test.describe('Selection toolbar', () => {
 
     await setCursor(page, 0);
     await expect(toolbar).toBeHidden();
+  });
+
+  test('stacks below blocking overlays', async ({ page }) => {
+    await setupEditor(page, 'hello world');
+    await selectRange(page, 0, 5);
+
+    const toolbar = page.locator('.sf-selection-toolbar').first();
+    await expect(toolbar).toBeVisible();
+
+    await page.locator('.sidebar-settings-btn').click();
+    await expect(page.locator('.settings-title')).toBeVisible();
+    expect(await selectionToolbarReceivesHitAtCenter(page)).toBe(false);
+
+    await page.getByRole('button', { name: 'Close settings' }).click();
+    await selectRange(page, 0, 5);
+    await page.getByRole('button', { name: 'Note options' }).click();
+    await page.getByTestId('note-menu-move').click();
+    await expect(page.locator('.modal-title')).toHaveText('Move to folder');
+    expect(await selectionToolbarReceivesHitAtCenter(page)).toBe(false);
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await selectRange(page, 0, 5);
+    await page.getByTestId('new-folder-btn').click();
+    await expect(page.getByTestId('create-folder-input')).toBeVisible();
+    expect(await selectionToolbarReceivesHitAtCenter(page)).toBe(false);
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await selectRange(page, 0, 5);
+    await page.getByRole('button', { name: 'Search' }).click();
+    await expect(page.getByPlaceholder('Search notes...')).toBeVisible();
+    expect(await selectionToolbarReceivesHitAtCenter(page)).toBe(false);
   });
 
   test('editor focus state follows CodeMirror focus', async ({ page }) => {
