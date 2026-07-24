@@ -65,7 +65,7 @@
     /* Flush in the bottom-right corner, matching the sync indicator + New button. */
     right: max(16px, calc(16px + env(safe-area-inset-right)));
     bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
-    z-index: 260;
+    z-index: var(--z-update-banner);
     max-width: calc(100vw - 32px);
     animation: update-banner-in 0.25s ease;
   }

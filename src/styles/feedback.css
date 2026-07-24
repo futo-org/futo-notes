@@ -12,7 +12,7 @@
   border-radius: 10px;
   font-size: 14px;
   font-weight: 500;
-  z-index: 300;
+  z-index: var(--z-toast);
   pointer-events: none;
   animation: toast-in 0.25s ease;
 }
@@ -45,7 +45,7 @@
   gap: 8px;
   font-size: 12px;
   color: var(--color-muted);
-  z-index: 250;
+  z-index: var(--z-status);
   animation: sync-bar-in 0.2s ease;
 }
 
