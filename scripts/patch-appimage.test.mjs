@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import {
+  appimagetoolExecutionPath,
+  cleanAppImageOutput,
+  ensureAppimagetool,
   patchAppImage,
   rewriteForcedGdkBackend,
   stripBundledWaylandClients,
@@ -70,6 +75,30 @@ describe('rewriteForcedGdkBackend', () => {
     });
   });
 
+  it('does not accept the preferred command when it appears only in a comment', () => {
+    const hook = [
+      '#! /usr/bin/env bash',
+      `# expected replacement: ${PREFERRED_GDK_BACKEND}`,
+      'export GDK_BACKEND=wayland',
+    ].join('\n');
+
+    expect(rewriteForcedGdkBackend(hook)).toEqual({
+      text: hook,
+      changed: false,
+      notFound: true,
+    });
+  });
+
+  it('rejects an extra active backend assignment beside the preferred command', () => {
+    const hook = [PREFERRED_GDK_BACKEND, 'export GDK_BACKEND=wayland'].join('\n');
+
+    expect(rewriteForcedGdkBackend(hook)).toEqual({
+      text: hook,
+      changed: false,
+      notFound: true,
+    });
+  });
+
   it('rewrites quoted and whitespace-varied forced X11 assignments', () => {
     const variants = [
       'GDK_BACKEND = "x11"',
@@ -83,6 +112,29 @@ describe('rewriteForcedGdkBackend', () => {
     expect(result.notFound).toBe(false);
     expect(result.text).not.toMatch(/GDK_BACKEND\s*=\s*["']?x11["']?/);
     expect(result.text.split(PREFERRED_GDK_BACKEND)).toHaveLength(4);
+  });
+});
+
+describe('preferred backend command', () => {
+  function executePreferredBackend(environment) {
+    return spawnSync('bash', ['-c', `${PREFERRED_GDK_BACKEND}; printf "%s" "$GDK_BACKEND"`], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, ...environment },
+    });
+  }
+
+  it('prefers Wayland with X11 fallback when the user did not select a backend', () => {
+    const result = executePreferredBackend({});
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('wayland,x11');
+  });
+
+  it('preserves a user-selected backend', () => {
+    const result = executePreferredBackend({ GDK_BACKEND: 'x11' });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('x11');
   });
 });
 
@@ -165,5 +217,76 @@ describe('AppImage patch orchestration', () => {
     expect(() => verifySha256(Buffer.from('downloaded bytes'), '0'.repeat(64))).toThrow(
       /appimagetool checksum mismatch/,
     );
+  });
+
+  it('opens verified tool bytes once and reuses only a checksum-valid cache entry', async () => {
+    const cacheDir = await mkdtemp(join(tmpdir(), 'futo-appimagetool-cache-test-'));
+    const bytes = Buffer.from('verified appimagetool fixture');
+    const expectedSha256 = createHash('sha256').update(bytes).digest('hex');
+    let downloads = 0;
+    const fetchImpl = async () => {
+      downloads += 1;
+      return {
+        ok: true,
+        arrayBuffer: async () =>
+          bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      };
+    };
+    const options = {
+      cacheDir,
+      expectedSha256,
+      fetchImpl,
+      toolName: 'appimagetool-test',
+      url: 'https://example.invalid/appimagetool',
+    };
+    try {
+      const downloaded = await ensureAppimagetool(options);
+      await downloaded.close();
+      const cached = await ensureAppimagetool({
+        ...options,
+        fetchImpl: async () => {
+          throw new Error('valid cache should not redownload');
+        },
+      });
+      await cached.close();
+      expect(downloads).toBe(1);
+
+      await writeFile(join(cacheDir, 'appimagetool-test'), 'tampered');
+      await expect(ensureAppimagetool(options)).rejects.toThrow(/appimagetool checksum mismatch/);
+      expect(downloads).toBe(1);
+    } finally {
+      await rm(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it('executes an already-open verified tool descriptor instead of reopening its pathname', () => {
+    expect(appimagetoolExecutionPath({ fd: 42 })).toBe('/proc/self/fd/42');
+  });
+
+  it('removes cached AppImage output before a new bundle build', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'futo-appimage-output-test-'));
+    const output = join(root, 'target/release/bundle/appimage');
+    try {
+      await mkdir(output, { recursive: true });
+      await writeFile(join(output, 'FUTO-Notes-old.AppImage'), 'stale');
+
+      await cleanAppImageOutput(output);
+
+      expect(existsSync(output)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to clean a directory broader than the generated AppImage output', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'futo-appimage-clean-safety-test-'));
+    try {
+      await expect(cleanAppImageOutput(root)).rejects.toThrow(
+        /refusing to clean non-AppImage output directory/,
+      );
+      expect(existsSync(root)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

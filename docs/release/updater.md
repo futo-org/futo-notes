@@ -11,7 +11,10 @@ in `keys/README.md`. This doc covers the build/release/CI wiring.
 
 One runner, `scripts/release-build.mjs --profile <localdev|prod>`, does the
 identical build→re-sign→`build-updater-manifest.mjs` chain; only three inputs
-differ (host endpoint, signing private key, baked verify pubkey):
+differ (host endpoint, signing private key, baked verify pubkey). Linux
+AppImages are built with updater-artifact generation disabled, so Cargo and
+dependency build scripts never receive the signing key; the key is supplied
+only to the final signer after patching:
 
 - **prod** — `tauri.updater-release.conf.json` (prod endpoint + pubkey from
   base), signed by `TAURI_SIGNING_PRIVATE_KEY` (CI secret). Artifacts + manifest
@@ -33,7 +36,9 @@ signed updater artifact + `.sig` (minisign), which `release:` assembles into one
 - **Linux** — build the AppImage keyless → AppImage patch (Mesa 26 library strip +
   Wayland-backend hook rewrite) → `cargo tauri signer sign`. The patcher repacks
   with a version-pinned, SHA-256-verified `appimagetool` and removes updater
-  signing variables from every extract/repack child process.
+  signing variables from both its parent and every extract/repack child process.
+  It executes the same open file descriptor whose bytes passed verification,
+  rather than reopening the mutable cache pathname.
 - **Windows** — build the setup.exe keyless on the VM → `windows:sign` does
   Authenticode (jsign) → re-minisign via `npx @tauri-apps/cli signer sign` (so
   the signing key never reaches the Windows VM).
@@ -55,7 +60,9 @@ variable. It signs and verifies its rehearsal artifact with the committed
 localdev fixture key instead. Production clients reject that signature by
 construction; tag pipelines continue to require and verify the production key.
 Tags stamp the tag version, while untagged MR rehearsals retain the checked-in
-desktop version.
+desktop version. Before either build, CI removes only the generated
+`target/release/bundle/appimage` directory so a restored Cargo cache cannot add
+an older-version AppImage to the new output.
 
 ## Channel = stable only
 
@@ -111,7 +118,8 @@ localdev-key may appear), the stable-only channel-regex guard
 `scripts/release-channel.test.mjs`, the signature verifier
 `scripts/verify-updater-signature.test.mjs` (real localdev-signed fixture →
 verifies; prod pubkey / tampered bytes / corrupted key → rejected), and
-`scripts/{build-updater-manifest,release-build}.test.mjs`. All run in
+`scripts/{build-updater-manifest,release-build}.test.mjs`, including executable
+tag/MR signing-environment checks. All run in
 `test:unit:minimal` (so CI gates them). The real download→verify→swap→relaunch
 is a per-release manual smoke per OS (an OS-level op, not unit-testable) —
 `just updater-localdev` is the closest automated rehearsal.

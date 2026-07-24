@@ -388,6 +388,7 @@ collect-secrets-from-op:
       - .cargo-home/
       - target/
     policy: pull-push
+    when: always
 
 .cache-playwright:
   cache:
@@ -1010,15 +1011,14 @@ build:linux-appimage:
   script:
     # Keep the protected updater key out of every build/download subprocess.
     # It is passed to the final signer only, after all artifact bytes are fixed.
-    - |
-      if [ -n "$CI_COMMIT_TAG" ]; then
-        RELEASE_SIGNING_KEY="$TAURI_SIGNING_PRIVATE_KEY"
-        unset TAURI_SIGNING_PRIVATE_KEY
-      fi
+    - . "$CI_PROJECT_DIR/scripts/prepare-appimage-signing-environment.sh"
     - pnpm install --frozen-lockfile
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - !reference [.set-version, script]
+    # A Cargo cache can restore an AppImage from an older version. Remove only
+    # the generated AppImage bundle directory and verify cleanup before build.
+    - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --clean-dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
     - (cd "$CI_PROJECT_DIR/apps/tauri" && cargo tauri build --bundles appimage)
     # Strip the incompatible libwayland client and prefer Wayland in the GTK hook.
     # Script downloads a pinned appimagetool release and verifies its SHA-256.
@@ -1071,6 +1071,7 @@ build:linux-appimage:
         - .gitlab-ci.yml
         - scripts/patch-appimage.mjs
         - scripts/patch-appimage.test.mjs
+        - scripts/prepare-appimage-signing-environment.sh
         - scripts/release-build.mjs
         - scripts/release-build.test.mjs
       when: manual

@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  buildCommandEnvironment,
+  buildConfigArguments,
   buildOne,
   bumpPatch,
   finalizeAppImageArtifact,
@@ -190,6 +192,25 @@ describe('AppImage artifact finalization', () => {
     expect(calls[0].options.env.TAURI_SIGNING_PRIVATE_KEY).toBeUndefined();
     expect(calls[0].options.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD).toBeUndefined();
   });
+
+  it('builds Linux updater bytes keyless and disables build-time updater artifacts', () => {
+    const target = hostTarget('linux', 'x64');
+    const environment = buildCommandEnvironment('prod', target, {
+      PATH: '/usr/bin',
+      TAURI_SIGNING_PRIVATE_KEY: 'production-secret',
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: 'production-password',
+    });
+    const configArguments = buildConfigArguments('prod', target);
+
+    expect(environment.PATH).toBe('/usr/bin');
+    expect(environment.NO_STRIP).toBe('true');
+    expect(environment.TAURI_SIGNING_PRIVATE_KEY).toBeUndefined();
+    expect(environment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD).toBeUndefined();
+    expect(configArguments.slice(-2, -1)).toEqual(['--config']);
+    expect(JSON.parse(configArguments.at(-1))).toEqual({
+      bundle: { createUpdaterArtifacts: false },
+    });
+  });
 });
 
 describe('AppImage CI rehearsal', () => {
@@ -201,11 +222,12 @@ describe('AppImage CI rehearsal', () => {
     );
 
     expect(job).toContain('if [ -n "$CI_COMMIT_TAG" ]');
-    expect(job).toContain('unset TAURI_SIGNING_PRIVATE_KEY');
+    expect(job).toContain('prepare-appimage-signing-environment.sh');
     expect(job).toContain('keys/localdev-updater.key');
     expect(job).toContain('TAURI_SIGNING_PRIVATE_KEY="$SIGNING_KEY" cargo tauri signer sign');
     expect(job).toContain('expected exactly one AppImage');
     expect(job).toContain('scripts/verify-updater-signature.mjs');
+    expect(job).toContain('scripts/patch-appimage.mjs" --clean-dir');
   });
 
   it('falls back to the checked-in desktop version when an MR has no tag', () => {
@@ -217,6 +239,54 @@ describe('AppImage CI rehearsal', () => {
 
     expect(setVersion).toContain('--resolve-ci "${CI_COMMIT_TAG:-}"');
     expect(setVersion).toContain('node "$CI_PROJECT_DIR/scripts/desktop-version.mjs" "$VERSION"');
+  });
+
+  it.each([
+    {
+      name: 'tag',
+      tag: 'v1.2.3',
+      expectedRetainedKey: 'production-secret',
+    },
+    {
+      name: 'MR with a surprisingly available protected variable',
+      tag: '',
+      expectedRetainedKey: '',
+    },
+  ])('removes updater keys before every $name build subprocess', ({ tag, expectedRetainedKey }) => {
+    const script = fileURLToPath(
+      new URL('./prepare-appimage-signing-environment.sh', import.meta.url),
+    );
+    const result = spawnSync(
+      'bash',
+      [
+        '-c',
+        '. "$1"; printf "%s|%s|%s" "${RELEASE_SIGNING_KEY:-}" "${TAURI_SIGNING_PRIVATE_KEY+set}" "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+set}"',
+        'bash',
+        script,
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          CI_COMMIT_TAG: tag,
+          TAURI_SIGNING_PRIVATE_KEY: 'production-secret',
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: 'production-password',
+        },
+      },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe(`${expectedRetainedKey}||`);
+  });
+
+  it('retains the AppImage Cargo cache after failed tag-only rehearsals', () => {
+    const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
+    const cache = ci.slice(
+      ci.indexOf('.cache-cargo-tauri-linux-appimage:'),
+      ci.indexOf('build:linux-packages:'),
+    );
+
+    expect(cache).toContain('when: always');
   });
 });
 

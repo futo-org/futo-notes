@@ -31,10 +31,10 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync } from 'node:fs';
-import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { constants, existsSync, readdirSync } from 'node:fs';
+import { chmod, mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const FORCED_GDK_BACKEND =
@@ -49,15 +49,30 @@ const APPIMAGETOOL_SHA256 = 'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33
 const APPIMAGETOOL_URL = `https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage`;
 
 export function rewriteForcedGdkBackend(hookText) {
-  if (FORCED_GDK_BACKEND_PATTERN.test(hookText)) {
+  const activeBackendLines = hookText
+    .split(/\r?\n/)
+    .filter((line) => !line.trimStart().startsWith('#') && line.includes('GDK_BACKEND'));
+  const isForcedBackendLine = (line) => {
     FORCED_GDK_BACKEND_PATTERN.lastIndex = 0;
+    const isForced = FORCED_GDK_BACKEND_PATTERN.test(line);
+    FORCED_GDK_BACKEND_PATTERN.lastIndex = 0;
+    return isForced;
+  };
+  if (
+    activeBackendLines.some(
+      (line) => line.trim() !== PREFERRED_GDK_BACKEND && !isForcedBackendLine(line),
+    )
+  ) {
+    return { text: hookText, changed: false, notFound: true };
+  }
+  if (activeBackendLines.some(isForcedBackendLine)) {
     return {
       text: hookText.replaceAll(FORCED_GDK_BACKEND_PATTERN, PREFERRED_GDK_BACKEND),
       changed: true,
       notFound: false,
     };
   }
-  if (hookText.includes(PREFERRED_GDK_BACKEND)) {
+  if (activeBackendLines.length > 0) {
     return { text: hookText, changed: false, notFound: false };
   }
   return { text: hookText, changed: false, notFound: true };
@@ -122,28 +137,59 @@ export function verifySha256(bytes, expected) {
   }
 }
 
-async function ensureAppimagetool() {
+async function openVerifiedAppimagetool(path, expectedSha256) {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    verifySha256(await handle.readFile(), expectedSha256);
+    return handle;
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+export async function ensureAppimagetool({
+  cacheDir = join(tmpdir(), 'futo-notes-appimagetool'),
+  expectedSha256 = APPIMAGETOOL_SHA256,
+  fetchImpl = fetch,
+  toolName = `appimagetool-${APPIMAGETOOL_VERSION}`,
+  url = APPIMAGETOOL_URL,
+} = {}) {
   // Ubuntu doesn't package appimagetool. Use one immutable release asset and
-  // verify its bytes before either caching or executing it.
-  const cacheDir = join(tmpdir(), 'futo-notes-appimagetool');
+  // keep the verified file descriptor open through execution so a pathname
+  // swap cannot replace the bytes between verification and exec.
   await mkdir(cacheDir, { recursive: true });
-  const target = join(cacheDir, `appimagetool-${APPIMAGETOOL_VERSION}`);
+  const target = join(cacheDir, toolName);
   if (existsSync(target)) {
-    const cached = await readFile(target);
-    verifySha256(cached, APPIMAGETOOL_SHA256);
-    return target;
+    return openVerifiedAppimagetool(target, expectedSha256);
   }
 
-  log(`downloading pinned appimagetool ${APPIMAGETOOL_VERSION} from ${APPIMAGETOOL_URL}`);
-  const res = await fetch(APPIMAGETOOL_URL, { redirect: 'follow' });
+  log(`downloading pinned appimagetool ${APPIMAGETOOL_VERSION} from ${url}`);
+  const res = await fetchImpl(url, { redirect: 'follow' });
   if (!res.ok) throw new Error(`fetch failed: ${res.status} ${res.statusText}`);
   const bytes = Buffer.from(await res.arrayBuffer());
-  verifySha256(bytes, APPIMAGETOOL_SHA256);
+  verifySha256(bytes, expectedSha256);
   const download = `${target}.${process.pid}.download`;
   await writeFile(download, bytes);
   await chmod(download, 0o755);
   await rename(download, target);
-  return target;
+  return openVerifiedAppimagetool(target, expectedSha256);
+}
+
+export function appimagetoolExecutionPath(tool) {
+  return `/proc/self/fd/${tool.fd}`;
+}
+
+export async function cleanAppImageOutput(outputDir) {
+  const resolvedOutput = resolve(outputDir);
+  const expectedSuffix = ['target', 'release', 'bundle', 'appimage'].join(sep);
+  if (!resolvedOutput.endsWith(`${sep}${expectedSuffix}`)) {
+    throw new Error(`refusing to clean non-AppImage output directory ${resolvedOutput}`);
+  }
+  await rm(resolvedOutput, { recursive: true, force: true });
+  if (existsSync(resolvedOutput)) {
+    throw new Error(`failed to clean AppImage output directory ${resolvedOutput}`);
+  }
 }
 
 export async function patchAppImage(
@@ -203,23 +249,29 @@ export async function patchAppImage(
   }
 
   const appimagetool = await ensureTool();
-  log(`repacking with ${appimagetool}`);
+  const appimagetoolPath =
+    typeof appimagetool === 'string' ? appimagetool : appimagetoolExecutionPath(appimagetool);
+  log(`repacking with ${appimagetoolPath}`);
   const tmpOut = `${targetPath}.patched`;
   if (existsSync(tmpOut)) await rm(tmpOut);
   // ARCH=x86_64 is required when running appimagetool without a .DirIcon arch hint.
   // APPIMAGE_EXTRACT_AND_RUN=1 lets appimagetool (itself an AppImage) work in
   // containers / sandboxes that don't have fusermount (e.g. ubuntu:22.04 CI image).
-  execute(appimagetool, [extractDir, tmpOut], {
-    cwd: workDir,
-    env: childEnvironment(environment, {
-      ARCH: 'x86_64',
-      APPIMAGE_EXTRACT_AND_RUN: '1',
-    }),
-  });
+  try {
+    execute(appimagetoolPath, [extractDir, tmpOut], {
+      cwd: workDir,
+      env: childEnvironment(environment, {
+        ARCH: 'x86_64',
+        APPIMAGE_EXTRACT_AND_RUN: '1',
+      }),
+    });
+  } finally {
+    if (typeof appimagetool !== 'string') await appimagetool.close();
+  }
 
-  await rm(targetPath);
+  // Keep the original artifact intact until cleanup succeeds, then atomically
+  // replace it with the patched output.
   await rm(extractDir, { recursive: true, force: true });
-  // Rename .patched → original filename so downstream release jobs pick it up.
   await rename(tmpOut, targetPath);
   await chmod(targetPath, 0o755);
   log(`done: ${targetPath}`);
@@ -227,9 +279,15 @@ export async function patchAppImage(
 
 async function main() {
   const args = process.argv.slice(2);
+  let cleanDir = null;
   let targetPath = null;
   for (let i = 0; i < args.length; i += 1) {
-    if (args[i] === '--dir') {
+    if (args[i] === '--clean-dir') {
+      const dir = args[i + 1];
+      if (!dir) throw new Error('--clean-dir requires a path');
+      cleanDir = resolve(dir);
+      i += 1;
+    } else if (args[i] === '--dir') {
       const dir = args[i + 1];
       if (!dir) throw new Error('--dir requires a path');
       targetPath = findAppImage(resolve(dir));
@@ -238,8 +296,16 @@ async function main() {
       targetPath = resolve(args[i]);
     }
   }
+  if (cleanDir) {
+    if (targetPath) throw new Error('--clean-dir cannot be combined with an AppImage target');
+    await cleanAppImageOutput(cleanDir);
+    log(`cleaned ${cleanDir}`);
+    return;
+  }
   if (!targetPath) {
-    console.error('usage: node scripts/patch-appimage.mjs <appimage> | --dir <bundle_dir>');
+    console.error(
+      'usage: node scripts/patch-appimage.mjs <appimage> | --dir <bundle_dir> | --clean-dir <bundle_dir>',
+    );
     process.exit(2);
   }
   await patchAppImage(targetPath);

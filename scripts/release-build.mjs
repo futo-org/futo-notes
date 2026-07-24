@@ -93,18 +93,25 @@ const PROFILES = {
  *  password; the empty passphrase the minisign format requires is supplied inline
  *  (`signer sign -p ""`, `cargo tauri build --ci`) so there is no password
  *  variable to manage. */
-function signingEnv(profile) {
+function signingEnv(profile, environment = process.env) {
   const p = PROFILES[profile];
   if (p.keyPath) {
     if (!existsSync(p.keyPath))
       die(
         `localdev signing key missing at ${p.keyPath} (regenerate: cargo tauri signer generate -w ${p.keyPath} -p "" -f --ci)`,
       );
-    return { ...process.env, TAURI_SIGNING_PRIVATE_KEY: readFileSync(p.keyPath, 'utf8') };
+    const signingEnvironment = {
+      ...environment,
+      TAURI_SIGNING_PRIVATE_KEY: readFileSync(p.keyPath, 'utf8'),
+    };
+    delete signingEnvironment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+    return signingEnvironment;
   }
-  if (!process.env.TAURI_SIGNING_PRIVATE_KEY)
+  if (!environment.TAURI_SIGNING_PRIVATE_KEY)
     die('prod profile requires TAURI_SIGNING_PRIVATE_KEY in the environment (CI secret)');
-  return { ...process.env };
+  const signingEnvironment = { ...environment };
+  delete signingEnvironment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+  return signingEnvironment;
 }
 
 // ── Per-OS updater artifact shape ────────────────────────────────────────────
@@ -143,6 +150,29 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
     default:
       return die(`unsupported platform: ${platform}`);
   }
+}
+
+export function buildConfigArguments(profile, target) {
+  const arguments_ = ['--config', PROFILES[profile].overlay];
+  if (target.patchAppImage) {
+    arguments_.push(
+      '--config',
+      JSON.stringify({
+        bundle: { createUpdaterArtifacts: false },
+      }),
+    );
+  }
+  return arguments_;
+}
+
+export function buildCommandEnvironment(profile, target, environment = process.env) {
+  if (!target.patchAppImage) {
+    return { ...signingEnv(profile, environment), NO_STRIP: 'true' };
+  }
+  const buildEnvironment = { ...environment, NO_STRIP: 'true' };
+  delete buildEnvironment.TAURI_SIGNING_PRIVATE_KEY;
+  delete buildEnvironment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+  return buildEnvironment;
 }
 
 function findArtifact(dir, suffix) {
@@ -247,10 +277,10 @@ export function buildOne({ profile, version }, dependencies = {}) {
     (() =>
       run(
         'cargo',
-        ['tauri', 'build', '--bundles', t.bundle, '--config', PROFILES[profile].overlay, '--ci'],
+        ['tauri', 'build', '--bundles', t.bundle, ...buildConfigArguments(profile, t), '--ci'],
         {
           cwd: TAURI_DIR,
-          env: { ...signingEnv(profile), NO_STRIP: 'true' },
+          env: buildCommandEnvironment(profile, t),
         },
       ));
   const locateArtifact = dependencies.locateArtifact ?? findArtifact;
