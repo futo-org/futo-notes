@@ -68,6 +68,11 @@ internal fun confirmedSavedContent(
 internal fun shouldCompleteNoteAction(outcome: NoteMutationOutcome<*>): Boolean =
     outcome is NoteMutationOutcome.Committed
 
+internal fun shouldContinueDeleteAfterEditorWrite(
+    hasPendingChanges: Boolean,
+    outcome: NoteMutationOutcome<Unit>?,
+): Boolean = !hasPendingChanges || outcome is NoteMutationOutcome.Committed
+
 /** The open editor's unsaved-draft derivation — the ONE definition of "is there
  *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
  *  LIVE [noteId] (so it re-keys by construction after a rename) whenever the body

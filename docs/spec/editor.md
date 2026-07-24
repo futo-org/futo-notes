@@ -481,12 +481,17 @@ EditorWebView.swift, EditorWebView.kt
   until the asynchronous leave flush writes or parks it successfully. A later
   successful ordinary save clears only the exact retained revision it observed,
   so it cannot accidentally discard a newer retained edit. Identity mutations
-  advance a store-owned draft generation before suspending: delete discards the
-  old identity's live and retained drafts only after commit, while rename/move
-  retarget retained drafts to the authoritative final id. Failed identity
-  mutations reopen a fresh generation. A queued or failed leave flush from the
-  old generation therefore cannot resurrect a deleted note or create an old-id
-  ghost after rename/move. The iOS move captures the final live CM6 document
+  advance a store-owned draft generation before suspending: delete first commits
+  every dirty editor snapshot and aborts visibly when that write fails, then
+  discards the old identity's live and retained drafts only after the delete
+  commits; rename/move retarget retained drafts to the authoritative final id.
+  Failed identity mutations reopen a fresh generation. A queued or failed leave
+  flush from the old generation therefore cannot resurrect a deleted note or
+  create an old-id ghost after rename/move. Android keeps the editor Back handler
+  installed while a navigation commit is pending, consuming repeated Back presses
+  instead of letting the parent route pop early; after its final CM6 capture it
+  also commits a valid visible title immediately rather than waiting for the
+  rename debounce. The iOS move captures the final live CM6 document
   after destination selection, persists or parks it through the draft workflow,
   and moves the parked conflict identity when that is where the local draft was
   committed. _(iOS, Android)_ → `NotesStore.write`,

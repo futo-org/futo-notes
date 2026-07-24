@@ -67,6 +67,7 @@ import com.futo.notes.derivePendingDraft
 import com.futo.notes.saveImageDataIntoVault
 import com.futo.notes.saveImageIntoVault
 import com.futo.notes.shouldCompleteNoteAction
+import com.futo.notes.shouldContinueDeleteAfterEditorWrite
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.theme.FutoType
@@ -81,6 +82,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
@@ -163,6 +165,20 @@ fun NoteEditorScreen(
                     },
                 )
                 savedContent = commit.savedContent
+                if (commit.disposition is FlushDisposition.ParkedConflict) {
+                    noteId = commit.disposition.parkedId
+                }
+                if (commit.canNavigate) {
+                    noteId = commitEditorTitleSnapshot(
+                        currentId = noteId,
+                        targetId = editorTitleTarget(
+                            currentId = noteId,
+                            rawTitle = titleValue.text,
+                            existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
+                        ),
+                        rename = store::rename,
+                    )
+                }
                 commit.canNavigate && host.isCurrentAttachment(attachment)
             } ?: false
             if (canNavigate) {
@@ -208,7 +224,11 @@ fun NoteEditorScreen(
         }
     }
 
-    BackHandler(enabled = interactionEnabled) { navigateAfterSaving(onBack) }
+    BackHandler {
+        if (shouldStartEditorBackNavigation(navigationPending)) {
+            navigateAfterSaving(onBack)
+        }
+    }
 
     // The editor's note universe [editor.md:77]: id/title/modifiedMs/tags JSON
     // for the wikilink suffix resolver + autocomplete. Rebuilt only when the
@@ -371,17 +391,6 @@ fun NoteEditorScreen(
     // collisions and returns the final id.
     LaunchedEffect(initialNoteId) {
         snapshotFlow { titleValue.text }.debounce(500).collectLatest { next ->
-            val parts = splitId(noteId)
-            val trimmed = next.trim()
-            if (trimmed.isEmpty()) return@collectLatest
-            // Block the rename while the title is illegal (dot/too-long — forbidden
-            // chars are stripped in the field) or would collide with another note.
-            // The inline warning stays up; desktop parity.
-            if (validateTitle(trimmed).any { it.kind != "empty" }) return@collectLatest
-            val clean = sanitizeTitle(trimmed)
-            if (clean == parts.title) return@collectLatest
-            val target = makeId(parts.folder, clean)
-            if (target != noteId && store.notes.any { it.id == target }) return@collectLatest
             // Flush any pending body edit to the CURRENT id and cancel the
             // in-flight save before the file moves — otherwise a stale save
             // would recreate a ghost note at the old id (data loss). The derived
@@ -408,7 +417,15 @@ fun NoteEditorScreen(
                         return@runEditorMutation
                     }
                 }
-                noteId = store.rename(noteId, target)
+                noteId = commitEditorTitleSnapshot(
+                    currentId = noteId,
+                    targetId = editorTitleTarget(
+                        currentId = noteId,
+                        rawTitle = next,
+                        existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
+                    ),
+                    rename = store::rename,
+                )
             }
         }
     }
@@ -694,7 +711,31 @@ fun NoteEditorScreen(
                 saveJob?.cancel()
                 host.blur()
                 scope.launch {
+                    var saveFailed = false
                     val outcome = mutationGate.runDestructiveMutation {
+                        val flushed = content
+                        val hasPendingChanges = flushed != savedContent
+                        val writeOutcome = if (hasPendingChanges) {
+                            store.write(noteId, flushed)
+                        } else {
+                            null
+                        }
+                        if (writeOutcome != null) {
+                            savedContent = confirmedSavedContent(
+                                savedContent,
+                                flushed,
+                                writeOutcome,
+                            )
+                        }
+                        if (
+                            !shouldContinueDeleteAfterEditorWrite(
+                                hasPendingChanges,
+                                writeOutcome,
+                            )
+                        ) {
+                            saveFailed = true
+                            return@runDestructiveMutation NoteMutationOutcome.Failed
+                        }
                         store.delete(noteId)
                     }
                     if (shouldCompleteNoteAction(outcome)) {
@@ -707,7 +748,11 @@ fun NoteEditorScreen(
                         mutationGate.cancelDestructiveAction()
                         Toast.makeText(
                             context,
-                            "Couldn't delete note. It remains in your notes.",
+                            if (saveFailed) {
+                                "Couldn't save note. Delete is paused while your changes remain pending."
+                            } else {
+                                "Couldn't delete note. It remains in your notes."
+                            },
                             Toast.LENGTH_SHORT,
                         ).show()
                     }

@@ -114,6 +114,16 @@ func confirmedSavedContent(
     }
 }
 
+func shouldContinueDeleteAfterEditorWrite(
+    hasPendingChanges: Bool,
+    outcome: NoteMutationOutcome<Void>?
+) -> Bool {
+    if !hasPendingChanges { return true }
+    guard let outcome else { return false }
+    if case .committed = outcome { return true }
+    return false
+}
+
 /// The open editor's unsaved-draft derivation — the ONE definition of "is there
 /// an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
 /// LIVE `noteId` (so it re-keys by construction after a rename) whenever the body

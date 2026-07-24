@@ -26,8 +26,7 @@ class EditorNavigationCommitTest {
 
         val finalId = commitEditorTitleSnapshot(
             currentId = "Folder/Old title",
-            rawTitle = "New title",
-            existingIds = setOf("Folder/Old title"),
+            targetId = "Folder/New title",
         ) { oldId, targetId ->
             renamed = oldId to targetId
             targetId

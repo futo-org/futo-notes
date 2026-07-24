@@ -1,10 +1,15 @@
 package com.futo.notes.ui
 
 import uniffi.futo_notes_ffi.FlushDisposition
+import uniffi.futo_notes_ffi.makeId
+import uniffi.futo_notes_ffi.sanitizeTitle
+import uniffi.futo_notes_ffi.splitId
+import uniffi.futo_notes_ffi.validateTitle
 
 internal data class EditorNavigationCommit(
     val savedContent: String,
     val canNavigate: Boolean,
+    val disposition: FlushDisposition? = null,
 )
 
 internal class EditorNavigationAdmission {
@@ -24,6 +29,34 @@ internal class EditorNavigationAdmission {
 internal fun isEditorInteractionEnabled(navigationPending: Boolean): Boolean =
     !navigationPending
 
+internal fun shouldStartEditorBackNavigation(navigationPending: Boolean): Boolean =
+    !navigationPending
+
+internal suspend fun commitEditorTitleSnapshot(
+    currentId: String,
+    targetId: String?,
+    rename: suspend (oldId: String, targetId: String) -> String,
+): String {
+    if (targetId == null || targetId == currentId) return currentId
+    return rename(currentId, targetId)
+}
+
+internal fun editorTitleTarget(
+    currentId: String,
+    rawTitle: String,
+    existingIds: Set<String>,
+): String? {
+    val trimmed = rawTitle.trim()
+    if (trimmed.isEmpty()) return null
+    if (validateTitle(trimmed).any { it.kind != "empty" }) return null
+    val parts = splitId(currentId)
+    val clean = sanitizeTitle(trimmed)
+    if (clean == parts.title) return null
+    val target = makeId(parts.folder, clean)
+    if (target != currentId && target in existingIds) return null
+    return target
+}
+
 internal suspend fun commitEditorNavigationSnapshot(
     savedContent: String,
     content: String,
@@ -36,5 +69,6 @@ internal suspend fun commitEditorNavigationSnapshot(
     return EditorNavigationCommit(
         savedContent = if (disposition != null) content else savedContent,
         canNavigate = disposition != null,
+        disposition = disposition,
     )
 }

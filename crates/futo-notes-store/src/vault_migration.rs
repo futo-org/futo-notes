@@ -160,12 +160,13 @@ pub(super) fn finalize(
         return Ok(VaultMigrationFinalization::Finalized);
     }
     let source = canonical_existing_directory(source, "current notes folder")?;
-    if !allow_source_removal {
-        return Ok(VaultMigrationFinalization::SourceRetained);
-    }
     let source_manifest = manifest(&source)?;
     if source_manifest.is_empty() && !destination.exists() {
-        return Ok(remove_source(&source));
+        return Ok(if allow_source_removal {
+            remove_source(&source)
+        } else {
+            VaultMigrationFinalization::SourceRetained
+        });
     }
     let destination = match canonical_existing_directory(destination, "new notes folder") {
         Ok(destination) => destination,
@@ -177,7 +178,11 @@ pub(super) fn finalize(
     if source_manifest != manifest(&destination)? {
         return Ok(VaultMigrationFinalization::DestinationChanged);
     }
-    Ok(remove_source(&source))
+    Ok(if allow_source_removal {
+        remove_source(&source)
+    } else {
+        VaultMigrationFinalization::SourceRetained
+    })
 }
 
 fn remove_source(source: &Path) -> VaultMigrationFinalization {

@@ -822,21 +822,51 @@ struct NoteEditorView: View {
         isClosing = true
         closingContent = nil
         EditorHost.shared.blur()
-        // Mark the draft clean so both the derived register (content==savedContent
-        // → nil) and onDisappear's flush are no-ops; the file won't be resurrected.
-        let previousSavedContent = savedContent
-        savedContent = content
-        // Publish SYNCHRONOUSLY to clear this editor's register entry NOW. The
-        // register still holds the last dirty publish until onDisappear releases
-        // the token; a background landing in that sub-frame window would otherwise
-        // flush → skippedMissing → recreate the note the user just deleted (the
-        // unconditional recreate un-deletes it). Same fix pattern as N1.
-        publishDraft()
         Task { @MainActor in
             await pendingSave?.value
             await pendingRename?.value
             await pendingAdoption?.value
             await pendingMove?.value
+
+            var finalContent = closingContent ?? content
+            closingContent = nil
+            while true {
+                let hasPendingChanges = finalContent != savedContent
+                let writeOutcome = hasPendingChanges
+                    ? await store.write(noteId, content: finalContent)
+                    : nil
+                if let writeOutcome {
+                    savedContent = confirmedSavedContent(
+                        previousSavedContent: savedContent,
+                        writtenContent: finalContent,
+                        outcome: writeOutcome
+                    )
+                }
+                guard shouldContinueDeleteAfterEditorWrite(
+                    hasPendingChanges: hasPendingChanges,
+                    outcome: writeOutcome
+                ) else {
+                    content = closingContent ?? finalContent
+                    closingContent = nil
+                    isClosing = false
+                    presentWithoutAnimation { showDeleteConfirm = false }
+                    publishDraft()
+                    scheduleSave(content)
+                    store.showTransient(
+                        "Couldn't save note. Delete is paused while your changes remain pending."
+                    )
+                    return
+                }
+                guard let laterContent = closingContent else { break }
+                closingContent = nil
+                finalContent = laterContent
+            }
+
+            content = finalContent
+            savedContent = finalContent
+            // Clear the draft register only after every dirty snapshot commits.
+            // A retained draft cannot then recreate the note after Delete.
+            publishDraft()
             let outcome = await store.delete(noteId)
             if case .committed = outcome {
                 closingContent = nil
@@ -847,7 +877,6 @@ struct NoteEditorView: View {
                 let lateContent = closingContent
                 closingContent = nil
                 isClosing = false
-                savedContent = previousSavedContent
                 if let lateContent {
                     content = lateContent
                     scheduleSave(lateContent)
