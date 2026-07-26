@@ -29,8 +29,14 @@ filter note IDs directly rather than borrowing the full-text engine.
 
 ## Guard
 
-- `notes.test.ts` asserts startup never reads or writes
-  `.search-index-v1.json`.
-- `searchEngineNotify.test.ts` asserts an authoritative empty Rust result does
-  not fall through to another search implementation.
+- Nothing on the TypeScript side can read or write `.search-index-v1.json` any
+  more — the MiniSearch index was deleted outright, and the Rust indexer's
+  `cleanup_legacy` (`crates/futo-notes-search/src/indexer.rs`) removes any
+  leftover artifact. The original `notes.test.ts` guard went away with that
+  index in commit 28a1dbfd.
+- An authoritative empty engine result must not fall through to another search
+  implementation — asserted by the
+  `does not fall back to shell substring search` case in
+  `src/features/notes/notes.contract.test.ts` (successor to the former
+  `searchEngineNotify.test.ts` guard, also removed in 28a1dbfd).
 - `docs/spec/search.md` records Rust/Tantivy as the sole full-text owner.
