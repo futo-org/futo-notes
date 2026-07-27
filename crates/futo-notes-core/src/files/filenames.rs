@@ -202,3 +202,128 @@ mod tests {
         }
     }
 }
+
+// Property-based tests. `sanitize_title` is the only thing between a typed title
+// and a filename, so its output has to be safe for every input, and re-applying
+// it must not keep changing the name.
+#[cfg(test)]
+pub(super) mod property_tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    /// Titles whose outer dots hide inner dots, so stripping the outer pair and
+    /// trimming the spaces leaves exactly `"."` or `".."`: a dot, spaces, one or
+    /// two inner dots, spaces, a dot. Its own arm because random dot-and-space
+    /// soup reaches this shape too rarely to demonstrate the gap it exposes.
+    pub fn directory_reference_title() -> impl Strategy<Value = String> {
+        (1usize..3, 1usize..3, 1usize..3).prop_map(|(lead, inner, trail)| {
+            format!(
+                ".{}{}{}.",
+                " ".repeat(lead),
+                ".".repeat(inner),
+                " ".repeat(trail)
+            )
+        })
+    }
+
+    /// Titles ending in N repetitions of `". "` followed by a dot. Each
+    /// `sanitize_title` pass peels exactly one group, so these need N passes to
+    /// reach a fixed point.
+    pub fn trailing_dot_space_title() -> impl Strategy<Value = String> {
+        (1usize..6).prop_map(|groups| format!("a{}.", ". ".repeat(groups)))
+    }
+
+    /// Titles a user could type or a peer could send, including the dot-and-space
+    /// soup that stresses the dot-stripping passes. Shared with
+    /// `paths::property_tests` so both test modules explore the same title space.
+    pub fn arbitrary_title() -> impl Strategy<Value = String> {
+        prop_oneof![
+            directory_reference_title(),
+            trailing_dot_space_title(),
+            prop::collection::vec(any::<char>(), 0..24)
+                .prop_map(|characters| characters.into_iter().collect()),
+            "[a-z<>:\"/\\\\|?* .]{0,20}",
+            "[a-z]{1,4}( \\.){0,4}",
+            "[A-Z]{3}[0-9]?(\\.[a-z]{1,3})?",
+            prop::collection::vec(
+                prop_oneof![
+                    Just(".".to_owned()),
+                    Just("..".to_owned()),
+                    Just(" ".to_owned()),
+                    "[a-z]{1,2}",
+                ],
+                0..7,
+            )
+            .prop_map(|parts| parts.concat()),
+        ]
+    }
+
+    proptest! {
+        /// The path layer treats a sanitized title as a ready-to-use filename, so
+        /// it must never come back empty and never carry a character the path
+        /// rules forbid.
+        #[test]
+        fn sanitized_titles_are_usable_filenames(title in arbitrary_title()) {
+            let sanitized = sanitize_title(&title);
+            prop_assert!(!sanitized.is_empty(), "sanitize_title({title:?}) was empty");
+            prop_assert!(
+                !sanitized.chars().any(forbidden_title_character),
+                "sanitize_title({:?}) kept a forbidden character: {:?}",
+                title,
+                sanitized,
+            );
+            prop_assert!(!sanitized.contains('/'), "{sanitized:?}");
+            prop_assert!(!sanitized.contains('\\'), "{sanitized:?}");
+            prop_assert!(!is_windows_reserved_name(&sanitized), "{sanitized:?}");
+        }
+
+        #[test]
+        fn sanitizing_the_same_title_twice_gives_the_same_result(title in arbitrary_title()) {
+            prop_assert_eq!(sanitize_title(&title), sanitize_title(&title));
+        }
+
+        /// FAILS TODAY — kept as the honest statement of the invariant, and the
+        /// root cause of the two path-safety gaps recorded in `paths.rs`.
+        /// Counterexamples: `sanitize_title(". .. .")` is `".."` and
+        /// `sanitize_title(". . .")` is `"."` — a filename that names the parent
+        /// or the current directory rather than a note.
+        ///
+        /// Root cause: `trim().trim_matches('.').trim()` strips the outer dots and
+        /// then trims the spaces they were hiding, exposing dots the pass order
+        /// never revisits. The `FALLBACK_TITLE` guard only fires when the result is
+        /// empty, and `"."` is not empty.
+        ///
+        /// Nothing escapes the vault today — `ensure_safe_note_id` and
+        /// `vault_fs::relative_components` both reject these downstream — but the
+        /// title rule alone does not guarantee a usable filename.
+        #[test]
+        #[ignore = "known gap: dot-and-space titles sanitize to \".\" or \"..\""]
+        fn sanitized_titles_are_never_a_directory_reference(title in arbitrary_title()) {
+            let sanitized = sanitize_title(&title);
+            prop_assert_ne!(sanitized.as_str(), ".", "sanitize_title({:?})", title);
+            prop_assert_ne!(sanitized.as_str(), "..", "sanitize_title({:?})", title);
+        }
+
+        /// FAILS TODAY — kept as the honest statement of the invariant, which the
+        /// example-based `sanitize_is_idempotent` above already claims.
+        /// Counterexample: `sanitize_title("a. .")` is `"a."`, and
+        /// `sanitize_title("a.")` is `"a"`.
+        ///
+        /// Root cause: `trim().trim_matches('.').trim()` is a fixed three-pass
+        /// strip, so each application peels exactly one trailing ". " group —
+        /// `"a. . . . . ."` needs six applications to reach `"a"`. That makes
+        /// `classify_incoming_sync_path` heal an incoming name over several sync
+        /// rounds, renaming the note each round (see
+        /// `paths::property_tests::healing_an_incoming_path_settles_in_one_round`).
+        /// `packages/editor/src/filename.ts` has the same three-pass shape, so TS
+        /// and Rust agree and the conformance lock holds; closing this is a
+        /// coordinated rule change plus regenerated fixtures (AGENTS.md M7).
+        #[test]
+        #[ignore = "known gap: a trailing '. ' group needs one sanitize pass per group"]
+        fn sanitize_title_is_idempotent(title in arbitrary_title()) {
+            let once = sanitize_title(&title);
+            prop_assert_eq!(sanitize_title(&once), once);
+        }
+    }
+}
