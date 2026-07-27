@@ -146,6 +146,58 @@ test.describe('P1 Link Clickability Regressions', () => {
     expect(popupOpened).toBe(false);
   });
 
+  test('clicking past the end of a wrapped plain URL places the caret instead of opening it', async ({
+    page,
+  }) => {
+    // Bug: a link that wraps onto more than one visual line renders as ONE
+    // inline span, so getBoundingClientRect() returns the UNION of its
+    // fragments — a box as wide as the widest line and as tall as all of them.
+    // The blank area to the right of the final fragment sat inside that union,
+    // so clicking there (the natural way to put the caret at the end of the
+    // link) opened the URL instead.
+    const longUrl =
+      'https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models';
+
+    await page.setViewportSize({ width: 700, height: 800 });
+    await openNewNote(page);
+
+    const editor = page.locator('.cm-content');
+    await editor.click();
+    await editor.fill(longUrl);
+    await setCursorPosition(page, 0);
+    await blurEditor(page);
+
+    const autoLink = page.locator('.cm-md-autolink', { hasText: longUrl }).first();
+    await expect(autoLink).toBeVisible();
+
+    // Per-fragment geometry: one rect per visual line the link occupies.
+    const fragments = await autoLink.evaluate((element) =>
+      [...element.getClientRects()].map((rect) => ({
+        y: rect.y,
+        height: rect.height,
+        right: rect.right,
+      })),
+    );
+    // Precondition: the URL must actually wrap, or this test proves nothing.
+    expect(fragments.length).toBeGreaterThan(1);
+
+    let popupOpened = false;
+    page.on('popup', () => {
+      popupOpened = true;
+    });
+
+    const lastFragment = fragments[fragments.length - 1];
+    await page.mouse.click(lastFragment.right + 40, lastFragment.y + lastFragment.height / 2);
+    await page.waitForTimeout(250);
+
+    expect(popupOpened).toBe(false);
+    const caret = await page.evaluate(() => {
+      const view = (window as unknown as { __cmGetView?: () => any }).__cmGetView?.();
+      return view ? view.state.selection.main.head : null;
+    });
+    expect(caret).toBe(longUrl.length);
+  });
+
   test('table cells surface markdown link source (editable, not rendered)', async ({ page }) => {
     // Prior behavior: the read-only TableWidget rendered `[text](url)` as an <a>.
     // Current behavior (interactive editor): cells are contentEditable plain text, so

@@ -276,6 +276,12 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
   `shouldOverrideUrlLoading` / `isInAppEditorNavigation`,
   tests/editor-embed-bridge.spec.ts
+- Only the link's own glyphs open it: the hit test runs per visual-line fragment
+  (`getClientRects()`), so clicking the blank space past the end of a link —
+  including a link that wraps onto several visual lines, whose union bounding box
+  spans that blank space — places the caret instead of opening the URL.
+  → interactions/linkInteractions.ts `findExternalLinkElementAtPoint`,
+  tests/p1-regressions.spec.ts
   > **Gap:** iOS native still lacks an explicit `WKWebView` navigation-policy
   > guard (the `openUrl` bridge covers taps on decorated links, but a
   > programmatic top-level navigation inside the WebView is not yet policed).

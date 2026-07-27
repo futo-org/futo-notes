@@ -19,9 +19,15 @@ function findExternalLinkElementAtPoint(
   if (!line) return null;
 
   for (const candidate of line.querySelectorAll(EXTERNAL_LINK_SELECTOR)) {
-    const rect = candidate.getBoundingClientRect();
-    if (x >= rect.left - 1 && x <= rect.right + 1 && y >= rect.top - 1 && y <= rect.bottom + 1) {
-      return candidate;
+    // getClientRects(), not getBoundingClientRect(): a link that wraps onto
+    // several visual lines is one inline span whose bounding box is the UNION
+    // of its fragments, which covers the blank space past the end of the last
+    // fragment. Hit-test each fragment so that blank space stays clickable
+    // for caret placement.
+    for (const rect of candidate.getClientRects()) {
+      if (x >= rect.left - 1 && x <= rect.right + 1 && y >= rect.top - 1 && y <= rect.bottom + 1) {
+        return candidate;
+      }
     }
   }
   return null;
