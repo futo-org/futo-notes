@@ -474,7 +474,7 @@ pub(crate) fn timestamp_ms(value: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
-    use std::net::{TcpListener, TcpStream};
+    use std::net::{SocketAddr, TcpListener, TcpStream};
     use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
     use std::thread::JoinHandle;
     use std::time::Instant;
@@ -483,13 +483,17 @@ mod tests {
 
     const EVENT_STREAM_HEADERS: &[u8] =
         b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n";
+    const SUCCESS_HEADERS: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+Content-Length: 64\r\nConnection: close\r\n\r\n";
     const ERROR_HEADERS: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\
 Content-Type: application/json\r\nConnection: close\r\n\r\n";
     const READY_EVENT: &[u8] = b"event: ready\ndata:\n\n";
+    const WAKE_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
 
     #[derive(Clone, Copy)]
     enum StallPoint {
         ResponseHeaders,
+        SuccessfulResponseBody,
         EventStreamBody,
         ErrorBody,
     }
@@ -498,6 +502,7 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
         fn headers(self) -> Option<&'static [u8]> {
             match self {
                 Self::ResponseHeaders => None,
+                Self::SuccessfulResponseBody => Some(SUCCESS_HEADERS),
                 Self::EventStreamBody => Some(EVENT_STREAM_HEADERS),
                 Self::ErrorBody => Some(ERROR_HEADERS),
             }
@@ -506,13 +511,14 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
         fn body_after_release(self) -> Option<&'static [u8]> {
             match self {
                 Self::EventStreamBody => Some(READY_EVENT),
-                Self::ResponseHeaders | Self::ErrorBody => None,
+                Self::ResponseHeaders | Self::SuccessfulResponseBody | Self::ErrorBody => None,
             }
         }
     }
 
     struct HangingServer {
         base_url: String,
+        wake_address: SocketAddr,
         request_received: Receiver<()>,
         release: Option<Sender<()>>,
         handle: Option<JoinHandle<()>>,
@@ -521,7 +527,8 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
     impl HangingServer {
         fn new(stall_point: StallPoint) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let base_url = format!("http://{}", listener.local_addr().unwrap());
+            let wake_address = listener.local_addr().unwrap();
+            let base_url = format!("http://{wake_address}");
             let (request_received_tx, request_received) = mpsc::channel();
             let (release, release_rx) = mpsc::channel();
             let handle = std::thread::spawn(move || {
@@ -529,6 +536,7 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
             });
             Self {
                 base_url,
+                wake_address,
                 request_received,
                 release: Some(release),
                 handle: Some(handle),
@@ -580,9 +588,17 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
         stream.flush()
     }
 
+    fn wake_listener(address: SocketAddr) -> Option<TcpStream> {
+        let mut stream = TcpStream::connect(address).ok()?;
+        stream.write_all(WAKE_REQUEST).ok()?;
+        stream.flush().ok()?;
+        Some(stream)
+    }
+
     impl Drop for HangingServer {
         fn drop(&mut self) {
             self.release();
+            let _wake_connection = wake_listener(self.wake_address);
             if let Some(handle) = self.handle.take() {
                 let _ = handle.join();
             }
@@ -683,6 +699,21 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
         assert_eq!(body.collection_version, 8);
     }
 
+    #[test]
+    fn dropping_before_a_request_wakes_the_server_listener() {
+        let server = HangingServer::new(StallPoint::ResponseHeaders);
+        let (dropped_tx, dropped_rx) = mpsc::channel();
+        let drop_task = std::thread::spawn(move || {
+            drop(server);
+            dropped_tx.send(()).unwrap();
+        });
+
+        dropped_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("server drop remained blocked in accept");
+        drop_task.join().unwrap();
+    }
+
     #[tokio::test(start_paused = true)]
     async fn ordinary_requests_have_a_total_timeout() {
         let server = HangingServer::new(StallPoint::ResponseHeaders);
@@ -696,6 +727,24 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
         assert!(
             request.is_finished(),
             "ordinary request remained pending past the shared timeout"
+        );
+        assert!(request.await.unwrap().is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn ordinary_response_bodies_have_a_total_timeout() {
+        let server = HangingServer::new(StallPoint::SuccessfulResponseBody);
+        let http = Http::new(&server.base_url).unwrap().token("token");
+        let request = tokio::spawn(async move { http.collections().await });
+        server.wait_for_request().await;
+        allow_network_task_to_settle().await;
+
+        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+
+        assert!(
+            request.is_finished(),
+            "ordinary request remained pending while reading its response body"
         );
         assert!(request.await.unwrap().is_err());
     }

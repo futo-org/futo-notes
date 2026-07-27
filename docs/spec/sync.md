@@ -403,6 +403,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   SSE body. →
   futo-notes-sync `server.rs`, guarded by
   `ordinary_requests_have_a_total_timeout`,
+  `ordinary_response_bodies_have_a_total_timeout`,
   `auth_mode_uses_the_short_probe_timeout`,
   `blob_download_without_known_size_uses_the_base_request_timeout`,
   `blob_download_timeout_scales_with_expected_size`,
