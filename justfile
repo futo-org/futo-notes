@@ -557,7 +557,12 @@ deploy-rpm:
     VERSION="${BASE_VER}"
   fi
   echo "Version: ${VERSION}"
+  ROOT="$PWD"
   node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
+  # Restore tauri.conf.json however we exit — the install assertion below is
+  # allowed to fail red, and a red exit must not leave the version stamp behind.
+  # Anchored at $ROOT because the build step leaves us inside apps/tauri.
+  trap 'git -C "$ROOT" checkout -- "$CONF"' EXIT
   # Clean stale bundles so we never install an old one
   rm -rf "$BUNDLE_DIR"
   echo "Building .rpm package..."
@@ -567,15 +572,36 @@ deploy-rpm:
   # Kill running instance (comm is truncated to 15 chars, so use -f)
   pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
   echo "Installing ${RPM}..."
-  # `dnf install` no-ops when the version-release tuple already matches
-  # (common at tag commits where VERSION === BASE_VER), leaving the
-  # on-disk binary stale. Try reinstall first (replaces files when
-  # already installed at the same version), fall back to install for
-  # the fresh-install / upgrade / downgrade cases.
-  sudo dnf reinstall -y "$RPM" 2>/dev/null || sudo dnf install -y "$RPM"
-  # Restore tauri.conf.json so git stays clean
-  git checkout -- "$CONF"
-  echo "Done. Installed FUTO Notes ${VERSION}."
+  # Do NOT route this through dnf's version solver. `dnf reinstall` exits 0
+  # while installing NOTHING when the installed version differs from the file
+  # (it just prints "Nothing to do."), so the old `reinstall || install` chain
+  # silently kept a stale binary on disk for 20 days — and `2>/dev/null` hid
+  # the one message that explained why. `rpm -U --force` is unconditional:
+  # it replaces the installed package whatever its version. First-time
+  # installs still go through dnf so dependencies get resolved.
+  if rpm -q futo-notes >/dev/null 2>&1; then
+    sudo rpm -Uvh --force "$RPM"
+  else
+    sudo dnf install -y "$RPM"
+  fi
+  # Assert the install actually landed: compare the sha256 the package records
+  # for the binary against what is now on disk. The package's own digest is the
+  # reference, NOT target/release/futo-notes-tauri — the bundler strips the
+  # binary, so the build output legitimately differs from the packaged copy.
+  # This also catches the same-version no-op case, where the version string
+  # alone would prove nothing.
+  EXPECTED_SHA=$(rpm -qp --dump "$RPM" 2>/dev/null | awk '$1 == "/usr/bin/futo-notes-tauri" { print $4 }')
+  ACTUAL_SHA=$(sha256sum /usr/bin/futo-notes-tauri 2>/dev/null | cut -d' ' -f1)
+  if [ -z "$EXPECTED_SHA" ] || [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
+    echo "" >&2
+    echo "INSTALL FAILED: /usr/bin/futo-notes-tauri is NOT the binary just built." >&2
+    echo "  expected sha256 (in package): ${EXPECTED_SHA:-<no /usr/bin/futo-notes-tauri in package>}" >&2
+    echo "  actual   sha256 (on disk):    ${ACTUAL_SHA:-<file missing>}" >&2
+    rpm -q --qf '  rpm db has: %{NAME}-%{VERSION}-%{RELEASE}, installed %{INSTALLTIME:date}\n' futo-notes >&2 || true
+    echo "  Nothing was installed — do not test against this binary." >&2
+    exit 1
+  fi
+  echo "Done. Installed FUTO Notes ${VERSION} (verified on disk)."
 
 # Build a RELEASE native iOS build and install it on a connected iPhone
 # (production bundle id com.futo.notes). DEBUG device installs go through
