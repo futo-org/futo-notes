@@ -276,8 +276,8 @@ class SyncManager(
         live = false
     }
 
-    /** Synchronously reject new sync work before the Activity snapshots the
-     * editor. The later suspend step drains work and performs a graceful stop. */
+    /** Synchronously reject new sync work before migration starts. The later
+     * suspend step drains work and performs a graceful stop. */
     fun beginStorageMigration() {
         storageMigrationGate.beginMigration()
     }

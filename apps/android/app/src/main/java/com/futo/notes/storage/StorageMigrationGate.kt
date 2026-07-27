@@ -23,7 +23,7 @@ internal class StorageMigrationGate {
 
     /** Atomically latch migration only when no access is in flight. Providers
      * whose operation completes with a later UI callback use this form so the
-     * callback cannot land after the migration snapshot. */
+     * callback cannot land after migration starts. */
     fun tryBeginMigrationWhenIdle(): Boolean {
         if (!mutex.tryLock()) return false
         return try {

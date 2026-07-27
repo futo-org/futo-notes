@@ -71,14 +71,16 @@ Behaviors and constraints that hold across every surface and platform.
     opens; the user can retry after that save finishes. A newly queued save is
     rejected once migration is latched. That same synchronous latch makes an
     Activity `onStop` unable to abort live sync before the migration's graceful
-    sync stop completes. It disables and blurs the Android WebView, then reads
-    `FutoEditor.getContent()` before taking the vault snapshot, so a bridge
-    change still waiting for animation-frame delivery is included; failure to
-    read the live editor aborts the switch. The engine stages the copy, verifies
-    every relative path and file digest, fsyncs copied files and directories,
-    and fsyncs the destination-parent chain after installation. Before each
-    authority transition it records a fsynced, atomically replaced app-private
-    journal. `PREPARED` makes the old root authoritative after a crash.
+    sync stop completes. Editor navigation captures the latest live CodeMirror
+    body and persists-or-parks it before leaving the editor; Settings is reached
+    only after that navigation commit. A dirty draft retained by an unexpected
+    editor disposal is additionally flushed by the store under the migration
+    gate before staging. Migration never queries or waits on the detached editor
+    WebView. The engine stages the copy, verifies every relative path and file
+    digest, fsyncs copied files and directories, and fsyncs the
+    destination-parent chain after installation. Before each authority
+    transition it records a fsynced, atomically replaced app-private journal.
+    `PREPARED` makes the old root authoritative after a crash.
     `FINALIZING` is written before source cleanup. Its versioned journal records
     whether policy forbids removing the source (with backward-compatible V1
     decoding). The destination has already been fully verified at this point, so
@@ -97,14 +99,15 @@ Behaviors and constraints that hold across every surface and platform.
     unmounted, permission-denied, or otherwise uninspectable; an unavailable
     source never authorizes destination promotion. A failed copy/verification
     keeps the old mode/root active and reports the failure.
-    An open editor's pending draft must first produce a committed mutation or
-    already match the bytes on disk; a skipped/missing/divergent flush aborts the
-    switch instead of relaunching with an older draft. A non-empty destination is
+    Every retained draft must first produce a committed mutation or already
+    match the bytes on disk; a skipped/missing/divergent flush aborts the switch
+    instead of relaunching with an older draft. A non-empty destination is
     accepted only when its complete manifest already matches the source, so an
-    unrelated pre-existing vault is never overwritten or cleaned up. An existing
-    empty source directory is a valid switch, but a missing or non-directory
-    active root is a failure (never interpreted as an empty vault). The move is
-    transparent to sync because the object map is keyed by relative filename. →
+    unrelated pre-existing vault is never overwritten or cleaned up. An
+    existing empty source directory is a valid switch, but a missing or
+    non-directory active root is a failure (never interpreted as an empty
+    vault). The move is transparent to sync because the object map is keyed by
+    relative filename. →
     [sync.md](sync.md), Android `storage/`, `MainActivity.performSwitch`,
     `NotesStorageTest`, `futo-notes-store::vault_migration`
 - **No silent relocation of existing installs.** An Android install that predates
