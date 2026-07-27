@@ -387,10 +387,14 @@ to do one, stop and apply the rule.
 - **M21 — Trusting synthetic input and stale screenshots.** Programmatic DOM `click()` does NOT
   fire Svelte 5 handlers (tap at CSS-rect-center × devicePixelRatio via `adb input tap` instead);
   an unfocused Android emulator throttles Compose frames so `adb screencap` shows stale UI
-  (verify via disk/logcat or force a real scroll); iOS 26 nav-bar toolbar items are invisible to
-  the a11y tree and idb taps (list rows and the FAB work). **Rule:** when UI automation reports
-  "nothing happened", suspect the tool before the app — check the playbooks in the `/verify`
-  skill's `references/ios.md` and `references/android.md`.
+  (verify via disk/logcat or force a real scroll); on iOS, `axe gesture` presets exit 0 while
+  scrolling nothing, and `axe tap` prints `✓` for an element whose activation point is off-screen.
+  **Rule:** when UI automation reports "nothing happened", suspect the tool before the app — check
+  the playbooks in the `/verify` skill's `references/ios.md` and `references/android.md`. The
+  canonical case: for a year `docs/spec/nav.md` carried a gap blaming SwiftUI for iOS nav-bar
+  items missing from the a11y tree. The labels were always there; `idb ui describe-all` returns a
+  shallow ~11-element tree on iOS 26.5 and never showed them. A tool's blind spot became a
+  recorded app defect — never record a gap from one tool's silence (2026-07-27, fixed by `axe`).
 - **M22 — Believing the wrong browser.** Playwright/agent-browser run WebKit/Chromium — they can
   never prove Windows WebView2 behavior (native drag-drop, NSIS installer, clean-machine launch:
   use the qemu VM harness in `scripts/win-vm/`), the real iOS keyboard (toolbar/inset bugs are
@@ -529,8 +533,10 @@ editor rules/bridge → `packages/editor/src`; E2E → `tests/*.spec.ts`; sync s
 - **Web/desktop UI poking**: `agent-browser` (faster than Playwright MCP, handles CM6 typing,
   annotated screenshots — run with no args for the reference). **Tauri desktop**: the MCP bridge
   (`driver_session`, `webview_*`) ships in desktop debug builds.
-- **Native mobile has NO MCP bridge**: iOS via `xcrun simctl` + `idb`; Android via `adb` /
-  uiautomator + CDP (`just cdp-forward`, then `node scripts/cdp-invoke.mjs "document.title"`).
+- **Native mobile has NO MCP bridge**: iOS via `xcrun simctl` + `axe` (read the a11y tree through
+  `node scripts/describe-ios-ui.mjs`, never a raw `axe describe-ui` dump — it is 254KB+); Android
+  via `adb` / uiautomator + CDP (`just cdp-forward`, then `node scripts/cdp-invoke.mjs
+  "document.title"`).
   Full playbooks: `/verify` skill `references/ios.md`, `references/android.md`. Android emulator →
   host services via `10.0.2.2`.
 - **Sync in debug builds**: prefer the `window.__testSync` hook over UI automation —
