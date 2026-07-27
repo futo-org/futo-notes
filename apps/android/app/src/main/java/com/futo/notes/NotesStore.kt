@@ -227,6 +227,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         private set
     var folders by mutableStateOf<List<String>>(emptyList())
         private set
+    var hasBootstrapped by mutableStateOf(false)
+        private set
 
     val rootPath: String = notesRoot.absolutePath
 
@@ -269,6 +271,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
                 core.bootstrap(searchIndex.absolutePath)
             }
             applySnapshot(bootstrap.snapshot.notes, bootstrap.snapshot.folders)
+            hasBootstrapped = true
             bootstrap.warnings.forEach {
                 android.util.Log.w("NotesStore", "local-note bootstrap: $it")
             }

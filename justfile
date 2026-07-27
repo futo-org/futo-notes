@@ -158,6 +158,10 @@ test-ios-native: build-rust-ios
 test-android-native: build-rust-android
   cd apps/android && ./gradlew testDebugUnitTest
 
+# Runs Compose instrumentation tests on $ANDROID_SERIAL.
+test-android-native-ui: build-rust-android
+  cd apps/android && ./gradlew connectedDebugAndroidTest
+
 # ── Parallel QA isolation (multiple worktrees, one machine) ──
 # Worktree path → slot → pooled devices (futo-qa-0..6 per platform) + a
 # per-slot sync server with its own Postgres database. Your personal

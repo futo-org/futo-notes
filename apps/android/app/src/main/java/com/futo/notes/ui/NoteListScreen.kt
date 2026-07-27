@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -82,16 +81,11 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 import kotlinx.coroutines.launch
 
-private const val ALL = "__all" // sentinel; real folders are never empty+this
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NoteListScreen(
+internal fun NoteListScreen(
     store: NotesStore,
-    // Hoisted to MainActivity so the scroll position survives navigation
-    // [list.md:59] — this screen leaves composition whenever another screen
-    // is pushed, so a screen-local rememberLazyListState would reset on pop.
-    listState: LazyListState,
+    state: NoteListState,
     onOpenNote: (String) -> Unit,
     onCreate: (String) -> Unit,
     onOpenSearch: () -> Unit,
@@ -101,7 +95,8 @@ fun NoteListScreen(
     val context = LocalContext.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var currentFolder by remember { mutableStateOf(ALL) } // ALL = all notes
+    val selectedFolderPath = state.selectedFolderPath
+    val listState = state.scrollState
 
     // Row actions [list.md:62 + 71]: long-press targets, hoisted so the
     // dialogs/sheet live outside the LazyColumn items.
@@ -118,8 +113,8 @@ fun NoteListScreen(
         }
     }
 
-    val notes = if (currentFolder == ALL) store.notes else store.notesIn(currentFolder)
-    val folderName = if (currentFolder == ALL) "All notes" else currentFolder.substringAfterLast('/')
+    val notes = selectedFolderPath?.let(store::notesIn) ?: store.notes
+    val folderName = selectedFolderPath?.substringAfterLast('/') ?: "All notes"
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -127,9 +122,9 @@ fun NoteListScreen(
         drawerContent = {
             LibraryDrawer(
                 store = store,
-                currentFolder = currentFolder,
+                selectedFolderPath = selectedFolderPath,
                 onSelectFolder = {
-                    currentFolder = it
+                    state.selectFolder(it)
                     scope.launch { drawerState.close() }
                 },
                 onRenameFolder = { renameFolderTarget = it },
@@ -186,7 +181,7 @@ fun NoteListScreen(
                             leadingIcon = { Icon(Icons.Filled.Description, contentDescription = null, tint = c.textSecondary) },
                             onClick = {
                                 fabMenu = false
-                                val folder = if (currentFolder == ALL) "" else currentFolder
+                                val folder = selectedFolderPath.orEmpty()
                                 // `createNote`'s reload inserts the new note at index 0
                                 // while this list is STILL composed (the editor push hasn't
                                 // removed it yet), so LazyColumn's key-based anchoring would
@@ -323,7 +318,7 @@ fun NoteListScreen(
 
     if (newFolderDialog) {
         NewFolderDialog(
-            parent = if (currentFolder == ALL) "" else currentFolder,
+            parent = selectedFolderPath.orEmpty(),
             store = store,
             onCreate = { path ->
                 scope.launch {
@@ -356,7 +351,7 @@ fun NoteListScreen(
                 scope.launch {
                     val finalFolder = store.renameFolder(target, newPath)
                     if (finalFolder != null) {
-                        currentFolder = rebaseFolderPath(currentFolder, target, finalFolder)
+                        state.followFolderMove(target, finalFolder)
                         Toast.makeText(context, "Folder renamed", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "Couldn't rename folder", Toast.LENGTH_SHORT).show()
@@ -379,7 +374,7 @@ fun NoteListScreen(
                 scope.launch {
                     val finalFolder = store.moveFolder(target, destination)
                     if (finalFolder != null) {
-                        currentFolder = rebaseFolderPath(currentFolder, target, finalFolder)
+                        state.followFolderMove(target, finalFolder)
                         Toast.makeText(
                             context,
                             "Moved to ${destination.ifEmpty { "Root" }}",
@@ -409,7 +404,7 @@ fun NoteListScreen(
                     // null here means the folder (and its notes) are untouched.
                     val moved = store.deleteFolder(folder)
                     if (moved != null) {
-                        if (currentFolder == folder || currentFolder.startsWith("$folder/")) currentFolder = ALL
+                        state.handleFolderDeleted(folder)
                         Toast.makeText(context, folderDeletedToast(moved), Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "Couldn't delete folder — nothing was changed", Toast.LENGTH_SHORT).show()
@@ -432,17 +427,11 @@ internal fun folderDeletedToast(moved: UInt): String =
 internal fun isAtListTop(firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int): Boolean =
     firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset <= 4
 
-internal fun rebaseFolderPath(current: String, from: String, to: String): String = when {
-    current == from -> to
-    current.startsWith("$from/") -> "$to/${current.removePrefix("$from/")}"
-    else -> current
-}
-
 @Composable
 private fun LibraryDrawer(
     store: NotesStore,
-    currentFolder: String,
-    onSelectFolder: (String) -> Unit,
+    selectedFolderPath: String?,
+    onSelectFolder: (String?) -> Unit,
     onRenameFolder: (String) -> Unit,
     onMoveFolder: (String) -> Unit,
     onDeleteFolder: (String) -> Unit,
@@ -475,8 +464,8 @@ private fun LibraryDrawer(
             label = "All notes",
             icon = Icons.Filled.Layers,
             count = store.notes.size,
-            selected = currentFolder == ALL,
-            onClick = { onSelectFolder(ALL) },
+            selected = selectedFolderPath == null,
+            onClick = { onSelectFolder(null) },
         )
         store.folders.forEach { folder ->
             Box {
@@ -484,7 +473,7 @@ private fun LibraryDrawer(
                     label = folder,
                     icon = Icons.Filled.Folder,
                     count = store.notesIn(folder).size,
-                    selected = currentFolder == folder,
+                    selected = selectedFolderPath == folder,
                     onClick = { onSelectFolder(folder) },
                     onLongClick = { folderMenu = folder },
                 )
