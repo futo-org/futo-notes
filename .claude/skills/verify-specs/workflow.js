@@ -134,6 +134,16 @@ ${leg.platform === 'sync-mesh' ? 'This is the CROSS-CLIENT SYNC MESH leg: follow
 bullet = one story. Respect platform qualifiers — skip stories tagged for other
 platforms. Existing \`> **Gap:**\` notes are KNOWN divergences: SKIP them and cite
 the gap, don't re-report. Number stories traceably (${leg.idPrefix || leg.platform}-NN).
+${
+  leg.focus
+    ? `
+**Focus (this is a DELIBERATELY NARROWED subset run — do not sweep the whole
+surface):** cover exactly the flows below and stop. Spec bullets outside them are
+out of scope for this leg; do not report them as SKIP noise, just omit them.
+${leg.focus}
+`
+    : ''
+}
 
 **Effort discipline (you are running at LOW effort on purpose):** move fast on
 the happy path. When a story looks wrong, capture the evidence, mark it **FAIL**,
