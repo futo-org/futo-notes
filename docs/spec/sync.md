@@ -384,6 +384,20 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   a fresh `ready` drives a catch-up pull. This safety poll is also the only path
   that catches mutations the server emits no event for (collection
   create/delete, key rotation).
+- **Every finite server request has a total deadline.** The auth-mode probe
+  times out after 5 s; login, collection/key/object requests, uploads,
+  downloads (including blobs), and deletes share a 30 s total-request timeout.
+  TCP connection establishment is bounded to 10 s. The SSE event stream uses a
+  separate client with no total-request timeout so a healthy long-lived stream
+  is never torn down at 30 s; after its response starts, the live loop's 90 s
+  read-idle watchdog detects a stalled stream. This split prevents a server
+  that accepts TCP and then stalls a finite response from leaving connect or
+  sync pending forever without imposing a finite lifetime on SSE. →
+  futo-notes-sync `server.rs`, guarded by
+  `ordinary_requests_have_a_total_timeout`,
+  `auth_mode_uses_the_short_probe_timeout`,
+  `blob_download_uses_the_shared_request_timeout`, and
+  `event_stream_has_no_total_request_timeout`
 - The live stream is paused when the app is backgrounded and resumed on
   foreground (re-foregrounding gets a fresh `ready` → catch-up). → Android
   MainActivity `onStart`/`onStop`; iOS `FutoNotesApp` `scenePhase`

@@ -5,6 +5,10 @@ use reqwest::{Method, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
 pub(crate) struct HttpError {
@@ -22,7 +26,8 @@ impl HttpError {
 pub(crate) struct Http {
     base: String,
     token: Option<String>,
-    client: reqwest::Client,
+    request_client: reqwest::Client,
+    event_client: reqwest::Client,
 }
 
 #[derive(Deserialize)]
@@ -116,8 +121,16 @@ impl Http {
                 message: "server URL must use http or https".into(),
             });
         }
-        let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
+        let request_client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .map_err(|e| HttpError {
+                status: None,
+                message: e.to_string(),
+            })?;
+        let event_client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
             .build()
             .map_err(|e| HttpError {
                 status: None,
@@ -126,7 +139,8 @@ impl Http {
         Ok(Self {
             base: base.to_owned(),
             token: None,
-            client,
+            request_client,
+            event_client,
         })
     }
 
@@ -137,7 +151,7 @@ impl Http {
 
     fn request(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
         let request = self
-            .client
+            .request_client
             .request(method, format!("{}{}", self.base, path));
         match &self.token {
             Some(token) => request.bearer_auth(token),
@@ -178,9 +192,11 @@ impl Http {
         struct Body {
             auth_mode: String,
         }
-        Ok(Self::json::<Body>(self.request(Method::GET, "/"))
-            .await?
-            .auth_mode)
+        Ok(
+            Self::json::<Body>(self.request(Method::GET, "/").timeout(PROBE_TIMEOUT))
+                .await?
+                .auth_mode,
+        )
     }
 
     pub async fn login(&self, mode: &str, password: &str) -> Result<(String, String), HttpError> {
@@ -291,7 +307,6 @@ impl Http {
     pub async fn blob(&self, key: &str) -> Result<Vec<u8>, HttpError> {
         let response = self
             .request(Method::GET, &format!("/api/blobs/{key}"))
-            .timeout(Duration::from_secs(120))
             .send()
             .await
             .map_err(|e| HttpError {
@@ -391,15 +406,18 @@ impl Http {
     }
 
     pub async fn events(&self) -> Result<reqwest::Response, HttpError> {
-        let response = self
-            .request(Method::GET, "/api/sync/events")
-            .header("accept", "text/event-stream")
-            .send()
-            .await
-            .map_err(|e| HttpError {
-                status: e.status().map(|s| s.as_u16()),
-                message: e.to_string(),
-            })?;
+        let request = self
+            .event_client
+            .get(format!("{}/api/sync/events", self.base))
+            .header("accept", "text/event-stream");
+        let request = match &self.token {
+            Some(token) => request.bearer_auth(token),
+            None => request,
+        };
+        let response = request.send().await.map_err(|e| HttpError {
+            status: e.status().map(|s| s.as_u16()),
+            message: e.to_string(),
+        })?;
         if !response.status().is_success() {
             return Err(Self::response_error(response).await);
         }
@@ -415,7 +433,102 @@ pub(crate) fn timestamp_ms(value: &str) -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+    use std::thread::JoinHandle;
+    use std::time::Instant;
+
     use super::*;
+
+    struct HangingServer {
+        base_url: String,
+        request_received: Receiver<()>,
+        release: Option<Sender<()>>,
+        handle: Option<JoinHandle<()>>,
+    }
+
+    impl HangingServer {
+        fn new(sends_event_headers: bool) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let (request_received_tx, request_received) = mpsc::channel();
+            let (release, release_rx) = mpsc::channel();
+            let handle = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                read_request_headers(&mut stream);
+                if sends_event_headers {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+                        )
+                        .unwrap();
+                    stream.flush().unwrap();
+                }
+                request_received_tx.send(()).unwrap();
+                let _ = release_rx.recv();
+                if sends_event_headers {
+                    let _ = stream.write_all(b"event: ready\ndata:\n\n");
+                    let _ = stream.flush();
+                }
+            });
+            Self {
+                base_url: format!("http://{address}"),
+                request_received,
+                release: Some(release),
+                handle: Some(handle),
+            }
+        }
+
+        async fn wait_for_request(&self) {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                match self.request_received.try_recv() {
+                    Ok(()) => return,
+                    Err(TryRecvError::Empty) if Instant::now() < deadline => {
+                        tokio::task::yield_now().await;
+                        std::thread::yield_now();
+                    }
+                    Err(TryRecvError::Empty) => panic!("test server did not receive a request"),
+                    Err(TryRecvError::Disconnected) => {
+                        panic!("test server stopped before receiving a request")
+                    }
+                }
+            }
+        }
+
+        fn release(&mut self) {
+            self.release.take();
+        }
+    }
+
+    impl Drop for HangingServer {
+        fn drop(&mut self) {
+            self.release();
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    fn read_request_headers(stream: &mut TcpStream) {
+        let mut request = Vec::new();
+        let mut chunk = [0; 1024];
+        while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+            let read = stream.read(&mut chunk).unwrap();
+            assert!(read > 0, "request ended before its headers");
+            request.extend_from_slice(&chunk[..read]);
+        }
+    }
+
+    async fn allow_timeout_task_to_finish<T>(task: &tokio::task::JoinHandle<T>) {
+        for _ in 0..10 {
+            if task.is_finished() {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    }
 
     #[test]
     fn timestamp_matches_javascript_date_milliseconds() {
@@ -467,5 +580,71 @@ mod tests {
         assert!(body.object.blob_key.is_none());
         assert_eq!(body.object.updated_at, "");
         assert_eq!(body.collection_version, 8);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn ordinary_requests_have_a_total_timeout() {
+        let server = HangingServer::new(false);
+        let http = Http::new(&server.base_url).unwrap().token("token");
+        let request = tokio::spawn(async move { http.collections().await });
+        server.wait_for_request().await;
+
+        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+
+        assert!(
+            request.is_finished(),
+            "ordinary request remained pending past the shared timeout"
+        );
+        assert!(request.await.unwrap().is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn auth_mode_uses_the_short_probe_timeout() {
+        let server = HangingServer::new(false);
+        let http = Http::new(&server.base_url).unwrap();
+        let request = tokio::spawn(async move { http.auth_mode().await });
+        server.wait_for_request().await;
+
+        tokio::time::advance(PROBE_TIMEOUT + Duration::from_millis(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+
+        assert!(
+            request.is_finished(),
+            "auth-mode probe remained pending past its shorter timeout"
+        );
+        assert!(request.await.unwrap().is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn blob_download_uses_the_shared_request_timeout() {
+        let server = HangingServer::new(false);
+        let http = Http::new(&server.base_url).unwrap().token("token");
+        let request = tokio::spawn(async move { http.blob("blob-key").await });
+        server.wait_for_request().await;
+
+        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+
+        assert!(
+            request.is_finished(),
+            "blob download remained pending past the shared timeout"
+        );
+        assert!(request.await.unwrap().is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn event_stream_has_no_total_request_timeout() {
+        let mut server = HangingServer::new(true);
+        let http = Http::new(&server.base_url).unwrap().token("token");
+        let response = tokio::spawn(async move { http.events().await });
+        server.wait_for_request().await;
+        let mut response = response.await.unwrap().unwrap();
+
+        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
+        server.release();
+
+        let chunk = response.chunk().await.unwrap().unwrap();
+        assert_eq!(chunk, "event: ready\ndata:\n\n");
     }
 }

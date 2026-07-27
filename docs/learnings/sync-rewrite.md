@@ -263,7 +263,7 @@ implementation to be genuinely different.
 | `get_blobs_batch_returns_entries_in_request_order` | The retired batch endpoint associated each response with the requested key. | **Obsolete** |
 | `get_blobs_batch_rejects_entry_count_mismatch` | The retired batch endpoint rejected missing response entries. | **Obsolete** |
 | `get_blobs_batch_propagates_404_for_fallback_detection` | A missing batch endpoint activated a legacy per-blob fallback. | **Obsolete** — per-blob transfer is now the only path. |
-| `transfer_timeout_scales_with_expected_bytes` | The retired client chose a larger timeout for a larger expected transfer. | **Obsolete** — this was transport policy, not product behavior. |
+| `transfer_timeout_scales_with_expected_bytes` | The retired client chose a larger timeout for a larger expected transfer. | **Obsolete** — size-based scaling was transport policy, not product behavior; the fixed deadline for finite requests remains a required liveness bound. |
 | `post_blob_object_sends_octet_stream` | Creating an object uploads encrypted bytes with the server's raw-blob content type. | **Acceptance** |
 | `put_blob_object_handles_409_conflict` | An optimistic-version conflict is returned as structured conflict data. | **Acceptance** |
 | `classifies_413_as_payload_too_large` | HTTP 413 is recognizable as an oversized note rather than an ordinary server error. | **Acceptance** |
@@ -477,6 +477,23 @@ The replacement now has three deliberately different layers:
 The fast layer intentionally does not recreate the former planners, adapters,
 mock endpoints, or batch protocol. Its tests name behavior in the language of
 state, files, remote objects, and public summaries.
+
+## Preserve transport lifetimes when simplifying clients
+
+The rewrite correctly retired timeout scaling based on an estimated transfer
+size, but accidentally removed the baseline total-request deadline at the same
+time. A connect timeout alone is insufficient: once TCP connects, a server can
+stall response headers or a body forever. Because no shell imposes another
+deadline, connect and sync then remain pending without surfacing an error or
+reaching their existing retry paths.
+
+Finite and streaming requests need different client policies. The auth-mode
+probe has a 5 s total deadline, every other finite request (including blob
+transfer) has a fixed 30 s total deadline, and SSE uses a separate client
+without a total deadline because the stream is intentionally long-lived. SSE
+liveness after response headers is owned by the live loop's read-idle watchdog.
+Keep tests for both halves of this split: a stalled finite response must time
+out, while an event stream must survive beyond the finite-request deadline.
 
 ## Follow-up queue
 
