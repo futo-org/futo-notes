@@ -624,7 +624,10 @@ control set).
   (`localNoteStore.ts` `compareNoteOrder`). The former shell copies are GONE — shells apply
   engine-reported positions as verbatim splices (ADR-0001); never reintroduce a shell comparator
   or a shell final-id heuristic.
-- Unique note-ID generation in Rust, TypeScript, Swift, and Kotlin.
+- Unique note-ID generation (`-2`, `-3`, … collision suffixes) in Rust (canonical,
+  `futo-notes-store` `paths::unique_note_id`) + the browser in-memory harness
+  (`localNoteStore.ts` `unique`). Swift and Kotlin do NOT generate: they pass `"Untitled"` to the
+  Rust `createNote` and only *recognize* the suffix shape (`isPlaceholderTitle`) — keep it that way.
 
 ## 13. Own the E2E experience
 

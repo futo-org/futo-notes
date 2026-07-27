@@ -2,9 +2,14 @@
 
 > **Historical note:** this documents the retired Tauri Android shell and is
 > preserved as a learning. The generated Tauri Android files it references were
-> removed from `main` when mobile moved to the native Compose shell. If a similar
-> IME crash appears in the native shell, treat this as prior art, not active
-> implementation documentation.
+> removed from `main` when mobile moved to the native Compose shell. The
+> shared-editor half is gone too: `src/lib/imeShield.ts` / `imeShieldPlugin` were
+> deleted (FUTO Keyboard fixed the crash upstream — see `docs/spec/editor.md`
+> "Android — IME"), and with them the `just verify-ime-shield` /
+> `verify-ime-shield-in-generated` recipes this document tells you to run. Every
+> command and file path below is a record of how it worked, not something you can
+> run today. If a similar IME crash appears in the native shell, treat this as
+> prior art, not active implementation documentation.
 
 **This was a load-bearing workaround in the retired Tauri Android shell.** If
 you are reading this because a similar "weird IME wrapper" is being considered
