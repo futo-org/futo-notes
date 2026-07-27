@@ -221,6 +221,19 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   the tapped character. iOS also keeps a ⋯ → Rename alert as a secondary path. →
   NoteEditorView.swift `TitleTextField` / `isPlaceholderTitle`,
   NoteEditorScreen.kt `isPlaceholderTitle`
+- **A title longer than the screen never widens the editor** on any of the
+  three apps. The title field takes the width of the editor column and no more,
+  so an over-long title is cut off at the column edge rather than pushing
+  itself — or the note body beside it — off-screen; while editing, the field
+  scrolls to follow the caret. How the overflow reads differs by platform and
+  is cosmetic: iOS ellipsizes the unfocused title, Android clips it mid-glyph.
+  iOS needs `TitleTextField.sizeThatFits` to report the proposed width, because
+  a `UIViewRepresentable` otherwise sizes itself to the text's natural width and
+  drags the whole editor VStack — embedded web view included — with it; Android
+  and desktop are pinned declaratively (`fillMaxWidth()`, `width: 100%`).
+  *(verified iOS simulator + Android emulator 2026-07-27)* →
+  NoteEditorView.swift `TitleTextField`, TitleTextFieldLayoutTests,
+  NoteEditorScreen.kt `BasicTextField`, NoteWorkspace.svelte `.title-input`
 - **The native title fields detect and reject illegal titles, matching desktop.**
   A forbidden filesystem char (`< > : " / \ | ? *` or a control char) is stripped
   in place as you type, with a transient (~2 s) warning "That character can't be

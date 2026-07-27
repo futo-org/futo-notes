@@ -1047,7 +1047,9 @@ func isPlaceholderTitle(_ t: String) -> Bool {
 /// beginning to edit a placeholder title selects the whole text (a keystroke
 /// replaces it), while a real title keeps UIKit's tap-positioned caret. Text
 /// edits are reported via `onChange` (the editor debounces the rename).
-private struct TitleTextField: UIViewRepresentable {
+// Not `private`: TitleTextFieldLayoutTests hosts it to measure its width, and
+// `@testable import` cannot reach a private type.
+struct TitleTextField: UIViewRepresentable {
     @Binding var text: String
     var onChange: (String) -> Void
     /// A forbidden character was typed and stripped (drives the transient warning).
@@ -1079,6 +1081,23 @@ private struct TitleTextField: UIViewRepresentable {
         if !uiView.isFirstResponder, uiView.text != text {
             uiView.text = text
         }
+    }
+
+    /// Take the offered width verbatim instead of the width the text wants
+    /// (list.md). A definite proposal is a real layout slot, so the field fills
+    /// it and no more. A nil/infinite proposal is SwiftUI asking for an ideal
+    /// size, where the natural text width is the honest answer — returning nil
+    /// defers to it.
+    func sizeThatFits(
+        _ proposal: ProposedViewSize, uiView: UITextField, context: Context
+    ) -> CGSize? {
+        guard let width = proposal.width, width.isFinite else { return nil }
+        let height = uiView.systemLayoutSizeFitting(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        return CGSize(width: width, height: height)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
