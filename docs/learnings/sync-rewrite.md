@@ -490,10 +490,12 @@ reaching their existing retry paths.
 Finite and streaming requests need different client policies. The auth-mode
 probe has a 5 s total deadline, every other finite request (including blob
 transfer) has a fixed 30 s total deadline, and SSE uses a separate client
-without a total deadline because the stream is intentionally long-lived. SSE
-liveness after response headers is owned by the live loop's read-idle watchdog.
-Keep tests for both halves of this split: a stalled finite response must time
-out, while an event stream must survive beyond the finite-request deadline.
+without a total deadline because the successful stream body is intentionally
+long-lived. The SSE response-header phase and any non-success response body are
+still finite operations and each has a 30 s deadline; after successful headers,
+stream liveness is owned by the live loop's read-idle watchdog. Keep tests for
+every side of this split: stalled headers and error bodies must time out, while
+a successful event stream must survive beyond the finite-request deadline.
 
 ## Follow-up queue
 

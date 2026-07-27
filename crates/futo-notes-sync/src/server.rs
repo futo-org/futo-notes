@@ -161,7 +161,11 @@ impl Http {
 
     async fn response_error(response: reqwest::Response) -> HttpError {
         let status = response.status().as_u16();
-        let text = response.text().await.unwrap_or_default();
+        let text = tokio::time::timeout(REQUEST_TIMEOUT, response.text())
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
         let message = serde_json::from_str::<ErrorBody>(&text)
             .ok()
             .and_then(|body| body.error)
@@ -414,10 +418,16 @@ impl Http {
             Some(token) => request.bearer_auth(token),
             None => request,
         };
-        let response = request.send().await.map_err(|e| HttpError {
-            status: e.status().map(|s| s.as_u16()),
-            message: e.to_string(),
-        })?;
+        let response = tokio::time::timeout(REQUEST_TIMEOUT, request.send())
+            .await
+            .map_err(|_| HttpError {
+                status: None,
+                message: "event stream response timed out".into(),
+            })?
+            .map_err(|e| HttpError {
+                status: e.status().map(|s| s.as_u16()),
+                message: e.to_string(),
+            })?;
         if !response.status().is_success() {
             return Err(Self::response_error(response).await);
         }
@@ -441,6 +451,13 @@ mod tests {
 
     use super::*;
 
+    #[derive(Clone, Copy)]
+    enum HangingResponse {
+        NoHeaders,
+        EventStream,
+        Error,
+    }
+
     struct HangingServer {
         base_url: String,
         request_received: Receiver<()>,
@@ -449,7 +466,7 @@ mod tests {
     }
 
     impl HangingServer {
-        fn new(sends_event_headers: bool) -> Self {
+        fn new(response: HangingResponse) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
             let (request_received_tx, request_received) = mpsc::channel();
@@ -457,17 +474,28 @@ mod tests {
             let handle = std::thread::spawn(move || {
                 let (mut stream, _) = listener.accept().unwrap();
                 read_request_headers(&mut stream);
-                if sends_event_headers {
-                    stream
-                        .write_all(
+                match response {
+                    HangingResponse::NoHeaders => {}
+                    HangingResponse::EventStream => {
+                        stream
+                            .write_all(
                             b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
                         )
-                        .unwrap();
-                    stream.flush().unwrap();
+                            .unwrap();
+                        stream.flush().unwrap();
+                    }
+                    HangingResponse::Error => {
+                        stream
+                            .write_all(
+                                b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
+                            )
+                            .unwrap();
+                        stream.flush().unwrap();
+                    }
                 }
                 request_received_tx.send(()).unwrap();
                 let _ = release_rx.recv();
-                if sends_event_headers {
+                if matches!(response, HangingResponse::EventStream) {
                     let _ = stream.write_all(b"event: ready\ndata:\n\n");
                     let _ = stream.flush();
                 }
@@ -530,6 +558,12 @@ mod tests {
         }
     }
 
+    async fn allow_network_task_to_settle() {
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+    }
+
     #[test]
     fn timestamp_matches_javascript_date_milliseconds() {
         assert_eq!(timestamp_ms("2026-06-05T12:34:56.789Z"), 1_780_662_896_789);
@@ -584,7 +618,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn ordinary_requests_have_a_total_timeout() {
-        let server = HangingServer::new(false);
+        let server = HangingServer::new(HangingResponse::NoHeaders);
         let http = Http::new(&server.base_url).unwrap().token("token");
         let request = tokio::spawn(async move { http.collections().await });
         server.wait_for_request().await;
@@ -601,7 +635,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn auth_mode_uses_the_short_probe_timeout() {
-        let server = HangingServer::new(false);
+        let server = HangingServer::new(HangingResponse::NoHeaders);
         let http = Http::new(&server.base_url).unwrap();
         let request = tokio::spawn(async move { http.auth_mode().await });
         server.wait_for_request().await;
@@ -618,7 +652,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn blob_download_uses_the_shared_request_timeout() {
-        let server = HangingServer::new(false);
+        let server = HangingServer::new(HangingResponse::NoHeaders);
         let http = Http::new(&server.base_url).unwrap().token("token");
         let request = tokio::spawn(async move { http.blob("blob-key").await });
         server.wait_for_request().await;
@@ -635,7 +669,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn event_stream_has_no_total_request_timeout() {
-        let mut server = HangingServer::new(true);
+        let mut server = HangingServer::new(HangingResponse::EventStream);
         let http = Http::new(&server.base_url).unwrap().token("token");
         let response = tokio::spawn(async move { http.events().await });
         server.wait_for_request().await;
@@ -646,5 +680,42 @@ mod tests {
 
         let chunk = response.chunk().await.unwrap().unwrap();
         assert_eq!(chunk, "event: ready\ndata:\n\n");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn event_stream_response_headers_have_a_timeout() {
+        let server = HangingServer::new(HangingResponse::NoHeaders);
+        let http = Http::new(&server.base_url).unwrap().token("token");
+        let request = tokio::spawn(async move { http.events().await });
+        server.wait_for_request().await;
+        allow_network_task_to_settle().await;
+
+        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+
+        assert!(
+            request.is_finished(),
+            "event stream remained pending while waiting for response headers"
+        );
+        assert!(request.await.unwrap().is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn event_stream_error_body_has_a_timeout() {
+        let server = HangingServer::new(HangingResponse::Error);
+        let http = Http::new(&server.base_url).unwrap().token("token");
+        let request = tokio::spawn(async move { http.events().await });
+        server.wait_for_request().await;
+        allow_network_task_to_settle().await;
+
+        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+
+        assert!(
+            request.is_finished(),
+            "event stream remained pending while reading an error response body"
+        );
+        let error = request.await.unwrap().unwrap_err();
+        assert_eq!(error.status, Some(500));
     }
 }
