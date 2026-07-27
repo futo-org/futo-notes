@@ -112,7 +112,7 @@ async fn merge_content(
     }
     let base = context
         .http
-        .blob(&existing.blob_key)
+        .blob(&existing.blob_key, 0)
         .await
         .ok()
         .and_then(|ciphertext| e2ee::aes_gcm_decrypt(&context.state.vault_key, &ciphertext).ok())

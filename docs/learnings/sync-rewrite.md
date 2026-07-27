@@ -263,7 +263,7 @@ implementation to be genuinely different.
 | `get_blobs_batch_returns_entries_in_request_order` | The retired batch endpoint associated each response with the requested key. | **Obsolete** |
 | `get_blobs_batch_rejects_entry_count_mismatch` | The retired batch endpoint rejected missing response entries. | **Obsolete** |
 | `get_blobs_batch_propagates_404_for_fallback_detection` | A missing batch endpoint activated a legacy per-blob fallback. | **Obsolete** — per-blob transfer is now the only path. |
-| `transfer_timeout_scales_with_expected_bytes` | The retired client chose a larger timeout for a larger expected transfer. | **Obsolete** — size-based scaling was transport policy, not product behavior; the fixed deadline for finite requests remains a required liveness bound. |
+| `transfer_timeout_scales_with_expected_bytes` | Known-size encrypted transfers get enough time to complete at a pessimistic 128 KiB/s floor while retaining a finite deadline. | **Fast** — preserve the 30 s baseline plus expected bytes / 128 KiB/s for blob uploads and downloads. |
 | `post_blob_object_sends_octet_stream` | Creating an object uploads encrypted bytes with the server's raw-blob content type. | **Acceptance** |
 | `put_blob_object_handles_409_conflict` | An optimistic-version conflict is returned as structured conflict data. | **Acceptance** |
 | `classifies_413_as_payload_too_large` | HTTP 413 is recognizable as an oversized note rather than an ordinary server error. | **Acceptance** |
@@ -480,22 +480,28 @@ state, files, remote objects, and public summaries.
 
 ## Preserve transport lifetimes when simplifying clients
 
-The rewrite correctly retired timeout scaling based on an estimated transfer
-size, but accidentally removed the baseline total-request deadline at the same
-time. A connect timeout alone is insufficient: once TCP connects, a server can
-stall response headers or a body forever. Because no shell imposes another
-deadline, connect and sync then remain pending without surfacing an error or
-reaching their existing retry paths.
+The rewrite incorrectly retired timeout scaling for known-size encrypted blob
+transfers and also accidentally removed the baseline total-request deadline. A
+connect timeout alone is insufficient: once TCP connects, a server can stall
+response headers or a body forever. Because no shell imposes another deadline,
+connect and sync then remain pending without surfacing an error or reaching
+their existing retry paths. Conversely, applying the baseline 30 s deadline to
+a maximum-size blob would require roughly 28 Mbps of sustained payload
+throughput, turning a healthy slow connection into a deterministic failure.
 
 Finite and streaming requests need different client policies. The auth-mode
-probe has a 5 s total deadline, every other finite request (including blob
-transfer) has a fixed 30 s total deadline, and SSE uses a separate client
-without a total deadline because the successful stream body is intentionally
-long-lived. The SSE response-header phase and any non-success response body are
-still finite operations and each has a 30 s deadline; after successful headers,
-stream liveness is owned by the live loop's read-idle watchdog. Keep tests for
-every side of this split: stalled headers and error bodies must time out, while
-a successful event stream must survive beyond the finite-request deadline.
+probe has a 5 s total deadline, ordinary finite requests have a 30 s deadline,
+and known-size encrypted blob transfers use that baseline plus one second for
+each complete 128 KiB of expected payload. Uploads know the ciphertext body
+length; pull downloads use the server object's `size_bytes`; an unknown size
+retains the finite 30 s baseline. SSE uses a separate client without a total
+deadline because the successful stream body is intentionally long-lived. The
+SSE response-header phase and any non-success response body are still finite
+operations and each has a 30 s deadline; after successful headers, stream
+liveness is owned by the live loop's read-idle watchdog. Keep tests for every
+side of this split: ordinary requests, unknown-size blobs, stalled SSE headers,
+and error bodies must time out; known-size transfers must scale; and a
+successful event stream must survive beyond the finite-request deadline.
 
 ## Follow-up queue
 

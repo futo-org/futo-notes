@@ -8,6 +8,11 @@ use serde::{Deserialize, Deserializer};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const TRANSFER_FLOOR_BYTES_PER_SEC: u64 = 128 * 1024;
+
+fn transfer_timeout(expected_bytes: u64) -> Duration {
+    REQUEST_TIMEOUT + Duration::from_secs(expected_bytes / TRANSFER_FLOOR_BYTES_PER_SEC)
+}
 
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
@@ -51,6 +56,22 @@ where
     }
 }
 
+fn optional_number<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Value {
+        Number(u64),
+        String(String),
+    }
+    Option::<Value>::deserialize(deserializer)?.map_or(Ok(None), |value| match value {
+        Value::Number(number) => Ok(Some(number)),
+        Value::String(string) => string.parse().map(Some).map_err(serde::de::Error::custom),
+    })
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Object {
     pub id: String,
@@ -62,6 +83,8 @@ pub(crate) struct Object {
     pub deleted: bool,
     #[serde(default)]
     pub blob_key: Option<String>,
+    #[serde(default, deserialize_with = "optional_number")]
+    pub size_bytes: Option<u64>,
     #[serde(default)]
     pub updated_at: String,
 }
@@ -308,9 +331,10 @@ impl Http {
         .object)
     }
 
-    pub async fn blob(&self, key: &str) -> Result<Vec<u8>, HttpError> {
+    pub async fn blob(&self, key: &str, expected_bytes: u64) -> Result<Vec<u8>, HttpError> {
         let response = self
             .request(Method::GET, &format!("/api/blobs/{key}"))
+            .timeout(transfer_timeout(expected_bytes))
             .send()
             .await
             .map_err(|e| HttpError {
@@ -363,12 +387,14 @@ impl Http {
         collection: &str,
         ciphertext: Vec<u8>,
     ) -> Result<Write, HttpError> {
+        let timeout = transfer_timeout(ciphertext.len() as u64);
         match Self::mutation(
             self.request(
                 Method::POST,
                 &format!("/api/collections/{collection}/blob-objects"),
             )
             .header("content-type", "application/octet-stream")
+            .timeout(timeout)
             .body(ciphertext),
         )
         .await?
@@ -385,12 +411,14 @@ impl Http {
         version: u64,
         ciphertext: Vec<u8>,
     ) -> Result<Mutation, HttpError> {
+        let timeout = transfer_timeout(ciphertext.len() as u64);
         Self::mutation(
             self.request(
                 Method::PUT,
                 &format!("/api/collections/{collection}/blob-objects/{object}?version={version}"),
             )
             .header("content-type", "application/octet-stream")
+            .timeout(timeout)
             .body(ciphertext),
         )
         .await
@@ -576,16 +604,28 @@ mod tests {
             let value = serde_json::json!({
                 "id": "o1",
                 "version": version,
-                "change_seq": "9"
+                "change_seq": "9",
+                "size_bytes": "12"
             });
             let object: Object = serde_json::from_value(value).unwrap();
             assert_eq!(object.version, 7);
             assert_eq!(object.change_seq, 9);
+            assert_eq!(object.size_bytes, Some(12));
         }
         assert!(serde_json::from_value::<Object>(serde_json::json!({
             "id":"o1", "version":"nope", "change_seq":1
         }))
         .is_err());
+    }
+
+    #[test]
+    fn transfer_timeout_scales_with_expected_bytes() {
+        assert_eq!(transfer_timeout(0), REQUEST_TIMEOUT);
+        assert_eq!(transfer_timeout(32 * 1024 * 1024), Duration::from_secs(286));
+        assert_eq!(
+            transfer_timeout(100 * 1024 * 1024),
+            Duration::from_secs(830)
+        );
     }
 
     #[test]
@@ -651,10 +691,10 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn blob_download_uses_the_shared_request_timeout() {
+    async fn blob_download_without_known_size_uses_the_base_request_timeout() {
         let server = HangingServer::new(HangingResponse::NoHeaders);
         let http = Http::new(&server.base_url).unwrap().token("token");
-        let request = tokio::spawn(async move { http.blob("blob-key").await });
+        let request = tokio::spawn(async move { http.blob("blob-key", 0).await });
         server.wait_for_request().await;
 
         tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
@@ -664,6 +704,51 @@ mod tests {
             request.is_finished(),
             "blob download remained pending past the shared timeout"
         );
+        assert!(request.await.unwrap().is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn blob_download_timeout_scales_with_expected_size() {
+        let server = HangingServer::new(HangingResponse::NoHeaders);
+        let http = Http::new(&server.base_url).unwrap().token("token");
+        let request = tokio::spawn(async move { http.blob("blob-key", 128 * 1024).await });
+        server.wait_for_request().await;
+        allow_network_task_to_settle().await;
+
+        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+        assert!(
+            !request.is_finished(),
+            "blob download ignored its expected-size timeout"
+        );
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+        assert!(request.is_finished(), "blob download had no finite timeout");
+        assert!(request.await.unwrap().is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn blob_upload_timeout_scales_with_payload_size() {
+        let server = HangingServer::new(HangingResponse::NoHeaders);
+        let http = Http::new(&server.base_url).unwrap().token("token");
+        let request =
+            tokio::spawn(
+                async move { http.create_object("collection", vec![0; 128 * 1024]).await },
+            );
+        server.wait_for_request().await;
+        allow_network_task_to_settle().await;
+
+        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+        assert!(
+            !request.is_finished(),
+            "blob upload ignored its payload-scaled timeout"
+        );
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+        assert!(request.is_finished(), "blob upload had no finite timeout");
         assert!(request.await.unwrap().is_err());
     }
 
