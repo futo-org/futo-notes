@@ -48,6 +48,19 @@ export async function waitForTestHooks(
   );
 }
 
+/**
+ * Point a host-loopback server URL at the address a non-host client uses to
+ * reach the host (the Android emulator's 10.0.2.2). Shared with the native
+ * Android client so both legs translate the harness server URL identically.
+ */
+export function rewriteLoopbackHost(serverUrl, host) {
+  const url = new URL(serverUrl);
+  if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
+    url.hostname = host;
+  }
+  return url.toString();
+}
+
 export class TauriTestClient {
   constructor({
     name,
@@ -79,11 +92,7 @@ export class TauriTestClient {
   }
 
   normalizeServerUrl(serverUrl) {
-    const url = new URL(serverUrl);
-    if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
-      url.hostname = this.loopbackHost;
-    }
-    return url.toString();
+    return rewriteLoopbackHost(serverUrl, this.loopbackHost);
   }
 
   async readWebview(expression, label = 'webview read') {

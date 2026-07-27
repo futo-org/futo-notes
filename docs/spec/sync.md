@@ -370,14 +370,23 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   client also runs a ~45 s safety poll and reconnects with exponential backoff;
   a fresh `ready` drives a catch-up pull. This safety poll is also the only path
   that catches mutations the server emits no event for (collection
-  create/delete, key rotation).
+  create/delete, key rotation). On native Android the recovery after a real
+  network loss — reconnect, then a push-first catch-up cycle with no user action
+  — is guarded by the cross-platform scenario "android conflicts with a desktop
+  edit", which takes the phone offline via airplane mode.
 - The live stream is paused when the app is backgrounded and resumed on
   foreground (re-foregrounding gets a fresh `ready` → catch-up). → Android
   MainActivity `onStart`/`onStop`; iOS `FutoNotesApp` `scenePhase`
-  (`SyncManager.pauseLive`/`resumeLiveAsync`).
+  (`SyncManager.pauseLive`/`resumeLiveAsync`). Note that backgrounding is not an
+  instant cut-off: a pull already in flight can still land after `pauseLive`, so
+  a test that needs the app genuinely offline must cut the network (the
+  native-Android sync leg uses airplane mode).
 - Live sync is wired on native **Android and iOS** — both implement the Rust FFI
   `SyncEventListener` callback over the same `start_live`/`stop_live`. → SyncScreen.kt
-  (Android), SyncManager.swift + SyncView.swift (iOS)
+  (Android), SyncManager.swift + SyncView.swift (iOS); the Android half is driven
+  end-to-end against the real app by the native-Android leg of
+  tests/cross-platform-sync.mjs ("android receives a desktop note live" — a
+  desktop push must appear in the phone's vault with no tap on the phone)
 - Live sync is also wired on **Tauri desktop** — Rust `e2ee_start_live` /
   `e2ee_stop_live` drive the same `SyncSession`, emitting
   `sync:live-state` (tracks stream health internally via `setLiveConnected`; no
@@ -396,6 +405,9 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   A live pull also reindexes the pulled changes into the search engine so
   synced-in notes are immediately searchable (peer changes → `change`,
   deletions → `unlink`, renames → `rename`); see [search.md](search.md).
+  On Android the refresh itself — not just the file landing on disk — is asserted
+  against the real Compose list by the cross-platform scenario "android receives a
+  desktop note live".
   - The reload fires on the core-computed `SyncSummary.localWritesApplied`, not
     only `downloaded`/`deleted` — a **push-side** clean merge (`MergedClean`)
     writes merged text to local disk while reporting `uploaded`, so gating on
@@ -415,7 +427,9 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
     loop debounces and pushes the edit; peers then receive it within ~1 s via SSE.
     Fire-and-forget and a no-op when not connected. → `NotesStore.onLocalChange`
     (wired in iOS `FutoNotesApp` / Android `MainActivity`), `SyncClient::note_changed`,
-    futo-notes-sync `session/` (debounced push branch)
+    futo-notes-sync `session/` (debounced push branch); on Android the whole chain
+    from a WebView editor keystroke to the peer's disk is guarded by the
+    cross-platform scenario "desktop receives an android editor edit"
 - The native session (auth token + vault key) is in-memory, but **all three
   shells persist the sync password in the OS secret store and auto-reconnect on
   a cold launch**, so live sync survives a force-quit / process death: iOS
@@ -477,7 +491,10 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 
 - A dirty-merge (local edits plus a remote change to the same note) parks the
   local edits in a `note (conflict YYYY-MM-DD).md` copy rather than discarding
-  them. → futo-notes-sync sync module
+  them. → futo-notes-sync sync module; on the native Android shell this is
+  asserted in the device's own vault (the losing text survives under some other
+  filename, and both clients converge) by the cross-platform scenario "android
+  conflicts with a desktop edit"
 - **A local edit to a note a peer deleted is preserved, not discarded.** When a
   dirty local edit is pushed but the server object was tombstoned by a peer, the
   edit is re-POSTed as a fresh LIVE object at its own filename instead of being

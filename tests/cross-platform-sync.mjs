@@ -7,14 +7,22 @@
  *   editor/UI → note session save pipeline → autoSync/syncManager →
  *   Rust core → HTTP → server → and back.
  *
+ * A second leg pairs a desktop client with the REAL native Android app when a
+ * usable device is reachable, covering the Android shell glue the desktop pair
+ * cannot see (FFI wiring, live-loop lifecycle, list refresh). With no device it
+ * prints a loud SKIP and runs the desktop-only mesh — see runAndroidLeg.
+ *
  * Usage:
  *   node tests/cross-platform-sync.mjs
  *   node tests/cross-platform-sync.mjs --scenario "five notes roundtrip"
+ *   node tests/cross-platform-sync.mjs --no-android    (desktop mesh only)
  *
  * Requires:
  *   - Debug Tauri binary:  cd apps/tauri && cargo tauri build --debug --no-bundle
  *   - E2EE server repo:    ~/Developer/futo-notes-server (override: FUTO_NOTES_E2EE_SERVER_REPO)
  *   - Frontend built with: VITE_INCLUDE_TEST_HOOKS=true pnpm run build
+ *   - Android leg only:    a booted device/emulator with the debug app
+ *                          (just qa-claim android && just android-native)
  */
 
 import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -23,6 +31,11 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startDesktopTauriInstance } from './lib/tauri-instance.mjs';
+import {
+  HARNESS_NOTE_PREFIX,
+  findAndroidLegDevice,
+  startAndroidNativeInstance,
+} from './lib/android-native-instance.mjs';
 import { startServer } from './lib/sync-test-server.mjs';
 import { sleep } from './lib/mcp-client.mjs';
 
@@ -39,6 +52,9 @@ const { values: args } = parseArgs({
     // probes whose mechanisms are covered by cheap scenarios). Main and tag
     // pipelines, and local runs, execute everything.
     'skip-slow': { type: 'boolean', default: false },
+    // Leave the Android leg out even when a device is reachable (fast local
+    // desktop-only runs). No device at all skips it on its own, loudly.
+    'no-android': { type: 'boolean', default: false },
   },
 });
 
@@ -1696,6 +1712,126 @@ async function distinctSameBasenameSurvivesMoveDedup(a, b, server) {
   assert(!(await b.noteExists('W/Untitled')), 'W stays deleted');
 }
 
+// ── Android-leg scenarios ───────────────────────────────────────
+//
+// `android` is the REAL native Compose app driven through its own UI + editor
+// WebView (tests/lib/android-native-instance.mjs); `desktop` is a Tauri client.
+// The Rust sync engine is shared, so these assert only what the Android SHELL
+// owns: the FFI session, the SSE live loop across the app lifecycle, the list
+// refresh a pull must drive, and conflict copies landing in the device's vault.
+// Nothing here asserts a user-facing string or a summary count — the Android
+// side has no test hook, so every check is a file on disk or a row in the list.
+
+/** Registry marker for scenarios that need the native Android client. Unlike
+ *  `--matrix`, which picks ONE desktop pair, this leg is attached to the same
+ *  run whenever a device is available. */
+const ANDROID_MATRIX = 'desktop-android';
+
+const ANDROID_SHARED_NOTE = `${HARNESS_NOTE_PREFIX}shared`;
+
+async function androidReceivesDesktopNoteLive(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+
+  const body = '# from desktop\nthis must reach Android with no tap on the phone';
+  await desktop.writeNote(ANDROID_SHARED_NOTE, body);
+  await desktop.syncNow();
+
+  // The phone is never touched from here on: its Rust live loop has to pull…
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, body);
+  // …and the pull has to refresh the Compose list (SyncManager.onLivePull →
+  // NotesStore.reload), which is the glue a desktop-only mesh cannot see.
+  await android.waitForNoteInList(ANDROID_SHARED_NOTE);
+}
+
+async function desktopReceivesAndroidEditorEdit(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+
+  const base = '# shared\nbase text';
+  await desktop.writeNote(ANDROID_SHARED_NOTE, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, base);
+
+  // A real editor edit on the phone: the WebView posts the bridge `change`
+  // message, the shell debounces a write, and NotesStore's mutation hook tells
+  // Rust a local note changed so the live loop pushes it.
+  const edited = '# shared\nedited in the Android editor';
+  await android.editNoteViaEditor(ANDROID_SHARED_NOTE, edited);
+
+  await waitForDesktopNoteContent(desktop, ANDROID_SHARED_NOTE, edited);
+}
+
+async function androidConflictsWithDesktopEdit(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+
+  const base = '# shared\nbase text';
+  await desktop.writeNote(ANDROID_SHARED_NOTE, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, base);
+
+  // The phone goes offline for real (airplane mode). Backgrounding alone is not
+  // an offline window: an SSE pull already in flight lands after `pauseLive`, so
+  // the phone fast-forwards to the desktop's version and edits on top of it —
+  // there is no conflict left to resolve (observed).
+  await android.goOffline();
+
+  const androidText = '# shared\nedited on the phone while offline';
+  await android.editNoteViaEditor(ANDROID_SHARED_NOTE, androidText);
+
+  const desktopText = '# shared\ndesktop got there first';
+  await desktop.writeNote(ANDROID_SHARED_NOTE, desktopText);
+  await desktop.syncNow();
+
+  // Back online, the phone's live loop reconnects on its own and runs a
+  // push-first cycle: its offline edit loses the race, so it must survive as a
+  // conflict copy instead of being overwritten.
+  await android.goOnline();
+
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, desktopText);
+  const conflictId = await waitForAndroidConflictCopy(android, ANDROID_SHARED_NOTE, androidText);
+
+  // Both clients converge on the same pair of notes.
+  await waitForDesktopNoteContent(desktop, conflictId, androidText);
+  await waitForDesktopNoteContent(desktop, ANDROID_SHARED_NOTE, desktopText);
+}
+
+/** Poll the desktop client for content the phone pushed. Each iteration runs a
+ *  bounded sync rather than trusting a fixed settle window. */
+async function waitForDesktopNoteContent(client, id, expected, timeoutMs = 90_000) {
+  const start = Date.now();
+  let last = null;
+  while (Date.now() - start < timeoutMs) {
+    await client.syncNow();
+    last = await client.readNote(id).catch(() => null);
+    if (last === expected) return;
+    await sleep(1_000);
+  }
+  throw new Error(
+    `${client.name}: ${id} never became ${JSON.stringify(expected)} (last: ${JSON.stringify(last)})`,
+  );
+}
+
+/** The losing edit, preserved under some other name in the device's vault. The
+ *  assertion is that the TEXT survived — never the copy's generated filename. */
+async function waitForAndroidConflictCopy(android, id, expectedText, timeoutMs = 90_000) {
+  const start = Date.now();
+  let seen = [];
+  while (Date.now() - start < timeoutMs) {
+    seen = android
+      .listNoteFilenames()
+      .filter((name) => name.startsWith(HARNESS_NOTE_PREFIX) && name !== `${id}.md`)
+      .map((name) => name.replace(/\.md$/, ''));
+    const hit = seen.find((candidate) => android.readNote(candidate) === expectedText);
+    if (hit) return hit;
+    await sleep(1_000);
+  }
+  throw new Error(
+    `${android.name}: the losing edit was not preserved as a conflict copy (other notes: ${JSON.stringify(seen)})`,
+  );
+}
+
 // ── Scenario registry ───────────────────────────────────────────
 
 const scenarios = [
@@ -1819,6 +1955,23 @@ const scenarios = [
     name: 'distinct same basename survives move dedup',
     fn: distinctSameBasenameSurvivesMoveDedup,
     matrices: ['desktop-desktop'],
+  },
+  // Native Android leg — runs whenever a usable device is reachable, and is
+  // skipped LOUDLY otherwise (see runAndroidLeg).
+  {
+    name: 'android receives a desktop note live',
+    fn: androidReceivesDesktopNoteLive,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'desktop receives an android editor edit',
+    fn: desktopReceivesAndroidEditorEdit,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'android conflicts with a desktop edit',
+    fn: androidConflictsWithDesktopEdit,
+    matrices: [ANDROID_MATRIX],
   },
 ];
 
@@ -1981,71 +2134,10 @@ function killStalePreviewAndClients() {
   }
 }
 
-async function main() {
-  console.log('Cross-platform sync integration tests\n');
-
-  const matrix = matrixLaunchers[args.matrix];
-  if (!matrix) {
-    throw new Error(
-      `Unknown matrix "${args.matrix}". Expected one of: ${Object.keys(matrixLaunchers).join(', ')}`,
-    );
-  }
-  console.log(`Matrix: ${matrix.label}\n`);
-
-  // Bootstrap artifacts and clean up stale state from a prior run.
-  const bootstrapStartedAt = Date.now();
-  killStalePreviewAndClients();
-  ensureDesktopDebugBinary();
-  timings.bootstrapMs = Date.now() - bootstrapStartedAt;
-
-  // Filter scenarios if --scenario is set
-  const selected = args.scenario
-    ? scenarios.filter((s) => s.name.toLowerCase().includes(args.scenario.toLowerCase()))
-    : scenarios;
-
-  if (selected.length === 0) {
-    console.error(`No scenarios matching "${args.scenario}"`);
-    process.exit(1);
-  }
-
-  const toRun = [];
-  for (const scenario of selected) {
-    if (!scenario.matrices.includes(args.matrix)) {
-      results.push({
-        name: scenario.name,
-        skip: true,
-        reason: `not included in matrix ${args.matrix}`,
-      });
-      console.log(`  - ${scenario.name} (skipped: not included in matrix ${args.matrix})`);
-    } else if (scenario.skipOnCi && process.env.CI) {
-      results.push({ name: scenario.name, skip: true, reason: 'skipOnCi' });
-      console.log(`  - ${scenario.name} (skipped: flaky on CI — see scenario registry TODO)`);
-    } else if (scenario.slow && args['skip-slow']) {
-      results.push({ name: scenario.name, skip: true, reason: 'slow (--skip-slow)' });
-      console.log(`  - ${scenario.name} (skipped: slow — runs on main/tag pipelines)`);
-    } else {
-      toRun.push(scenario);
-    }
-  }
-
-  if (toRun.length === 0) {
-    throw new Error(`No runnable scenarios for matrix ${args.matrix}`);
-  }
-
-  // ── Suite setup: start 2 Tauri instances (done once) ──────────
-  console.log('\nStarting Tauri instances...');
-
-  const clientStartupStartedAt = Date.now();
-  // startClients registers each client's stop in managedStops as it comes up.
-  const [clientA, clientB] = await matrix.startClients();
-  timings.clientStartupMs = Date.now() - clientStartupStartedAt;
-  console.log(`  Client A ready (${clientA.platform}, MCP port ${clientA.port ?? 'n/a'})`);
-  console.log(`  Client B ready (${clientB.platform}, MCP port ${clientB.port ?? 'n/a'})`);
-
-  console.log('');
-
-  // ── Run scenarios ─────────────────────────────────────────────
-  for (const scenario of toRun) {
+/** Run a list of scenarios against one client pair: fresh server per scenario,
+ *  both clients reset in between, one result row each. */
+async function runScenarios(list, clientA, clientB) {
+  for (const scenario of list) {
     const port = serverPortCounter++;
     const serverSetupStartedAt = Date.now();
     const server = await startServer(port, REPO_ROOT, scenario.serverOptions ?? {});
@@ -2099,6 +2191,137 @@ async function main() {
       server.stop();
     }
   }
+}
+
+/**
+ * Attach the native Android leg when a usable device is reachable.
+ *
+ * No device is a legitimate state (CI runners have no emulator), so it skips —
+ * but never quietly: the banner says the mesh ran desktop-only and every skipped
+ * scenario carries its reason into the report. A device that IS available and
+ * then fails to start is a red failure, not a skip (AGENTS.md M11).
+ */
+async function runAndroidLeg(androidScenarios, desktopClient) {
+  if (androidScenarios.length === 0) return;
+
+  const device = args['no-android']
+    ? { available: false, reason: '--no-android was passed' }
+    : findAndroidLegDevice();
+
+  if (!device.available) {
+    console.log('');
+    console.log('='.repeat(72));
+    console.log('SKIP: no Android device — running desktop-only mesh');
+    console.log(`  reason: ${device.reason}`);
+    console.log('  to include it: just qa-claim android && just android-native');
+    console.log(`  skipped: ${androidScenarios.map((s) => s.name).join(', ')}`);
+    console.log('='.repeat(72));
+    for (const scenario of androidScenarios) {
+      results.push({
+        name: scenario.name,
+        skip: true,
+        reason: `no Android device: ${device.reason}`,
+      });
+    }
+    return;
+  }
+
+  console.log(`\nStarting native Android client on ${device.serial}...`);
+  let android;
+  try {
+    const startedAt = Date.now();
+    android = await startAndroidNativeInstance('client-android', REPO_ROOT, device.serial);
+    timings.clientStartupMs += Date.now() - startedAt;
+    managedStops.push(() => android.stop());
+    console.log(`  Client Android ready (${android.platform}, vault ${android.vaultPath})\n`);
+  } catch (err) {
+    // The device was there; failing to drive it is a real failure.
+    console.log(`  ✗ native Android client failed to start: ${err.message}`);
+    for (const scenario of androidScenarios) {
+      results.push({
+        name: scenario.name,
+        pass: false,
+        ms: 0,
+        error: `android startup: ${err.message}`,
+      });
+    }
+    return;
+  }
+
+  await runScenarios(androidScenarios, desktopClient, android);
+  android.stop();
+}
+
+async function main() {
+  console.log('Cross-platform sync integration tests\n');
+
+  const matrix = matrixLaunchers[args.matrix];
+  if (!matrix) {
+    throw new Error(
+      `Unknown matrix "${args.matrix}". Expected one of: ${Object.keys(matrixLaunchers).join(', ')}`,
+    );
+  }
+  console.log(`Matrix: ${matrix.label}\n`);
+
+  // Bootstrap artifacts and clean up stale state from a prior run.
+  const bootstrapStartedAt = Date.now();
+  killStalePreviewAndClients();
+  ensureDesktopDebugBinary();
+  timings.bootstrapMs = Date.now() - bootstrapStartedAt;
+
+  // Filter scenarios if --scenario is set
+  const selected = args.scenario
+    ? scenarios.filter((s) => s.name.toLowerCase().includes(args.scenario.toLowerCase()))
+    : scenarios;
+
+  if (selected.length === 0) {
+    console.error(`No scenarios matching "${args.scenario}"`);
+    process.exit(1);
+  }
+
+  const toRun = [];
+  const androidLegScenarios = [];
+  for (const scenario of selected) {
+    if (scenario.matrices.includes(ANDROID_MATRIX)) {
+      // Availability is decided later, after the desktop mesh has run, so a
+      // missing or broken device can never delay or fail the desktop suite.
+      androidLegScenarios.push(scenario);
+    } else if (!scenario.matrices.includes(args.matrix)) {
+      results.push({
+        name: scenario.name,
+        skip: true,
+        reason: `not included in matrix ${args.matrix}`,
+      });
+      console.log(`  - ${scenario.name} (skipped: not included in matrix ${args.matrix})`);
+    } else if (scenario.skipOnCi && process.env.CI) {
+      results.push({ name: scenario.name, skip: true, reason: 'skipOnCi' });
+      console.log(`  - ${scenario.name} (skipped: flaky on CI — see scenario registry TODO)`);
+    } else if (scenario.slow && args['skip-slow']) {
+      results.push({ name: scenario.name, skip: true, reason: 'slow (--skip-slow)' });
+      console.log(`  - ${scenario.name} (skipped: slow — runs on main/tag pipelines)`);
+    } else {
+      toRun.push(scenario);
+    }
+  }
+
+  if (toRun.length === 0 && androidLegScenarios.length === 0) {
+    throw new Error(`No runnable scenarios for matrix ${args.matrix}`);
+  }
+
+  // ── Suite setup: start 2 Tauri instances (done once) ──────────
+  console.log('\nStarting Tauri instances...');
+
+  const clientStartupStartedAt = Date.now();
+  // startClients registers each client's stop in managedStops as it comes up.
+  const [clientA, clientB] = await matrix.startClients();
+  timings.clientStartupMs = Date.now() - clientStartupStartedAt;
+  console.log(`  Client A ready (${clientA.platform}, MCP port ${clientA.port ?? 'n/a'})`);
+  console.log(`  Client B ready (${clientB.platform}, MCP port ${clientB.port ?? 'n/a'})`);
+
+  console.log('');
+
+  await runScenarios(toRun, clientA, clientB);
+  await runAndroidLeg(androidLegScenarios, clientA);
 
   // ── Report ────────────────────────────────────────────────────
   console.log('');
