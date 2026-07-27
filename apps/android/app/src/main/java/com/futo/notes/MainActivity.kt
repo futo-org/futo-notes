@@ -559,9 +559,6 @@ class MainActivity : ComponentActivity() {
                 cleanupRequired = false,
             )
             val outcome = runCatching {
-                check(EditorHost.get(this@MainActivity).freezeAndCaptureContent()) {
-                    "The open editor could not be snapshotted"
-                }
                 sync.quiesceForStorageMigration()
                 withContext(Dispatchers.IO) {
                     storageMigrationJournal.write(prepared).getOrThrow()
@@ -614,7 +611,6 @@ class MainActivity : ComponentActivity() {
             }
             current.suppressAutoPush = false
             current.resumeAfterStorageMigrationFailure()
-            EditorHost.get(this@MainActivity).resumeAfterStorageMigrationFailure()
             storageSwitching.value = false
             sync.resumeAfterStorageMigrationFailure()
             Toast.makeText(

@@ -296,7 +296,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     /** Save an editor image and consume its filename while holding the same
      * migration gate as note workflows. The consumer is part of the operation:
-     * image insertion reaches the WebView before migration may snapshot it. */
+     * migration cannot begin until WebView insertion is confirmed. */
     suspend fun saveImageIntoVault(
         save: (File) -> String?,
         useSavedImage: suspend (String) -> Unit,
@@ -383,16 +383,15 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
 
-    /** Freeze store access before the WebView's final synchronous snapshot.
-     * Refuse while a write is active: image saves complete with a later editor
-     * callback, so merely waiting for their file I/O would snapshot too early. */
+    /** Claim exclusive vault access for migration. Refuse while a write is
+     * active because image saves include their later WebView insertion. */
     fun tryBeginStorageMigration(): Boolean =
         storageMigrationGate.tryBeginMigrationWhenIdle()
 
     /**
-     * Flush live editor drafts and hold the vault gate across migration. Existing
-     * store operations finish before the copy starts; the Activity blocks new UI
-     * input and pauses sync before calling this method.
+     * Flush retained editor drafts and hold the vault gate across migration.
+     * Existing store operations finish before the copy starts; the Activity
+     * blocks new UI input and pauses sync before calling this method.
      */
     suspend fun migrateVault(to: File): NotesStorage.MigrationOutcome {
         val drafts = pendingEditor.currentDrafts()

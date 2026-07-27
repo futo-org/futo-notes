@@ -5,7 +5,7 @@ import org.junit.Test
 
 class VaultSurfaceStateTest {
     @Test
-    fun `storage switch keeps the editor shell mounted behind the blocking overlay`() {
+    fun `storage switch keeps the app shell mounted behind the blocking overlay`() {
         val surface = vaultSurfaceState(
             hasStore = true,
             needsRegrant = false,

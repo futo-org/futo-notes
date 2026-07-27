@@ -643,10 +643,6 @@ fun NoteEditorScreen(
                         },
                         onPickImage = pickImage,
                         onSaveImageData = saveImageData,
-                        onMigrationSnapshot = { capturedContent ->
-                            saveJob?.cancel()
-                            content = capturedContent
-                        },
                         onChange = { newContent ->
                             // Data-loss guard: ignore editor change events until the
                             // off-main initial read has landed (`loaded`). The WebView
