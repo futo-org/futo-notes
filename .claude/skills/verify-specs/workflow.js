@@ -183,6 +183,14 @@ phase('QA');
 const results = await pipeline(
   legs,
   // Stage 1 — the cheap, fast sweep.
+  // The .catch is load-bearing: a subagent that THROWS (transport death,
+  // "Connection closed mid-response") propagates out of the stage and makes
+  // pipeline() drop the whole item to null — which `results.filter(Boolean)`
+  // then removes, so the leg vanishes from legSummaries AND from needsResume
+  // and the run reports as if it never existed. (Cost us the mesh leg on
+  // 2026-07-24: 6 of 8 sync scenarios were on disk, silently unreported.)
+  // Swallowing it here turns a thrown leg into the same `sweep === null`
+  // shape a skipped agent produces, which stage 2 already flags for resume.
   (leg) =>
     agent(sweepBrief(leg), {
       agentType: 'app-qa',
@@ -191,6 +199,9 @@ const results = await pipeline(
       phase: 'QA',
       label: `qa:${leg.id}`,
       schema: LEG_SCHEMA,
+    }).catch((err) => {
+      log(`⚠ leg ${leg.id}: sweep THREW (${String(err).slice(0, 120)}) — treating as needs-resume`);
+      return null;
     }),
   // Stage 2 — escalate ONLY this leg's FAILs, at high effort, concurrently.
   (sweep, leg) => {
