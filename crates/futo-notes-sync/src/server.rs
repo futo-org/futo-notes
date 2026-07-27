@@ -9,9 +9,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const TRANSFER_FLOOR_BYTES_PER_SEC: u64 = 128 * 1024;
+const MAX_TRANSFER_BYTES: u64 = 100 * 1024 * 1024;
 
 fn transfer_timeout(expected_bytes: u64) -> Duration {
-    REQUEST_TIMEOUT + Duration::from_secs(expected_bytes / TRANSFER_FLOOR_BYTES_PER_SEC)
+    let bounded_bytes = expected_bytes.min(MAX_TRANSFER_BYTES);
+    REQUEST_TIMEOUT + Duration::from_secs(bounded_bytes / TRANSFER_FLOOR_BYTES_PER_SEC)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -646,6 +648,11 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
             transfer_timeout(100 * 1024 * 1024),
             Duration::from_secs(830)
         );
+    }
+
+    #[test]
+    fn transfer_timeout_caps_untrusted_expected_size() {
+        assert_eq!(transfer_timeout(u64::MAX), Duration::from_secs(830));
     }
 
     #[test]

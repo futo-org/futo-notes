@@ -390,12 +390,14 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   encrypted blob uploads and downloads add one second for each complete
   128 KiB of expected payload to that 30 s baseline (for example, 32 MiB gets
   286 s and 100 MiB gets 830 s). Uploads use the ciphertext body length;
-  ordinary pulls use the server-reported encrypted `size_bytes`. TCP connection
-  establishment is bounded to 10 s. The SSE event stream uses a separate client
-  with no total-request timeout so a healthy long-lived stream is never torn
-  down at 30 s. Its finite setup phases are still bounded: response headers and
-  any non-success response body each get 30 s. Once a successful stream starts,
-  the live loop's 90 s read-idle watchdog detects a stall. This split prevents a
+  ordinary pulls use the server-reported encrypted `size_bytes`. The expected
+  size is capped at the server's 100 MiB blob limit, so a corrupt or hostile
+  size cannot extend the deadline beyond 830 s. TCP connection establishment is
+  bounded to 10 s. The SSE event stream uses a separate client with no
+  total-request timeout so a healthy long-lived stream is never torn down at
+  30 s. Its finite setup phases are still bounded: response headers and any
+  non-success response body each get 30 s. Once a successful stream starts, the
+  live loop's 90 s read-idle watchdog detects a stall. This split prevents a
   server that accepts TCP and then stalls a finite response from leaving connect
   or sync pending forever without imposing a finite lifetime on a successful
   SSE body. →
@@ -405,7 +407,8 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   `blob_download_without_known_size_uses_the_base_request_timeout`,
   `blob_download_timeout_scales_with_expected_size`,
   `blob_upload_timeout_scales_with_payload_size`,
-  `transfer_timeout_scales_with_expected_bytes`, and
+  `transfer_timeout_scales_with_expected_bytes`,
+  `transfer_timeout_caps_untrusted_expected_size`, and
   `event_stream_has_no_total_request_timeout`,
   `event_stream_response_headers_have_a_timeout`, and
   `event_stream_error_body_has_a_timeout`

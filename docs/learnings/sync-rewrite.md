@@ -494,14 +494,17 @@ probe has a 5 s total deadline, ordinary finite requests have a 30 s deadline,
 and known-size encrypted blob transfers use that baseline plus one second for
 each complete 128 KiB of expected payload. Uploads know the ciphertext body
 length; pull downloads use the server object's `size_bytes`; an unknown size
-retains the finite 30 s baseline. SSE uses a separate client without a total
-deadline because the successful stream body is intentionally long-lived. The
-SSE response-header phase and any non-success response body are still finite
-operations and each has a 30 s deadline; after successful headers, stream
-liveness is owned by the live loop's read-idle watchdog. Keep tests for every
-side of this split: ordinary requests, unknown-size blobs, stalled SSE headers,
-and error bodies must time out; known-size transfers must scale; and a
-successful event stream must survive beyond the finite-request deadline.
+retains the finite 30 s baseline. Clamp expected sizes to the server's 100 MiB
+blob limit: wire metadata is untrusted, and accepting an arbitrary `u64` would
+turn a corrupt size into an effectively unbounded deadline. SSE uses a separate
+client without a total deadline because the successful stream body is
+intentionally long-lived. The SSE response-header phase and any non-success
+response body are still finite operations and each has a 30 s deadline; after
+successful headers, stream liveness is owned by the live loop's read-idle
+watchdog. Keep tests for every side of this split: ordinary requests,
+unknown-size blobs, stalled SSE headers, and error bodies must time out;
+known-size transfers must scale and clamp untrusted sizes; and a successful
+event stream must survive beyond the finite-request deadline.
 
 ## Follow-up queue
 
