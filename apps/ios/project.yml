@@ -136,3 +136,7 @@ targets:
         script: |
           cp "${SRCROOT}/Sources/EditorWebView.swift" \
              "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EditorWebView.txt"
+      - name: Bundle NoteEditorView source for the back-affordance scan
+        script: |
+          cp "${SRCROOT}/Sources/NoteEditorView.swift" \
+             "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/NoteEditorView.txt"

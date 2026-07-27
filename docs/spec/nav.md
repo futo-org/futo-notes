@@ -33,6 +33,22 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   event is swallowed. → MainActivity.kt `BackHandler(enabled = stack.size > 1)`
 - Forward transitions slide in + fade; back transitions fade + slide out.
   *(Android)*
+- A swipe from the editor's leading edge goes back, running the SAME gated exit as
+  the Back button (`requestNavigation`): it drains in-flight rename/move/adopt work
+  and will not leave while a rename cannot commit. Because the editor hides the
+  system back button to force every exit through that verb, UIKit's interactive pop
+  gesture is disabled, so this swipe — not the system gesture — IS back-by-swipe on
+  the editor screen. Verified on the iOS 26.5 simulator and a physical iPhone 17
+  Pro, 2026-07-27. *(iOS)* → EditorEdgeSwipeBack.swift, NoteEditorView.swift
+  `requestNavigation`
+- The editor's back-swipe is owned by a 20pt strip on the leading edge, which
+  consumes every touch in that column: a drag started there does not scroll the
+  note, and a tap there does not place the caret. The strip is sized to the
+  editor's own text inset so it covers margin rather than tappable text. The pop is
+  animated, not finger-tracked. Both are consequences of keeping the exit vetoable
+  — an interactive pop cannot be refused once the finger starts it — and the
+  alternative is tracked in issue #69. *(iOS)*
+  → docs/learnings/ios-swipe-back-over-webview.md
 - Creating a note pushes the editor focused for immediate typing (Android
   focuses the native title field; desktop and iOS focus the editor body/heading);
   opening an existing note pushes it without autofocus. → MainActivity.kt /

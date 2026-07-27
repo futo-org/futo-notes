@@ -194,6 +194,19 @@ struct NoteEditorView: View {
             )
             .ignoresSafeArea(.container, edges: .bottom)
         }
+        // Swipe-back. Sits INSIDE the allowsHitTesting gate below, so an
+        // in-flight mutation disables the swipe exactly as it disables the Back
+        // button. Routed through requestNavigation, so the swipe and the button
+        // share one exit path. See EditorEdgeSwipeBack.
+        .overlay(alignment: .leading) {
+            EditorEdgeSwipeBack {
+                requestNavigation {
+                    if !navPath.isEmpty { navPath.removeLast() }
+                }
+            }
+            .frame(width: EditorEdgeSwipeBack.stripWidth)
+            .ignoresSafeArea(.container, edges: .bottom)
+        }
         .allowsHitTesting(navigationTask == nil && !isMoveCommitting)
         .background(Theme.background)
         .navigationBarTitleDisplayMode(.inline)
