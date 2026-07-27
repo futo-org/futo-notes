@@ -345,6 +345,16 @@ EditorWebView.swift, EditorWebView.kt
   with the caret in the URL slot; no dialog appears). → EmbedToolbar.svelte,
   markdownToolbar.ts `TOOLBAR_EXEC` `link`, editorUX/linkCommand.ts `toggleLink`,
   tests/editor-embed-bridge.spec.ts
+  > **Gap:** the iOS toolbar does not scroll horizontally, so its last items are
+  > unreachable on a 402pt-wide iPhone. Measured on the iOS 26.5 simulator
+  > (iPhone 17 Pro, 2026-07-27): `checklist`, `camera`, and `photo` resolve to
+  > x-centres 420 / 477 / 523 — past the right edge — and `list.number` sits
+  > under the dismiss chevron's frame (358-402). Two horizontal swipes across
+  > the toolbar row (y=845 and y=838) left every item's frame unchanged, and a
+  > tap on `checklist` inserted no task marker while `bold` in the same session
+  > correctly produced `**boldtext**`. Task list, Take photo, and Choose from
+  > library are therefore unusable on this device width. *(iOS)*
+  > → EditorToolbar.swift
 - The toolbar SURFACE — items, order, grouping, accessibility labels,
   per-platform icons, visibility rules — is defined once in the
   `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every
