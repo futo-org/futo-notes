@@ -479,11 +479,34 @@ mod tests {
 
     use super::*;
 
+    const EVENT_STREAM_HEADERS: &[u8] =
+        b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n";
+    const ERROR_HEADERS: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\
+Content-Type: application/json\r\nConnection: close\r\n\r\n";
+    const READY_EVENT: &[u8] = b"event: ready\ndata:\n\n";
+
     #[derive(Clone, Copy)]
-    enum HangingResponse {
-        NoHeaders,
-        EventStream,
-        Error,
+    enum StallPoint {
+        ResponseHeaders,
+        EventStreamBody,
+        ErrorBody,
+    }
+
+    impl StallPoint {
+        fn headers(self) -> Option<&'static [u8]> {
+            match self {
+                Self::ResponseHeaders => None,
+                Self::EventStreamBody => Some(EVENT_STREAM_HEADERS),
+                Self::ErrorBody => Some(ERROR_HEADERS),
+            }
+        }
+
+        fn body_after_release(self) -> Option<&'static [u8]> {
+            match self {
+                Self::EventStreamBody => Some(READY_EVENT),
+                Self::ResponseHeaders | Self::ErrorBody => None,
+            }
+        }
     }
 
     struct HangingServer {
@@ -494,42 +517,16 @@ mod tests {
     }
 
     impl HangingServer {
-        fn new(response: HangingResponse) -> Self {
+        fn new(stall_point: StallPoint) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let address = listener.local_addr().unwrap();
+            let base_url = format!("http://{}", listener.local_addr().unwrap());
             let (request_received_tx, request_received) = mpsc::channel();
             let (release, release_rx) = mpsc::channel();
             let handle = std::thread::spawn(move || {
-                let (mut stream, _) = listener.accept().unwrap();
-                read_request_headers(&mut stream);
-                match response {
-                    HangingResponse::NoHeaders => {}
-                    HangingResponse::EventStream => {
-                        stream
-                            .write_all(
-                            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
-                        )
-                            .unwrap();
-                        stream.flush().unwrap();
-                    }
-                    HangingResponse::Error => {
-                        stream
-                            .write_all(
-                                b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
-                            )
-                            .unwrap();
-                        stream.flush().unwrap();
-                    }
-                }
-                request_received_tx.send(()).unwrap();
-                let _ = release_rx.recv();
-                if matches!(response, HangingResponse::EventStream) {
-                    let _ = stream.write_all(b"event: ready\ndata:\n\n");
-                    let _ = stream.flush();
-                }
+                serve_until_released(listener, stall_point, request_received_tx, release_rx)
             });
             Self {
-                base_url: format!("http://{address}"),
+                base_url,
                 request_received,
                 release: Some(release),
                 handle: Some(handle),
@@ -556,6 +553,29 @@ mod tests {
         fn release(&mut self) {
             self.release.take();
         }
+    }
+
+    fn serve_until_released(
+        listener: TcpListener,
+        stall_point: StallPoint,
+        request_received: Sender<()>,
+        release: Receiver<()>,
+    ) {
+        let (mut stream, _) = listener.accept().unwrap();
+        read_request_headers(&mut stream);
+        write_response_part(&mut stream, stall_point.headers()).unwrap();
+        request_received.send(()).unwrap();
+
+        let _ = release.recv();
+        let _ = write_response_part(&mut stream, stall_point.body_after_release());
+    }
+
+    fn write_response_part(stream: &mut TcpStream, bytes: Option<&[u8]>) -> std::io::Result<()> {
+        let Some(bytes) = bytes else {
+            return Ok(());
+        };
+        stream.write_all(bytes)?;
+        stream.flush()
     }
 
     impl Drop for HangingServer {
@@ -658,7 +678,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn ordinary_requests_have_a_total_timeout() {
-        let server = HangingServer::new(HangingResponse::NoHeaders);
+        let server = HangingServer::new(StallPoint::ResponseHeaders);
         let http = Http::new(&server.base_url).unwrap().token("token");
         let request = tokio::spawn(async move { http.collections().await });
         server.wait_for_request().await;
@@ -675,7 +695,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn auth_mode_uses_the_short_probe_timeout() {
-        let server = HangingServer::new(HangingResponse::NoHeaders);
+        let server = HangingServer::new(StallPoint::ResponseHeaders);
         let http = Http::new(&server.base_url).unwrap();
         let request = tokio::spawn(async move { http.auth_mode().await });
         server.wait_for_request().await;
@@ -692,7 +712,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn blob_download_without_known_size_uses_the_base_request_timeout() {
-        let server = HangingServer::new(HangingResponse::NoHeaders);
+        let server = HangingServer::new(StallPoint::ResponseHeaders);
         let http = Http::new(&server.base_url).unwrap().token("token");
         let request = tokio::spawn(async move { http.blob("blob-key", 0).await });
         server.wait_for_request().await;
@@ -709,7 +729,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn blob_download_timeout_scales_with_expected_size() {
-        let server = HangingServer::new(HangingResponse::NoHeaders);
+        let server = HangingServer::new(StallPoint::ResponseHeaders);
         let http = Http::new(&server.base_url).unwrap().token("token");
         let request = tokio::spawn(async move { http.blob("blob-key", 128 * 1024).await });
         server.wait_for_request().await;
@@ -730,7 +750,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn blob_upload_timeout_scales_with_payload_size() {
-        let server = HangingServer::new(HangingResponse::NoHeaders);
+        let server = HangingServer::new(StallPoint::ResponseHeaders);
         let http = Http::new(&server.base_url).unwrap().token("token");
         let request =
             tokio::spawn(
@@ -754,7 +774,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn event_stream_has_no_total_request_timeout() {
-        let mut server = HangingServer::new(HangingResponse::EventStream);
+        let mut server = HangingServer::new(StallPoint::EventStreamBody);
         let http = Http::new(&server.base_url).unwrap().token("token");
         let response = tokio::spawn(async move { http.events().await });
         server.wait_for_request().await;
@@ -769,7 +789,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn event_stream_response_headers_have_a_timeout() {
-        let server = HangingServer::new(HangingResponse::NoHeaders);
+        let server = HangingServer::new(StallPoint::ResponseHeaders);
         let http = Http::new(&server.base_url).unwrap().token("token");
         let request = tokio::spawn(async move { http.events().await });
         server.wait_for_request().await;
@@ -787,7 +807,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn event_stream_error_body_has_a_timeout() {
-        let server = HangingServer::new(HangingResponse::Error);
+        let server = HangingServer::new(StallPoint::ErrorBody);
         let http = Http::new(&server.base_url).unwrap().token("token");
         let request = tokio::spawn(async move { http.events().await });
         server.wait_for_request().await;
