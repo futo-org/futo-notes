@@ -1208,6 +1208,7 @@ build:android-native:
     # GitLab caching). The .gradle-native/{caches,wrapper} subtrees map to
     # .cache-gradle-native.
     GRADLE_USER_HOME: $CI_PROJECT_DIR/.gradle-native
+    ANDROID_CI_AVD: ci
   script:
     - export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
     # SDK platform 36 + build-tools 36 are baked into ci/android.Dockerfile
@@ -1287,6 +1288,7 @@ build:android-native:
         exit 1
       fi
       echo "JVM unit-test results OK: $(grep -rho '<testcase' "$RESULTS_DIR" | wc -l) testcase(s)"
+    - bash "$CI_PROJECT_DIR/scripts/ci-android-instrumentation.sh"
   after_script:
     - find apps/android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || true
     - find apps/android/app/build/outputs/bundle -name "*.aab" -type f 2>/dev/null || true
@@ -1302,6 +1304,7 @@ build:android-native:
     reports:
       junit:
         - apps/android/app/build/test-results/testDebugUnitTest/**/TEST-*.xml
+        - apps/android/app/build/outputs/androidTest-results/connected/debug/TEST-*.xml
     expire_in: 4 weeks
   # A cold/partial .cache-cargo-native cache makes the Rust FFI compile across
   # 3 NDK ABIs swing wide (observed 8m warm → 27m near-cold → 45m timeout
@@ -1321,6 +1324,7 @@ build:android-native:
         - crates/futo-notes-ffi/**/*
         - Cargo.lock
         - scripts/build-rust-android.sh
+        - scripts/ci-android-instrumentation.sh
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-android-changes
       variables:

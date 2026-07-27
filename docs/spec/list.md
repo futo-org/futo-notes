@@ -44,23 +44,24 @@ new-note affordances.
   while the list is off-screen; the list re-appears already in engine order —
   there is no on-appear resort. Android's return-to-list still re-pins an
   at-top viewport to index 0 (`isAtListTop` + `requestScrollToItem` in
-  `AppShell.pop`) because LazyListState anchors to the previously-first row's
-  key. Desktop Tauri reorders live. → MainActivity.kt `AppShell.pop`,
+  `AppNavigator.goBack`) because LazyListState anchors to the previously-first
+  row's key. Desktop Tauri reorders live. → AppNavigation.kt
+  `AppNavigator.goBack`,
   NoteListScreen.kt `isAtListTop`
   > **Gap:** _(Android)_ A **sync live pull** that creates or re-ranks a note
   > while the list is composed at the top still relies on LazyListState key
   > anchoring, so the remotely-changed row can land above the viewport until
   > the user drags. Same anchoring class as the local-edit invisibility bug
   > fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem`
-  > on the FAB path and a pop-time re-pin in `AppShell.pop()`); the
+  > on the FAB path and a pop-time re-pin in `AppNavigator.goBack()`); the
   > `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt
-  > `reloadAsync`, MainActivity.kt `AppShell.pop`
+  > `reloadAsync`, AppNavigation.kt `AppNavigator.goBack`
 - Tapping a note opens it in the editor (no autofocus). → NoteListScreen.kt /
-  MainActivity.kt
-- The list keeps its scroll position while you navigate: scroll, open a note
-  (or Search / Settings), come back — the list is where you left it, not
-  jumped to the top. → MainActivity.kt saved per-screen state _(Android
-  native)_, NoteListView.swift NavigationStack _(iOS native)_
+  AppNavigation.kt
+- The list keeps its selected folder and scroll position through a note, Search,
+  or Settings. Returning restores both; after the initial vault load, a missing
+  folder falls back to All notes. → NoteListState.kt / NoteListStateTest.kt /
+  AppNavigationTest.kt _(Android)_; NoteListView.swift _(iOS)_
 - An empty folder shows an empty state. _(Tauri/Android: "Nothing here yet".
   iOS native distinguishes the case: "No notes yet" at the vault root, "Empty
   folder" inside a folder — NoteListView.swift.)_

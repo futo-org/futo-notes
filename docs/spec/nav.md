@@ -4,7 +4,7 @@ How screens stack and transition. Native-shell stack first; Tauri-shell
 navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 
 - Screens: **List** (root) → Editor / Search / Settings; **Settings** → Sync. →
-  MainActivity.kt *(Android)*
+  AppNavigation.kt *(Android)*
 - iOS native: **List** (root) → Editor / folder screen (tapping a folder row
   pushes a filtered list titled with the folder name); search is an inline
   bottom search bar on the list; the nav-bar gear presents the Settings
@@ -25,14 +25,17 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   > labels don't reach the AX tree here. → NoteListView.swift toolbar
 - A typed nav stack holds entries. Note ids and folders contain `/`, which would
   break string-based routes, so the stack holds typed `Screen` values, not path
-  strings. → MainActivity.kt
+  strings. → AppNavigation.kt
 - System Back pops one screen. Back on the root List does nothing app-side (the
   stack floor is the List — the app never intercepts it there); on Android the
   unhandled Back then follows the OS default and backgrounds/finishes the
   activity. "Nothing app-side" means the nav stack never changes, not that the
-  event is swallowed. → MainActivity.kt `BackHandler(enabled = stack.size > 1)`
+  event is swallowed. → AppNavigation.kt `BackHandler`
 - Forward transitions slide in + fade; back transitions fade + slide out.
-  *(Android)*
+  → AppNavigation.kt *(Android)*
+- Activity recreation starts a fresh route stack at List while restoring the
+  list's selected folder and scroll position. → AppNavigation.kt /
+  AppNavigationTest.kt *(Android)*
 - A swipe from the editor's leading edge goes back, running the SAME gated exit as
   the Back button (`requestNavigation`): it drains in-flight rename/move/adopt work
   and will not leave while a rename cannot commit. Because the editor hides the
@@ -51,7 +54,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   → docs/learnings/ios-swipe-back-over-webview.md
 - Creating a note pushes the editor focused for immediate typing (Android
   focuses the native title field; desktop and iOS focus the editor body/heading);
-  opening an existing note pushes it without autofocus. → MainActivity.kt /
+  opening an existing note pushes it without autofocus. → AppNavigation.kt /
   NoteEditorScreen.kt, noteSession.svelte.ts `loadNote('new')`, NoteListView.swift
   The shared editor's mount-time auto-focus is gated off the native embeds
   (`if (!nativeShell)`, 2026-07-09) — the pre-warmed native WebView no longer
@@ -67,7 +70,8 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 - Following a wikilink PUSHES another editor onto the stack (it does not replace
   the current one), so System Back returns to the note you came from rather than
   to the List — a browser-like history of visited notes. See the wikilink
-  navigation rule in [editor.md](editor.md). → MainActivity.kt `onOpenNote`
+  navigation rule in [editor.md](editor.md). → AppNavigation.kt
+  `AppNavigator.openNote`
   (push), NoteEditorView.swift `openLinkedNote`
   *(desktop)* deliberately diverges: a wikilink opens the target in the
   **current tab** (replace, not push) — tabs, not a nav stack, are the desktop

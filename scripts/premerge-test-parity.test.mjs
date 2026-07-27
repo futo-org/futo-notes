@@ -9,6 +9,10 @@ const justfile = readFileSync(join(ROOT, 'justfile'), 'utf8');
 const gitlabPipeline = readFileSync(join(ROOT, '.gitlab-ci.yml'), 'utf8');
 const packageScripts = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts;
 const cirrusTasks = readFileSync(join(ROOT, '.cirrus.yml'), 'utf8');
+const androidInstrumentationScript = readFileSync(
+  join(ROOT, 'scripts/ci-android-instrumentation.sh'),
+  'utf8',
+);
 
 function topLevelBlock(contents, startPattern) {
   const match = startPattern.exec(contents);
@@ -84,6 +88,25 @@ describe('pre-merge JavaScript test routing', () => {
 
     expect(androidImageJob).toContain('interruptible: false');
     expect(testImageJob).toContain('interruptible: false');
+  });
+
+  it('runs Android instrumentation tests in the required native build job', () => {
+    const androidJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
+    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
+
+    expect(androidJob).toContain('bash "$CI_PROJECT_DIR/scripts/ci-android-instrumentation.sh"');
+    expect(androidJob).toContain(
+      'apps/android/app/build/outputs/androidTest-results/connected/debug/TEST-*.xml',
+    );
+    expect(androidJob).toContain('- scripts/ci-android-instrumentation.sh');
+    expect(androidJob).not.toContain('- docs/**/*');
+    expect(androidJob).not.toContain('- .gitlab-ci.yml');
+    expect(releaseGate).toContain('- job: build:android-native');
+    expect(androidInstrumentationScript).toContain('sys.boot_completed');
+    expect(androidInstrumentationScript).toContain(':app:connectedDebugAndroidTest');
+    expect(androidInstrumentationScript).toContain(
+      'Android instrumentation results contain no testcases',
+    );
   });
 
   it('keeps mobile-target Rust compile coverage on every crate change', () => {

@@ -8,33 +8,22 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -55,29 +44,19 @@ import com.futo.notes.storage.recoverStorageStartup
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
 import com.futo.notes.ui.NoteEditorScreen
 import com.futo.notes.ui.NoteListScreen
-import com.futo.notes.ui.isAtListTop
 import com.futo.notes.ui.SearchScreen
 import com.futo.notes.ui.SettingsScreen
 import com.futo.notes.ui.StorageOnboarding
 import com.futo.notes.ui.StorageRegrantScreen
 import com.futo.notes.ui.SyncScreen
 import com.futo.notes.ui.ThemeMode
+import com.futo.notes.ui.navigation.AppNavigation
+import com.futo.notes.ui.navigation.Screen
 import com.futo.notes.ui.theme.FutoNotesTheme
-import com.futo.notes.ui.theme.FutoMotion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-
-/** A screen in the manual nav stack. Note ids/folders contain `/`, which would
- *  break Navigation-Compose string routes, so the stack holds typed entries. */
-sealed interface Screen {
-    data object List : Screen
-    data class Editor(val noteId: String, val autoFocus: Boolean) : Screen
-    data object Search : Screen
-    data object Settings : Screen
-    data object Sync : Screen
-}
 
 internal data class VaultSurfaceState(
     val renderShell: Boolean,
@@ -337,87 +316,50 @@ class MainActivity : ComponentActivity() {
         onThemeMode: (ThemeMode) -> Unit,
         dark: Boolean,
     ) {
-        val stack = remember { mutableStateListOf<Screen>(Screen.List) }
-
-        // Hoist list state above the screen composition so navigation preserves
-        // its scroll position [list.md:59].
-        val listState = rememberLazyListState()
-
-        fun push(screen: Screen) = stack.add(screen)
-
-        // Re-pin an at-top viewport after rank changes; otherwise key anchoring
-        // can hide rows inserted above it. Preserve deep scrolls [list.md:41,59].
-        // requestScrollToItem applies the snap during the next measure.
-        fun pop() {
-            if (stack.size <= 1) return
-            stack.removeAt(stack.lastIndex)
-            if (stack.last() is Screen.List) {
-                val atTop = isAtListTop(
-                    listState.firstVisibleItemIndex,
-                    listState.firstVisibleItemScrollOffset,
-                )
-                if (atTop) listState.requestScrollToItem(0)
-            }
-        }
-
-        BackHandler(enabled = stack.size > 1) { pop() }
-
-        AnimatedContent(
-            targetState = stack.last(),
-            transitionSpec = {
-                val forward = targetState !is Screen.List
-                val fadeS = tween<Float>(FutoMotion.Base, easing = FutoMotion.EaseSoft)
-                val slideS = tween<androidx.compose.ui.unit.IntOffset>(FutoMotion.Base, easing = FutoMotion.EaseSoft)
-                if (forward) {
-                    (slideInHorizontally(slideS) { it / 6 } + fadeIn(fadeS)) togetherWith fadeOut(fadeS)
-                } else {
-                    fadeIn(fadeS) togetherWith (slideOutHorizontally(slideS) { it / 6 } + fadeOut(fadeS))
-                }
-            },
-            label = "route",
-        ) { top ->
-            when (top) {
+        AppNavigation(
+            hasBootstrapped = s.hasBootstrapped,
+            availableFolderPaths = s.folders,
+        ) { screen, navigator, noteListState ->
+            when (screen) {
                 is Screen.List -> NoteListScreen(
                     store = s,
-                    listState = listState,
-                    onOpenNote = { push(Screen.Editor(it, autoFocus = false)) },
-                    onCreate = { id -> push(Screen.Editor(id, autoFocus = true)) },
-                    onOpenSearch = { push(Screen.Search) },
-                    onOpenSettings = { push(Screen.Settings) },
+                    state = noteListState,
+                    onOpenNote = navigator::openNote,
+                    onCreate = navigator::openCreatedNote,
+                    onOpenSearch = navigator::openSearch,
+                    onOpenSettings = navigator::openSettings,
                 )
                 is Screen.Editor -> NoteEditorScreen(
                     store = s,
-                    initialNoteId = top.noteId,
-                    autoFocus = top.autoFocus,
+                    initialNoteId = screen.noteId,
+                    autoFocus = screen.autoFocus,
                     darkTheme = dark,
-                    onBack = { pop() },
+                    onBack = navigator::goBack,
                     // Wikilink tap [editor.md:77]: PUSH a new editor entry so Back
                     // returns to the note you came FROM (not straight to the list).
-                    // Only the top screen is composed (AnimatedContent(stack.last())),
-                    // so the shared editor WebView still binds exactly one note at a
-                    // time even as the stack of visited notes grows. Skip a self-link
-                    // (a wikilink to the note you're already on) so Back isn't a no-op.
-                    onOpenNote = { id ->
-                        if (id != top.noteId) push(Screen.Editor(id, autoFocus = false))
-                    },
+                    onOpenNote = navigator::openNote,
                     imagePicker = imagePicker,
                 )
                 is Screen.Search -> SearchScreen(
                     store = s,
-                    onOpenNote = { push(Screen.Editor(it, autoFocus = false)) },
-                    onBack = { pop() },
+                    onOpenNote = navigator::openNote,
+                    onBack = navigator::goBack,
                 )
                 is Screen.Settings -> SettingsScreen(
                     store = s,
                     sync = sync,
                     themeMode = themeMode,
                     onThemeMode = onThemeMode,
-                    onOpenSync = { push(Screen.Sync) },
+                    onOpenSync = navigator::openSync,
                     storageMode = currentMode(),
                     onChangeStorage = { showStoragePicker.value = true },
-                    onBack = { pop() },
+                    onBack = navigator::goBack,
                 )
-                is Screen.Sync -> SyncScreen(store = s, sync = sync, onBack = { pop() })
+                is Screen.Sync -> SyncScreen(
+                    store = s,
+                    sync = sync,
+                    onBack = navigator::goBack,
+                )
             }
         }
 

@@ -235,7 +235,7 @@ native shells edit tags as text in the body, which is not a gap.
   a time by construction. Verified emulator + simulator 2026-07-08 (A → wikilink
   → B → Back returns to A with A's content intact and the editor still
   interactive; Back again returns to the list). → MarkdownEditor.svelte
-  `wikilinkClickHandler`, MainActivity.kt `onOpenNote` (push),
+  `wikilinkClickHandler`, AppNavigation.kt `AppNavigator.openNote` (push),
   NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`,
   tests/editor-embed-bridge.spec.ts
 - Native Back and resolved-wikilink navigation wait for every admitted editor
