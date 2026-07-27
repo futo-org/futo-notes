@@ -438,6 +438,7 @@ test:
         pnpm exec tsx "$CI_PROJECT_DIR/scripts/gen-title-spec.ts" --check
         pnpm run lint
         pnpm run lint:platform
+        pnpm run check:svelte
         pnpm run format:check
         pnpm exec tsx tests/conformance/generate.mjs --check
         # Keep portable anti-duplication gates in the first mandatory MR job.
