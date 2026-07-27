@@ -119,9 +119,13 @@ this file states the behaviors a human cares about.
   live-preview/listDecorations.ts `cm-md-list-line` decorations
 - Tables (GFM), horizontal rules, and images — rendered as block widgets.
   Each replace widget's `estimatedHeight` must equal its real rendered
-  footprint (and the widget should render at a definite height) — otherwise
-  CM6 re-sizes the off-screen gap when the element scrolls back into view and
-  jerks the scroll position on iOS momentum scrolling. → docs/learnings/hr-scroll-jank.md
+  footprint, and the widget's rendered height must be settled rather than
+  open-ended — otherwise CM6 re-sizes the off-screen gap when the element scrolls
+  back into view and jerks the scroll position on iOS momentum scrolling.
+  Reserving that footprint as a `min-height` floor satisfies this as long as the
+  content itself has a definite height and any later change re-measures (see the
+  image-widget rules below); a pinned `height` is not required, and for
+  width-constrained content it is actively wrong. → docs/learnings/hr-scroll-jank.md
 - Image widgets re-measure on load. On the native shells an embedded image's
   bytes arrive asynchronously (fetched through the native scheme handler after
   the widget's first paint), so its real height is unknown when CM6 first
@@ -130,6 +134,16 @@ this file states the behaviors a human cares about.
   otherwise the image renders cut off at the placeholder height on first load
   until an unrelated transaction (e.g. tapping it) forces a re-layout.
   *(iOS/Android native)* → live-preview/images.ts
+- Image widgets also re-measure on every width change, and reserve their
+  footprint as a `min-height` floor rather than a pinned `height`. An image is
+  width-constrained (`max-width: 100%`), so a wider editor makes it taller, and
+  the wrapper is `overflow: hidden` — a height pinned at load time silently
+  clipped the bottom of the image with no recovery path (reproduced on iOS 26.5
+  by rotating to landscape, 2026-07-24; the zero-size WebView prewarm reaches the
+  same state). A `ResizeObserver` on the `<img>` re-commits the floor, refreshes
+  the shared size cache, and calls `view.requestMeasure()`; a zero-height
+  measurement taken before the host has laid out is ignored so it cannot poison
+  the cache. → live-preview/images.ts `ImageWidget`
 - On the native shells (iOS **and** Android — CM6 owns its own scroller), the
   editor warms CM6's height map on note load (and after font load / width change)
   by measuring every line's real height up front. Off-screen wrapped lines are

@@ -71,6 +71,7 @@ export function preloadImages(
 
 export class ImageWidget extends WidgetType {
   private readonly resolvedUrl: string;
+  private renderedSizeObserver: ResizeObserver | undefined;
 
   constructor(
     private readonly alt: string,
@@ -81,16 +82,24 @@ export class ImageWidget extends WidgetType {
     this.resolvedUrl = resolveImageSrc(source);
   }
 
+  /// The one key this widget's size is cached under. Reads and writes must agree:
+  /// they used to disagree for an unresolved source (`resolvedUrl` alone when
+  /// reading in toDOM, `resolvedUrl || source` everywhere else), so a cached
+  /// measurement could never be found again.
+  private get sizeCacheKey(): string {
+    return this.resolvedUrl || this.source;
+  }
+
   get estimatedHeight(): number {
-    return imageSizes.get(this.resolvedUrl || this.source)?.height ?? 200;
+    return imageSizes.get(this.sizeCacheKey)?.height ?? 200;
   }
 
   toDOM(view: EditorView): HTMLElement {
     const wrapper = document.createElement('div');
     wrapper.className = 'cm-md-image-wrapper';
 
-    const cachedSize = this.resolvedUrl ? imageSizes.get(this.resolvedUrl) : undefined;
-    wrapper.style.cssText = cachedSize ? `height: ${cachedSize.height}px;` : 'min-height: 200px;';
+    const cachedSize = imageSizes.get(this.sizeCacheKey);
+    wrapper.style.cssText = `min-height: ${cachedSize?.height ?? 200}px;`;
 
     const image = document.createElement('img');
     image.alt = this.alt;
@@ -101,19 +110,38 @@ export class ImageWidget extends WidgetType {
       image.height = cachedSize.height;
     }
 
-    image.onload = () => {
-      const cacheKey = this.resolvedUrl || this.source;
-      if (!imageSizes.has(cacheKey)) {
-        imageSizes.set(cacheKey, { width: image.offsetWidth, height: image.offsetHeight });
-      }
-      wrapper.style.cssText = `height: ${image.offsetHeight}px;`;
-      // The image finishes loading well after toDOM()'s initial paint, which is the
-      // only point CodeMirror measures this widget's height. Mutating the wrapper's
-      // style directly updates the DOM but leaves CM6's internal height cache (used
-      // for scroll/viewport math) pointing at the stale pre-load estimate until the
-      // next transaction — ask it to re-measure now instead of waiting for one.
+    // Reserve the image's real footprint as a FLOOR (min-height), never as a
+    // pinned `height`. The image is width-constrained (`max-width: 100%`), so its
+    // rendered height changes with the editor's content width — a device
+    // rotation, or the iOS shared WebView being adopted into real bounds after
+    // its zero-size prewarm. A pinned height measured at the narrower width plus
+    // the wrapper's `overflow: hidden` silently CLIPPED the bottom of the image;
+    // a floor lets the wrapper grow with its content instead.
+    const commitRenderedFootprint = () => {
+      const height = image.offsetHeight;
+      // A measurement taken before layout (zero-width host) is not a real
+      // footprint: committing it would pin a too-short floor, and caching it
+      // would poison estimatedHeight for every later widget on this URL.
+      if (height <= 0) return;
+      // Last-measurement-wins, unlike preloadImage's first-write-wins estimate:
+      // this is the real rendered footprint at the CURRENT width, so a stale
+      // entry from a narrower editor must not survive it.
+      imageSizes.set(this.sizeCacheKey, { width: image.offsetWidth, height });
+      wrapper.style.cssText = `min-height: ${height}px;`;
+      // CM6 measures a widget's height at its initial paint only. Both the image
+      // load and any later width change land well after that, leaving CM6's
+      // internal height cache (used for scroll/viewport math) on a stale
+      // estimate until the next transaction — ask it to re-measure now.
       view.requestMeasure();
     };
+
+    image.onload = commitRenderedFootprint;
+    // Width changes arrive without a load event and without a transaction, so
+    // the load handler alone cannot keep the footprint honest.
+    if (typeof ResizeObserver !== 'undefined') {
+      this.renderedSizeObserver = new ResizeObserver(commitRenderedFootprint);
+      this.renderedSizeObserver.observe(image);
+    }
 
     wrapper.addEventListener('mousedown', (event) => {
       event.preventDefault();
@@ -123,6 +151,11 @@ export class ImageWidget extends WidgetType {
     });
     wrapper.appendChild(image);
     return wrapper;
+  }
+
+  destroy(): void {
+    this.renderedSizeObserver?.disconnect();
+    this.renderedSizeObserver = undefined;
   }
 
   eq(other: ImageWidget): boolean {
