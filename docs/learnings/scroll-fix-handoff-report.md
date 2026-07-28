@@ -20,7 +20,7 @@ Severity: High
 
 Evidence:
 - The former monolithic live-preview plugin called `ensureSyntaxTree(view.state, view.state.doc.length, 5000)`; the fixed lifecycle now lives in `src/features/editor/live-preview/LiveMarkdownPlugin.ts`.
-- `src/lib/tableRenderingField.ts:27` calls `ensureSyntaxTree(state, state.doc.length, 5000)`.
+- `src/lib/tableRenderingField.ts:27` also called `ensureSyntaxTree(state, state.doc.length, 5000)`; that read-only field was replaced by the editable table widget in commit 5fc5fda6 (now `src/features/editor/table/`), which makes no such call.
 - CodeMirror API docs (local type definitions) state this can spend up to `timeout` ms parsing (`node_modules/@codemirror/language/dist/index.d.ts:185`).
 
 Why this matters:
