@@ -257,6 +257,17 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     );
   });
 
+  it('awaits only an in-flight save without starting a scheduled save', async () => {
+    const session = createNoteSession(makeDeps());
+    const { updateNote } = await import('./notes.svelte');
+
+    session.debouncedSave('# scheduled');
+    await session.awaitSaveIdle();
+
+    expect(updateNote).not.toHaveBeenCalled();
+    expect(session.savePending).toBe(true);
+  });
+
   it('queues saves typed during a local move until the session has retargeted', async () => {
     const session = createNoteSession(makeDeps());
     const { updateNote } = await import('./notes.svelte');
@@ -365,6 +376,76 @@ describe('stale save completion after an external close', () => {
     expect(updateNote).toHaveBeenCalledOnce();
     expect(session.savePending).toBe(false);
     externalChanges.stop();
+  });
+});
+
+describe('stale first-save completion after navigation', () => {
+  let editorContent = '';
+
+  beforeEach(async () => {
+    const { readNote, updateNote } = await import('./notes.svelte');
+    vi.mocked(readNote).mockReset();
+    vi.mocked(updateNote).mockReset();
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not rebind a new-note save that resolves after another note was opened', async () => {
+    let routeNoteId: string | null = 'new';
+    let resolveSave!: (result: { id: string; mtime: number }) => void;
+    let resolveOtherRead!: (content: string) => void;
+    const saveResult = new Promise<{ id: string; mtime: number }>((resolve) => {
+      resolveSave = resolve;
+    });
+    const otherRead = new Promise<string>((resolve) => {
+      resolveOtherRead = resolve;
+    });
+    const deps = {
+      getEditorContent: () => editorContent,
+      setEditorContent: vi.fn((text: string) => {
+        editorContent = text;
+      }),
+      focusEditor: vi.fn(),
+      isEditorFocused: () => false,
+      isComposing: () => false,
+      getNotes: () => [],
+      getNoteBody: () => undefined,
+      getTitleTextarea: () => undefined,
+      getNoteId: () => routeNoteId,
+      setPrevNoteId: vi.fn(),
+      navigate: vi.fn(),
+      onNoteRenamed: vi.fn(),
+    } satisfies NoteSessionDeps;
+    const { readNote, updateNote } = await import('./notes.svelte');
+    vi.mocked(updateNote).mockImplementationOnce(() => saveResult);
+    vi.mocked(readNote).mockImplementationOnce(() => otherRead);
+    const session = createNoteSession(deps);
+    await session.loadNote('new');
+
+    editorContent = 'first draft';
+    session.debouncedSave(editorContent);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(updateNote).toHaveBeenCalledOnce();
+
+    routeNoteId = 'other';
+    const openingOther = session.loadNote('other');
+    resolveSave({ id: 'Untitled', mtime: 0 });
+    await vi.waitFor(() => expect(readNote).toHaveBeenCalledWith('other'));
+
+    expect(session.originalId).toBe('other');
+    expect(session.savedContent).toBe('');
+    expect(deps.onNoteRenamed).not.toHaveBeenCalled();
+
+    resolveOtherRead('other content');
+    await openingOther;
   });
 });
 

@@ -833,10 +833,13 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   *(desktop)*.** A watcher `change` whose disk content differs from the
   session's last-saved baseline is adopted immediately, even over a dirty or
   focused draft; equality with the live editor is still adopted as a zero-diff
-  apply so the saved baseline advances. An active IME composition defers the
-  adopt until blur, which re-reads current disk content before applying it
-  silently. Only content matching the saved baseline is a self-write echo and
-  is dropped by comparison rather than event counting. The session is
+  apply so the saved baseline advances. Active-note `change` events bypass
+  recent local/sync-write TTL suppression — including events buffered during a
+  manual sync — so content comparison, not event timing, decides whether they
+  are genuine external edits. An active IME composition defers the adopt until
+  blur, which re-reads current disk content before applying it silently. Only
+  content matching the saved baseline is a self-write echo and is dropped by
+  comparison rather than event counting. The session is
   re-checked after each asynchronous disk read: a note switch drops the stale
   adopt, and an in-flight save drops the watcher event with no rescan scheduled;
   that local save wins the disk for the window. A store-level conditional write

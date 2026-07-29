@@ -53,6 +53,7 @@ export interface NoteSession {
   readonly composing: boolean;
   debouncedSave: (content?: string) => void;
   flushSave: () => Promise<void>;
+  awaitSaveIdle: () => Promise<void>;
   runWithSaveLock: <T>(operation: () => Promise<T>) => Promise<T>;
   loadNote: (id: string | null) => Promise<void>;
   handleTitleInput: (event: Event) => void;
@@ -144,8 +145,13 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     hasDuplicateTitle,
     showTitleWarning: (message) => titleController.showWarning(message, null),
     onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId }) => {
-      // loadNote flushes before rebinding, so only cancelAndClear can race this completion.
-      if (savedOriginalId !== originalId || deps.getNoteId() === null) return;
+      // A first save has no original id, so the route must still identify the
+      // new-note session; existing-note saves remain bound by original id.
+      const isCurrentSave =
+        savedOriginalId === null
+          ? deps.getNoteId() === 'new' && originalId === null
+          : savedOriginalId === originalId;
+      if (!isCurrentSave) return;
       originalId = id;
       if (deps.getEditorContent() === newContent) content = newContent;
       savedContent = newContent;
@@ -305,6 +311,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     },
     debouncedSave,
     flushSave: saveQueue.flush,
+    awaitSaveIdle: saveQueue.awaitSaveIdle,
     runWithSaveLock,
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,

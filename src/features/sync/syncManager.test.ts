@@ -81,6 +81,7 @@ function makeSession(overrides: Partial<SessionState> = {}) {
   const cancelAndClear = vi.fn(() => {
     state.id = null;
   });
+  const awaitSaveIdle = vi.fn(async () => {});
   const session = {
     get originalId() {
       return state.id;
@@ -110,11 +111,19 @@ function makeSession(overrides: Partial<SessionState> = {}) {
       return state.lastEditTime;
     },
     flushSave: vi.fn(async () => {}),
+    awaitSaveIdle,
     applyExternalContent,
     applyRemoteRename,
     cancelAndClear,
   } as unknown as NoteSession;
-  return { state, session, applyExternalContent, applyRemoteRename, cancelAndClear };
+  return {
+    state,
+    session,
+    applyExternalContent,
+    applyRemoteRename,
+    awaitSaveIdle,
+    cancelAndClear,
+  };
 }
 
 function makeManager(
@@ -276,6 +285,40 @@ describe('peer projections', () => {
     expect(bundle.onRename.mock.invocationCallOrder[0]).toBeLessThan(
       bundle.pruneTabsForDeletedIds.mock.invocationCallOrder[0],
     );
+  });
+
+  it('waits for an in-flight save to commit before rebinding a remote rename', async () => {
+    const sessionBundle = makeSession({
+      id: 'Old',
+      content: 'draft',
+      savedContent: 'base',
+      savePending: true,
+    });
+    let releaseSave!: () => void;
+    const saveIdle = new Promise<void>((resolve) => {
+      releaseSave = () => {
+        sessionBundle.state.savedContent = 'draft';
+        sessionBundle.state.savePending = false;
+        resolve();
+      };
+    });
+    sessionBundle.awaitSaveIdle.mockReturnValueOnce(saveIdle);
+    const bundle = makeManager(sessionBundle);
+
+    const reconciliation = bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      renamed: [{ fromId: 'Old', toId: 'New' }],
+    });
+    await Promise.resolve();
+
+    expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
+    expect(bundle.state.savedContent).toBe('base');
+
+    releaseSave();
+    await reconciliation;
+
+    expect(bundle.state.savedContent).toBe('draft');
+    expect(bundle.applyRemoteRename).toHaveBeenCalledExactlyOnceWith('New', 'New');
   });
 
   // Same-cycle collision placement + tombstone of the relocated note: the

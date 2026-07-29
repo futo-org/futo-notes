@@ -39,11 +39,12 @@ interface SyncCompletionOptions {
 export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
   const { dependencies, externalChanges, writeSuppressor } = options;
 
-  function applyRename(fromId: string, toId: string): void {
+  async function applyRename(fromId: string, toId: string): Promise<void> {
     const slash = toId.lastIndexOf('/');
     const newTitle = getNoteById(toId)?.title ?? (slash === -1 ? toId : toId.slice(slash + 1));
     dependencies.onRename(fromId, toId, newTitle);
     if (dependencies.session.originalId === fromId) {
+      await dependencies.session.awaitSaveIdle();
       dependencies.session.applyRemoteRename(toId, newTitle);
     }
   }
@@ -75,9 +76,9 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
   // (including collision placements), so reported renames are applied
   // verbatim — the open tab/editor follows through applyRename with no
   // shell-side rename inference.
-  function reconcileRenames(summary: SyncSummary): void {
+  async function reconcileRenames(summary: SyncSummary): Promise<void> {
     for (const rename of summary.renamed) {
-      applyRename(rename.fromId, rename.toId);
+      await applyRename(rename.fromId, rename.toId);
     }
   }
 
@@ -164,7 +165,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
 
     recordSyncedFiles(summary);
     reindexPeerChanges(summary);
-    reconcileRenames(summary);
+    await reconcileRenames(summary);
     const keptDeletedDraftId = await reconcileOpenNote(summary);
 
     const pruneCandidates = summary.deletedIds.filter((id) => id !== keptDeletedDraftId);

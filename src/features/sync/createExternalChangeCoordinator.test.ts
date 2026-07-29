@@ -74,6 +74,7 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     },
     debouncedSave: vi.fn(),
     flushSave: vi.fn(async () => {}),
+    awaitSaveIdle: vi.fn(async () => {}),
     runWithSaveLock: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
     loadNote: vi.fn(async () => {}),
     handleTitleInput: vi.fn(),
@@ -88,14 +89,14 @@ function makeSession(overrides: Partial<SessionState> = {}) {
   return { applyExternalContent, cancelAndClear, session, state };
 }
 
-function makeCoordinator(session: NoteSession) {
+function makeCoordinator(session: NoteSession, writeSuppressor = createWriteSuppressor()) {
   const notifySaved = vi.fn();
   const showToast = vi.fn();
   const coordinator = createExternalChangeCoordinator({
     session,
     notifySaved,
     showToast,
-    writeSuppressor: createWriteSuppressor(),
+    writeSuppressor,
   });
   return { coordinator, notifySaved, showToast };
 }
@@ -107,6 +108,58 @@ function controlledPromise<T>() {
   });
   return { promise, resolve };
 }
+
+describe('active-note write suppression', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    noteMocks.getNoteById.mockReturnValue({ id: 'active', title: 'active' });
+    noteMocks.readNote.mockResolvedValue('');
+  });
+
+  it('adopts an external edit to the open note inside the sync-write suppression window', async () => {
+    noteMocks.readNote.mockResolvedValueOnce('external content');
+    const writeSuppressor = createWriteSuppressor();
+    writeSuppressor.recordSyncWrite('active.md');
+    const bundle = makeSession({ savedContent: 'saved content' });
+    const { coordinator } = makeCoordinator(bundle.session, writeSuppressor);
+
+    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content');
+    coordinator.stop();
+  });
+
+  it('drops a sync-write echo by content comparison inside the suppression window', async () => {
+    noteMocks.readNote.mockResolvedValueOnce('saved content');
+    const writeSuppressor = createWriteSuppressor();
+    writeSuppressor.recordSyncWrite('active.md');
+    const bundle = makeSession({
+      editorContent: 'saved content',
+      savedContent: 'saved content',
+    });
+    const { coordinator } = makeCoordinator(bundle.session, writeSuppressor);
+
+    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+
+    expect(noteMocks.readNote).toHaveBeenCalledWith('active');
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    coordinator.stop();
+  });
+
+  it('keeps suppressing non-active files inside the sync-write window', async () => {
+    const writeSuppressor = createWriteSuppressor();
+    writeSuppressor.recordSyncWrite('background.md');
+    const bundle = makeSession();
+    const { coordinator, notifySaved } = makeCoordinator(bundle.session, writeSuppressor);
+
+    await coordinator.handleFileChange({ type: 'change', filename: 'background.md' });
+
+    expect(noteMocks.readNote).not.toHaveBeenCalled();
+    expect(noteMocks.handleExternalFileChange).not.toHaveBeenCalled();
+    expect(notifySaved).not.toHaveBeenCalled();
+    coordinator.stop();
+  });
+});
 
 describe('createExternalChangeCoordinator', () => {
   beforeEach(() => {

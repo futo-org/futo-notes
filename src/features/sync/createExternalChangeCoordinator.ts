@@ -112,9 +112,15 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     const { type, filename } = event;
     const suppressor = dependencies.writeSuppressor;
     if (!filename.endsWith('.md')) return;
-    if (suppressor.isRecentSyncWrite(filename) || suppressor.isRecentWrite(filename)) return;
 
     const id = filename.replace(/\.md$/, '');
+    const isActiveNoteChange = type === 'change' && id === dependencies.session.originalId;
+    if (
+      !isActiveNoteChange &&
+      (suppressor.isRecentSyncWrite(filename) || suppressor.isRecentWrite(filename))
+    ) {
+      return;
+    }
     if (type === 'unlink' && suppressor.getRecentRemoteRename(id)) return;
 
     let storageReconciled = false;
@@ -146,6 +152,10 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     onEvent: handleFileChange,
     onBulkRefresh: handleBulkRefresh,
     suppressor: dependencies.writeSuppressor,
+    isDrainExempt: (event) =>
+      event.type === 'change' &&
+      dependencies.session.originalId !== null &&
+      event.filename === `${dependencies.session.originalId}.md`,
   });
 
   function stop(): void {
