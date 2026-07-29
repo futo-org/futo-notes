@@ -137,18 +137,68 @@ export async function createNote(
   return { id: createdId, mtime: mtimeFor(mutation, createdId) };
 }
 
+export interface UpdateNoteOptions {
+  originalId?: string;
+  base?: string;
+  overrideMtime?: number;
+}
+
+export type UpdateNoteDisposition = 'wrote' | 'converged' | 'recreated' | 'parked';
+
+export interface UpdateNoteResult {
+  id: string;
+  mtime: number;
+  disposition: UpdateNoteDisposition;
+  parkedId?: string;
+}
+
 export async function updateNote(
   id: string,
   _title: string,
   content: string,
-  originalId?: string,
-  overrideMtime?: number,
-): Promise<{ id: string; mtime: number }> {
+  options: UpdateNoteOptions = {},
+): Promise<UpdateNoteResult> {
   const store = await getLocalNoteStore();
+  const { originalId, base, overrideMtime } = options;
+
+  if (originalId && base !== undefined && overrideMtime === undefined) {
+    const flush = await store.flushDraft(originalId, base, content);
+    if (flush.mutation) _applyLocalMutation(flush.mutation);
+
+    if (flush.disposition.kind === 'parkedConflict') {
+      return {
+        id: originalId,
+        mtime: getNoteById(originalId)?.modificationTime ?? Date.now(),
+        disposition: 'parked',
+        parkedId: flush.disposition.parkedId,
+      };
+    }
+
+    if (originalId !== id) {
+      const rename = await store.move(originalId, id);
+      _applyLocalMutation(rename);
+      const renamedId = rename.finalId ?? id;
+      return {
+        id: renamedId,
+        mtime: mtimeFor(rename, renamedId),
+        disposition: 'wrote',
+      };
+    }
+
+    return {
+      id: originalId,
+      mtime:
+        flush.mutation === null
+          ? (getNoteById(originalId)?.modificationTime ?? Date.now())
+          : mtimeFor(flush.mutation, originalId),
+      disposition: flush.disposition.kind,
+    };
+  }
+
   const mutation = await store.save(originalId ?? null, id, content, overrideMtime);
   _applyLocalMutation(mutation);
   const savedId = mutation.finalId ?? id;
-  return { id: savedId, mtime: mtimeFor(mutation, savedId) };
+  return { id: savedId, mtime: mtimeFor(mutation, savedId), disposition: 'wrote' };
 }
 
 export async function moveNote(

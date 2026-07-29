@@ -161,6 +161,7 @@ describe('active-note write suppression', () => {
   });
 });
 
+// eslint-disable-next-line max-lines-per-function -- One coordinator matrix shares the same session and watcher harness.
 describe('createExternalChangeCoordinator', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -224,6 +225,22 @@ describe('createExternalChangeCoordinator', () => {
     await handling;
 
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    coordinator.stop();
+  });
+
+  it('adopts the diverged disk note after a completed flush parks the draft', async () => {
+    noteMocks.readNote.mockResolvedValueOnce('peer content');
+    const bundle = makeSession({
+      editorContent: 'my parked draft',
+      savedContent: 'original base',
+      savePending: true,
+    });
+    const { coordinator, showToast } = makeCoordinator(bundle.session);
+
+    await coordinator.reconcileOpenNote('active', { allowPendingSave: true });
+
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('peer content');
+    expect(showToast).not.toHaveBeenCalled();
     coordinator.stop();
   });
 

@@ -33,6 +33,7 @@ export interface NoteSessionDeps {
   getPendingFolder?: () => string | null;
   clearPendingFolder?: () => void;
   onNoteRenamed: (savedOriginalId: string | null, realId: string) => void;
+  reconcileOpenNote: (id: string) => Promise<unknown>;
   navigate: (path: string) => void;
 }
 
@@ -144,6 +145,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     getState: () => ({ title, originalId, savedTitle, savedContent }),
     hasDuplicateTitle,
     showTitleWarning: (message) => titleController.showWarning(message, null),
+    reconcileOpenNote: deps.reconcileOpenNote,
     onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId }) => {
       // A first save has no original id, so the route must still identify the
       // new-note session; existing-note saves remain bound by original id.

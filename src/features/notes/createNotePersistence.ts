@@ -26,6 +26,7 @@ interface CreateNotePersistenceOptions {
   getState: () => NotePersistenceState;
   hasDuplicateTitle: (title: string) => boolean;
   onSaved: (state: SavedNoteState) => void;
+  reconcileOpenNote: (id: string) => Promise<unknown>;
   showTitleWarning: (message: string) => void;
 }
 
@@ -68,12 +69,15 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         return false;
       }
 
-      const result = await updateNote(
-        newId,
-        newTitle,
-        editorContent,
-        state.originalId ?? undefined,
-      );
+      const result = await updateNote(newId, newTitle, editorContent, {
+        originalId: state.originalId ?? undefined,
+        base: state.savedContent,
+      });
+      if (result.disposition === 'parked') {
+        await options.reconcileOpenNote(result.id);
+        return false;
+      }
+
       options.clearPendingFolder();
       options.onSaved({
         id: result.id,
@@ -81,7 +85,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         content: editorContent,
         savedOriginalId: state.originalId,
       });
-      return true;
+      return result.disposition !== 'converged';
     } catch (error) {
       console.warn('Failed to save note:', error);
       return false;

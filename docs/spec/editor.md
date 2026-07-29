@@ -578,11 +578,12 @@ EditorWebView.swift, EditorWebView.kt
   write — true on both native shells. → Android MainActivity `onPause` →
   `NotesStore.flushPendingEditor`; iOS FutoNotesApp scenePhase
   `.inactive`/`.background` → `NotesStore.flushPendingEditor`
-- A leave/background flush goes through the engine's ONE draft-saving verb
-  (persist-or-park, ADR-0001): `flush_draft(id, base, content)` resolves every
-  surprise itself under the engine's per-workflow serialization and returns one
-  flush disposition plus the mutation to apply — **wrote** (the note still held
-  `base`; content a live pull adopted since the editor's last read is never
+- A native leave/background flush and the desktop editor's debounced body save
+  go through the engine's ONE draft-saving verb (persist-or-park, ADR-0001):
+  `flush_draft(id, base, content)` resolves every surprise itself under the
+  store gate plus the process-wide vault mutation guard shared with sync, and
+  returns one flush disposition plus the mutation to apply — **wrote** (the
+  note still held `base`; content a live pull adopted since the editor's last read is never
   clobbered by a stale flush), **converged** (disk already equals the draft —
   explicit, no rewrite, no mtime bump; shells never read disk to compare),
   **recreated** (peer deleted; the edit wins at the ORIGINAL id — the same home
@@ -597,13 +598,23 @@ EditorWebView.swift, EditorWebView.kt
   abandoned note is never resurrected. Conflict copies are named by the
   engine's one conflict-naming rule ("<title> (conflict YYYY-MM-DD)", counter
   suffix on a same-day collision), and parking is idempotent — a crash-window
-  double-park mints ONE copy. _(iOS, Android; desktop saves unconditionally.)_ →
+  double-park mints ONE copy. On desktop, a parked disposition adds the
+  conflict copy's returned mutation to the note projection, leaves the draft
+  baseline uncommitted, then re-reads and adopts the diverged original from
+  disk through `reconcileOpenNote`; the copy appears in the list with no toast.
+  A rename flushes the body first and is skipped when that flush parks, so title
+  intent is never applied to the peer's diverged bytes. _(desktop, iOS,
+  Android)_ →
   `futo_notes_store::LocalNoteStore::flush_draft` via FFI `flush_draft`;
-  native `NotesStore.flushDraft`/`flushAsync`; conflict naming
+  desktop `notes.svelte.ts updateNote` through
+  `createNotePersistence`/`noteSession.svelte.ts`; native
+  `NotesStore.flushDraft`/`flushAsync`; conflict naming
   `futo_notes_core::conflict_names`. Guarded by the flush_draft unit tests in
   crates/futo-notes-store/src/tests.rs (all four dispositions, converged/park
   boundary, recreate-vs-reappeared window, park idempotency, recreate-arm
-  mutation positioning), the FFI note_contract test, and
+  mutation positioning, store-vs-sync serialization), desktop
+  `notes.contract.test.ts` / `createNotePersistence.test.ts` /
+  `createExternalChangeCoordinator.test.ts`, the FFI note_contract test, and
   apps/ios/Tests/Notes/Editor/FlushDraftVerbTests.swift and Android's
   `EditorLifecycleFlushTest`. Earlier behavior verified on iOS 2026-07-13
   (sim); iOS verb wiring verified via `just test-ios-native` 2026-07-21 and

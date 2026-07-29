@@ -90,8 +90,7 @@ export interface LocalNoteStore {
    * `content` for the note at `id` against `base` (the content the editor
    * last loaded or saved) and return one flush disposition — wrote /
    * converged / recreated / parked as a conflict copy — plus the mutation to
-   * apply. The engine resolves every surprise itself; desktop callers adopt
-   * in ticket #38. */
+   * apply. The engine resolves every surprise itself on all three shells. */
   flushDraft(id: string, base: string, content: string): Promise<LocalFlushDraftResult>;
   move(id: string, wantedId: string): Promise<LocalNoteMutation>;
   delete(id: string): Promise<LocalNoteMutation>;

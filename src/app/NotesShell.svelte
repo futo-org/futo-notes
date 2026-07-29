@@ -57,6 +57,8 @@
     writeHash(noteId);
   }
 
+  let reconcileOpenNote: (id: string) => Promise<boolean> = async () => false;
+
   const session = createNoteSession({
     getEditorContent: () => editor?.getContent(),
     setEditorContent: (content, options) => editor?.setContent(content, options),
@@ -75,6 +77,7 @@
       else tabsStore.replaceTabNoteId(tabsStore.activeTabId, toId);
       tabTransition.setLoadedNoteId(toId);
     },
+    reconcileOpenNote: (id) => reconcileOpenNote(id),
     navigate,
   });
 
@@ -90,6 +93,7 @@
       tabsStore.pruneMissingNoteIds((id) => !gone.has(id));
     },
   });
+  reconcileOpenNote = sync.reconcileOpenNote;
 
   function closeActiveNote(): void {
     tabsStore.openNote(null, 'current');

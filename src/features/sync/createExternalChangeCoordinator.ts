@@ -17,6 +17,10 @@ interface ExternalChangeDependencies {
   writeSuppressor: WriteSuppressor;
 }
 
+interface ReconcileOpenNoteOptions {
+  allowPendingSave?: boolean;
+}
+
 export function createExternalChangeCoordinator(dependencies: ExternalChangeDependencies) {
   let rescanTimer: number | null = null;
   let rescanInFlight = false;
@@ -53,12 +57,15 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     }, delay);
   }
 
-  async function reconcileOpenNoteFromDisk(id: string): Promise<boolean> {
+  async function reconcileOpenNoteFromDisk(
+    id: string,
+    options: ReconcileOpenNoteOptions,
+  ): Promise<boolean> {
     const content = await readNote(id).catch(() => null);
     if (
       content === null ||
       dependencies.session.originalId !== id ||
-      dependencies.session.savePending
+      (dependencies.session.savePending && !options.allowPendingSave)
     ) {
       return false;
     }
@@ -67,7 +74,10 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     if (content === '') {
       await handleExternalFileChange(`${id}.md`);
       storageReconciled = true;
-      if (dependencies.session.originalId !== id || dependencies.session.savePending) {
+      if (
+        dependencies.session.originalId !== id ||
+        (dependencies.session.savePending && !options.allowPendingSave)
+      ) {
         return storageReconciled;
       }
       if (!getNoteById(id)) {
@@ -89,8 +99,8 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     return storageReconciled;
   }
 
-  function reconcileOpenNote(id: string): Promise<boolean> {
-    const operation = () => reconcileOpenNoteFromDisk(id);
+  function reconcileOpenNote(id: string, options: ReconcileOpenNoteOptions = {}): Promise<boolean> {
+    const operation = () => reconcileOpenNoteFromDisk(id, options);
     const run = reconciliationTail.then(operation, operation);
     reconciliationTail = run.then(
       () => undefined,
@@ -173,6 +183,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     deferAdopt,
     handleFileChange,
     handleEditorFocusChange,
+    reconcileOpenNote,
     runRescan,
     scheduleRescan,
     stop,

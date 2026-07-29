@@ -169,6 +169,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
       getNoteId: () => 'new',
       setPrevNoteId: vi.fn(),
       onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
       navigate: vi.fn(),
     } satisfies NoteSessionDeps;
   }
@@ -185,7 +186,11 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     editorContent = '';
     const { updateNote } = await import('./notes.svelte');
     vi.mocked(updateNote).mockReset();
-    vi.mocked(updateNote).mockImplementation(async (id: string) => ({ id, mtime: 0 }));
+    vi.mocked(updateNote).mockImplementation(async (id: string) => ({
+      id,
+      mtime: 0,
+      disposition: 'wrote',
+    }));
     vi.useFakeTimers();
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       cb(0);
@@ -249,12 +254,10 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     await session.flushSave();
 
     const { updateNote } = await import('./notes.svelte');
-    expect(updateNote).toHaveBeenCalledWith(
-      'Untitled',
-      'Untitled',
-      '# hidden-window keystroke',
-      undefined,
-    );
+    expect(updateNote).toHaveBeenCalledWith('Untitled', 'Untitled', '# hidden-window keystroke', {
+      originalId: undefined,
+      base: '',
+    });
   });
 
   it('awaits only an in-flight save without starting a scheduled save', async () => {
@@ -302,7 +305,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
       'Archive/Roadmap',
       'Roadmap',
       'draft typed during move',
-      'Archive/Roadmap',
+      { originalId: 'Archive/Roadmap', base: 'base' },
     );
   });
 });
@@ -322,10 +325,12 @@ describe('stale save completion after an external close', () => {
 
   it('keeps the session cleared when an external unlink races an in-flight save completion', async () => {
     let routeNoteId: string | null = 'active';
-    let resolveSave!: (result: { id: string; mtime: number }) => void;
-    const saveResult = new Promise<{ id: string; mtime: number }>((resolve) => {
-      resolveSave = resolve;
-    });
+    let resolveSave!: (result: { id: string; mtime: number; disposition: 'wrote' }) => void;
+    const saveResult = new Promise<{ id: string; mtime: number; disposition: 'wrote' }>(
+      (resolve) => {
+        resolveSave = resolve;
+      },
+    );
     const deps = {
       getEditorContent: () => editorContent,
       setEditorContent: vi.fn((text: string) => {
@@ -343,6 +348,7 @@ describe('stale save completion after an external close', () => {
         if (path === '/') routeNoteId = null;
       }),
       onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
     } satisfies NoteSessionDeps;
     const session = createNoteSession(deps);
     const { updateNote } = await import('./notes.svelte');
@@ -365,7 +371,7 @@ describe('stale save completion after an external close', () => {
     });
     await externalChanges.handleFileChange({ type: 'unlink', filename: 'active.md' });
 
-    resolveSave({ id: 'Renamed', mtime: 0 });
+    resolveSave({ id: 'Renamed', mtime: 0, disposition: 'wrote' });
     await session.flushSave();
 
     expect(session.originalId).toBeNull();
@@ -400,11 +406,13 @@ describe('stale first-save completion after navigation', () => {
 
   it('does not rebind a new-note save that resolves after another note was opened', async () => {
     let routeNoteId: string | null = 'new';
-    let resolveSave!: (result: { id: string; mtime: number }) => void;
+    let resolveSave!: (result: { id: string; mtime: number; disposition: 'wrote' }) => void;
     let resolveOtherRead!: (content: string) => void;
-    const saveResult = new Promise<{ id: string; mtime: number }>((resolve) => {
-      resolveSave = resolve;
-    });
+    const saveResult = new Promise<{ id: string; mtime: number; disposition: 'wrote' }>(
+      (resolve) => {
+        resolveSave = resolve;
+      },
+    );
     const otherRead = new Promise<string>((resolve) => {
       resolveOtherRead = resolve;
     });
@@ -423,6 +431,7 @@ describe('stale first-save completion after navigation', () => {
       setPrevNoteId: vi.fn(),
       navigate: vi.fn(),
       onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
     } satisfies NoteSessionDeps;
     const { readNote, updateNote } = await import('./notes.svelte');
     vi.mocked(updateNote).mockImplementationOnce(() => saveResult);
@@ -437,7 +446,7 @@ describe('stale first-save completion after navigation', () => {
 
     routeNoteId = 'other';
     const openingOther = session.loadNote('other');
-    resolveSave({ id: 'Untitled', mtime: 0 });
+    resolveSave({ id: 'Untitled', mtime: 0, disposition: 'wrote' });
     await vi.waitFor(() => expect(readNote).toHaveBeenCalledWith('other'));
 
     expect(session.originalId).toBe('other');
@@ -463,6 +472,7 @@ describe('loadNote focus routing', () => {
       getNoteId: () => noteId,
       setPrevNoteId: vi.fn(),
       onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
       navigate: vi.fn(),
     } satisfies NoteSessionDeps;
   }
@@ -570,6 +580,7 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
       getNoteId: () => 'old note',
       setPrevNoteId: vi.fn(),
       onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
       navigate: vi.fn(),
     } satisfies NoteSessionDeps;
   }
@@ -578,7 +589,11 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
     editorDoc = '';
     const { updateNote } = await import('./notes.svelte');
     vi.mocked(updateNote).mockReset();
-    vi.mocked(updateNote).mockImplementation(async (id: string) => ({ id, mtime: 0 }));
+    vi.mocked(updateNote).mockImplementation(async (id: string) => ({
+      id,
+      mtime: 0,
+      disposition: 'wrote',
+    }));
     vi.useFakeTimers();
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       cb(0);

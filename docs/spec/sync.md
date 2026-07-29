@@ -841,11 +841,17 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   content matching the saved baseline is a self-write echo and is dropped by
   comparison rather than event counting. The session is
   re-checked after each asynchronous disk read: a note switch drops the stale
-  adopt, and an in-flight save drops the watcher event with no rescan scheduled;
-  that local save wins the disk for the window. A store-level conditional write
-  is the recorded follow-up. A `change` that reads empty content closes the
-  session as an external deletion only when the note no longer exists; an
-  existing empty note adopts normally, and either path still emits the change's
+  adopt, and an in-flight save drops the watcher event with no rescan scheduled.
+  The save itself is conditional against the session's saved-content base:
+  matching disk is written, identical disk converges without a rewrite, and a
+  stale draft against diverged disk is parked as a conflict copy instead of
+  clobbering it. After a park, desktop projects the copy and explicitly
+  reconciles the open note from disk (no toast), so the peer/external bytes are
+  adopted while the draft survives in the list. The store and sync share one
+  process-wide mutation guard across their check/write spans, closing the
+  remaining read→compare→write interleaving window. A `change` that reads empty
+  content closes the session as an external deletion only when the note no longer
+  exists; an existing empty note adopts normally, and either path still emits the change's
   save notification exactly once. A watcher `unlink` always closes the open
   session and shows "Note was deleted externally"; if an already-started save
   completes afterward, its disk write still notifies sync but cannot restore
