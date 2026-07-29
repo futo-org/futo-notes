@@ -4,9 +4,8 @@ static VAULT_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 
 /// Process-wide serialization for one vault check-and-mutate span.
 ///
-/// This is a leaf lock: keep the span limited to one read/check followed by
-/// its write, rename, or remove, and never acquire another lock while it is
-/// held.
+/// Lock order is store gate -> vault guard -> suppression/search notification.
+/// Code holding a suppression or search lock must never acquire this guard.
 pub fn vault_mutation_guard() -> Result<MutexGuard<'static, ()>, String> {
     VAULT_MUTATION_LOCK
         .lock()

@@ -852,6 +852,7 @@ impl LocalNoteStore {
     }
 
     fn relocate_folder(&self, from: &str, to: &str) -> Result<MutationResult, String> {
+        let _vault_mutation = vault_mutation_guard()?;
         let source = paths::folder_path(&self.root, &from)?;
         let destination = paths::folder_path(&self.root, &to)?;
         if !source.is_dir() {
@@ -936,6 +937,7 @@ impl LocalNoteStore {
         F: FnOnce(&Path) -> Result<(), String>,
     {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         paths::folder_path(&self.root, folder)?;
         let folder = sanitize_folder_path(folder);
         let target = paths::folder_path(&self.root, &folder)?;
