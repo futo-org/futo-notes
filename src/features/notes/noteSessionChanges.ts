@@ -7,6 +7,10 @@ export function shouldWriteNoteToDisk(params: {
   return !(params.newTitle === params.savedTitle && params.newContent === params.content);
 }
 
+export function normalizeTitleForPersistence(title: string): string {
+  return title.trim() || 'Untitled';
+}
+
 export function editorHasUnseenChanges(params: {
   editorContent: string | undefined;
   savedContent: string;
@@ -14,7 +18,10 @@ export function editorHasUnseenChanges(params: {
   savedTitle: string;
 }): boolean {
   if (params.editorContent === undefined) return false;
-  return params.editorContent !== params.savedContent || params.title !== params.savedTitle;
+  return (
+    params.editorContent !== params.savedContent ||
+    normalizeTitleForPersistence(params.title) !== normalizeTitleForPersistence(params.savedTitle)
+  );
 }
 
 export function isEditorChangeEcho(params: {

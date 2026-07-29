@@ -228,6 +228,15 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     expect(updateNote).toHaveBeenCalledTimes(1);
   });
 
+  it('is clean after saving a title with trailing whitespace', async () => {
+    const session = createNoteSession(makeDeps());
+
+    typeTitle(session, 'Foo ');
+    await session.flushSave();
+
+    expect(session.dirty).toBe(false);
+  });
+
   it('flushes editor content even when rAF never delivered onchange', async () => {
     const session = createNoteSession(makeDeps());
     await session.loadNote('new');
