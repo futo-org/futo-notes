@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -870,6 +871,61 @@ fn flush_draft_writes_when_the_note_still_holds_the_base() {
     assert_eq!(mutation.final_id.as_deref(), Some("note"));
     assert_eq!(mutation.upserted[0].note.id, "note");
     assert_eq!(store.read("note"), "draft text");
+}
+
+#[test]
+fn flush_draft_serializes_its_check_and_write_against_sync_mutations() {
+    let root = TestRoot::new();
+    let store = Arc::new(store(&root));
+    store.write("note", "base text", None).unwrap();
+
+    let (inside_tx, inside_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    store.set_flush_window_hook(Box::new(move |_| {
+        inside_tx.send(()).unwrap();
+        release_rx.lock().unwrap().recv().unwrap();
+    }));
+
+    let flushing_store = store.clone();
+    let flush = std::thread::spawn(move || {
+        flushing_store
+            .flush_draft("note", "base text", "draft text")
+            .unwrap()
+    });
+    inside_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("flush reached the guarded check/write span");
+
+    let sync_path = root.0.join("note.md");
+    let (attempting_tx, attempting_rx) = mpsc::channel();
+    let (acquired_tx, acquired_rx) = mpsc::channel();
+    let sync_write = std::thread::spawn(move || {
+        attempting_tx.send(()).unwrap();
+        let _guard = futo_notes_core::files::vault_mutation_guard().unwrap();
+        acquired_tx.send(()).unwrap();
+        futo_notes_core::files::write_atomic_text(&sync_path, "peer text").unwrap();
+    });
+    attempting_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("simulated sync writer started");
+    assert!(
+        acquired_rx.recv_timeout(Duration::from_millis(75)).is_err(),
+        "sync must block while flush owns the check/write span"
+    );
+
+    release_tx.send(()).unwrap();
+    let result = flush.join().unwrap();
+    assert_eq!(result.disposition, FlushDisposition::Wrote);
+    acquired_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("sync proceeds after the flush span");
+    sync_write.join().unwrap();
+    assert_eq!(
+        store.read("note"),
+        "peer text",
+        "the later sync mutation wins instead of being clobbered by a stale flush"
+    );
 }
 
 // The converged/park boundary: disk already holding the draft is an explicit

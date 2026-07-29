@@ -13,8 +13,7 @@ use super::encrypted_note::{decrypt, state_from_remote, RemoteNote};
 use super::object_map::{mapped_name, object_is_current};
 use super::outcome::{append_derived_renames, note_id, record_checkpoint_failure};
 use super::tombstones::{apply_tombstone, recover_stale_claims};
-use super::vault::{content_hash, park_local, path_exists, remove_local, write_content};
-use super::vault_fs;
+use super::vault::{content_hash, park_local, path_exists, remove_local, write_content_if_changed};
 use super::{
     FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind, SyncFailure,
     SyncProgress, SyncSummary,
@@ -184,16 +183,16 @@ fn commit_remote_file(
     target: String,
     remote_hash: &str,
 ) -> Result<(), String> {
-    if content_hash(context.root, &target).as_deref() != Some(remote_hash) {
-        write_content(context.root, &target, &remote.content, context.pre_write)?;
-        context.summary.local_writes_applied += 1;
-    } else {
-        vault_fs::sync_parent(context.root, &target)?;
-    }
     let modified = timestamp_ms(&remote.object.updated_at);
-    if modified > 0 {
-        (context.pre_write)(&target);
-        let _ = vault_fs::set_mtime_ms(context.root, &target, modified);
+    if write_content_if_changed(
+        context.root,
+        &target,
+        &remote.content,
+        remote_hash,
+        modified,
+        context.pre_write,
+    )? {
+        context.summary.local_writes_applied += 1;
     }
     context
         .state

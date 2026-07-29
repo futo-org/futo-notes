@@ -4,6 +4,7 @@ mod filenames;
 mod parked_backup;
 mod paths;
 mod timestamps;
+mod vault_lock;
 
 pub use atomic_write::{
     create_new_atomic, move_no_replace, rename_through_temp, write_atomic_bytes, write_atomic_text,
@@ -20,3 +21,4 @@ pub use paths::{
     MAX_FOLDER_DEPTH, NAME_MAX,
 };
 pub use timestamps::{file_mtime_ms, mtime_or_now, now_ms, set_file_mtime_ms};
+pub use vault_lock::vault_mutation_guard;
