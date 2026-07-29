@@ -285,7 +285,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   launched with `ACTION_VIEW`. Verified emulator + simulator 2026-07-08 (tapping
   a rendered link opens Safari / Chrome to the target; iOS `openUrl` case and
   Android `ACTION_VIEW` intent both fire).
-  → openUrl.ts, MarkdownEditor.svelte `linkClickHandler` (`onopenurl`),
+  → platform/openExternalUrl.ts, MarkdownEditor.svelte `linkClickHandler` (`onopenurl`),
   editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
   EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
   `shouldOverrideUrlLoading` / `isInAppEditorNavigation`,
