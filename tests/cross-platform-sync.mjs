@@ -728,7 +728,7 @@ async function externalWatcherAdoptsOverDirtyDraft(a, _b, _server) {
   assertEqual(
     diskContent,
     '# Changed on disk',
-    'external disk content should still land on disk while the UI keeps the draft',
+    'external disk content should remain on disk after the UI adopts it',
   );
 }
 

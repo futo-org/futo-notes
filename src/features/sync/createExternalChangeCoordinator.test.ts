@@ -5,6 +5,7 @@ import type { NoteSession } from '$features/notes/noteSession.svelte';
 import { createWriteSuppressor } from '$lib/platform/writeSuppression';
 
 const noteMocks = vi.hoisted(() => ({
+  getNoteById: vi.fn(),
   handleExternalFileChange: vi.fn(async () => {}),
   readNote: vi.fn(async () => ''),
   refreshNotesFromStorage: vi.fn(async () => {}),
@@ -99,9 +100,18 @@ function makeCoordinator(session: NoteSession) {
   return { coordinator, notifySaved, showToast };
 }
 
+function controlledPromise<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe('createExternalChangeCoordinator', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    noteMocks.getNoteById.mockReturnValue({ id: 'active', title: 'active' });
     noteMocks.readNote.mockResolvedValue('');
   });
 
@@ -134,6 +144,51 @@ describe('createExternalChangeCoordinator', () => {
     coordinator.stop();
   });
 
+  it('does not adopt a slow read after the user switches notes', async () => {
+    const read = controlledPromise<string>();
+    noteMocks.readNote.mockReturnValueOnce(read.promise);
+    const bundle = makeSession();
+    const { coordinator } = makeCoordinator(bundle.session);
+
+    const handling = coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    bundle.state.originalId = 'other';
+    read.resolve('active external content');
+    await handling;
+
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    coordinator.stop();
+  });
+
+  it('drops a slow read when a save becomes pending', async () => {
+    const read = controlledPromise<string>();
+    noteMocks.readNote.mockReturnValueOnce(read.promise);
+    const bundle = makeSession();
+    const { coordinator } = makeCoordinator(bundle.session);
+
+    const handling = coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    bundle.state.savePending = true;
+    read.resolve('external content');
+    await handling;
+
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    coordinator.stop();
+  });
+
+  it('adopts disk content matching the editor and advances the saved baseline', async () => {
+    noteMocks.readNote.mockResolvedValueOnce('local content').mockResolvedValueOnce('old baseline');
+    const bundle = makeSession({
+      editorContent: 'local content',
+      savedContent: 'old baseline',
+    });
+    const { coordinator } = makeCoordinator(bundle.session);
+
+    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+
+    expect(bundle.applyExternalContent.mock.calls).toEqual([['local content'], ['old baseline']]);
+    coordinator.stop();
+  });
+
   it('defers adoption during composition and applies it silently on blur', async () => {
     noteMocks.readNote.mockResolvedValueOnce('external content');
     const bundle = makeSession({ composing: true, dirty: true, editorFocused: true });
@@ -147,6 +202,36 @@ describe('createExternalChangeCoordinator', () => {
     await coordinator.handleEditorFocusChange(false);
 
     expect(bundle.applyExternalContent).toHaveBeenCalledWith('external content');
+    expect(showToast).not.toHaveBeenCalled();
+    coordinator.stop();
+  });
+
+  it('closes the session when a change event reads empty content for a missing note', async () => {
+    noteMocks.readNote.mockResolvedValueOnce('');
+    noteMocks.getNoteById.mockReturnValueOnce(null);
+    const bundle = makeSession({ dirty: true });
+    const { coordinator, showToast } = makeCoordinator(bundle.session);
+
+    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
+    expect(showToast).toHaveBeenCalledExactlyOnceWith('Note was deleted externally');
+    coordinator.stop();
+  });
+
+  it('adopts empty content when the note still exists', async () => {
+    noteMocks.readNote.mockResolvedValueOnce('');
+    const bundle = makeSession({
+      editorContent: 'existing content',
+      savedContent: 'existing content',
+    });
+    const { coordinator, showToast } = makeCoordinator(bundle.session);
+
+    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('');
+    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
     expect(showToast).not.toHaveBeenCalled();
     coordinator.stop();
   });

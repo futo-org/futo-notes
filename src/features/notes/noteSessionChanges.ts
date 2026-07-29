@@ -1,3 +1,5 @@
+import { FALLBACK_TITLE } from '$lib/rules';
+
 export function shouldWriteNoteToDisk(params: {
   savedTitle: string;
   newTitle: string;
@@ -8,7 +10,7 @@ export function shouldWriteNoteToDisk(params: {
 }
 
 export function normalizeTitleForPersistence(title: string): string {
-  return title.trim() || 'Untitled';
+  return title.trim() || FALLBACK_TITLE;
 }
 
 export function editorHasUnseenChanges(params: {

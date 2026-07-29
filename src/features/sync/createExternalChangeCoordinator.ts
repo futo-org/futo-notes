@@ -1,4 +1,5 @@
 import {
+  getNoteById,
   handleExternalFileChange,
   readNote,
   refreshNotesFromStorage,
@@ -70,6 +71,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     const id = filename.replace(/\.md$/, '');
     if (type === 'unlink' && suppressor.getRecentRemoteRename(id)) return;
 
+    let storageReconciled = false;
     const activeId = dependencies.session.originalId;
     if (id === activeId && dependencies.session.savePending && type === 'change') return;
 
@@ -79,11 +81,26 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       dependencies.showToast('Note was deleted externally');
     } else if (type === 'change' && id === activeId) {
       const content = await readNote(id).catch(() => null);
-      if (content !== null) {
-        if (
-          content === dependencies.session.savedContent ||
-          content === dependencies.session.editorContent
-        ) {
+      if (
+        content !== null &&
+        dependencies.session.originalId === id &&
+        !dependencies.session.savePending
+      ) {
+        if (content === '') {
+          await handleExternalFileChange(filename);
+          storageReconciled = true;
+          if (dependencies.session.originalId !== id || dependencies.session.savePending) {
+            return;
+          }
+          if (!getNoteById(id)) {
+            pendingAdopt = null;
+            dependencies.session.cancelAndClear();
+            dependencies.showToast('Note was deleted externally');
+            return;
+          }
+        }
+
+        if (content === dependencies.session.savedContent) {
           pendingAdopt = null;
         } else if (dependencies.session.composing) {
           pendingAdopt = { id, content };
@@ -94,7 +111,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       }
     }
 
-    await handleExternalFileChange(filename);
+    if (!storageReconciled) await handleExternalFileChange(filename);
     if (type === 'add' || type === 'change') dependencies.notifySaved();
   }
 

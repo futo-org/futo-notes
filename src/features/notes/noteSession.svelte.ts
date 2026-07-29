@@ -6,7 +6,11 @@ import { createNoteSaveQueue } from './noteSaveQueue';
 import { createNoteTitleController } from './createNoteTitleController.svelte';
 import { createNotePersistence } from './createNotePersistence';
 import { createNoteLoader } from './createNoteLoader';
-import { editorHasUnseenChanges, isEditorChangeEcho } from './noteSessionChanges';
+import {
+  editorHasUnseenChanges,
+  isEditorChangeEcho,
+  normalizeTitleForPersistence,
+} from './noteSessionChanges';
 import { getNoteById } from './notes.svelte';
 
 export {
@@ -76,7 +80,7 @@ function hasDuplicateNoteTitle(
   originalId: string | null,
   pendingFolder: string | null,
 ): boolean {
-  const leaf = sanitizeFilename(checkTitle.trim() || 'Untitled');
+  const leaf = sanitizeFilename(normalizeTitleForPersistence(checkTitle));
   const slash = originalId?.lastIndexOf('/') ?? -1;
   const parentFolder = originalId
     ? slash === -1

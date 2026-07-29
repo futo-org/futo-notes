@@ -830,12 +830,17 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   `session/`
 
 - **External filesystem changes to the open note mirror disk, IDE-style
-  *(desktop)*.** A watcher `change` whose disk content differs from both the
-  session's last-saved baseline and the live editor content is adopted
-  immediately, even over a dirty or focused draft; an active IME composition
-  defers the adopt until blur, then applies it silently. Matching content is a
-  self-write echo and is dropped by comparison rather than event counting. An
-  in-flight save's watcher echo remains deferred to save completion. A watcher
+  *(desktop)*.** A watcher `change` whose disk content differs from the
+  session's last-saved baseline is adopted immediately, even over a dirty or
+  focused draft; equality with the live editor is still adopted as a zero-diff
+  apply so the saved baseline advances. An active IME composition defers the
+  adopt until blur, then applies it silently. Only content matching the saved
+  baseline is a self-write echo and is dropped by comparison rather than event
+  counting. The session is re-checked after the asynchronous disk read: a note
+  switch drops the stale adopt, and an in-flight save drops the watcher event;
+  save completion plus the scheduled rescan reconciles it. A `change` that
+  reads empty content closes the session as an external deletion only when the
+  note no longer exists; an existing empty note adopts normally. A watcher
   `unlink` always closes the open session and shows "Note was deleted
   externally". → createExternalChangeCoordinator.ts (guarded by
   createExternalChangeCoordinator.test.ts and the cross-platform scenario
