@@ -321,6 +321,28 @@ describe('peer projections', () => {
     expect(bundle.applyRemoteRename).toHaveBeenCalledExactlyOnceWith('New', 'New');
   });
 
+  it('does not rebind a remote rename after the session switches notes', async () => {
+    const sessionBundle = makeSession({ id: 'Old', savePending: true });
+    let releaseSave!: () => void;
+    sessionBundle.awaitSaveIdle.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        releaseSave = resolve;
+      }),
+    );
+    const bundle = makeManager(sessionBundle);
+
+    const reconciliation = bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      renamed: [{ fromId: 'Old', toId: 'New' }],
+    });
+    await Promise.resolve();
+    sessionBundle.state.id = 'Other';
+    releaseSave();
+    await reconciliation;
+
+    expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
+  });
+
   // Same-cycle collision placement + tombstone of the relocated note: the
   // engine reports both the rename and the deletion of its target (guarded by
   // same_cycle_tombstone_of_a_collision_relocated_note_survives_ghost_stripping

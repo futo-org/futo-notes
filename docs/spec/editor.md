@@ -516,7 +516,7 @@ EditorWebView.swift, EditorWebView.kt
 - Wikilinks and tags inside inline code or fenced blocks are NOT decorated and
   NOT extracted. → markdown-spec/cases/03-code, 08-wikilinks, 09-tags
 
-## Saving & rename _(native shells)_
+## Saving & rename
 
 - Body edits autosave on a debounce (~400 ms). The save re-reads the current
   note id at fire time, so a save landing **after** a rename writes to the
@@ -602,9 +602,9 @@ EditorWebView.swift, EditorWebView.kt
   conflict copy's returned mutation to the note projection, leaves the draft
   baseline uncommitted, then re-reads and adopts the diverged original from
   disk through `reconcileOpenNote`; the copy appears in the list with no toast.
-  A rename flushes the body first and is skipped when that flush parks, so title
-  intent is never applied to the peer's diverged bytes. _(desktop, iOS,
-  Android)_ →
+  On desktop, only a same-id body save uses `flush_draft`; a rename persists
+  the title and body through the store's single save workflow, never as a
+  separately committed flush followed by a move. _(desktop, iOS, Android)_ →
   `futo_notes_store::LocalNoteStore::flush_draft` via FFI `flush_draft`;
   desktop `notes.svelte.ts updateNote` through
   `createNotePersistence`/`noteSession.svelte.ts`; native
@@ -637,6 +637,11 @@ EditorWebView.swift, EditorWebView.kt
   the surviving-process flush path, not an actual jetsam-during-background kill.
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines.
+- A title that differs from the saved title only by leading or trailing
+  whitespace normalizes back to the saved title and leaves the session clean;
+  no write occurs.
+- A duplicate title blocks the save and shows the visible warning toast
+  "A note with this name already exists".
 - The editor chrome shows **no word count** (or any other document
   statistic) — just the title and the document (spec decision 2026-06-10;
   Android native previously rendered an "N words" line under the title, no

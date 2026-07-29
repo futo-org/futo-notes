@@ -228,6 +228,32 @@ describe('createExternalChangeCoordinator', () => {
     coordinator.stop();
   });
 
+  it('reconciles an active change after the in-flight save settles', async () => {
+    noteMocks.readNote.mockResolvedValueOnce('external content');
+    const save = controlledPromise<void>();
+    const bundle = makeSession({
+      savedContent: 'original base',
+      savePending: true,
+    });
+    vi.mocked(bundle.session.awaitSaveIdle).mockImplementationOnce(async () => {
+      await save.promise;
+      bundle.state.savePending = false;
+      bundle.state.savedContent = 'saved draft';
+    });
+    const { coordinator } = makeCoordinator(bundle.session);
+
+    const handling = coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    await Promise.resolve();
+    expect(noteMocks.readNote).not.toHaveBeenCalled();
+
+    save.resolve();
+    await handling;
+
+    expect(noteMocks.readNote).toHaveBeenCalledExactlyOnceWith('active');
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content');
+    coordinator.stop();
+  });
+
   it('adopts the diverged disk note after a completed flush parks the draft', async () => {
     noteMocks.readNote.mockResolvedValueOnce('peer content');
     const bundle = makeSession({

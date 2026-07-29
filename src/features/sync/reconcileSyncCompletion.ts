@@ -45,6 +45,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     dependencies.onRename(fromId, toId, newTitle);
     if (dependencies.session.originalId === fromId) {
       await dependencies.session.awaitSaveIdle();
+      if (dependencies.session.originalId !== fromId) return;
       dependencies.session.applyRemoteRename(toId, newTitle);
     }
   }

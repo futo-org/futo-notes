@@ -841,8 +841,11 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   content matching the saved baseline is a self-write echo and is dropped by
   comparison rather than event counting. The session is
   re-checked after each asynchronous disk read: a note switch drops the stale
-  adopt, and an in-flight save drops the watcher event with no rescan scheduled.
-  The save itself is conditional against the session's saved-content base:
+  adopt, and a `change` arriving during an in-flight save waits for that save
+  to settle before reading and reconciling disk. If another save starts during
+  the read, the post-read check may still drop that snapshot because the
+  conditional save will park on a changed base and its parked path reconciles
+  again. The save itself is conditional against the session's saved-content base:
   matching disk is written, identical disk converges without a rewrite, and a
   stale draft against diverged disk is parked as a conflict copy instead of
   clobbering it. After a park, desktop projects the copy and explicitly

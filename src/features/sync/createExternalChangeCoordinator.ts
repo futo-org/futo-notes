@@ -135,7 +135,11 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
 
     let storageReconciled = false;
     const activeId = dependencies.session.originalId;
-    if (id === activeId && dependencies.session.savePending && type === 'change') return;
+    if (id === activeId && dependencies.session.savePending && type === 'change') {
+      await dependencies.session.awaitSaveIdle();
+      // A later save can still make the post-read check drop this reconcile;
+      // flush_draft will park that save and its parked path reconciles again.
+    }
 
     if (type === 'unlink' && id === activeId) {
       pendingAdopt = null;

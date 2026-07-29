@@ -183,17 +183,16 @@ describe('TypeScript local-note projection', () => {
     expect(getAllNotes().map((note) => note.id)).toEqual(['Note', parkedId]);
   });
 
-  it('flushes content before renaming an existing note', async () => {
-    const flushed = mutation({ upserted: [upsert('Old')], finalId: 'Old' });
+  it('saves a rename as one store workflow', async () => {
     const renamed = mutation({
       removed: ['Old'],
       renamed: [{ from: 'Old', to: 'New' }],
       upserted: [upsert('New')],
       finalId: 'New',
     });
-    const flushDraft = vi.fn(async () => flushResult('wrote', flushed));
-    const move = vi.fn(async () => renamed);
-    const save = vi.fn();
+    const flushDraft = vi.fn();
+    const move = vi.fn();
+    const save = vi.fn(async () => renamed);
     _setLocalNoteStoreForTest(fakeStore({ flushDraft, move, save }));
 
     await expect(
@@ -203,26 +202,8 @@ describe('TypeScript local-note projection', () => {
       }),
     ).resolves.toMatchObject({ id: 'New', disposition: 'wrote' });
 
-    expect(flushDraft).toHaveBeenCalledWith('Old', 'saved body', 'latest body');
-    expect(move).toHaveBeenCalledWith('Old', 'New');
-    expect(flushDraft.mock.invocationCallOrder[0]).toBeLessThan(move.mock.invocationCallOrder[0]);
-    expect(save).not.toHaveBeenCalled();
-  });
-
-  it('skips rename when the content flush parks', async () => {
-    const parkedId = 'Old (conflict 2026-07-29)';
-    const parked = mutation({ upserted: [upsert(parkedId)], finalId: parkedId });
-    const flushDraft = vi.fn(async () => flushResult('parkedConflict', parked, parkedId));
-    const move = vi.fn();
-    _setLocalNoteStoreForTest(fakeStore({ flushDraft, move }));
-
-    await expect(
-      updateNote('New', 'ignored shell title', 'my draft', {
-        originalId: 'Old',
-        base: 'saved body',
-      }),
-    ).resolves.toMatchObject({ id: 'Old', disposition: 'parked', parkedId });
-
+    expect(save).toHaveBeenCalledExactlyOnceWith('Old', 'New', 'latest body', undefined);
+    expect(flushDraft).not.toHaveBeenCalled();
     expect(move).not.toHaveBeenCalled();
   });
 

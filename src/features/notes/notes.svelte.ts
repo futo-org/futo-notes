@@ -161,7 +161,7 @@ export async function updateNote(
   const store = await getLocalNoteStore();
   const { originalId, base, overrideMtime } = options;
 
-  if (originalId && base !== undefined && overrideMtime === undefined) {
+  if (originalId === id && base !== undefined && overrideMtime === undefined) {
     const flush = await store.flushDraft(originalId, base, content);
     if (flush.mutation) _applyLocalMutation(flush.mutation);
 
@@ -171,17 +171,6 @@ export async function updateNote(
         mtime: getNoteById(originalId)?.modificationTime ?? Date.now(),
         disposition: 'parked',
         parkedId: flush.disposition.parkedId,
-      };
-    }
-
-    if (originalId !== id) {
-      const rename = await store.move(originalId, id);
-      _applyLocalMutation(rename);
-      const renamedId = rename.finalId ?? id;
-      return {
-        id: renamedId,
-        mtime: mtimeFor(rename, renamedId),
-        disposition: 'wrote',
       };
     }
 
