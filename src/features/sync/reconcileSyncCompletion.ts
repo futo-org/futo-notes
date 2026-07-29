@@ -133,7 +133,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
           dependencies.session.editVersion !== options.getSyncStartEditVersion();
         if (!editedDuringSync && !dependencies.session.dirty) {
           if (dependencies.session.editorFocused) {
-            externalChanges.deferAdopt(openId, freshContent);
+            externalChanges.deferAdopt(openId);
           } else {
             dependencies.session.applyExternalContent(freshContent);
           }

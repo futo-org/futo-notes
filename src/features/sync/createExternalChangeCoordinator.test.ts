@@ -190,7 +190,9 @@ describe('createExternalChangeCoordinator', () => {
   });
 
   it('defers adoption during composition and applies it silently on blur', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('external content');
+    noteMocks.readNote
+      .mockResolvedValueOnce('external content')
+      .mockResolvedValueOnce('external content');
     const bundle = makeSession({ composing: true, dirty: true, editorFocused: true });
     const { coordinator, showToast } = makeCoordinator(bundle.session);
 
@@ -210,13 +212,14 @@ describe('createExternalChangeCoordinator', () => {
     noteMocks.readNote.mockResolvedValueOnce('');
     noteMocks.getNoteById.mockReturnValueOnce(null);
     const bundle = makeSession({ dirty: true });
-    const { coordinator, showToast } = makeCoordinator(bundle.session);
+    const { coordinator, notifySaved, showToast } = makeCoordinator(bundle.session);
 
     await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
 
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
     expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
     expect(showToast).toHaveBeenCalledExactlyOnceWith('Note was deleted externally');
+    expect(notifySaved).toHaveBeenCalledOnce();
     coordinator.stop();
   });
 
@@ -226,13 +229,14 @@ describe('createExternalChangeCoordinator', () => {
       editorContent: 'existing content',
       savedContent: 'existing content',
     });
-    const { coordinator, showToast } = makeCoordinator(bundle.session);
+    const { coordinator, notifySaved, showToast } = makeCoordinator(bundle.session);
 
     await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
 
     expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('');
     expect(bundle.cancelAndClear).not.toHaveBeenCalled();
     expect(showToast).not.toHaveBeenCalled();
+    expect(notifySaved).toHaveBeenCalledOnce();
     coordinator.stop();
   });
 
@@ -257,6 +261,48 @@ describe('createExternalChangeCoordinator', () => {
     expect(noteMocks.readNote).toHaveBeenCalledWith('active');
     expect(noteMocks.handleExternalFileChange).toHaveBeenCalledWith('active.md');
     expect(notifySaved).toHaveBeenCalledOnce();
+    coordinator.stop();
+  });
+});
+
+describe('deferred adopt identity', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    noteMocks.getNoteById.mockReturnValue({ id: 'active', title: 'active' });
+    noteMocks.readNote.mockResolvedValue('');
+  });
+
+  it('drops a deferred adopt after the session switches to another note', async () => {
+    noteMocks.readNote.mockResolvedValueOnce('stale active content');
+    const bundle = makeSession({ composing: true, editorFocused: true });
+    const { coordinator } = makeCoordinator(bundle.session);
+
+    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    bundle.state.originalId = 'other';
+    bundle.state.composing = false;
+    bundle.state.editorFocused = false;
+    await coordinator.handleEditorFocusChange(false);
+
+    expect(noteMocks.readNote).toHaveBeenCalledOnce();
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    coordinator.stop();
+  });
+
+  it('re-reads current disk content when a deferred note is reopened before blur', async () => {
+    noteMocks.readNote
+      .mockResolvedValueOnce('old external snapshot')
+      .mockResolvedValueOnce('current disk content');
+    const bundle = makeSession({ composing: true, editorFocused: true });
+    const { coordinator } = makeCoordinator(bundle.session);
+
+    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    bundle.state.originalId = 'other';
+    bundle.state.originalId = 'active';
+    bundle.state.composing = false;
+    bundle.state.editorFocused = false;
+    await coordinator.handleEditorFocusChange(false);
+
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('current disk content');
     coordinator.stop();
   });
 });

@@ -21,7 +21,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
   let rescanTimer: number | null = null;
   let rescanInFlight = false;
   let rescanQueued = false;
-  let pendingAdopt: { id: string; content: string } | null = null;
+  let pendingAdopt: string | null = null;
 
   async function runRescan(): Promise<void> {
     if (!hasFileSystem) return;
@@ -52,14 +52,49 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     }, delay);
   }
 
+  async function reconcileOpenNote(id: string): Promise<boolean> {
+    const content = await readNote(id).catch(() => null);
+    if (
+      content === null ||
+      dependencies.session.originalId !== id ||
+      dependencies.session.savePending
+    ) {
+      return false;
+    }
+
+    let storageReconciled = false;
+    if (content === '') {
+      await handleExternalFileChange(`${id}.md`);
+      storageReconciled = true;
+      if (dependencies.session.originalId !== id || dependencies.session.savePending) {
+        return storageReconciled;
+      }
+      if (!getNoteById(id)) {
+        pendingAdopt = null;
+        dependencies.session.cancelAndClear();
+        dependencies.showToast('Note was deleted externally');
+        return storageReconciled;
+      }
+    }
+
+    if (content === dependencies.session.savedContent) {
+      pendingAdopt = null;
+    } else if (dependencies.session.composing) {
+      pendingAdopt = id;
+    } else {
+      pendingAdopt = null;
+      dependencies.session.applyExternalContent(content);
+    }
+    return storageReconciled;
+  }
+
   async function handleEditorFocusChange(focused: boolean): Promise<void> {
     if (focused || !pendingAdopt) return;
 
-    const pending = pendingAdopt;
+    const id = pendingAdopt;
     pendingAdopt = null;
-    if (dependencies.session.originalId !== pending.id) return;
-    if (pending.content === dependencies.session.editorContent) return;
-    dependencies.session.applyExternalContent(pending.content);
+    if (dependencies.session.originalId !== id) return;
+    await reconcileOpenNote(id);
   }
 
   async function handleFileChange(event: FileChangeEvent): Promise<void> {
@@ -80,35 +115,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       dependencies.session.cancelAndClear();
       dependencies.showToast('Note was deleted externally');
     } else if (type === 'change' && id === activeId) {
-      const content = await readNote(id).catch(() => null);
-      if (
-        content !== null &&
-        dependencies.session.originalId === id &&
-        !dependencies.session.savePending
-      ) {
-        if (content === '') {
-          await handleExternalFileChange(filename);
-          storageReconciled = true;
-          if (dependencies.session.originalId !== id || dependencies.session.savePending) {
-            return;
-          }
-          if (!getNoteById(id)) {
-            pendingAdopt = null;
-            dependencies.session.cancelAndClear();
-            dependencies.showToast('Note was deleted externally');
-            return;
-          }
-        }
-
-        if (content === dependencies.session.savedContent) {
-          pendingAdopt = null;
-        } else if (dependencies.session.composing) {
-          pendingAdopt = { id, content };
-        } else {
-          pendingAdopt = null;
-          dependencies.session.applyExternalContent(content);
-        }
-      }
+      storageReconciled = await reconcileOpenNote(id);
     }
 
     if (!storageReconciled) await handleExternalFileChange(filename);
@@ -136,8 +143,8 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     watcherBatch.destroy();
   }
 
-  function deferAdopt(id: string, content: string): void {
-    pendingAdopt = { id, content };
+  function deferAdopt(id: string): void {
+    pendingAdopt = id;
   }
 
   return {

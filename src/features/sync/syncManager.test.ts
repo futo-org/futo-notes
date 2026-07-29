@@ -27,6 +27,7 @@ vi.mock('$features/notes/notes.svelte', () => ({
 import { updateAppState } from '$shared/state/appState';
 import { noteExists, readNote, refreshNotesFromStorage } from '$features/notes/notes.svelte';
 import type { NoteSession } from '$features/notes/noteSession.svelte';
+import { writeSuppressor } from '$lib/platform/writeSuppression';
 import { createSyncManager, getSyncErrorMessage, type SyncManagerDeps } from './syncManager.svelte';
 import type { SyncSummary } from './syncServiceE2ee';
 
@@ -359,6 +360,27 @@ describe('editor reconciliation', () => {
 
     expect(bundle.applyExternalContent).toHaveBeenCalledWith('FRESH');
     expect(bundle.toasts).toEqual([]);
+  });
+
+  it('re-reads a sync-deferred adopt on blur while the sync-write suppressor is active', async () => {
+    vi.mocked(readNote)
+      .mockResolvedValueOnce('sync completion snapshot')
+      .mockResolvedValueOnce('current disk content');
+    const bundle = makeManager(
+      makeSession({ id: 'SuppressedSyncAdopt', content: 'OLD', focused: true }),
+    );
+
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['SuppressedSyncAdopt'],
+    });
+    expect(writeSuppressor.isRecentSyncWrite('SuppressedSyncAdopt.md')).toBe(true);
+
+    bundle.state.focused = false;
+    await bundle.manager.handleEditorFocusChange(false);
+
+    expect(readNote).toHaveBeenCalledTimes(2);
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('current disk content');
   });
 });
 

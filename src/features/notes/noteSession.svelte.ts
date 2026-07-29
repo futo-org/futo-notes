@@ -144,6 +144,8 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     hasDuplicateTitle,
     showTitleWarning: (message) => titleController.showWarning(message, null),
     onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId }) => {
+      // loadNote flushes before rebinding, so only cancelAndClear can race this completion.
+      if (savedOriginalId !== originalId || deps.getNoteId() === null) return;
       originalId = id;
       if (deps.getEditorContent() === newContent) content = newContent;
       savedContent = newContent;

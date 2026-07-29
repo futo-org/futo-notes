@@ -14,8 +14,12 @@ vi.mock('./notes.svelte', () => ({
   readNote: vi.fn(async () => ''),
   createNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
   getNoteById: vi.fn(() => undefined),
+  handleExternalFileChange: vi.fn(async () => {}),
+  refreshNotesFromStorage: vi.fn(async () => {}),
 }));
 
+import { createWriteSuppressor } from '$lib/platform/writeSuppression';
+import { createExternalChangeCoordinator } from '$features/sync/createExternalChangeCoordinator';
 import {
   createNoteSession,
   editorHasUnseenChanges,
@@ -289,6 +293,78 @@ describe('title debounce vs body debounce (character-loss race)', () => {
       'draft typed during move',
       'Archive/Roadmap',
     );
+  });
+});
+
+describe('stale save completion after an external close', () => {
+  let editorContent = '';
+
+  beforeEach(async () => {
+    const { updateNote } = await import('./notes.svelte');
+    vi.mocked(updateNote).mockReset();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps the session cleared when an external unlink races an in-flight save completion', async () => {
+    let routeNoteId: string | null = 'active';
+    let resolveSave!: (result: { id: string; mtime: number }) => void;
+    const saveResult = new Promise<{ id: string; mtime: number }>((resolve) => {
+      resolveSave = resolve;
+    });
+    const deps = {
+      getEditorContent: () => editorContent,
+      setEditorContent: vi.fn((text: string) => {
+        editorContent = text;
+      }),
+      focusEditor: vi.fn(),
+      isEditorFocused: () => false,
+      isComposing: () => false,
+      getNotes: () => [],
+      getNoteBody: () => undefined,
+      getTitleTextarea: () => undefined,
+      getNoteId: () => routeNoteId,
+      setPrevNoteId: vi.fn(),
+      navigate: vi.fn((path: string) => {
+        if (path === '/') routeNoteId = null;
+      }),
+      onNoteRenamed: vi.fn(),
+    } satisfies NoteSessionDeps;
+    const session = createNoteSession(deps);
+    const { updateNote } = await import('./notes.svelte');
+    const { notifySavedV2 } = await import('$features/sync/autoSyncV2');
+    vi.mocked(updateNote).mockImplementationOnce(() => saveResult);
+    vi.mocked(notifySavedV2).mockClear();
+    session.seedOpenNote('active', 'base');
+
+    editorContent = 'draft';
+    session.debouncedSave(editorContent);
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+    expect(updateNote).toHaveBeenCalledOnce();
+
+    const externalChanges = createExternalChangeCoordinator({
+      session,
+      notifySaved: vi.fn(),
+      showToast: vi.fn(),
+      writeSuppressor: createWriteSuppressor(),
+    });
+    await externalChanges.handleFileChange({ type: 'unlink', filename: 'active.md' });
+
+    resolveSave({ id: 'Renamed', mtime: 0 });
+    await session.flushSave();
+
+    expect(session.originalId).toBeNull();
+    expect(session.title).toBe('');
+    expect(session.content).toBe('');
+    expect(deps.onNoteRenamed).not.toHaveBeenCalled();
+    expect(notifySavedV2).toHaveBeenCalledOnce();
+    expect(updateNote).toHaveBeenCalledOnce();
+    expect(session.savePending).toBe(false);
+    externalChanges.stop();
   });
 });
 
