@@ -681,7 +681,7 @@ async function externalWatcherReloadsCleanNote(a, _b, _server) {
   );
 }
 
-async function externalWatcherKeepsDirtyDraft(a, _b, _server) {
+async function externalWatcherAdoptsOverDirtyDraft(a, _b, _server) {
   await a.openNewNote();
   await a.setTitle('taken title');
   await a.typeInEditor('# Other note');
@@ -699,35 +699,30 @@ async function externalWatcherKeepsDirtyDraft(a, _b, _server) {
   await a.setTitle('taken title');
   await a.typeInEditor('\nLocal draft');
   await waitForSavePending(a, false);
-  const localDraft = (await a.getOpenNoteState()).editorContent;
   await sleep(1200);
 
   await externalWriteNote(a, 'watch dirty', '# Changed on disk');
 
-  const protectedState = await waitForToastMessage(
-    a,
-    'Open note changed externally; keeping local draft',
-    30_000,
-  );
+  const adoptedState = await waitForEditorContent(a, '# Changed on disk', 30_000);
   assertEqual(
-    protectedState.originalId,
+    adoptedState.originalId,
     'watch dirty',
-    'dirty external change should keep the original note open',
+    'dirty external change should keep the disk-backed note open',
   );
   assertEqual(
-    protectedState.hash,
+    adoptedState.hash,
     `#/note/${encodeURIComponent('watch dirty')}`,
     'dirty external change should keep the same route',
   );
   assertEqual(
-    protectedState.title,
-    'taken title',
-    'dirty external change should keep the unsaved title draft',
+    adoptedState.title,
+    'watch dirty',
+    'dirty external change should restore the disk-backed title',
   );
   assertEqual(
-    protectedState.editorContent,
-    localDraft,
-    'dirty external change should keep the unsaved editor draft',
+    adoptedState.toastMessage,
+    '',
+    'dirty external change should be adopted without a draft-preservation toast',
   );
   const diskContent = await a.readNote('watch dirty');
   assertEqual(
@@ -1782,8 +1777,8 @@ const scenarios = [
     skipOnCi: true,
   },
   {
-    name: 'external watcher keeps dirty draft',
-    fn: externalWatcherKeepsDirtyDraft,
+    name: 'external watcher adopts over dirty draft',
+    fn: externalWatcherAdoptsOverDirtyDraft,
     matrices: ['desktop-desktop'],
     skipOnCi: true,
   },

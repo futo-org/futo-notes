@@ -829,9 +829,20 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   ~45 s safety poll cover liveness (see "Live sync (SSE)"). → futo-notes-sync
   `session/`
 
+- **External filesystem changes to the open note mirror disk, IDE-style
+  *(desktop)*.** A watcher `change` whose disk content differs from both the
+  session's last-saved baseline and the live editor content is adopted
+  immediately, even over a dirty or focused draft; an active IME composition
+  defers the adopt until blur, then applies it silently. Matching content is a
+  self-write echo and is dropped by comparison rather than event counting. An
+  in-flight save's watcher echo remains deferred to save completion. A watcher
+  `unlink` always closes the open session and shows "Note was deleted
+  externally". → createExternalChangeCoordinator.ts (guarded by
+  createExternalChangeCoordinator.test.ts and the cross-platform scenario
+  "external watcher adopts over dirty draft")
 - A remote edit to the **currently-open note** is adopted into the open editor
   when the local draft is clean (`content == savedContent`); a dirty draft
-  still wins and is never overwritten. Without this, the open editor kept
+  still wins and is never overwritten *(iOS/Android)*. Without this, the open editor kept
   showing a stale base and — worse — SAVED IT BACK on exit, silently
   clobbering the remote edit (observed 2026-06-04). → NoteEditorView.swift
   (`onReceive(store.$notes)`), NoteEditorScreen.kt (`snapshotFlow
@@ -847,8 +858,12 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   session and saved content) are now dropped before the edit bookkeeping, and
   the adopt gate additionally checks `hasOpenDraftChanges()` (a synchronous
   live-doc read) so a keystroke whose rAF delivery is still in flight can
-  never be clobbered by the adopt. → noteSession `isEditorChangeEcho`,
-  syncManager `handleSyncComplete`
+  never be clobbered by the initial adopt decision. Once a focused-editor
+  adopt is deferred, blur applies it silently if the same note is still open
+  and the editor does not already contain it. → noteSession
+  `isEditorChangeEcho`, syncManager `handleSyncComplete` (guarded by "silently
+  adopts sync content after blur even when a draft was created while deferred"
+  in syncManager.test.ts)
 
 - The native clean-adopt **preserves the caret/selection and scroll**: the
   shells push remote content through the embed's `applyExternalContent`

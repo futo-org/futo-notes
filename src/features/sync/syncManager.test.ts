@@ -47,6 +47,7 @@ const emptySummary: SyncSummary = {
 type SessionState = {
   id: string | null;
   content: string | undefined;
+  savedContent: string;
   dirty: boolean;
   focused: boolean;
   composing: boolean;
@@ -59,6 +60,7 @@ function makeSession(overrides: Partial<SessionState> = {}) {
   const state: SessionState = {
     id: null,
     content: undefined,
+    savedContent: '',
     dirty: false,
     focused: false,
     composing: false,
@@ -67,8 +69,10 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     lastEditTime: 0,
     ...overrides,
   };
+  if (overrides.savedContent === undefined) state.savedContent = state.content ?? '';
   const applyExternalContent = vi.fn((content: string) => {
     state.content = content;
+    state.savedContent = content;
   });
   const applyRemoteRename = vi.fn((id: string) => {
     state.id = id;
@@ -82,6 +86,9 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     },
     get editorContent() {
       return state.content;
+    },
+    get savedContent() {
+      return state.savedContent;
     },
     get dirty() {
       return state.dirty;
@@ -317,11 +324,14 @@ describe('peer projections', () => {
   });
 });
 
-describe('focused-editor reconciliation', () => {
-  it('defers a watcher adopt until the focused editor blurs', async () => {
-    const bundle = makeManager(makeSession({ id: 'WatcherFocus', content: 'OLD', focused: true }));
+describe('editor reconciliation', () => {
+  it('defers a watcher adopt during composition until the editor blurs', async () => {
+    const bundle = makeManager(
+      makeSession({ id: 'WatcherFocus', content: 'OLD', focused: true, composing: true }),
+    );
     await bundle.manager.handleFileChange({ type: 'change', filename: 'WatcherFocus.md' });
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    bundle.state.composing = false;
     bundle.state.focused = false;
     await bundle.manager.handleEditorFocusChange(false);
     expect(bundle.applyExternalContent).toHaveBeenCalledWith('FRESH');
@@ -337,15 +347,18 @@ describe('focused-editor reconciliation', () => {
     expect(synced.applyExternalContent).toHaveBeenCalledWith('FRESH');
   });
 
-  it('keeps a draft created after an adopt was deferred', async () => {
+  it('silently adopts sync content after blur even when a draft was created while deferred', async () => {
     const bundle = makeManager(makeSession({ id: 'DirtyLater', content: 'OLD', focused: true }));
-    await bundle.manager.handleFileChange({ type: 'change', filename: 'DirtyLater.md' });
+    await bundle.manager.handleSyncComplete({ ...emptySummary, updatedIds: ['DirtyLater'] });
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+
     bundle.state.focused = false;
     bundle.state.dirty = true;
     bundle.state.content = 'LOCAL';
     await bundle.manager.handleEditorFocusChange(false);
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.toasts).toContain('Open note changed externally; keeping local draft');
+
+    expect(bundle.applyExternalContent).toHaveBeenCalledWith('FRESH');
+    expect(bundle.toasts).toEqual([]);
   });
 });
 

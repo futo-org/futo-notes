@@ -42,6 +42,7 @@ export interface NoteSession {
   readonly editVersion: number;
   readonly lastEditTime: number;
   readonly savePending: boolean;
+  readonly savedContent: string;
   readonly dirty: boolean;
   readonly editorContent: string | undefined;
   readonly editorFocused: boolean;
@@ -280,6 +281,9 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     },
     get savePending() {
       return saveQueue.isPending();
+    },
+    get savedContent() {
+      return savedContent;
     },
     get dirty() {
       return isDirty();

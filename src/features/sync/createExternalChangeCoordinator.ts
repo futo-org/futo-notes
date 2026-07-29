@@ -51,12 +51,6 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     }, delay);
   }
 
-  async function preserveLocalDraft(): Promise<void> {
-    dependencies.showToast('Open note changed externally; keeping local draft');
-    await refreshNotesFromStorage();
-    scheduleRescan(250);
-  }
-
   async function handleEditorFocusChange(focused: boolean): Promise<void> {
     if (focused || !pendingAdopt) return;
 
@@ -64,11 +58,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     pendingAdopt = null;
     if (dependencies.session.originalId !== pending.id) return;
     if (pending.content === dependencies.session.editorContent) return;
-    if (dependencies.session.dirty) {
-      await preserveLocalDraft();
-    } else {
-      dependencies.session.applyExternalContent(pending.content);
-    }
+    dependencies.session.applyExternalContent(pending.content);
   }
 
   async function handleFileChange(event: FileChangeEvent): Promise<void> {
@@ -82,26 +72,23 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
 
     const activeId = dependencies.session.originalId;
     if (id === activeId && dependencies.session.savePending && type === 'change') return;
-    if (id === activeId && dependencies.session.dirty && (type === 'change' || type === 'unlink')) {
-      if (type === 'unlink') {
-        dependencies.showToast('Open note was deleted externally; keeping local draft');
-        await refreshNotesFromStorage();
-      } else {
-        await preserveLocalDraft();
-      }
-      return;
-    }
 
     if (type === 'unlink' && id === activeId) {
+      pendingAdopt = null;
       dependencies.session.cancelAndClear();
       dependencies.showToast('Note was deleted externally');
     } else if (type === 'change' && id === activeId) {
       const content = await readNote(id).catch(() => null);
       if (content !== null) {
-        // Replacing a focused CM6 document can corrupt an active selection or IME session.
-        if (dependencies.session.editorFocused) {
+        if (
+          content === dependencies.session.savedContent ||
+          content === dependencies.session.editorContent
+        ) {
+          pendingAdopt = null;
+        } else if (dependencies.session.composing) {
           pendingAdopt = { id, content };
         } else {
+          pendingAdopt = null;
           dependencies.session.applyExternalContent(content);
         }
       }
