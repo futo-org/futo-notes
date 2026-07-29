@@ -868,8 +868,10 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   the adopt gate additionally checks `hasOpenDraftChanges()` (a synchronous
   live-doc read) so a keystroke whose rAF delivery is still in flight can
   never be clobbered by the initial adopt decision. Once a focused-editor
-  adopt is deferred, blur applies it silently if the same note is still open
-  and the editor does not already contain it. → noteSession
+  adopt is deferred, blur re-reads current disk content through
+  `reconcileOpenNote` and applies it silently if the same note is still open
+  and it differs from the saved baseline; content already matching the editor
+  is still applied as a zero-diff baseline advance. → noteSession
   `isEditorChangeEcho`, syncManager `handleSyncComplete` (guarded by "silently
   adopts sync content after blur even when a draft was created while deferred"
   in syncManager.test.ts)

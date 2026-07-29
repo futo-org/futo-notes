@@ -22,6 +22,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
   let rescanInFlight = false;
   let rescanQueued = false;
   let pendingAdopt: string | null = null;
+  let reconciliationTail: Promise<void> = Promise.resolve();
 
   async function runRescan(): Promise<void> {
     if (!hasFileSystem) return;
@@ -52,7 +53,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     }, delay);
   }
 
-  async function reconcileOpenNote(id: string): Promise<boolean> {
+  async function reconcileOpenNoteFromDisk(id: string): Promise<boolean> {
     const content = await readNote(id).catch(() => null);
     if (
       content === null ||
@@ -86,6 +87,16 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       dependencies.session.applyExternalContent(content);
     }
     return storageReconciled;
+  }
+
+  function reconcileOpenNote(id: string): Promise<boolean> {
+    const operation = () => reconcileOpenNoteFromDisk(id);
+    const run = reconciliationTail.then(operation, operation);
+    reconciliationTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   async function handleEditorFocusChange(focused: boolean): Promise<void> {

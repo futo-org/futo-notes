@@ -208,6 +208,35 @@ describe('createExternalChangeCoordinator', () => {
     coordinator.stop();
   });
 
+  it('serializes watcher and blur reconciles so the latest disk content wins', async () => {
+    const olderRead = controlledPromise<string>();
+    const latestRead = controlledPromise<string>();
+    noteMocks.readNote
+      .mockReturnValueOnce(olderRead.promise)
+      .mockReturnValueOnce(latestRead.promise);
+    const bundle = makeSession();
+    const { coordinator } = makeCoordinator(bundle.session);
+
+    coordinator.deferAdopt('active');
+    const watcherReconcile = coordinator.handleFileChange({
+      type: 'change',
+      filename: 'active.md',
+    });
+    const blurReconcile = coordinator.handleEditorFocusChange(false);
+
+    latestRead.resolve('latest disk content');
+    olderRead.resolve('older disk content');
+    await Promise.all([watcherReconcile, blurReconcile]);
+
+    expect(noteMocks.readNote).toHaveBeenCalledTimes(2);
+    expect(bundle.applyExternalContent.mock.calls).toEqual([
+      ['older disk content'],
+      ['latest disk content'],
+    ]);
+    expect(bundle.state.editorContent).toBe('latest disk content');
+    coordinator.stop();
+  });
+
   it('closes the session when a change event reads empty content for a missing note', async () => {
     noteMocks.readNote.mockResolvedValueOnce('');
     noteMocks.getNoteById.mockReturnValueOnce(null);
