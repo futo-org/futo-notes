@@ -254,6 +254,21 @@ describe('createExternalChangeCoordinator', () => {
     coordinator.stop();
   });
 
+  it('adopts an active external change while a scheduled save remains pending', async () => {
+    noteMocks.readNote.mockResolvedValueOnce('external content');
+    const bundle = makeSession({
+      savedContent: 'original base',
+      savePending: true,
+    });
+    const { coordinator } = makeCoordinator(bundle.session);
+
+    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+
+    expect(bundle.session.awaitSaveIdle).toHaveBeenCalledOnce();
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content');
+    coordinator.stop();
+  });
+
   it('adopts the diverged disk note after a completed flush parks the draft', async () => {
     noteMocks.readNote.mockResolvedValueOnce('peer content');
     const bundle = makeSession({

@@ -134,19 +134,18 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     if (type === 'unlink' && suppressor.getRecentRemoteRename(id)) return;
 
     let storageReconciled = false;
-    const activeId = dependencies.session.originalId;
-    if (id === activeId && dependencies.session.savePending && type === 'change') {
+    const awaitedSave = isActiveNoteChange && dependencies.session.savePending;
+    if (awaitedSave) {
       await dependencies.session.awaitSaveIdle();
-      // A later save can still make the post-read check drop this reconcile;
-      // flush_draft will park that save and its parked path reconciles again.
+      // Mirror-disk adoption proceeds past scheduled saves; a save that starts
+      // mid-read parks on flush_draft's base check and reconciles again.
     }
-
-    if (type === 'unlink' && id === activeId) {
+    if (type === 'unlink' && id === dependencies.session.originalId) {
       pendingAdopt = null;
       dependencies.session.cancelAndClear();
       dependencies.showToast('Note was deleted externally');
-    } else if (type === 'change' && id === activeId) {
-      storageReconciled = await reconcileOpenNote(id);
+    } else if (isActiveNoteChange) {
+      storageReconciled = await reconcileOpenNote(id, { allowPendingSave: awaitedSave });
     }
 
     if (!storageReconciled) await handleExternalFileChange(filename);
