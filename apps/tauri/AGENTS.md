@@ -15,7 +15,9 @@ From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just taur
 The desktop adapter is split by responsibility:
 
 - **`local_notes.rs`**: the complete `local_notes_*` projection over one `LocalNoteStore`, including desktop trash policy.
-- **`sync/`**: `mod.rs` is only the module map. `tauri_commands.rs` owns the stable `e2ee_*` command surface, `cycle_runner.rs` wires manual/live push-first cycles, `frontend_contract.rs` owns serialization, `tauri_events.rs` translates callbacks, and `session_state.rs` bridges session/task state.
+- **`sync/`**: `mod.rs` is only the module map. `tauri_commands.rs` owns the stable `e2ee_*` command surface, `cycle_runner.rs` wires manual/live push-first cycles, `frontend_contract.rs` owns serialization, `tauri_events.rs` translates callbacks, and `password_store.rs` keeps the E2EE vault password
+  in the OS keyring (never on disk). The session itself is the `sync: SyncSession` field on
+  `AppState` — there is no separate session-state bridge module.
 - **`vault_location.rs`**: the only authority for environment overrides, persisted custom roots, and the CRITICAL debug (`fake-notes`) / release (`futo-notes`) default split.
 - **`filesystem_watcher.rs`**: `notify` lifecycle, rename-cookie pairing, relative-path normalization, `fs:change` emission, and the typed one-shot `WatcherSuppression` service shared by note/folder/sync commands.
 - **`image_commands.rs`**: image file import and native clipboard-to-PNG ingestion.
