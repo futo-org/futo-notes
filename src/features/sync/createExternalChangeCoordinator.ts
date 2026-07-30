@@ -21,6 +21,14 @@ interface ReconcileOpenNoteOptions {
   allowPendingSave?: boolean;
 }
 
+function shouldDropOpenNoteReconcile(
+  session: NoteSession,
+  id: string,
+  options: ReconcileOpenNoteOptions,
+): boolean {
+  return session.originalId !== id || (session.savePending && !options.allowPendingSave);
+}
+
 export function createExternalChangeCoordinator(dependencies: ExternalChangeDependencies) {
   let rescanTimer: number | null = null;
   let rescanInFlight = false;
@@ -61,12 +69,8 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     id: string,
     options: ReconcileOpenNoteOptions,
   ): Promise<boolean> {
-    const content = await readNote(id).catch(() => null);
-    if (
-      content === null ||
-      dependencies.session.originalId !== id ||
-      (dependencies.session.savePending && !options.allowPendingSave)
-    ) {
+    let content = await readNote(id).catch(() => null);
+    if (content === null || shouldDropOpenNoteReconcile(dependencies.session, id, options)) {
       return false;
     }
 
@@ -74,16 +78,17 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     if (content === '') {
       await handleExternalFileChange(`${id}.md`);
       storageReconciled = true;
-      if (
-        dependencies.session.originalId !== id ||
-        (dependencies.session.savePending && !options.allowPendingSave)
-      ) {
+      if (shouldDropOpenNoteReconcile(dependencies.session, id, options)) {
         return storageReconciled;
       }
       if (!getNoteById(id)) {
         pendingAdopt = null;
         dependencies.session.cancelAndClear();
         dependencies.showToast('Note was deleted externally');
+        return storageReconciled;
+      }
+      content = await readNote(id).catch(() => null);
+      if (content === null || shouldDropOpenNoteReconcile(dependencies.session, id, options)) {
         return storageReconciled;
       }
     }
@@ -134,18 +139,17 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     if (type === 'unlink' && suppressor.getRecentRemoteRename(id)) return;
 
     let storageReconciled = false;
-    const awaitedSave = isActiveNoteChange && dependencies.session.savePending;
-    if (awaitedSave) {
+    if (isActiveNoteChange) {
       await dependencies.session.awaitSaveIdle();
-      // Mirror-disk adoption proceeds past scheduled saves; a save that starts
-      // mid-read parks on flush_draft's base check and reconciles again.
+      // Mirror-disk adoption proceeds past saves still scheduled after this wait;
+      // a save that starts mid-read parks on flush_draft's base check and reconciles again.
     }
     if (type === 'unlink' && id === dependencies.session.originalId) {
       pendingAdopt = null;
       dependencies.session.cancelAndClear();
       dependencies.showToast('Note was deleted externally');
     } else if (isActiveNoteChange) {
-      storageReconciled = await reconcileOpenNote(id, { allowPendingSave: awaitedSave });
+      storageReconciled = await reconcileOpenNote(id, { allowPendingSave: true });
     }
 
     if (!storageReconciled) await handleExternalFileChange(filename);

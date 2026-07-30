@@ -213,7 +213,7 @@ describe('createExternalChangeCoordinator', () => {
     coordinator.stop();
   });
 
-  it('drops a slow read when a save becomes pending', async () => {
+  it('adopts a slow read when a save becomes pending during the disk read', async () => {
     const read = controlledPromise<string>();
     noteMocks.readNote.mockReturnValueOnce(read.promise);
     const bundle = makeSession();
@@ -224,7 +224,8 @@ describe('createExternalChangeCoordinator', () => {
     read.resolve('external content');
     await handling;
 
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    expect(bundle.session.awaitSaveIdle).toHaveBeenCalledOnce();
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content');
     coordinator.stop();
   });
 
@@ -377,6 +378,26 @@ describe('createExternalChangeCoordinator', () => {
     expect(bundle.cancelAndClear).not.toHaveBeenCalled();
     expect(showToast).not.toHaveBeenCalled();
     expect(notifySaved).toHaveBeenCalledOnce();
+    coordinator.stop();
+  });
+
+  it('re-reads a recreated note after an empty snapshot refresh', async () => {
+    let diskContent = '';
+    noteMocks.readNote.mockImplementation(async () => diskContent);
+    noteMocks.handleExternalFileChange.mockImplementationOnce(async () => {
+      diskContent = 'draft content';
+    });
+    const bundle = makeSession({
+      editorContent: 'draft content',
+      savedContent: 'draft content',
+    });
+    const { coordinator } = makeCoordinator(bundle.session);
+
+    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+
+    expect(bundle.applyExternalContent).not.toHaveBeenCalledWith('');
+    expect(bundle.state.editorContent).toBe('draft content');
+    expect(bundle.state.savedContent).toBe('draft content');
     coordinator.stop();
   });
 

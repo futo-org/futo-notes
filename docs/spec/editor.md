@@ -638,9 +638,9 @@ EditorWebView.swift, EditorWebView.kt
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines.
 - A title that differs from the saved title only by leading or trailing
-  whitespace normalizes back to the saved title and leaves the session clean;
-  no write occurs.
-- A duplicate title blocks the save and shows the visible warning toast
+  whitespace leaves the session clean and skips the write. Only the saved-title
+  comparison is normalized; the visible editor title keeps its whitespace.
+- A duplicate title blocks the save and shows the inline warning text
   "A note with this name already exists".
 - The editor chrome shows **no word count** (or any other document
   statistic) — just the title and the document (spec decision 2026-06-10;
