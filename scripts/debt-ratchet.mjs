@@ -145,9 +145,32 @@ const current = {
 const baseline = JSON.parse(fs.readFileSync(RATCHET_PATH, 'utf8')).counts;
 
 const failures = [];
+
+// A counter this script no longer computes is dead weight, and a silent one:
+// the loop below walks the COMPUTED keys, so a stale entry in the JSON is never
+// read. Retiring a counter therefore used to be un-finishable — every long-lived
+// branch still carrying the old file quietly reintroduced it on merge, green.
+// Fail loudly instead.
+for (const key of Object.keys(baseline)) {
+  if (!(key in current)) {
+    failures.push(
+      `'${key}' is in ${path.relative(ROOT, RATCHET_PATH)} but this script no longer computes it — ` +
+        `a retired counter came back, most likely from a rebase carrying an older copy of the file. ` +
+        `Delete the '${key}' entry.`,
+    );
+  }
+}
+
 for (const key of Object.keys(current)) {
   const now = current[key];
   const was = baseline[key];
+  if (was === undefined) {
+    failures.push(
+      `'${key}' is computed but missing from ${path.relative(ROOT, RATCHET_PATH)} — ` +
+        `add it with the current value (${now}) so the ratchet can hold it.`,
+    );
+    continue;
+  }
   if (now === was) continue;
   if (now > was) {
     failures.push(
