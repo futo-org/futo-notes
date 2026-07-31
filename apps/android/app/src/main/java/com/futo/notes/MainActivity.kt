@@ -35,14 +35,15 @@ import com.futo.notes.ui.EditorHost
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.PendingStorageMigration
 import com.futo.notes.storage.StorageActivationOutcome
+import com.futo.notes.storage.StorageAdoptionOutcome
 import com.futo.notes.storage.StorageAdoptionSummary
 import com.futo.notes.storage.StorageMigrationJournal
 import com.futo.notes.storage.StorageMigrationPhase
 import com.futo.notes.storage.StorageMode
 import com.futo.notes.storage.StorageStartupRecovery
 import com.futo.notes.storage.StorageSwitchPlan
-import com.futo.notes.storage.SYNC_CONNECTED_STORAGE_REFUSAL
 import com.futo.notes.storage.activateStagedStorageMigration
+import com.futo.notes.storage.adoptExistingVault
 import com.futo.notes.storage.describeStorageAdoption
 import com.futo.notes.storage.recoverStorageStartup
 import com.futo.notes.storage.storageSwitchPlan
@@ -607,39 +608,31 @@ class MainActivity : ComponentActivity() {
             return
         }
         lifecycleScope.launch {
-            fun keepCurrentFolder(reason: String) {
-                current.resumeAfterStorageMigrationFailure()
-                storageSwitching.value = false
-                Toast.makeText(this@MainActivity, reason, Toast.LENGTH_LONG).show()
+            // The step order and every failure message live in adoptExistingVault
+            // so they can be unit-tested; this only supplies the effects.
+            val outcome = adoptExistingVault(
+                mode = adoption.mode,
+                isSyncConnected = { sync.connected },
+                flushDrafts = { current.flushDraftsForVaultHandoff() },
+                clearJournal = {
+                    withContext(Dispatchers.IO) { storageMigrationJournal.clear() }.isSuccess
+                },
+                // commit() — restartApp() kills the process before an async apply()
+                // would flush (see performSwitch).
+                commitPreference = { mode ->
+                    withContext(Dispatchers.IO) {
+                        prefs.edit().putString(Prefs.STORAGE_MODE, mode.name).commit()
+                    }
+                },
+            )
+            when (outcome) {
+                StorageAdoptionOutcome.Restart -> restartApp()
+                is StorageAdoptionOutcome.KeepCurrent -> {
+                    current.resumeAfterStorageMigrationFailure()
+                    storageSwitching.value = false
+                    Toast.makeText(this@MainActivity, outcome.feedback, Toast.LENGTH_LONG).show()
+                }
             }
-            // Sync could have connected while the confirmation was up, and opening
-            // a folder adopts whatever checkpoint that folder carries.
-            if (sync.connected) {
-                keepCurrentFolder(SYNC_CONNECTED_STORAGE_REFUSAL)
-                return@launch
-            }
-            if (!current.flushDraftsForVaultHandoff()) {
-                keepCurrentFolder("Your notes could not be saved first, so the folder was not changed.")
-                return@launch
-            }
-            // Retire any migration record BEFORE re-pointing the preference. The
-            // journal outranks the preference at startup, and a completed Device
-            // migration deliberately leaves an ACTIVATED record on disk while its
-            // retained source awaits cleanup — so a surviving record would name
-            // the old destination as the verified root and silently revert this
-            // choice on the very next launch. Nothing is lost by clearing it:
-            // adopting a different folder is what makes that pending cleanup moot.
-            val retired = withContext(Dispatchers.IO) { storageMigrationJournal.clear() }
-            if (retired.isFailure) {
-                keepCurrentFolder("The previous move could not be closed out, so the folder was not changed.")
-                return@launch
-            }
-            // commit() — restartApp() kills the process before an async apply()
-            // would flush (see performSwitch).
-            withContext(Dispatchers.IO) {
-                prefs.edit().putString(Prefs.STORAGE_MODE, adoption.mode.name).commit()
-            }
-            restartApp()
         }
     }
 
