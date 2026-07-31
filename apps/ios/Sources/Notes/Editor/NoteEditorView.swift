@@ -334,9 +334,11 @@ struct NoteEditorView: View {
         .onDisappear {
             // Presenting the centered delete confirmation covers this view but
             // is not navigation. Preserve its save chain and draft ownership.
-            guard shouldHandleEditorDisappear(
-                isDeleteConfirmationPresented: showDeleteConfirm
-            ) else { return }
+            guard
+                shouldHandleEditorDisappear(
+                    isDeleteConfirmationPresented: showDeleteConfirm
+                )
+            else { return }
             // Covered (a wikilink pushed a new editor) or popped: no longer the
             // visible editor, so it must stop driving the shared WebView.
             isVisible = false
@@ -402,7 +404,7 @@ struct NoteEditorView: View {
         previous?.cancel()
         saveTask = Task { @MainActor in
             await previous?.value
-            try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s debounce
+            try? await Task.sleep(nanoseconds: 400_000_000)  // 0.4s debounce
             if Task.isCancelled || isClosing { return }
             // Re-read `noteId` at FIRE time (not schedule time) so a save that
             // lands after a rename writes to the renamed note, not the stale id.
@@ -700,7 +702,8 @@ struct NoteEditorView: View {
                 "tags": note.tags,
             ]
         }
-        let data = (try? JSONSerialization.data(withJSONObject: items, options: [.sortedKeys]))
+        let data =
+            (try? JSONSerialization.data(withJSONObject: items, options: [.sortedKeys]))
             ?? Data("[]".utf8)
         EditorHost.shared.setNotes(String(data: data, encoding: .utf8) ?? "[]")
     }
@@ -886,10 +889,12 @@ struct NoteEditorView: View {
             await pendingMove?.value
 
             let capturedContent = await EditorHost.shared.captureCurrentContent()
-            guard let capturedDeleteContent = editorDeleteContent(
-                capturedContent: capturedContent,
-                quarantinedContent: closingContent
-            ) else {
+            guard
+                let capturedDeleteContent = editorDeleteContent(
+                    capturedContent: capturedContent,
+                    quarantinedContent: closingContent
+                )
+            else {
                 content = closingContent ?? content
                 closingContent = nil
                 isClosing = false
@@ -906,7 +911,8 @@ struct NoteEditorView: View {
             closingContent = nil
             while true {
                 let hasPendingChanges = finalContent != savedContent
-                let writeOutcome = hasPendingChanges
+                let writeOutcome =
+                    hasPendingChanges
                     ? await store.write(noteId, content: finalContent)
                     : nil
                 if let writeOutcome {
@@ -916,10 +922,12 @@ struct NoteEditorView: View {
                         outcome: writeOutcome
                     )
                 }
-                guard shouldContinueDeleteAfterEditorWrite(
-                    hasPendingChanges: hasPendingChanges,
-                    outcome: writeOutcome
-                ) else {
+                guard
+                    shouldContinueDeleteAfterEditorWrite(
+                        hasPendingChanges: hasPendingChanges,
+                        outcome: writeOutcome
+                    )
+                else {
                     content = closingContent ?? finalContent
                     closingContent = nil
                     isClosing = false
@@ -1110,9 +1118,12 @@ struct TitleTextField: UIViewRepresentable {
             let raw = (tf.text ?? "").replacingOccurrences(of: "\n", with: "")
             // Strip forbidden filesystem chars in-place (desktop parity — the
             // illegal char never persists) and cap at the title length limit.
-            var cleaned = String(raw.unicodeScalars.filter { !TitleSpec.forbiddenScalars.contains($0) })
+            var cleaned = String(
+                raw.unicodeScalars.filter { !TitleSpec.forbiddenScalars.contains($0) })
             let forbidden = cleaned != raw
-            if cleaned.count > TitleSpec.maxLength { cleaned = String(cleaned.prefix(TitleSpec.maxLength)) }
+            if cleaned.count > TitleSpec.maxLength {
+                cleaned = String(cleaned.prefix(TitleSpec.maxLength))
+            }
             if tf.text != cleaned {
                 // Keep the caret roughly where it was: a stripped forbidden char
                 // shifts it back one; a length cap clamps it to the end.

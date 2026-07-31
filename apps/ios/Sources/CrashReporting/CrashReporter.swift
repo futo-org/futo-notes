@@ -14,8 +14,7 @@ import SwiftUI
 // NSException handler unwinds on a normal thread, so Foundation is fine there.
 
 /// One pre-rendered crash file per fatal signal: C-string path + JSON bytes.
-private nonisolated(unsafe) var futoSignalEntries:
-    [(sig: Int32, path: [CChar], json: [UInt8])] = []
+private nonisolated(unsafe) var futoSignalEntries: [(sig: Int32, path: [CChar], json: [UInt8])] = []
 private nonisolated(unsafe) var futoCrashlogsDir: URL?
 private nonisolated(unsafe) var futoCrashSessionId = ""
 private nonisolated(unsafe) var futoCrashVersion = "0.0.0"
@@ -75,11 +74,12 @@ final class CrashReporter: ObservableObject {
     /// to /api/crash, batch to /api/crashes. DEBUG talks to the local crash
     /// server (simulator reaches the Mac's localhost directly).
     #if DEBUG
-    private static let crashApiUrl = URL(string: "http://localhost:5100/api/crash")!
-    private static let crashBatchApiUrl = URL(string: "http://localhost:5100/api/crashes")!
+        private static let crashApiUrl = URL(string: "http://localhost:5100/api/crash")!
+        private static let crashBatchApiUrl = URL(string: "http://localhost:5100/api/crashes")!
     #else
-    private static let crashApiUrl = URL(string: "https://notes-crashlog.futo.org/api/crash")!
-    private static let crashBatchApiUrl = URL(string: "https://notes-crashlog.futo.org/api/crashes")!
+        private static let crashApiUrl = URL(string: "https://notes-crashlog.futo.org/api/crash")!
+        private static let crashBatchApiUrl = URL(
+            string: "https://notes-crashlog.futo.org/api/crashes")!
     #endif
 
     /// Install the NSException + fatal-signal hooks. Call EARLY (FutoNotesApp
@@ -94,8 +94,9 @@ final class CrashReporter: ObservableObject {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         futoCrashlogsDir = dir
         futoCrashSessionId = UUID().uuidString
-        futoCrashVersion = Bundle.main.object(
-            forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+        futoCrashVersion =
+            Bundle.main.object(
+                forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         futoCrashDeviceInfo = "iOS \(ProcessInfo.processInfo.operatingSystemVersionString)"
 
         // Pre-render one payload per fatal signal. The timestamp is install
@@ -112,7 +113,8 @@ final class CrashReporter: ObservableObject {
             let report = crashReportDict(
                 error: "Fatal signal \(name)",
                 stack: "signal \(name) (no backtrace — signal context)")
-            let json = (try? JSONSerialization.data(withJSONObject: report))
+            let json =
+                (try? JSONSerialization.data(withJSONObject: report))
                 ?? Data("{}".utf8)
             let path = dir.appendingPathComponent("crash-\(ms)-\(sid8)-\(name).json").path
             return (sig: sig, path: Array(path.utf8CString), json: [UInt8](json))
@@ -272,7 +274,9 @@ struct CrashReportSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("FUTO Notes crashed last time it ran. Send the crash report so we can fix it?")
+                    Text(
+                        "FUTO Notes crashed last time it ran. Send the crash report so we can fix it?"
+                    )
                 }
                 Section {
                     DisclosureGroup("View report", isExpanded: $showDetails) {

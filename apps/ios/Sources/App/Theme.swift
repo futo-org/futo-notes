@@ -36,10 +36,11 @@ extension Color {
 
     /// A color that resolves differently for light and dark UI styles.
     static func adaptive(light: Color, dark: Color) -> Color {
-        Color(uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(dark)
-                : UIColor(light)
-        })
+        Color(
+            uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(dark)
+                    : UIColor(light)
+            })
     }
 }

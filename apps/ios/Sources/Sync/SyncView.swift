@@ -45,11 +45,15 @@ struct SyncView: View {
                 // (sync.md): a link to the FUTO Notes server repo.
                 if !sync.connected {
                     Section {
-                        Link(destination: URL(
-                            string: "https://gitlab.futo.org/futo-notes/futo-notes-server")!) {
-                            Label("To set up sync, use FUTO Notes server.",
-                                  systemImage: "arrow.up.forward.square")
-                                .font(.subheadline)
+                        Link(
+                            destination: URL(
+                                string: "https://gitlab.futo.org/futo-notes/futo-notes-server")!
+                        ) {
+                            Label(
+                                "To set up sync, use FUTO Notes server.",
+                                systemImage: "arrow.up.forward.square"
+                            )
+                            .font(.subheadline)
                         }
                     }
                 }
@@ -66,8 +70,9 @@ struct SyncView: View {
                             store.reload()
                         }
                     } label: {
-                        Label(sync.connected ? "Sync Now" : "Connect & Sync",
-                              systemImage: "arrow.triangle.2.circlepath")
+                        Label(
+                            sync.connected ? "Sync Now" : "Connect & Sync",
+                            systemImage: "arrow.triangle.2.circlepath")
                     }
                     .disabled(sync.busy)
 

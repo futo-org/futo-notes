@@ -18,10 +18,13 @@ enum Keychain {
     // in project.yml) use the .dev service; Release uses the prod string
     // unchanged. Mirrors the dev/prod bundle-id + data-root + entitlement split.
     #if FUTO_DEBUG_BUILD
-    private static let service = "com.futo.notes.dev.sync"
+        private static let defaultService = "com.futo.notes.dev.sync"
     #else
-    private static let service = "com.futo.notes.sync"
+        private static let defaultService = "com.futo.notes.sync"
     #endif
+    private static var service: String {
+        AppLaunchConfiguration.keychainService(defaultService: defaultService)
+    }
     private static let account = "syncPassword"
 
     /// The persisted sync password, or `nil` if none is stored. Setting `nil`

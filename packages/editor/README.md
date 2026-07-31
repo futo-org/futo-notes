@@ -27,7 +27,7 @@ mirrors aligned with Rust.
   it so a host can refuse a bundle it doesn't understand.
 
 The editor entry point (`src/editor-embed/main.ts`) implements this contract;
-the native hosts wire it in `apps/ios/Sources/EditorWebView.swift` and
+the native hosts wire it in `apps/ios/Sources/Editor/EditorWebView.swift` and
 `apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt`.
 
 ## The bundle — `editor.html`

@@ -14,9 +14,9 @@ final class SyncManager: ObservableObject {
     /// empty so a shipped app never points at localhost.
     private static func defaultServerURL() -> String {
         #if DEBUG
-        return "http://localhost:3005"
+            return "http://localhost:3005"
         #else
-        return ""
+            return ""
         #endif
     }
     @Published private(set) var connected = false
@@ -214,8 +214,7 @@ final class SyncManager: ObservableObject {
         liveListener = listener
         // A live-start failure is a live-stream-health issue, not a sync
         // failure — route it to the muted `liveError`, never the red `lastError`.
-        do { try await c.startLive(listener: listener) }
-        catch { liveError = describe(error) }
+        do { try await c.startLive(listener: listener) } catch { liveError = describe(error) }
     }
 
     /// Re-open the stream after returning to the foreground. No-op unless we have
@@ -313,7 +312,9 @@ final class LiveListener: SyncEventListener {
     weak var manager: SyncManager?
     init(manager: SyncManager) { self.manager = manager }
 
-    func onSynced(summary: SyncSummary) { Task { @MainActor in manager?.applyLiveSummary(summary) } }
+    func onSynced(summary: SyncSummary) {
+        Task { @MainActor in manager?.applyLiveSummary(summary) }
+    }
     func onConnected() { Task { @MainActor in manager?.setLive(true) } }
     func onError(message: String) { Task { @MainActor in manager?.setLastError(message) } }
     func onStopped() { Task { @MainActor in manager?.setLive(false) } }

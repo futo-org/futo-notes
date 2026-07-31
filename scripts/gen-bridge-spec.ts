@@ -78,7 +78,7 @@ const TARGETS: Array<{ rel: string; render: () => string }> = [
     render: renderKotlinFile,
   },
   {
-    rel: 'apps/ios/Sources/BridgeSpec.swift',
+    rel: 'apps/ios/Sources/Editor/GeneratedContracts/BridgeSpec.swift',
     render: renderSwiftFile,
   },
 ];
@@ -100,6 +100,7 @@ for (const target of TARGETS) {
     );
     stale = true;
   } else {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, next);
     console.log(`${target.rel}: written`);
   }

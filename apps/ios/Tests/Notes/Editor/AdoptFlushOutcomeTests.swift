@@ -33,7 +33,9 @@ struct AdoptFlushOutcomeTests {
 
     @Test("a parked draft requires a fresh read of the on-disk peer version")
     func parkedReloadsDisk() {
-        #expect(adoptFlushOutcome(for: .parkedConflict(parkedId: "note (conflict 2026-07-21)")) == .reloadDisk)
+        #expect(
+            adoptFlushOutcome(for: .parkedConflict(parkedId: "note (conflict 2026-07-21)"))
+                == .reloadDisk)
     }
 
     @Test("a failed flush leaves the draft dirty to retry")

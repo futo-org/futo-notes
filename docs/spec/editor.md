@@ -600,7 +600,7 @@ EditorWebView.swift, EditorWebView.kt
   crates/futo-notes-store/src/tests.rs (all four dispositions, converged/park
   boundary, recreate-vs-reappeared window, park idempotency, recreate-arm
   mutation positioning), the FFI note_contract test, and
-  apps/ios/Tests/FlushDraftVerbTests.swift and Android's
+  apps/ios/Tests/Notes/Editor/FlushDraftVerbTests.swift and Android's
   `EditorLifecycleFlushTest`. Earlier behavior verified on iOS 2026-07-13
   (sim); iOS verb wiring verified via `just test-ios-native` 2026-07-21 and
   Android verb/adoption wiring via `just test-android-native` 2026-07-23.
