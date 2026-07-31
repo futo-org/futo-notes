@@ -1,6 +1,6 @@
 [Unit]
 Description=FUTO Notes GitHub issue triage — poll the mirror and post new issues to Zulip
-Documentation=file:%h/Developer/futo-notes/scripts/issue-triage/README.md
+Documentation=file:__REPO_DIR__/scripts/issue-triage/README.md
 # Don't run when the workstation has no network; the timer retries next cycle.
 Wants=network-online.target
 After=network-online.target

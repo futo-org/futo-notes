@@ -27,7 +27,7 @@ Splitting them keeps a flaky agent run from ever losing an issue notification.
 | `githubIssues.mjs`                        | GitHub provider: fetch issues (read-only PAT), normalize payloads            |
 | `zulipAlerts.mjs`                         | Zulip provider: build + post the per-issue alert                             |
 | `classifyIssue.mjs`                       | Pure bug / feature / other classifier                                        |
-| `triageState.mjs`                         | Load/save the state file, watermark math                                     |
+| `triageState.mjs`                         | Cross-process state transactions, persistence, watermark math                |
 | `*.test.mjs`                              | Co-located unit tests (`node_modules/.bin/vitest run scripts/issue-triage/`) |
 | `env.example`                             | Credential template for the systemd `EnvironmentFile`                        |
 | `futo-notes-issue-triage.{service,timer}` | systemd user units (templated)                                               |
@@ -46,6 +46,11 @@ Three secrets, read from the environment:
 
 Interactive runs read these from `~/.zshrc`. The systemd service reads them from
 `~/.config/futo-notes-issue-triage/env` (copy `env.example`, `chmod 600`).
+
+The tier-2 child agent receives an explicit environment allowlist, not the
+operator's whole shell environment. It retains GitLab push/MR credentials,
+Claude authentication, and non-secret toolchain paths; the GitHub PAT, Zulip
+bot key, cloud credentials, and unrelated host secrets stay in the launcher.
 
 ## State file
 
@@ -75,6 +80,10 @@ committed.
 
 `status` lifecycle: `posted` (feature/other stop here) → `queued` → `reproducing`
 → one of `mr_filed` | `not_reproduced` | `needs_human`.
+
+Tier 1 and tier 2 update this file through a cross-process lock and atomic
+read-modify-write transaction. Running the manual tier-2 command while the
+timer polls cannot overwrite either process's state transition.
 
 `watermark` is the max issue `updated_at` seen. It defaults to `2000-01-01`
 (**not** the Unix epoch — GitHub's `since` filter treats `1970-01-01T00:00:00Z`
@@ -129,10 +138,20 @@ node scripts/issue-triage/runTriage.mjs --issue 8
 node scripts/issue-triage/runTriage.mjs --issue 8 --dry-run
 ```
 
+By default, tier 2 uses the repository checkout that contains
+`runTriage.mjs`; it does not assume a particular `~/Developer` layout. Set
+`FUTO_TRIAGE_REPO_DIR=/absolute/path/to/futo-notes` only when the worktrees
+should be managed by a different checkout.
+
 The launcher — not the agent — owns the Zulip follow-up and the state
 transition, so a crashed or timed-out agent still reports `needs_human` to the
 issue's topic. The agent writes a JSON result to `$TRIAGE_RESULT_FILE`; a fix,
 if produced, is a GitLab MR left **open** (never merged), linking the issue.
+Malformed results are treated as `needs_human`; `reproduced_fixed` is accepted
+only with a valid `https://gitlab.futo.org/.../-/merge_requests/<number>` URL.
+Cleanup runs even when the agent cannot spawn or the Zulip follow-up fails. A
+Zulip failure exits non-zero after recording `needs_human` (and preserving a
+valid MR URL), so the run is visible and safely recoverable.
 
 ## Recovery / re-runs
 
@@ -143,4 +162,7 @@ if produced, is a GitLab MR left **open** (never merged), linking the issue.
 - **A poll failed** (unit is `failed`): `journalctl --user -u
 futo-notes-issue-triage.service` for the error. The failure is the alarm —
   the poller never exits 0 on a GitHub/Zulip error.
+- **A tier-2 Zulip follow-up failed**: the issue is left at `needs_human` and
+  its valid MR URL is retained. Re-post from the run log, then set the intended
+  terminal status in the state file.
 - **Stop everything**: `systemctl --user disable --now futo-notes-issue-triage.timer`.

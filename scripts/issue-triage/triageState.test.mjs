@@ -1,10 +1,15 @@
+import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { loadState, nextWatermark, saveState } from './triageState.mjs';
+import { loadState, nextWatermark, saveState, updateState } from './triageState.mjs';
+
+const execFileAsync = promisify(execFile);
 
 describe('triageState persistence', () => {
   let dir;
@@ -31,6 +36,42 @@ describe('triageState persistence', () => {
     };
     saveState(state, dir);
     expect(loadState(dir)).toEqual(state);
+  });
+
+  it('serializes concurrent cross-process updates without losing fields', async () => {
+    const moduleUrl = pathToFileURL(join(import.meta.dirname, 'triageState.mjs')).href;
+    const childScript = `
+      import { updateState } from ${JSON.stringify(moduleUrl)};
+      const [dir, issueNumber] = process.argv.slice(1);
+      await updateState(async (state) => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        state.issues[issueNumber] = { status: 'queued' };
+      }, dir);
+    `;
+
+    await Promise.all(
+      ['8', '9', '10', '11'].map((issueNumber) =>
+        execFileAsync(process.execPath, [
+          '--input-type=module',
+          '-e',
+          childScript,
+          dir,
+          issueNumber,
+        ]),
+      ),
+    );
+
+    expect(Object.keys(loadState(dir).issues).sort()).toEqual(['10', '11', '8', '9']);
+  });
+
+  it('returns the committed result from a state transaction', async () => {
+    const result = await updateState((state) => {
+      state.issues['8'] = { status: 'reproducing' };
+      return 'updated';
+    }, dir);
+
+    expect(result).toBe('updated');
+    expect(loadState(dir).issues['8'].status).toBe('reproducing');
   });
 });
 

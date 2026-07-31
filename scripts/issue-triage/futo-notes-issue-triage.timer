@@ -1,6 +1,6 @@
 [Unit]
 Description=Run FUTO Notes GitHub issue triage every 15 minutes
-Documentation=file:%h/Developer/futo-notes/scripts/issue-triage/README.md
+Documentation=file:__REPO_DIR__/scripts/issue-triage/README.md
 
 [Timer]
 # First run shortly after login, then every 15 minutes. Poll-based by design:

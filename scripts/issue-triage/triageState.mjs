@@ -24,6 +24,7 @@
  *   }
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { open, stat, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -37,6 +38,9 @@ import { dirname, join } from 'node:path';
 // treats 1970-01-01T00:00:00Z as "unset" and returns nothing, so we floor at a
 // date safely before this repo (or any GitHub repo) could have issues.
 const DEFAULT_WATERMARK = '2000-01-01T00:00:00Z';
+const LOCK_RETRY_MS = 20;
+const LOCK_TIMEOUT_MS = 10_000;
+const STALE_LOCK_MS = 60_000;
 
 /** Resolve the state directory, honoring an override for tests and dry runs. */
 export function stateDir() {
@@ -48,6 +52,10 @@ export function stateDir() {
 
 function stateFilePath(dir) {
   return join(dir, 'state.json');
+}
+
+function stateLockPath(dir) {
+  return join(dir, 'state.lock');
 }
 
 /**
@@ -85,6 +93,78 @@ export function saveState(state, dir = stateDir()) {
   const tmp = `${target}.tmp`;
   writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n');
   renameSync(tmp, target);
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function removeStaleLock(lockPath) {
+  try {
+    const lockStat = await stat(lockPath);
+    if (Date.now() - lockStat.mtimeMs <= STALE_LOCK_MS) return false;
+    await unlink(lockPath);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return true;
+    throw error;
+  }
+}
+
+async function acquireStateLock(dir) {
+  mkdirSync(dir, { recursive: true });
+  const lockPath = stateLockPath(dir);
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+
+  while (true) {
+    try {
+      const handle = await open(lockPath, 'wx');
+      try {
+        await handle.writeFile(`${process.pid}\n`);
+      } catch (error) {
+        await handle.close();
+        await unlink(lockPath).catch(() => {});
+        throw error;
+      }
+      return async () => {
+        await handle.close();
+        try {
+          await unlink(lockPath);
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+        }
+      };
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      if (await removeStaleLock(lockPath)) continue;
+      if (Date.now() >= deadline) {
+        throw new Error(`timed out waiting for triage state lock: ${lockPath}`);
+      }
+      await delay(LOCK_RETRY_MS);
+    }
+  }
+}
+
+/**
+ * Run one read-modify-write transaction while holding the state file's
+ * cross-process lock. Callers must keep the mutation short and perform remote
+ * I/O before or after the transaction.
+ *
+ * @template T
+ * @param {(state: { watermark: string, issues: Record<string, object> }) => T | Promise<T>} mutate
+ * @param {string} [dir]
+ * @returns {Promise<T>}
+ */
+export async function updateState(mutate, dir = stateDir()) {
+  const release = await acquireStateLock(dir);
+  try {
+    const state = loadState(dir);
+    const result = await mutate(state);
+    saveState(state, dir);
+    return result;
+  } finally {
+    await release();
+  }
 }
 
 /**

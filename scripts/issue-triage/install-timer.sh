@@ -33,7 +33,9 @@ mkdir -p "$UNIT_DIR"
 sed -e "s#__NODE_BIN__#${NODE_BIN}#g" -e "s#__REPO_DIR__#${REPO_DIR}#g" \
   "$SCRIPT_DIR/futo-notes-issue-triage.service" \
   > "$UNIT_DIR/futo-notes-issue-triage.service"
-cp "$SCRIPT_DIR/futo-notes-issue-triage.timer" "$UNIT_DIR/futo-notes-issue-triage.timer"
+sed -e "s#__REPO_DIR__#${REPO_DIR}#g" \
+  "$SCRIPT_DIR/futo-notes-issue-triage.timer" \
+  > "$UNIT_DIR/futo-notes-issue-triage.timer"
 
 # Reload so systemd picks up the (re)written units, then enable + start the timer.
 systemctl --user daemon-reload

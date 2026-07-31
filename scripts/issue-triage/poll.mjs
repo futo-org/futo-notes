@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 
 import { classifyIssue } from './classifyIssue.mjs';
 import { fetchIssuesSince } from './githubIssues.mjs';
-import { loadState, nextWatermark, saveState } from './triageState.mjs';
+import { loadState, nextWatermark, stateDir, updateState } from './triageState.mjs';
 import { formatAlert, postAlert, topicForIssue } from './zulipAlerts.mjs';
 
 const REPO = 'futo-org/futo-notes';
@@ -32,10 +32,15 @@ const REPO = 'futo-org/futo-notes';
  * only externally visible action, and persisting immediately after (per issue,
  * not batched) keeps a crash's blast radius to at most one duplicate message.
  *
- * @param {{ issue: object, state: object, dryRun: boolean }} params
+ * @param {{
+ *   issue: object,
+ *   dryRun: boolean,
+ *   stateDirectory: string,
+ *   postAlertImpl: typeof postAlert
+ * }} params
  * @returns {Promise<string>} the tier-1 classification kind
  */
-async function processIssue({ issue, state, dryRun }) {
+async function processIssue({ issue, dryRun, stateDirectory, postAlertImpl }) {
   const classification = classifyIssue(issue);
   const topic = topicForIssue(issue.number, issue.title);
   const content = formatAlert({ issue, classification });
@@ -48,35 +53,38 @@ async function processIssue({ issue, state, dryRun }) {
     return classification.kind;
   }
 
-  const posted = await postAlert({ topic, content });
+  const posted = await postAlertImpl({ topic, content });
 
-  state.issues[issue.number] = {
-    status: classification.kind === 'bug' ? 'queued' : 'posted',
-    title: issue.title,
-    url: issue.url,
-    author: issue.author,
-    createdAt: issue.createdAt,
-    updatedAt: issue.updatedAt,
-    classifiedAs: classification.kind,
-    zulipTopic: topic,
-    zulipMessageId: posted.id,
-    mrUrl: null,
-  };
-  saveState(state);
+  await updateState((state) => {
+    state.issues[issue.number] = {
+      status: classification.kind === 'bug' ? 'queued' : 'posted',
+      title: issue.title,
+      url: issue.url,
+      author: issue.author,
+      createdAt: issue.createdAt,
+      updatedAt: issue.updatedAt,
+      classifiedAs: classification.kind,
+      zulipTopic: topic,
+      zulipMessageId: posted.id,
+      mrUrl: null,
+    };
+  }, stateDirectory);
   return classification.kind;
 }
 
 /**
  * Orchestrate one poll cycle: read state, fetch new issues, post each, advance
  * the watermark.
- * @param {{ dryRun: boolean }} options
+ * @param {{ dryRun: boolean, stateDirectory?: string, dependencies?: object }} options
  * @returns {Promise<{ posted: number, queued: number }>}
  */
-export async function runPoll({ dryRun }) {
+export async function runPoll({ dryRun, stateDirectory = stateDir(), dependencies = {} }) {
+  const fetchIssuesSinceImpl = dependencies.fetchIssuesSince ?? fetchIssuesSince;
+  const postAlertImpl = dependencies.postAlert ?? postAlert;
   const token = process.env.GITHUB_PAT;
 
-  const state = loadState();
-  const issues = await fetchIssuesSince({ repo: REPO, since: state.watermark, token });
+  const state = loadState(stateDirectory);
+  const issues = await fetchIssuesSinceImpl({ repo: REPO, since: state.watermark, token });
 
   // Only issues never seen before, oldest first so topics read in order.
   const fresh = issues
@@ -85,15 +93,16 @@ export async function runPoll({ dryRun }) {
 
   let queued = 0;
   for (const issue of fresh) {
-    const kind = await processIssue({ issue, state, dryRun });
+    const kind = await processIssue({ issue, dryRun, stateDirectory, postAlertImpl });
     if (kind === 'bug') queued += 1;
   }
 
   // Advance the watermark only on a live run; a dry run must not move it, or it
   // would silently mark the backlog as processed without posting anything.
   if (!dryRun && fresh.length > 0) {
-    state.watermark = nextWatermark(state.watermark, issues);
-    saveState(state);
+    await updateState((latestState) => {
+      latestState.watermark = nextWatermark(latestState.watermark, issues);
+    }, stateDirectory);
   }
 
   return { posted: fresh.length, queued };

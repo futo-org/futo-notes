@@ -22,21 +22,50 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { loadState, saveState, stateDir } from './triageState.mjs';
+import { loadState, stateDir, updateState } from './triageState.mjs';
 import { postAlert } from './zulipAlerts.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT_FILE = join(HERE, 'triage-prompt.md');
+const DEFAULT_REPO_DIR = resolve(HERE, '..', '..');
 
 const TIMEBOX_MS = 45 * 60 * 1000;
+const AGENT_ENV_ALLOWLIST = [
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'TMPDIR',
+  'LANG',
+  'LC_ALL',
+  'TERM',
+  'COLORTERM',
+  'XDG_CONFIG_HOME',
+  'XDG_CACHE_HOME',
+  'CARGO_HOME',
+  'RUSTUP_HOME',
+  'PNPM_HOME',
+  'NVM_BIN',
+  'VOLTA_HOME',
+  'JAVA_HOME',
+  'ANDROID_HOME',
+  'ANDROID_SDK_ROOT',
+  'DEVELOPER_DIR',
+  'GRADLE_USER_HOME',
+  'SSH_AUTH_SOCK',
+  'GITLAB_TOKEN',
+  'ANTHROPIC_API_KEY',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+];
+const RESULT_PLATFORMS = new Set(['web', 'desktop', 'android', 'ios', 'windows', 'n/a']);
 
 /** Main checkout the triage worktree is branched from. */
-function repoDir() {
-  return process.env.FUTO_TRIAGE_REPO_DIR || join(homedir(), 'Developer', 'futo-notes');
+export function repoDir(env = process.env) {
+  return env.FUTO_TRIAGE_REPO_DIR ? resolve(env.FUTO_TRIAGE_REPO_DIR) : DEFAULT_REPO_DIR;
 }
 
 /**
@@ -52,6 +81,55 @@ const OUTCOME_HANDLING = {
   not_a_bug: { status: 'posted', heading: '📝 Re-classified — not a bug' },
   needs_human: { status: 'needs_human', heading: '🙋 Needs a human' },
 };
+const RESULT_OUTCOMES = new Set(Object.keys(OUTCOME_HANDLING));
+
+/**
+ * Build the child environment from an explicit allowlist. Public issue text is
+ * untrusted, so the agent must not inherit unrelated credentials from the
+ * operator's interactive shell.
+ */
+export function buildAgentEnv(sourceEnv, { dataDir, resultFile }) {
+  const env = {};
+  for (const name of AGENT_ENV_ALLOWLIST) {
+    if (sourceEnv[name] !== undefined) env[name] = sourceEnv[name];
+  }
+  env.FUTO_NOTES_DATA_DIR = dataDir;
+  env.TRIAGE_RESULT_FILE = resultFile;
+  return env;
+}
+
+function isGitLabMergeRequestUrl(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      url.hostname === 'gitlab.futo.org' &&
+      /\/-\/merge_requests\/\d+\/?$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Parse and validate the agent-owned result contract. */
+export function parseTriageResult(raw) {
+  try {
+    const result = JSON.parse(raw);
+    if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
+    if (!RESULT_OUTCOMES.has(result.outcome) || !RESULT_PLATFORMS.has(result.platform)) return null;
+    if (typeof result.highStakes !== 'boolean') return null;
+    if (typeof result.summary !== 'string' || result.summary.trim() === '') return null;
+    if (typeof result.attemptedSteps !== 'string') return null;
+    if (result.mrUrl !== null && !isGitLabMergeRequestUrl(result.mrUrl)) return null;
+    if (result.outcome === 'reproduced_fixed' && !isGitLabMergeRequestUrl(result.mrUrl))
+      return null;
+    if (result.outcome !== 'reproduced_fixed' && result.mrUrl !== null) return null;
+    return result;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Pick the issue to triage: the explicit `--issue N` if given (must be known),
@@ -82,35 +160,35 @@ export function selectIssue(state, explicitNumber) {
  * deletion and be unmergeable.
  * @returns {{ worktreePath: string, dataDir: string, branch: string }}
  */
-function createWorktree({ number, runId }) {
-  const worktreePath = join(stateDir(), 'worktrees', `gh-${number}-${runId}`);
+function createWorktree({ number, runId, stateDirectory = stateDir(), repoDirectory = repoDir() }) {
+  const worktreePath = join(stateDirectory, 'worktrees', `gh-${number}-${runId}`);
   const branch = `triage/gh-${number}-${runId}`;
   const dataDir = join(worktreePath, '.triage-notes-data');
 
   mkdirSync(dirname(worktreePath), { recursive: true });
-  runGit(['fetch', 'origin', 'main']);
-  runGit(['worktree', 'add', '-b', branch, worktreePath, 'origin/main']);
+  runGit(['fetch', 'origin', 'main'], repoDirectory);
+  runGit(['worktree', 'add', '-b', branch, worktreePath, 'origin/main'], repoDirectory);
   mkdirSync(dataDir, { recursive: true });
 
   return { worktreePath, dataDir, branch };
 }
 
 /** Remove the worktree; keep the branch when an MR was filed off it. */
-function cleanupWorktree({ worktreePath, branch, keepBranch }) {
-  runGit(['worktree', 'remove', '--force', worktreePath]);
+function cleanupWorktree({ worktreePath, branch, keepBranch, repoDirectory = repoDir() }) {
+  runGit(['worktree', 'remove', '--force', worktreePath], repoDirectory);
   if (!keepBranch) {
     // The branch is local-only until the agent pushes it; safe to delete when
     // no MR was filed. -D because it never merged into main.
     try {
-      runGit(['branch', '-D', branch]);
+      runGit(['branch', '-D', branch], repoDirectory);
     } catch {
       // Branch may not exist if worktree add failed; nothing to clean.
     }
   }
 }
 
-function runGit(args) {
-  const result = spawnSync('git', ['-C', repoDir(), ...args], { encoding: 'utf8' });
+function runGit(args, repoDirectory) {
+  const result = spawnSync('git', ['-C', repoDirectory, ...args], { encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${(result.stderr ?? '').trim()}`);
   }
@@ -142,15 +220,20 @@ function buildTaskPrompt({ number, entry, resultFile }) {
  * timebox. Resolves with the parsed result file, or null on timeout / crash /
  * missing file.
  */
-function runAgent({ worktreePath, dataDir, resultFile, number, entry }) {
+export function runAgent({
+  worktreePath,
+  dataDir,
+  resultFile,
+  number,
+  entry,
+  spawnImpl = spawn,
+  timeoutMs = TIMEBOX_MS,
+}) {
   const taskPrompt = buildTaskPrompt({ number, entry, resultFile });
 
-  // The agent gets GITLAB_TOKEN (to open the MR) but NOT GITHUB_PAT — it has no
-  // business touching GitHub, so we don't even hand it the read token.
-  const env = { ...process.env, FUTO_NOTES_DATA_DIR: dataDir, TRIAGE_RESULT_FILE: resultFile };
-  delete env.GITHUB_PAT;
+  const env = buildAgentEnv(process.env, { dataDir, resultFile });
 
-  const child = spawn(
+  const child = spawnImpl(
     'claude',
     [
       '-p',
@@ -165,29 +248,33 @@ function runAgent({ worktreePath, dataDir, resultFile, number, entry }) {
   );
 
   return new Promise((resolve) => {
+    let settled = false;
+    let hardKillTimer;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(hardKillTimer);
+      resolve(readResult(resultFile));
+    };
+
     // On timebox expiry, ask the agent to stop, then hard-kill after a grace
     // period. Either way we fall through to reading whatever result exists.
     const timer = setTimeout(() => {
       process.stderr.write('triage: timebox expired, terminating agent\n');
       child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 30_000);
-    }, TIMEBOX_MS);
+      hardKillTimer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+    }, timeoutMs);
 
-    child.on('exit', () => {
-      clearTimeout(timer);
-      resolve(readResult(resultFile));
-    });
+    child.once('error', finish);
+    child.once('exit', finish);
   });
 }
 
 /** Read + parse the agent's result file; null if absent or malformed. */
 function readResult(resultFile) {
   if (!existsSync(resultFile)) return null;
-  try {
-    return JSON.parse(readFileSync(resultFile, 'utf8'));
-  } catch {
-    return null;
-  }
+  return parseTriageResult(readFileSync(resultFile, 'utf8'));
 }
 
 /** Compose the Zulip follow-up from the agent's result. */
@@ -213,10 +300,28 @@ export function formatOutcome({ number, result }) {
 
 /**
  * Orchestrate one triage run.
- * @param {{ explicitNumber?: string, dryRun: boolean }} options
+ * @param {{
+ *   explicitNumber?: string,
+ *   dryRun: boolean,
+ *   stateDirectory?: string,
+ *   repoDirectory?: string,
+ *   dependencies?: object
+ * }} options
  */
-export async function runTriage({ explicitNumber, dryRun }) {
-  const state = loadState();
+export async function runTriage({
+  explicitNumber,
+  dryRun,
+  stateDirectory = stateDir(),
+  repoDirectory = repoDir(),
+  dependencies = {},
+}) {
+  const createWorktreeImpl = dependencies.createWorktree ?? createWorktree;
+  const cleanupWorktreeImpl = dependencies.cleanupWorktree ?? cleanupWorktree;
+  const runAgentImpl = dependencies.runAgent ?? runAgent;
+  const postAlertImpl = dependencies.postAlert ?? postAlert;
+  const now = dependencies.now ?? (() => new Date());
+
+  const state = loadState(stateDirectory);
   const selected = selectIssue(state, explicitNumber);
   if (!selected) {
     process.stdout.write('no queued bugs to triage\n');
@@ -224,44 +329,112 @@ export async function runTriage({ explicitNumber, dryRun }) {
   }
 
   const { number, entry } = selected;
-  const runId = new Date()
+  const runId = now()
     .toISOString()
     .replace(/[-:T.]/g, '')
     .slice(0, 14);
-  const resultFile = join(stateDir(), `result-gh-${number}-${runId}.json`);
+  const resultFile = join(stateDirectory, `result-gh-${number}-${runId}.json`);
 
-  const { worktreePath, dataDir, branch } = createWorktree({ number, runId });
+  const { worktreePath, dataDir, branch } = createWorktreeImpl({
+    number,
+    runId,
+    stateDirectory,
+    repoDirectory,
+  });
 
   if (dryRun) {
-    process.stdout.write(
-      `\n[dry-run] would triage gh#${number} (${entry.title})\n` +
-        `worktree: ${worktreePath}\n` +
-        `dataDir:  ${dataDir}\n` +
-        `result:   ${resultFile}\n` +
-        `system prompt: ${SYSTEM_PROMPT_FILE}\n\n` +
-        `--- task prompt ---\n${buildTaskPrompt({ number, entry, resultFile })}\n`,
-    );
-    cleanupWorktree({ worktreePath, branch, keepBranch: false });
+    try {
+      process.stdout.write(
+        `\n[dry-run] would triage gh#${number} (${entry.title})\n` +
+          `worktree: ${worktreePath}\n` +
+          `dataDir:  ${dataDir}\n` +
+          `result:   ${resultFile}\n` +
+          `system prompt: ${SYSTEM_PROMPT_FILE}\n\n` +
+          `--- task prompt ---\n${buildTaskPrompt({ number, entry, resultFile })}\n`,
+      );
+    } finally {
+      cleanupWorktreeImpl({ worktreePath, branch, keepBranch: false, repoDirectory });
+    }
     return;
   }
 
-  state.issues[number].status = 'reproducing';
-  saveState(state);
+  const updateIssue = (mutate) =>
+    updateState((latestState) => {
+      const latestEntry = latestState.issues[number];
+      if (!latestEntry) throw new Error(`issue #${number} disappeared from triage state`);
+      mutate(latestEntry);
+    }, stateDirectory);
 
-  const result = await runAgent({ worktreePath, dataDir, resultFile, number, entry });
-  const handling = result
-    ? (OUTCOME_HANDLING[result.outcome] ?? OUTCOME_HANDLING.needs_human)
-    : OUTCOME_HANDLING.needs_human;
+  let result = null;
+  let handling = OUTCOME_HANDLING.needs_human;
+  let failure = null;
 
-  await postAlert({ topic: entry.zulipTopic, content: formatOutcome({ number, result }) });
+  try {
+    await updateIssue((latestEntry) => {
+      latestEntry.status = 'reproducing';
+    });
 
-  const fresh = loadState();
-  fresh.issues[number].status = handling.status;
-  fresh.issues[number].mrUrl = result?.mrUrl ?? null;
-  saveState(fresh);
+    try {
+      const agentResult = await runAgentImpl({
+        worktreePath,
+        dataDir,
+        resultFile,
+        number,
+        entry,
+      });
+      result = agentResult ? parseTriageResult(JSON.stringify(agentResult)) : null;
+    } catch (error) {
+      process.stderr.write(`triage agent failed: ${error.message}\n`);
+      result = null;
+    }
 
-  cleanupWorktree({ worktreePath, branch, keepBranch: Boolean(result?.mrUrl) });
+    handling = result ? OUTCOME_HANDLING[result.outcome] : OUTCOME_HANDLING.needs_human;
+    await updateIssue((latestEntry) => {
+      latestEntry.status = handling.status;
+      latestEntry.mrUrl = result?.mrUrl ?? null;
+    });
 
+    await postAlertImpl({ topic: entry.zulipTopic, content: formatOutcome({ number, result }) });
+  } catch (error) {
+    failure = error;
+    try {
+      await updateIssue((latestEntry) => {
+        latestEntry.status = 'needs_human';
+        if (result?.mrUrl) latestEntry.mrUrl = result.mrUrl;
+      });
+    } catch (stateError) {
+      failure = new AggregateError(
+        [error, stateError],
+        `triage failed and needs_human state could not be persisted`,
+      );
+    }
+  } finally {
+    try {
+      cleanupWorktreeImpl({
+        worktreePath,
+        branch,
+        keepBranch: Boolean(result?.mrUrl),
+        repoDirectory,
+      });
+    } catch (cleanupError) {
+      try {
+        await updateIssue((latestEntry) => {
+          latestEntry.status = 'needs_human';
+          if (result?.mrUrl) latestEntry.mrUrl = result.mrUrl;
+        });
+      } catch (stateError) {
+        cleanupError = new AggregateError(
+          [cleanupError, stateError],
+          `triage cleanup failed and needs_human state could not be persisted`,
+        );
+      }
+      failure = failure
+        ? new AggregateError([failure, cleanupError], 'triage failed and cleanup also failed')
+        : cleanupError;
+    }
+  }
+
+  if (failure) throw failure;
   process.stdout.write(`triage gh#${number} → ${handling.status}\n`);
 }
 
