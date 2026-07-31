@@ -21,7 +21,7 @@
  *   node scripts/issue-triage/runTriage.mjs --dry-run   # set up + print, don't launch
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -35,7 +35,6 @@ const DEFAULT_REPO_DIR = resolve(HERE, '..', '..');
 const TIMEBOX_MS = 45 * 60 * 1000;
 const AGENT_ENV_ALLOWLIST = [
   'PATH',
-  'HOME',
   'USER',
   'LOGNAME',
   'SHELL',
@@ -44,19 +43,11 @@ const AGENT_ENV_ALLOWLIST = [
   'LC_ALL',
   'TERM',
   'COLORTERM',
-  'XDG_CONFIG_HOME',
-  'XDG_CACHE_HOME',
-  'CARGO_HOME',
   'RUSTUP_HOME',
-  'PNPM_HOME',
-  'NVM_BIN',
-  'VOLTA_HOME',
   'JAVA_HOME',
   'ANDROID_HOME',
   'ANDROID_SDK_ROOT',
   'DEVELOPER_DIR',
-  'GRADLE_USER_HOME',
-  'SSH_AUTH_SOCK',
   'GITLAB_TOKEN',
   'ANTHROPIC_API_KEY',
   'CLAUDE_CODE_OAUTH_TOKEN',
@@ -88,11 +79,38 @@ const RESULT_OUTCOMES = new Set(Object.keys(OUTCOME_HANDLING));
  * untrusted, so the agent must not inherit unrelated credentials from the
  * operator's interactive shell.
  */
-export function buildAgentEnv(sourceEnv, { dataDir, resultFile }) {
+export function buildAgentEnv(sourceEnv, { agentHome, dataDir, resultFile }) {
+  if (!sourceEnv.GITLAB_TOKEN) {
+    throw new Error('tier-2 triage requires GITLAB_TOKEN for branch push and MR creation');
+  }
+  if (!sourceEnv.ANTHROPIC_API_KEY && !sourceEnv.CLAUDE_CODE_OAUTH_TOKEN) {
+    throw new Error(
+      'tier-2 triage requires an explicit Claude credential: ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN',
+    );
+  }
+
   const env = {};
   for (const name of AGENT_ENV_ALLOWLIST) {
     if (sourceEnv[name] !== undefined) env[name] = sourceEnv[name];
   }
+  env.HOME = agentHome;
+  env.XDG_CONFIG_HOME = join(agentHome, '.config');
+  env.XDG_CACHE_HOME = join(agentHome, '.cache');
+  env.CARGO_HOME = join(agentHome, '.cargo');
+  env.GRADLE_USER_HOME = join(agentHome, '.gradle');
+  env.GNUPGHOME = join(agentHome, '.gnupg');
+  env.CLAUDE_CONFIG_DIR = join(agentHome, '.claude');
+  env.GIT_ASKPASS = join(agentHome, 'git-askpass.sh');
+  env.GIT_TERMINAL_PROMPT = '0';
+  env.GIT_CONFIG_COUNT = '2';
+  env.GIT_CONFIG_KEY_0 = 'url.https://gitlab.futo.org/.insteadOf';
+  env.GIT_CONFIG_VALUE_0 = 'git@gitlab.futo.org:';
+  env.GIT_CONFIG_KEY_1 = 'url.https://gitlab.futo.org/.insteadOf';
+  env.GIT_CONFIG_VALUE_1 = 'ssh://git@gitlab.futo.org/';
+  env.GIT_AUTHOR_NAME = 'FUTO Notes Issue Triage';
+  env.GIT_AUTHOR_EMAIL = 'futo-notes-issue-triage@localhost';
+  env.GIT_COMMITTER_NAME = env.GIT_AUTHOR_NAME;
+  env.GIT_COMMITTER_EMAIL = env.GIT_AUTHOR_EMAIL;
   env.FUTO_NOTES_DATA_DIR = dataDir;
   env.TRIAGE_RESULT_FILE = resultFile;
   return env;
@@ -105,7 +123,7 @@ function isGitLabMergeRequestUrl(value) {
     return (
       url.protocol === 'https:' &&
       url.hostname === 'gitlab.futo.org' &&
-      /\/-\/merge_requests\/\d+\/?$/.test(url.pathname)
+      /^\/futo-notes\/futo-notes\/-\/merge_requests\/\d+\/?$/.test(url.pathname)
     );
   } catch {
     return false;
@@ -160,15 +178,44 @@ export function selectIssue(state, explicitNumber) {
  * deletion and be unmergeable.
  * @returns {{ worktreePath: string, dataDir: string, branch: string }}
  */
-function createWorktree({ number, runId, stateDirectory = stateDir(), repoDirectory = repoDir() }) {
+export function createWorktree({
+  number,
+  runId,
+  stateDirectory = stateDir(),
+  repoDirectory = repoDir(),
+  mkdirImpl = mkdirSync,
+  runGitImpl = (args) => runGit(args, repoDirectory),
+}) {
   const worktreePath = join(stateDirectory, 'worktrees', `gh-${number}-${runId}`);
   const branch = `triage/gh-${number}-${runId}`;
   const dataDir = join(worktreePath, '.triage-notes-data');
 
-  mkdirSync(dirname(worktreePath), { recursive: true });
-  runGit(['fetch', 'origin', 'main'], repoDirectory);
-  runGit(['worktree', 'add', '-b', branch, worktreePath, 'origin/main'], repoDirectory);
-  mkdirSync(dataDir, { recursive: true });
+  mkdirImpl(dirname(worktreePath), { recursive: true });
+  runGitImpl(['fetch', 'origin', 'main']);
+
+  try {
+    runGitImpl(['worktree', 'add', '-b', branch, worktreePath, 'origin/main']);
+    mkdirImpl(dataDir, { recursive: true });
+  } catch (setupError) {
+    const rollbackErrors = [];
+    for (const args of [
+      ['worktree', 'remove', '--force', worktreePath],
+      ['branch', '-D', branch],
+    ]) {
+      try {
+        runGitImpl(args);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length > 0) {
+      throw new AggregateError(
+        [setupError, ...rollbackErrors],
+        `triage worktree setup failed and rollback was incomplete`,
+      );
+    }
+    throw setupError;
+  }
 
   return { worktreePath, dataDir, branch };
 }
@@ -227,11 +274,14 @@ export function runAgent({
   number,
   entry,
   spawnImpl = spawn,
+  sourceEnv = process.env,
   timeoutMs = TIMEBOX_MS,
 }) {
   const taskPrompt = buildTaskPrompt({ number, entry, resultFile });
+  const agentHome = join(worktreePath, '.triage-agent-home');
+  prepareAgentHome(agentHome);
 
-  const env = buildAgentEnv(process.env, { dataDir, resultFile });
+  const env = buildAgentEnv(sourceEnv, { agentHome, dataDir, resultFile });
 
   const child = spawnImpl(
     'claude',
@@ -269,6 +319,32 @@ export function runAgent({
     child.once('error', finish);
     child.once('exit', finish);
   });
+}
+
+function prepareAgentHome(agentHome) {
+  for (const directory of [
+    agentHome,
+    join(agentHome, '.config'),
+    join(agentHome, '.cache'),
+    join(agentHome, '.cargo'),
+    join(agentHome, '.gradle'),
+    join(agentHome, '.gnupg'),
+    join(agentHome, '.claude'),
+  ]) {
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+  }
+  writeFileSync(
+    join(agentHome, 'git-askpass.sh'),
+    [
+      '#!/bin/sh',
+      'case "$1" in',
+      "  *Username*) printf '%s\\n' oauth2 ;;",
+      '  *) printf \'%s\\n\' "$GITLAB_TOKEN" ;;',
+      'esac',
+      '',
+    ].join('\n'),
+    { mode: 0o700 },
+  );
 }
 
 /** Read + parse the agent's result file; null if absent or malformed. */
@@ -389,12 +465,12 @@ export async function runTriage({
     }
 
     handling = result ? OUTCOME_HANDLING[result.outcome] : OUTCOME_HANDLING.needs_human;
+    await postAlertImpl({ topic: entry.zulipTopic, content: formatOutcome({ number, result }) });
+
     await updateIssue((latestEntry) => {
       latestEntry.status = handling.status;
       latestEntry.mrUrl = result?.mrUrl ?? null;
     });
-
-    await postAlertImpl({ topic: entry.zulipTopic, content: formatOutcome({ number, result }) });
   } catch (error) {
     failure = error;
     try {

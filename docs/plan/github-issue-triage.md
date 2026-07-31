@@ -129,9 +129,11 @@ mechanical. Needs a repo write, so it's a one-time human-approved change.
   documented flows. Attachments (screenshots) are downloaded and _viewed_,
   never executed. The worktree + dev-data isolation bounds the blast radius.
 - **Child credentials.** The launcher builds the agent environment from an
-  explicit allowlist: Claude auth, GitLab push/MR access, and non-secret
-  toolchain paths only. GitHub, Zulip, cloud, and unrelated interactive-shell
-  secrets are not inherited by the child.
+  explicit allowlist and gives it a fresh `HOME`/XDG/tool configuration:
+  explicit Claude auth, GitLab push/MR access, and non-secret toolchain paths
+  only. Git uses HTTPS through an isolated askpass helper rather than the
+  operator's SSH agent. GitHub, Zulip, cloud, normal home/config, and unrelated
+  interactive-shell secrets are not inherited by the child.
 - **GitHub is read-only** at the token level (above).
 - **High-stakes areas.** If the bug touches sync, crypto, merge, tombstones,
   or anything under `keys/`: still file the fix MR, but as a **Draft: MR**
@@ -220,8 +222,9 @@ application code.
   throwaway `FUTO_NOTES_DATA_DIR`, no GitHub token in the agent's env, 45-min
   timebox. The launcher owns the Zulip post + state transition off a validated
   JSON result file, so a dead agent still reports `needs_human`; cleanup and a
-  recoverable state are preserved across spawn, timeout, and Zulip failures.
-  gh#8 shakedown pending.
+  recoverable state are preserved across setup, spawn, timeout, and Zulip
+  failures. A successful terminal state is persisted only after its promised
+  Zulip follow-up. gh#8 shakedown pending.
 
 ### Decisions settled during the build
 

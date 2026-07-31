@@ -35,7 +35,7 @@ Splitting them keeps a flaky agent run from ever losing an issue notification.
 
 ## Credentials
 
-Three secrets, read from the environment:
+Credential groups are read from the environment:
 
 - **`GITHUB_PAT`** — a fine-grained PAT scoped to `futo-org/futo-notes`,
   **Issues: read only**. This read-only scope is the enforcement of "no bot
@@ -43,14 +43,20 @@ Three secrets, read from the environment:
 - **`ZULIP_TRIAGE_BOT_EMAIL` / `ZULIP_TRIAGE_BOT_KEY`** — the dedicated
   "Issue Triage" Zulip generic bot.
 - **`GITLAB_TOKEN`** — only needed by tier 2, to open the fix MR.
+- **`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`** — an explicit Claude
+  credential required by tier 2. The launcher fails closed instead of exposing
+  the operator's normal Claude configuration directory.
 
 Interactive runs read these from `~/.zshrc`. The systemd service reads them from
 `~/.config/futo-notes-issue-triage/env` (copy `env.example`, `chmod 600`).
 
-The tier-2 child agent receives an explicit environment allowlist, not the
-operator's whole shell environment. It retains GitLab push/MR credentials,
-Claude authentication, and non-secret toolchain paths; the GitHub PAT, Zulip
-bot key, cloud credentials, and unrelated host secrets stay in the launcher.
+The tier-2 child agent receives an explicit environment allowlist and a fresh
+`HOME`/XDG/tool configuration rooted inside its isolated worktree. It
+retains only explicit GitLab and Claude credentials plus non-secret toolchain
+paths. Git pushes use HTTPS with an isolated askpass helper, so the child does
+not receive the operator's SSH agent. The GitHub PAT, Zulip bot key, cloud
+credentials, normal home/config files, and unrelated host secrets stay in the
+launcher.
 
 ## State file
 
@@ -145,8 +151,10 @@ should be managed by a different checkout.
 
 The launcher — not the agent — owns the Zulip follow-up and the state
 transition, so a crashed or timed-out agent still reports `needs_human` to the
-issue's topic. The agent writes a JSON result to `$TRIAGE_RESULT_FILE`; a fix,
-if produced, is a GitLab MR left **open** (never merged), linking the issue.
+issue's topic. A successful terminal state is committed only after the Zulip
+follow-up succeeds, so a crash cannot falsely claim the promised alert was
+sent. The agent writes a JSON result to `$TRIAGE_RESULT_FILE`; a fix, if
+produced, is a GitLab MR left **open** (never merged), linking the issue.
 Malformed results are treated as `needs_human`; `reproduced_fixed` is accepted
 only with a valid `https://gitlab.futo.org/.../-/merge_requests/<number>` URL.
 Cleanup runs even when the agent cannot spawn or the Zulip follow-up fails. A

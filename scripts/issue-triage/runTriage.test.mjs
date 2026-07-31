@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   buildAgentEnv,
+  createWorktree,
   formatOutcome,
   parseTriageResult,
   repoDir,
@@ -24,6 +25,11 @@ const VALID_RESULT = {
   summary: 'Fixed the dark-mode text color.',
   attemptedSteps: 'android emulator, assembleDebug',
 };
+const AGENT_SOURCE_ENV = {
+  PATH: '/bin',
+  GITLAB_TOKEN: 'gitlab-token',
+  ANTHROPIC_API_KEY: 'claude-token',
+};
 
 describe('repoDir', () => {
   it('defaults to the repository containing the launcher', () => {
@@ -36,7 +42,7 @@ describe('repoDir', () => {
 });
 
 describe('buildAgentEnv', () => {
-  it('passes only task-required credentials and safe toolchain configuration', () => {
+  it('uses an isolated home and passes only task-required credentials and tooling', () => {
     const env = buildAgentEnv(
       {
         PATH: '/bin',
@@ -49,22 +55,49 @@ describe('buildAgentEnv', () => {
         AWS_SECRET_ACCESS_KEY: 'cloud-token',
         RANDOM_UNRELATED_SECRET: 'host-secret',
       },
-      { dataDir: '/tmp/notes', resultFile: '/tmp/result.json' },
+      {
+        agentHome: '/tmp/isolated-home',
+        dataDir: '/tmp/notes',
+        resultFile: '/tmp/result.json',
+      },
     );
 
     expect(env).toMatchObject({
       PATH: '/bin',
-      HOME: '/home/operator',
+      HOME: '/tmp/isolated-home',
+      XDG_CONFIG_HOME: '/tmp/isolated-home/.config',
+      XDG_CACHE_HOME: '/tmp/isolated-home/.cache',
+      CARGO_HOME: '/tmp/isolated-home/.cargo',
+      GRADLE_USER_HOME: '/tmp/isolated-home/.gradle',
       GITLAB_TOKEN: 'gitlab-token',
       ANTHROPIC_API_KEY: 'claude-token',
-      SSH_AUTH_SOCK: '/tmp/agent.sock',
+      GIT_ASKPASS: '/tmp/isolated-home/git-askpass.sh',
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_CONFIG_VALUE_0: 'git@gitlab.futo.org:',
+      GIT_CONFIG_VALUE_1: 'ssh://git@gitlab.futo.org/',
       FUTO_NOTES_DATA_DIR: '/tmp/notes',
       TRIAGE_RESULT_FILE: '/tmp/result.json',
     });
+    expect(env).not.toHaveProperty('SSH_AUTH_SOCK');
     expect(env).not.toHaveProperty('GITHUB_PAT');
     expect(env).not.toHaveProperty('ZULIP_TRIAGE_BOT_KEY');
     expect(env).not.toHaveProperty('AWS_SECRET_ACCESS_KEY');
     expect(env).not.toHaveProperty('RANDOM_UNRELATED_SECRET');
+  });
+
+  it('fails closed without explicit Claude and GitLab credentials', () => {
+    const options = {
+      agentHome: '/tmp/isolated-home',
+      dataDir: '/tmp/notes',
+      resultFile: '/tmp/result.json',
+    };
+
+    expect(() => buildAgentEnv({ GITLAB_TOKEN: 'gitlab-token' }, options)).toThrow(
+      /explicit Claude credential/,
+    );
+    expect(() => buildAgentEnv({ ANTHROPIC_API_KEY: 'claude-token' }, options)).toThrow(
+      /GITLAB_TOKEN/,
+    );
   });
 });
 
@@ -77,6 +110,17 @@ describe('parseTriageResult', () => {
     expect(parseTriageResult(JSON.stringify({ ...VALID_RESULT, mrUrl: null }))).toBeNull();
     expect(
       parseTriageResult(JSON.stringify({ ...VALID_RESULT, mrUrl: 'https://example.com/mr/99' })),
+    ).toBeNull();
+  });
+
+  it('rejects an MR URL from another GitLab repository', () => {
+    expect(
+      parseTriageResult(
+        JSON.stringify({
+          ...VALID_RESULT,
+          mrUrl: 'https://gitlab.futo.org/another/project/-/merge_requests/99',
+        }),
+      ),
     ).toBeNull();
   });
 
@@ -98,6 +142,44 @@ describe('parseTriageResult', () => {
   });
 });
 
+describe('createWorktree', () => {
+  it('rolls back a partially created worktree when setup fails', () => {
+    const gitCalls = [];
+    let mkdirCalls = 0;
+
+    expect(() =>
+      createWorktree({
+        number: '8',
+        runId: 'test',
+        stateDirectory: '/tmp/triage-state',
+        repoDirectory: '/repo',
+        mkdirImpl: () => {
+          mkdirCalls += 1;
+          if (mkdirCalls === 2) throw new Error('cannot create data directory');
+        },
+        runGitImpl: (args) => {
+          gitCalls.push(args);
+          return '';
+        },
+      }),
+    ).toThrow(/cannot create data directory/);
+
+    expect(gitCalls).toEqual([
+      ['fetch', 'origin', 'main'],
+      [
+        'worktree',
+        'add',
+        '-b',
+        'triage/gh-8-test',
+        '/tmp/triage-state/worktrees/gh-8-test',
+        'origin/main',
+      ],
+      ['worktree', 'remove', '--force', '/tmp/triage-state/worktrees/gh-8-test'],
+      ['branch', '-D', 'triage/gh-8-test'],
+    ]);
+  });
+});
+
 describe('runAgent', () => {
   let dir;
 
@@ -112,13 +194,16 @@ describe('runAgent', () => {
   it('treats a child-process spawn error as a missing result', async () => {
     const child = new EventEmitter();
     child.kill = () => {};
+    let childEnv;
     const result = runAgent({
       worktreePath: dir,
       dataDir: join(dir, 'notes'),
       resultFile: join(dir, 'result.json'),
       number: '8',
       entry: { title: 'Dark mode', url: 'https://github.com/futo-org/futo-notes/issues/8' },
-      spawnImpl: () => {
+      sourceEnv: AGENT_SOURCE_ENV,
+      spawnImpl: (_command, _args, options) => {
+        childEnv = options.env;
         queueMicrotask(() => child.emit('error', new Error('claude executable missing')));
         return child;
       },
@@ -126,6 +211,11 @@ describe('runAgent', () => {
     });
 
     await expect(result).resolves.toBeNull();
+    expect(childEnv.HOME).toBe(join(dir, '.triage-agent-home'));
+    expect(childEnv).not.toHaveProperty('SSH_AUTH_SOCK');
+    const askpass = join(childEnv.HOME, 'git-askpass.sh');
+    expect(readFileSync(askpass, 'utf8')).not.toContain('gitlab-token');
+    expect(statSync(askpass).mode & 0o777).toBe(0o700);
   });
 
   it('terminates a timed-out child and treats it as a missing result', async () => {
@@ -143,6 +233,7 @@ describe('runAgent', () => {
         resultFile: join(dir, 'result.json'),
         number: '8',
         entry: { title: 'Dark mode', url: 'https://github.com/futo-org/futo-notes/issues/8' },
+        sourceEnv: AGENT_SOURCE_ENV,
         spawnImpl: () => child,
         timeoutMs: 1,
       }),
@@ -245,6 +336,28 @@ describe('runTriage lifecycle', () => {
     });
     expect(cleaned).toBe(true);
     expect(cleanupKeepBranch).toBe(true);
+  });
+
+  it('posts the Zulip follow-up before committing the successful terminal state', async () => {
+    let statusDuringPost;
+
+    await runTriage({
+      explicitNumber: '8',
+      dryRun: false,
+      stateDirectory: dir,
+      dependencies: dependencies({
+        runAgent: async () => VALID_RESULT,
+        postAlert: async () => {
+          statusDuringPost = loadState(dir).issues['8'].status;
+        },
+      }),
+    });
+
+    expect(statusDuringPost).toBe('reproducing');
+    expect(loadState(dir).issues['8']).toMatchObject({
+      status: 'mr_filed',
+      mrUrl: VALID_RESULT.mrUrl,
+    });
   });
 
   it('preserves a poller update made while tier 2 starts reproducing', async () => {
