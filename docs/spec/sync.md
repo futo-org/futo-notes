@@ -883,7 +883,13 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   session and saved content) are now dropped before the edit bookkeeping, and
   the adopt gate additionally checks `hasOpenDraftChanges()` (a synchronous
   live-doc read) so a keystroke whose rAF delivery is still in flight can
-  never be clobbered by the initial adopt decision. Once a focused-editor
+  never be clobbered by the initial adopt decision. When a draft is protected
+  because it is dirty or was edited during the running cycle, sync completion
+  leaves the editor untouched but re-bases its saved-content baseline to the
+  pulled disk content. The draft is therefore honestly dirty again, and the
+  next ordinary `flush_draft` persists it against that pulled base; if disk
+  already equals the editor, the same rebase silently makes the session clean.
+  Once a focused-editor
   adopt is deferred, blur re-reads current disk content through
   `reconcileOpenNote` and applies it silently if the same note is still open
   and it differs from the saved baseline; content already matching the editor

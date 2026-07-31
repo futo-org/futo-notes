@@ -130,10 +130,17 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
         await closeOrKeepDeletedOpenNote();
         return keptDraftId;
       }
-      if (freshContent !== dependencies.session.editorContent) {
+      const editorContent = dependencies.session.editorContent;
+      if (freshContent === editorContent) {
+        if (freshContent !== dependencies.session.savedContent) {
+          dependencies.session.rebaseSavedContent(freshContent);
+        }
+      } else {
         const editedDuringSync =
           dependencies.session.editVersion !== options.getSyncStartEditVersion();
-        if (!editedDuringSync && !dependencies.session.dirty) {
+        if (editedDuringSync || dependencies.session.dirty) {
+          dependencies.session.rebaseSavedContent(freshContent);
+        } else {
           if (dependencies.session.editorFocused) {
             externalChanges.deferAdopt(openId);
           } else {

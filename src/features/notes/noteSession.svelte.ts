@@ -64,6 +64,8 @@ export interface NoteSession {
   seedOpenNote: (id: string, body: string) => void;
   cancelAndClear: () => void;
   applyExternalContent: (freshContent: string) => void;
+  /** Replaces the saved-content base without changing the live editor buffer. */
+  rebaseSavedContent: (freshContent: string) => void;
   applyRemoteRename: (toId: string, newTitle: string) => void;
 }
 
@@ -241,6 +243,10 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     titleController.clearWarning();
   }
 
+  function rebaseSavedContent(freshContent: string): void {
+    savedContent = freshContent;
+  }
+
   function applyRemoteRename(toId: string, newTitle: string): void {
     originalId = toId;
     title = newTitle;
@@ -323,6 +329,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     seedOpenNote,
     cancelAndClear,
     applyExternalContent,
+    rebaseSavedContent,
     applyRemoteRename,
   };
 }
