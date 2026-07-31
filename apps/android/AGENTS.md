@@ -22,13 +22,13 @@ first (`just build-rust-android`) or you are testing yesterday's Rust (M9).
 
 | Set | Contents |
 | --- | --- |
-| `src/main` | the app |
-| `src/debug` | debug-only surfaces — currently `testhook/` |
-| `src/release` | no-op stand-ins for debug-only surfaces, at the same FQN |
-| `src/test` | JVM unit tests; compiled against `main + debug` |
+| `app/src/main` | the app |
+| `app/src/debug` | debug-only surfaces — currently `testhook/` |
+| `app/src/release` | no-op stand-ins for debug-only surfaces, at the same FQN |
+| `app/src/test` | JVM unit tests; compiled against `main + debug` |
 
 Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
-`src/main/assets/editor.html`. Never edit them — regenerate (M8).
+`app/src/main/assets/editor.html`. Never edit them — regenerate (M8).
 
 ## Testable logic goes down, not sideways
 
@@ -37,7 +37,8 @@ ends in `Runtime.getRuntime().exit(0)`, which an instrumentation runner reports 
 a crash. So Kotlin has exactly two places to be verified:
 
 1. **A JVM unit test**, for anything that can be a pure function over plain data.
-   `storage/StorageSwitchPlan.kt` and `storage/StorageAdoptionMessage.kt` are the
+   `app/src/main/java/com/futo/notes/storage/StorageSwitchPlan.kt` and its
+   `StorageAdoptionMessage.kt` sibling are the
    pattern: the decision and the wording are pure and tested; only the effects
    stay in `MainActivity`.
 2. **A device-level harness** in `tests/android-*.mjs`, for whole user stories.
@@ -48,7 +49,7 @@ consumers.
 
 ## Debug-only automation hooks
 
-`src/debug/java/com/futo/notes/testhook/` registers a broadcast-driven command
+`app/src/debug/java/com/futo/notes/testhook/` registers a broadcast-driven command
 surface: the Android counterpart of the desktop `window.__testSync` hook. It
 exists because an accessibility dump costs ~2s and shows what Compose last
 managed to render, not what the app holds (M21) — so a test that taps through a
