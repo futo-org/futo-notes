@@ -24,11 +24,10 @@ flag gaps the codebase suggests have been implemented.
 
 ## nav.md
 
-- [nav.md:13](nav.md#L13) — *(accessibility — fix did not take effect at runtime)* The iOS list nav-bar controls — the **gear** (Settings), the **cloud** (Sync), and the **"+"** create-note menu — carry explicit `accessibilityLabel`s ("Settings" / "Sync" / "New note or folder"), a `.isButton` trait, stable `accessibilityIdentifier`s (`nav-settings` / `nav-sync` / `nav-create`), and distinct `ToolbarItem(id:)`s in code (added 2026-06-26), but the runtime check the gap was waiting on **failed**: an `idb ui describe-all` pass on the iOS 26.5 simulator (2026-07-02, during a QA run) shows the list nav-bar controls as **unlabeled Groups** — no labels, identifiers, or button traits surface in the AX tree, and automation must tap them by screenshot coordinates. (The editor's nav bar is fine — its "…" exposes AXLabel "More".) Needs investigation into why SwiftUI toolbar-hosted labels don't reach the AX tree here. → NoteListView.swift toolbar
-- [nav.md:63](nav.md#L63) — on-device autofocus QA is partly done. iOS: opening an EXISTING note stays keyboard-less — verified on the simulator 2026-07-13 (no editor accessory toolbar appears on open; it only appears after tapping the body). iOS new-note autofocus (editor body raises the keyboard) is inspection-confirmed only — the nav-bar "New Note" menu is not idb-drivable on iOS 26 (M21), so it wasn't exercised. Android (existing keyboard-less + native-title autofocus) is still pending. *(native shells)*
+- [nav.md:67](nav.md#L67) — Android on-device autofocus QA (existing note keyboard-less + native-title autofocus) is still pending. *(Android)*
 
 ## sync.md
 
 - [sync.md:855](sync.md#L855) — Android leaves the open editor bound to the deleted id (its snapshotFlow adopt early-returns on the missing note); the peer-delete close/keep + banner is not yet ported there.
 
-_11 gaps._
+_10 gaps._

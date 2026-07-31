@@ -28,7 +28,7 @@ the one you need before driving that platform:
 
 **Mobile is native, not Tauri**: the shipping mobile apps are the SwiftUI and
 Compose shells on the shared Rust core. Neither has the MCP bridge — the
-bridge is desktop-only. iOS is driven with `simctl` + `idb`, Android with
+bridge is desktop-only. iOS is driven with `simctl` + `axe`, Android with
 `adb` + CDP.
 
 **Platform matrix** (`uname -s`): macOS = iOS + Android + desktop; Linux =
