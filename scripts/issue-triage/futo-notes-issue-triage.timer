@@ -1,0 +1,14 @@
+[Unit]
+Description=Run FUTO Notes GitHub issue triage every 15 minutes
+Documentation=file:__REPO_DIR__/scripts/issue-triage/README.md
+
+[Timer]
+# First run shortly after login, then every 15 minutes. Poll-based by design:
+# if the workstation is off, notifications are delayed, never dropped.
+OnStartupSec=2min
+OnUnitActiveSec=15min
+# Catch up with a single run if the machine was asleep across a scheduled tick.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
