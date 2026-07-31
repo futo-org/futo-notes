@@ -587,9 +587,11 @@ EditorWebView.swift, EditorWebView.kt
   explicit, no rewrite, no mtime bump; shells never read disk to compare),
   **recreated** (peer deleted; the edit wins at the ORIGINAL id — the same home
   the editor's resume autosave rewrites, so survive + jetsam converge with no
-  duplicate copy; the install is atomic no-replace, so a live-sync write that
-  recreates the id outside the engine's serialization in the flush window is
-  not clobbered — the draft is parked instead), or **parked** as a conflict
+  duplicate copy; the install is no-replace on every filesystem — atomic where
+  one offers the primitive, an exclusive create plus copy where none does (see
+  app.md) — so a live-sync write that recreates the id outside the engine's
+  serialization in the flush window is not clobbered — the draft is parked
+  instead), or **parked** as a conflict
   copy (peer changed; both versions survive, the copy id reported). A dirty
   draft is never silently dropped; a clean editor never flushes, so a genuinely
   abandoned note is never resurrected. Conflict copies are named by the
