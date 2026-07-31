@@ -17,7 +17,7 @@ Common commands from the monorepo root:
 ```bash
 pnpm install
 pnpm run dev
-pnpm run tauri:dev
+just tauri-dev
 pnpm run build
 ```
 

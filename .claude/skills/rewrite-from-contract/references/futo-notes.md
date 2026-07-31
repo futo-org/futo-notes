@@ -23,6 +23,8 @@ for this worktree; `just qa-server-stop --drop` to tear down).
 
 Manual alternative (what the sync rewrite used), from `~/Developer/futo-notes-server`:
 
+<!-- src/index.ts below is a path in that separate futo-notes-server repo, not this one. -->
+<!-- check-agent-docs: ignore-next-block -->
 ```sh
 docker compose up -d postgres
 DATABASE_URL=postgres://futo_notes:futo_notes@localhost:5433/futo_notes bun run migrate

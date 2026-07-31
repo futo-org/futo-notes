@@ -424,9 +424,10 @@ test:
     - echo "Selected CI test scope '$CI_TEST_SCOPE'"
     - |
       if [ "$CI_TEST_SCOPE" = docs ]; then
-        # Documentation-only MRs cannot affect compiled behavior. Keep the
-        # generated behavioral-spec gap inventory honest without paying for
-        # dependency installation, lint, two test runners, and two builds.
+        # Validate the instruction surfaces that select this fast path, then
+        # keep the generated behavioral-spec gap inventory honest. Both gates
+        # run on plain Node, without package-manager or registry work.
+        node scripts/check-agent-docs.mjs
         node scripts/spec-gaps.mjs --check
       else
         corepack enable

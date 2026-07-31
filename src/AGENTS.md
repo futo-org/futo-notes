@@ -26,7 +26,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 
 ## Common Patterns
 
-- **Adding markdown elements**: Put traversal in `features/editor/live-preview/buildLiveMarkdownDecorations.ts`, element-specific processing in the matching `live-preview/*Decorations.ts` module, and styling in the matching `styles/markdown-*.css` capability file. Keep `liveMarkdownTransform.ts` and `styles/markdown.css` as public facades. Test with `tests/gfm-test-note.md`.
+- **Adding markdown elements**: Put traversal in `src/features/editor/live-preview/buildLiveMarkdownDecorations.ts`, element-specific processing in the matching `src/features/editor/live-preview/*Decorations.ts` module, and styling in the matching `src/styles/markdown-*.css` capability file. Keep `liveMarkdownTransform.ts` and `src/styles/markdown.css` as public facades. Test with `tests/gfm-test-note.md`.
 - **Theme tokens**: `src/styles/theme.css` → `@theme` block (primary, text, border, surface, muted, bg).
 - **Platform-specific behavior**: Implement in `PlatformFS` interface, never branch on platform in components.
 - **Search**: Full-text search is owned solely by the shared Rust local-note store. UI code consumes ranked note IDs and must not build, persist, or maintain a second body index in JavaScript. Synchronous wikilink completion filters note IDs from `notesCache`.

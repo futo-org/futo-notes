@@ -42,11 +42,15 @@ describe('pre-merge JavaScript test routing', () => {
 
   it('runs the full suite for code changes and a focused check for docs-only changes', () => {
     const testJob = topLevelBlock(gitlabPipeline, /^test:$/m);
+    const docsFastPath = /if \[ "\$CI_TEST_SCOPE" = docs \]; then([\s\S]*?)\n\s*else/.exec(
+      testJob,
+    )?.[1];
 
     expect(testJob).toContain('node scripts/ci-test-scope.mjs');
     expect(testJob).toContain('node scripts/spec-gaps.mjs --check');
     expect(testJob).toContain('pnpm run test:full');
     expect(testJob).not.toContain('pnpm run test:minimal');
+    expect(docsFastPath).toContain('node scripts/check-agent-docs.mjs');
   });
 
   it('does not repeat P0 smoke coverage in the remaining Playwright suite', () => {

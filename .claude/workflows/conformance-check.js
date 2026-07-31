@@ -3,7 +3,7 @@ export const meta = {
   description:
     'Verify the note rules (filename/tag/image) match bit-for-bit across TS and Rust, then adversarially fuzz for new divergences.',
   whenToUse:
-    'Run on every change to packages/shared/{filename,tags,sync}.ts or crates/futo-notes-model. Proves the single-source rule port has not drifted.',
+    'Run on every change to packages/editor/src/{filename,tags,preview,images}.ts or crates/futo-notes-model. Proves the single-source rule port has not drifted.',
   phases: [
     { title: 'Verify', detail: 'fixtures fresh + TS + Rust conformance suites green' },
     { title: 'Fuzz', detail: 'adversarial inputs diffed Rust-vs-TS, one agent per landmine' },
@@ -22,16 +22,16 @@ const VERIFY_SCHEMA = {
   required: ['fixturesFresh', 'tsPass', 'rustPass', 'notes'],
   properties: {
     fixturesFresh: { type: 'boolean', description: 'generate.mjs --check exits 0' },
-    tsPass: { type: 'boolean', description: 'just test-shared passes' },
-    rustPass: { type: 'boolean', description: 'cargo test -p futo-notes-model passes' },
+    tsPass: { type: 'boolean', description: 'pnpm run test:editor:minimal passes' },
+    rustPass: { type: 'boolean', description: 'just test-rust passes' },
     notes: { type: 'string' },
   },
 };
 const verify = await agent(
   `From the repo root, run these three commands and report the result of each as a boolean:
    1. \`pnpm exec tsx tests/conformance/generate.mjs --check\`  (fixturesFresh = exit 0)
-   2. \`just test-shared\`  (tsPass = all tests pass)
-   3. \`cargo test -p futo-notes-model\`  (rustPass = conformance tests pass)
+   2. \`pnpm run test:editor:minimal\`  (tsPass = all tests pass)
+   3. \`just test-rust\`  (rustPass = conformance tests pass)
    Do NOT modify any files. Summarize failures verbatim in notes.`,
   { label: 'verify:conformance', phase: 'Verify', schema: VERIFY_SCHEMA },
 );
@@ -48,7 +48,7 @@ log('✓ deterministic conformance green; running adversarial fuzz');
 // ── Phase 2: adversarial fuzz (one agent per landmine) ───────────────────
 //
 // Each agent invents fresh inputs in its category, computes the TS reference
-// output (via tsx against packages/shared), computes the Rust output (via a
+// output (via tsx against packages/editor), computes the Rust output (via a
 // throwaway `cargo test`-style call into futo-notes-model), and reports any
 // divergence. Inputs that legitimately differ by representation
 // (extractHeaderTagBlock byte vs UTF-16 offset on NON-ASCII) must compare
@@ -107,8 +107,8 @@ const fuzz = await parallel(
       agent(
         `Adversarially fuzz the FUTO Notes rules for the "${m.key}" landmine: ${m.focus}.
        Invent ~15 fresh inputs (not already in tests/conformance/*.json). For each:
-         - Compute the TS reference output by importing from packages/shared/src
-           ({filename,tags,sync}.ts) and running it with \`pnpm exec tsx\`.
+         - Compute the TS reference output by importing from packages/editor/src
+           ({filename,tags,preview,images}.ts) and running it with \`pnpm exec tsx\`.
          - Compute the Rust output from crates/futo-notes-model (write a temporary
            #[test] or a tiny example that prints the result, run with cargo, then
            remove it — leave the tree clean).

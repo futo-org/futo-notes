@@ -36,7 +36,7 @@ Some source files aren't cited by basename (e.g. `searchEngine.ts`,
 | `src/lib/appState*`, `src/lib/appPreferences*`, `src/**/*Settings*` | settings, settings-visual |
 | `src/styles/**`, `*.css`, theme tokens | settings-visual (+ whatever surface the component belongs to) |
 | `crates/futo-notes-sync`, `src/lib/syncServiceE2ee*`, `src/lib/autoSync*` | sync |
-| `src/App.svelte`, startup/scan/`initialized` paths, `src/lib/notes.svelte.ts` | app |
+| `src/App.svelte`, startup/scan/`initialized` paths, `src/features/notes/notes.svelte.ts` | app |
 
 When a change is broad shared infra (`src/lib/rules.ts`, `packages/editor`,
 `crates/futo-notes-model|core`, `futo-notes-ffi`) it ships to all consumers —

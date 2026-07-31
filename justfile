@@ -473,6 +473,13 @@ check-drift:
 check-debt-ratchet:
   node scripts/debt-ratchet.mjs
 
+# Fail on a broken `just <recipe>`/`pnpm run <script>`/repo-path reference inside
+# an instruction surface (README/AGENTS.md/skill SKILL.md+references/workflows) —
+# agents follow these files literally, so a stale command or path sends them down
+# a dead end. See scripts/check-agent-docs.mjs for the escape hatch.
+check-agent-docs:
+  node scripts/check-agent-docs.mjs
+
 # Run the same focused architecture checks embedded in GitLab's mandatory test job.
 # package.json owns the membership because the pinned CI image does not include just.
 arch-gate:

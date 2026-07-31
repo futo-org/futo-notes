@@ -77,29 +77,23 @@ mkdir -p "$TEST_AGENT_DIR"/{tests,results,screenshots}
 
 - **Server/sync agent**: writes and runs ephemeral vitest files against the test helpers
 - **UI agent**: exercises the app via MCP bridge or agent-browser
-- **Search agent**: tests semantic search via API
+- **Search agent**: tests full-text search (Tantivy BM25, owned by the local `futo-notes-search`/`futo-notes-store` crates — there is no server-side search API)
 - **Fuzzing agent**: runs chaos/property-based scenarios
 
-#### Writing ephemeral server tests
+#### Writing ephemeral sync tests
 
-Server tests are Rust integration tests in `crates/futo-notes-server/tests/`. To add a new test scenario, write a Rust test file:
+The sync server is a separate repo (`~/Developer/futo-notes-server`) — there is no server crate in
+this repo to write Rust integration tests against. Sync-engine logic (conflicts, merges,
+tombstones, multi-device) lives in `crates/futo-notes-sync` and is tested there:
 
 ```bash
-# Run existing server tests
-cd "$WORKTREE_ROOT" && cargo test -p futo-notes-server -- --nocapture 2>&1 | tee "$TEST_AGENT_DIR/results/server-tests.txt"
+# Run existing sync-engine tests
+cd "$WORKTREE_ROOT" && cargo test -p futo-notes-sync -- --nocapture 2>&1 | tee "$TEST_AGENT_DIR/results/sync-tests.txt"
 ```
 
-**Existing test coverage** (in `crates/futo-notes-server/tests/`):
-
-| Test file | What it covers |
-|---|---|
-| `sync.rs` | Sync engine: conflicts, merges, tombstones, multi-device |
-| `e2e_two_client.rs` | Two-client end-to-end scenarios |
-| `golden_vaults.rs` | Deterministic golden-vault fixtures |
-| `routes.rs` | HTTP endpoint integration tests |
-| `auth.rs` | Authentication and authorization |
-| `proptest_sync.rs` | Property-based sync convergence |
-| `sync_10k.rs` | Large vault performance |
+For cross-client scenarios (two real app instances + an isolated server), extend
+`tests/cross-platform-sync.mjs` instead of writing a new ephemeral harness — see its `scenarios`
+array and `just test-cross-platform`.
 
 **For UI scenarios** — use Tauri MCP tools or agent-browser following `/verify`'s patterns:
 - Take before/after screenshots
@@ -107,12 +101,9 @@ cd "$WORKTREE_ROOT" && cargo test -p futo-notes-server -- --nocapture 2>&1 | tee
 - Use `webview_execute_js` to check internal app state
 - Use `read_logs` to catch console errors
 
-**For search scenarios** — use the server's search API:
-```bash
-# After syncing notes to the server, trigger indexing and query
-curl -sf -H "Authorization: Bearer $TOKEN" "http://localhost:$PORT/search/status"
-curl -sf -H "Authorization: Bearer $TOKEN" "http://localhost:$PORT/search?q=<query>"
-```
+**For search scenarios** — search is local and client-side, not a server API. Exercise it via
+`cargo test -p futo-notes-search`, or through the running app's search UI / the `search` MCP tool
+against notes synced into the vault under test.
 
 ### Step 5: Collect and compare
 
