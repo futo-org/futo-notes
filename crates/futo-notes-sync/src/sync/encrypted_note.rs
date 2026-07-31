@@ -21,11 +21,14 @@ pub(super) async fn decrypt(
         kind: FailureKind::Download,
         status_code: None,
     })?;
-    let ciphertext = http.blob(blob_key).await.map_err(|error| SyncFailure {
-        filename: String::new(),
-        kind: FailureKind::Download,
-        status_code: error.status,
-    })?;
+    let ciphertext = http
+        .blob(blob_key, object.size_bytes.unwrap_or(0))
+        .await
+        .map_err(|error| SyncFailure {
+            filename: String::new(),
+            kind: FailureKind::Download,
+            status_code: error.status,
+        })?;
     let plaintext = e2ee::aes_gcm_decrypt(key, &ciphertext).map_err(|_| SyncFailure {
         filename: String::new(),
         kind: FailureKind::Decrypt,

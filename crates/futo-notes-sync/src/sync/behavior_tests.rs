@@ -74,6 +74,7 @@ fn object(id: &str, change_seq: u64, deleted: bool) -> Object {
         change_seq,
         deleted,
         blob_key: (!deleted).then(|| format!("blob-{id}")),
+        size_bytes: None,
         updated_at: "2026-06-05T12:34:56.789Z".into(),
     }
 }
