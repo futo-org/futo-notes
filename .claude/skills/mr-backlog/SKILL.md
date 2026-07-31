@@ -41,17 +41,28 @@ Skip drafts unless asked. Then for each MR pull its **non-system notes** and its
 Above ~10 MRs, bucket everything first, then work in waves of about five,
 re-running this step between waves — the open set drifts while you work.
 
+Write the buckets to `test-screenshots/mr-backlog/run.md` (gitignored) as a
+one-line-per-MR ledger: iid, author, verdict, what changed, merged/open. Update
+it as each MR resolves. A ten-MR pass will not fit in one context window, and
+this is what lets a fresh session pick the run up without re-reviewing anything
+— see *Context discipline*.
+
 ## Step 2 — Route by author
 
 Check `author.username` before touching anything.
 
-- **Someone else's MR** → do NOT push, rebase, force-push, or retarget their
-  branch or MR. Leave a review comment instead, written plainly (see *Comment
-  style*).
+The split is **mechanical work vs. authored work**, not "hands off":
+
+- **Someone else's MR** → rebasing, resolving conflicts, regenerating generated
+  files, and retargeting are all fine, including `--force-with-lease`. What you
+  do NOT do is write their fix: findings go in a review comment, plainly (see
+  *Comment style*). Say in the comment that you rebased and what you resolved.
 - **The requesting user's own MR** → fix it directly on the branch.
 
-This distinction is load-bearing. Silently rewriting a colleague's branch is
-worse than a slow review.
+Unblocking a colleague's MR is a favor; silently rewriting the code they authored
+is not. Keep the conflict resolution faithful to their intent — if resolving one
+requires a judgment call about their behavior, stop and ask in the comment
+instead of picking for them.
 
 If an MR gains new commits after your review starts, re-diff against the new
 head before commenting or merging. A review of a stale head is worse than none —
@@ -65,7 +76,18 @@ than delegating.
 Substantive MRs: one review subagent each, in parallel, **read-only**. Give each
 the MR's own claims and tell it to be skeptical of them. Demand: verdict, defects
 with `file:line`, whether tests genuinely pin the behavior, and real command
-output. Then **verify the load-bearing claims yourself** — subagents are
+output.
+
+**Bound the report.** A subagent reading a 50-file diff costs you nothing; its
+3,000-word write-up costs you plenty, and that is what actually exhausts the
+orchestrator. Ask for: verdict line, then at most ~8 defects as one to three
+sentences each with `file:line`, then the commands run with their result lines.
+Tell it explicitly not to reproduce diffs, file contents, or its reasoning
+narrative — you will ask follow-ups if you need them, and a named agent can be
+resumed with `SendMessage` at full context later. That resumability is the point:
+the detail stays available in the subagent without living in your window.
+
+Then **verify the load-bearing claims yourself** — subagents are
 confidently wrong often enough that a claim you are about to act on (or repeat to
 the user) needs your own `git show` / test run behind it. Your own reproduced
 evidence wins any disagreement; one you cannot settle with a direct command goes
@@ -216,6 +238,30 @@ POSTs to the live `futo-notes-alerts` channel instead. If a message does go out,
 say so immediately and delete it
 (`curl -X DELETE -u "$ZULIP_TRIAGE_BOT_EMAIL:$ZULIP_TRIAGE_BOT_KEY" https://zulip.futo.org/api/v1/messages/<id>`).
 Assume other suites can have side effects too.
+
+## Context discipline
+
+A ten-MR pass does not fit in one context window. Delegation is the lever, but
+only if the *returns* stay small — the orchestrator's job is to hold verdicts and
+merge order, not diffs. Four rules, in order of how much they save:
+
+1. **The ledger is the memory, not your context.** Update
+   `test-screenshots/mr-backlog/run.md` the moment an MR's verdict is known and
+   again when it merges. If the session dies, the next one reads that file and
+   resumes at the next unresolved MR. Never keep run state only in your head.
+2. **Bounded subagent reports** (Step 3). This is the single biggest consumer —
+   an unbounded review write-up can cost more than reading the diff would have.
+3. **Never poll in a loop that prints every tick.** A `until …; do sleep 60; done`
+   that echoes each check dumps dozens of near-identical lines into the
+   transcript for no information. Print only on transition, or run it in the
+   background and read the tail once.
+4. **Verify narrowly.** Confirming a claim means one targeted
+   `git show origin/main:<file> | grep -n <thing>`, not re-reading the diff the
+   subagent already read.
+
+If you are running out of room mid-pass anyway: finish the MR in hand, write the
+ledger, and tell the user which MRs remain rather than starting one you cannot
+finish.
 
 ## The gap trap
 
