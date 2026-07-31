@@ -995,9 +995,11 @@ test:cross-platform-sync:android:
   timeout: 60m
   rules:
     - if: $CI_COMMIT_TAG
-    # build:android-native's gate is a superset of this list (it references the
-    # same anchor for the harness paths), so the job producing the APK always
-    # runs when this one does. Widening either list means widening both.
+    # build:android-native's changes: gate lists every path below (plus its own
+    # extras), so the job producing the APK can never be absent when this one
+    # runs. Widening this list means widening that one — and neither may gain
+    # `.gitlab-ci.yml` or docs paths, which that job deliberately excludes
+    # (asserted in scripts/premerge-test-parity.test.mjs).
     - if: $CI_MERGE_REQUEST_IID
       changes: &android-sync-leg-changes
         - apps/android/**/*
@@ -1008,7 +1010,6 @@ test:cross-platform-sync:android:
         - tests/lib/**/*
         - scripts/ci-android-emulator.sh
         - scripts/ci-android-sync-leg.sh
-        - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *android-sync-leg-changes
 
@@ -1436,7 +1437,6 @@ build:android-native:
         - scripts/ci-android-sync-leg.sh
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
-        - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-android-changes
       variables:

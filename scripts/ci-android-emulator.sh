@@ -94,7 +94,26 @@ ci_emulator_start() {
     echo "ERROR: Android emulator did not finish booting within 6 minutes" >&2
     return 1
   fi
-  echo "Android emulator $ANDROID_SERIAL booted ($userdata_mode)"
+
+  # sys.boot_completed goes to 1 BEFORE servicemanager has registered every
+  # system service, so an install issued here dies with
+  # "cmd: Can't find service: package" (job 209306). Wait for the service the
+  # caller actually needs rather than sleeping a guessed amount (M15).
+  local package_service_ready=false
+  for attempt in $(seq 1 90); do
+    if [[ "$("$ADB" -s "$ANDROID_SERIAL" shell service check package 2>/dev/null | tr -d '\r')" == *found* ]] \
+      && "$ADB" -s "$ANDROID_SERIAL" shell pm list packages >/dev/null 2>&1; then
+      package_service_ready=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [[ "$package_service_ready" != true ]]; then
+    echo "ERROR: the emulator's package manager never came up (3 minutes after boot)" >&2
+    return 1
+  fi
+  echo "Android emulator $ANDROID_SERIAL booted ($userdata_mode), package manager ready"
 }
 
 # Print the emulator log so a red job carries its own diagnosis.
