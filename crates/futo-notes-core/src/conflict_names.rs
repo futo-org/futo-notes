@@ -553,13 +553,19 @@ mod property_tests {
         /// returns its own input. A park that renames a file onto itself lets the
         /// incoming side overwrite the local content.
         ///
-        /// Not reachable today: `sanitize_title` trims leading spaces so the note
-        /// engine cannot create such a name, `classify_incoming_sync_path` heals
-        /// it on the way in, and every call site guards the result anyway —
-        /// `conflict_filename` receives the vault listing as `existing` (see the
-        /// property above) and `park_local`/`park_divergent_claim` fall back to
-        /// the dated name when the collision name already exists. The invariant
-        /// stays recorded because those guards live in the callers, not here.
+        /// Not reachable today, but NOT because the callers all guard it:
+        /// `sanitize_title` trims leading spaces so the note engine cannot create
+        /// such a name, and `classify_incoming_sync_path` heals it on the way in.
+        /// Only two call sites guard the result — `park_local`
+        /// (futo-notes-sync `sync/vault.rs`) and `park_divergent_claim`
+        /// (`sync/tombstones.rs`) fall back to the dated name when the collision
+        /// name already exists, and `conflict_filename` there receives the vault
+        /// listing as `existing` (see the property above). The divert arm in
+        /// `sync/collision_resolution.rs` returns
+        /// `collision_conflict_filename(requested, remote_object_id)` with NO
+        /// existence check, so a no-op name there would write the remote content
+        /// straight over the local file it was supposed to divert around. The
+        /// invariant belongs here, in the naming rule, for exactly that reason.
         #[test]
         #[ignore = "known gap: an empty stem makes re-parking with the same token a no-op rename"]
         fn reparking_with_the_same_token_still_changes_the_name(
