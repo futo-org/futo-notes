@@ -16,6 +16,7 @@
  *   node tests/cross-platform-sync.mjs
  *   node tests/cross-platform-sync.mjs --scenario "five notes roundtrip"
  *   node tests/cross-platform-sync.mjs --no-android    (desktop mesh only)
+ *   node tests/cross-platform-sync.mjs --android-only  (Android leg only; CI job)
  *
  * Requires:
  *   - Debug Tauri binary:  cd apps/tauri && cargo tauri build --debug --no-bundle
@@ -55,8 +56,17 @@ const { values: args } = parseArgs({
     // Leave the Android leg out even when a device is reachable (fast local
     // desktop-only runs). No device at all skips it on its own, loudly.
     'no-android': { type: 'boolean', default: false },
+    // Run ONLY the Android leg, and REQUIRE a usable device: the desktop mesh
+    // is already covered by test:cross-platform-sync, so the dedicated
+    // emulator job would be pointless work if it silently skipped (M11).
+    'android-only': { type: 'boolean', default: false },
   },
 });
+
+if (args['android-only'] && args['no-android']) {
+  console.error('--android-only and --no-android contradict each other');
+  process.exit(1);
+}
 
 // ── Test harness ────────────────────────────────────────────────
 
@@ -2196,10 +2206,15 @@ async function runScenarios(list, clientA, clientB) {
 /**
  * Attach the native Android leg when a usable device is reachable.
  *
- * No device is a legitimate state (CI runners have no emulator), so it skips —
- * but never quietly: the banner says the mesh ran desktop-only and every skipped
- * scenario carries its reason into the report. A device that IS available and
- * then fails to start is a red failure, not a skip (AGENTS.md M11).
+ * On a developer machine with no device attached, no device is a legitimate
+ * state, so it skips — but never quietly: the banner says the mesh ran
+ * desktop-only and every skipped scenario carries its reason into the report.
+ * A device that IS available and then fails to start is a red failure, not a
+ * skip (AGENTS.md M11).
+ *
+ * Under `--android-only` the device is the entire point of the run (the
+ * dedicated CI job boots an emulator for it), so an unusable device fails red
+ * instead of skipping.
  */
 async function runAndroidLeg(androidScenarios, desktopClient) {
   if (androidScenarios.length === 0) return;
@@ -2207,6 +2222,20 @@ async function runAndroidLeg(androidScenarios, desktopClient) {
   const device = args['no-android']
     ? { available: false, reason: '--no-android was passed' }
     : findAndroidLegDevice();
+
+  if (!device.available && args['android-only']) {
+    console.log('');
+    console.log(`  ✗ --android-only requires a usable device: ${device.reason}`);
+    for (const scenario of androidScenarios) {
+      results.push({
+        name: scenario.name,
+        pass: false,
+        ms: 0,
+        error: `no usable Android device: ${device.reason}`,
+      });
+    }
+    return;
+  }
 
   if (!device.available) {
     console.log('');
@@ -2282,6 +2311,11 @@ async function main() {
   const toRun = [];
   const androidLegScenarios = [];
   for (const scenario of selected) {
+    if (args['android-only'] && !scenario.matrices.includes(ANDROID_MATRIX)) {
+      // Not "skipped" — out of scope for this run, and reporting 31 skip rows
+      // would bury the 3 that matter. The desktop mesh has its own job.
+      continue;
+    }
     if (scenario.matrices.includes(ANDROID_MATRIX)) {
       // Availability is decided later, after the desktop mesh has run, so a
       // missing or broken device can never delay or fail the desktop suite.
@@ -2321,6 +2355,9 @@ async function main() {
   console.log('');
 
   await runScenarios(toRun, clientA, clientB);
+  // The Android leg pairs the phone with client A; client B is started either
+  // way because launching the pair is the matrix launcher's contract, and an
+  // idle second instance is cheaper than a second launcher shape.
   await runAndroidLeg(androidLegScenarios, clientA);
 
   // ── Report ────────────────────────────────────────────────────
@@ -2345,7 +2382,7 @@ async function main() {
     JSON.stringify(
       {
         timestamp: new Date().toISOString(),
-        matrix: args.matrix,
+        matrix: args['android-only'] ? ANDROID_MATRIX : args.matrix,
         timings: { ...timings, totalMs },
         results,
       },

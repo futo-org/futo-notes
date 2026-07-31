@@ -495,7 +495,9 @@ behavior.
 - [ ] MR pipelines auto-run every suite whose `changes:` paths the MR touches: hard gates
       (lint + `lint:platform` + `test:full` + Rust conformance + dep-guard) always; E2E +
       markdown-spec on web/editor changes (blocking); cross-platform sync on sync-critical
-      paths (blocking); macOS jobs on Rust/desktop changes (`allow_failure` — single runner).
+      paths (blocking); its native-Android leg on android/FFI/harness changes, on a real
+      emulator booted in the job (blocking); macOS jobs on Rust/desktop changes
+      (`allow_failure` — single runner).
       Only the Windows chain (protected secrets) and image publish stay manual on MRs.
       Everything is MANDATORY on tags — still run locally what your change risks (M13)
 - [ ] Release flow itself: use `/release` (tests → MR → changelog → tag → pipeline watch → Zulip)
