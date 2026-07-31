@@ -82,6 +82,19 @@ function screenBoundsOf(tree) {
   };
 }
 
+// AXe has emitted `custom_actions` entries both as plain strings and as objects
+// (`{ name: 'Delete' }`). Normalize to names so dedup compares like with like
+// and a rendered line never says `[object Object]`.
+function actionName(action) {
+  if (action == null) return '';
+  if (typeof action === 'string') return action;
+  return String(action.name ?? action.label ?? action.title ?? JSON.stringify(action));
+}
+
+function actionNames(node) {
+  return (node.custom_actions ?? []).map(actionName);
+}
+
 function sameActions(actions, other) {
   return actions.length === other.length && actions.every((action, i) => action === other[i]);
 }
@@ -96,8 +109,8 @@ function isOnScreen(frame, bounds) {
 /**
  * Flatten the nested tree to the nodes worth looking at. A node earns a row
  * when it carries an identifier, a label, a value, or a custom action;
- * `options.includeAll` keeps the identity-less ones too. Discarded nodes are
- * COUNTED either way: "not in the summary" must not be ambiguous between
+ * `options.includeAll` keeps the identity-less ones too. Whatever is dropped is
+ * counted in `droppedCount`: "not in the summary" must not be ambiguous between
  * "absent from the tree" and "present but unlabelled" — unlabelled is exactly
  * how the nav controls looked to `idb`, and a regression back to that shape
  * would otherwise read as "missing" again.
@@ -134,7 +147,7 @@ export function summarizeAccessibilityTree(tree, options = {}) {
 
   const visit = (node, depth, branch, parentActions, parentOwnerId) => {
     if (!node) return;
-    const actions = node.custom_actions ?? [];
+    const actions = actionNames(node);
     // A node that carries an action set its parent did not starts a new owning
     // subtree — that is how two adjacent note rows with identical
     // ['Delete', 'Move'] sets stay distinguishable after flattening.
@@ -146,18 +159,23 @@ export function summarizeAccessibilityTree(tree, options = {}) {
     for (const child of node.children ?? []) visit(child, depth + 1, branch, actions, ownerId);
   };
 
+  // Branch ids run CONTINUOUSLY across roots. Restarting per root made every
+  // window's first child `b1`, so a branch id could not tell two windows apart —
+  // the one thing it exists for. Root rows themselves stay `b0`.
+  let branch = 0;
+
   for (const root of roots) {
     if (!root) continue;
-    pushRow(root, 0, 0, root.custom_actions ?? [], null);
-    // Number the root's direct children so a row can be traced back to a
+    const rootActions = actionNames(root);
+    pushRow(root, 0, 0, rootActions, null);
+    // Number the roots' direct children so a row can be traced back to a
     // structural branch. This is a reading aid, NOT a way to tell the covered
     // screen from a presented sheet: in a real Settings-sheet dump every row
-    // including the sheet's landed in branch 1. Confirm which screen is
+    // including the sheet's landed in one branch. Confirm which screen is
     // frontmost with a label predicate, never with position or branch.
-    let branch = 1;
     for (const child of root.children ?? []) {
-      visit(child, 1, branch, root.custom_actions ?? [], null);
       branch += 1;
+      visit(child, 1, branch, rootActions, null);
     }
   }
 
@@ -246,24 +264,47 @@ export function formatSummaryLines({ screenBounds, screenBoundsSource, droppedCo
   return lines;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const options = { udid: process.env.SIM, filters: {} };
+
+  // Trailing `--id` with no value used to set `filters.id = undefined`, which
+  // silently disabled the filter and dumped the whole screen. Refuse instead.
+  // `--flag=value` is supported so a value starting with `-` stays passable.
+  let pendingValue = null;
+  const valueFor = (flag, index) => {
+    if (pendingValue !== null) return pendingValue;
+    const next = argv[index + 1];
+    if (next === undefined || next.startsWith('-')) {
+      throw new Error(`${flag} needs a value`);
+    }
+    return next;
+  };
+
   for (let i = 0; i < argv.length; i++) {
-    switch (argv[i]) {
+    const separator = argv[i].indexOf('=');
+    const flag = separator > 0 ? argv[i].slice(0, separator) : argv[i];
+    pendingValue = separator > 0 ? argv[i].slice(separator + 1) : null;
+    const consumeValue = () => {
+      const value = valueFor(flag, i);
+      if (pendingValue === null) i += 1;
+      return value;
+    };
+
+    switch (flag) {
       case '--udid':
-        options.udid = argv[++i];
+        options.udid = consumeValue();
         break;
       case '--file':
-        options.file = argv[++i];
+        options.file = consumeValue();
         break;
       case '--id':
-        options.filters.id = argv[++i];
+        options.filters.id = consumeValue();
         break;
       case '--label-contains':
-        options.filters.labelContains = argv[++i];
+        options.filters.labelContains = consumeValue();
         break;
       case '--type':
-        options.filters.type = argv[++i];
+        options.filters.type = consumeValue();
         break;
       case '--actions-only':
         options.filters.actionsOnly = true;

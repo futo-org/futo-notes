@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { filterRows, formatSummaryLines, summarizeAccessibilityTree } from './describe-ios-ui.mjs';
+import {
+  filterRows,
+  formatSummaryLines,
+  parseArgs,
+  summarizeAccessibilityTree,
+} from './describe-ios-ui.mjs';
 
 // Field names, frames, and identifiers below are taken from real `axe
 // describe-ui` output on an iPhone 17 Pro simulator (iOS 26.5, AXe 1.8.0).
@@ -296,6 +301,64 @@ describe('dropped nodes', () => {
 
     expect(unnamed).toHaveLength(1);
     expect(unnamed[0].type).toBe('Group');
+  });
+});
+
+describe('parseArgs', () => {
+  it('rejects a value-taking flag with no value instead of ignoring the filter', () => {
+    // `--id` with a missing value used to set `filters.id = undefined`, which
+    // silently disabled the filter and dumped the whole screen.
+    expect(() => parseArgs(['--id'])).toThrow(/--id needs a value/);
+    expect(() => parseArgs(['--id', '--json'])).toThrow(/--id needs a value/);
+    expect(() => parseArgs(['--label-contains'])).toThrow(/--label-contains needs a value/);
+  });
+
+  it('accepts a value that happens to start with a dash when quoted after =', () => {
+    expect(parseArgs(['--label-contains=-marker-']).filters.labelContains).toBe('-marker-');
+  });
+
+  it('collects the ordinary flags', () => {
+    const options = parseArgs(['--id', 'bold', '--type', 'Button', '--all', '--json']);
+
+    expect(options.filters).toEqual({ id: 'bold', type: 'Button' });
+    expect(options.includeAll).toBe(true);
+    expect(options.json).toBe(true);
+  });
+});
+
+describe('robustness against real dump shapes', () => {
+  it('gives branches distinct ids across roots', () => {
+    const [application] = noteListTree();
+    const { rows } = summarizeAccessibilityTree([
+      {
+        type: 'Other',
+        AXLabel: 'Keyboard window',
+        frame: { x: 0, y: 560, width: 402, height: 314 },
+        children: [{ type: 'Key', AXLabel: 'q', frame: { x: 4, y: 600, width: 34, height: 44 } }],
+      },
+      application,
+    ]);
+
+    const keyBranch = rows.find((row) => row.label === 'q').branch;
+    const navBranch = rows.find((row) => row.id === 'nav-settings').branch;
+
+    // Restarting the count per root made every first child `b1`, so a branch
+    // id could not tell two windows apart.
+    expect(keyBranch).not.toBe(navBranch);
+  });
+
+  it('dedupes object-shaped custom actions instead of rendering [object Object]', () => {
+    const [root] = noteListTree();
+    // AXe has emitted action entries as objects; the row and its chevron must
+    // still be recognised as one owning subtree.
+    root.children[1].custom_actions = [{ name: 'Delete' }, { name: 'Move' }];
+    root.children[1].children[0].custom_actions = [{ name: 'Delete' }, { name: 'Move' }];
+
+    const { rows } = summarizeAccessibilityTree([root]);
+    const actionRows = filterRows(rows, { actionsOnly: true });
+
+    expect(actionRows).toHaveLength(1);
+    expect(formatSummaryLines({ rows: actionRows }).join('\n')).toContain('actions=[Delete, Move]');
   });
 });
 
