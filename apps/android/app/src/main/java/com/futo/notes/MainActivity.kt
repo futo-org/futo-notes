@@ -35,13 +35,19 @@ import com.futo.notes.ui.EditorHost
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.PendingStorageMigration
 import com.futo.notes.storage.StorageActivationOutcome
+import com.futo.notes.storage.StorageAdoptionSummary
 import com.futo.notes.storage.StorageMigrationJournal
 import com.futo.notes.storage.StorageMigrationPhase
 import com.futo.notes.storage.StorageMode
 import com.futo.notes.storage.StorageStartupRecovery
+import com.futo.notes.storage.StorageSwitchPlan
+import com.futo.notes.storage.SYNC_CONNECTED_STORAGE_REFUSAL
 import com.futo.notes.storage.activateStagedStorageMigration
+import com.futo.notes.storage.describeStorageAdoption
 import com.futo.notes.storage.recoverStorageStartup
+import com.futo.notes.storage.storageSwitchPlan
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
+import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.NoteEditorScreen
 import com.futo.notes.ui.NoteListScreen
 import com.futo.notes.ui.SearchScreen
@@ -72,6 +78,12 @@ internal fun vaultSurfaceState(
     showMovingOverlay = hasStore && storageSwitching && !needsRegrant,
 )
 
+/** A storage switch waiting on the user's confirmation to open an existing folder. */
+private data class PendingStorageAdoption(
+    val mode: StorageMode,
+    val plan: StorageSwitchPlan.OpenExisting,
+)
+
 class MainActivity : ComponentActivity() {
     // Hoisted so onStart/onStop can pause/resume the SSE live stream — the
     // stream shouldn't stay open while backgrounded; re-foregrounding gets a
@@ -100,6 +112,7 @@ class MainActivity : ComponentActivity() {
     private val storageSwitching = mutableStateOf(false)
     private val storageResolving = mutableStateOf(true)
     private val storageRecoveryError = mutableStateOf<String?>(null)
+    private val pendingStorageAdoption = mutableStateOf<PendingStorageAdoption?>(null)
     private val themeMode = mutableStateOf(ThemeMode.AUTO)
 
     // The All-files-access settings screen returns no result code, so we
@@ -395,6 +408,30 @@ class MainActivity : ComponentActivity() {
                 onCancel = { showStoragePicker.value = false },
             )
         }
+
+        // The target folder already has notes, so the switch opens it instead of
+        // copying. Both folders are named with what they hold so the user can
+        // tell a current vault from a leftover one before committing.
+        pendingStorageAdoption.value?.let { adoption ->
+            ConfirmDialog(
+                title = "Open the notes already there?",
+                body = describeStorageAdoption(
+                    StorageAdoptionSummary(
+                        destinationNotes = adoption.plan.notes,
+                        destinationLastModifiedMs = adoption.plan.lastModifiedMs,
+                        currentPath = notesRoot.path,
+                        currentNotes = store.value?.notes?.size ?: 0,
+                        nowMs = System.currentTimeMillis(),
+                    ),
+                ),
+                confirmLabel = "Open that folder",
+                onConfirm = {
+                    pendingStorageAdoption.value = null
+                    adoptExistingStorage(adoption)
+                },
+                onDismiss = { pendingStorageAdoption.value = null },
+            )
+        }
     }
 
     /**
@@ -470,8 +507,87 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Device storage requires Android 11 or newer.", Toast.LENGTH_LONG).show()
             return
         }
-        if (mode == StorageMode.DEVICE) requestDeviceAccess { performSwitch(StorageMode.DEVICE) }
-        else performSwitch(mode)
+        if (mode == StorageMode.DEVICE) requestDeviceAccess { planStorageChange(StorageMode.DEVICE) }
+        else planStorageChange(mode)
+    }
+
+    /**
+     * Copying the vault and re-pointing at an existing one are different
+     * operations, so what is already in the target decides which one runs.
+     */
+    private fun planStorageChange(newMode: StorageMode) {
+        if (storageSwitching.value) return
+        val current = store.value ?: return
+        val to = NotesStorage.rootFor(this, newMode, BuildConfig.DEBUG)
+        lifecycleScope.launch {
+            when (val plan = storageSwitchPlan(current.inspectVaultDestination(to), sync.connected)) {
+                StorageSwitchPlan.Migrate -> performSwitch(newMode)
+                is StorageSwitchPlan.OpenExisting ->
+                    pendingStorageAdoption.value = PendingStorageAdoption(newMode, plan)
+                is StorageSwitchPlan.Refuse ->
+                    Toast.makeText(this@MainActivity, plan.message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /**
+     * Point the app at the notes already in [mode]'s folder. Nothing is copied,
+     * merged, or deleted, so the previous folder keeps every note it has — the
+     * user has already been shown both sides. Relaunching is what rebuilds every
+     * vault-derived object against the new root (M4); the drafts are flushed
+     * first because `exit(0)` would otherwise drop a retained one.
+     */
+    private fun adoptExistingStorage(adoption: PendingStorageAdoption) {
+        val current = store.value ?: return
+        // No `storageSwitching` guard: the confirmation has already been consumed
+        // by the time this runs, so bailing out here would swallow the user's
+        // answer with nothing on screen to explain it. The vault gate below is the
+        // real serialization, and it refuses out loud.
+        storageSwitching.value = true
+        if (!current.tryBeginStorageMigration()) {
+            storageSwitching.value = false
+            Toast.makeText(
+                this,
+                "A note or image is still being saved. Try changing storage again.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        lifecycleScope.launch {
+            fun keepCurrentFolder(reason: String) {
+                current.resumeAfterStorageMigrationFailure()
+                storageSwitching.value = false
+                Toast.makeText(this@MainActivity, reason, Toast.LENGTH_LONG).show()
+            }
+            // Sync could have connected while the confirmation was up, and opening
+            // a folder adopts whatever checkpoint that folder carries.
+            if (sync.connected) {
+                keepCurrentFolder(SYNC_CONNECTED_STORAGE_REFUSAL)
+                return@launch
+            }
+            if (!current.flushDraftsForVaultHandoff()) {
+                keepCurrentFolder("Your notes could not be saved first, so the folder was not changed.")
+                return@launch
+            }
+            // Retire any migration record BEFORE re-pointing the preference. The
+            // journal outranks the preference at startup, and a completed Device
+            // migration deliberately leaves an ACTIVATED record on disk while its
+            // retained source awaits cleanup — so a surviving record would name
+            // the old destination as the verified root and silently revert this
+            // choice on the very next launch. Nothing is lost by clearing it:
+            // adopting a different folder is what makes that pending cleanup moot.
+            val retired = withContext(Dispatchers.IO) { storageMigrationJournal.clear() }
+            if (retired.isFailure) {
+                keepCurrentFolder("The previous move could not be closed out, so the folder was not changed.")
+                return@launch
+            }
+            // commit() — restartApp() kills the process before an async apply()
+            // would flush (see performSwitch).
+            withContext(Dispatchers.IO) {
+                prefs.edit().putString(Prefs.STORAGE_MODE, adoption.mode.name).commit()
+            }
+            restartApp()
+        }
     }
 
     private fun performSwitch(newMode: StorageMode) {

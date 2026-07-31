@@ -35,6 +35,89 @@ pub enum VaultMigrationFinalization {
     DestinationChanged,
 }
 
+/// What a candidate notes folder already holds, so the shell can choose between
+/// migrating into it and opening it as-is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VaultDestinationState {
+    /// Absent, or present with no entries — [`stage`] will accept a copy.
+    Empty,
+    /// Holds entries already. Copying into it is refused, so it is opened instead.
+    Occupied,
+    /// Cannot host a vault: not a directory, unreadable, or nested with the
+    /// current root.
+    Unusable,
+}
+
+/// [`VaultDestinationState`] plus what a user needs to tell two folders apart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultDestinationInspection {
+    pub state: VaultDestinationState,
+    /// Notes the folder holds — 0 for [`VaultDestinationState::Empty`], and for
+    /// an occupied folder that holds only non-note files.
+    pub notes: u32,
+    /// Newest note mtime in milliseconds since the epoch, 0 when there is none.
+    pub last_modified_ms: u64,
+}
+
+pub(super) fn inspect(source: &Path, destination: &Path) -> VaultDestinationInspection {
+    let unusable = VaultDestinationInspection {
+        state: VaultDestinationState::Unusable,
+        notes: 0,
+        last_modified_ms: 0,
+    };
+    let Ok(destination) = absolute_path(destination) else {
+        return unusable;
+    };
+    // Canonicalizing the source only matters for the containment check, and an
+    // absent source cannot contain anything.
+    if let Ok(source) = fs::canonicalize(source) {
+        if destination.starts_with(&source) || source.starts_with(&destination) {
+            return unusable;
+        }
+    }
+    match fs::metadata(&destination) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return VaultDestinationInspection {
+                state: VaultDestinationState::Empty,
+                notes: 0,
+                last_modified_ms: 0,
+            };
+        }
+        Err(_) => return unusable,
+        Ok(metadata) if !metadata.is_dir() => return unusable,
+        Ok(_) => {}
+    }
+    let Ok(mut entries) = fs::read_dir(&destination) else {
+        return unusable;
+    };
+    if entries.next().is_none() {
+        return VaultDestinationInspection {
+            state: VaultDestinationState::Empty,
+            notes: 0,
+            last_modified_ms: 0,
+        };
+    }
+    let notes = crate::vault::note_paths(&destination);
+    VaultDestinationInspection {
+        state: VaultDestinationState::Occupied,
+        notes: notes.len().try_into().unwrap_or(u32::MAX),
+        last_modified_ms: notes
+            .iter()
+            .filter_map(|(_, path)| newest_modified_ms(path))
+            .max()
+            .unwrap_or(0),
+    }
+}
+
+fn newest_modified_ms(path: &Path) -> Option<u64> {
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|elapsed| elapsed.as_millis().try_into().unwrap_or(u64::MAX))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ManifestEntry {
     is_directory: bool,
@@ -678,6 +761,85 @@ mod tests {
         assert!(
             synced.iter().any(|path| path == &root.0),
             "matching destination existing ancestor was not re-synced"
+        );
+    }
+
+    // ── destination inspection: migrate into empty, open occupied ──
+
+    #[test]
+    fn inspect_reports_an_absent_or_entryless_destination_as_empty() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        fs::create_dir_all(&source).unwrap();
+
+        let absent = inspect(&source, &root.0.join("absent"));
+        assert_eq!(absent.state, VaultDestinationState::Empty);
+        assert_eq!(absent.notes, 0);
+
+        let entryless = root.0.join("entryless");
+        fs::create_dir_all(&entryless).unwrap();
+        assert_eq!(
+            inspect(&source, &entryless).state,
+            VaultDestinationState::Empty
+        );
+    }
+
+    #[test]
+    fn inspect_counts_the_notes_an_occupied_destination_already_holds() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        let destination = root.0.join("destination");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(destination.join("Folder")).unwrap();
+        fs::write(destination.join("Kept.md"), "body").unwrap();
+        fs::write(destination.join("Folder/Nested.md"), "body").unwrap();
+
+        let inspection = inspect(&source, &destination);
+
+        assert_eq!(inspection.state, VaultDestinationState::Occupied);
+        assert_eq!(inspection.notes, 2);
+        assert!(
+            inspection.last_modified_ms > 0,
+            "an occupied destination should report when its notes last changed"
+        );
+    }
+
+    /// A folder holding only non-note files is still occupied — `stage` refuses
+    /// any non-empty destination — so it is opened, and honestly reports 0 notes.
+    #[test]
+    fn inspect_reports_a_destination_holding_no_notes_as_occupied_with_no_notes() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        let destination = root.0.join("destination");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(destination.join(".txt-migration-done"), "1").unwrap();
+
+        let inspection = inspect(&source, &destination);
+
+        assert_eq!(inspection.state, VaultDestinationState::Occupied);
+        assert_eq!(inspection.notes, 0);
+    }
+
+    #[test]
+    fn inspect_rejects_a_file_or_a_destination_nested_with_the_source() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        fs::create_dir_all(&source).unwrap();
+        let file = root.0.join("not-a-directory");
+        fs::write(&file, "body").unwrap();
+
+        assert_eq!(
+            inspect(&source, &file).state,
+            VaultDestinationState::Unusable
+        );
+        assert_eq!(
+            inspect(&source, &source.join("inside")).state,
+            VaultDestinationState::Unusable
+        );
+        assert_eq!(
+            inspect(&source, source.parent().unwrap()).state,
+            VaultDestinationState::Unusable
         );
     }
 

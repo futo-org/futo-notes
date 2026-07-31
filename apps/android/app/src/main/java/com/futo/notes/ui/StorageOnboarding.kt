@@ -123,10 +123,13 @@ fun StorageOnboarding(
             Spacer(Modifier.height(28.dp))
             Button(
                 onClick = {
+                    // Confirm what is actually selected: hardcoding a mode here
+                    // would migrate the user's notes somewhere they did not pick
+                    // the moment `selected` can hold anything else.
                     if (selected == StorageMode.DEVICE && deviceModeSupported) {
                         showRationale = true
                     } else {
-                        onConfirm(StorageMode.APP)
+                        onConfirm(selected)
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = c.textOnInk),
