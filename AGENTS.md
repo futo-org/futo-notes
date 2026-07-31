@@ -11,7 +11,8 @@ protect user data or shipped behavior; never weaken one to pass a test, build, o
 
 `docs/architecture/codebase-organization.md` is the canonical standard for code ownership, placement,
 naming, comments, and test placement. Read it — and the nested `AGENTS.md` for the layer you touch —
-before planning or editing code, and name the narrowest owner. Re-read it only when your context was
+before planning or editing code, tests, configuration, scripts, build files, CI files, or
+architecture docs (everything but prose docs), and name the narrowest owner. Re-read it only when your context was
 summarized/replaced or you're replanning from scratch. Where it says `spec/`, this repo means
 `docs/spec/`. Priority when guidance conflicts: system/user instructions → CRITICAL rules here →
 `docs/spec/` + nearest nested `AGENTS.md` → the standard → existing patterns.
@@ -35,6 +36,8 @@ On-phone builds use the native shells in `apps/ios` (SwiftUI) and `apps/android`
 shared Rust core (`futo-notes-ffi`) with an embedded web editor — there is no Tauri mobile shell.
 `just ios-native` (simulator), `just ios-native-device` / `just deploy-ios` (device debug/release),
 `just android-native`; compile-only: `just build-ios-native` / `just build-android-native`.
+Gotchas: a missing `vite-plugin-singlefile` in the editor-bundle build means stale node_modules
+(`pnpm install`); a locked iPhone yields `FBSOpenApplicationErrorDomain error 7` on launch.
 
 ## Monorepo map
 
@@ -83,10 +86,16 @@ tests/, markdown-spec/, factory/   E2E + sync harness, editor fixtures, Obsidian
 - Never hand-build note paths — `pathSafety.ts` (TS) / `futo_notes_core::files::safe_note_path`
   (Rust). Non-component toasts: `showGlobalToast()`; dialogs: `confirmDialog()`/`ask()`/`message()`
   (`window.confirm`/`alert` do not block in the Tauri webview).
+- A new persisted setting is four steps: field on `AppState` (`src/shared/state/appState.ts`), guard
+  in `sanitize()`, default in `defaultState()`, threaded through the `AppPreferences` facade.
+  UI-layout state (sidebar width, open folders, tabs) instead goes in `.app-config.json` via
+  `getConfig`/`saveConfig`.
 - Rust: each Tauri local-note command wraps an `_impl`, is a projection over the one `LocalNoteStore`,
   and registers watcher suppression (the `BeforeWrite` hook) before the first syscall. FFI errors are
   `uniffi::Error` enums; FFI builds use dev (iOS) / `release-ffi` (Android) profiles — the workspace
-  release `panic="abort"` breaks UniFFI's `catch_unwind`.
+  release `panic="abort"` breaks UniFFI's `catch_unwind`. Test tempdirs are hand-rolled
+  (`temp_dir().join(format!(...))` + an `AtomicU32` counter + pid) — no `tempfile` crate; env-var
+  tests serialize on a `static Mutex`.
 - CSS: Tailwind v4, tokens in the `@theme` block (`theme.css`), dark via `[data-theme='dark']`. CM6
   overrides need `!important` in layered CSS (`editor-ux.css` is imported unlayered on purpose).
 
@@ -100,7 +109,8 @@ tests/, markdown-spec/, factory/   E2E + sync harness, editor fixtures, Obsidian
 - **M3** Dev build touches prod data — dev = `com.futo.notes.dev` + `~/Documents/fake-notes`, release
   = `com.futo.notes` + `~/Documents/futo-notes`; split in Rust `vault_location.rs` / iOS
   `#if FUTO_DEBUG_BUILD` / Android `BuildConfig.DEBUG`; the TS resolver MUST delegate to
-  `resolve_default_notes_root`; `FUTO_NOTES_DATA_DIR` overrides both. Never weaken.
+  `resolve_default_notes_root` because `documentDir()` looks identical in dev and release, so
+  resolving in JS silently points dev at prod; `FUTO_NOTES_DATA_DIR` overrides both. Never weaken.
 - **M4** Piecemeal destructive reset — clear every module-level cache (appState, sync watermarks);
   stop live sync first and prefer reloading the process.
 - **M5** Editor jank — responsiveness is sacred; per-keystroke work stays synchronous TS, everything
@@ -109,22 +119,36 @@ tests/, markdown-spec/, factory/   E2E + sync harness, editor fixtures, Obsidian
 **Single source:** **M6** don't reimplement a note rule in TS/Swift/Kotlin · **M7** a rule change
 touches canonical TS (`packages/editor`) AND Rust (`futo-notes-model`) + regenerates fixtures
 (`tests/conformance/generate.mjs`) · **M8** edit sources, not generated files (`GAPS.md`,
-`ToolbarSpec.*`, `Sources/Generated`, uniffi bindings, the **bundled** `editor.html` — the root
-`editor.html` is the hand-written source) · **M9** rebuild FFI bindings after any FFI-visible crate
-change · **M10** a new `futoBridge`/toolbar surface needs BOTH native hosts.
+`ToolbarSpec.*`, `TitleSpec.swift`/`TitleSpec.kt`, `Sources/Generated`, uniffi bindings + `jniLibs`,
+the **bundled** `editor.html` — the root `editor.html` is the hand-written source), then regenerate
+(`just spec-gaps` / `just toolbar-spec` / `just title-spec` / `scripts/build-rust-{ios,android}.sh` /
+`vite build --config vite.editor.config.ts`) · **M9** rebuild FFI bindings (`just build-rust-ios` /
+`just build-rust-android`) after any FFI-visible crate change — the `just *-native` recipes do this,
+direct `xcodebuild`/gradle invocations do not · **M10** a new `futoBridge`/toolbar surface needs BOTH
+native hosts.
 
 **CI/release:** **M11** no silent green (assert outcomes, keep the non-zero exit) · **M12**
-`$CI_PROJECT_DIR`-anchored paths, no cwd assumptions · **M13** exercise tag-gated jobs before tagging ·
+`$CI_PROJECT_DIR`-anchored paths, no cwd assumptions · **M13** exercise tag-gated jobs before tagging
+(pass secrets into nested VMs explicitly, upload caches `when: always`; use `/ci-doctor`) ·
 **M14** every new test job goes in `release:gate.needs` · **M15** don't loosen timeouts/assertions/
-skips to kill a flake — root-cause it · **M16** never commit generated dirs or temp debug code.
+skips to kill a flake — root-cause it, wait on conditions not fixed timeouts, and never assert exact
+user-facing strings in cross-platform tests · **M16** never commit generated dirs or temp debug code.
 
 **Fix discipline:** **M17** fix every sibling occurrence (grep first) · **M18** run the verification
 chain before claiming done · **M19** update `docs/spec/` with any behavior change · **M20** build from
-the repo root.
+the repo root (`pnpm run dev` uses localhost APIs, `pnpm run build` points at production endpoints;
+`cargo build` needs a repo-root `dist/` to exist — `mkdir -p dist`).
 
-**Platform traps:** **M21** don't trust synthetic DOM input / stale emulator screenshots · **M22**
-Playwright/WebKit can't prove Windows WebView2 or the real iOS keyboard (duplicate `@codemirror/*`
-blanks the editor) · **M23** the updater `.sig` must be the last touch on artifact bytes.
+**Platform traps:** **M21** don't trust synthetic input or stale screenshots — DOM `click()` does not
+fire Svelte 5 handlers (tap at CSS-rect-center × devicePixelRatio via `adb input tap`), and an
+unfocused Android emulator throttles Compose frames so `adb screencap` shows stale UI; suspect the
+tool before the app and check the `/verify` skill's `references/{ios,android}.md` · **M22**
+Playwright/WebKit can't prove Windows WebView2 (use the qemu harness in `scripts/win-vm/`) or the real
+iOS keyboard (duplicate `@codemirror/*` blanks the editor) · **M23** the updater `.sig` must be the
+last touch on artifact bytes — after the Linux mesa patch / macOS notarize / Windows Authenticode
+(architecture + trust boundary: `docs/release/updater.md`, `keys/README.md`; local rehearsal:
+`just updater-localdev`; a localdev-signed artifact can never be accepted by a prod client — that
+asymmetry is the design, not a bug).
 
 ## Testing & quality bar
 
@@ -134,9 +158,13 @@ Run `just build` first, then the chain for your layer, reporting commands + resu
   `pnpm exec tsx tests/conformance/generate.mjs`, then `pnpm run test:editor:minimal` + `just test-rust`.
 - UI/Svelte → `just build` + the targeted Playwright spec. Editor (CM6) → `just test-markdown-spec` +
   a `markdown-spec/` YAML case. Rust/Tauri command → `_impl` unit test + `just test-rust[-full]`,
-  register in `generate_handler!` + the TS shim, watcher suppression before writes. Sync →
+  register in `generate_handler!` + the TS shim, watcher suppression before writes, dep-guard intact
+  (portable crates must not pull `tantivy`/`ort` — CI `test:rust:dep-guard`). Sync →
   `cargo test -p futo-notes-sync` + a `tests/cross-platform-sync.mjs` scenario, push-first untouched
-  (dirty local edits PUT before any pull writes disk). Native → `just build-{ios,android}-native`
+  (dirty local edits PUT before any pull writes disk); a server-contract change also runs the F-series
+  against an **isolated** server (`FUTO_TEST_SERVER=http://127.0.0.1:3055 cargo test -p futo-notes-sync
+  --test server_integration -- --ignored --test-threads=1`) — never the :3005 demo server or
+  elitedesk. Native → `just build-ios-native` / `just build-android-native`
   (+ `just test-android-native`) + device QA.
 - The full suite list is in the `@justfile`; `just check` is the pre-merge umbrella, `just prepush`
   the maximal gate. Tests co-locate with the code they verify. A new CI test job goes in
@@ -158,7 +186,8 @@ Native has no bridge — iOS via `xcrun simctl` + `idb`, Android via `adb`/uiaut
 (`just cdp-forward`). Sync in debug builds: prefer the `window.__testSync` hook
 (`connect`/`status`/`syncNow`/`disconnect`/`pauseAutoSync`/`resumeAutoSync` — the surface is
 `src/features/sync/testSync.ts`; the old `*E2ee` aliases are gone). Parallel isolation: `just qa-claim` /
-`qa-status` / `qa-release` / `qa-server`. Logs: `just emu-logs` / `sim-logs`. Full playbooks: `/verify`.
+`qa-status` / `qa-release` / `qa-server`. Logs: `just emu-logs` / `sim-logs`. Windows/WebView2: the
+qemu Win11 harness in `scripts/win-vm/`. Full playbooks: `/verify`.
 
 ## Spec is the source of truth
 
