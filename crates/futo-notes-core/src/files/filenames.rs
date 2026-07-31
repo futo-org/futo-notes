@@ -294,9 +294,14 @@ pub(super) mod property_tests {
         /// never revisits. The `FALLBACK_TITLE` guard only fires when the result is
         /// empty, and `"."` is not empty.
         ///
-        /// Nothing escapes the vault today — `ensure_safe_note_id` and
-        /// `vault_fs::relative_components` both reject these downstream — but the
-        /// title rule alone does not guarantee a usable filename.
+        /// Nothing escapes the vault — `ensure_safe_note_id` and
+        /// `classify_incoming_sync_path` both screen `sanitize_title`'s output —
+        /// but the title rule alone does not guarantee a usable filename.
+        ///
+        /// Closing it here is a coordinated rule change:
+        /// `packages/editor/src/filename.ts` has the same passes and
+        /// `tests/conformance/filename.json` locks the two together, so the fix
+        /// touches both sides plus regenerated fixtures (AGENTS.md M7).
         #[test]
         #[ignore = "known gap: dot-and-space titles sanitize to \".\" or \"..\""]
         fn sanitized_titles_are_never_a_directory_reference(title in arbitrary_title()) {

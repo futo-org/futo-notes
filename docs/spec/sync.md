@@ -249,14 +249,27 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   character, a component past `NAME_MAX`, excess depth — is
   REJECTED: skipped, never written, surfaced as a permanent `rejected` failure
   (not the retryable `download`), never cursor-capped, never aborting the cycle.
-  The heal is deterministic + idempotent, so re-runs never re-rename. The ONLY
+  The traversal screen runs on the HEALED component as well as the raw one, so a
+  name whose heal would itself become `.` or `..` (`". .. ./note.md"` heals to
+  `"../note.md"`) is rejected rather than written outside the vault. The heal is
+  deterministic, so two clients pick the same safe name. The ONLY
   length rejection is the filesystem's `NAME_MAX` (255 bytes) — the UI title
   budget (`MAX_TITLE_LENGTH`) is deliberately NOT enforced here, so a valid
   201–251-byte file a peer legitimately holds still syncs (the boundary stays
   no stricter than production). → futo-notes-core
   `files::classify_incoming_sync_path` (+ `sanitize_title`,
   `is_windows_reserved_name`, `NAME_MAX`), applied via
-  futo-notes-sync sync module; guarded by the core `incoming_*` tests
+  futo-notes-sync sync module; guarded by the core `incoming_*` tests and the
+  `incoming_components_that_heal_into_a_traversal_are_rejected` +
+  `healed_incoming_paths_are_traversal_free` properties in
+  `crates/futo-notes-core/src/files/paths.rs`
+  > **Gap:** The heal is not idempotent for a name ending in repeated `". "`
+  > groups — `sanitize_title` peels exactly one group per pass, so `"a. ..md"`
+  > heals to `"a..md"`, which the next cycle heals again to `"a.md"`: one rename
+  > per sync round until it settles. Closing it means changing the title rule in
+  > both `packages/editor/src/filename.ts` and `futo-notes-core` plus regenerated
+  > conformance fixtures (AGENTS.md M7); the invariant is recorded as the
+  > `#[ignore]`d `healing_an_incoming_path_settles_in_one_round` property.
 - **A healed incoming name is a LOCAL alias, not pushed back to the server.**
   The healing client writes + maps the object under the safe name but does not
   re-upload it, so the server object keeps its original path until someone edits

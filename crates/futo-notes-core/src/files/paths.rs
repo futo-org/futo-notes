@@ -5,11 +5,15 @@ use super::filenames::{forbidden_path_character, sanitize_title};
 pub const MAX_FOLDER_DEPTH: usize = 10;
 pub const NAME_MAX: usize = 255;
 
+/// A path segment that names a directory instead of a file: empty, `.`, or `..`.
+/// Every path rule in this file screens for it, and the incoming-sync classifier
+/// screens the segment it MINTS as well as the one it was given.
+fn directory_reference(component: &str) -> bool {
+    component.is_empty() || component == "." || component == ".."
+}
+
 fn valid_note_component(component: &str) -> bool {
-    !component.is_empty()
-        && component != "."
-        && component != ".."
-        && !component.chars().any(forbidden_path_character)
+    !directory_reference(component) && !component.chars().any(forbidden_path_character)
 }
 
 pub fn ensure_safe_note_id(id: &str) -> Result<(), String> {
@@ -49,10 +53,7 @@ pub fn safe_appdata_path(base: &Path, relative: &str) -> Result<PathBuf, String>
         return Err("path traversal blocked".to_owned());
     }
     let components = normalized.split('/').collect::<Vec<_>>();
-    if components
-        .iter()
-        .any(|component| component.is_empty() || *component == "." || *component == "..")
-    {
+    if components.iter().copied().any(directory_reference) {
         return Err("path traversal blocked".to_owned());
     }
     let mut path = base.to_owned();
@@ -100,7 +101,7 @@ pub fn classify_incoming_sync_path(relative: &str) -> IncomingSyncPath {
     let mut changed = false;
     let mut healed = Vec::with_capacity(components.len());
     for (index, component) in components.into_iter().enumerate() {
-        if component.is_empty() || component == "." || component == ".." {
+        if directory_reference(component) {
             return Reject("traversal or empty component");
         }
         if component.len() > NAME_MAX {
@@ -117,6 +118,12 @@ pub fn classify_incoming_sync_path(relative: &str) -> IncomingSyncPath {
         let safe_stem = sanitize_title(stem);
         changed |= safe_stem != stem;
         let safe_component = format!("{safe_stem}{extension}");
+        // `sanitize_title` strips outer dots and then trims the spaces they hid,
+        // so a component like `". .. ."` heals to `".."`. Screening only the raw
+        // component would let the healed name walk out of the vault.
+        if directory_reference(&safe_component) {
+            return Reject("healed component is a directory reference");
+        }
         if safe_component.len() > NAME_MAX {
             return Reject("component exceeds filesystem name limit");
         }
@@ -206,6 +213,21 @@ mod tests {
             other => panic!("unexpected {other:?}"),
         };
         assert_eq!(classify_incoming_sync_path(&healed), Accept);
+    }
+
+    #[test]
+    fn incoming_components_that_heal_into_a_traversal_are_rejected() {
+        use IncomingSyncPath::*;
+        // The raw component passes the `.`/`..` screen; `sanitize_title` then
+        // rewrites it INTO one. Before the healed-component check these returned
+        // Sanitize("../note.md"), Sanitize("./note.md"), Sanitize("../a/note.md").
+        for attack in [". .. ./note.md", ". . ./note.md", ".. .. ../a/note.md"] {
+            assert!(
+                matches!(classify_incoming_sync_path(attack), Reject(_)),
+                "{attack:?} was not rejected: {:?}",
+                classify_incoming_sync_path(attack)
+            );
+        }
     }
 
     #[test]
@@ -431,12 +453,13 @@ mod property_tests {
         /// `ensure_safe_note_id` rejects; `sanitize_title(". . .")` is `"."`.
         ///
         /// So the title rule does NOT on its own guarantee a usable single path
-        /// component — the guarantee comes entirely from the downstream
-        /// validators. `safe_note_path` fails closed here (the note simply cannot
-        /// be saved), and on the sync side `vault_fs::relative_components` rejects
-        /// any non-`Normal` component, so nothing escapes the vault today. See
-        /// `healed_incoming_paths_are_traversal_free` for the reachable
-        /// consequence and `filenames::property_tests` for the root cause.
+        /// component; each caller of `sanitize_title` has to screen the result.
+        /// Both callers now do: `safe_note_path` fails closed through
+        /// `ensure_safe_note_id` (the note simply cannot be saved), and
+        /// `classify_incoming_sync_path` rejects a healed component that is a
+        /// directory reference. Closing this gap belongs in the title rule itself
+        /// — see `filenames::property_tests` for the root cause and why fixing it
+        /// there is a coordinated TS+Rust change.
         #[test]
         #[ignore = "known gap: sanitize_title can return \".\" or \"..\" for dot-and-space titles"]
         fn sanitized_titles_are_always_confined_note_ids(title in arbitrary_title()) {
@@ -490,27 +513,13 @@ mod property_tests {
             }
         }
 
-        /// FAILS TODAY — kept as the honest statement of the invariant, and the
-        /// most consequential of these gaps.
-        /// Counterexample: `classify_incoming_sync_path(". .. ./note.md")` returns
-        /// `Sanitize("../note.md")`, a healed path that leaves the vault
-        /// (`/vault/../note.md`). `". . ./note.md"` similarly heals to
-        /// `"./note.md"`.
-        ///
-        /// Root cause: the `".."`/`"."`/empty component check runs on the RAW
-        /// component, then `sanitize_title` rewrites it and the result is used
-        /// without re-checking — and `sanitize_title` can produce exactly `".."`
-        /// or `"."` (see `filenames::property_tests`). A remote object name is
-        /// server-supplied, so this is a server-controlled path outside the vault.
-        ///
-        /// Not exploitable today: every vault write goes through
-        /// `vault_fs::relative_components`, which independently rejects any
-        /// component that is not `Component::Normal`, so the write fails closed
-        /// with a sync failure instead of escaping. The cost is that such a note
-        /// can never land on the client, and the containment guarantee rests
-        /// entirely on that second gate rather than on this classifier.
+        /// A `Sanitize` decision means the writer uses the name this classifier
+        /// MINTED, so the healed name carries the same containment obligation as
+        /// an accepted one. `sanitize_title` can turn a legal-looking component
+        /// into `"."` or `".."` (`". .. ."` -> `".."`), so the classifier screens
+        /// the healed component too — see
+        /// `incoming_components_that_heal_into_a_traversal_are_rejected`.
         #[test]
-        #[ignore = "known gap: a healed component can be \"..\" or \".\", so a healed path can leave the vault"]
         fn healed_incoming_paths_are_traversal_free(relative in syncable_relative_path()) {
             if let IncomingSyncPath::Sanitize(healed) = classify_incoming_sync_path(&relative) {
                 assert_traversal_free_and_contained(&healed)?;
