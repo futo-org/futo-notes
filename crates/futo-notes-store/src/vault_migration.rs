@@ -65,7 +65,7 @@ pub(super) fn inspect(source: &Path, destination: &Path) -> VaultDestinationInsp
         notes: 0,
         last_modified_ms: 0,
     };
-    let Ok(destination) = absolute_path(destination) else {
+    let Ok(destination) = canonical_absolute(destination) else {
         return unusable;
     };
     // Canonicalizing the source only matters for the containment check, and an
@@ -127,7 +127,7 @@ struct ManifestEntry {
 
 pub(super) fn stage(source: &Path, destination: &Path) -> Result<VaultMigrationOutcome, String> {
     let source = canonical_existing_directory(source, "current notes folder")?;
-    let destination = absolute_path(destination)?;
+    let destination = canonical_absolute(destination)?;
     if source == destination {
         return Ok(VaultMigrationOutcome {
             status: VaultMigrationStatus::AlreadyAtDestination,
@@ -288,6 +288,40 @@ fn canonical_existing_directory(path: &Path, name: &str) -> Result<PathBuf, Stri
         return Err(format!("the {name} is not a directory"));
     }
     Ok(canonical)
+}
+
+/// Absolute path with every ancestor that exists resolved through symlinks.
+///
+/// The containment checks compare a destination against a canonicalized source,
+/// so both sides have to be canonical or the comparison is meaningless.
+/// `fs::canonicalize` can't be used on its own: a migration destination usually
+/// does not exist yet, and it errors on a missing path. So canonicalize the
+/// longest existing prefix and re-append the rest.
+///
+/// This is not cosmetic. On macOS `std::env::temp_dir()` hands out
+/// `/var/folders/…`, a symlink to `/private/var/folders/…`. An absolutized-only
+/// destination therefore shared no prefix with its canonicalized source, and
+/// `inspect` reported a destination NESTED INSIDE the current vault as `Empty`
+/// — clearing it to be copied into — instead of `Unusable`. Caught by
+/// `inspect_rejects_a_file_or_a_destination_nested_with_the_source` on the
+/// macOS CI runner only, since Linux `/tmp` is a real directory.
+fn canonical_absolute(path: &Path) -> Result<PathBuf, String> {
+    let absolute = absolute_path(path)?;
+    let mut unresolved_suffix = Vec::new();
+    let mut candidate = absolute.as_path();
+    loop {
+        if let Ok(mut resolved) = fs::canonicalize(candidate) {
+            resolved.extend(unresolved_suffix.iter().rev());
+            return Ok(resolved);
+        }
+        // Nothing on this path exists (or it is unreadable); the absolutized form
+        // is the best answer available, and it is what the old code always used.
+        let (Some(name), Some(parent)) = (candidate.file_name(), candidate.parent()) else {
+            return Ok(absolute);
+        };
+        unresolved_suffix.push(name.to_owned());
+        candidate = parent;
+    }
 }
 
 fn absolute_path(path: &Path) -> Result<PathBuf, String> {
@@ -841,6 +875,49 @@ mod tests {
             inspect(&source, source.parent().unwrap()).state,
             VaultDestinationState::Unusable
         );
+    }
+
+    /// Reproduces on Linux what only macOS CI hit: the same folder reached
+    /// through a symlinked ancestor. macOS `temp_dir()` is `/var/folders/…`, a
+    /// symlink to `/private/var/folders/…`, so the canonicalized source and the
+    /// absolutized-only destination shared no prefix and a nested destination
+    /// read as `Empty`. An explicit symlink makes the failure host-independent.
+    #[cfg(unix)]
+    #[test]
+    fn inspect_rejects_a_nested_destination_reached_through_a_symlinked_ancestor() {
+        let root = TestDirectory::new();
+        let real = root.0.join("real");
+        let source = real.join("source");
+        fs::create_dir_all(&source).unwrap();
+        std::os::unix::fs::symlink(&real, root.0.join("link")).unwrap();
+
+        let nested_via_symlink = root.0.join("link/source/inside");
+
+        assert_eq!(
+            inspect(&source, &nested_via_symlink).state,
+            VaultDestinationState::Unusable,
+            "a destination inside the current vault must be refused however its path spells it"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stage_refuses_a_nested_destination_reached_through_a_symlinked_ancestor() {
+        let root = TestDirectory::new();
+        let real = root.0.join("real");
+        let source = real.join("source");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("note.md"), "body").unwrap();
+        std::os::unix::fs::symlink(&real, root.0.join("link")).unwrap();
+
+        let result = stage(&source, &root.0.join("link/source/inside"));
+
+        assert_eq!(
+            result.unwrap_err(),
+            "the new notes folder cannot contain or be contained by the current vault"
+        );
+        assert!(source.join("note.md").exists());
+        assert!(!source.join("inside").exists());
     }
 
     #[test]
