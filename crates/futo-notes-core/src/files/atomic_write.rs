@@ -98,7 +98,8 @@ pub fn create_new_atomic(path: &Path, bytes: &[u8]) -> Result<bool, String> {
 }
 
 /// Installs `source`'s content at `destination` without replacing an existing
-/// file there, then removes `source` — an atomic no-replace move. Returns
+/// file there, then removes `source`. No-replace always holds; atomicity holds
+/// on every filesystem that offers a primitive for it (see below). Returns
 /// `Ok(true)` when `destination` was created, `Ok(false)` when a file already
 /// existed there (in which case neither path is modified). On error, best
 /// effort leaves no duplicate: `destination` is never left as an extra copy of
