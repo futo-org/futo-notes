@@ -600,7 +600,14 @@ mod tests {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir_all(&path).unwrap();
-            Self(path)
+            // Canonical, because `stage`/`inspect` canonicalize what they are
+            // handed and the sync-ordering tests below compare observed paths
+            // against ones built from this root. On macOS `temp_dir()` is
+            // `/var/folders/…`, a symlink to `/private/var/folders/…`, so an
+            // un-canonicalized root makes every such comparison fail there while
+            // passing on Linux. Reproduce that locally with
+            // `TMPDIR=<a symlink to a real dir> cargo test -p futo-notes-store`.
+            Self(fs::canonicalize(&path).unwrap_or(path))
         }
     }
 
