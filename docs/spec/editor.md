@@ -313,8 +313,10 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   numbers ordered items, renumbers on edit); Backspace at item start dedents;
   Backspace in an empty item deletes it. → listContinuation.ts
 - A desktop single-line selection raises a floating Bold, Italic, Strikethrough, Code, and Link
-  toolbar; it hides for empty/multi-line selections and inside tables/code. Settings, search, and
-  folder-dialog overlays always cover it. → selectionToolbar.ts,
+  toolbar; Link wraps the selection into a `[text](url)` scaffold with the caret in the URL slot
+  and opens no dialog (shared `toggleLink` behavior, the same as the native toolbar). It hides for
+  empty/multi-line selections and inside tables/code. Settings, search, and folder-dialog overlays
+  always cover it. → selectionToolbar.ts, editorUX/linkCommand.ts,
   editor-selection-toolbar.css, tests/editor-ux.spec.ts
 - Typing `/` at the start of an empty block opens a block-command menu
   (headings, lists, tasks, quote, code, table, HR). Arrow keys move the
