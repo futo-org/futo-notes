@@ -95,7 +95,7 @@ Per divergence type:
 - [ ] `satisfaction === 1`, OR every remaining divergence is explicitly classified as
       intentional (and recorded in `docs/spec/editor.md` if user-facing)
 - [ ] Every fixed divergence has a locking `markdown-spec` case; `pnpm run test:markdown-spec` green
-- [ ] `just build` + the editor unit tests green (7.2 chain in AGENTS.md)
+- [ ] `just build` + the editor unit tests green (the editor chain in AGENTS.md's "Testing & quality bar")
 - [ ] Daemon torn down (`just factory-down`), Obsidian registry restored (automatic)
 
 ## Report format

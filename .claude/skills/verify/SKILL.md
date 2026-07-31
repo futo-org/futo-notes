@@ -261,9 +261,10 @@ Postgres works too via `FUTO_NOTES_QA_PG=postgres://user:pass@localhost:5432`.
 - Reaching the server: desktop/iOS-simulator use `http://127.0.0.1:<port>`;
   the **Android emulator needs `http://10.0.2.2:<port>`**; physical devices
   need the machine's LAN IP.
-- Connecting: the Tauri **dev** webview exposes `window.__testSync` (connect/
-  status/syncNow/disconnect — see AGENTS.md "Browser Tools"); the native
-  shells have no such hook — use Settings → Sync in the app UI.
+- Connecting: the Tauri **dev** webview exposes `window.__testSync` —
+  `connect(url, password)` / `status()` / `syncNow()` / `disconnect()` /
+  `pauseAutoSync()` / `resumeAutoSync()` (`src/features/sync/testSync.ts`); the
+  native shells have no such hook — use Settings → Sync in the app UI.
 
 After connecting + syncing: check the sync toast count, wait for indexing
 (`GET /search/status` → `idle`, dirty 0), confirm the feature under test.

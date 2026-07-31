@@ -357,7 +357,7 @@ Stop and request direction when:
 - a safety-critical failure mode cannot be observed or injected;
 - required external infrastructure or credentials are unavailable;
 - completion would require broadening scope to a materially different system;
-- anything on AGENTS.md §11's stop-and-ask list is in play (keys, CRITICAL
+- anything on AGENTS.md's "When uncertain" stop-and-ask list is in play (keys, CRITICAL
   guards, hash/crypto, protocol shapes, destructive ops on real data).
 
 Do not stop merely because the rewrite is large or difficult. Add coverage,

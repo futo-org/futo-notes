@@ -97,7 +97,7 @@ For each approved fix:
 
 - Apply the minimal change. No neighborhood cleanup — `bugfix` skill rules apply.
 - If the fix exposes a pre-existing bug the PR didn't introduce, **surface it as a side-quest** the user opts into. Don't silently widen the diff.
-- Add a regression test where applicable (see AGENTS.md test requirements table).
+- Add a regression test where applicable (see AGENTS.md's "Testing & quality bar").
 - Commit per logical fix or per severity tier — keeps reviewable history.
 
 ### 6. Re-verify and report

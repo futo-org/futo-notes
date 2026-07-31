@@ -1,4 +1,4 @@
-// Debt ratchet gate (architecture-hardening.md PKT-8 / R2). Recomputes 5
+// Debt ratchet gate (architecture-hardening.md PKT-8 / R2). Recomputes 4
 // "fuzzy" debt counts fresh from the tree and compares them against the
 // checked-in baseline (scripts/debt-ratchet.json). The numbers can only go
 // down over time:
@@ -16,12 +16,10 @@
 //   tauriImportsOutsideShims    — files outside src/lib/platform/** that
 //                                 import '@tauri-apps/*' and are not one of
 //                                 the dedicated sync shim,
-//                                 syncServiceE2ee.ts) — AGENTS.md §4's "OS
+//                                 syncServiceE2ee.ts) — AGENTS.md's "Where logic lives" "OS
 //                                 glue" scattered outside a proper shim.
 //   invokeCallsOutsideShims     — same scope, but for actual invoke(...)
 //                                 call sites rather than the bare import.
-//   specGapsCount               — `> **Gap:**` lines recorded in
-//                                 docs/spec/GAPS.md (spec-gaps.mjs output).
 //   unlockedDriftRegistryEntries — entries in scripts/drift-registry.json
 //                                 with lockStatus 'unlocked'.
 //   ignoredPropertyTests        — `#[ignore = "known gap: …"]` tests under
@@ -30,6 +28,13 @@
 //                                 `cargo test`. No CI job runs `--ignored` for
 //                                 these, so this count is the only thing
 //                                 stopping them from sitting red forever.
+//
+// Ceilings (debt-ratchet.json "ceilings"): fixed size caps, NOT ratchets — a
+// metric may move freely below its cap (legit rule additions, new plan docs)
+// but must never exceed it. Guards the decluttered prose state against silent
+// regrowth without punishing normal edits:
+//   agentsMdLines            — root AGENTS.md line count (kept lean).
+//   docsPlanNonArchiveFiles  — active plan docs in docs/plan/ (excludes archive/).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,9 +44,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RATCHET_PATH = path.join(ROOT, 'scripts/debt-ratchet.json');
 const SRC_DIR = path.join(ROOT, 'src');
 const PLATFORM_DIR = path.join(SRC_DIR, 'lib', 'platform') + path.sep;
-const GAPS_PATH = path.join(ROOT, 'docs/spec/GAPS.md');
 const REGISTRY_PATH = path.join(ROOT, 'scripts/drift-registry.json');
 const CRATES_DIR = path.join(ROOT, 'crates');
+const AGENTS_MD_PATH = path.join(ROOT, 'AGENTS.md');
+const DOCS_PLAN_DIR = path.join(ROOT, 'docs/plan');
 
 // Sync remains a dedicated shim. Search is projected by LocalNoteStore inside
 // src/lib/platform, which scopedFiles already excludes. Everything else touching Tauri is the
@@ -98,11 +104,6 @@ function countInvokeCallsOutsideShims() {
   return count;
 }
 
-function countSpecGaps() {
-  const text = fs.readFileSync(GAPS_PATH, 'utf8');
-  return text.split('\n').filter((line) => line.startsWith('- [')).length;
-}
-
 function countIgnoredPropertyTests() {
   let count = 0;
   for (const file of walk(CRATES_DIR, ['.rs'])) {
@@ -117,10 +118,26 @@ function countUnlockedDriftRegistryEntries() {
   return registry.entries.filter((e) => e.lockStatus === 'unlocked').length;
 }
 
+function countAgentsMdLines() {
+  return (fs.readFileSync(AGENTS_MD_PATH, 'utf8').match(/\n/g) || []).length;
+}
+
+// Recursive: a non-recursive readdir would let `mkdir docs/plan/2026 && mv *.md docs/plan/2026/`
+// drop the count to 0 while the plans are all still active. Only an `archive/` subtree is exempt.
+// Dirent exposes the containing directory as `parentPath` on Node >= 20.12 and as `path` before it.
+function countDocsPlanNonArchiveFiles() {
+  return fs
+    .readdirSync(DOCS_PLAN_DIR, { withFileTypes: true, recursive: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.md'))
+    .filter((e) => {
+      const dir = path.relative(DOCS_PLAN_DIR, e.parentPath ?? e.path);
+      return !dir.split(path.sep).includes('archive');
+    }).length;
+}
+
 const current = {
   tauriImportsOutsideShims: countTauriImportsOutsideShims(),
   invokeCallsOutsideShims: countInvokeCallsOutsideShims(),
-  specGapsCount: countSpecGaps(),
   unlockedDriftRegistryEntries: countUnlockedDriftRegistryEntries(),
   ignoredPropertyTests: countIgnoredPropertyTests(),
 };
@@ -135,14 +152,31 @@ for (const key of Object.keys(current)) {
   if (now > was) {
     failures.push(
       `'${key}' increased from ${was} to ${now} — new debt of this kind is not allowed. ` +
-        `Fix the regression (move the offending code behind a shim / lock the registry entry / ` +
-        `close the spec gap) rather than raising the number in ${path.relative(ROOT, RATCHET_PATH)}.`,
+        `Fix the regression (move the offending code behind a shim / lock the registry entry) ` +
+        `rather than raising the number in ${path.relative(ROOT, RATCHET_PATH)}.`,
     );
   } else {
     failures.push(
       `'${key}' decreased from ${was} to ${now} — nice, but ${path.relative(ROOT, RATCHET_PATH)} ` +
         `must be updated to lock it in. Run: node -e "const fs=require('fs'),p='${path.relative(ROOT, RATCHET_PATH)}',j=JSON.parse(fs.readFileSync(p));j.counts.${key}=${now};fs.writeFileSync(p,JSON.stringify(j,null,2)+'\\n')" ` +
         `then commit the updated file alongside this change.`,
+    );
+  }
+}
+
+// Ceilings: fixed caps (regrowth guard), not ratchets — only an OVER-cap fails.
+const ceilings = JSON.parse(fs.readFileSync(RATCHET_PATH, 'utf8')).ceilings || {};
+const currentCeilings = {
+  agentsMdLines: countAgentsMdLines(),
+  docsPlanNonArchiveFiles: countDocsPlanNonArchiveFiles(),
+};
+for (const key of Object.keys(ceilings)) {
+  const now = currentCeilings[key];
+  const cap = ceilings[key];
+  if (now > cap) {
+    failures.push(
+      `'${key}' is ${now}, over its ceiling of ${cap} — the decluttered prose state is regrowing. ` +
+        `Trim it back under the cap rather than raising the ceiling in ${path.relative(ROOT, RATCHET_PATH)}.`,
     );
   }
 }
@@ -157,5 +191,7 @@ if (failures.length > 0) {
 console.log(
   `Debt ratchet gate OK — ${Object.entries(current)
     .map(([k, v]) => `${k}=${v}`)
+    .join(', ')}; ceilings ${Object.entries(currentCeilings)
+    .map(([k, v]) => `${k}=${v}/${ceilings[k]}`)
     .join(', ')}.`,
 );

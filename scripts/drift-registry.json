@@ -1,9 +1,9 @@
 {
-  "_comment": "AGENTS.md \u00a712 (drift watchlist) as enforced code \u2014 architecture-hardening.md R1. Every PERMITTED same-logic-in->=2-places duplicate in this repo is enumerated here with its copies (file + a regex that must still match there) and its lock (the fixture/generated-file/test that catches drift, or 'unlocked' when none exists yet). scripts/drift-check.mjs (just check-drift / just check) enforces: (a) every copy exists where claimed, (b) every declared lock file exists and lockStatus is consistent with whether locks are registered, (c) for entries with a 'scan' block, no NEW file outside the registered copies matches the concept's detection pattern. Registration friction is the feature \u2014 do not add entries for concepts that haven't actually drifted or burned us; do not delete an entry because its pattern is inconvenient, tighten the pattern instead.",
+  "_comment": "AGENTS.md 'Drift watchlist' as enforced code \u2014 architecture-hardening.md R1. Every PERMITTED same-logic-in->=2-places duplicate in this repo is enumerated here with its copies (file + a regex that must still match there) and its lock (the fixture/generated-file/test that catches drift, or 'unlocked' when none exists yet). scripts/drift-check.mjs (just check-drift / just check) enforces: (a) every copy exists where claimed, (b) every declared lock file exists and lockStatus is consistent with whether locks are registered, (c) for entries with a 'scan' block, no NEW file outside the registered copies matches the concept's detection pattern. Registration friction is the feature \u2014 do not add entries for concepts that haven't actually drifted or burned us; do not delete an entry because its pattern is inconvenient, tighten the pattern instead.",
   "entries": [
     {
       "concept": "note-rules-ts-rust",
-      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md \u00a74 M6/M7). Copies must stay bit-for-bit per tests/conformance/*.json.",
+      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Copies must stay bit-for-bit per tests/conformance/*.json.",
       "lockStatus": "locked",
       "copies": [
         {
@@ -142,9 +142,9 @@
     },
     {
       "concept": "notes-root-triplet",
-      "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md \u00a76 explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
+      "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
       "lockStatus": "unlocked",
-      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md \u00a76 non-goals \u2014 do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. Note (AGENTS.md \u00a712 now agrees): the Android copy is NOT in NotesStore.kt (that class only takes a resolved `notesRoot: File`) \u2014 the actual dev/prod guard lives in storage/NotesStorage.kt's `deviceFolderName`, and Android's split works differently (a distinct DEVICE-mode folder name, 'FUTO Notes Dev' vs 'FUTO Notes', since its APP/INTERNAL modes already isolate via the `.dev` applicationId on package-scoped paths) rather than the desktop/iOS 'fake-notes' vs 'futo-notes' directory-name split.",
+      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md 'Named mistakes' non-goals \u2014 do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. CORRECTION to AGENTS.md 'Drift watchlist': the Android copy is NOT in NotesStore.kt (that class only takes a resolved `notesRoot: File`) \u2014 the actual dev/prod guard lives in storage/NotesStorage.kt's `deviceFolderName`, and Android's split works differently (a distinct DEVICE-mode folder name, 'FUTO Notes Dev' vs 'FUTO Notes', since its APP/INTERNAL modes already isolate via the `.dev` applicationId on package-scoped paths) rather than the desktop/iOS 'fake-notes' vs 'futo-notes' directory-name split.",
       "copies": [
         {
           "location": "apps/tauri/src-tauri/src/vault_location.rs",
@@ -216,7 +216,7 @@
     },
     {
       "concept": "unique-id-collision-loop",
-      "description": "The '-2, -3, ...' unique-id suffix resolver. Rust is canonical for desktop and native. The only TS copy is the browser-only development/test note-store harness. Separate tests protect each implementation; no shared fixture currently locks them.",
+      "description": "The '-2, -3, ...' unique-id suffix resolver. Rust is canonical for desktop and native (futo-notes-store paths::unique_note_id). The only other generator is the browser-only development/test note-store harness (localNoteStore.ts `unique`). Swift and Kotlin do NOT generate: they pass \"Untitled\" to the Rust createNote and only RECOGNIZE the suffix shape via isPlaceholderTitle \u2014 keep it that way. Separate tests protect each implementation; no shared fixture currently locks them.",
       "lockStatus": "unlocked",
       "copies": [
         {

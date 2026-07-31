@@ -1,4 +1,4 @@
-// Drift registry gate (architecture-hardening.md PKT-8 / R1). AGENTS.md §12's
+// Drift registry gate (architecture-hardening.md PKT-8 / R1). AGENTS.md's "Drift watchlist"
 // "same logic in >=2 places" watchlist as code, deny-by-default:
 // scripts/drift-registry.json enumerates every PERMITTED duplicate concept —
 // each copy's file + a pattern that must still be found there, and the lock

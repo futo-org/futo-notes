@@ -76,6 +76,7 @@ playwright-report/
 .claude/local-plugins/*
 .claude/worktrees
 .claude/settings.local.json
+.claude/projects/
 
 # Local data (SQLite DB + notes)
 data/
@@ -86,6 +87,9 @@ data/
 # Experiments live in ../notes-experiments
 experiments/
 .tmp
+
+# Agent scratch (handoff notes)
+handoff/
 
 # Verification
 test-screenshots

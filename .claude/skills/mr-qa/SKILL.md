@@ -12,8 +12,10 @@ model in the `/verify` skill is what makes that safe. Battle-tested
 
 ## Per MR (run these pipelines concurrently across MRs)
 
-1. **Worktree**: resolve the MR's source branch (GitLab API with
-   `$GITLAB_TOKEN` — see AGENTS.md "GitLab CI"), then
+1. **Worktree**: resolve the MR's source branch (GitLab API; `$GITLAB_TOKEN` is
+   already in the shell —
+   `curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/merge_requests/<iid>"`),
+   then
    `git worktree add .claude/worktrees/mr-<iid> origin/<branch>` and
    `pnpm install` (installs across worktrees can run concurrently).
 2. **Claim + pre-build — before spawning any agent.** Agents that idle-wait
