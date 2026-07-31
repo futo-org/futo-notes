@@ -39,11 +39,36 @@ function firstLine(value, width = LABEL_WIDTH) {
   return text.length > width ? `${text.slice(0, width - 1)}…` : text;
 }
 
+function describeNode(node) {
+  const name = node.AXLabel || node.AXUniqueId;
+  return name ? `${node.type ?? '?'} "${firstLine(name)}"` : (node.type ?? '?');
+}
+
+/**
+ * Pick the root whose frame is the device's point size (402x874 on an iPhone 17
+ * Pro). Deriving it beats a flag that can disagree with reality — but NOT by
+ * taking the first framed root: axe returns the whole window stack and a small
+ * window can come first (a keyboard window is ~402x314), which would report the
+ * screen as 402x314 and mark every row below y=314 OFF-SCREEN. Prefer the
+ * `Application` root, then the largest frame by area.
+ */
 function screenBoundsOf(tree) {
-  // The Application root's frame is the device's point size (402x874 on an
-  // iPhone 17 Pro). Deriving it beats a flag that can disagree with reality.
-  const root = tree.find((node) => node?.frame?.width && node?.frame?.height);
-  return root ? { width: root.frame.width, height: root.frame.height } : null;
+  const framed = tree.filter((node) => node?.frame?.width && node?.frame?.height);
+  if (!framed.length) return { bounds: null, source: null };
+
+  const application = framed.find((node) => node.type === 'Application');
+  const root =
+    application ??
+    framed.reduce((largest, node) =>
+      node.frame.width * node.frame.height > largest.frame.width * largest.frame.height
+        ? node
+        : largest,
+    );
+
+  return {
+    bounds: { width: root.frame.width, height: root.frame.height },
+    source: describeNode(root),
+  };
 }
 
 function sameActions(actions, other) {
@@ -63,7 +88,9 @@ function isOnScreen(frame, bounds) {
  */
 export function summarizeAccessibilityTree(tree, options = {}) {
   const roots = Array.isArray(tree) ? tree : [tree];
-  const bounds = options.screenBounds ?? screenBoundsOf(roots);
+  const derived = screenBoundsOf(roots);
+  const bounds = options.screenBounds ?? derived.bounds;
+  const boundsSource = options.screenBounds ? 'caller-supplied' : derived.source;
   const rows = [];
 
   let nextActionOwnerId = 0;
@@ -114,7 +141,11 @@ export function summarizeAccessibilityTree(tree, options = {}) {
     }
   }
 
-  return { screenBounds: bounds, rows: creditActionOwners(rows) };
+  return {
+    screenBounds: bounds,
+    screenBoundsSource: boundsSource,
+    rows: creditActionOwners(rows),
+  };
 }
 
 /**
@@ -154,11 +185,12 @@ export function filterRows(rows, filters = {}) {
   });
 }
 
-export function formatSummaryLines({ screenBounds, rows }) {
+export function formatSummaryLines({ screenBounds, screenBoundsSource, rows }) {
   const lines = [];
   const offScreen = rows.filter((row) => !row.onScreen).length;
   lines.push(
-    `screen ${screenBounds ? `${screenBounds.width}x${screenBounds.height}pt` : 'unknown'} — ` +
+    `screen ${screenBounds ? `${screenBounds.width}x${screenBounds.height}pt` : 'unknown'} ` +
+      `(from ${screenBoundsSource ?? 'no framed root'}) — ` +
       `${rows.length} rows, ${offScreen} off-screen`,
   );
 
@@ -248,10 +280,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const options = parseArgs(process.argv.slice(2));
     const summary = summarizeAccessibilityTree(captureTree(options));
     const rows = filterRows(summary.rows, options.filters);
+    const rendered = {
+      screenBounds: summary.screenBounds,
+      screenBoundsSource: summary.screenBoundsSource,
+      rows,
+    };
     if (options.json) {
-      console.log(JSON.stringify({ screenBounds: summary.screenBounds, rows }, null, 2));
+      console.log(JSON.stringify(rendered, null, 2));
     } else {
-      console.log(formatSummaryLines({ screenBounds: summary.screenBounds, rows }).join('\n'));
+      console.log(formatSummaryLines(rendered).join('\n'));
     }
   } catch (error) {
     console.error(String(error.message || error));

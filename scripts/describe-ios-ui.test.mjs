@@ -100,6 +100,32 @@ function editorToolbarTree() {
   ];
 }
 
+// A multi-root dump is normal: axe returns the whole window stack. The
+// keyboard window is its own root and can come FIRST, so taking the first root
+// with a frame reports a 402x314 "screen" and calls the note list off-screen.
+function keyboardWindowFirstTree() {
+  const [application] = noteListTree();
+  // Push the note row below the keyboard window's height so a wrong bounds
+  // choice actually mislabels it.
+  application.children[1].frame = { x: 16, y: 340, width: 370, height: 76.33 };
+  return [
+    {
+      type: 'Other',
+      AXLabel: null,
+      frame: { x: 0, y: 560, width: 402, height: 314 },
+      children: [
+        {
+          type: 'Key',
+          AXLabel: 'q',
+          frame: { x: 4, y: 600, width: 34, height: 44 },
+          children: [],
+        },
+      ],
+    },
+    application,
+  ];
+}
+
 describe('summarizeAccessibilityTree', () => {
   it('derives the screen bounds from the application root frame', () => {
     const { screenBounds } = summarizeAccessibilityTree(noteListTree());
@@ -157,6 +183,46 @@ describe('summarizeAccessibilityTree', () => {
     expect(rows.find((row) => row.label?.startsWith('Long Scroll'))?.label).toBe(
       'Long Scroll Note',
     );
+  });
+});
+
+describe('screen bounds across a multi-root window stack', () => {
+  it('ignores a small leading keyboard window and takes the largest root', () => {
+    const { screenBounds } = summarizeAccessibilityTree(keyboardWindowFirstTree());
+
+    expect(screenBounds).toEqual({ width: 402, height: 874 });
+  });
+
+  it('keeps a tappable note row on-screen when a keyboard window comes first', () => {
+    const { rows } = summarizeAccessibilityTree(keyboardWindowFirstTree());
+    const noteRow = rows.find((row) => row.label?.startsWith('Qa-note-1'));
+
+    // y=340..416 is outside a 402x314 keyboard frame but well inside the screen.
+    expect(noteRow.onScreen).toBe(true);
+    expect(filterRows(rows, { onScreenOnly: true })).toContain(noteRow);
+  });
+
+  it('names the node the bounds came from so the choice is auditable', () => {
+    const summary = summarizeAccessibilityTree(keyboardWindowFirstTree());
+
+    expect(summary.screenBoundsSource).toBe('Application "FUTO Notes Dev"');
+    expect(formatSummaryLines(summary).join('\n')).toContain('Application "FUTO Notes Dev"');
+  });
+
+  it('prefers an Application root over a larger sibling window', () => {
+    const [application] = noteListTree();
+    const { screenBounds, screenBoundsSource } = summarizeAccessibilityTree([
+      {
+        type: 'Other',
+        AXLabel: null,
+        frame: { x: 0, y: 0, width: 800, height: 900 },
+        children: [],
+      },
+      application,
+    ]);
+
+    expect(screenBounds).toEqual({ width: 402, height: 874 });
+    expect(screenBoundsSource).toBe('Application "FUTO Notes Dev"');
   });
 });
 
