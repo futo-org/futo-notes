@@ -266,13 +266,20 @@ function findFiles(dir, matches, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (SKIP_DIRS.has(entry.name)) continue;
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) findFiles(full, matches, out);
-    else if (matches(full)) out.push(full);
+    if (entry.isDirectory()) {
+      // Repo-local worktrees and nested repositories are separate checkouts
+      // with their own instruction surfaces. Scanning through their `.git`
+      // marker would validate unrelated branch state as if it belonged here.
+      if (fs.existsSync(path.join(full, '.git'))) continue;
+      findFiles(full, matches, out);
+    } else if (matches(full)) {
+      out.push(full);
+    }
   }
   return out;
 }
 
-function collectInstructionFiles(root) {
+export function collectInstructionFiles(root) {
   const files = [];
 
   for (const name of ['README.md', 'CONTRIBUTING.md']) {

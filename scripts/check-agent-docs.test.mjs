@@ -1,12 +1,41 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
+  collectInstructionFiles,
   extractReferences,
   parseJustRecipes,
   parsePackageScripts,
   resolvePathCheckTarget,
   validateReferences,
 } from './check-agent-docs.mjs';
+
+describe('collectInstructionFiles', () => {
+  it('does not scan instruction files from nested Git worktrees', () => {
+    const root = mkdtempSync(join(tmpdir(), 'futo-agent-docs-'));
+
+    try {
+      writeFileSync(join(root, 'AGENTS.md'), '# Root instructions\n');
+
+      const conventionalWorktree = join(root, '.worktrees', 'feature');
+      mkdirSync(conventionalWorktree, { recursive: true });
+      writeFileSync(join(conventionalWorktree, '.git'), 'gitdir: /tmp/feature.git\n');
+      writeFileSync(join(conventionalWorktree, 'AGENTS.md'), '# Different checkout\n');
+
+      const claudeWorktree = join(root, '.claude', 'worktrees', 'review');
+      mkdirSync(claudeWorktree, { recursive: true });
+      writeFileSync(join(claudeWorktree, '.git'), 'gitdir: /tmp/review.git\n');
+      writeFileSync(join(claudeWorktree, 'AGENTS.md'), '# Different checkout\n');
+
+      expect(collectInstructionFiles(root)).toEqual([join(root, 'AGENTS.md')]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('parseJustRecipes', () => {
   it('parses plain recipes, parameterized recipes, dependency recipes, and aliases', () => {
