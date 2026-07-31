@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use futo_notes_core::conflict_names::{conflict_filename, current_conflict_date};
 use futo_notes_core::files::{
     collides_but_differs, create_new_atomic, move_no_replace, rename_through_temp,
-    safe_appdata_path, set_file_mtime_ms, write_atomic_text,
+    safe_appdata_path, set_file_mtime_ms, vault_mutation_guard, write_atomic_text,
 };
 use futo_notes_model::{make_id, rewrite_wikilinks, sanitize_folder_path, split_id};
 use futo_notes_search::{SearchConfig, SearchEngine, StatusObserver, DEFAULT_TOPK};
@@ -203,6 +203,10 @@ pub struct LocalNoteStore {
     /// to simulate a concurrent writer landing at the chosen id.
     #[cfg(test)]
     install_window_hook: Mutex<Option<InstallWindowHook>>,
+    /// Fault injection fired after a flush reads the base and while it still
+    /// owns the process-wide check/write span.
+    #[cfg(test)]
+    flush_window_hook: Mutex<Option<InstallWindowHook>>,
 }
 
 impl LocalNoteStore {
@@ -219,6 +223,8 @@ impl LocalNoteStore {
             retry_cooldown: SEARCH_ENGINE_RETRY_COOLDOWN,
             #[cfg(test)]
             install_window_hook: Mutex::new(None),
+            #[cfg(test)]
+            flush_window_hook: Mutex::new(None),
         }
     }
 
@@ -360,7 +366,9 @@ impl LocalNoteStore {
         let (migrated, migrate_warnings) = self.migrate_text_files();
         warnings.extend(migrate_warnings);
         let seeded = if vault::note_paths(&self.root).is_empty() {
-            match self.write_raw(WELCOME_NOTE_ID, WELCOME_NOTE, None) {
+            match vault_mutation_guard()
+                .and_then(|_vault_mutation| self.write_raw(WELCOME_NOTE_ID, WELCOME_NOTE, None))
+            {
                 Ok(_) => 1,
                 Err(error) => {
                     warnings.push(format!("welcome note: {error}"));
@@ -424,6 +432,7 @@ impl LocalNoteStore {
         content: &str,
     ) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         let metadata = self.install_new(&make_id(folder, title), content, None)?;
         Ok(self.upsert_mutation(metadata))
     }
@@ -435,6 +444,7 @@ impl LocalNoteStore {
         modified_ms: Option<i64>,
     ) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         let metadata = self.write_raw(id, content, modified_ms)?;
         Ok(self.upsert_mutation(metadata))
     }
@@ -452,15 +462,18 @@ impl LocalNoteStore {
         let _gate = self.lock_gate()?;
         match original_id {
             None => {
+                let _vault_mutation = vault_mutation_guard()?;
                 let (folder, title) = split_id(wanted_id);
                 let metadata = self.install_new(&make_id(&folder, &title), content, modified_ms)?;
                 Ok(self.upsert_mutation(metadata))
             }
             Some(original) if original == wanted_id => {
+                let _vault_mutation = vault_mutation_guard()?;
                 let metadata = self.write_raw(original, content, modified_ms)?;
                 Ok(self.upsert_mutation(metadata))
             }
             Some(original) => {
+                let _vault_mutation = vault_mutation_guard()?;
                 self.write_raw(original, content, modified_ms)?;
                 self.rename_raw(original, wanted_id)
             }
@@ -474,6 +487,7 @@ impl LocalNoteStore {
         content: &str,
     ) -> Result<ConditionalWriteResult, String> {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         let path = paths::note_path(&self.root, id)?;
         match fs::read_to_string(&path) {
             Ok(current) if current == expected => {
@@ -511,6 +525,7 @@ impl LocalNoteStore {
     /// counts as existing — the safe outcome, we never clobber it.
     pub fn create_if_absent(&self, id: &str, content: &str) -> Result<CreateOutcome, String> {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         let path = paths::note_path(&self.root, id)?;
         let change = FileChange::Changed(note_filename(id));
         self.before_write
@@ -529,11 +544,12 @@ impl LocalNoteStore {
     /// the content the editor last loaded or saved — what detects that the
     /// note changed underneath the draft.
     ///
-    /// The whole composition holds the mutation gate once, so no check-then-act
+    /// The whole composition holds the store gate once, so no check-then-act
     /// window spans app-facing calls (the P1a TOCTOU that lived between the raw
-    /// `write_if_unchanged`/`create_if_absent`/park FFI calls). External/sync
-    /// writers are NOT serialized by the gate, so every install remains
-    /// no-replace and re-validates instead of clobbering.
+    /// `write_if_unchanged`/`create_if_absent`/park FFI calls). Its existing-note
+    /// check/write span also holds the process-wide vault mutation guard shared
+    /// with sync. The missing-note arm reacquires that guard around its complete
+    /// collision-check/install span, and every install remains no-replace.
     pub fn flush_draft(
         &self,
         id: &str,
@@ -542,7 +558,15 @@ impl LocalNoteStore {
     ) -> Result<FlushDraftResult, String> {
         let _gate = self.lock_gate()?;
         let path = paths::note_path(&self.root, id)?;
-        match fs::read_to_string(&path) {
+        let vault_mutation = vault_mutation_guard()?;
+        let current = fs::read_to_string(&path);
+        #[cfg(test)]
+        if current.is_ok() {
+            if let Some(hook) = self.flush_window_hook.lock().unwrap().as_ref() {
+                hook(id);
+            }
+        }
+        match current {
             // Converged is checked BEFORE the base comparison so a draft the
             // disk already holds never rewrites identical bytes (an mtime bump
             // would re-rank the note on every device).
@@ -563,6 +587,7 @@ impl LocalNoteStore {
             // disk is left intact and the edit survives as a new note.
             Ok(_) => self.park_conflict_draft(id, content),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                drop(vault_mutation);
                 self.recreate_missing_draft(id, content, &path)
             }
             Err(error) => Err(io_error(error)),
@@ -581,6 +606,7 @@ impl LocalNoteStore {
         content: &str,
         path: &Path,
     ) -> Result<FlushDraftResult, String> {
+        let _vault_mutation = vault_mutation_guard()?;
         // Never recreate at an id that cross-platform-collides (case-insensitive
         // / NFC) with a DIFFERENT surviving note. `create_new_atomic` only fails
         // on an EXACT-path collision, so on a case-sensitive filesystem
@@ -698,6 +724,7 @@ impl LocalNoteStore {
 
     pub fn rename(&self, old_id: &str, wanted_id: &str) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         self.rename_raw(old_id, wanted_id)
     }
 
@@ -720,6 +747,7 @@ impl LocalNoteStore {
         folder: &str,
     ) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         let folder = sanitize_folder_path(folder);
         if folder.is_empty() {
             return Err("new folder path is empty".into());
@@ -750,6 +778,7 @@ impl LocalNoteStore {
         F: FnOnce(&Path) -> Result<(), String>,
     {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         let path = paths::note_path(&self.root, id)?;
         if !path.exists() {
             return Ok(self.finish_mutation(Vec::new(), MutationResult::default()));
@@ -823,6 +852,7 @@ impl LocalNoteStore {
     }
 
     fn relocate_folder(&self, from: &str, to: &str) -> Result<MutationResult, String> {
+        let _vault_mutation = vault_mutation_guard()?;
         let source = paths::folder_path(&self.root, &from)?;
         let destination = paths::folder_path(&self.root, &to)?;
         if !source.is_dir() {
@@ -907,6 +937,7 @@ impl LocalNoteStore {
         F: FnOnce(&Path) -> Result<(), String>,
     {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         paths::folder_path(&self.root, folder)?;
         let folder = sanitize_folder_path(folder);
         let target = paths::folder_path(&self.root, &folder)?;
@@ -1381,6 +1412,11 @@ impl LocalNoteStore {
     #[cfg(test)]
     fn set_install_window_hook(&self, hook: InstallWindowHook) {
         *self.install_window_hook.lock().unwrap() = Some(hook);
+    }
+
+    #[cfg(test)]
+    fn set_flush_window_hook(&self, hook: InstallWindowHook) {
+        *self.flush_window_hook.lock().unwrap() = Some(hook);
     }
 
     #[cfg(test)]

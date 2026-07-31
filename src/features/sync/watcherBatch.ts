@@ -7,6 +7,7 @@ export interface WatcherBatchOptions {
   suppressor: WriteSuppressor;
   getFileHash?: (filename: string) => string | undefined;
   computeFileHash?: (filename: string) => Promise<string | undefined>;
+  isDrainExempt?: (event: FileChangeEvent) => boolean;
 }
 
 export interface WatcherBatch {
@@ -19,7 +20,8 @@ export interface WatcherBatch {
 const RENAME_DETECT_WINDOW_MS = 500;
 
 export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
-  const { onEvent, onBulkRefresh, suppressor, getFileHash, computeFileHash } = options;
+  const { onEvent, onBulkRefresh, suppressor, getFileHash, computeFileHash, isDrainExempt } =
+    options;
 
   let syncActive = false;
   let pendingWatcherEvents: FileChangeEvent[] = [];
@@ -126,7 +128,8 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
       postSyncBatchTimer = null;
       const unhandled = pendingWatcherEvents.filter(
         (ev) =>
-          !suppressor.isRecentSyncWrite(ev.filename) && !suppressor.isPreSyncWrite(ev.filename),
+          isDrainExempt?.(ev) ||
+          (!suppressor.isRecentSyncWrite(ev.filename) && !suppressor.isPreSyncWrite(ev.filename)),
       );
       pendingWatcherEvents = [];
       suppressor.clearPreSyncWrites();

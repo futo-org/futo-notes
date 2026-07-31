@@ -17,6 +17,7 @@ vi.mock('$lib/localNoteStore', () => ({
   getLocalNoteStore: vi.fn(async () => ({ rescan: rescanLocalNotes })),
 }));
 vi.mock('$features/notes/notes.svelte', () => ({
+  updateNote: vi.fn(async (id: string) => ({ id, mtime: 0, disposition: 'wrote' })),
   readNote: vi.fn(async () => ''),
   noteExists: vi.fn(async () => false),
   getNoteById: vi.fn(() => undefined),
@@ -25,8 +26,18 @@ vi.mock('$features/notes/notes.svelte', () => ({
 }));
 
 import { updateAppState } from '$shared/state/appState';
-import { noteExists, readNote, refreshNotesFromStorage } from '$features/notes/notes.svelte';
-import type { NoteSession } from '$features/notes/noteSession.svelte';
+import {
+  noteExists,
+  readNote,
+  refreshNotesFromStorage,
+  updateNote,
+} from '$features/notes/notes.svelte';
+import {
+  createNoteSession,
+  type NoteSession,
+  type NoteSessionDeps,
+} from '$features/notes/noteSession.svelte';
+import { writeSuppressor } from '$lib/platform/writeSuppression';
 import { createSyncManager, getSyncErrorMessage, type SyncManagerDeps } from './syncManager.svelte';
 import type { SyncSummary } from './syncServiceE2ee';
 
@@ -47,6 +58,7 @@ const emptySummary: SyncSummary = {
 type SessionState = {
   id: string | null;
   content: string | undefined;
+  savedContent: string;
   dirty: boolean;
   focused: boolean;
   composing: boolean;
@@ -59,6 +71,7 @@ function makeSession(overrides: Partial<SessionState> = {}) {
   const state: SessionState = {
     id: null,
     content: undefined,
+    savedContent: '',
     dirty: false,
     focused: false,
     composing: false,
@@ -67,8 +80,13 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     lastEditTime: 0,
     ...overrides,
   };
+  if (overrides.savedContent === undefined) state.savedContent = state.content ?? '';
   const applyExternalContent = vi.fn((content: string) => {
     state.content = content;
+    state.savedContent = content;
+  });
+  const rebaseSavedContent = vi.fn((content: string) => {
+    state.savedContent = content;
   });
   const applyRemoteRename = vi.fn((id: string) => {
     state.id = id;
@@ -76,12 +94,16 @@ function makeSession(overrides: Partial<SessionState> = {}) {
   const cancelAndClear = vi.fn(() => {
     state.id = null;
   });
+  const awaitSaveIdle = vi.fn(async () => {});
   const session = {
     get originalId() {
       return state.id;
     },
     get editorContent() {
       return state.content;
+    },
+    get savedContent() {
+      return state.savedContent;
     },
     get dirty() {
       return state.dirty;
@@ -102,11 +124,21 @@ function makeSession(overrides: Partial<SessionState> = {}) {
       return state.lastEditTime;
     },
     flushSave: vi.fn(async () => {}),
+    awaitSaveIdle,
     applyExternalContent,
+    rebaseSavedContent,
     applyRemoteRename,
     cancelAndClear,
   } as unknown as NoteSession;
-  return { state, session, applyExternalContent, applyRemoteRename, cancelAndClear };
+  return {
+    state,
+    session,
+    applyExternalContent,
+    rebaseSavedContent,
+    applyRemoteRename,
+    awaitSaveIdle,
+    cancelAndClear,
+  };
 }
 
 function makeManager(
@@ -126,6 +158,41 @@ function makeManager(
   return { manager, toasts, onRename, pruneTabsForDeletedIds, ...sessionBundle };
 }
 
+function makeLiveNoteSession(id: string, body: string) {
+  let editorContent = body;
+  const setEditorContent = vi.fn((content: string) => {
+    editorContent = content;
+  });
+  const deps = {
+    getEditorContent: () => editorContent,
+    setEditorContent,
+    focusEditor: vi.fn(),
+    isEditorFocused: () => false,
+    isComposing: () => false,
+    getNotes: () => [],
+    getNoteBody: () => undefined,
+    getTitleTextarea: () => undefined,
+    getNoteId: () => id,
+    setPrevNoteId: vi.fn(),
+    onNoteRenamed: vi.fn(),
+    reconcileOpenNote: vi.fn(async () => false),
+    navigate: vi.fn(),
+  } satisfies NoteSessionDeps;
+  const session = createNoteSession(deps);
+  session.seedOpenNote(id, body);
+  setEditorContent.mockClear();
+
+  return {
+    session,
+    setEditorContent,
+    getEditorContent: () => editorContent,
+    editContent: (content: string) => {
+      editorContent = content;
+      session.debouncedSave(content);
+    },
+  };
+}
+
 beforeEach(() => {
   autoSyncCallbacks = null;
   vi.mocked(readNote).mockReset();
@@ -133,6 +200,12 @@ beforeEach(() => {
   vi.mocked(noteExists).mockReset();
   vi.mocked(noteExists).mockResolvedValue(false);
   vi.mocked(refreshNotesFromStorage).mockClear();
+  vi.mocked(updateNote).mockReset();
+  vi.mocked(updateNote).mockImplementation(async (id: string) => ({
+    id,
+    mtime: 0,
+    disposition: 'wrote',
+  }));
   rescanLocalNotes.mockClear();
   vi.mocked(updateAppState).mockClear();
   vi.useFakeTimers();
@@ -270,6 +343,62 @@ describe('peer projections', () => {
     );
   });
 
+  it('waits for an in-flight save to commit before rebinding a remote rename', async () => {
+    const sessionBundle = makeSession({
+      id: 'Old',
+      content: 'draft',
+      savedContent: 'base',
+      savePending: true,
+    });
+    let releaseSave!: () => void;
+    const saveIdle = new Promise<void>((resolve) => {
+      releaseSave = () => {
+        sessionBundle.state.savedContent = 'draft';
+        sessionBundle.state.savePending = false;
+        resolve();
+      };
+    });
+    sessionBundle.awaitSaveIdle.mockReturnValueOnce(saveIdle);
+    const bundle = makeManager(sessionBundle);
+
+    const reconciliation = bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      renamed: [{ fromId: 'Old', toId: 'New' }],
+    });
+    await Promise.resolve();
+
+    expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
+    expect(bundle.state.savedContent).toBe('base');
+
+    releaseSave();
+    await reconciliation;
+
+    expect(bundle.state.savedContent).toBe('draft');
+    expect(bundle.applyRemoteRename).toHaveBeenCalledExactlyOnceWith('New', 'New');
+  });
+
+  it('does not rebind a remote rename after the session switches notes', async () => {
+    const sessionBundle = makeSession({ id: 'Old', savePending: true });
+    let releaseSave!: () => void;
+    sessionBundle.awaitSaveIdle.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        releaseSave = resolve;
+      }),
+    );
+    const bundle = makeManager(sessionBundle);
+
+    const reconciliation = bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      renamed: [{ fromId: 'Old', toId: 'New' }],
+    });
+    await Promise.resolve();
+    sessionBundle.state.id = 'Other';
+    releaseSave();
+    await reconciliation;
+
+    expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
+  });
+
   // Same-cycle collision placement + tombstone of the relocated note: the
   // engine reports both the rename and the deletion of its target (guarded by
   // same_cycle_tombstone_of_a_collision_relocated_note_survives_ghost_stripping
@@ -317,11 +446,74 @@ describe('peer projections', () => {
   });
 });
 
-describe('focused-editor reconciliation', () => {
-  it('defers a watcher adopt until the focused editor blurs', async () => {
-    const bundle = makeManager(makeSession({ id: 'WatcherFocus', content: 'OLD', focused: true }));
+describe('editor reconciliation', () => {
+  it('rebases a draft saved during sync so the next flush persists it over pulled content', async () => {
+    const live = makeLiveNoteSession('During sync', 'base');
+    live.editContent('local draft');
+    await live.session.flushSave();
+    expect(live.session.savedContent).toBe('local draft');
+    expect(live.session.editVersion).toBe(1);
+
+    vi.mocked(updateNote).mockClear();
+    vi.mocked(readNote).mockResolvedValue('# Remote update');
+    const manager = createSyncManager({
+      session: live.session,
+      showToast: vi.fn(),
+      onRename: vi.fn(),
+      pruneTabsForDeletedIds: vi.fn(),
+    });
+
+    await manager.handleSyncComplete({ ...emptySummary, updatedIds: ['During sync'] });
+
+    expect(live.getEditorContent()).toBe('local draft');
+    expect(live.session.savedContent).toBe('# Remote update');
+    expect(live.session.dirty).toBe(true);
+
+    await live.session.flushSave();
+
+    expect(updateNote).toHaveBeenCalledExactlyOnceWith(
+      'During sync',
+      'During sync',
+      'local draft',
+      { originalId: 'During sync', base: '# Remote update' },
+    );
+    expect(live.session.savedContent).toBe('local draft');
+    expect(live.session.dirty).toBe(false);
+  });
+
+  it('silently rebases when pulled content already matches the editor', async () => {
+    const live = makeLiveNoteSession('Converged', 'old base');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(updateNote).mockRejectedValueOnce(new Error('write failed'));
+    live.editContent('converged content');
+    await live.session.flushSave();
+    warn.mockRestore();
+    expect(live.session.savedContent).toBe('old base');
+    expect(live.session.dirty).toBe(true);
+
+    vi.mocked(readNote).mockResolvedValue('converged content');
+    const manager = createSyncManager({
+      session: live.session,
+      showToast: vi.fn(),
+      onRename: vi.fn(),
+      pruneTabsForDeletedIds: vi.fn(),
+    });
+
+    await manager.handleSyncComplete({ ...emptySummary, updatedIds: ['Converged'] });
+
+    expect(live.getEditorContent()).toBe('converged content');
+    expect(live.setEditorContent).not.toHaveBeenCalled();
+    expect(live.session.savedContent).toBe('converged content');
+    expect(live.session.dirty).toBe(false);
+  });
+
+  it('defers a watcher adopt during composition until the editor blurs', async () => {
+    const bundle = makeManager(
+      makeSession({ id: 'WatcherFocus', content: 'OLD', focused: true, composing: true }),
+    );
     await bundle.manager.handleFileChange({ type: 'change', filename: 'WatcherFocus.md' });
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    bundle.state.composing = false;
     bundle.state.focused = false;
     await bundle.manager.handleEditorFocusChange(false);
     expect(bundle.applyExternalContent).toHaveBeenCalledWith('FRESH');
@@ -337,15 +529,39 @@ describe('focused-editor reconciliation', () => {
     expect(synced.applyExternalContent).toHaveBeenCalledWith('FRESH');
   });
 
-  it('keeps a draft created after an adopt was deferred', async () => {
+  it('silently adopts sync content after blur even when a draft was created while deferred', async () => {
     const bundle = makeManager(makeSession({ id: 'DirtyLater', content: 'OLD', focused: true }));
-    await bundle.manager.handleFileChange({ type: 'change', filename: 'DirtyLater.md' });
+    await bundle.manager.handleSyncComplete({ ...emptySummary, updatedIds: ['DirtyLater'] });
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+
     bundle.state.focused = false;
     bundle.state.dirty = true;
     bundle.state.content = 'LOCAL';
     await bundle.manager.handleEditorFocusChange(false);
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.toasts).toContain('Open note changed externally; keeping local draft');
+
+    expect(bundle.applyExternalContent).toHaveBeenCalledWith('FRESH');
+    expect(bundle.toasts).toEqual([]);
+  });
+
+  it('re-reads a sync-deferred adopt on blur while the sync-write suppressor is active', async () => {
+    vi.mocked(readNote)
+      .mockResolvedValueOnce('sync completion snapshot')
+      .mockResolvedValueOnce('current disk content');
+    const bundle = makeManager(
+      makeSession({ id: 'SuppressedSyncAdopt', content: 'OLD', focused: true }),
+    );
+
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['SuppressedSyncAdopt'],
+    });
+    expect(writeSuppressor.isRecentSyncWrite('SuppressedSyncAdopt.md')).toBe(true);
+
+    bundle.state.focused = false;
+    await bundle.manager.handleEditorFocusChange(false);
+
+    expect(readNote).toHaveBeenCalledTimes(2);
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('current disk content');
   });
 });
 

@@ -1,3 +1,5 @@
+import { FALLBACK_TITLE } from '$lib/rules';
+
 export function shouldWriteNoteToDisk(params: {
   savedTitle: string;
   newTitle: string;
@@ -7,6 +9,10 @@ export function shouldWriteNoteToDisk(params: {
   return !(params.newTitle === params.savedTitle && params.newContent === params.content);
 }
 
+export function normalizeTitleForPersistence(title: string): string {
+  return title.trim() || FALLBACK_TITLE;
+}
+
 export function editorHasUnseenChanges(params: {
   editorContent: string | undefined;
   savedContent: string;
@@ -14,7 +20,10 @@ export function editorHasUnseenChanges(params: {
   savedTitle: string;
 }): boolean {
   if (params.editorContent === undefined) return false;
-  return params.editorContent !== params.savedContent || params.title !== params.savedTitle;
+  return (
+    params.editorContent !== params.savedContent ||
+    normalizeTitleForPersistence(params.title) !== normalizeTitleForPersistence(params.savedTitle)
+  );
 }
 
 export function isEditorChangeEcho(params: {

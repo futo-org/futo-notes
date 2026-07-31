@@ -516,7 +516,7 @@ EditorWebView.swift, EditorWebView.kt
 - Wikilinks and tags inside inline code or fenced blocks are NOT decorated and
   NOT extracted. → markdown-spec/cases/03-code, 08-wikilinks, 09-tags
 
-## Saving & rename _(native shells)_
+## Saving & rename
 
 - Body edits autosave on a debounce (~400 ms). The save re-reads the current
   note id at fire time, so a save landing **after** a rename writes to the
@@ -578,11 +578,12 @@ EditorWebView.swift, EditorWebView.kt
   write — true on both native shells. → Android MainActivity `onPause` →
   `NotesStore.flushPendingEditor`; iOS FutoNotesApp scenePhase
   `.inactive`/`.background` → `NotesStore.flushPendingEditor`
-- A leave/background flush goes through the engine's ONE draft-saving verb
-  (persist-or-park, ADR-0001): `flush_draft(id, base, content)` resolves every
-  surprise itself under the engine's per-workflow serialization and returns one
-  flush disposition plus the mutation to apply — **wrote** (the note still held
-  `base`; content a live pull adopted since the editor's last read is never
+- A native leave/background flush and the desktop editor's debounced body save
+  go through the engine's ONE draft-saving verb (persist-or-park, ADR-0001):
+  `flush_draft(id, base, content)` resolves every surprise itself under the
+  store gate plus the process-wide vault mutation guard shared with sync, and
+  returns one flush disposition plus the mutation to apply — **wrote** (the
+  note still held `base`; content a live pull adopted since the editor's last read is never
   clobbered by a stale flush), **converged** (disk already equals the draft —
   explicit, no rewrite, no mtime bump; shells never read disk to compare),
   **recreated** (peer deleted; the edit wins at the ORIGINAL id — the same home
@@ -597,13 +598,23 @@ EditorWebView.swift, EditorWebView.kt
   abandoned note is never resurrected. Conflict copies are named by the
   engine's one conflict-naming rule ("<title> (conflict YYYY-MM-DD)", counter
   suffix on a same-day collision), and parking is idempotent — a crash-window
-  double-park mints ONE copy. _(iOS, Android; desktop saves unconditionally.)_ →
+  double-park mints ONE copy. On desktop, a parked disposition adds the
+  conflict copy's returned mutation to the note projection, leaves the draft
+  baseline uncommitted, then re-reads and adopts the diverged original from
+  disk through `reconcileOpenNote`; the copy appears in the list with no toast.
+  On desktop, only a same-id body save uses `flush_draft`; a rename persists
+  the title and body through the store's single save workflow, never as a
+  separately committed flush followed by a move. _(desktop, iOS, Android)_ →
   `futo_notes_store::LocalNoteStore::flush_draft` via FFI `flush_draft`;
-  native `NotesStore.flushDraft`/`flushAsync`; conflict naming
+  desktop `notes.svelte.ts updateNote` through
+  `createNotePersistence`/`noteSession.svelte.ts`; native
+  `NotesStore.flushDraft`/`flushAsync`; conflict naming
   `futo_notes_core::conflict_names`. Guarded by the flush_draft unit tests in
   crates/futo-notes-store/src/tests.rs (all four dispositions, converged/park
   boundary, recreate-vs-reappeared window, park idempotency, recreate-arm
-  mutation positioning), the FFI note_contract test, and
+  mutation positioning, store-vs-sync serialization), desktop
+  `notes.contract.test.ts` / `createNotePersistence.test.ts` /
+  `createExternalChangeCoordinator.test.ts`, the FFI note_contract test, and
   apps/ios/Tests/Notes/Editor/FlushDraftVerbTests.swift and Android's
   `EditorLifecycleFlushTest`. Earlier behavior verified on iOS 2026-07-13
   (sim); iOS verb wiring verified via `just test-ios-native` 2026-07-21 and
@@ -626,6 +637,11 @@ EditorWebView.swift, EditorWebView.kt
   the surviving-process flush path, not an actual jetsam-during-background kill.
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines.
+- A title that differs from the saved title only by leading or trailing
+  whitespace leaves the session clean and skips the write. Only the saved-title
+  comparison is normalized; the visible editor title keeps its whitespace.
+- A duplicate title blocks the save and shows the inline warning text
+  "A note with this name already exists".
 - The editor chrome shows **no word count** (or any other document
   statistic) — just the title and the document (spec decision 2026-06-10;
   Android native previously rendered an "N words" line under the title, no

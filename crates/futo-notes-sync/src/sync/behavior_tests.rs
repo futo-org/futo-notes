@@ -1,6 +1,8 @@
 use super::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use futo_notes_core::conflict_names::collision_conflict_filename;
 use futo_notes_core::hash::hash_sha256;
@@ -660,6 +662,37 @@ fn same_cycle_update_of_a_collision_relocated_note_survives_ghost_stripping() {
     assert_eq!(combined.renamed.len(), 1);
     assert!(combined.updated_ids.contains(&note_id(&conflict)));
     assert!(combined.peer_updated_ids.contains(&note_id(&conflict)));
+}
+
+#[test]
+fn tombstone_claim_waits_for_a_flush_owned_vault_span() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("note.md"), "base").unwrap();
+    let flush_guard = futo_notes_core::files::vault_mutation_guard().unwrap();
+    let claim_root = root.path().to_owned();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (finished_tx, finished_rx) = mpsc::channel();
+
+    let claim = std::thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        let result = claim_local(&claim_root, "note.md", "object", &no_pre);
+        finished_tx.send(result).unwrap();
+    });
+    started_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("tombstone claim started");
+    assert!(
+        finished_rx.recv_timeout(Duration::from_millis(75)).is_err(),
+        "tombstone rename must wait while flush owns the vault span"
+    );
+
+    drop(flush_guard);
+    finished_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("tombstone claim proceeds after flush")
+        .unwrap()
+        .expect("note was claimed");
+    claim.join().unwrap();
 }
 
 #[test]

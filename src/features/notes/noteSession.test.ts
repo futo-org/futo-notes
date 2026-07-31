@@ -14,8 +14,12 @@ vi.mock('./notes.svelte', () => ({
   readNote: vi.fn(async () => ''),
   createNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
   getNoteById: vi.fn(() => undefined),
+  handleExternalFileChange: vi.fn(async () => {}),
+  refreshNotesFromStorage: vi.fn(async () => {}),
 }));
 
+import { createWriteSuppressor } from '$lib/platform/writeSuppression';
+import { createExternalChangeCoordinator } from '$features/sync/createExternalChangeCoordinator';
 import {
   createNoteSession,
   editorHasUnseenChanges,
@@ -165,6 +169,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
       getNoteId: () => 'new',
       setPrevNoteId: vi.fn(),
       onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
       navigate: vi.fn(),
     } satisfies NoteSessionDeps;
   }
@@ -181,7 +186,11 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     editorContent = '';
     const { updateNote } = await import('./notes.svelte');
     vi.mocked(updateNote).mockReset();
-    vi.mocked(updateNote).mockImplementation(async (id: string) => ({ id, mtime: 0 }));
+    vi.mocked(updateNote).mockImplementation(async (id: string) => ({
+      id,
+      mtime: 0,
+      disposition: 'wrote',
+    }));
     vi.useFakeTimers();
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       cb(0);
@@ -228,6 +237,15 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     expect(updateNote).toHaveBeenCalledTimes(1);
   });
 
+  it('is clean after saving a title with trailing whitespace', async () => {
+    const session = createNoteSession(makeDeps());
+
+    typeTitle(session, 'Foo ');
+    await session.flushSave();
+
+    expect(session.dirty).toBe(false);
+  });
+
   it('flushes editor content even when rAF never delivered onchange', async () => {
     const session = createNoteSession(makeDeps());
     await session.loadNote('new');
@@ -236,12 +254,21 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     await session.flushSave();
 
     const { updateNote } = await import('./notes.svelte');
-    expect(updateNote).toHaveBeenCalledWith(
-      'Untitled',
-      'Untitled',
-      '# hidden-window keystroke',
-      undefined,
-    );
+    expect(updateNote).toHaveBeenCalledWith('Untitled', 'Untitled', '# hidden-window keystroke', {
+      originalId: undefined,
+      base: '',
+    });
+  });
+
+  it('awaits only an in-flight save without starting a scheduled save', async () => {
+    const session = createNoteSession(makeDeps());
+    const { updateNote } = await import('./notes.svelte');
+
+    session.debouncedSave('# scheduled');
+    await session.awaitSaveIdle();
+
+    expect(updateNote).not.toHaveBeenCalled();
+    expect(session.savePending).toBe(true);
   });
 
   it('queues saves typed during a local move until the session has retargeted', async () => {
@@ -278,8 +305,156 @@ describe('title debounce vs body debounce (character-loss race)', () => {
       'Archive/Roadmap',
       'Roadmap',
       'draft typed during move',
-      'Archive/Roadmap',
+      { originalId: 'Archive/Roadmap', base: 'base' },
     );
+  });
+});
+
+describe('stale save completion after an external close', () => {
+  let editorContent = '';
+
+  beforeEach(async () => {
+    const { updateNote } = await import('./notes.svelte');
+    vi.mocked(updateNote).mockReset();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps the session cleared when an external unlink races an in-flight save completion', async () => {
+    let routeNoteId: string | null = 'active';
+    let resolveSave!: (result: { id: string; mtime: number; disposition: 'wrote' }) => void;
+    const saveResult = new Promise<{ id: string; mtime: number; disposition: 'wrote' }>(
+      (resolve) => {
+        resolveSave = resolve;
+      },
+    );
+    const deps = {
+      getEditorContent: () => editorContent,
+      setEditorContent: vi.fn((text: string) => {
+        editorContent = text;
+      }),
+      focusEditor: vi.fn(),
+      isEditorFocused: () => false,
+      isComposing: () => false,
+      getNotes: () => [],
+      getNoteBody: () => undefined,
+      getTitleTextarea: () => undefined,
+      getNoteId: () => routeNoteId,
+      setPrevNoteId: vi.fn(),
+      navigate: vi.fn((path: string) => {
+        if (path === '/') routeNoteId = null;
+      }),
+      onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
+    } satisfies NoteSessionDeps;
+    const session = createNoteSession(deps);
+    const { updateNote } = await import('./notes.svelte');
+    const { notifySavedV2 } = await import('$features/sync/autoSyncV2');
+    vi.mocked(updateNote).mockImplementationOnce(() => saveResult);
+    vi.mocked(notifySavedV2).mockClear();
+    session.seedOpenNote('active', 'base');
+
+    editorContent = 'draft';
+    session.debouncedSave(editorContent);
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+    expect(updateNote).toHaveBeenCalledOnce();
+
+    const externalChanges = createExternalChangeCoordinator({
+      session,
+      notifySaved: vi.fn(),
+      showToast: vi.fn(),
+      writeSuppressor: createWriteSuppressor(),
+    });
+    await externalChanges.handleFileChange({ type: 'unlink', filename: 'active.md' });
+
+    resolveSave({ id: 'Renamed', mtime: 0, disposition: 'wrote' });
+    await session.flushSave();
+
+    expect(session.originalId).toBeNull();
+    expect(session.title).toBe('');
+    expect(session.content).toBe('');
+    expect(deps.onNoteRenamed).not.toHaveBeenCalled();
+    expect(notifySavedV2).toHaveBeenCalledOnce();
+    expect(updateNote).toHaveBeenCalledOnce();
+    expect(session.savePending).toBe(false);
+    externalChanges.stop();
+  });
+});
+
+describe('stale first-save completion after navigation', () => {
+  let editorContent = '';
+
+  beforeEach(async () => {
+    const { readNote, updateNote } = await import('./notes.svelte');
+    vi.mocked(readNote).mockReset();
+    vi.mocked(updateNote).mockReset();
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not rebind a new-note save that resolves after another note was opened', async () => {
+    let routeNoteId: string | null = 'new';
+    let resolveSave!: (result: { id: string; mtime: number; disposition: 'wrote' }) => void;
+    let resolveOtherRead!: (content: string) => void;
+    const saveResult = new Promise<{ id: string; mtime: number; disposition: 'wrote' }>(
+      (resolve) => {
+        resolveSave = resolve;
+      },
+    );
+    const otherRead = new Promise<string>((resolve) => {
+      resolveOtherRead = resolve;
+    });
+    const deps = {
+      getEditorContent: () => editorContent,
+      setEditorContent: vi.fn((text: string) => {
+        editorContent = text;
+      }),
+      focusEditor: vi.fn(),
+      isEditorFocused: () => false,
+      isComposing: () => false,
+      getNotes: () => [],
+      getNoteBody: () => undefined,
+      getTitleTextarea: () => undefined,
+      getNoteId: () => routeNoteId,
+      setPrevNoteId: vi.fn(),
+      navigate: vi.fn(),
+      onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
+    } satisfies NoteSessionDeps;
+    const { readNote, updateNote } = await import('./notes.svelte');
+    vi.mocked(updateNote).mockImplementationOnce(() => saveResult);
+    vi.mocked(readNote).mockImplementationOnce(() => otherRead);
+    const session = createNoteSession(deps);
+    await session.loadNote('new');
+
+    editorContent = 'first draft';
+    session.debouncedSave(editorContent);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(updateNote).toHaveBeenCalledOnce();
+
+    routeNoteId = 'other';
+    const openingOther = session.loadNote('other');
+    resolveSave({ id: 'Untitled', mtime: 0, disposition: 'wrote' });
+    await vi.waitFor(() => expect(readNote).toHaveBeenCalledWith('other'));
+
+    expect(session.originalId).toBe('other');
+    expect(session.savedContent).toBe('');
+    expect(deps.onNoteRenamed).not.toHaveBeenCalled();
+
+    resolveOtherRead('other content');
+    await openingOther;
   });
 });
 
@@ -297,6 +472,7 @@ describe('loadNote focus routing', () => {
       getNoteId: () => noteId,
       setPrevNoteId: vi.fn(),
       onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
       navigate: vi.fn(),
     } satisfies NoteSessionDeps;
   }
@@ -404,6 +580,7 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
       getNoteId: () => 'old note',
       setPrevNoteId: vi.fn(),
       onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
       navigate: vi.fn(),
     } satisfies NoteSessionDeps;
   }
@@ -412,7 +589,11 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
     editorDoc = '';
     const { updateNote } = await import('./notes.svelte');
     vi.mocked(updateNote).mockReset();
-    vi.mocked(updateNote).mockImplementation(async (id: string) => ({ id, mtime: 0 }));
+    vi.mocked(updateNote).mockImplementation(async (id: string) => ({
+      id,
+      mtime: 0,
+      disposition: 'wrote',
+    }));
     vi.useFakeTimers();
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       cb(0);

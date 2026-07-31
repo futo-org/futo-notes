@@ -829,9 +829,45 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   ~45 s safety poll cover liveness (see "Live sync (SSE)"). → futo-notes-sync
   `session/`
 
+- **External filesystem changes to the open note mirror disk, IDE-style
+  *(desktop)*.** A watcher `change` whose disk content differs from the
+  session's last-saved baseline is adopted immediately, even over a dirty or
+  focused draft; equality with the live editor is still adopted as a zero-diff
+  apply so the saved baseline advances. Active-note `change` events bypass
+  recent local/sync-write TTL suppression — including events buffered during a
+  manual sync — so content comparison, not event timing, decides whether they
+  are genuine external edits. An active IME composition defers the adopt until
+  blur, which re-reads current disk content before applying it silently. Only
+  content matching the saved baseline is a self-write echo and is dropped by
+  comparison rather than event counting. The session is
+  re-checked after each asynchronous disk read: a note switch drops the stale
+  adopt. Every active-note `change` flushes the session before reading, so a
+  timer-scheduled or in-flight dirty draft first runs through `flush_draft` and
+  either writes or parks against the current disk base. Reconciliation never
+  adopts over a save scheduled during the asynchronous read; that save settles
+  through the same path, and only the guarded post-park reconcile re-reads and
+  adopts while the save queue is still technically in flight. If validation or
+  a write failure leaves the forced flush dirty, the watcher refreshes storage
+  without adopting over that draft. The save itself is conditional against the
+  session's saved-content base:
+  matching disk is written, identical disk converges without a rewrite, and a
+  stale draft against diverged disk is parked as a conflict copy instead of
+  clobbering it. After a park, desktop projects the copy and explicitly
+  reconciles the open note from disk (no toast), so the peer/external bytes are
+  adopted while the draft survives in the list. The store and sync share one
+  process-wide mutation guard across their check/write spans, closing the
+  remaining read→compare→write interleaving window. A `change` that reads empty
+  content closes the session as an external deletion only when the note no longer
+  exists; an existing empty note adopts normally, and either path still emits the change's
+  save notification exactly once. A watcher `unlink` always closes the open
+  session and shows "Note was deleted externally"; if an already-started save
+  completes afterward, its disk write still notifies sync but cannot restore
+  the cleared session. → createExternalChangeCoordinator.ts (guarded by
+  createExternalChangeCoordinator.test.ts and the cross-platform scenario
+  "external watcher adopts over dirty draft")
 - A remote edit to the **currently-open note** is adopted into the open editor
   when the local draft is clean (`content == savedContent`); a dirty draft
-  still wins and is never overwritten. Without this, the open editor kept
+  still wins and is never overwritten *(iOS/Android)*. Without this, the open editor kept
   showing a stale base and — worse — SAVED IT BACK on exit, silently
   clobbering the remote edit (observed 2026-06-04). → NoteEditorView.swift
   (`onReceive(store.$notes)`), NoteEditorScreen.kt (`snapshotFlow
@@ -847,8 +883,20 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   session and saved content) are now dropped before the edit bookkeeping, and
   the adopt gate additionally checks `hasOpenDraftChanges()` (a synchronous
   live-doc read) so a keystroke whose rAF delivery is still in flight can
-  never be clobbered by the adopt. → noteSession `isEditorChangeEcho`,
-  syncManager `handleSyncComplete`
+  never be clobbered by the initial adopt decision. When a draft is protected
+  because it is dirty or was edited during the running cycle, sync completion
+  leaves the editor untouched but re-bases its saved-content baseline to the
+  pulled disk content. The draft is therefore honestly dirty again, and the
+  next ordinary `flush_draft` persists it against that pulled base; if disk
+  already equals the editor, the same rebase silently makes the session clean.
+  Once a focused-editor
+  adopt is deferred, blur re-reads current disk content through
+  `reconcileOpenNote` and applies it silently if the same note is still open
+  and it differs from the saved baseline; content already matching the editor
+  is still applied as a zero-diff baseline advance. → noteSession
+  `isEditorChangeEcho`, syncManager `handleSyncComplete` (guarded by "silently
+  adopts sync content after blur even when a draft was created while deferred"
+  in syncManager.test.ts)
 
 - The native clean-adopt **preserves the caret/selection and scroll**: the
   shells push remote content through the embed's `applyExternalContent`

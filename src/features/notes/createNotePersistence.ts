@@ -1,7 +1,7 @@
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
 
-import { shouldWriteNoteToDisk } from './noteSessionChanges';
+import { normalizeTitleForPersistence, shouldWriteNoteToDisk } from './noteSessionChanges';
 import { updateNote } from './notes.svelte';
 
 interface NotePersistenceState {
@@ -26,6 +26,7 @@ interface CreateNotePersistenceOptions {
   getState: () => NotePersistenceState;
   hasDuplicateTitle: (title: string) => boolean;
   onSaved: (state: SavedNoteState) => void;
+  reconcileOpenNote: (id: string) => Promise<unknown>;
   showTitleWarning: (message: string) => void;
 }
 
@@ -37,7 +38,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
 
     try {
       const state = options.getState();
-      const newTitle = state.title.trim() || 'Untitled';
+      const newTitle = normalizeTitleForPersistence(state.title);
       const blockingTitleIssue = validateTitle(newTitle).find((issue) => issue.kind !== 'empty');
       if (blockingTitleIssue) {
         options.showTitleWarning(blockingTitleIssue.message);
@@ -59,18 +60,24 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
           newTitle,
           content: state.savedContent,
           newContent: editorContent,
-        }) ||
-        options.hasDuplicateTitle(newTitle)
+        })
       ) {
         return false;
       }
+      if (options.hasDuplicateTitle(newTitle)) {
+        options.showTitleWarning('A note with this name already exists');
+        return false;
+      }
 
-      const result = await updateNote(
-        newId,
-        newTitle,
-        editorContent,
-        state.originalId ?? undefined,
-      );
+      const result = await updateNote(newId, newTitle, editorContent, {
+        originalId: state.originalId ?? undefined,
+        base: state.savedContent,
+      });
+      if (result.disposition === 'parked') {
+        await options.reconcileOpenNote(result.id);
+        return false;
+      }
+
       options.clearPendingFolder();
       options.onSaved({
         id: result.id,
@@ -78,7 +85,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         content: editorContent,
         savedOriginalId: state.originalId,
       });
-      return true;
+      return result.disposition !== 'converged';
     } catch (error) {
       console.warn('Failed to save note:', error);
       return false;

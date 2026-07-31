@@ -1,4 +1,5 @@
 import {
+  getNoteById,
   handleExternalFileChange,
   readNote,
   refreshNotesFromStorage,
@@ -16,11 +17,24 @@ interface ExternalChangeDependencies {
   writeSuppressor: WriteSuppressor;
 }
 
+interface ReconcileOpenNoteOptions {
+  allowPendingSave?: boolean;
+}
+
+function shouldDropOpenNoteReconcile(
+  session: NoteSession,
+  id: string,
+  options: ReconcileOpenNoteOptions,
+): boolean {
+  return session.originalId !== id || (session.savePending && !options.allowPendingSave);
+}
+
 export function createExternalChangeCoordinator(dependencies: ExternalChangeDependencies) {
   let rescanTimer: number | null = null;
   let rescanInFlight = false;
   let rescanQueued = false;
-  let pendingAdopt: { id: string; content: string } | null = null;
+  let pendingAdopt: string | null = null;
+  let reconciliationTail: Promise<void> = Promise.resolve();
 
   async function runRescan(): Promise<void> {
     if (!hasFileSystem) return;
@@ -28,7 +42,6 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       rescanQueued = true;
       return;
     }
-
     rescanInFlight = true;
     try {
       await refreshNotesFromStorage();
@@ -51,63 +64,96 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     }, delay);
   }
 
-  async function preserveLocalDraft(): Promise<void> {
-    dependencies.showToast('Open note changed externally; keeping local draft');
-    await refreshNotesFromStorage();
-    scheduleRescan(250);
+  async function reconcileOpenNoteFromDisk(
+    id: string,
+    options: ReconcileOpenNoteOptions,
+  ): Promise<boolean> {
+    let content = await readNote(id).catch(() => null);
+    if (content === null || shouldDropOpenNoteReconcile(dependencies.session, id, options)) {
+      return false;
+    }
+
+    let storageReconciled = false;
+    if (content === '') {
+      await handleExternalFileChange(`${id}.md`);
+      storageReconciled = true;
+      if (shouldDropOpenNoteReconcile(dependencies.session, id, options)) {
+        return storageReconciled;
+      }
+      if (!getNoteById(id)) {
+        pendingAdopt = null;
+        dependencies.session.cancelAndClear();
+        dependencies.showToast('Note was deleted externally');
+        return storageReconciled;
+      }
+      content = await readNote(id).catch(() => null);
+      if (content === null || shouldDropOpenNoteReconcile(dependencies.session, id, options)) {
+        return storageReconciled;
+      }
+    }
+
+    if (content === dependencies.session.savedContent) {
+      pendingAdopt = null;
+    } else if (dependencies.session.composing) {
+      pendingAdopt = id;
+    } else {
+      pendingAdopt = null;
+      dependencies.session.applyExternalContent(content);
+    }
+    return storageReconciled;
+  }
+
+  function reconcileOpenNote(id: string, options: ReconcileOpenNoteOptions = {}): Promise<boolean> {
+    const operation = () => reconcileOpenNoteFromDisk(id, options);
+    const run = reconciliationTail.then(operation, operation);
+    reconciliationTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   async function handleEditorFocusChange(focused: boolean): Promise<void> {
     if (focused || !pendingAdopt) return;
 
-    const pending = pendingAdopt;
+    const id = pendingAdopt;
     pendingAdopt = null;
-    if (dependencies.session.originalId !== pending.id) return;
-    if (pending.content === dependencies.session.editorContent) return;
-    if (dependencies.session.dirty) {
-      await preserveLocalDraft();
-    } else {
-      dependencies.session.applyExternalContent(pending.content);
-    }
+    if (dependencies.session.originalId !== id) return;
+    await reconcileOpenNote(id);
   }
 
   async function handleFileChange(event: FileChangeEvent): Promise<void> {
     const { type, filename } = event;
     const suppressor = dependencies.writeSuppressor;
+    const session = dependencies.session;
     if (!filename.endsWith('.md')) return;
-    if (suppressor.isRecentSyncWrite(filename) || suppressor.isRecentWrite(filename)) return;
 
     const id = filename.replace(/\.md$/, '');
-    if (type === 'unlink' && suppressor.getRecentRemoteRename(id)) return;
-
-    const activeId = dependencies.session.originalId;
-    if (id === activeId && dependencies.session.savePending && type === 'change') return;
-    if (id === activeId && dependencies.session.dirty && (type === 'change' || type === 'unlink')) {
-      if (type === 'unlink') {
-        dependencies.showToast('Open note was deleted externally; keeping local draft');
-        await refreshNotesFromStorage();
-      } else {
-        await preserveLocalDraft();
-      }
+    const isActiveNoteChange = type === 'change' && id === session.originalId;
+    if (
+      !isActiveNoteChange &&
+      (suppressor.isRecentSyncWrite(filename) || suppressor.isRecentWrite(filename))
+    ) {
       return;
     }
+    if (type === 'unlink' && suppressor.getRecentRemoteRename(id)) return;
 
-    if (type === 'unlink' && id === activeId) {
+    let storageReconciled = false;
+    const flushStartedWithPendingSave = isActiveNoteChange && session.savePending;
+    if (isActiveNoteChange) {
+      await session.flushSave();
+    }
+    const keepPendingDraft =
+      flushStartedWithPendingSave && session.originalId === id && session.dirty;
+    if (type === 'unlink' && id === session.originalId) {
+      pendingAdopt = null;
       dependencies.session.cancelAndClear();
       dependencies.showToast('Note was deleted externally');
-    } else if (type === 'change' && id === activeId) {
-      const content = await readNote(id).catch(() => null);
-      if (content !== null) {
-        // Replacing a focused CM6 document can corrupt an active selection or IME session.
-        if (dependencies.session.editorFocused) {
-          pendingAdopt = { id, content };
-        } else {
-          dependencies.session.applyExternalContent(content);
-        }
-      }
+    } else if (isActiveNoteChange && !keepPendingDraft) {
+      storageReconciled = await reconcileOpenNote(id);
     }
 
-    await handleExternalFileChange(filename);
+    if (!storageReconciled) await handleExternalFileChange(filename);
     if (type === 'add' || type === 'change') dependencies.notifySaved();
   }
 
@@ -124,6 +170,10 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     onEvent: handleFileChange,
     onBulkRefresh: handleBulkRefresh,
     suppressor: dependencies.writeSuppressor,
+    isDrainExempt: (event) =>
+      event.type === 'change' &&
+      dependencies.session.originalId !== null &&
+      event.filename === `${dependencies.session.originalId}.md`,
   });
 
   function stop(): void {
@@ -132,8 +182,8 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     watcherBatch.destroy();
   }
 
-  function deferAdopt(id: string, content: string): void {
-    pendingAdopt = { id, content };
+  function deferAdopt(id: string): void {
+    pendingAdopt = id;
   }
 
   return {
@@ -141,6 +191,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     deferAdopt,
     handleFileChange,
     handleEditorFocusChange,
+    reconcileOpenNote,
     runRescan,
     scheduleRescan,
     stop,

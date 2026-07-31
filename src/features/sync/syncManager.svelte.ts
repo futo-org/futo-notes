@@ -31,6 +31,8 @@ export interface SyncManager {
 
   handleEditorFocusChange: (focused: boolean) => Promise<void>;
 
+  reconcileOpenNote: (id: string) => Promise<boolean>;
+
   notifySaved: () => void;
 
   clearSyncError: () => void;
@@ -186,6 +188,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
     enqueueFileChange: (event: FileChangeEvent) => watcherBatch.enqueue(event),
     handleEditorFocusChange: externalChanges.handleEditorFocusChange,
+    reconcileOpenNote: (id: string) =>
+      externalChanges.reconcileOpenNote(id, { allowPendingSave: true }),
     notifySaved,
     clearSyncError,
 
