@@ -213,7 +213,7 @@ describe('createExternalChangeCoordinator', () => {
     coordinator.stop();
   });
 
-  it('adopts a slow read when a save becomes pending during the disk read', async () => {
+  it('defers a slow-read adopt when a dirty save becomes pending during the read', async () => {
     const read = controlledPromise<string>();
     noteMocks.readNote.mockReturnValueOnce(read.promise);
     const bundle = makeSession();
@@ -224,8 +224,8 @@ describe('createExternalChangeCoordinator', () => {
     read.resolve('external content');
     await handling;
 
-    expect(bundle.session.awaitSaveIdle).toHaveBeenCalledOnce();
-    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content');
+    expect(bundle.session.flushSave).toHaveBeenCalledOnce();
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
     coordinator.stop();
   });
 
@@ -236,7 +236,7 @@ describe('createExternalChangeCoordinator', () => {
       savedContent: 'original base',
       savePending: true,
     });
-    vi.mocked(bundle.session.awaitSaveIdle).mockImplementationOnce(async () => {
+    vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
       await save.promise;
       bundle.state.savePending = false;
       bundle.state.savedContent = 'saved draft';
@@ -255,18 +255,61 @@ describe('createExternalChangeCoordinator', () => {
     coordinator.stop();
   });
 
-  it('adopts an active external change while a scheduled save remains pending', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('external content');
+  it('flushes a timer-scheduled dirty draft before adopting external content', async () => {
+    noteMocks.readNote.mockResolvedValue('external content');
+    const flush = controlledPromise<void>();
     const bundle = makeSession({
+      dirty: true,
+      editorContent: 'local draft',
       savedContent: 'original base',
       savePending: true,
+    });
+    const { coordinator } = makeCoordinator(bundle.session);
+    let parkedDraft: string | null = null;
+    vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
+      await flush.promise;
+      parkedDraft = bundle.state.editorContent;
+      await coordinator.reconcileOpenNote('active', { allowPendingSave: true });
+      bundle.state.savePending = false;
+      bundle.state.dirty = false;
+    });
+
+    const handling = coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    await Promise.resolve();
+    const readStartedBeforeFlushSettled = noteMocks.readNote.mock.calls.length > 0;
+    const appliedBeforeFlushSettled = bundle.applyExternalContent.mock.calls.length > 0;
+    const editorContentBeforeFlushSettled = bundle.state.editorContent;
+
+    flush.resolve();
+    await handling;
+
+    expect(bundle.session.flushSave).toHaveBeenCalledOnce();
+    expect(readStartedBeforeFlushSettled).toBe(false);
+    expect(appliedBeforeFlushSettled).toBe(false);
+    expect(editorContentBeforeFlushSettled).toBe('local draft');
+    expect(parkedDraft).toBe('local draft');
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content');
+    coordinator.stop();
+  });
+
+  it('keeps a timer-scheduled draft when the forced flush leaves it dirty', async () => {
+    noteMocks.readNote.mockResolvedValue('external content');
+    const bundle = makeSession({
+      dirty: true,
+      editorContent: 'blocked local draft',
+      savedContent: 'original base',
+      savePending: true,
+    });
+    vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
+      bundle.state.savePending = false;
     });
     const { coordinator } = makeCoordinator(bundle.session);
 
     await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
 
-    expect(bundle.session.awaitSaveIdle).toHaveBeenCalledOnce();
-    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content');
+    expect(bundle.session.flushSave).toHaveBeenCalledOnce();
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    expect(bundle.state.editorContent).toBe('blocked local draft');
     coordinator.stop();
   });
 

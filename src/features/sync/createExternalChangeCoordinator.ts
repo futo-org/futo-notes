@@ -42,7 +42,6 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       rescanQueued = true;
       return;
     }
-
     rescanInFlight = true;
     try {
       await refreshNotesFromStorage();
@@ -126,10 +125,11 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
   async function handleFileChange(event: FileChangeEvent): Promise<void> {
     const { type, filename } = event;
     const suppressor = dependencies.writeSuppressor;
+    const session = dependencies.session;
     if (!filename.endsWith('.md')) return;
 
     const id = filename.replace(/\.md$/, '');
-    const isActiveNoteChange = type === 'change' && id === dependencies.session.originalId;
+    const isActiveNoteChange = type === 'change' && id === session.originalId;
     if (
       !isActiveNoteChange &&
       (suppressor.isRecentSyncWrite(filename) || suppressor.isRecentWrite(filename))
@@ -139,17 +139,18 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     if (type === 'unlink' && suppressor.getRecentRemoteRename(id)) return;
 
     let storageReconciled = false;
+    const flushStartedWithPendingSave = isActiveNoteChange && session.savePending;
     if (isActiveNoteChange) {
-      await dependencies.session.awaitSaveIdle();
-      // Mirror-disk adoption proceeds past saves still scheduled after this wait;
-      // a save that starts mid-read parks on flush_draft's base check and reconciles again.
+      await session.flushSave();
     }
-    if (type === 'unlink' && id === dependencies.session.originalId) {
+    const keepPendingDraft =
+      flushStartedWithPendingSave && session.originalId === id && session.dirty;
+    if (type === 'unlink' && id === session.originalId) {
       pendingAdopt = null;
       dependencies.session.cancelAndClear();
       dependencies.showToast('Note was deleted externally');
-    } else if (isActiveNoteChange) {
-      storageReconciled = await reconcileOpenNote(id, { allowPendingSave: true });
+    } else if (isActiveNoteChange && !keepPendingDraft) {
+      storageReconciled = await reconcileOpenNote(id);
     }
 
     if (!storageReconciled) await handleExternalFileChange(filename);

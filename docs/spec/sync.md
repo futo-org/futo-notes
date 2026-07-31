@@ -841,12 +841,15 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   content matching the saved baseline is a self-write echo and is dropped by
   comparison rather than event counting. The session is
   re-checked after each asynchronous disk read: a note switch drops the stale
-  adopt. Every active-note `change` waits for save-idle before reading, then
-  reconciles with pending saves allowed even if a timer-scheduled save remains
-  pending: adoption-over-pending is the mirror-disk model. A save that starts
-  during the read parks on the changed base, and its parked path reconciles
-  again. The save itself is
-  conditional against the session's saved-content base:
+  adopt. Every active-note `change` flushes the session before reading, so a
+  timer-scheduled or in-flight dirty draft first runs through `flush_draft` and
+  either writes or parks against the current disk base. Reconciliation never
+  adopts over a save scheduled during the asynchronous read; that save settles
+  through the same path, and only the guarded post-park reconcile re-reads and
+  adopts while the save queue is still technically in flight. If validation or
+  a write failure leaves the forced flush dirty, the watcher refreshes storage
+  without adopting over that draft. The save itself is conditional against the
+  session's saved-content base:
   matching disk is written, identical disk converges without a rewrite, and a
   stale draft against diverged disk is parked as a conflict copy instead of
   clobbering it. After a park, desktop projects the copy and explicitly
