@@ -26,7 +26,7 @@ export const TOOLBAR_EXEC: Record<string, (view: EditorView) => void> = {
   bold: toggleBold,
   italic: toggleItalic,
   strikethrough: toggleStrikethrough,
-  link: (view) => toggleLink(view, () => ''),
+  link: (view) => toggleLink(view),
   heading: cycleHeading,
   quote: toggleBlockquote,
   'bullet-list': toggleBulletList,

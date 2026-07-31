@@ -63,7 +63,7 @@ const MD_LINK_RE = /^\[([^\]]*)\]\(([^)]*)\)$/;
 
 export function toggleLink(
   view: EditorView,
-  getUrl: (current: string) => string | null = (current) => window.prompt('Link URL', current),
+  getUrl: (current: string) => string | null = () => '',
 ): void {
   const { state } = view;
   const { from, to } = state.selection.main;
