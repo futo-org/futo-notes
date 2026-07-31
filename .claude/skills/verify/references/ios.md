@@ -93,13 +93,18 @@ node scripts/describe-ios-ui.mjs --udid $SIM --actions-only          # hidden af
 node scripts/describe-ios-ui.mjs --udid $SIM --id bold --json
 ```
 
+`--label-contains` matches the whole label, not the trimmed column — an iOS row
+label is `title, relative-date, body-preview`, so a body token like
+`--label-contains "Body-token-88991"` finds the row even though the rendered
+line stops at 34 characters.
+
 `--actions-only` is the `docs/spec/AGENTS.md` hidden-affordance check: it lists
 each row's `custom_actions` once, against the labelled row that owns them
 (`Delete`/`Move` per note, `Delete Folder…` per folder). Check it before
 declaring a feature missing.
 
 **Do not infer which screen is frontmost from position in the tree.** `axe`
-returns the whole window stack and the *covered* screen comes first — with
+returns the whole window stack and the _covered_ screen comes first — with
 Settings open, the first rows are still the note list. Confirm the screen with
 a label predicate (`--label-contains "Share crash"`), never by reading the head
 or tail of a dump. Two false negatives during the AXe evaluation came from
@@ -130,7 +135,7 @@ axe batch --udid $SIM --wait-timeout 8 \
 ### Rules that stop silent failures
 
 Each of these was observed on iOS 26.5 / AXe 1.8.0. All but the last fail
-*successfully* — they print `✓` and change nothing.
+_successfully_ — they print `✓` and change nothing.
 
 - **Never use `gesture`.** `axe gesture scroll-down` exits 0, prints nothing,
   and does not scroll (verified: a row's frame y stayed at 736.7 with both
@@ -148,7 +153,9 @@ Each of these was observed on iOS 26.5 / AXe 1.8.0. All but the last fail
 - **`--label` is exact-match, and row labels drift.** A note row's label
   embeds its relative timestamp, so the same row went from
   `'…, 2 weeks ago, …'` to `'…, 7 minutes ago, …'` mid-session. Prefer `--id`;
-  read the exact label from the summarizer when you must use `--label`.
+  when you must use `--label`, read the exact string from
+  `describe-ios-ui.mjs --json` (its `label` is untruncated — the rendered
+  summary trims to a 34-char column for width, `--json` never does).
 - **`batch` is stateful.** A failed step leaves the app parked mid-flow and the
   next run's step 1 then fails against the wrong screen. Start every batch from
   a known state (terminate + launch).
@@ -221,7 +228,7 @@ cat "$NOTES/<note>.md"
 Type into the editor with `axe type` after tapping the title/body to focus;
 verify the result on disk, not by screenshot-squinting.
 
-Two things the a11y tree *does* give you without a disk read: the note title is
+Two things the a11y tree _does_ give you without a disk read: the note title is
 the editor's `TextField` `AXValue`, and the editor's accessory toolbar only
 exists while the keyboard is up — so its presence is itself the evidence that a
 field is focused.

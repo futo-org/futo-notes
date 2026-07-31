@@ -254,6 +254,29 @@ describe('off-screen detection', () => {
   });
 });
 
+// `axe tap --label` is exact-match, and references/ios.md tells the reader to
+// read the exact label off the summarizer — so a row must carry the untruncated
+// value and truncation must be a rendering concern only.
+describe('exact labels and values', () => {
+  it('carries the full label on the row while the rendered line truncates it', () => {
+    const summary = summarizeAccessibilityTree(noteListTree());
+    const noteRow = summary.rows.find((row) => row.label?.startsWith('Qa-note-1'));
+
+    expect(noteRow.label).toBe('Qa-note-1, 2 weeks ago, Body-token-88991 alpha bravo-77');
+    expect(formatSummaryLines(summary).join('\n')).toContain('Qa-note-1, 2 weeks ago, Body-toke…');
+  });
+
+  it('does not cap a text field value, since note titles run to 255 chars', () => {
+    const [root] = editorToolbarTree();
+    const longTitle = `Long-${'x'.repeat(240)}-end`;
+    root.children[0].AXValue = longTitle;
+
+    const { rows } = summarizeAccessibilityTree([root]);
+
+    expect(rows.find((row) => row.type === 'TextField').value).toBe(longTitle);
+  });
+});
+
 describe('filterRows', () => {
   it('selects by identifier', () => {
     const { rows } = summarizeAccessibilityTree(editorToolbarTree());
@@ -275,6 +298,16 @@ describe('filterRows', () => {
     expect(filterRows(rows, { labelContains: 'qa-note' })).toHaveLength(1);
   });
 
+  it('matches a token past the rendered column width', () => {
+    const { rows } = summarizeAccessibilityTree(noteListTree());
+
+    // Every iOS row label is `title, relative-date, body-preview`, so a body
+    // token lands well past the 34-char render column. Filtering the truncated
+    // value reported "0 rows" for a row that is right there.
+    expect(filterRows(rows, { labelContains: 'Body-token-88991' })).toHaveLength(1);
+    expect(filterRows(rows, { labelContains: 'bravo-77' })).toHaveLength(1);
+  });
+
   it('lists custom actions once per identifiable owner, not per descendant', () => {
     const [root] = noteListTree();
     // A real dump repeats the row's actions on every unnamed child.
@@ -293,7 +326,7 @@ describe('filterRows', () => {
     // The row Button owns the set; its chevron and the extra unnamed Group
     // only echo it, so neither is listed again.
     expect(actionRows.map((row) => row.label ?? row.id)).toEqual([
-      'Qa-note-1, 2 weeks ago, Body-toke…',
+      'Qa-note-1, 2 weeks ago, Body-token-88991 alpha bravo-77',
     ]);
   });
 

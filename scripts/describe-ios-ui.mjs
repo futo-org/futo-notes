@@ -32,16 +32,26 @@ import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 const LABEL_WIDTH = 34;
+const VALUE_WIDTH = 24;
 
-function firstLine(value, width = LABEL_WIDTH) {
+// A row carries the FULL first line: `axe tap --label` is exact-match, callers
+// read the label off this tool, and iOS row labels put the body preview past
+// any sane column width. Truncation happens only where a line is rendered.
+function firstLine(value) {
   if (value == null) return null;
-  const text = String(value).split('\n')[0];
+  return String(value).split('\n')[0];
+}
+
+function truncate(text, width) {
+  if (text == null) return null;
   return text.length > width ? `${text.slice(0, width - 1)}…` : text;
 }
 
 function describeNode(node) {
   const name = node.AXLabel || node.AXUniqueId;
-  return name ? `${node.type ?? '?'} "${firstLine(name)}"` : (node.type ?? '?');
+  return name
+    ? `${node.type ?? '?'} "${truncate(firstLine(name), LABEL_WIDTH)}"`
+    : (node.type ?? '?');
 }
 
 /**
@@ -104,7 +114,7 @@ export function summarizeAccessibilityTree(tree, options = {}) {
       type: node.type ?? null,
       id: node.AXUniqueId ?? null,
       label: firstLine(node.AXLabel),
-      value: firstLine(node.AXValue, 24),
+      value: firstLine(node.AXValue),
       frame: node.frame ?? null,
       customActions: actions,
       actionOwnerId,
@@ -203,12 +213,12 @@ export function formatSummaryLines({ screenBounds, screenBoundsSource, rows }) {
       `b${row.branch}`,
       (row.type ?? '?').padEnd(14),
       `id=${(row.id ?? '-').padEnd(22)}`,
-      `label=${(row.label ?? '-').padEnd(LABEL_WIDTH)}`,
+      `label=${(truncate(row.label, LABEL_WIDTH) ?? '-').padEnd(LABEL_WIDTH)}`,
       frame.padEnd(18),
       row.onScreen ? '' : 'OFF-SCREEN',
     ];
     lines.push(parts.join(' ').trimEnd());
-    if (row.value) lines.push(`${' '.repeat(4)}value=${row.value}`);
+    if (row.value) lines.push(`${' '.repeat(4)}value=${truncate(row.value, VALUE_WIDTH)}`);
     if (row.customActions.length) {
       lines.push(`${' '.repeat(4)}actions=[${row.customActions.join(', ')}]`);
     }
