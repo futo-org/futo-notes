@@ -31,11 +31,13 @@ describe('pre-merge JavaScript test routing', () => {
   it('runs the full suite from just check', () => {
     const checkRecipe = topLevelBlock(justfile, /^check:[^\n]*$/m);
 
+    expect(checkRecipe).toContain('pnpm run check:svelte');
     expect(checkRecipe).toContain('pnpm run test:full');
     expect(checkRecipe).not.toContain('pnpm run test:minimal');
   });
 
   it('runs the full suite from pnpm ci', () => {
+    expect(packageScripts.ci).toContain('pnpm run check:svelte');
     expect(packageScripts.ci).toContain('pnpm run test:full');
     expect(packageScripts.ci).not.toContain('pnpm run test:minimal');
   });
@@ -48,6 +50,7 @@ describe('pre-merge JavaScript test routing', () => {
 
     expect(testJob).toContain('node scripts/ci-test-scope.mjs');
     expect(testJob).toContain('node scripts/spec-gaps.mjs --check');
+    expect(testJob).toContain('pnpm run check:svelte');
     expect(testJob).toContain('pnpm run test:full');
     expect(testJob).not.toContain('pnpm run test:minimal');
     expect(docsFastPath).toContain('node scripts/check-agent-docs.mjs');
