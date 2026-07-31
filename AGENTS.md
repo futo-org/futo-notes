@@ -153,7 +153,9 @@ asymmetry is the design, not a bug).
 ## Testing & quality bar
 
 Every logic change ships a test; a bug fix's regression test fails before the fix and passes after.
-Run `just build` first, then the chain for your layer, reporting commands + results:
+Run `just build` first — it truncates `tsc`/`vite build` under `pipefail`, so never hand-pipe them
+through `head`/`tail` yourself, which swallows the exit code. Then the chain for your layer,
+reporting commands + results:
 - **Note rule** (filename/tag/image/preview/wikilink) → canonical TS + Rust,
   `pnpm exec tsx tests/conformance/generate.mjs`, then `pnpm run test:editor:minimal` + `just test-rust`.
 - UI/Svelte → `just build` + the targeted Playwright spec. Editor (CM6) → `just test-markdown-spec` +
