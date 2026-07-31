@@ -389,10 +389,16 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   transfers with no known size use a 30 s total-request timeout. Known-size
   encrypted blob uploads and downloads add one second for each complete
   128 KiB of expected payload to that 30 s baseline (for example, 32 MiB gets
-  286 s and 100 MiB gets 830 s). Uploads use the ciphertext body length;
-  ordinary pulls use the server-reported encrypted `size_bytes`. The expected
-  size is capped at the server's 100 MiB blob limit, so a corrupt or hostile
-  size cannot extend the deadline beyond 830 s. TCP connection establishment is
+  286 s and 100 MiB gets 830 s). Uploads scale with the real ciphertext body
+  length, uncapped, so a server configured above the default 100 MiB blob
+  limit still gets fully provisioned uploads. Downloads scale with an expected
+  size the client did not measure itself — ordinary pulls use the
+  server-reported encrypted `size_bytes`, the conflict merge-base fetch uses
+  the checkpoint-recorded plaintext size (a close proxy for the ciphertext) —
+  so the expected size is capped at 100 MiB: a corrupt or hostile size cannot
+  extend a download deadline beyond 830 s. The
+  advisory `size_bytes` field itself degrades to unknown (30 s deadline) on an
+  unparseable value instead of failing the pull. TCP connection establishment is
   bounded to 10 s. The SSE event stream uses a separate client with no
   total-request timeout so a healthy long-lived stream is never torn down at
   30 s. Its finite setup phases are still bounded: response headers and any
@@ -409,7 +415,10 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   `blob_download_timeout_scales_with_expected_size`,
   `blob_upload_timeout_scales_with_payload_size`,
   `transfer_timeout_scales_with_expected_bytes`,
-  `transfer_timeout_caps_untrusted_expected_size`, and
+  `download_timeout_caps_untrusted_expected_size`,
+  `upload_timeout_scales_past_the_download_cap`,
+  `unparseable_size_bytes_degrades_to_none`,
+  `merge_base_fetch_deadline_scales_with_checkpoint_size`,
   `event_stream_has_no_total_request_timeout`,
   `event_stream_response_headers_have_a_timeout`, and
   `event_stream_error_body_has_a_timeout`

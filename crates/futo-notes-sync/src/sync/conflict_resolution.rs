@@ -112,7 +112,7 @@ async fn merge_content(
     }
     let base = context
         .http
-        .blob(&existing.blob_key, 0)
+        .blob(&existing.blob_key, existing.size_bytes.unwrap_or(0))
         .await
         .ok()
         .and_then(|ciphertext| e2ee::aes_gcm_decrypt(&context.state.vault_key, &ciphertext).ok())
@@ -364,4 +364,94 @@ pub(super) async fn resolve_update_conflict(
         }
     }
     write_conflict_pair(context, file, local, &remote, remote_name, &current).await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    use crate::checkpoint::ConnectedState;
+    use crate::server::stalled_http::{
+        allow_network_task_to_settle, allow_timeout_task_to_finish, HangingServer, StallPoint,
+    };
+    use crate::server::Http;
+
+    use super::super::outcome::SyncSummary;
+    use super::*;
+
+    fn no_pre(_: &str) {}
+
+    #[tokio::test(start_paused = true)]
+    async fn merge_base_fetch_deadline_scales_with_checkpoint_size() {
+        let server = HangingServer::new(StallPoint::ResponseHeaders);
+        let base_url = server.base_url.clone();
+        let request = tokio::spawn(async move {
+            let http = Http::new(&base_url).unwrap().token("token");
+            let mut state = ConnectedState {
+                base_url,
+                token: "token".into(),
+                user_id: "user".into(),
+                collection_id: "collection".into(),
+                vault_key: [5; 32],
+                object_map: HashMap::new(),
+                max_version: 0,
+                pull_cursor: 0,
+                oversize_skip: HashMap::new(),
+            };
+            let mut summary = SyncSummary::default();
+            let root = std::env::temp_dir();
+            let context = PushContext {
+                http: &http,
+                state: &mut state,
+                root: &root,
+                summary: &mut summary,
+                pre_write: &no_pre,
+            };
+            let existing = ObjectState {
+                object_id: "o1".into(),
+                version: 1,
+                blob_key: "blob-o1".into(),
+                hash: None,
+                mtime_ms: None,
+                size_bytes: Some(128 * 1024),
+            };
+            let file = LocalFile {
+                name: "a.md".into(),
+                mtime: 0,
+                size: 5,
+            };
+            let remote = RemoteNote {
+                object: Object {
+                    id: "o1".into(),
+                    version: 2,
+                    change_seq: 2,
+                    deleted: false,
+                    blob_key: Some("blob-o1-v2".into()),
+                    size_bytes: None,
+                    updated_at: "2026-06-05T12:34:56.789Z".into(),
+                },
+                name: "a.md".into(),
+                content: "remote".into(),
+            };
+            merge_content(&context, &file, &existing, "local", &remote).await
+        });
+        server.wait_for_request().await;
+        allow_network_task_to_settle().await;
+
+        tokio::time::advance(Duration::from_secs(30) + Duration::from_millis(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+        assert!(
+            !request.is_finished(),
+            "merge-base fetch ignored the checkpoint-recorded size"
+        );
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        allow_timeout_task_to_finish(&request).await;
+        assert!(
+            request.is_finished(),
+            "merge-base fetch had no finite deadline"
+        );
+        assert_eq!(request.await.unwrap(), None);
+    }
 }

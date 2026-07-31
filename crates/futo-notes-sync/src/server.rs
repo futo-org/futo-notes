@@ -11,9 +11,15 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const TRANSFER_FLOOR_BYTES_PER_SEC: u64 = 128 * 1024;
 const MAX_TRANSFER_BYTES: u64 = 100 * 1024 * 1024;
 
-fn transfer_timeout(expected_bytes: u64) -> Duration {
-    let bounded_bytes = expected_bytes.min(MAX_TRANSFER_BYTES);
-    REQUEST_TIMEOUT + Duration::from_secs(bounded_bytes / TRANSFER_FLOOR_BYTES_PER_SEC)
+fn transfer_timeout(payload_bytes: u64) -> Duration {
+    REQUEST_TIMEOUT + Duration::from_secs(payload_bytes / TRANSFER_FLOOR_BYTES_PER_SEC)
+}
+
+// Downloads scale by a server-reported size, which is untrusted; cap it so a
+// corrupt or hostile size cannot stretch the deadline. Uploads scale by the
+// real payload length and stay uncapped.
+fn download_timeout(expected_bytes: u64) -> Duration {
+    transfer_timeout(expected_bytes.min(MAX_TRANSFER_BYTES))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -58,20 +64,19 @@ where
     }
 }
 
+// Advisory only (timeout scaling); an unparseable value must degrade to None
+// rather than abort deserialization of a whole objects list.
 fn optional_number<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Value {
-        Number(u64),
-        String(String),
-    }
-    Option::<Value>::deserialize(deserializer)?.map_or(Ok(None), |value| match value {
-        Value::Number(number) => Ok(Some(number)),
-        Value::String(string) => string.parse().map(Some).map_err(serde::de::Error::custom),
-    })
+    Ok(
+        Option::<serde_json::Value>::deserialize(deserializer)?.and_then(|value| match value {
+            serde_json::Value::Number(number) => number.as_u64(),
+            serde_json::Value::String(string) => string.parse().ok(),
+            _ => None,
+        }),
+    )
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -175,9 +180,13 @@ impl Http {
     }
 
     fn request(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
-        let request = self
-            .request_client
-            .request(method, format!("{}{}", self.base, path));
+        self.authorize(
+            self.request_client
+                .request(method, format!("{}{}", self.base, path)),
+        )
+    }
+
+    fn authorize(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match &self.token {
             Some(token) => request.bearer_auth(token),
             None => request,
@@ -336,7 +345,7 @@ impl Http {
     pub async fn blob(&self, key: &str, expected_bytes: u64) -> Result<Vec<u8>, HttpError> {
         let response = self
             .request(Method::GET, &format!("/api/blobs/{key}"))
-            .timeout(transfer_timeout(expected_bytes))
+            .timeout(download_timeout(expected_bytes))
             .send()
             .await
             .map_err(|e| HttpError {
@@ -440,14 +449,11 @@ impl Http {
     }
 
     pub async fn events(&self) -> Result<reqwest::Response, HttpError> {
-        let request = self
-            .event_client
-            .get(format!("{}/api/sync/events", self.base))
-            .header("accept", "text/event-stream");
-        let request = match &self.token {
-            Some(token) => request.bearer_auth(token),
-            None => request,
-        };
+        let request = self.authorize(
+            self.event_client
+                .get(format!("{}/api/sync/events", self.base))
+                .header("accept", "text/event-stream"),
+        );
         let response = tokio::time::timeout(REQUEST_TIMEOUT, request.send())
             .await
             .map_err(|_| HttpError {
@@ -471,15 +477,15 @@ pub(crate) fn timestamp_ms(value: &str) -> i64 {
         .unwrap_or(0) as i64
 }
 
+// Test-only stalled-HTTP fixture, shared with the sync flow tests that need a
+// server which accepts a request and then never (or only on release) responds.
 #[cfg(test)]
-mod tests {
+pub(crate) mod stalled_http {
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener, TcpStream};
     use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
     use std::thread::JoinHandle;
-    use std::time::Instant;
-
-    use super::*;
+    use std::time::{Duration, Instant};
 
     const EVENT_STREAM_HEADERS: &[u8] =
         b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n";
@@ -491,7 +497,7 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
     const WAKE_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
 
     #[derive(Clone, Copy)]
-    enum StallPoint {
+    pub(crate) enum StallPoint {
         ResponseHeaders,
         SuccessfulResponseBody,
         EventStreamBody,
@@ -516,8 +522,8 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
         }
     }
 
-    struct HangingServer {
-        base_url: String,
+    pub(crate) struct HangingServer {
+        pub(crate) base_url: String,
         wake_address: SocketAddr,
         request_received: Receiver<()>,
         release: Option<Sender<()>>,
@@ -525,7 +531,7 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
     }
 
     impl HangingServer {
-        fn new(stall_point: StallPoint) -> Self {
+        pub(crate) fn new(stall_point: StallPoint) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let wake_address = listener.local_addr().unwrap();
             let base_url = format!("http://{wake_address}");
@@ -543,7 +549,7 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
             }
         }
 
-        async fn wait_for_request(&self) {
+        pub(crate) async fn wait_for_request(&self) {
             let deadline = Instant::now() + Duration::from_secs(2);
             loop {
                 match self.request_received.try_recv() {
@@ -560,7 +566,7 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
             }
         }
 
-        fn release(&mut self) {
+        pub(crate) fn release(&mut self) {
             self.release.take();
         }
     }
@@ -615,7 +621,9 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
         }
     }
 
-    async fn allow_timeout_task_to_finish<T>(task: &tokio::task::JoinHandle<T>) {
+    // Yields until the spawned request task observes its (paused-clock) timeout
+    // firing and runs to completion; there is no event to await, only progress.
+    pub(crate) async fn allow_timeout_task_to_finish<T>(task: &tokio::task::JoinHandle<T>) {
         for _ in 0..10 {
             if task.is_finished() {
                 return;
@@ -624,11 +632,21 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
         }
     }
 
-    async fn allow_network_task_to_settle() {
+    // Yields long enough for reqwest's connection task to send the request and
+    // park in a pending read, so a later clock advance hits the armed timeout.
+    pub(crate) async fn allow_network_task_to_settle() {
         for _ in 0..100 {
             tokio::task::yield_now().await;
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use super::stalled_http::*;
+    use super::*;
 
     #[test]
     fn timestamp_matches_javascript_date_milliseconds() {
@@ -667,8 +685,36 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
     }
 
     #[test]
-    fn transfer_timeout_caps_untrusted_expected_size() {
-        assert_eq!(transfer_timeout(u64::MAX), Duration::from_secs(830));
+    fn download_timeout_caps_untrusted_expected_size() {
+        assert_eq!(download_timeout(u64::MAX), Duration::from_secs(830));
+    }
+
+    #[test]
+    fn upload_timeout_scales_past_the_download_cap() {
+        assert_eq!(
+            transfer_timeout(200 * 1024 * 1024),
+            Duration::from_secs(1630)
+        );
+    }
+
+    #[test]
+    fn unparseable_size_bytes_degrades_to_none() {
+        for size in [
+            serde_json::json!(1.5),
+            serde_json::json!(-1),
+            serde_json::json!("nope"),
+            serde_json::json!(null),
+            serde_json::json!({}),
+        ] {
+            let object: Object = serde_json::from_value(serde_json::json!({
+                "id": "o1",
+                "version": 1,
+                "change_seq": 1,
+                "size_bytes": size
+            }))
+            .unwrap();
+            assert_eq!(object.size_bytes, None);
+        }
     }
 
     #[test]
