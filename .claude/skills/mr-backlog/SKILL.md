@@ -32,8 +32,9 @@ for m in json.load(sys.stdin):
           '|', m['author']['username'], '|', m['title'][:60], '| notes:', m['user_notes_count'])"
 ```
 
-Skip drafts unless asked. Then for each MR pull its **non-system notes** and its
-`detailed_merge_status`, `has_conflicts`, and head pipeline. Two buckets:
+Skip drafts unless asked. Then for each MR pull its `detailed_merge_status`,
+`has_conflicts`, head pipeline, and its **comment history** (Step 1b). Two
+buckets:
 
 - **Has unaddressed review comments** → address them (or comment back).
 - **No review** → review it.
@@ -46,6 +47,51 @@ one-line-per-MR ledger: iid, author, verdict, what changed, merged/open. Update
 it as each MR resolves. A ten-MR pass will not fit in one context window, and
 this is what lets a fresh session pick the run up without re-reviewing anything
 — see *Context discipline*.
+
+## Step 1b — Read the comment history properly
+
+On an old MR the thread, not the diff, is where the state lives. Read it whole
+and in order before forming a verdict — the most common way to waste everyone's
+time is re-raising something already discussed, or "addressing" a point the
+author already rebutted.
+
+```bash
+curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  "$API/merge_requests/<iid>/discussions?per_page=100" | python3 -c "
+import json,sys
+for d in json.load(sys.stdin):
+    for n in d['notes']:
+        if n.get('system'): continue
+        flag = 'RESOLVED' if n.get('resolved') else ('OPEN-THREAD' if n.get('resolvable') else 'note')
+        print(f\"[{flag}] {n['author']['username']} {n['created_at'][:16]}\")
+        print(n['body'][:2000], '\n---')"
+```
+
+Use `/discussions`, not `/notes` — it groups replies into threads and carries the
+`resolved` flag. **But do not lean on that flag here:** reviews on this project
+are almost always posted as plain top-level comments, which are not resolvable at
+all (sampled 2026-07-31: of seven MRs, only one had any resolvable notes). An
+unresolved thread means nothing was clicked, not that the finding is live. You
+have to decide "addressed" by reading the code.
+
+- **Filter system notes out of the reading, but scan them for signal.** They are
+  noise line-by-line ("added 3 commits") yet they date the force-pushes, target
+  changes, and rebases. A review written *before* the last force-push may already
+  be stale; a changed target branch means someone stacked it.
+- **One comment can hold many findings.** A numbered list of four points is four
+  items to track, and partially addressing it — fixing three, silently skipping
+  the fourth — is the usual failure. Enumerate them explicitly before you start.
+- **"Unaddressed" is about the code, not about replies.** A later commit may have
+  fixed a point with no reply, and an author may have rebutted a point without
+  changing anything. Check the current tree for each claim rather than trusting
+  the absence of a response.
+- **Distinguish review findings from design discussion.** Long architectural
+  essays in a thread are context, not a checklist; the actionable items are
+  usually a short reviewer comment further down.
+- **Your own past comments age too.** If you commented on an MR and main has
+  since moved, re-read what you wrote before doing anything else — advice that
+  was right when posted can now send the author somewhere that no longer exists.
+  Correct it in place rather than leaving it to be followed.
 
 ## Step 2 — Route by author
 
