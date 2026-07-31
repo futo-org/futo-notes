@@ -1,6 +1,6 @@
 ---
 name: burndown
-description: Reduce one recorded debt-ledger entry per run and ship it as a small reviewable MR. Use when the user says "burndown", "burn down some debt", "pay down debt", "run the debt sweep", or on a schedule. Targets come only from the checked-in ledgers (debt-ratchet counts, unlocked drift-registry entries, the AGENTS.md drift watchlist) — never from vibes. Also supports a read-only ranking mode ("burndown report") that proposes the next target without changing anything.
+description: Reduce one recorded debt-ledger entry per run and ship it as a small reviewable MR. Use when the user says "burndown", "burn down some debt", "pay down debt", "run the debt sweep", or on a schedule. Targets come only from the checked-in ledgers (debt-ratchet counts, actionable unlocked drift-registry entries, the AGENTS.md drift watchlist) — never from vibes. Also supports a read-only ranking mode ("burndown report") that proposes the next target without changing anything.
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob
 ---
 
@@ -33,18 +33,23 @@ this skill is the mechanism that drives the existing counts toward zero.
    either consolidate the duplicate copies down to one owner, or add the missing lock (a
    conformance fixture, a generated spec, or a cross-language test that reads a shared fixture,
    like `validate-server-url`'s), then upgrade `lockStatus` in the same commit.
+   Before considering an entry, read its `description` and `note` metadata. Skip entries whose
+   metadata says the duplication is deliberately accepted, prose-only, or must not be unified or
+   locked. Those entries document an intentional exception; they are not actionable debt.
 3. **The "not locked — real drift risk" list in AGENTS.md's drift watchlist** for anything not
    already covered by rule 2.
 
-A `--target <name>` argument (a ratchet count key or drift-registry concept) overrides the walk.
+A `--target <name>` argument (a ratchet count key or drift-registry concept) overrides the walk,
+but not the eligibility rules above. Reject `--target notes-root-triplet` with a read-only report;
+it is an intentional M3 exception, not an actionable target.
 
 ## Hard limits
 
 - **Never touch** anything on AGENTS.md's stop-and-ask list: `keys/`, hash/crypto functions,
   the dev bundle-id / `fake-notes` notes-root guards, push-first sync, `release:gate.needs`,
-  the dep-guard. If the walk lands on one of these (e.g. `notes-root-triplet` — its copies ARE
-  a CRITICAL guard), locking it via a shared fixture + tests is allowed, but consolidating or
-  weakening any copy is not; when in doubt, report instead of editing.
+  the dep-guard. `notes-root-triplet` is a deliberately accepted, prose-only M3 duplication:
+  never select it automatically or by `--target`, and never consolidate, lock, or weaken its
+  copies. Return a read-only report explaining the rejection.
 - **Diff cap ~300 changed lines** (excluding regenerated files and lockfiles). If the fix
   outgrows the cap mid-work, shrink the scope to a self-contained slice or abandon the edit and
   emit a report explaining what it would take.
