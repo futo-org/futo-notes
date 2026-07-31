@@ -122,10 +122,17 @@ function countAgentsMdLines() {
   return (fs.readFileSync(AGENTS_MD_PATH, 'utf8').match(/\n/g) || []).length;
 }
 
+// Recursive: a non-recursive readdir would let `mkdir docs/plan/2026 && mv *.md docs/plan/2026/`
+// drop the count to 0 while the plans are all still active. Only an `archive/` subtree is exempt.
+// Dirent exposes the containing directory as `parentPath` on Node >= 20.12 and as `path` before it.
 function countDocsPlanNonArchiveFiles() {
   return fs
-    .readdirSync(DOCS_PLAN_DIR, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith('.md')).length;
+    .readdirSync(DOCS_PLAN_DIR, { withFileTypes: true, recursive: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.md'))
+    .filter((e) => {
+      const dir = path.relative(DOCS_PLAN_DIR, e.parentPath ?? e.path);
+      return !dir.split(path.sep).includes('archive');
+    }).length;
 }
 
 const current = {
