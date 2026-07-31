@@ -134,6 +134,16 @@ ${leg.platform === 'sync-mesh' ? 'This is the CROSS-CLIENT SYNC MESH leg: follow
 bullet = one story. Respect platform qualifiers — skip stories tagged for other
 platforms. Existing \`> **Gap:**\` notes are KNOWN divergences: SKIP them and cite
 the gap, don't re-report. Number stories traceably (${leg.idPrefix || leg.platform}-NN).
+${
+  leg.focus
+    ? `
+**Focus (this is a DELIBERATELY NARROWED subset run — do not sweep the whole
+surface):** cover exactly the flows below and stop. Spec bullets outside them are
+out of scope for this leg; do not report them as SKIP noise, just omit them.
+${leg.focus}
+`
+    : ''
+}
 
 **Effort discipline (you are running at LOW effort on purpose):** move fast on
 the happy path. When a story looks wrong, capture the evidence, mark it **FAIL**,
@@ -183,6 +193,14 @@ phase('QA');
 const results = await pipeline(
   legs,
   // Stage 1 — the cheap, fast sweep.
+  // The .catch is load-bearing: a subagent that THROWS (transport death,
+  // "Connection closed mid-response") propagates out of the stage and makes
+  // pipeline() drop the whole item to null — which `results.filter(Boolean)`
+  // then removes, so the leg vanishes from legSummaries AND from needsResume
+  // and the run reports as if it never existed. (Cost us the mesh leg on
+  // 2026-07-24: 6 of 8 sync scenarios were on disk, silently unreported.)
+  // Swallowing it here turns a thrown leg into the same `sweep === null`
+  // shape a skipped agent produces, which stage 2 already flags for resume.
   (leg) =>
     agent(sweepBrief(leg), {
       agentType: 'app-qa',
@@ -191,6 +209,9 @@ const results = await pipeline(
       phase: 'QA',
       label: `qa:${leg.id}`,
       schema: LEG_SCHEMA,
+    }).catch((err) => {
+      log(`⚠ leg ${leg.id}: sweep THREW (${String(err).slice(0, 120)}) — treating as needs-resume`);
+      return null;
     }),
   // Stage 2 — escalate ONLY this leg's FAILs, at high effort, concurrently.
   (sweep, leg) => {
@@ -209,14 +230,29 @@ const results = await pipeline(
     }
     log(`↑ leg ${leg.id}: ${fails.length} FAIL candidate(s) → high-effort verify`);
     phase('Verify');
-    return agent(verifyBrief(leg, sweep, fails), {
-      agentType: 'app-qa',
-      model: 'sonnet',
-      effort: effort.verify,
-      phase: 'Verify',
-      label: `verify:${leg.id}`,
-      schema: VERIFY_SCHEMA,
-    }).then((verify) => ({ legId: leg.id, leg, sweep, verify }));
+    return (
+      agent(verifyBrief(leg, sweep, fails), {
+        agentType: 'app-qa',
+        model: 'sonnet',
+        effort: effort.verify,
+        phase: 'Verify',
+        label: `verify:${leg.id}`,
+        schema: VERIFY_SCHEMA,
+      })
+        // Same swallow as stage 1, and the consequence here is strictly worse: a
+        // THROWN verify drops the whole item to null, so the leg loses its place
+        // in legSummaries/needsResume AND the FAILs its sweep already found never
+        // reach confirmedFails — a run with known real failures reports 'pass'.
+        // Returning null instead keeps the leg, and the aggregation below already
+        // treats "FAILs but no verify" as unconfirmed rather than absent.
+        .catch((err) => {
+          log(
+            `⚠ leg ${leg.id}: verify THREW (${String(err).slice(0, 120)}) — FAILs stay unconfirmed`,
+          );
+          return null;
+        })
+        .then((verify) => ({ legId: leg.id, leg, sweep, verify }))
+    );
   },
 );
 
