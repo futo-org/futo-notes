@@ -1,6 +1,6 @@
 # Learning: contract-rewriting the Svelte desktop shell
 
-**Branch:** `rewrite/svelte-frontend` · **Scope:** `src/` minus the frozen editor surface · **Campaign:** docs/plan/contract-rewrite-campaign.md
+**Branch:** `rewrite/svelte-frontend` · **Scope:** `src/` minus the frozen editor surface · **Campaign:** docs/plan/contract-rewrite-campaign.md (branch `docs/architecture-hardening-plan` — not on `main`)
 
 ## What was done
 
