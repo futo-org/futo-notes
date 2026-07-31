@@ -17,9 +17,12 @@
 //      Groups. Only nodes carrying identity or a custom action are useful.
 //   2. Off-screen taps. `axe tap` resolves an element's activation point and
 //      reports success even when that point lies outside the screen, so the
-//      tap does nothing. The clipped editor-toolbar items resolve to x-centers
-//      of 420-523 on a 402pt-wide device and silently no-op. Every row here is
-//      marked ON/OFF-SCREEN so a caller can refuse the tap instead.
+//      tap does nothing. An unscrolled horizontal scroll view reports its
+//      off-viewport children at content coordinates — the editor toolbar's
+//      trailing items come back at x-centers of 420-523 on a 402pt-wide
+//      device. Every row here is marked ON/OFF-SCREEN so a caller can refuse
+//      the tap instead. OFF-SCREEN means "not tappable where it is", NOT
+//      "unreachable by the user".
 //   3. Order. AXe returns the whole window stack, and the covered screen comes
 //      FIRST — reading the head or tail of a dump reports the wrong screen.
 //      Each row carries its top-level branch index so callers can filter by

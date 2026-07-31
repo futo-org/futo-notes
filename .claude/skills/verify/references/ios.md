@@ -137,9 +137,11 @@ Each of these was observed on iOS 26.5 / AXe 1.8.0. All but the last fail
   default and explicit `--screen-width/--screen-height`). Use an explicit
   `swipe`; the same content then moved to 651.7.
 - **Bounds-check before trusting a tap.** `axe tap` resolves an element's
-  activation point and reports success even when it lies off-screen. The
-  clipped editor-toolbar items resolve to x-centres 420/477/523 on a 402pt
-  screen and do nothing. `describe-ios-ui.mjs` marks these `OFF-SCREEN`; use
+  activation point and reports success even when it lies off-screen. An
+  unscrolled horizontal scroll view reports its off-viewport children at their
+  content coordinates, so on a 402pt screen the editor toolbar's `checklist`,
+  `camera`, and `photo` come back at x-centres 420/477/523 and a tap on them
+  does nothing. `describe-ios-ui.mjs` marks these `OFF-SCREEN`; use
   `--on-screen-only` to list only what will actually respond.
 - **Keep swipes above y≈850.** A horizontal swipe at y=852 hits the
   home-indicator gesture and leaves the app. y=845 and y=838 are safe.
@@ -248,10 +250,16 @@ axe tap --udid $SIM --id bold --element-type Button && axe type "boldtext" --udi
 axe button home --udid $SIM && cat "$NOTES/<note>.md"   # → **boldtext**
 ```
 
-On a 402pt-wide iPhone only the first eight are reachable: `checklist`,
-`camera`, and `photo` resolve off-screen and the toolbar does not scroll
-(see the gap in `docs/spec/editor.md`). `--on-screen-only` tells you which are
-live on the current device.
+On a 402pt-wide iPhone only the first eight sit inside the toolbar's viewport;
+`checklist`, `camera`, and `photo` report at x-centres past the right edge and
+cannot be tapped where they are. **This is a tooling limit, not an app defect.**
+The bar is a real `ScrollView(.horizontal)` with a measured trailing inset that
+peeks the edge icon (`EditorToolbar.swift` `computeSnap`, spec'd under "Scroll
+affordance" in `docs/spec/editor.md`) — but `axe` cannot scroll it: `gesture` is
+a no-op and an explicit `swipe` across the accessory row left every item's frame
+unchanged. So the trailing items are **unexercised by automation**, and their
+absence from `--on-screen-only` is not evidence they are broken. Verify them by
+hand on a device, or on a wider simulator where they start on-screen.
 
 ## 6. Sync features
 

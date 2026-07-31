@@ -4,8 +4,8 @@ import { filterRows, formatSummaryLines, summarizeAccessibilityTree } from './de
 
 // Field names, frames, and identifiers below are taken from real `axe
 // describe-ui` output on an iPhone 17 Pro simulator (iOS 26.5, AXe 1.8.0).
-// The device is 402x874pt, which is what makes the clipped toolbar items
-// resolve outside the screen.
+// The device is 402x874pt, which is what makes the toolbar items sitting past
+// the scroll viewport resolve outside the screen.
 
 function noteListTree() {
   return [
