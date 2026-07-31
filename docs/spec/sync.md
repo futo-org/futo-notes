@@ -140,8 +140,8 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   syncManager.svelte.ts
   (`handleSyncComplete`)
 - **A failed blob download never advances the cursor past the object.** The
-  `max_version` persisted by a pull (and by the empty-map reconcile) is
-  capped below the lowest failed `change_seq`, so the next cycle re-lists
+  `max_version` persisted by a pull (including the bootstrap pull from cursor
+  0) is capped below the lowest failed `change_seq`, so the next cycle re-lists
   and retries the failed object — re-listing already-landed objects is
   idempotent (the object-map version check in `first_pass` skips them).
   Without the cap, an object whose blob failed to download or decrypt was
@@ -228,18 +228,19 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   independent 13-entry copy with `.tiff/.tif/.heif`; D4 unified them.) →
   futo-notes-core `image.rs`; tests/conformance/image.json
 - **Legacy image blobs (pre-D4 `.tiff/.tif/.heif`, or any non-syncable
-  extension) are left untouched, never destroyed or mis-materialized.** BOTH
-  incoming write paths (`run_pull` and the empty-map `reconcile_empty_map`)
-  ignore such a server object — never write it as a note, never map it, never
-  count it, never tombstone it, never error the cycle; a push never tombstones
-  a non-syncable map entry (the local scan no longer surfaces it, so without the
-  guard it would look "deleted locally" and be erased on the server and every
-  peer). → futo-notes-sync sync module
+  extension) are left untouched, never destroyed or mis-materialized.** The
+  shared incoming pull path (`pull::pull_with_checkpoint`, including bootstrap
+  with `since = 0`) ignores such a server object — never write it as a note,
+  never map it, never count it, never tombstone it, never error the cycle; a
+  push never tombstones a non-syncable map entry (the local scan no longer
+  surfaces it, so without the guard it would look "deleted locally" and be
+  erased on the server and every peer). → futo-notes-sync sync module
 - **Every incoming name is screened before it is written, and a name local
   creation legitimately produces is HEALED rather than dropped.** A single
-  classifier (`classify_incoming_sync_path`) runs on all three incoming write
-  paths (`run_pull`, `reconcile_empty_map`, the edit-wins delete restore) before
-  collision planning: (a) a Windows-reserved device name (`CON`), a leading/
+  classifier (`classify_incoming_sync_path`) runs before collision planning for
+  both the shared pull path (`pull::pull_with_checkpoint`, including bootstrap
+  with `since = 0`) and the edit-wins delete restore:
+  (a) a Windows-reserved device name (`CON`), a leading/
   trailing dot, or a trailing space — all of which macOS/Linux creation
   produces but Windows cannot hold — is HEALED to the same safe name
   `sanitize_title` would mint (`CON`→`CON_`, `.env`→`env`, `note.`→`note`),
@@ -276,7 +277,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   collection, permanently burying the corruption for exactly the cohort the
   tag was meant to heal; a stale object map is equally bad on the push side
   (entries claiming the server holds a note make the push skip it). The reset
-  costs one re-reconcile through the empty-map path, which hash-dedups
+  costs one bootstrap pull from cursor 0, which hash-dedups
   against local files. → futo-notes-sync `checkpoint.rs`
 - The one-time legacy import of a pre-port `.app-state.json` object map is
   TAGGED with the vault's `e2eeCollectionId` (written next to the map in the
@@ -286,7 +287,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   version) rather than a conflict copy or a re-POSTed duplicate. Importing
   then connecting to a *different* collection still resets, and an older
   pre-port file that predates `e2eeCollectionId` carries no tag and resets as
-  UNKNOWN provenance (the empty-map reconcile then hash-dedups). →
+  UNKNOWN provenance (the bootstrap pull from cursor 0 then hash-dedups). →
   futo-notes-sync `checkpoint.rs`
 - **Clients use one canonical vault (collection) per account even though the
   server preserves plural collection rows.** The server must retain every
@@ -312,8 +313,9 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   - **Cold start:** native re-picks the vault on every `connect()` (it has no
     `resume()`); desktop `resume()` surfaces `CollectionGone`, which
     `ensureConnected` catches to fall back to `connectE2ee`.
-  - **Already running:** the active-session pull path (`run_pull` /
-    `reconcile_empty_map`) surfaces `CollectionGone`, and the shared **live loop
+  - **Already running:** the active-session pull path
+    (`pull::pull_with_checkpoint`, including bootstrap with `since = 0`) surfaces
+    `CollectionGone`, and the shared **live loop
     stops (terminal)** instead of spinning against the dead vault. Desktop's
     `syncE2eeAuto` catches it and re-points (`stopLiveSync` → `connectE2ee`);
     native `SyncManager` catches it — the typed `SyncError.CollectionGone` from
@@ -461,11 +463,12 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   does **not** call disconnect or delete `.e2ee-state.json`, so reconnecting to
   the same collection retains `max_version` + the object map and remains an
   incremental sync; **Reset connection** is an explicit destructive session
-  reset and still causes a full empty-map reconcile. On desktop, if the saved
-  password was deliberately forgotten, entering it in Settings and pressing
-  **Sync now** uses this same non-destructive reauthentication path (the old
-  field cleared the typed password without using it). → syncServiceE2ee.ts,
-  createSyncSettings.svelte.ts, SyncManager.swift / SyncManager.kt; guarded by
+  reset and still causes a full bootstrap pull from cursor 0. On desktop, if
+  the saved password was deliberately forgotten, entering it in Settings and
+  pressing **Sync now** uses this same non-destructive reauthentication path
+  (the old field cleared the typed password without using it). →
+  syncServiceE2ee.ts, createSyncSettings.svelte.ts, SyncManager.swift /
+  SyncManager.kt; guarded by
   syncServiceE2ee.test.ts, createSyncSettings.test.ts,
   `auth_cycle_errors_stop_and_emit_reauthentication_signal`, and
   SyncManagerDefaultsTest.kt
@@ -606,15 +609,15 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   `max_version` (the highest `change_seq` seen; push folds its uploads in and
   persists it mid-push via the interim checkpoint / tail flush / final persist)
   and `pull_cursor` (the `since` for the next pull). `run_sync` derives `since`
-  from `pull_cursor`, and ONLY a completed pull (`run_pull` /
-  `reconcile_empty_map`) advances it; push leaves it untouched. So a crash
+  from `pull_cursor`, and ONLY a completed `pull::pull_with_checkpoint`
+  (incremental or bootstrap) advances it; push leaves it untouched. So a crash
   between a push state-persist and pull completion leaves `pull_cursor` at the
   last fully-reconciled position, and the restart still re-lists any peer object
   whose `change_seq` sat below our pushed seqs. Persisting only `max_version`
   (the pre-fix behavior) elevated the pull cursor past un-pulled peer changes,
   hiding them permanently until the peer re-touched the note or a disconnect
-  forced an empty-map reconcile (F32). State-file compatibility + retroactive
-  heal: `pull_cursor` is an additive serde-default field; a pre-field
+  forced a bootstrap pull from cursor 0 (F32). State-file compatibility +
+  retroactive heal: `pull_cursor` is an additive serde-default field; a pre-field
   `.e2ee-state.json` (or a legacy `.app-state.json` import — the pre-port TS
   client folded its own pushes into `e2eeMaxVersion` the same way) may itself
   carry a crash-elevated cursor, so an absent `pull_cursor` is DISTRUSTED and
@@ -656,10 +659,10 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   `case_only_rename_keeps_requested_case`, `case_only_rename_in_folder_and_move`,
   `rename_through_temp_case_only`
 - **Two distinct notes whose filenames collide on a case/normalization-
-  insensitive FS no longer lose a note.** On apply (both incremental `run_pull`
-  and the empty-map reconcile) a path collision is detected over the UNION of
-  this pull's downloads, the persisted object_map, and on-disk files sharing
-  the collision key (`nfc(name).to_lowercase()`). The object with the
+  insensitive FS no longer lose a note.** On apply (both incremental and
+  bootstrap calls to `pull::pull_with_checkpoint`) a path collision is detected
+  over the UNION of this pull's downloads, the persisted object_map, and on-disk
+  files sharing the collision key (`nfc(name).to_lowercase()`). The object with the
   lexicographically smallest `object_id` keeps the canonical name; every other
   colliding object is materialized as `name (conflict <oid8>).md`, where
   `<oid8>` is the first 8 chars of the loser's globally-unique object_id. The
@@ -674,13 +677,15 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   `conflict_names::collision_conflict_filename`; regression tests
   `f4_same_filename_two_clients_no_note_lost`,
   `f5_nfc_nfd_collision_no_note_lost`, the `collision_*` unit tests
-- **The empty-map reconcile no longer lets local silently overwrite an unseen
-  remote.** When a local file diverges from a server object on a fresh empty
-  map (no common ancestor ⇒ no safe 3-way merge), the remote is adopted on the
-  canonical name and the local edits are parked in a deterministic `name
+- **The bootstrap pull from cursor 0 never lets local silently overwrite an
+  unseen remote.** When a local file diverges from a server object on a fresh
+  empty map (no common ancestor ⇒ no safe 3-way merge), the remote is adopted on
+  the canonical name and the local edits are parked in a deterministic `name
   (conflict <remote-oid8>).md` copy that the next push uploads as its own new
   object — instead of recording a divergence entry that the next push pushed
-  over the never-reconciled remote (F6). → futo-notes-sync sync module
+  over the never-reconciled remote (F6). → futo-notes-sync `sync/mod.rs`
+  (`pull::pull_with_checkpoint(state, root, 0, ...)`) +
+  `sync/pull.rs` (`preserve_unmapped_target`)
 - **Disconnect demotes sync state to ancestry; it never just deletes it.**
   Disconnect (all three clients) replaces `.e2ee-state.json` with
   `.e2ee-ancestry.json` — filename → {objectId, last-synced content hash} —
@@ -691,8 +696,8 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   → futo-notes-sync `checkpoint.rs`, ffi `SyncClient::disconnect`, desktop
   `e2ee_disconnect`
 - **A reconnect after fleet drift does not mint conflict copies for notes the
-  device never edited.** The empty-map reconcile consults the ancestry file:
-  for the same objectId, local hash == last-synced hash ⇒ only the remote
+  device never edited.** The bootstrap pull from cursor 0 consults the ancestry
+  file: for the same objectId, local hash == last-synced hash ⇒ only the remote
   moved/renamed ⇒ fast-forward to the remote path and remove the stale local
   path (no park, no duplicate object); remote hash == last-synced hash ⇒ only
   local was edited while disconnected ⇒ keep local and push it as an update to
@@ -704,7 +709,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   meantime and synced the copies to the whole fleet. → futo-notes-sync store +
   sync modules; reconnect scenarios in the server integration suite
 - **A reconnect honors peer deletes made while this device was disconnected —
-  it does not resurrect them.** The empty-map reconcile inspects server
+  it does not resurrect them.** The bootstrap pull from cursor 0 inspects server
   TOMBSTONES (deleted objects), not just live ones. For each tombstone it
   matches the ancestry (object_id → last-synced filename + hash): if the local
   file is unchanged since the last sync it is deleted (the peer's delete wins);
@@ -745,10 +750,10 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   server's `updated_at`, every pull/download stamps it, and a
   content-identical local touch (editor re-save, relink rewrite, `touch`) is
   corrected back to the recorded server timestamp on the next sync rather
-  than adopted. The empty-map reconcile likewise converges matching-content
-  files to the server timestamp. (Observed 2026-06-05: a content-identical
-  rewrite on the Mac left `Markdown demo` sorted minutes newer than on
-  Android/iOS.) → futo-notes-sync sync module
+  than adopted. The bootstrap pull from cursor 0 likewise converges
+  matching-content files to the server timestamp. (Observed 2026-06-05: a
+  content-identical rewrite on the Mac left `Markdown demo` sorted minutes
+  newer than on Android/iOS.) → futo-notes-sync sync module
 
 - **Closed (2026-06-05):** reconciliation of two *distinct* notes whose
   filenames collide only by case (`welcome.md` vs `Welcome.md`) or by Unicode
