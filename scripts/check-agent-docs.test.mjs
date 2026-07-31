@@ -10,6 +10,7 @@ import {
   parseJustRecipes,
   parsePackageScripts,
   resolvePathCheckTarget,
+  validateRequiredVerificationChains,
   validateReferences,
 } from './check-agent-docs.mjs';
 
@@ -34,6 +35,27 @@ describe('collectInstructionFiles', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('validateRequiredVerificationChains', () => {
+  it('rejects a verify skill whose shared note-rule section omits conformance commands', () => {
+    const incompleteSkill = [
+      '### shared: `just test-editor`',
+      '### unit-tests: `just test-unit`',
+      '### rust-core: `just test-rust`',
+      '',
+    ].join('\n');
+
+    expect(
+      validateRequiredVerificationChains('.claude/skills/verify/SKILL.md', incompleteSkill),
+    ).toEqual([
+      {
+        line: 1,
+        message:
+          'shared note-rule verification chain is missing: pnpm exec tsx tests/conformance/generate.mjs --check, pnpm run test:editor:minimal, just test-rust',
+      },
+    ]);
   });
 });
 

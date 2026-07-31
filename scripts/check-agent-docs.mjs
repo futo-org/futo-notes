@@ -4,7 +4,9 @@
 // agent down a dead end). Scans README.md, CONTRIBUTING.md, every AGENTS.md
 // (root + nested), .claude/skills/**/SKILL.md + their references/*.md, and
 // .claude/workflows/*.js, then validates every `just`/`pnpm run`/repo-path
-// reference found inside backtick spans or fenced code blocks.
+// reference found inside backtick spans or fenced code blocks. It also
+// protects required verification command chains whose individual commands
+// can all exist while the instruction that composes them is incomplete.
 //
 //   node scripts/check-agent-docs.mjs   (just check-agent-docs)
 //
@@ -258,6 +260,40 @@ export function validateReferences(refs, { justRecipes, pnpmScripts, pathExists 
   return violations;
 }
 
+const VERIFY_SKILL_PATH = '.claude/skills/verify/SKILL.md';
+const SHARED_NOTE_RULE_COMMANDS = [
+  'pnpm exec tsx tests/conformance/generate.mjs --check',
+  'pnpm run test:editor:minimal',
+  'just test-rust',
+];
+
+export function validateRequiredVerificationChains(file, text) {
+  if (file.replaceAll(path.sep, '/') !== VERIFY_SKILL_PATH) return [];
+
+  const sharedHeading = /^### shared\b[^\n]*$/m.exec(text);
+  if (!sharedHeading) {
+    return [{ line: 1, message: 'verify skill is missing its shared note-rule section' }];
+  }
+
+  const followingText = text.slice(sharedHeading.index + sharedHeading[0].length);
+  const nextHeadingOffset = followingText.search(/^### /m);
+  const sharedSection =
+    nextHeadingOffset === -1 ? followingText : followingText.slice(0, nextHeadingOffset);
+  const missingCommands = SHARED_NOTE_RULE_COMMANDS.filter(
+    (command) => !sharedSection.includes(command),
+  );
+
+  if (missingCommands.length === 0) return [];
+
+  const line = text.slice(0, sharedHeading.index).split('\n').length;
+  return [
+    {
+      line,
+      message: `shared note-rule verification chain is missing: ${missingCommands.join(', ')}`,
+    },
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // Instruction-surface discovery
 // ---------------------------------------------------------------------------
@@ -375,11 +411,15 @@ function main() {
   const allViolations = [];
 
   for (const file of files) {
-    const refs = extractReferences(fs.readFileSync(file, 'utf8'));
+    const text = fs.readFileSync(file, 'utf8');
+    const refs = extractReferences(text);
     totalRefs += refs.length;
     const rel = path.relative(ROOT, file);
     const pathExists = makePathExists(path.dirname(file));
     for (const violation of validateReferences(refs, { justRecipes, pnpmScripts, pathExists })) {
+      allViolations.push({ file: rel, ...violation });
+    }
+    for (const violation of validateRequiredVerificationChains(rel, text)) {
       allViolations.push({ file: rel, ...violation });
     }
   }
