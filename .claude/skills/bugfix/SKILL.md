@@ -27,7 +27,7 @@ Before investigating the root cause, write a test that demonstrates the broken b
 
 Don't overthink it. A naive test that exercises the buggy code path and checks for the right answer is fine. You can refine it later if you discover the root cause is different from what you expected. The point is to lock in a concrete reproduction *now*.
 
-Choose the test type based on where the bug lives. Refer to the project's test requirements table in AGENTS.md for where tests live and how to run them:
+Choose the test type based on where the bug lives. Refer to AGENTS.md's "Testing & quality bar" for where tests live and how to run them:
 
 | Bug location | Test approach |
 |---|---|
