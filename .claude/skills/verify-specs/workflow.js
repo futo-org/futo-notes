@@ -230,14 +230,29 @@ const results = await pipeline(
     }
     log(`↑ leg ${leg.id}: ${fails.length} FAIL candidate(s) → high-effort verify`);
     phase('Verify');
-    return agent(verifyBrief(leg, sweep, fails), {
-      agentType: 'app-qa',
-      model: 'sonnet',
-      effort: effort.verify,
-      phase: 'Verify',
-      label: `verify:${leg.id}`,
-      schema: VERIFY_SCHEMA,
-    }).then((verify) => ({ legId: leg.id, leg, sweep, verify }));
+    return (
+      agent(verifyBrief(leg, sweep, fails), {
+        agentType: 'app-qa',
+        model: 'sonnet',
+        effort: effort.verify,
+        phase: 'Verify',
+        label: `verify:${leg.id}`,
+        schema: VERIFY_SCHEMA,
+      })
+        // Same swallow as stage 1, and the consequence here is strictly worse: a
+        // THROWN verify drops the whole item to null, so the leg loses its place
+        // in legSummaries/needsResume AND the FAILs its sweep already found never
+        // reach confirmedFails — a run with known real failures reports 'pass'.
+        // Returning null instead keeps the leg, and the aggregation below already
+        // treats "FAILs but no verify" as unconfirmed rather than absent.
+        .catch((err) => {
+          log(
+            `⚠ leg ${leg.id}: verify THREW (${String(err).slice(0, 120)}) — FAILs stay unconfirmed`,
+          );
+          return null;
+        })
+        .then((verify) => ({ legId: leg.id, leg, sweep, verify }))
+    );
   },
 );
 

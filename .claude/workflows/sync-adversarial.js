@@ -99,7 +99,20 @@ const results = await pipeline(
        harness if Docker is up). Write any temp test, run it, then leave the tree
        clean. Report expected vs actual and a pass boolean with evidence.`,
       { label: `gen:${s.key}`, phase: 'Generate', schema: VERDICT_SCHEMA },
-    ),
+    ).catch((err) => {
+      // A THROWN agent (transport death) propagates out of the stage, so
+      // pipeline() drops the item to null and both `.filter(Boolean)` calls
+      // below erase it — an E2EE data-safety sweep would report 'pass' for a
+      // scenario that never ran. Fail the scenario loudly instead.
+      log(`⚠ ${s.key}: scenario agent THREW (${String(err).slice(0, 120)})`);
+      return {
+        scenario: s.key,
+        expected: s.spec,
+        actual: `NOT RUN — scenario agent threw: ${String(err).slice(0, 200)}`,
+        pass: false,
+        evidence: 'none — the agent died before producing a verdict; re-run this scenario',
+      };
+    }),
   (verdict, s) =>
     verdict && verdict.pass
       ? agent(
@@ -108,7 +121,14 @@ const results = await pipeline(
            Evidence given: ${verdict.evidence}. Re-derive independently; if the
            data-loss/duplicate/tombstone failure mode could still occur, refute.`,
           { label: `refute:${s.key}`, phase: 'Verify', schema: REFUTE_SCHEMA },
-        ).then((r) => ({ ...verdict, refuted: r?.refuted ?? true, refuteWhy: r?.why }))
+        )
+          // Same reason as stage 1. `refuted: true` is already the uncertain
+          // default, so a dead refuter must land there too — not vanish.
+          .catch((err) => {
+            log(`⚠ ${s.key}: refutation agent THREW (${String(err).slice(0, 120)})`);
+            return { refuted: true, why: `refutation agent threw: ${String(err).slice(0, 200)}` };
+          })
+          .then((r) => ({ ...verdict, refuted: r?.refuted ?? true, refuteWhy: r?.why }))
       : Promise.resolve(verdict),
 );
 

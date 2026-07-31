@@ -146,6 +146,20 @@ session death) with the leg manifest — one entry per leg:
 Ledger paths **must be absolute and inside each leg's own worktree** — that's
 where the app-qa agent runs and where a resume looks.
 
+A leg may also carry an optional `"focus"` string. With it, that leg covers
+exactly the flows named and stops, instead of sweeping its whole surface and
+reporting the remainder as SKIP noise:
+
+```jsonc
+{ "id": "A-ios", "platform": "ios", "surfaces": ["editor"],
+  "focus": "only the toolbar-overflow and IME-scroll stories from the last run",
+  "ledger": "/abs/path/extra-A/test-screenshots/A-ios-ledger.md" }
+```
+
+Omit it for a full sweep — that is the default and what a bare run uses. Reach
+for it on a **resume** pass or a targeted re-check after a fix, where
+re-sweeping the whole surface wastes a leg.
+
 ## Step 3 — Fan out via the workflow
 
 ```
