@@ -160,6 +160,18 @@ test-android-native: build-rust-android
 test-android-native-ui: build-rust-android
   cd apps/android && ./gradlew connectedDebugAndroidTest
 
+# User-level storage-location stories against the REAL native Android app: the
+# first-run picker, both migration directions, and opening an already-populated
+# folder — each asserted on the vault that actually lands on disk. ~35s, of which
+# ~30s is the two stories that deliberately tap real UI; the rest drive the debug
+# build's hooks via tests/lib/android/. Needs a device/emulator with the debug app
+# installed (`just android-native`); honors $ANDROID_SERIAL. It CLEARS the debug
+# app's data, so claim a pool device first (`just qa-claim android`) rather than
+# pointing it at a phone you care about. Deliberately not in `check`/CI — runners
+# have no emulator.
+test-android-storage:
+  node tests/android-storage-migration.mjs
+
 # ── Parallel QA isolation (multiple worktrees, one machine) ──
 # Worktree path → slot → pooled devices (futo-qa-0..6 per platform) + a
 # per-slot sync server with its own Postgres database. Your personal
@@ -279,7 +291,7 @@ emu-screenshot name="emu":
 # `adb logcat -c` first for a clean slate; crashes land under AndroidRuntime.
 # Tag-scoped logcat for the native Android app's stable log tags.
 emu-logs:
-  adb logcat -s FutoStartup FutoSearch NotesStore FutoToolbarDBG FutoBridgeDBG AndroidRuntime
+  adb logcat -s FutoStartup FutoSearch NotesStore FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
 
 # Debug builds only; re-run after every app restart (the WebView pid changes).
 # adb forward host ports are machine-global, so the port is per-worktree
@@ -297,6 +309,14 @@ cdp-forward:
   adb forward "tcp:${PORT}" "localabstract:${SOCKET}"
   echo "Forwarded localhost:${PORT} → ${SOCKET}"
   echo "  export CDP_PORT=${PORT}   # then: node scripts/cdp-invoke.mjs \"document.title\""
+
+# Drive the native Android app: read its state, tap labels, run debug hooks.
+# `state` answers from the app itself (~100ms) instead of an accessibility dump
+# (~2s), and reports what the a11y tree can't — which vault is live, whether a
+# migration is in flight. Run with no arguments for the command list. Debug
+# builds only; honors $ANDROID_SERIAL.
+android-drive *args:
+  @node scripts/android-drive.mjs {{args}}
 
 build:
   #!/usr/bin/env bash

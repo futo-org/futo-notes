@@ -5,7 +5,8 @@ use futo_notes_store as store;
 
 use super::{
     ConditionalWrite, CreateOutcome, FlushDraftResult, NoteBootstrap, NoteError, NoteMutation,
-    NoteSnapshot, SearchHit, VaultMigrationFinalization, VaultMigrationOutcome,
+    NoteSnapshot, SearchHit, VaultDestinationInspection, VaultMigrationFinalization,
+    VaultMigrationOutcome,
 };
 
 #[derive(uniffi::Object)]
@@ -172,6 +173,12 @@ impl NoteStore {
 
     pub fn reset(&self) -> Result<(), NoteError> {
         self.inner.reset().map_err(NoteError::Io)
+    }
+
+    pub fn inspect_vault_destination(&self, destination: String) -> VaultDestinationInspection {
+        self.inner
+            .inspect_vault_destination(&PathBuf::from(destination))
+            .into()
     }
 
     pub fn stage_vault_migration(

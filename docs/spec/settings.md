@@ -49,11 +49,31 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   is never merged into or deleted. Leaving the editor captures and
   persists-or-parks its latest live body before Settings can open; the migration
   then flushes any retained draft under the vault gate before staging. The
-  blocking overlay never depends on an attached editor WebView. Startup reads
-  the journal and storage preferences on `Dispatchers.IO` after the first
-  composition. →
-  `MainActivity.performSwitch`, Android `storage/`,
-  `futo-notes-store::vault_migration`
+  blocking overlay never depends on an attached editor WebView.
+  Changing location and moving notes are separate operations, decided by what the
+  target already holds: an **empty** target gets the whole-vault copy above, while
+  a target that **already holds files** is opened as a vault — nothing is copied,
+  merged, or deleted, and the previous folder keeps every note it has. Opening
+  asks first, via a confirmation naming both note counts, how recently the target
+  changed, and where the current notes stay, because the target is often a backup
+  an earlier switch left behind and its age is the only signal that its notes are
+  older. Opening an occupied folder is refused while sync is connected: the
+  E2EE checkpoint lives in the vault root, so adopting a foreign one would
+  reconcile a different note set against the current watermark; a migration
+  carries that checkpoint along and stays allowed. Confirming retires any
+  migration journal before the new location is persisted, because the journal
+  outranks the preference at startup: a completed Device migration deliberately
+  leaves an `ACTIVATED` record behind while its retained source awaits cleanup, and
+  a surviving record would name the old destination as the verified root and
+  silently revert the choice on the next launch. A journal that cannot be retired
+  keeps the current folder and says so. A target that is not a directory, is
+  unreadable, or is nested with the current folder is refused. Startup reads the
+  journal and storage preferences on `Dispatchers.IO` after the first
+  composition. → `MainActivity.performSwitch`,
+  `MainActivity.adoptExistingStorage`, Android `storage/` (`storageSwitchPlan`,
+  `describeStorageAdoption`), `futo-notes-store::vault_migration` (`inspect`);
+  both directions and the occupied-target confirmation are guarded end-to-end on
+  a device by `just test-android-storage` (`tests/android-storage-migration.mjs`)
 - **About**: an open-source link (GitLab) and the app version.
 - **Issue reporting**: "Share crash reports" toggle with a nested **"Send
   crashes automatically"**, plus a **"Report an issue"** link that opens the

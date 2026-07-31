@@ -22,7 +22,8 @@ use serde::{Deserialize, Serialize};
 pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
 pub use futo_notes_search::{SearchHit, SearchStatus};
 pub use vault_migration::{
-    VaultMigrationFinalization, VaultMigrationOutcome, VaultMigrationStatus,
+    VaultDestinationInspection, VaultDestinationState, VaultMigrationFinalization,
+    VaultMigrationOutcome, VaultMigrationStatus,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -978,6 +979,13 @@ impl LocalNoteStore {
         }
         self.rebuild_search();
         Ok(())
+    }
+
+    /// Reports what a candidate notes folder already holds. Read-only: the
+    /// shell migrates into an empty folder and opens an occupied one instead of
+    /// merging, so nothing here mutates either vault.
+    pub fn inspect_vault_destination(&self, destination: &Path) -> VaultDestinationInspection {
+        vault_migration::inspect(&self.root, destination)
     }
 
     /// Stages a verified whole-vault copy while keeping the source intact.

@@ -14,12 +14,14 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.futo.notes.storage.NotesStorage
+import com.futo.notes.storage.StorageDestination
 import com.futo.notes.storage.StorageMigrationGate
 import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.NoteMutation
 import uniffi.futo_notes_ffi.NoteStore
 import uniffi.futo_notes_ffi.NoteMetadata
 import uniffi.futo_notes_ffi.SearchHit
+import uniffi.futo_notes_ffi.VaultDestinationState
 import uniffi.futo_notes_ffi.VaultMigrationStatus
 import uniffi.futo_notes_ffi.VaultMigrationFinalization
 import java.io.File
@@ -391,6 +393,22 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     fun tryBeginStorageMigration(): Boolean =
         storageMigrationGate.tryBeginMigrationWhenIdle()
 
+    /** What [to] already holds, so the caller can choose between copying the vault
+     *  into it and opening it. Read-only on both folders. */
+    suspend fun inspectVaultDestination(to: File): StorageDestination =
+        withCore {
+            val inspection = core.inspectVaultDestination(to.absolutePath)
+            when (inspection.state) {
+                VaultDestinationState.EMPTY -> StorageDestination.Empty
+                VaultDestinationState.OCCUPIED ->
+                    StorageDestination.Occupied(
+                        notes = inspection.notes.toInt(),
+                        lastModifiedMs = inspection.lastModifiedMs.toLong(),
+                    )
+                VaultDestinationState.UNUSABLE -> StorageDestination.Unusable
+            }
+        }
+
     /**
      * Flush retained editor drafts and hold the vault gate across migration.
      * Existing store operations finish before the copy starts; the Activity
@@ -401,21 +419,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         val mutations = mutableListOf<NoteMutation>()
         val outcome = withContext(Dispatchers.IO) {
             storageMigrationGate.runMigration {
-                val flushFailed = drafts.any { draft ->
-                    try {
-                        val result = core.flushDraft(draft.id, draft.base, draft.content)
-                        result.mutation?.let(mutations::add)
-                        false
-                    } catch (e: Exception) {
-                        android.util.Log.e(
-                            "NotesStore",
-                            "migration draft flush failed for ${draft.id}",
-                            e,
-                        )
-                        true
-                    }
-                }
-                if (flushFailed) {
+                if (!flushDraftsUnderGate(drafts, mutations)) {
                     NotesStorage.MigrationOutcome.Failed(
                         "An open editor change could not be saved. The storage mode was not changed.",
                     )
@@ -435,6 +439,37 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         mutations.forEach(::applyMutation)
         return outcome
     }
+
+    /**
+     * Persist every unsaved draft before the process is relaunched onto a
+     * different notes folder. Opening an existing folder copies nothing, so this
+     * is the only thing standing between a retained draft and a `exit(0)` that
+     * would drop it. Holds the same gate as [migrateVault].
+     */
+    suspend fun flushDraftsForVaultHandoff(): Boolean {
+        val drafts = pendingEditor.currentDrafts()
+        val mutations = mutableListOf<NoteMutation>()
+        val flushed = withContext(Dispatchers.IO) {
+            storageMigrationGate.runMigration { flushDraftsUnderGate(drafts, mutations) }
+        }
+        mutations.forEach(::applyMutation)
+        return flushed
+    }
+
+    /** Returns false when any draft could not be persisted. Callers hold the gate. */
+    private fun flushDraftsUnderGate(
+        drafts: List<PendingDraft>,
+        mutations: MutableList<NoteMutation>,
+    ): Boolean =
+        drafts.none { draft ->
+            try {
+                core.flushDraft(draft.id, draft.base, draft.content).mutation?.let(mutations::add)
+                false
+            } catch (e: Exception) {
+                android.util.Log.e("NotesStore", "storage-switch draft flush failed for ${draft.id}", e)
+                true
+            }
+        }
 
     /** Re-open the old root after a migration or preference-commit failure. */
     fun resumeAfterStorageMigrationFailure() {

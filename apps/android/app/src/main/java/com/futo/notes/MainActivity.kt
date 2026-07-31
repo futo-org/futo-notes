@@ -35,13 +35,21 @@ import com.futo.notes.ui.EditorHost
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.PendingStorageMigration
 import com.futo.notes.storage.StorageActivationOutcome
+import com.futo.notes.storage.StorageAdoptionOutcome
+import com.futo.notes.storage.StorageAdoptionSummary
 import com.futo.notes.storage.StorageMigrationJournal
 import com.futo.notes.storage.StorageMigrationPhase
 import com.futo.notes.storage.StorageMode
 import com.futo.notes.storage.StorageStartupRecovery
+import com.futo.notes.storage.StorageSwitchPlan
 import com.futo.notes.storage.activateStagedStorageMigration
+import com.futo.notes.storage.adoptExistingVault
+import com.futo.notes.storage.describeStorageAdoption
 import com.futo.notes.storage.recoverStorageStartup
+import com.futo.notes.storage.storageSwitchPlan
+import com.futo.notes.testhook.TestHooks
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
+import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.NoteEditorScreen
 import com.futo.notes.ui.NoteListScreen
 import com.futo.notes.ui.SearchScreen
@@ -72,6 +80,12 @@ internal fun vaultSurfaceState(
     showMovingOverlay = hasStore && storageSwitching && !needsRegrant,
 )
 
+/** A storage switch waiting on the user's confirmation to open an existing folder. */
+private data class PendingStorageAdoption(
+    val mode: StorageMode,
+    val plan: StorageSwitchPlan.OpenExisting,
+)
+
 class MainActivity : ComponentActivity() {
     // Hoisted so onStart/onStop can pause/resume the SSE live stream — the
     // stream shouldn't stay open while backgrounded; re-foregrounding gets a
@@ -100,6 +114,7 @@ class MainActivity : ComponentActivity() {
     private val storageSwitching = mutableStateOf(false)
     private val storageResolving = mutableStateOf(true)
     private val storageRecoveryError = mutableStateOf<String?>(null)
+    private val pendingStorageAdoption = mutableStateOf<PendingStorageAdoption?>(null)
     private val themeMode = mutableStateOf(ThemeMode.AUTO)
 
     // The All-files-access settings screen returns no result code, so we
@@ -180,6 +195,8 @@ class MainActivity : ComponentActivity() {
         }
 
         imagePicker = ImagePicker(this)
+
+        TestHooks.install(this, testHooks())
 
         setContent {
             if (BuildConfig.DEBUG) {
@@ -395,6 +412,30 @@ class MainActivity : ComponentActivity() {
                 onCancel = { showStoragePicker.value = false },
             )
         }
+
+        // The target folder already has notes, so the switch opens it instead of
+        // copying. Both folders are named with what they hold so the user can
+        // tell a current vault from a leftover one before committing.
+        pendingStorageAdoption.value?.let { adoption ->
+            ConfirmDialog(
+                title = "Open the notes already there?",
+                body = describeStorageAdoption(
+                    StorageAdoptionSummary(
+                        destinationNotes = adoption.plan.notes,
+                        destinationLastModifiedMs = adoption.plan.lastModifiedMs,
+                        currentPath = notesRoot.path,
+                        currentNotes = store.value?.notes?.size ?: 0,
+                        nowMs = System.currentTimeMillis(),
+                    ),
+                ),
+                confirmLabel = "Open that folder",
+                onConfirm = {
+                    pendingStorageAdoption.value = null
+                    adoptExistingStorage(adoption)
+                },
+                onDismiss = { pendingStorageAdoption.value = null },
+            )
+        }
     }
 
     /**
@@ -462,6 +503,56 @@ class MainActivity : ComponentActivity() {
         initVault(NotesStorage.rootFor(this, mode, BuildConfig.DEBUG))
     }
 
+    // ── Automation hooks (debug builds only) ──
+
+    /**
+     * What a harness or an interactive session can ask this activity to do, by
+     * name. Hooks call the same entry points the UI calls, so what they replace is
+     * the tapping, not the code under test; `TestHooks` compiles to nothing in a
+     * release build. Field names in `state` are read by
+     * `tests/lib/android/testHooks.mjs`.
+     */
+    private fun testHooks(): Map<String, (Intent) -> Map<String, Any?>?> = mapOf(
+        // Every field here replaces an accessibility-tree read, which costs ~2s and
+        // reports whatever Compose last managed to render rather than app state
+        // (AGENTS.md M21).
+        "state" to {
+            mapOf(
+                "storageMode" to currentMode().name,
+                "vaultPath" to if (::notesRoot.isInitialized) notesRoot.path else null,
+                "notes" to (store.value?.notes?.size ?: 0),
+                "onboarding" to (showOnboarding.value || showStoragePicker.value),
+                "movingNotes" to storageSwitching.value,
+                "awaitingStorageConfirmation" to (pendingStorageAdoption.value != null),
+                "shellVisible" to (store.value != null && !storageSwitching.value),
+            )
+        },
+        "storage-mode" to { intent ->
+            val requested = intent.getStringExtra("mode").orEmpty()
+            // Throwing is the contract for a bad argument: the ack carries the
+            // reason, where a silent no-op would look like a hung switch.
+            performStorageChange(
+                runCatching { StorageMode.valueOf(requested) }.getOrElse {
+                    error("no such storage mode: $requested")
+                },
+            )
+            null
+        },
+        "confirm-storage" to {
+            val adoption = checkNotNull(pendingStorageAdoption.value) {
+                "no storage switch is awaiting confirmation"
+            }
+            pendingStorageAdoption.value = null
+            adoptExistingStorage(adoption)
+            null
+        },
+    )
+
+    override fun onDestroy() {
+        TestHooks.uninstall(this)
+        super.onDestroy()
+    }
+
     /** Settings change-location confirm: migrate the vault, then relaunch. */
     private fun performStorageChange(mode: StorageMode) {
         showStoragePicker.value = false
@@ -470,8 +561,79 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Device storage requires Android 11 or newer.", Toast.LENGTH_LONG).show()
             return
         }
-        if (mode == StorageMode.DEVICE) requestDeviceAccess { performSwitch(StorageMode.DEVICE) }
-        else performSwitch(mode)
+        if (mode == StorageMode.DEVICE) requestDeviceAccess { planStorageChange(StorageMode.DEVICE) }
+        else planStorageChange(mode)
+    }
+
+    /**
+     * Copying the vault and re-pointing at an existing one are different
+     * operations, so what is already in the target decides which one runs.
+     */
+    private fun planStorageChange(newMode: StorageMode) {
+        if (storageSwitching.value) return
+        val current = store.value ?: return
+        val to = NotesStorage.rootFor(this, newMode, BuildConfig.DEBUG)
+        lifecycleScope.launch {
+            when (val plan = storageSwitchPlan(current.inspectVaultDestination(to), sync.connected)) {
+                StorageSwitchPlan.Migrate -> performSwitch(newMode)
+                is StorageSwitchPlan.OpenExisting ->
+                    pendingStorageAdoption.value = PendingStorageAdoption(newMode, plan)
+                is StorageSwitchPlan.Refuse ->
+                    Toast.makeText(this@MainActivity, plan.message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /**
+     * Point the app at the notes already in [mode]'s folder. Nothing is copied,
+     * merged, or deleted, so the previous folder keeps every note it has — the
+     * user has already been shown both sides. Relaunching is what rebuilds every
+     * vault-derived object against the new root (M4); the drafts are flushed
+     * first because `exit(0)` would otherwise drop a retained one.
+     */
+    private fun adoptExistingStorage(adoption: PendingStorageAdoption) {
+        val current = store.value ?: return
+        // No `storageSwitching` guard: the confirmation has already been consumed
+        // by the time this runs, so bailing out here would swallow the user's
+        // answer with nothing on screen to explain it. The vault gate below is the
+        // real serialization, and it refuses out loud.
+        storageSwitching.value = true
+        if (!current.tryBeginStorageMigration()) {
+            storageSwitching.value = false
+            Toast.makeText(
+                this,
+                "A note or image is still being saved. Try changing storage again.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        lifecycleScope.launch {
+            // The step order and every failure message live in adoptExistingVault
+            // so they can be unit-tested; this only supplies the effects.
+            val outcome = adoptExistingVault(
+                mode = adoption.mode,
+                isSyncConnected = { sync.connected },
+                flushDrafts = { current.flushDraftsForVaultHandoff() },
+                clearJournal = {
+                    withContext(Dispatchers.IO) { storageMigrationJournal.clear() }.isSuccess
+                },
+                // commit() — restartApp() kills the process before an async apply()
+                // would flush (see performSwitch).
+                commitPreference = { mode ->
+                    withContext(Dispatchers.IO) {
+                        prefs.edit().putString(Prefs.STORAGE_MODE, mode.name).commit()
+                    }
+                },
+            )
+            when (outcome) {
+                StorageAdoptionOutcome.Restart -> restartApp()
+                is StorageAdoptionOutcome.KeepCurrent -> {
+                    current.resumeAfterStorageMigrationFailure()
+                    storageSwitching.value = false
+                    Toast.makeText(this@MainActivity, outcome.feedback, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     private fun performSwitch(newMode: StorageMode) {
