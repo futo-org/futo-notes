@@ -70,7 +70,9 @@ application API used by Tauri and UniFFI.
   `SyncSession` owns `cycle_gate`; `auto_pull_on_peer_push` and
   `reconnect_catches_missed_change` guard the real SSE boundary.
 - SSE framing survives chunking, CRLF, comments, and multiline data: the four
-  tests co-located in `session/event_stream.rs`.
+  tests co-located in `session/live/event_stream.rs` (this rewrite landed the
+  file at `session/event_stream.rs`; `refactor(sync): clarify session lifecycle`
+  later moved it under `session/live/`).
 - Failure categories and summaries retain their cross-shell wire shape:
   `failure_kind_wire_strings_are_stable`,
   `failure_messages_are_honest_and_deterministic`, and the
