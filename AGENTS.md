@@ -141,8 +141,13 @@ the repo root (`pnpm run dev` uses localhost APIs, `pnpm run build` points at pr
 
 **Platform traps:** **M21** don't trust synthetic input or stale screenshots — DOM `click()` does not
 fire Svelte 5 handlers (tap at CSS-rect-center × devicePixelRatio via `adb input tap`), and an
-unfocused Android emulator throttles Compose frames so `adb screencap` shows stale UI; suspect the
-tool before the app and check the `/verify` skill's `references/{ios,android}.md` · **M22**
+unfocused Android emulator throttles Compose frames so `adb screencap` shows stale UI; on iOS `axe
+gesture` presets exit 0 while scrolling nothing and `axe tap` prints `✓` for an element whose
+activation point is off-screen. Suspect the tool before the app, check the `/verify` skill's
+`references/{ios,android}.md`, and **never record a gap from one tool's silence** — for 25 days
+(2026-07-02 → 2026-07-27) `docs/spec/nav.md` blamed SwiftUI for iOS nav-bar items missing from the
+a11y tree; the labels were always there, `idb ui describe-all` just returns a shallow ~11-element
+tree on iOS 26.5 · **M22**
 Playwright/WebKit can't prove Windows WebView2 (use the qemu harness in `scripts/win-vm/`) or the real
 iOS keyboard (duplicate `@codemirror/*` blanks the editor) · **M23** the updater `.sig` must be the
 last touch on artifact bytes — after the Linux mesa patch / macOS notarize / Windows Authenticode
@@ -184,8 +189,9 @@ individually. Releases go through `/release`.
 ## Driving the apps
 
 Web/desktop: `agent-browser`; Tauri debug builds ship the MCP bridge (`driver_session`, `webview_*`).
-Native has no bridge — iOS via `xcrun simctl` + `idb`, Android via `adb`/uiautomator + CDP
-(`just cdp-forward`). Sync in debug builds: prefer the `window.__testSync` hook
+Native has no bridge — iOS via `xcrun simctl` + `axe` (read the a11y tree through
+`node scripts/describe-ios-ui.mjs`, never a raw `axe describe-ui` dump — it is 254KB+), Android via
+`adb`/uiautomator + CDP (`just cdp-forward`). Sync in debug builds: prefer the `window.__testSync` hook
 (`connect`/`status`/`syncNow`/`disconnect`/`pauseAutoSync`/`resumeAutoSync` — the surface is
 `src/features/sync/testSync.ts`; the old `*E2ee` aliases are gone). Parallel isolation: `just qa-claim` /
 `qa-status` / `qa-release` / `qa-server`. Logs: `just emu-logs` / `sim-logs`. Windows/WebView2: the

@@ -216,7 +216,7 @@
     },
     {
       "concept": "unique-id-collision-loop",
-      "description": "The '-2, -3, ...' unique-id suffix resolver. Rust is canonical for desktop and native. The only TS copy is the browser-only development/test note-store harness. Separate tests protect each implementation; no shared fixture currently locks them.",
+      "description": "The '-2, -3, ...' unique-id suffix resolver. Rust is canonical for desktop and native (futo-notes-store paths::unique_note_id). The only other generator is the browser-only development/test note-store harness (localNoteStore.ts `unique`). Swift and Kotlin do NOT generate: they pass \"Untitled\" to the Rust createNote and only RECOGNIZE the suffix shape via isPlaceholderTitle \u2014 keep it that way. Separate tests protect each implementation; no shared fixture currently locks them.",
       "lockStatus": "unlocked",
       "copies": [
         {
