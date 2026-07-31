@@ -391,8 +391,8 @@ to do one, stop and apply the rule.
   scrolling nothing, and `axe tap` prints `✓` for an element whose activation point is off-screen.
   **Rule:** when UI automation reports "nothing happened", suspect the tool before the app — check
   the playbooks in the `/verify` skill's `references/ios.md` and `references/android.md`. The
-  canonical case: for a year `docs/spec/nav.md` carried a gap blaming SwiftUI for iOS nav-bar
-  items missing from the a11y tree. The labels were always there; `idb ui describe-all` returns a
+  canonical case: for 25 days (2026-07-02 → 2026-07-27) `docs/spec/nav.md` carried a gap blaming
+  SwiftUI for iOS nav-bar items missing from the a11y tree. The labels were always there; `idb ui describe-all` returns a
   shallow ~11-element tree on iOS 26.5 and never showed them. A tool's blind spot became a
   recorded app defect — never record a gap from one tool's silence (2026-07-27, fixed by `axe`).
 - **M22 — Believing the wrong browser.** Playwright/agent-browser run WebKit/Chromium — they can

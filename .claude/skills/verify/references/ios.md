@@ -8,8 +8,8 @@ content through the filesystem (see "The flush-and-read trick" below).
 
 `axe` replaced `idb` on 2026-07-27. This is not a cosmetic swap: `idb ui
 describe-all` returns a shallow ~11-element tree on iOS 26.5 and never shows
-the nav-bar controls, which cost us a year-long false gap in `docs/spec/nav.md`
-blaming SwiftUI for a tool's blind spot. `axe` reports them with labels and
+the nav-bar controls, which cost us a 25-day false gap in `docs/spec/nav.md`
+(2026-07-02 → 2026-07-27) blaming SwiftUI for a tool's blind spot. `axe` reports them with labels and
 identifiers, and taps them. Do not reintroduce `idb`.
 
 Debug builds install as `com.futo.notes.dev` ("FUTO Notes Dev") with notes at
