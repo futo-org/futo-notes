@@ -534,8 +534,8 @@ editor rules/bridge → `packages/editor/src`; E2E → `tests/*.spec.ts`; sync s
   Full playbooks: `/verify` skill `references/ios.md`, `references/android.md`. Android emulator →
   host services via `10.0.2.2`.
 - **Sync in debug builds**: prefer the `window.__testSync` hook over UI automation —
-  `connect(serverUrl, password)`, `connectE2ee(...)`, `status()`, `syncNow()`, `syncE2ee(pw)`,
-  `disconnect()`/`disconnectE2ee()`.
+  `connect(serverUrl, password)`, `status()`, `syncNow()`, `disconnect()`,
+  `pauseAutoSync()`, `resumeAutoSync()`.
 - **Parallel QA isolation**: `just qa-claim` / `qa-status` / `qa-release` / `qa-server` — worktree
   → slot → pooled devices (`futo-qa-0..6`) + per-slot sync server. Never touch devices you didn't
   claim; adb forward ports are machine-global.
