@@ -28,6 +28,7 @@ flag gaps the codebase suggests have been implemented.
 
 ## sync.md
 
-- [sync.md:855](sync.md#L855) — Android leaves the open editor bound to the deleted id (its snapshotFlow adopt early-returns on the missing note); the peer-delete close/keep + banner is not yet ported there.
+- [sync.md:266](sync.md#L266) — The heal is not idempotent for a name ending in repeated `". "` groups — `sanitize_title` peels exactly one group per pass, so `"a. ..md"` heals to `"a..md"`, which the next cycle heals again to `"a.md"`: one rename per sync round until it settles. Closing it means changing the title rule in both `packages/editor/src/filename.ts` and `futo-notes-core` plus regenerated conformance fixtures (AGENTS.md M7); the invariant is recorded as the `#[ignore]`d `healing_an_incoming_path_settles_in_one_round` property.
+- [sync.md:868](sync.md#L868) — Android leaves the open editor bound to the deleted id (its snapshotFlow adopt early-returns on the missing note); the peer-delete close/keep + banner is not yet ported there.
 
-_10 gaps._
+_11 gaps._

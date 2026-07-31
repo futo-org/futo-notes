@@ -1,4 +1,4 @@
-// Debt ratchet gate (architecture-hardening.md PKT-8 / R2). Recomputes 4
+// Debt ratchet gate (architecture-hardening.md PKT-8 / R2). Recomputes 5
 // "fuzzy" debt counts fresh from the tree and compares them against the
 // checked-in baseline (scripts/debt-ratchet.json). The numbers can only go
 // down over time:
@@ -24,6 +24,12 @@
 //                                 docs/spec/GAPS.md (spec-gaps.mjs output).
 //   unlockedDriftRegistryEntries — entries in scripts/drift-registry.json
 //                                 with lockStatus 'unlocked'.
+//   ignoredPropertyTests        — `#[ignore = "known gap: …"]` tests under
+//                                 crates/: property tests that state a real
+//                                 production defect and are skipped by
+//                                 `cargo test`. No CI job runs `--ignored` for
+//                                 these, so this count is the only thing
+//                                 stopping them from sitting red forever.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,6 +41,7 @@ const SRC_DIR = path.join(ROOT, 'src');
 const PLATFORM_DIR = path.join(SRC_DIR, 'lib', 'platform') + path.sep;
 const GAPS_PATH = path.join(ROOT, 'docs/spec/GAPS.md');
 const REGISTRY_PATH = path.join(ROOT, 'scripts/drift-registry.json');
+const CRATES_DIR = path.join(ROOT, 'crates');
 
 // Sync remains a dedicated shim. Search is projected by LocalNoteStore inside
 // src/lib/platform, which scopedFiles already excludes. Everything else touching Tauri is the
@@ -42,6 +49,7 @@ const REGISTRY_PATH = path.join(ROOT, 'scripts/drift-registry.json');
 // (separate, stricter) platform-discipline gate as legitimate OS glue.
 const DEDICATED_SHIMS = new Set(['src/features/sync/syncServiceE2ee.ts']);
 
+const KNOWN_GAP_IGNORE_RE = /#\[ignore\s*=\s*"known gap:/;
 const TAURI_IMPORT_RE = /(?:from\s+['"]|import\(\s*['"])@tauri-apps\//;
 const INVOKE_RE = /invoke\s*(?:<[\s\S]*?>)?\s*\(\s*['"][a-zA-Z_][a-zA-Z0-9_]*['"]/g;
 
@@ -95,6 +103,15 @@ function countSpecGaps() {
   return text.split('\n').filter((line) => line.startsWith('- [')).length;
 }
 
+function countIgnoredPropertyTests() {
+  let count = 0;
+  for (const file of walk(CRATES_DIR, ['.rs'])) {
+    const text = fs.readFileSync(file, 'utf8');
+    count += text.split('\n').filter((line) => KNOWN_GAP_IGNORE_RE.test(line)).length;
+  }
+  return count;
+}
+
 function countUnlockedDriftRegistryEntries() {
   const registry = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
   return registry.entries.filter((e) => e.lockStatus === 'unlocked').length;
@@ -105,6 +122,7 @@ const current = {
   invokeCallsOutsideShims: countInvokeCallsOutsideShims(),
   specGapsCount: countSpecGaps(),
   unlockedDriftRegistryEntries: countUnlockedDriftRegistryEntries(),
+  ignoredPropertyTests: countIgnoredPropertyTests(),
 };
 
 const baseline = JSON.parse(fs.readFileSync(RATCHET_PATH, 'utf8')).counts;

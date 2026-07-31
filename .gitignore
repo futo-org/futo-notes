@@ -98,6 +98,9 @@ autoresearch-results.tsv
 
 # Rust
 target/
+# proptest writes a failing seed here; the failure output already prints it, and
+# a stray generated dir must never land in a commit (AGENTS.md M16).
+proptest-regressions/
 
 # MCP config (local)
 .mcp.json
