@@ -71,7 +71,9 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   journal and storage preferences on `Dispatchers.IO` after the first
   composition. → `MainActivity.performSwitch`,
   `MainActivity.adoptExistingStorage`, Android `storage/` (`storageSwitchPlan`,
-  `describeStorageAdoption`), `futo-notes-store::vault_migration` (`inspect`)
+  `describeStorageAdoption`), `futo-notes-store::vault_migration` (`inspect`);
+  both directions and the occupied-target confirmation are guarded end-to-end on
+  a device by `just test-android-storage` (`tests/android-storage-migration.mjs`)
 - **About**: an open-source link (GitLab) and the app version.
 - **Issue reporting**: "Share crash reports" toggle with a nested **"Send
   crashes automatically"**, plus a **"Report an issue"** link that opens the

@@ -172,7 +172,7 @@ reporting commands + results:
   against an **isolated** server (`FUTO_TEST_SERVER=http://127.0.0.1:3055 cargo test -p futo-notes-sync
   --test server_integration -- --ignored --test-threads=1`) — never the :3005 demo server or
   elitedesk. Native → `just build-ios-native` / `just build-android-native`
-  (+ `just test-android-native`) + device QA.
+  (+ `just test-android-native`, storage/vault paths also `just test-android-storage`) + device QA.
 - The full suite list is in the `@justfile`; `just check` is the pre-merge umbrella, `just prepush`
   the maximal gate. Tests co-locate with the code they verify. A new CI test job goes in
   `release:gate.needs` the same commit (M14).
@@ -191,7 +191,10 @@ individually. Releases go through `/release`.
 Web/desktop: `agent-browser`; Tauri debug builds ship the MCP bridge (`driver_session`, `webview_*`).
 Native has no bridge — iOS via `xcrun simctl` + `axe` (read the a11y tree through
 `node scripts/describe-ios-ui.mjs`, never a raw `axe describe-ui` dump — it is 254KB+), Android via
-`adb`/uiautomator + CDP (`just cdp-forward`). Sync in debug builds: prefer the `window.__testSync` hook
+`just android-drive` (`state`/`tree`/`tap`/`wait`/`hook`/`logs`/`shot`) + CDP (`just cdp-forward`);
+prefer its `state` hook to a UI read — it answers in ~0.2s with what the a11y tree cannot report (vault
+path, note count, migration in flight), against ~2s of whatever Compose last rendered (M21). Sync in
+debug builds: prefer the `window.__testSync` hook
 (`connect`/`status`/`syncNow`/`disconnect`/`pauseAutoSync`/`resumeAutoSync` — the surface is
 `src/features/sync/testSync.ts`; the old `*E2ee` aliases are gone). Parallel isolation: `just qa-claim` /
 `qa-status` / `qa-release` / `qa-server`. Logs: `just emu-logs` / `sim-logs`. Windows/WebView2: the
