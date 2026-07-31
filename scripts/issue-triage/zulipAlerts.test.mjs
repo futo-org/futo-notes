@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { formatAlert, postAlert, topicForIssue } from './zulipAlerts.mjs';
 
@@ -49,13 +49,31 @@ describe('formatAlert', () => {
 });
 
 describe('postAlert', () => {
+  // Every case here must start from a known credential state: a developer shell
+  // (or CI job) that exports ZULIP_TRIAGE_BOT_* would otherwise leak into the
+  // absent-credentials case below.
+  beforeEach(() => {
+    delete process.env.ZULIP_TRIAGE_BOT_EMAIL;
+    delete process.env.ZULIP_TRIAGE_BOT_KEY;
+  });
+
   afterEach(() => {
     delete process.env.ZULIP_TRIAGE_BOT_EMAIL;
     delete process.env.ZULIP_TRIAGE_BOT_KEY;
   });
 
   it('throws when credentials are absent', async () => {
-    await expect(postAlert({ topic: 't', content: 'c' })).rejects.toThrow(/ZULIP_TRIAGE_BOT/);
+    // Inject a fetch that cannot reach the network. postAlert defaults
+    // fetchImpl to the real global fetch, so this case used to POST to the live
+    // futo-notes-alerts channel whenever the guard under test did not fire.
+    const fetchImpl = vi.fn(() => {
+      throw new Error('postAlert must not reach the network in this test');
+    });
+
+    await expect(postAlert({ topic: 't', content: 'c', fetchImpl })).rejects.toThrow(
+      /ZULIP_TRIAGE_BOT/,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('returns the message id on success', async () => {
