@@ -90,8 +90,14 @@ node scripts/describe-ios-ui.mjs --udid $SIM                        # whole scre
 node scripts/describe-ios-ui.mjs --udid $SIM --type Button --on-screen-only
 node scripts/describe-ios-ui.mjs --udid $SIM --label-contains "Qa-note"
 node scripts/describe-ios-ui.mjs --udid $SIM --actions-only          # hidden affordances
+node scripts/describe-ios-ui.mjs --udid $SIM --all                   # incl. unlabelled nodes
 node scripts/describe-ios-ui.mjs --udid $SIM --id bold --json
 ```
+
+The header reports how many nodes were **dropped** for carrying no id, label,
+value, or action. Read it before concluding a control is missing: a control that
+regressed into an unlabelled `Group` is dropped, not absent, and `--all` shows
+it (that is the shape the nav controls had under `idb`).
 
 `--label-contains` matches the whole label, not the trimmed column — an iOS row
 label is `title, relative-date, body-preview`, so a body token like

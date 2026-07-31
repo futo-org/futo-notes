@@ -277,6 +277,28 @@ describe('exact labels and values', () => {
   });
 });
 
+// A node with no id, label, value, or action is dropped. That is the whole
+// point of the tool, but silence about it makes "not in the summary" ambiguous
+// between "absent from the tree" and "present but unlabelled" — and unlabelled
+// is exactly how the nav controls looked to `idb`.
+describe('dropped nodes', () => {
+  it('counts the identity-less nodes it discarded', () => {
+    const summary = summarizeAccessibilityTree(noteListTree());
+
+    // The one unnamed layout Group at the end of the fixture.
+    expect(summary.droppedCount).toBe(1);
+    expect(formatSummaryLines(summary).join('\n')).toContain('1 dropped');
+  });
+
+  it('includes identity-less nodes when asked', () => {
+    const { rows } = summarizeAccessibilityTree(noteListTree(), { includeAll: true });
+    const unnamed = rows.filter((row) => !row.id && !row.label && !row.value);
+
+    expect(unnamed).toHaveLength(1);
+    expect(unnamed[0].type).toBe('Group');
+  });
+});
+
 describe('filterRows', () => {
   it('selects by identifier', () => {
     const { rows } = summarizeAccessibilityTree(editorToolbarTree());

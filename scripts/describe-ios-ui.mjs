@@ -8,6 +8,7 @@
 //   node scripts/describe-ios-ui.mjs --id nav-settings
 //   node scripts/describe-ios-ui.mjs --label-contains "Qa-note" --type Button
 //   node scripts/describe-ios-ui.mjs --actions-only          # hidden affordances
+//   node scripts/describe-ios-ui.mjs --all                   # keep unlabelled nodes
 //   node scripts/describe-ios-ui.mjs --file dump.json --json
 //
 // Three problems this exists to solve, all observed on iOS 26.5 / AXe 1.8.0:
@@ -94,7 +95,12 @@ function isOnScreen(frame, bounds) {
 
 /**
  * Flatten the nested tree to the nodes worth looking at. A node earns a row
- * when it carries an identifier, a label, a value, or a custom action.
+ * when it carries an identifier, a label, a value, or a custom action;
+ * `options.includeAll` keeps the identity-less ones too. Discarded nodes are
+ * COUNTED either way: "not in the summary" must not be ambiguous between
+ * "absent from the tree" and "present but unlabelled" — unlabelled is exactly
+ * how the nav controls looked to `idb`, and a regression back to that shape
+ * would otherwise read as "missing" again.
  */
 export function summarizeAccessibilityTree(tree, options = {}) {
   const roots = Array.isArray(tree) ? tree : [tree];
@@ -104,10 +110,14 @@ export function summarizeAccessibilityTree(tree, options = {}) {
   const rows = [];
 
   let nextActionOwnerId = 0;
+  let droppedCount = 0;
 
   const pushRow = (node, depth, branch, actions, actionOwnerId) => {
     const identity = node.AXUniqueId || node.AXLabel || node.AXValue;
-    if (!identity && !actions.length) return;
+    if (!identity && !actions.length && !options.includeAll) {
+      droppedCount += 1;
+      return;
+    }
     rows.push({
       branch,
       depth,
@@ -154,6 +164,7 @@ export function summarizeAccessibilityTree(tree, options = {}) {
   return {
     screenBounds: bounds,
     screenBoundsSource: boundsSource,
+    droppedCount,
     rows: creditActionOwners(rows),
   };
 }
@@ -195,13 +206,14 @@ export function filterRows(rows, filters = {}) {
   });
 }
 
-export function formatSummaryLines({ screenBounds, screenBoundsSource, rows }) {
+export function formatSummaryLines({ screenBounds, screenBoundsSource, droppedCount = 0, rows }) {
   const lines = [];
   const offScreen = rows.filter((row) => !row.onScreen).length;
   lines.push(
     `screen ${screenBounds ? `${screenBounds.width}x${screenBounds.height}pt` : 'unknown'} ` +
       `(from ${screenBoundsSource ?? 'no framed root'}) — ` +
-      `${rows.length} rows, ${offScreen} off-screen`,
+      `${rows.length} rows, ${offScreen} off-screen, ` +
+      `${droppedCount} dropped (no id/label/value/action; --all keeps them)`,
   );
 
   for (const row of rows) {
@@ -259,6 +271,9 @@ function parseArgs(argv) {
       case '--on-screen-only':
         options.filters.onScreenOnly = true;
         break;
+      case '--all':
+        options.includeAll = true;
+        break;
       case '--json':
         options.json = true;
         break;
@@ -288,11 +303,14 @@ function captureTree({ file, udid }) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const options = parseArgs(process.argv.slice(2));
-    const summary = summarizeAccessibilityTree(captureTree(options));
+    const summary = summarizeAccessibilityTree(captureTree(options), {
+      includeAll: options.includeAll,
+    });
     const rows = filterRows(summary.rows, options.filters);
     const rendered = {
       screenBounds: summary.screenBounds,
       screenBoundsSource: summary.screenBoundsSource,
+      droppedCount: summary.droppedCount,
       rows,
     };
     if (options.json) {
