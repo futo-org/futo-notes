@@ -3,14 +3,18 @@ use std::io::Write;
 use std::path::Path;
 
 #[cfg(test)]
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use super::parked_backup::{hidden_path, install_temp};
 use super::paths::NAME_MAX;
+use super::timestamps::{file_mtime_ms, set_file_mtime_ms};
 
 #[cfg(test)]
 thread_local! {
     static MOVE_NO_REPLACE_BEFORE_RENAME: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+    /// Simulates a filesystem that rejects `RENAME_NOREPLACE`, so the fallback
+    /// below can be exercised on a host filesystem that supports the flag.
+    static RENAME_FLAGS_REJECTED: Cell<bool> = const { Cell::new(false) };
 }
 
 fn create_temp(parent: &Path) -> Result<(std::path::PathBuf, File), String> {
@@ -100,11 +104,16 @@ pub fn create_new_atomic(path: &Path, bytes: &[u8]) -> Result<bool, String> {
 /// effort leaves no duplicate: `destination` is never left as an extra copy of
 /// a `source` that still exists.
 ///
-/// `hard_link` is the fast atomic no-replace install on filesystems that
-/// support it (the destination cannot clobber an existing name, and the shared
-/// inode carries mtime across). Some filesystems — notably Android's
-/// FUSE-backed external storage — reject `link` outright, so fall back to
-/// an atomic no-replace rename where the platform provides one.
+/// Three installs are tried in order, each preserving no-replace but offering
+/// less than the last:
+///
+/// 1. `hard_link` — the fast atomic install on filesystems that support it (the
+///    destination cannot clobber an existing name, and the shared inode carries
+///    mtime across). Android's external storage rejects `link` outright.
+/// 2. An atomic no-replace rename, where the platform provides the syscall and
+///    the filesystem implements its flags.
+/// 3. An exclusive create plus copy, which keeps no-replace but not atomicity.
+///    Android 9/10 shared storage needs it (github#13).
 pub fn move_no_replace(source: &Path, destination: &Path) -> Result<bool, String> {
     #[cfg(test)]
     if MOVE_NO_REPLACE_BEFORE_RENAME.with(|hook| hook.borrow().is_some()) {
@@ -113,21 +122,21 @@ pub fn move_no_replace(source: &Path, destination: &Path) -> Result<bool, String
     }
 
     match fs::hard_link(source, destination) {
-        Ok(()) => drop_source_after_link(source, destination),
+        Ok(()) => drop_source_after_install(source, destination),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-        Err(error) => move_no_replace_after_link_error(source, destination, error),
+        Err(_) => move_no_replace_after_link_error(source, destination),
     }
 }
 
-fn drop_source_after_link(source: &Path, destination: &Path) -> Result<bool, String> {
+fn drop_source_after_install(source: &Path, destination: &Path) -> Result<bool, String> {
     match fs::remove_file(source) {
         Ok(()) => Ok(true),
         Err(error) => {
-            // The link exists but the source could not be dropped; undo the link
-            // so the error path never strands a duplicate under both names.
+            // The destination exists but the source could not be dropped; undo the
+            // install so the error path never strands a duplicate under both names.
             let _ = fs::remove_file(destination);
             Err(format!(
-                "{error} (dropping {} after linking {})",
+                "{error} (dropping {} after installing {})",
                 source.display(),
                 destination.display()
             ))
@@ -135,26 +144,74 @@ fn drop_source_after_link(source: &Path, destination: &Path) -> Result<bool, Str
     }
 }
 
+/// Last resort for a filesystem offering no atomic no-replace primitive at all:
+/// create the destination exclusively, copy the bytes in, then drop the source.
+/// `create_new` keeps the no-clobber guarantee — only atomicity is lost, so a
+/// crash mid-copy can leave a short destination that the caller's own recovery
+/// treats like any other interrupted write.
+fn install_via_exclusive_copy(source: &Path, destination: &Path) -> Result<bool, String> {
+    let bytes = fs::read(source)
+        .map_err(|error| format!("{error} (reading {} for a copy install)", source.display()))?;
+    // The link and rename legs carry the source's mtime across on their own. Read
+    // it here so a recovered parked backup keeps its original modification time
+    // instead of jumping to the top of a modified-ordered note list.
+    let source_mtime = fs::metadata(source).map(|meta| file_mtime_ms(&meta)).ok();
+
+    let mut file = match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+        Err(error) => {
+            return Err(format!(
+                "{error} (creating {} for a copy install)",
+                destination.display()
+            ))
+        }
+    };
+
+    let write_result = file.write_all(&bytes).and_then(|_| file.sync_all());
+    drop(file);
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(destination);
+        return Err(format!("{error} (copying into {})", destination.display()));
+    }
+    if let Some(modified_at) = source_mtime {
+        let _ = set_file_mtime_ms(destination, modified_at);
+    }
+
+    drop_source_after_install(source, destination)
+}
+
 #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-fn move_no_replace_after_link_error(
-    source: &Path,
-    destination: &Path,
-    _link_error: std::io::Error,
-) -> Result<bool, String> {
+fn move_no_replace_after_link_error(source: &Path, destination: &Path) -> Result<bool, String> {
     move_no_replace_via_rename(source, destination)
 }
 
+/// Without a flagged-rename syscall the exclusive copy is the only no-replace
+/// install left — reached on a filesystem that rejects links, such as a vault on
+/// FAT/exFAT removable media.
 #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
-fn move_no_replace_after_link_error(
-    source: &Path,
-    destination: &Path,
-    link_error: std::io::Error,
-) -> Result<bool, String> {
-    Err(format!(
-        "{link_error} (hard-linking {} -> {}; atomic no-replace rename unavailable on this platform)",
-        source.display(),
-        destination.display()
-    ))
+fn move_no_replace_after_link_error(source: &Path, destination: &Path) -> Result<bool, String> {
+    install_via_exclusive_copy(source, destination)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+fn rename_no_replace(source: &Path, destination: &Path) -> Result<(), rustix::io::Errno> {
+    #[cfg(test)]
+    if RENAME_FLAGS_REJECTED.with(Cell::get) {
+        return Err(rustix::io::Errno::INVAL);
+    }
+
+    rustix::fs::renameat_with(
+        rustix::fs::CWD,
+        source,
+        rustix::fs::CWD,
+        destination,
+        rustix::fs::RenameFlags::NOREPLACE,
+    )
 }
 
 #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -166,21 +223,34 @@ fn move_no_replace_via_rename(source: &Path, destination: &Path) -> Result<bool,
         }
     });
 
-    match rustix::fs::renameat_with(
-        rustix::fs::CWD,
-        source,
-        rustix::fs::CWD,
-        destination,
-        rustix::fs::RenameFlags::NOREPLACE,
-    ) {
+    match rename_no_replace(source, destination) {
         Ok(()) => Ok(true),
         Err(rustix::io::Errno::EXIST) => Ok(false),
+        Err(error) if is_rename_flag_unsupported(error) => {
+            install_via_exclusive_copy(source, destination)
+        }
         Err(error) => Err(format!(
             "{error} (no-replace renaming {} -> {})",
             source.display(),
             destination.display()
         )),
     }
+}
+
+/// `RENAME_NOREPLACE` needs the filesystem to implement flagged renames, and the
+/// refusal arrives as an error rather than a fallback. Android 9/10 mount shared
+/// storage as sdcardfs, which implements neither that nor `link`, so the flagged
+/// rename returns EINVAL — reported as a failed write, which broke every note
+/// creation on those releases (github#13). A kernel predating `renameat2`
+/// answers ENOSYS instead. None of these mean the destination is taken.
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+fn is_rename_flag_unsupported(error: rustix::io::Errno) -> bool {
+    // Compared rather than matched: EOPNOTSUPP and ENOTSUP share a value on
+    // Linux but differ on Apple platforms.
+    error == rustix::io::Errno::INVAL
+        || error == rustix::io::Errno::NOSYS
+        || error == rustix::io::Errno::OPNOTSUPP
+        || error == rustix::io::Errno::NOTSUP
 }
 
 pub fn rename_through_temp(source: &Path, destination: &Path) -> Result<(), String> {
@@ -358,6 +428,89 @@ mod tests {
         assert_eq!(fs::read_to_string(&destination).unwrap(), "incumbent");
         assert_eq!(fs::read_to_string(&source).unwrap(), "incoming");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    // ============================================================
+    // Filesystems that reject BOTH hard links and rename flags
+    // (Android 9/10 sdcardfs — github#13)
+    // ============================================================
+
+    /// Android 9/10 mount shared storage as sdcardfs, which rejects `link` with
+    /// EPERM and answers a flagged `renameat2` with EINVAL. Forces both legs to
+    /// fail the way that filesystem does, on a host that supports both.
+    fn with_sdcardfs_rejections<T>(body: impl FnOnce() -> T) -> T {
+        MOVE_NO_REPLACE_BEFORE_RENAME.with(|hook| *hook.borrow_mut() = Some(Box::new(|| {})));
+        RENAME_FLAGS_REJECTED.with(|rejected| rejected.set(true));
+        let result = body();
+        RENAME_FLAGS_REJECTED.with(|rejected| rejected.set(false));
+        MOVE_NO_REPLACE_BEFORE_RENAME.with(|hook| *hook.borrow_mut() = None);
+        result
+    }
+
+    #[test]
+    fn create_new_atomic_installs_a_note_when_links_and_rename_flags_are_both_rejected() {
+        let root = temp_dir();
+        let path = root.join("Untitled.md");
+
+        let created = with_sdcardfs_rejections(|| create_new_atomic(&path, b"body"));
+
+        let content = fs::read(&path).ok();
+        let litter = fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(".sf-tmp-"));
+        fs::remove_dir_all(root).unwrap();
+        assert_eq!(
+            (created, content.as_deref(), litter),
+            (Ok(true), Some(b"body".as_slice()), false),
+            "a vault on a link-less, flag-less filesystem must still create notes"
+        );
+    }
+
+    #[test]
+    fn flagless_install_refuses_to_replace_and_keeps_the_source() {
+        let root = temp_dir();
+        let source = root.join(".sf-tmp-source");
+        let destination = root.join("note.md");
+        fs::write(&source, "incoming").unwrap();
+        fs::write(&destination, "incumbent").unwrap();
+
+        let moved = with_sdcardfs_rejections(|| move_no_replace(&source, &destination));
+
+        let destination_content = fs::read_to_string(&destination).unwrap();
+        let source_content = fs::read_to_string(&source).ok();
+        fs::remove_dir_all(root).unwrap();
+        assert_eq!(
+            (
+                moved,
+                destination_content.as_str(),
+                source_content.as_deref()
+            ),
+            (Ok(false), "incumbent", Some("incoming")),
+            "losing atomicity must not cost the no-clobber guarantee"
+        );
+    }
+
+    #[test]
+    fn flagless_install_carries_the_source_mtime_like_the_other_legs() {
+        let root = temp_dir();
+        let source = root.join(".sf-tmp-source");
+        let destination = root.join("recovered.md");
+        fs::write(&source, "parked bytes").unwrap();
+        let parked_at = 1_600_000_000_000;
+        set_file_mtime_ms(&source, parked_at).unwrap();
+
+        let moved = with_sdcardfs_rejections(|| move_no_replace(&source, &destination));
+
+        let installed_at = fs::metadata(&destination)
+            .map(|meta| file_mtime_ms(&meta))
+            .unwrap();
+        fs::remove_dir_all(root).unwrap();
+        assert_eq!(
+            (moved, installed_at),
+            (Ok(true), parked_at),
+            "a recovered note must keep its modification time, not jump the list"
+        );
     }
 
     #[test]
