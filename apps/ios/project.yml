@@ -23,6 +23,7 @@ targets:
     scheme:
       testTargets:
         - FutoNotesNativeTests
+        - FutoNotesNativeUITests
     sources:
       - path: Sources
       - path: Resources
@@ -134,9 +135,29 @@ targets:
     postCompileScripts:
       - name: Bundle EditorWebView source for the bridge call-surface scan
         script: |
-          cp "${SRCROOT}/Sources/EditorWebView.swift" \
+          cp "${SRCROOT}/Sources/Editor/EditorWebView.swift" \
              "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EditorWebView.txt"
       - name: Bundle NoteEditorView source for the back-affordance scan
         script: |
-          cp "${SRCROOT}/Sources/NoteEditorView.swift" \
+          cp "${SRCROOT}/Sources/Notes/Editor/NoteEditorView.swift" \
              "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/NoteEditorView.txt"
+
+  # Launch-level regression coverage. This target is intentionally isolated
+  # from the developer's vault and credential service by launch environment.
+  # UI-test bundles need both a generated Info.plist and an ad-hoc signature
+  # before XCTest can install and launch them in the simulator.
+  FutoNotesNativeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: FutoNotesNative
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.ui-tests
+        GENERATE_INFOPLIST_FILE: "YES"
+        CODE_SIGNING_ALLOWED: "YES"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: "-"

@@ -67,7 +67,8 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   `.crashlogs`) behind a blocking "Deleting all notes…" overlay, with live
   sync paused and the connection + stored password dropped so a racing sync
   cannot resurrect files; the next launch reseeds the welcome note and stays
-  LOCAL. iOS presents a `.confirmationDialog`; Android presents the shared
+  LOCAL. On iOS the disconnect is awaited before the vault reset begins,
+  guarded by `FullResetTests`. iOS presents a `.confirmationDialog`; Android presents the shared
   `ConfirmDialog` (Material 3 `AlertDialog`). (Modal confirm verified on both
   2026-06-30; the earlier two-tap arm/confirm was removed because a stray
   double-tap wiped everything too easily.)

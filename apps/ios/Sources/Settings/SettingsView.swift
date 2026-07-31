@@ -46,12 +46,14 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Self-hosted sync")
                                     .foregroundStyle(.primary)
-                                Text(sync.connected
-                                    ? sync.status
-                                    : "Notes stay on this device until you connect sync.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                Text(
+                                    sync.connected
+                                        ? sync.status
+                                        : "Notes stay on this device until you connect sync."
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                             }
                             Spacer()
                             syncBadge
@@ -92,8 +94,9 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    Link("Open source",
-                         destination: URL(string: "https://gitlab.futo.org/futo-notes/futo-notes")!)
+                    Link(
+                        "Open source",
+                        destination: URL(string: "https://gitlab.futo.org/futo-notes/futo-notes")!)
                     HStack {
                         Text("Version")
                         Spacer()
@@ -118,14 +121,14 @@ struct SettingsView: View {
                         Button("Cancel", role: .cancel) {}
                     }
                     #if DEBUG
-                    // On-device verification hook for the crash pipeline: traps
-                    // (SIGTRAP) → the signal handler writes a .crashlogs report
-                    // → next launch surfaces the Crash Report sheet.
-                    Button(role: .destructive) {
-                        fatalError("Test crash from Settings (DEBUG)")
-                    } label: {
-                        Text("Test crash")
-                    }
+                        // On-device verification hook for the crash pipeline: traps
+                        // (SIGTRAP) → the signal handler writes a .crashlogs report
+                        // → next launch surfaces the Crash Report sheet.
+                        Button(role: .destructive) {
+                            fatalError("Test crash from Settings (DEBUG)")
+                        } label: {
+                            Text("Test crash")
+                        }
                     #endif
                 }
             }
@@ -178,14 +181,14 @@ struct SettingsView: View {
             ?? "0.0.0"
     }
 
-    /// Danger-zone full reset: pause live sync (no push of the deletions),
-    /// wipe the vault root (notes, folders, images, .crashlogs), disconnect
-    /// the sync session (clears the stored password), reload to empty.
+    /// Danger-zone full reset: disconnect and clear the stored credential before
+    /// wiping the vault root, so an in-flight sync cannot restore deleted data.
     private func runFullReset() async {
         resetting = true
-        sync.pauseLive()
-        await store.fullReset()
-        await sync.disconnect()
+        await performFullReset(
+            disconnectSync: { await sync.disconnect() },
+            resetStore: { await store.fullReset() }
+        )
         resetting = false
     }
 }

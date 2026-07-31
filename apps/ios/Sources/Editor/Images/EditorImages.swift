@@ -1,8 +1,8 @@
 import Foundation
-import UIKit
-import WebKit
 import PhotosUI
+import UIKit
 import UniformTypeIdentifiers
+import WebKit
 
 // Local-image plumbing for the embedded editor:
 //   - FutoAssetSchemeHandler serves GET futo-asset:///<filename> from the vault
@@ -44,7 +44,7 @@ final class FutoAssetSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
         guard let mime = VaultImages.mimeType(for: filename) else {
-            fail(urlSchemeTask) // not an allowed image extension
+            fail(urlSchemeTask)  // not an allowed image extension
             return
         }
         let fileURL = root.appendingPathComponent(filename)
@@ -135,12 +135,13 @@ enum VaultImages {
     /// cleanup narrower than the scheme handler's already-flat asset surface.
     static func remove(filename: String) async {
         guard (filename as NSString).lastPathComponent == filename,
-              mimeType(for: filename) != nil else { return }
+            mimeType(for: filename) != nil
+        else { return }
         let root = NotesStore.resolveNotesRoot()
         await Task.detached(priority: .utility) {
             do {
                 try FileManager.default.removeItem(at: root.appendingPathComponent(filename))
-            } catch where (error as NSError).code == NSFileNoSuchFileError {
+            } catch  where (error as NSError).code == NSFileNoSuchFileError {
                 return
             } catch {
                 print("VaultImages.remove failed: \(error)")
@@ -218,7 +219,7 @@ private final class LibraryDelegate: NSObject, PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
         guard let provider = results.first?.itemProvider else {
-            completion(nil, "jpg") // cancelled
+            completion(nil, "jpg")  // cancelled
             return
         }
         if let (typeId, ext) = preferredType(for: provider) {

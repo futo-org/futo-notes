@@ -364,15 +364,26 @@ final class NotesStore: ObservableObject {
     nonisolated static func resolveNotesRoot() -> URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         #if FUTO_DEBUG_BUILD
-            return docs.appendingPathComponent("fake-notes", isDirectory: true)
+            let defaultDirectoryName = "fake-notes"
         #else
-            return docs.appendingPathComponent("futo-notes", isDirectory: true)
+            let defaultDirectoryName = "futo-notes"
         #endif
+        return AppLaunchConfiguration.resolveNotesRoot(
+            environment: ProcessInfo.processInfo.environment,
+            documentsDirectory: docs,
+            defaultDirectoryName: defaultDirectoryName
+        )
     }
 
     nonisolated static func resolveSearchIndex() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("search", isDirectory: true)
+        let support = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        return AppLaunchConfiguration.resolveSearchIndex(
+            environment: ProcessInfo.processInfo.environment,
+            applicationSupportDirectory: support
+        )
     }
 
     private func bootstrap() async {

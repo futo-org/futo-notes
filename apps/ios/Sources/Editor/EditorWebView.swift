@@ -1,9 +1,9 @@
+import ObjectiveC
+import ObjectiveC.runtime
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 import WebKit
-import ObjectiveC
-import ObjectiveC.runtime
 import os
 
 func shouldDeliverEditorCompletion(
@@ -291,9 +291,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         wv.scrollView.contentInsetAdjustmentBehavior = .never
         wv.scrollView.automaticallyAdjustsScrollIndicatorInsets = false
         #if DEBUG
-        if #available(iOS 16.4, *) {
-            wv.isInspectable = true
-        }
+            if #available(iOS 16.4, *) {
+                wv.isInspectable = true
+            }
         #endif
         self.webView = wv
         super.init()
@@ -397,7 +397,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         desiredContent = content
         guard isReady else { return }
         lastPushedContent = content
-        let js = "window.FutoEditor && window.FutoEditor.applyExternalContent(\(jsLiteral(content)));"
+        let js =
+            "window.FutoEditor && window.FutoEditor.applyExternalContent(\(jsLiteral(content)));"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
@@ -405,10 +406,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// the asynchronous image operation still owns the shared WebView.
     @discardableResult
     private func insertImage(_ filename: String, for capturedGeneration: Int) async -> Bool {
-        guard shouldDeliverEditorCompletion(
-            capturedGeneration: capturedGeneration,
-            currentGeneration: generation
-        ) else { return false }
+        guard
+            shouldDeliverEditorCompletion(
+                capturedGeneration: capturedGeneration,
+                currentGeneration: generation
+            )
+        else { return false }
         do {
             // The editor posts its change callback on requestAnimationFrame.
             // Wait for that frame so capture/navigation cannot rebind the shared
@@ -452,10 +455,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func captureCurrentContent() async -> String? {
         let capturedGeneration = generation
         await completionQueue.waitForCurrent()
-        guard shouldDeliverEditorCompletion(
-            capturedGeneration: capturedGeneration,
-            currentGeneration: generation
-        ) else { return nil }
+        guard
+            shouldDeliverEditorCompletion(
+                capturedGeneration: capturedGeneration,
+                currentGeneration: generation
+            )
+        else { return nil }
         guard isReady else { return nil }
         return await withCheckedContinuation { continuation in
             webView.evaluateJavaScript(
@@ -468,11 +473,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 """
             ) { [weak self] result, error in
                 guard let self,
-                      error == nil,
-                      shouldDeliverEditorCompletion(
+                    error == nil,
+                    shouldDeliverEditorCompletion(
                         capturedGeneration: capturedGeneration,
                         currentGeneration: self.generation
-                      )
+                    )
                 else {
                     continuation.resume(returning: nil)
                     return
@@ -489,8 +494,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         didReceive message: WKScriptMessage
     ) {
         guard let body = message.body as? [String: Any],
-              let rawType = body["type"] as? String,
-              let type = BridgeMessageType(rawValue: rawType) else { return }
+            let rawType = body["type"] as? String,
+            let type = BridgeMessageType(rawValue: rawType)
+        else { return }
 
         switch type {
         case .ready:
@@ -539,9 +545,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // WebView must never load a non-editor URL, so it leaves the app.
             // Scheme-guarded so a crafted link can't reach file:/javascript:.
             if let urlString = body["url"] as? String,
-               let url = URL(string: urlString),
-               let scheme = url.scheme?.lowercased(),
-               scheme == "http" || scheme == "https" || scheme == "mailto" || scheme == "tel" {
+                let url = URL(string: urlString),
+                let scheme = url.scheme?.lowercased(),
+                scheme == "http" || scheme == "https" || scheme == "mailto" || scheme == "tel"
+            {
                 UIApplication.shared.open(url)
             }
         case .pickImage:
@@ -555,7 +562,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // the watchdog (Android decodes on Dispatchers.IO). Then save via
             // the SAME path as the picker and hand the filename back.
             if let base64 = body["data"] as? String,
-               let ext = body["ext"] as? String {
+                let ext = body["ext"] as? String
+            {
                 let targetGeneration = generation
                 completionQueue.enqueue { [weak self] in
                     guard let self else { return }
@@ -566,8 +574,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                         Data(base64Encoded: base64)
                     }.value
                     guard let data = decoded else { return }
-                    guard let filename = await VaultImages.save(
-                        data: data, preferredExtension: ext) else { return }
+                    guard
+                        let filename = await VaultImages.save(
+                            data: data, preferredExtension: ext)
+                    else { return }
                     let inserted = await self.insertImage(filename, for: targetGeneration)
                     if !inserted {
                         await VaultImages.remove(filename: filename)
@@ -586,8 +596,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 let targetGeneration = generation
                 completionQueue.enqueue { [weak self] in
                     guard let self else { return }
-                    guard let filename = await VaultImages.save(
-                        data: data, preferredExtension: ext) else { return }
+                    guard
+                        let filename = await VaultImages.save(
+                            data: data, preferredExtension: ext)
+                    else { return }
                     let inserted = await self.insertImage(filename, for: targetGeneration)
                     if !inserted {
                         await VaultImages.remove(filename: filename)
@@ -629,8 +641,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 }
             }
             guard let data = picked.0 else { return }
-            guard let filename = await VaultImages.save(
-                data: data, preferredExtension: picked.1) else { return }
+            guard
+                let filename = await VaultImages.save(
+                    data: data, preferredExtension: picked.1)
+            else { return }
             let inserted = await self.insertImage(filename, for: targetGeneration)
             if !inserted {
                 await VaultImages.remove(filename: filename)
@@ -695,7 +709,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// Encode an arbitrary Swift string as a safe JS string literal.
     private func jsLiteral(_ s: String) -> String {
-        let data = (try? JSONSerialization.data(withJSONObject: [s], options: []))
+        let data =
+            (try? JSONSerialization.data(withJSONObject: [s], options: []))
             ?? Data("[\"\"]".utf8)
         var json = String(data: data, encoding: .utf8) ?? "[\"\"]"
         // Strip the surrounding [ ] to get just the quoted string literal.
@@ -722,7 +737,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     private func pushImageBaseUrl() {
-        let js = "window.FutoEditor && window.FutoEditor.setImageBaseUrl(\(jsLiteral("futo-asset:///")));"
+        let js =
+            "window.FutoEditor && window.FutoEditor.setImageBaseUrl(\(jsLiteral("futo-asset:///")));"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
@@ -768,12 +784,15 @@ extension WKWebView {
     /// bar belongs to the private `WKContentView` that is the actual first
     /// responder, not to the `WKWebView`. We give that view a runtime
     /// subclass whose `inputAccessoryView` getter returns our override.
+    // swift-format-ignore: AlwaysUseLowerCamelCase
     func futo_overrideInputAccessoryView(_ view: UIView?) {
         futoAccessoryOverrideView = view
-        guard let contentView = scrollView.subviews.first(where: {
-            let name = String(describing: type(of: $0))
-            return name.hasPrefix("WKContentView") || name.contains("ContentView")
-        }) else { return }
+        guard
+            let contentView = scrollView.subviews.first(where: {
+                let name = String(describing: type(of: $0))
+                return name.hasPrefix("WKContentView") || name.contains("ContentView")
+            })
+        else { return }
 
         defer {
             // If the keyboard is already up, make it re-query the accessory.
@@ -796,7 +815,8 @@ extension WKWebView {
         // method_getTypeEncoding returns UnsafePointer<CChar>?; pass it through
         // directly (a Swift String literal auto-bridges for the fallback).
         if let method = class_getInstanceMethod(baseClass, sel),
-           let types = method_getTypeEncoding(method) {
+            let types = method_getTypeEncoding(method)
+        {
             class_addMethod(subclass, sel, imp, types)
         } else {
             class_addMethod(subclass, sel, imp, "@@:")
@@ -833,10 +853,10 @@ extension WKWebView {
         //   arg2 blurPreviousNode     BOOL                              -> Bool
         //   arg3 activityStateChanges OptionSet<ActivityState>          -> UInt
         //   arg4 userObject           NSObject<NSSecureCoding>*         -> Any?
-        typealias FocusIMP13 = @convention(c)
-            (Any, Selector, UnsafeRawPointer, Bool, Bool, UInt, Any?) -> Void
-        typealias FocusBlock13 = @convention(block)
-            (Any, UnsafeRawPointer, Bool, Bool, UInt, Any?) -> Void
+        typealias FocusIMP13 =
+            @convention(c) (Any, Selector, UnsafeRawPointer, Bool, Bool, UInt, Any?) -> Void
+        typealias FocusBlock13 =
+            @convention(block) (Any, UnsafeRawPointer, Bool, Bool, UInt, Any?) -> Void
 
         let selector = sel_getUid(
             "_elementDidFocus:userIsInteracting:blurPreviousNode:activityStateChanges:userObject:")
@@ -850,14 +870,16 @@ extension WKWebView {
             // Force the keyboard ONLY when we intend to (new-note auto-focus);
             // otherwise pass the real userIsInteracting through, so opening an
             // existing note does not pop the keyboard.
-            orig(me, selector, arg0, futoForceKeyboardOnFocus || userInteracting,
-                 blurPrev, activity, userObject)
+            orig(
+                me, selector, arg0, futoForceKeyboardOnFocus || userInteracting,
+                blurPrev, activity, userObject)
         }
         method_setImplementation(method, imp_implementationWithBlock(block))
         WKWebView.keyboardLog.info("keyboard fix installed")
     }()
 
     /// Call once, early. Safe to call repeatedly — the work runs exactly once.
+    // swift-format-ignore: AlwaysUseLowerCamelCase
     static func futo_allowKeyboardWithoutUserInteraction() {
         _ = WKWebView.installKeyboardFix
     }

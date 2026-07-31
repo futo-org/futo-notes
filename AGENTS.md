@@ -608,7 +608,7 @@ constants (`packages/editor/src/filename.ts` → `scripts/gen-title-spec.ts` →
 Swift/Kotlin; Rust Tauri sync records → generated TS.
 
 Fully locked: `validateServerUrl` ×3 (TS, Swift, and Kotlin all read the full shared fixture;
-Swift via `apps/ios/Tests/ServerUrlConformanceTests.swift`, Kotlin via
+Swift via `apps/ios/Tests/Sync/ServerUrlConformanceTests.swift`, Kotlin via
 `apps/android/app/src/test/java/com/futo/notes/SyncManagerDefaultsTest.kt`).
 
 Partially locked: title length + visible forbidden characters are generated from

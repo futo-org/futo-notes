@@ -6,7 +6,7 @@
 //   pnpm exec tsx scripts/gen-toolbar-spec.ts --check   (just toolbar-spec-check)
 //
 // Targets:
-//   apps/ios/Sources/ToolbarSpec.swift                              (consumed by EditorToolbar.swift)
+//   apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift    (consumed by EditorToolbar.swift)
 //   apps/android/app/src/main/java/com/futo/notes/ui/ToolbarSpec.kt (consumed by EditorToolbar.kt)
 
 import fs from 'node:fs';
@@ -180,7 +180,10 @@ function renderKotlinFile(): string {
 }
 
 const TARGETS: Array<{ rel: string; render: () => string }> = [
-  { rel: 'apps/ios/Sources/ToolbarSpec.swift', render: renderSwiftFile },
+  {
+    rel: 'apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift',
+    render: renderSwiftFile,
+  },
   {
     rel: 'apps/android/app/src/main/java/com/futo/notes/ui/ToolbarSpec.kt',
     render: renderKotlinFile,
@@ -204,6 +207,7 @@ for (const target of TARGETS) {
     );
     stale = true;
   } else {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, next);
     console.log(`${target.rel}: written`);
   }

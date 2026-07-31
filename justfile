@@ -33,11 +33,15 @@ format:
 format-check:
   pnpm run format:check
 
-# Lint the hand-written Swift sources (read-only) with swift-format, which
+# Lint the hand-written Swift production and test sources (read-only) with swift-format, which
 # ships with Xcode 16+ (`xcrun swift-format`). The generated UniFFI bindings
 # (Sources/Generated) are excluded — they are not ours to style.
 lint-swift:
-  find apps/ios/Sources -name '*.swift' -not -path '*/Generated/*' -print0 \
+  find apps/ios/Sources apps/ios/Tests apps/ios/UITests \
+    -name '*.swift' \
+    -not -path '*/Generated/*' \
+    -not -path '*/GeneratedContracts/*' \
+    -print0 \
     | xargs -0 xcrun swift-format lint --strict --configuration apps/ios/.swift-format
 
 # ── Desktop (Tauri) ──
@@ -409,7 +413,8 @@ spec-gaps:
 spec-gaps-check:
   node scripts/spec-gaps.mjs --check
 
-# Regenerate the native shells' toolbar specs (apps/ios/Sources/ToolbarSpec.swift)
+# Regenerate the native shells' toolbar specs
+# (apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift)
 # from the @futo-notes/editor toolbar manifest (packages/editor/src/toolbar.ts —
 # the single source of truth for the mobile toolbar surface).
 toolbar-spec:
@@ -420,7 +425,8 @@ toolbar-spec-check:
   pnpm exec tsx scripts/gen-toolbar-spec.ts --check
 
 # Regenerate the native shells' title-validation constants
-# (apps/ios/Sources/TitleSpec.swift / apps/android/.../TitleSpec.kt) from the
+# (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift /
+# apps/android/.../TitleSpec.kt) from the
 # @futo-notes/editor title-rule manifest (packages/editor/src/filename.ts).
 title-spec:
   pnpm exec tsx scripts/gen-title-spec.ts --write

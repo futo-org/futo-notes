@@ -7,7 +7,7 @@
 //   pnpm exec tsx scripts/gen-title-spec.ts --check   (just title-spec-check)
 //
 // Targets:
-//   apps/ios/Sources/TitleSpec.swift                              (consumed by NoteEditorView.swift)
+//   apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift    (consumed by NoteEditorView.swift)
 //   apps/android/app/src/main/java/com/futo/notes/ui/TitleSpec.kt (consumed by NoteEditorScreen.kt)
 //
 // What is generated: the visible forbidden characters and MAX_TITLE_LENGTH —
@@ -94,7 +94,10 @@ function renderKotlinFile(): string {
 }
 
 const TARGETS: Array<{ rel: string; render: () => string }> = [
-  { rel: 'apps/ios/Sources/TitleSpec.swift', render: renderSwiftFile },
+  {
+    rel: 'apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift',
+    render: renderSwiftFile,
+  },
   {
     rel: 'apps/android/app/src/main/java/com/futo/notes/ui/TitleSpec.kt',
     render: renderKotlinFile,
@@ -118,6 +121,7 @@ for (const target of TARGETS) {
     );
     stale = true;
   } else {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, next);
     console.log(`${target.rel}: written`);
   }

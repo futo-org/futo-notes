@@ -1,6 +1,8 @@
 # Native iOS — Modernization & Liquid Glass Plan
 
-> Status: **planned, not started.** Authored from a review of `apps/ios/Sources/*`
+> Status: **active backlog.** The source/test ownership tree and launch-level
+> UI-test target are complete; the Swift 6, Observation, and Liquid Glass items
+> below remain planned. Authored from a review of `apps/ios/Sources/`
 > + `project.yml` against the `swiftui-expert-skill`, `swift-concurrency-pro`,
 > and `swift-testing-pro` skills. Execute workstreams in order A → B → C → D → E
 > (D runs in parallel). Verification is per-workstream below.
@@ -18,11 +20,12 @@
 
 The app is well-engineered, not a rough spike. Already correct: off-main FS I/O
 via the `NoteVault` actor, the "never gate render on I/O" boot
-(`NotesStore.init:228`, `bootstrap:247`), single-source note rules in Rust, and
-real data-loss guards (debounced save with re-read-id-at-fire
-`NoteEditorView:183`; ghost-note fixes on rename/move/delete; scenePhase flush
-`FutoNotesApp:65`; 3-way conflict-copy `adoptExternalChange:244`;
-WebContent-process-terminate recovery `EditorWebView:375`). This plan is
+(`NotesStore.init`, `bootstrap`), single-source note rules in Rust, and real
+data-loss guards (debounced save with re-read-id-at-fire in
+`Sources/Notes/Editor/NoteEditorView.swift`; ghost-note fixes on
+rename/move/delete; scenePhase flush in `Sources/App/FutoNotesApp.swift`;
+3-way conflict-copy adoption; WebContent-process-terminate recovery in
+`Sources/Editor/EditorWebView.swift`). This plan is
 modernization + hardening, not rescue.
 
 ---
@@ -31,25 +34,27 @@ modernization + hardening, not rescue.
 
 The code is written *as if* for Swift 6 (actors, `@MainActor`,
 `nonisolated(unsafe)` globals) but compiled in Swift 5 mode with minimal
-concurrency checking (`project.yml:13-14`), discarding the checking it was
+concurrency checking (`project.yml`), discarding the checking it was
 structured to pass.
 
 - [ ] **`SWIFT_VERSION` 5.0 → 6.0** and **`SWIFT_STRICT_CONCURRENCY` minimal →
-  complete** (`project.yml:13-14`). Isolation is already explicit, so expect few
+  complete** (`project.yml`). Isolation is already explicit, so expect few
   real diagnostics — fix any that surface, then it's locked in.
 - [ ] **Adopt Swift 6.2 default main-actor isolation**
   (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`). App is almost all UI/lifecycle
   code → delete most explicit `@MainActor`, leaving `NoteVault` /
   `NoteVault` as the visible off-main exception. Networking/FFI stay
   off-main (this setting does not move them onto main).
-- [ ] **`FutoAssetSchemeHandler`** (`EditorImages.swift:29`): un-isolated but
+- [ ] **`FutoAssetSchemeHandler`**
+  (`Sources/Editor/Images/EditorImages.swift`): un-isolated but
   mutates `stopped: Set` across GCD hops. Callbacks are main-thread in practice
   → mark `@MainActor` (or move the set into an actor) so it's provable.
 - [x] **Search mutation ordering:** the shared Rust `LocalNoteStore` now owns
   the index and serializes each committed mutation before returning it to the
   Swift projection; the separate `SearchService` was removed.
 - [ ] **Jetsam flush hardening (data-loss, F8):** wrap `flushPendingEditor` /
-  `flushAsync` (`NotesStore.swift:365`, `FutoNotesApp.swift:77-82`) in a
+  `flushAsync` (`Sources/Notes/Storage/NotesStore.swift`,
+  `Sources/App/FutoNotesApp.swift`) in a
   `UIApplication.beginBackgroundTask` assertion so iOS grants time for the disk
   write before suspend.
 
@@ -72,10 +77,11 @@ App targets iOS 18 but uses the pre-17 `ObservableObject` / `@Published` /
     annotated `@ObservationIgnored` (macro conflict). Currently `@AppStorage`
     lives in views, so this only matters if state is consolidated.
 - [ ] **Fix the per-keystroke note-universe re-push (real perf bug).**
-  `NoteEditorView.onReceive(store.$notes)` (`:156`) fires on every autosave
+  `NoteEditorView.onReceive(store.$notes)` fires on every autosave
   (each save replaces `notes[idx]`), rebuilds the universe JSON *including
   `modifiedMs`* (`:291`) which changes every save → defeats `EditorHost`'s
-  dedup (`EditorWebView.swift:252`) → `setNotes(...)` is re-`evaluateJavaScript`'d
+  dedup (`Sources/Editor/EditorWebView.swift`) → `setNotes(...)` is
+  re-`evaluateJavaScript`'d
   into the WebView on every keystroke-save. Fix: exclude `modifiedMs` from the
   dedup signature (or debounce the universe push), and replace the Combine
   `onReceive` with `onChange(of:)` over a narrowed signal once on `@Observable`.
@@ -89,9 +95,9 @@ bridge calls (Web Inspector). Behavior parity for wikilink autocomplete.
 
 | Finding | Location | Change |
 |---|---|---|
-| `ForEach(Array(groups.enumerated()), id: \.offset)` — offset-as-identity (benign, static array, but flagged) | `EditorToolbar.swift:32` | stable id; drop `Array(...)` (unneeded on Swift 6.1+) |
-| Hand-rolled empty / no-match `VStack`s | `NoteListView.swift:143-151, 365-376` | `ContentUnavailableView` / `ContentUnavailableView.search(text:)` (iOS 17+, auto-localized) |
-| `Task.sleep(nanoseconds:)` | `NoteEditorView.swift:186` | `Task.sleep(for: .milliseconds(400))` |
+| `ForEach(Array(groups.enumerated()), id: \.offset)` — offset-as-identity (benign, static array, but flagged) | `Sources/Editor/Toolbar/EditorToolbar.swift` | stable id; drop `Array(...)` (unneeded on Swift 6.1+) |
+| Hand-rolled empty / no-match `VStack`s | `Sources/Notes/List/NoteListView.swift` | `ContentUnavailableView` / `ContentUnavailableView.search(text:)` (iOS 17+, auto-localized) |
+| `Task.sleep(nanoseconds:)` | `Sources/Notes/Editor/NoteEditorView.swift` | `Task.sleep(for: .milliseconds(400))` |
 | No haptics on create/delete/move | list/editor actions | `.sensoryFeedback(_:trigger:)` (iOS 17+) |
 | Decorative SF Symbols not hidden from VoiceOver; rows not combined | empty states, `NoteRow:507` | `.accessibilityHidden(true)` / `.accessibilityElement(children: .combine)` |
 | UI strings are literals; no String Catalog | everywhere | add a `Localizable` String Catalog before GA |
@@ -109,7 +115,8 @@ internal symbols). It ships an initial suite: `validateServerURL` conformance
 against the shared `tests/conformance/server-url.json` case-set (closing the
 AGENTS.md §12 drift-watchlist hole — the Swift copy previously had no fixture
 check), a host→editor bridge call-surface guard (every `window.FutoEditor.*`
-call in `EditorWebView.swift` must be in the `FutoEditorApi` contract), and
+call in `Sources/Editor/EditorWebView.swift` must be in the `FutoEditorApi`
+contract), and
 `VaultImages.mimeType` mapping incl. a drift lock against the shared Rust image
 list. Run it with `just test-ios-native`. Remaining coverage to add (`struct`
 suites, `#expect`/`#require`, parameterized; never XCTest):
@@ -148,7 +155,8 @@ automatic scroll-edge effect with **no code**.
   materials render.
 
 ### Track 2 — custom surfaces (explicit `glassEffect`, `#available`-gated + material fallback)
-- [ ] **Editor keyboard toolbar (centerpiece)** — `EditorToolbar.swift` /
+- [ ] **Editor keyboard toolbar (centerpiece)** —
+  `Sources/Editor/Toolbar/EditorToolbar.swift` /
   `EditorToolbarAccessory`. Today: opaque `Theme.surface` `inputAccessoryView`
   with hand-drawn hairline separators. Convert: keep the
   `UIHostingController`-in-`inputAccessoryView` hosting, wrap button groups in
@@ -156,7 +164,8 @@ automatic scroll-edge effect with **no code**.
   .capsule)`, drop the opaque background + hairlines so it floats as glass over
   the editor, monochrome icons (tint only to convey meaning). Fallback
   `.ultraThinMaterial` for < iOS 26.
-- [ ] **SYNCED/LOCAL badge + account header** (`SettingsView.swift:148-180`) →
+- [ ] **SYNCED/LOCAL badge + account header**
+  (`Sources/Settings/SettingsView.swift`) →
   capsule glass.
 - [ ] **Create / sync / settings affordances** → `.buttonStyle(.glass)`; add
   `.searchToolbarBehavior(.minimizable)` on the search field.
@@ -165,7 +174,7 @@ automatic scroll-edge effect with **no code**.
 
 ### Editor cohesion (good news)
 The WebView is already `isOpaque = false` with a clear background
-(`EditorWebView.swift:149-151`). So the native glass nav bar (above) and glass
+(`Sources/Editor/EditorWebView.swift`). So the native glass nav bar (above) and glass
 keyboard toolbar (below) show through cohesively — and making the editor.html
 surface transparent makes the editor read as one continuous glass-framed canvas
 rather than a boxed webview. The CodeMirror content itself can't be "glass" (web

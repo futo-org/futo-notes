@@ -106,7 +106,7 @@ node scripts/cdp-invoke.mjs "window.FutoEditor.setContent('# from CDP')"
 
 `window.FutoEditor` is the embed's API surface (setContent / getContent /
 focus / setTheme / exec / setNativeToolbar, …) — see the contract comment at
-the top of `apps/ios/Sources/EditorWebView.swift` (same embed on both
+the top of `packages/editor/src/bridge.ts` (same embed on both
 platforms). **`setContent` updates the visible editor only** — it does not
 fire the native change/save pipeline, so the content reverts on background
 unless you also post the bridge message a real keystroke would send:

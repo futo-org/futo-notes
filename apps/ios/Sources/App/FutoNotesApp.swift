@@ -6,6 +6,7 @@ struct FutoNotesApp: App {
     @StateObject private var sync = SyncManager()
     @ObservedObject private var crash = CrashReporter.shared
     @Environment(\.scenePhase) private var scenePhase
+    private let launchConfiguration: AppLaunchConfiguration
 
     /// "light" | "dark" | "auto" — set from Settings (futo.themeMode), applied
     /// app-wide here. The editor WebView follows automatically: NoteEditorView
@@ -14,6 +15,7 @@ struct FutoNotesApp: App {
     @AppStorage("futo.themeMode") private var themeMode = "auto"
 
     init() {
+        launchConfiguration = AppLaunchConfiguration.resolve()
         // Install the crash hooks before ANY other work — a crash during app
         // init must still be captured for the next launch.
         CrashReporter.install()
@@ -26,13 +28,16 @@ struct FutoNotesApp: App {
                 .environmentObject(sync)
                 .tint(Theme.primary)
                 .preferredColorScheme(
-                    themeMode == "light" ? .light : themeMode == "dark" ? .dark : nil)
+                    themeMode == "light" ? .light : themeMode == "dark" ? .dark : nil
+                )
                 // Crash Report sheet for reports found by the launch scan (only
                 // when reporting is enabled and Always-send is off).
-                .sheet(isPresented: Binding(
-                    get: { !crash.pendingReports.isEmpty },
-                    set: { if !$0 { crash.pendingReports = [] } }
-                )) {
+                .sheet(
+                    isPresented: Binding(
+                        get: { !crash.pendingReports.isEmpty },
+                        set: { if !$0 { crash.pendingReports = [] } }
+                    )
+                ) {
                     CrashReportSheet(reporter: crash)
                 }
                 // Refresh the note list when a live pull brings in remote
@@ -56,7 +61,9 @@ struct FutoNotesApp: App {
                     // Crash logs from the previous run — before restoreSession so
                     // a slow/offline server can't delay the crash dialog.
                     await crash.processPendingReports()
-                    await sync.restoreSession(notesRoot: store.notesRoot.path)
+                    if launchConfiguration.restoresSyncSession {
+                        await sync.restoreSession(notesRoot: store.notesRoot.path)
+                    }
                 }
         }
         // Pause the SSE stream while backgrounded and re-open it on foreground —
