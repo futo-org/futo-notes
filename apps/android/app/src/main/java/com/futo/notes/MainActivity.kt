@@ -46,6 +46,7 @@ import com.futo.notes.storage.activateStagedStorageMigration
 import com.futo.notes.storage.describeStorageAdoption
 import com.futo.notes.storage.recoverStorageStartup
 import com.futo.notes.storage.storageSwitchPlan
+import com.futo.notes.testhook.TestHooks
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.NoteEditorScreen
@@ -193,6 +194,8 @@ class MainActivity : ComponentActivity() {
         }
 
         imagePicker = ImagePicker(this)
+
+        TestHooks.install(this, testHooks())
 
         setContent {
             if (BuildConfig.DEBUG) {
@@ -497,6 +500,56 @@ class MainActivity : ComponentActivity() {
         prefs.edit().putString(Prefs.STORAGE_MODE, mode.name).apply()
         showOnboarding.value = false
         initVault(NotesStorage.rootFor(this, mode, BuildConfig.DEBUG))
+    }
+
+    // ── Automation hooks (debug builds only) ──
+
+    /**
+     * What a harness or an interactive session can ask this activity to do, by
+     * name. Hooks call the same entry points the UI calls, so what they replace is
+     * the tapping, not the code under test; `TestHooks` compiles to nothing in a
+     * release build. Field names in `state` are read by
+     * `tests/lib/android/testHooks.mjs`.
+     */
+    private fun testHooks(): Map<String, (Intent) -> Map<String, Any?>?> = mapOf(
+        // Every field here replaces an accessibility-tree read, which costs ~2s and
+        // reports whatever Compose last managed to render rather than app state
+        // (AGENTS.md M21).
+        "state" to {
+            mapOf(
+                "storageMode" to currentMode().name,
+                "vaultPath" to if (::notesRoot.isInitialized) notesRoot.path else null,
+                "notes" to (store.value?.notes?.size ?: 0),
+                "onboarding" to (showOnboarding.value || showStoragePicker.value),
+                "movingNotes" to storageSwitching.value,
+                "awaitingStorageConfirmation" to (pendingStorageAdoption.value != null),
+                "shellVisible" to (store.value != null && !storageSwitching.value),
+            )
+        },
+        "storage-mode" to { intent ->
+            val requested = intent.getStringExtra("mode").orEmpty()
+            // Throwing is the contract for a bad argument: the ack carries the
+            // reason, where a silent no-op would look like a hung switch.
+            performStorageChange(
+                runCatching { StorageMode.valueOf(requested) }.getOrElse {
+                    error("no such storage mode: $requested")
+                },
+            )
+            null
+        },
+        "confirm-storage" to {
+            val adoption = checkNotNull(pendingStorageAdoption.value) {
+                "no storage switch is awaiting confirmation"
+            }
+            pendingStorageAdoption.value = null
+            adoptExistingStorage(adoption)
+            null
+        },
+    )
+
+    override fun onDestroy() {
+        TestHooks.uninstall(this)
+        super.onDestroy()
     }
 
     /** Settings change-location confirm: migrate the vault, then relaunch. */
