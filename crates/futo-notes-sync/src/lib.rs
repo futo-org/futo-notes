@@ -4,6 +4,7 @@
 //! sync cycles mutually exclusive, persists progress, and runs live sync.
 
 mod checkpoint;
+mod open_note;
 mod server;
 mod session;
 mod sync;
@@ -11,6 +12,7 @@ mod sync;
 use std::path::Path;
 
 pub use checkpoint::{ConnectedState, ObjectState as E2eeObjectMapEntry};
+pub use open_note::{classify_open_note, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts};
 pub use session::{ResumeCredentials, SyncSession, SyncSessionListener};
 pub use sync::{
     ConnectInfo, FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure,
