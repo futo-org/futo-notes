@@ -18,7 +18,7 @@ use super::object_map::mapped_name;
 use super::outcome::note_id;
 use super::vault::{conflict_date, local_files};
 use super::vault_fs;
-use super::{PreWrite, SyncSummary};
+use super::{decision, PreWrite, SyncPhase, SyncSummary};
 
 const CLAIM_PREFIX: &str = ".sf-tomb-";
 const CLAIM_SIDECAR_SUFFIX: &str = ".path";
@@ -219,6 +219,13 @@ fn park_divergent_claim(
     summary.local_writes_applied += 1;
     summary.updated_ids.push(note_id(&copy));
     summary.peer_updated_ids.push(note_id(&copy));
+    summary.decide_with(
+        SyncPhase::Pull,
+        name,
+        decision::TOMBSTONE_PARKED,
+        "local_content_diverged_from_the_deleted_version",
+        copy,
+    );
     Ok(())
 }
 
@@ -254,6 +261,12 @@ pub(super) fn apply_tombstone(
             return Err(error);
         }
         summary.local_writes_applied += 1;
+        summary.decide(
+            SyncPhase::Pull,
+            &name,
+            decision::TOMBSTONE_APPLIED,
+            "local_content_matched_the_deleted_version",
+        );
     } else {
         park_divergent_claim(
             root,

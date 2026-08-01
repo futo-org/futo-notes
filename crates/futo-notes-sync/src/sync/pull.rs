@@ -15,9 +15,21 @@ use super::outcome::{append_derived_renames, note_id, record_checkpoint_failure}
 use super::tombstones::{apply_tombstone, recover_stale_claims};
 use super::vault::{content_hash, park_local, path_exists, remove_local, write_content_if_changed};
 use super::{
-    FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind, SyncFailure,
-    SyncProgress, SyncSummary,
+    decision, FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind,
+    SyncFailure, SyncPhase, SyncProgress, SyncSummary,
 };
+
+/// Reasons a pull takes the branch it does, named once so the journal reads the
+/// same way from every site.
+mod reason {
+    pub(super) const UNSUPPORTED_NAME: &str = "unsupported_incoming_name";
+    pub(super) const BOOTSTRAP_LOCAL_DIVERGED: &str = "bootstrap_local_diverged_from_ancestor";
+    pub(super) const MAPPING_MOVED: &str = "server_moved_the_mapped_name";
+    pub(super) const OLD_NAME_DIVERGED: &str = "old_name_diverged_from_map";
+    pub(super) const UNMAPPED_TARGET_OCCUPIED: &str = "unmapped_target_holds_other_content";
+    pub(super) const REMOTE_VERSION_IS_NEWER: &str = "remote_version_is_newer";
+    pub(super) const APPLY_ERROR: &str = "apply_error";
+}
 
 fn ancestry_for<'a>(
     ancestry: &'a HashMap<String, Ancestry>,
@@ -49,6 +61,12 @@ fn requested_path(remote: &RemoteNote, summary: &mut SyncSummary) -> Option<Stri
                 kind: FailureKind::Rejected,
                 status_code: None,
             });
+            summary.decide(
+                SyncPhase::Pull,
+                &remote.name,
+                decision::FAILED,
+                reason::UNSUPPORTED_NAME,
+            );
             None
         }
     }
@@ -106,6 +124,13 @@ fn reconcile_bootstrap_ancestry(
     context.summary.local_writes_applied += 1;
     context.summary.updated_ids.push(note_id(&copy));
     context.summary.peer_updated_ids.push(note_id(&copy));
+    context.summary.decide_with(
+        SyncPhase::Pull,
+        old_name,
+        decision::PARKED_LOCAL,
+        reason::BOOTSTRAP_LOCAL_DIVERGED,
+        copy,
+    );
     Ok(BootstrapAction::Continue {
         replace_unmapped_target: false,
     })
@@ -140,6 +165,13 @@ fn relocate_existing_mapping(
             )?;
             context.summary.conflicts += 1;
             context.summary.updated_ids.push(note_id(&copy));
+            context.summary.decide_with(
+                SyncPhase::Pull,
+                &old_name,
+                decision::PARKED_LOCAL,
+                reason::OLD_NAME_DIVERGED,
+                copy,
+            );
         }
     }
     context.state.object_map.remove(&old_name);
@@ -149,6 +181,13 @@ fn relocate_existing_mapping(
         from_id: note_id(&old_name),
         to_id: note_id(target),
     });
+    context.summary.decide_with(
+        SyncPhase::Pull,
+        &old_name,
+        decision::RELOCATED,
+        reason::MAPPING_MOVED,
+        target.to_owned(),
+    );
     Ok(())
 }
 
@@ -174,6 +213,13 @@ fn preserve_unmapped_target(
     context.summary.local_writes_applied += 1;
     context.summary.updated_ids.push(note_id(&copy));
     context.summary.peer_updated_ids.push(note_id(&copy));
+    context.summary.decide_with(
+        SyncPhase::Pull,
+        target,
+        decision::PARKED_LOCAL,
+        reason::UNMAPPED_TARGET_OCCUPIED,
+        copy,
+    );
     Ok(())
 }
 
@@ -201,6 +247,12 @@ fn commit_remote_file(
     context.summary.downloaded += 1;
     context.summary.updated_ids.push(note_id(&target));
     context.summary.peer_updated_ids.push(note_id(&target));
+    context.summary.decide(
+        SyncPhase::Pull,
+        &target,
+        decision::DOWNLOADED,
+        reason::REMOTE_VERSION_IS_NEWER,
+    );
     Ok(())
 }
 
@@ -308,6 +360,12 @@ struct PullContext<'a> {
 
 fn record_apply_failure(context: &mut PullContext<'_>, object: &Object, filename: String) {
     context.cursor.fail(object.change_seq);
+    context.summary.decide(
+        SyncPhase::Pull,
+        &filename,
+        decision::FAILED,
+        reason::APPLY_ERROR,
+    );
     context.summary.failures.push(SyncFailure {
         filename,
         kind: FailureKind::Download,

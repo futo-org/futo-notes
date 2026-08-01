@@ -9,7 +9,7 @@ use crate::checkpoint::{ConnectedState, ObjectState};
 use super::encrypted_note::RemoteNote;
 use super::outcome::note_id;
 use super::vault::{path_exists, rename_local};
-use super::{PreWrite, RenamePair, SyncSummary};
+use super::{decision, PreWrite, RenamePair, SyncPhase, SyncSummary};
 
 fn collision_rivals(
     state: &ConnectedState,
@@ -74,6 +74,13 @@ fn move_collision_loser(
         from_id: note_id(&name),
         to_id: note_id(&target),
     });
+    context.summary.decide_with(
+        SyncPhase::Pull,
+        &name,
+        decision::RELOCATED,
+        "lost_the_name_collision_to_a_lower_object_id",
+        target,
+    );
     Ok(())
 }
 

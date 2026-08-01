@@ -71,6 +71,53 @@ pub struct RenamePair {
     pub to_id: String,
 }
 
+/// Which half of the push-first cycle reached a decision. Bootstrap counts as
+/// `Pull` — it is the virgin-state pull that runs before the push.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SyncPhase {
+    Push,
+    Pull,
+}
+
+/// One file, what the cycle did to it, and which branch decided that. Recorded
+/// only where a cycle actually acted: an unchanged file is not a decision, and
+/// journaling every one of them would bury the interesting lines in a vault-
+/// sized wall of no-ops.
+///
+/// The counters above are lossy on purpose (`conflicts` alone covers an oversize
+/// skip, a delete-vs-edit, and four different parks). These are what an
+/// after-the-fact investigation actually needs, and they are pure observation —
+/// nothing reads them back into a sync decision.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct ReconcileDecision {
+    pub(crate) phase: SyncPhase,
+    pub(crate) filename: String,
+    pub(crate) decision: &'static str,
+    pub(crate) reason: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) detail: Option<String>,
+}
+
+/// The decision vocabulary, named once so the recording sites and the journal's
+/// roll-up counts cannot drift apart.
+pub(crate) mod decision {
+    pub(crate) const UPLOADED_NEW: &str = "uploaded_new";
+    pub(crate) const UPLOADED_UPDATE: &str = "uploaded_update";
+    pub(crate) const SKIPPED_OVERSIZE: &str = "skipped_oversize";
+    pub(crate) const DELETED_REMOTE: &str = "deleted_remote";
+    pub(crate) const RENAME_DETECTED: &str = "rename_detected";
+    pub(crate) const DOWNLOADED: &str = "downloaded";
+    pub(crate) const ADOPTED_REMOTE: &str = "adopted_remote";
+    pub(crate) const MERGED: &str = "merged";
+    pub(crate) const CONFLICT_COPY: &str = "conflict_copy";
+    pub(crate) const PARKED_LOCAL: &str = "parked_local";
+    pub(crate) const RELOCATED: &str = "relocated";
+    pub(crate) const TOMBSTONE_APPLIED: &str = "tombstone_applied";
+    pub(crate) const TOMBSTONE_PARKED: &str = "tombstone_parked";
+    pub(crate) const FAILED: &str = "failed";
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct SyncSummary {
     pub uploaded: u32,
@@ -84,9 +131,54 @@ pub struct SyncSummary {
     pub peer_updated_ids: Vec<String>,
     pub peer_deleted_ids: Vec<String>,
     pub renamed: Vec<RenamePair>,
+    /// Diagnostics for the instance journal, not part of any shell contract —
+    /// the Tauri and UniFFI projections build their own summaries field by
+    /// field and never see this.
+    pub(crate) decisions: Vec<ReconcileDecision>,
 }
 
 impl SyncSummary {
+    /// Notes one per-file decision for the journal. Observation only — callers
+    /// must record what they already decided, never decide from this.
+    pub(super) fn decide(
+        &mut self,
+        phase: SyncPhase,
+        filename: &str,
+        decision: &'static str,
+        reason: &'static str,
+    ) {
+        self.decisions.push(ReconcileDecision {
+            phase,
+            filename: filename.to_owned(),
+            decision,
+            reason,
+            detail: None,
+        });
+    }
+
+    /// The same, plus the one detail that makes the line actionable — the copy a
+    /// park wrote, the HTTP status a failure carried, the name a rename landed on.
+    pub(super) fn decide_with(
+        &mut self,
+        phase: SyncPhase,
+        filename: &str,
+        decision: &'static str,
+        reason: &'static str,
+        detail: String,
+    ) {
+        self.decisions.push(ReconcileDecision {
+            phase,
+            filename: filename.to_owned(),
+            decision,
+            reason,
+            detail: Some(detail),
+        });
+    }
+
+    pub(crate) fn decisions(&self) -> &[ReconcileDecision] {
+        &self.decisions
+    }
+
     pub fn failure_message(&self) -> Option<String> {
         let server: Vec<_> = self
             .failures
@@ -307,6 +399,9 @@ pub(super) fn combine(mut push: SyncSummary, pull: SyncSummary) -> SyncSummary {
     append_unique(&mut push.peer_updated_ids, pull.peer_updated_ids);
     append_unique(&mut push.peer_deleted_ids, pull.peer_deleted_ids);
     append_unique_renames(&mut push.renamed, pull.renamed);
+    // Concatenated, not deduped: the cycle runs push before pull, so appending
+    // keeps the decisions in the order they were actually taken.
+    push.decisions.extend(pull.decisions);
     remove_rename_ghost_ids(&mut push);
     push
 }

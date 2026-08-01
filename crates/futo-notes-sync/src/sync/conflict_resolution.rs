@@ -15,7 +15,18 @@ use super::outcome::note_id;
 use super::push::{create_fresh, PushContext, Upload};
 use super::vault::{conflict_date, local_files, remove_local, write_content, LocalFile};
 use super::vault_fs;
-use super::{FailureKind, RenamePair, SyncFailure};
+use super::{decision, FailureKind, RenamePair, SyncFailure, SyncPhase};
+
+/// Reasons an update conflict resolves the way it does.
+mod reason {
+    pub(super) const REMOTE_ALREADY_HOLDS_LOCAL: &str = "remote_already_holds_local_content";
+    pub(super) const THREE_WAY_MERGE_WAS_CLEAN: &str = "three_way_merge_was_clean";
+    pub(super) const MERGE_IMPOSSIBLE: &str = "concurrent_edit_could_not_merge";
+    pub(super) const SERVER_REJECTED_413: &str = "server_rejected_413";
+    pub(super) const REMOTE_OBJECT_DELETED: &str = "remote_object_was_deleted";
+    pub(super) const CONFLICT_COPY_UPLOAD: &str = "conflict_copy_upload";
+    pub(super) const REMOTE_HAS_NO_BLOB: &str = "remote_object_has_no_blob";
+}
 
 async fn create_from_content(
     context: &mut PushContext<'_>,
@@ -24,6 +35,7 @@ async fn create_from_content(
     hash: String,
     size: u64,
     mtime: i64,
+    reason: &'static str,
 ) -> Option<(String, ObjectState)> {
     create_fresh(
         context.http,
@@ -34,6 +46,7 @@ async fn create_from_content(
             hash,
             size,
             mtime,
+            reason,
         },
         context.summary,
     )
@@ -94,6 +107,13 @@ fn adopt_matching_remote(
         (context.pre_write)(&remote_name);
         let _ = vault_fs::set_mtime_ms(context.root, &remote_name, modified);
     }
+    context.summary.decide_with(
+        SyncPhase::Push,
+        &file.name,
+        decision::ADOPTED_REMOTE,
+        reason::REMOTE_ALREADY_HOLDS_LOCAL,
+        remote_name.clone(),
+    );
     Some((remote_name, state_from_remote(remote)))
 }
 
@@ -156,6 +176,13 @@ fn apply_merged_write(
     context.state.max_version = context.state.max_version.max(write.collection_version);
     context.summary.uploaded += 1;
     context.summary.local_writes_applied += 1;
+    context.summary.decide_with(
+        SyncPhase::Push,
+        &file.name,
+        decision::MERGED,
+        reason::THREE_WAY_MERGE_WAS_CLEAN,
+        target.clone(),
+    );
     context.summary.updated_ids.push(note_id(&target));
     if target != file.name {
         context.summary.deleted_ids.push(note_id(&file.name));
@@ -199,6 +226,7 @@ async fn persist_clean_merge(
             merged_hash,
             merged.len() as u64,
             file.mtime,
+            reason::REMOTE_OBJECT_DELETED,
         )
         .await
         .map(MergeAttempt::Applied)
@@ -212,6 +240,12 @@ async fn persist_clean_merge(
                 .oversize_skip
                 .insert(file.name.clone(), file.mtime);
             context.summary.conflicts += 1;
+            context.summary.decide(
+                SyncPhase::Push,
+                &file.name,
+                decision::SKIPPED_OVERSIZE,
+                reason::SERVER_REJECTED_413,
+            );
             MergeAttempt::Failed
         }
         _ => MergeAttempt::NeedsConflictCopy,
@@ -250,6 +284,7 @@ async fn create_conflict_copy(
         hash_sha256(local),
         local.len() as u64,
         file.mtime,
+        reason::CONFLICT_COPY_UPLOAD,
     )
     .await
     {
@@ -301,7 +336,8 @@ async fn write_conflict_pair(
     current: &Object,
 ) -> Option<(String, ObjectState)> {
     let copy = create_conflict_copy(context, file, local).await?;
-    if try_adopt_remote_conflict_winner(context, file, remote, &remote_name, &copy, current).is_err()
+    if try_adopt_remote_conflict_winner(context, file, remote, &remote_name, &copy, current)
+        .is_err()
     {
         context.summary.failures.push(SyncFailure {
             filename: file.name.clone(),
@@ -310,6 +346,13 @@ async fn write_conflict_pair(
         });
         return None;
     }
+    context.summary.decide_with(
+        SyncPhase::Push,
+        &file.name,
+        decision::CONFLICT_COPY,
+        reason::MERGE_IMPOSSIBLE,
+        copy,
+    );
     Some((remote_name, state_from_remote(remote)))
 }
 
@@ -324,14 +367,26 @@ pub(super) async fn resolve_update_conflict(
 ) -> Option<(String, ObjectState)> {
     if conflict.current_blob_key.is_none() {
         return create_from_content(
-            context, &file.name, local, local_hash, file.size, file.mtime,
+            context,
+            &file.name,
+            local,
+            local_hash,
+            file.size,
+            file.mtime,
+            reason::REMOTE_HAS_NO_BLOB,
         )
         .await;
     }
     let current = fetch_current(context, file, existing).await?;
     if current.deleted {
         return create_from_content(
-            context, &file.name, local, local_hash, file.size, file.mtime,
+            context,
+            &file.name,
+            local,
+            local_hash,
+            file.size,
+            file.mtime,
+            reason::REMOTE_OBJECT_DELETED,
         )
         .await;
     }
