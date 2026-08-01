@@ -574,6 +574,23 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   "follows a reported collision-placement rename before pruning deletions" in
   src/features/sync/syncManager.test.ts and the cross-platform scenario
   "collision placement follows open note" in tests/cross-platform-sync.mjs)
+- **Every shell family is handed the same cycle report.** The desktop IPC
+  contract and the UniFFI contract both project the engine summary losslessly —
+  the four counters plus `updatedIds`, `deletedIds`, `peerUpdatedIds`,
+  `peerDeletedIds` and the reported `renamed` pairs — so no shell has to
+  re-derive what changed from counts (ADR-0001). Each projection destructures a
+  fully populated engine summary in its own test, so a new engine field cannot
+  reach one shell family while silently skipping the other. →
+  apps/tauri/src-tauri/src/sync/frontend_contract.rs and
+  crates/futo-notes-ffi/src/sync/contract.rs (both guarded by
+  `projection_carries_every_engine_field`)
+  > **Gap:** The native shells receive the per-id delta but do not yet act on
+  > it: `onLivePull` is a zero-argument callback, so iOS and Android still
+  > rescan the whole vault after every cycle and never follow a reported
+  > rename. An open note that sync relocates reads as a peer delete on iOS
+  > ("Note was deleted during sync") and strands the Android editor on the old
+  > id. Scoping the list refresh additionally needs a per-id metadata verb; the
+  > engine exposes only whole-vault `scan()` today.
 - **A rename never hides a real update OR deletion of its target.** Summary
   ghost-stripping removes only the rename's from-side from
   `deletedIds`/`peerDeletedIds` (the "delete at the old name" byproduct every
