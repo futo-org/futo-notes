@@ -239,6 +239,8 @@ implementation to be genuinely different.
 - **Obsolete** — asserted a private mechanism or server feature that the new
   design deliberately does not use.
 - **Follow-up** — still meaningful and not yet exercised at the best boundary.
+  Every **Follow-up** row below has since been closed; see "Follow-up
+  queue — closed".
 
 ### Former `client.rs` tests (27)
 
@@ -504,12 +506,16 @@ successful headers, stream liveness is owned by the live loop's read-idle
 watchdog. Keep tests for every side of this split: ordinary requests,
 unknown-size blobs, stalled SSE headers, and error bodies must time out;
 known-size transfers must scale and clamp untrusted sizes; and a successful
-event stream must survive beyond the finite-request deadline.
+event stream must survive beyond the finite-request deadline. Those tests live
+in `server.rs` and prove each deadline in isolation; the sync flow above them
+has its own guard in `sync/failure_boundary_tests.rs`, so a stalled server
+surfaces a sync failure rather than a cycle that never returns.
 
-## Follow-up queue
+## Follow-up queue — closed
 
-The audit leaves seven boundary cases worth adding without restoring the old
-architecture:
+The audit left seven boundary cases that no cheap test could reach, because
+each one lives behind a specific server response or a specific process
+interruption:
 
 1. Failed blob download caps the cursor and retries on the next pull.
 2. The same cap applies during empty-map reconciliation.
@@ -520,9 +526,31 @@ architecture:
 7. Restart between push-state persistence and pull still receives a peer
    change.
 
-These should be implemented with the smallest fault-injection seam that
-exercises the current design. They should not bring back the old mock client,
-batch planner, or orchestrator decomposition.
+All seven are now covered by `sync/failure_boundary_tests.rs`, one test per
+case, each driven through the real `pull`/`push`/`cycle` entry points. The
+enabling seam is `fault_injection` — a `#[cfg(test)]` scripted server that
+speaks the real protocol over a real socket, serves a seeded encrypted vault,
+and replaces selected responses with an injected fault. It generalizes the
+per-file `MutationServer` fixtures the crate had grown privately, and it did
+not bring back the old mock client, batch planner, or orchestrator
+decomposition. Faults target three axes: the phase (a route belongs to push or
+pull), the request (`When::Nth` fails one occurrence, so the next cycle meets a
+healthy server), and the process boundary (a fault that aborts a cycle leaves
+exactly the checkpoint the client persisted, which `restart_from_checkpoint`
+reloads the way reconnecting does).
+
+Two limits are worth knowing before reaching for it. An injected `Status(409)`
+answers with an error body, so it produces a 409 transport error rather than
+the structured optimistic-version conflict the real server sends; conflict
+resolution stays owned by the real-server suite. And the tombstone-cleanup case
+fails a counted directory `fsync` (`vault_fs::fail_directory_sync_on_call`),
+so it is unix-only and its call index moves if the park path gains a sync.
+
+Each case was mutation-verified red-capable before landing: disabling
+`cap_cursor` reddens 1-5, clearing ancestry despite failures reddens 4,
+dropping the create failure's status reddens 6, not reporting a parked
+divergent note reddens 5, and making `push` advance the pull cursor — the F32
+crash-window regression — reddens 7.
 
 ## Carry-forward audit of Tier-1 data-safety invariants
 
@@ -554,10 +582,11 @@ red-capable against the exact regression before finalizing):
 - **F32 crash-window.** The design is safe — `push()` never advances
   `pull_cursor`; only a completed `pull()` does — but nothing asserted it. Added
   `push_preserves_the_pull_cursor`: a crash after push and before the following
-  pull must re-deliver peer changes on restart. (This is the push-side half of
-  boundary case 7 above; the full restart-injection case remains for a later
-  fault-injection seam.) `cap_cursor` (failed download) and the 0-seed migration
-  were already tested.
+  pull must re-deliver peer changes on restart. That is the push-side half of
+  boundary case 7; the full restart-injection case is now covered too, by
+  `restart_between_push_persistence_and_pull_still_receives_the_peer_change`.
+  Both go red when `push` is made to advance the pull cursor. `cap_cursor`
+  (failed download) and the 0-seed migration were already tested.
 
 Three invariants remain red-capable only through the server or cross-platform
 suites, with no cheap crate-level guard, and were **not** given offline tests:
