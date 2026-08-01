@@ -340,3 +340,63 @@ async fn restart_between_push_persistence_and_pull_still_receives_the_peer_chang
         "the restart must not re-upload the note push already created"
     );
 }
+
+// Transport-deadline regression guard at the sync-flow boundary: `server.rs`
+// proves each client deadline is finite and clamps untrusted sizes, this proves
+// a server that accepts TCP and then stalls reaches the failure path instead of
+// leaving a cycle pending forever.
+#[tokio::test(start_paused = true)]
+async fn a_stalled_server_fails_the_pull_instead_of_hanging() {
+    let root = TempRoot::new();
+    let state = connected("");
+    let server = FaultServer::new()
+        .note(&state.vault_key, "peer", 5, "peer.md", "peer body")
+        .fail(Route::ListObjects, When::Always, Fault::Stall)
+        .start();
+    let state = ConnectedState {
+        base_url: server.base_url.clone(),
+        ..state
+    };
+    let root_path = root.path().to_owned();
+
+    let pulling =
+        tokio::spawn(async move { pull(&state, &root_path, 1, &no_progress, &no_pre_write).await });
+    server.wait_for_requests(Route::ListObjects, 1).await;
+    // Let the request task park in its pending read so the advance below hits
+    // the armed deadline rather than an unarmed one.
+    crate::server::stalled_http::allow_network_task_to_settle().await;
+    tokio::time::advance(std::time::Duration::from_secs(31)).await;
+    crate::server::stalled_http::allow_timeout_task_to_finish(&pulling).await;
+
+    assert!(
+        pulling.is_finished(),
+        "a stalled response left the pull pending forever"
+    );
+    pulling
+        .await
+        .unwrap()
+        .expect_err("a stalled response must surface as a sync failure");
+}
+
+// A body the client cannot parse must fail the pull, never read as "no changes"
+// (which would advance the cursor past changes that were never applied).
+#[tokio::test]
+async fn a_malformed_object_list_fails_the_pull_instead_of_reporting_no_changes() {
+    let root = TempRoot::new();
+    let state = connected("");
+    let server = FaultServer::new()
+        .note(&state.vault_key, "peer", 5, "peer.md", "peer body")
+        .fail(Route::ListObjects, When::Always, Fault::MalformedBody)
+        .start();
+    let mut state = ConnectedState {
+        base_url: server.base_url.clone(),
+        ..state
+    };
+    state.pull_cursor = 1;
+
+    pull(&state, root.path(), 1, &no_progress, &no_pre_write)
+        .await
+        .expect_err("an unparseable object list must fail the pull");
+
+    assert!(!root.path().join(".e2ee-state.json").exists());
+}

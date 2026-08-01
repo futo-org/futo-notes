@@ -54,6 +54,11 @@ pub(crate) enum Fault {
     Status(u16),
     /// Promise more bytes than are sent, then close the connection.
     TruncatedBody,
+    /// Reply 200 with a body the client cannot parse.
+    MalformedBody,
+    /// Accept the request and never answer it. The connection stays open until
+    /// the server is dropped, so only the client's own deadline ends the wait.
+    Stall,
 }
 
 /// Which matching requests a fault applies to.
@@ -162,13 +167,18 @@ impl FaultServer {
         };
         let should_stop = Arc::clone(&stop);
         let handle = std::thread::spawn(move || {
+            // Stalled connections stay open so the client waits on its own
+            // deadline; they are closed when this thread exits.
+            let mut stalled = Vec::new();
             loop {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         if should_stop.load(Ordering::Relaxed) {
                             break;
                         }
-                        let _ = handler.serve(&mut stream);
+                        if let Ok(Disposition::Stalled) = handler.serve(&mut stream) {
+                            stalled.push(stream);
+                        }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                     Err(error) => panic!("fault server failed: {error}"),
@@ -203,6 +213,21 @@ impl RunningFaultServer {
             .copied()
             .unwrap_or(0)
     }
+
+    /// Yield until `route` has been reached `count` times. Awaiting keeps the
+    /// runtime busy, so a paused clock cannot auto-advance past the client's
+    /// deadline while a real socket round trip is still in flight.
+    pub(crate) async fn wait_for_requests(&self, route: Route, count: usize) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while self.requests(route) < count {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the fault server never received {count} {route:?} request(s)"
+            );
+            tokio::task::yield_now().await;
+            std::thread::yield_now();
+        }
+    }
 }
 
 impl Drop for RunningFaultServer {
@@ -229,6 +254,11 @@ pub(crate) fn restart_from_checkpoint(root: &Path, previous: &ConnectedState) ->
     }
 }
 
+enum Disposition {
+    Answered,
+    Stalled,
+}
+
 struct Request {
     route: Route,
     target: String,
@@ -244,7 +274,7 @@ struct Handler {
 }
 
 impl Handler {
-    fn serve(&mut self, stream: &mut TcpStream) -> std::io::Result<()> {
+    fn serve(&mut self, stream: &mut TcpStream) -> std::io::Result<Disposition> {
         let headers = read_request(stream)?;
         let Some(request) = classify(headers.lines().next().unwrap_or_default()) else {
             write_response(
@@ -253,7 +283,7 @@ impl Handler {
                 "application/json",
                 br#"{"error":"the fault server does not implement this request"}"#,
             )?;
-            return Ok(());
+            return Ok(Disposition::Answered);
         };
         *self
             .counts
@@ -263,6 +293,7 @@ impl Handler {
             .or_default() += 1;
 
         match self.fault_for(&request) {
+            Some(Fault::Stall) => return Ok(Disposition::Stalled),
             Some(Fault::Status(code)) => {
                 let body = format!(r#"{{"error":"injected HTTP {code}"}}"#);
                 write_response(
@@ -273,12 +304,18 @@ impl Handler {
                 )?;
             }
             Some(Fault::TruncatedBody) => write_truncated(stream)?,
+            Some(Fault::MalformedBody) => write_response(
+                stream,
+                "200 OK",
+                "application/json",
+                br#"{"objects":"not a list"}"#,
+            )?,
             None => {
                 let (status, content_type, body) = self.respond(&request);
                 write_response(stream, status, content_type, &body)?;
             }
         }
-        Ok(())
+        Ok(Disposition::Answered)
     }
 
     fn fault_for(&mut self, request: &Request) -> Option<Fault> {
