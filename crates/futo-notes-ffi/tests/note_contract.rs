@@ -125,51 +125,22 @@ fn note_store_projects_complete_workflow_results() {
     assert_eq!(written.upserted[0].note.id, "Projects/Beta");
     assert_eq!(written.final_id.as_deref(), Some("Projects/Beta"));
 
-    let flushed = store
-        .write_if_unchanged(
-            "Projects/Beta".to_owned(),
-            "version two".to_owned(),
-            "version three".to_owned(),
-        )
-        .unwrap();
-    assert_eq!(flushed.outcome, FlushOutcome::Wrote);
-    assert!(flushed.mutation.is_some());
-
-    let changed = store
-        .write_if_unchanged(
-            "Projects/Beta".to_owned(),
-            "version two".to_owned(),
-            "must not win".to_owned(),
-        )
-        .unwrap();
-    assert_eq!(changed.outcome, FlushOutcome::SkippedChanged);
-    assert!(changed.mutation.is_none());
-    assert_eq!(store.read("Projects/Beta".to_owned()), "version three");
-
+    // write_if_unchanged/create_if_absent are deliberately NOT exposed on this
+    // FFI facade (ADR-0001) — their store-level behavior is covered by
+    // futo-notes-store's own tests. Re-create the note through the exported
+    // create_note verb before continuing the workflow.
     let deleted = store.delete("Projects/Beta".to_owned()).unwrap();
     assert_eq!(deleted.removed, vec!["Projects/Beta"]);
-    let missing = store
-        .write_if_unchanged(
-            "Projects/Beta".to_owned(),
-            "version three".to_owned(),
-            "must not resurrect".to_owned(),
+    assert!(!store.exists("Projects/Beta".to_owned()));
+
+    let recreated = store
+        .create_note(
+            "Beta".to_owned(),
+            "Projects".to_owned(),
+            "restored".to_owned(),
         )
         .unwrap();
-    assert_eq!(missing.outcome, FlushOutcome::SkippedMissing);
-    assert!(missing.mutation.is_none());
-
-    assert_eq!(
-        store
-            .create_if_absent("Projects/Beta".to_owned(), "restored".to_owned())
-            .unwrap(),
-        CreateOutcome::Created
-    );
-    assert_eq!(
-        store
-            .create_if_absent("Projects/Beta".to_owned(), "must not overwrite".to_owned())
-            .unwrap(),
-        CreateOutcome::Existed
-    );
+    assert_eq!(recreated.upserted[0].note.id, "Projects/Beta");
     assert_eq!(store.read("Projects/Beta".to_owned()), "restored");
 
     let renamed = store
@@ -234,6 +205,25 @@ fn note_store_projects_complete_workflow_results() {
     assert!(after_reset.notes.is_empty());
     assert!(after_reset.folders.is_empty());
     assert!(notes_root.is_dir(), "reset must preserve the vault root");
+}
+
+// ADR-0001: the raw save primitives (conditional write, create-if-absent,
+// park) are deliberately private to the engine — re-exposing them over the
+// FFI would let a shell re-stitch a per-platform save workflow and restart
+// the drift `flush_draft` was built to end. This scans the exported-methods
+// source directly so re-adding either verb to `NoteStore` fails loudly here
+// instead of silently reappearing in the generated Kotlin/Swift bindings.
+#[test]
+fn raw_save_primitives_stay_off_the_note_store_ffi_surface() {
+    let source = include_str!("../src/notes/store.rs");
+    assert!(
+        !source.contains("fn write_if_unchanged"),
+        "write_if_unchanged must not be re-exposed on NoteStore (ADR-0001)"
+    );
+    assert!(
+        !source.contains("fn create_if_absent"),
+        "create_if_absent must not be re-exposed on NoteStore (ADR-0001)"
+    );
 }
 
 // The one draft-saving verb (persist-or-park, issue #37) projects all four

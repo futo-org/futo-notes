@@ -4,9 +4,8 @@ use std::sync::Arc;
 use futo_notes_store as store;
 
 use super::{
-    ConditionalWrite, CreateOutcome, FlushDraftResult, NoteBootstrap, NoteError, NoteMutation,
-    NoteSnapshot, SearchHit, VaultDestinationInspection, VaultMigrationFinalization,
-    VaultMigrationOutcome,
+    FlushDraftResult, NoteBootstrap, NoteError, NoteMutation, NoteSnapshot, SearchHit,
+    VaultDestinationInspection, VaultMigrationFinalization, VaultMigrationOutcome,
 };
 
 #[derive(uniffi::Object)]
@@ -46,34 +45,6 @@ impl NoteStore {
     pub fn write(&self, id: String, content: String) -> Result<NoteMutation, NoteError> {
         self.inner
             .write(&id, &content, None)
-            .map(Into::into)
-            .map_err(NoteError::Io)
-    }
-
-    /// Skips stale or missing notes, but is not a true filesystem CAS.
-    pub fn write_if_unchanged(
-        &self,
-        id: String,
-        expected_prev: String,
-        content: String,
-    ) -> Result<ConditionalWrite, NoteError> {
-        self.inner
-            .write_if_unchanged(&id, &expected_prev, &content)
-            .map(|result| ConditionalWrite {
-                outcome: result.outcome.into(),
-                mutation: result.mutation.map(Into::into),
-            })
-            .map_err(NoteError::Io)
-    }
-
-    /// Uses no-replace installation so a concurrent live-sync writer cannot be overwritten.
-    pub fn create_if_absent(
-        &self,
-        id: String,
-        content: String,
-    ) -> Result<CreateOutcome, NoteError> {
-        self.inner
-            .create_if_absent(&id, &content)
             .map(Into::into)
             .map_err(NoteError::Io)
     }
