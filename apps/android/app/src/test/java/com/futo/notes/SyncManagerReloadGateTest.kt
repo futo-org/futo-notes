@@ -3,7 +3,6 @@ package com.futo.notes
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import uniffi.futo_notes_ffi.SyncSummary
 
 /**
  * Regression for F2: the native editor-reload gate ([SyncManager.wroteLocalChanges])
@@ -20,14 +19,11 @@ class SyncManagerReloadGateTest {
         deleted: UInt = 0u,
         uploaded: UInt = 0u,
         localWritesApplied: UInt = 0u,
-    ) = SyncSummary(
+    ) = syncSummary(
         uploaded = uploaded,
         downloaded = downloaded,
         deleted = deleted,
-        conflicts = 0u,
         localWritesApplied = localWritesApplied,
-        failures = emptyList(),
-        failureMessage = null,
     )
 
     @Test
