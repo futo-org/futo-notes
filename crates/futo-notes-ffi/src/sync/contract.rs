@@ -47,6 +47,85 @@ pub struct RenamePair {
     pub to_id: String,
 }
 
+/// The facts a shell gathers before asking what happens to the open note.
+/// Field-for-field the engine's `OpenNoteFacts`; see that type for what each
+/// one means.
+#[derive(uniffi::Record)]
+pub struct OpenNoteFacts {
+    pub base: String,
+    pub draft: String,
+    pub disk: Option<String>,
+    pub renamed_to: Option<String>,
+    pub editor_focused: bool,
+    pub edited_during_cycle: bool,
+    pub adopt_preserves_caret: bool,
+}
+
+/// Why a draft is being kept, so each shell says it in its own words.
+#[derive(uniffi::Enum)]
+pub enum KeepDraftReason {
+    PeerDeleted,
+    Diverged,
+    Converged,
+}
+
+/// The single verdict on the open note (CONTEXT.md: open-note disposition).
+/// Shells render it the way they already render a flush disposition; they
+/// never decide it (ADR-0001).
+#[derive(uniffi::Enum)]
+pub enum OpenNoteDisposition {
+    Leave,
+    Adopt {
+        content: String,
+    },
+    DeferAdopt,
+    FollowRename {
+        to_id: String,
+    },
+    KeepDraft {
+        base: String,
+        reason: KeepDraftReason,
+    },
+    Close,
+}
+
+/// THE open-note verb. Pure and total: a shell gathers its editor state plus
+/// one disk read, calls this, and applies the answer with a single
+/// re-validation that it is still on the same note.
+#[uniffi::export]
+pub fn classify_open_note(facts: OpenNoteFacts) -> OpenNoteDisposition {
+    sync::classify_open_note(sync::OpenNoteFacts {
+        base: facts.base,
+        draft: facts.draft,
+        disk: facts.disk,
+        renamed_to: facts.renamed_to,
+        editor_focused: facts.editor_focused,
+        edited_during_cycle: facts.edited_during_cycle,
+        adopt_preserves_caret: facts.adopt_preserves_caret,
+    })
+    .into()
+}
+
+impl From<sync::OpenNoteDisposition> for OpenNoteDisposition {
+    fn from(disposition: sync::OpenNoteDisposition) -> Self {
+        match disposition {
+            sync::OpenNoteDisposition::Leave => Self::Leave,
+            sync::OpenNoteDisposition::Adopt { content } => Self::Adopt { content },
+            sync::OpenNoteDisposition::DeferAdopt => Self::DeferAdopt,
+            sync::OpenNoteDisposition::FollowRename { to_id } => Self::FollowRename { to_id },
+            sync::OpenNoteDisposition::KeepDraft { base, reason } => Self::KeepDraft {
+                base,
+                reason: match reason {
+                    sync::KeepDraftReason::PeerDeleted => KeepDraftReason::PeerDeleted,
+                    sync::KeepDraftReason::Diverged => KeepDraftReason::Diverged,
+                    sync::KeepDraftReason::Converged => KeepDraftReason::Converged,
+                },
+            },
+            sync::OpenNoteDisposition::Close => Self::Close,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct SyncFailure {
     pub filename: String,

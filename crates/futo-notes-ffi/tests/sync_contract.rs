@@ -1,8 +1,8 @@
 use std::fs;
 
 use futo_notes_ffi::{
-    ConnectInfo, RenamePair, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus,
-    SyncSummary,
+    classify_open_note, ConnectInfo, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts,
+    RenamePair, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus, SyncSummary,
 };
 
 mod support;
@@ -130,6 +130,91 @@ fn sync_records_errors_callbacks_and_threading_keep_the_full_semantic_shape() {
         "collection-gone: x"
     );
     assert_eq!(SyncError::NotConnected.to_string(), "not connected");
+}
+
+/// The open-note verb is reachable over the FFI and projects every arm of the
+/// engine's disposition — the native shells' half of ADR-0001's "shells render
+/// dispositions, they never decide them". The decision table itself is
+/// exhaustively tested in `futo-notes-sync::open_note`; this guards the
+/// projection, which is what a shell actually sees.
+#[test]
+fn the_open_note_verb_projects_every_disposition() {
+    fn facts() -> OpenNoteFacts {
+        OpenNoteFacts {
+            base: "base".to_owned(),
+            draft: "base".to_owned(),
+            disk: Some("base".to_owned()),
+            renamed_to: None,
+            editor_focused: false,
+            edited_during_cycle: false,
+            adopt_preserves_caret: false,
+        }
+    }
+
+    assert!(matches!(
+        classify_open_note(facts()),
+        OpenNoteDisposition::Leave
+    ));
+    assert!(matches!(
+        classify_open_note(OpenNoteFacts {
+            disk: Some("peer".to_owned()),
+            ..facts()
+        }),
+        OpenNoteDisposition::Adopt { content } if content == "peer"
+    ));
+    assert!(matches!(
+        classify_open_note(OpenNoteFacts {
+            disk: Some("peer".to_owned()),
+            editor_focused: true,
+            ..facts()
+        }),
+        OpenNoteDisposition::DeferAdopt
+    ));
+    assert!(matches!(
+        classify_open_note(OpenNoteFacts {
+            renamed_to: Some("Note (2)".to_owned()),
+            ..facts()
+        }),
+        OpenNoteDisposition::FollowRename { to_id } if to_id == "Note (2)"
+    ));
+    assert!(matches!(
+        classify_open_note(OpenNoteFacts {
+            draft: "mine".to_owned(),
+            disk: Some("peer".to_owned()),
+            ..facts()
+        }),
+        OpenNoteDisposition::KeepDraft { base, reason: KeepDraftReason::Diverged }
+            if base == "peer"
+    ));
+    assert!(matches!(
+        classify_open_note(OpenNoteFacts {
+            draft: "mine".to_owned(),
+            disk: None,
+            ..facts()
+        }),
+        OpenNoteDisposition::KeepDraft {
+            reason: KeepDraftReason::PeerDeleted,
+            ..
+        }
+    ));
+    assert!(matches!(
+        classify_open_note(OpenNoteFacts {
+            draft: "same".to_owned(),
+            disk: Some("same".to_owned()),
+            ..facts()
+        }),
+        OpenNoteDisposition::KeepDraft {
+            reason: KeepDraftReason::Converged,
+            ..
+        }
+    ));
+    assert!(matches!(
+        classify_open_note(OpenNoteFacts {
+            disk: None,
+            ..facts()
+        }),
+        OpenNoteDisposition::Close
+    ));
 }
 
 struct ContractListener;

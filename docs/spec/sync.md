@@ -970,4 +970,29 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   src/features/sync/syncManager.test.ts); iOS NoteEditorView `handleOpenNoteDeleted`.
   > **Gap:** Android leaves the open editor bound to the deleted id (its
   > snapshotFlow adopt early-returns on the missing note); the peer-delete
-  > close/keep + banner is not yet ported there.
+  > close/keep + banner is not yet ported there. The verdict it needs now
+  > exists as one engine verb (`classify_open_note`, reachable over UniFFI);
+  > what remains is the Compose side that renders it.
+- **One engine verb decides what happens to the open note.** `Leave`, `Adopt`,
+  `DeferAdopt`, `FollowRename`, `KeepDraft` (peer-deleted / diverged /
+  converged) and `Close` are the whole vocabulary (CONTEXT.md: open-note
+  disposition). A shell gathers the facts — its editor state plus one disk read
+  — asks once, and applies the answer with a single re-validation that it is
+  still on the same note; it never decides (ADR-0001, the pattern flush
+  dispositions proved). Two invariants live in the classifier rather than in
+  each shell: unsaved work is never replaced (persist-or-park at the open-note
+  seam — a peer-deleted note with a draft stays open for the flush verb's
+  Recreated arm), and a verdict that leaves the buffer alone always rebases the
+  baseline onto what is actually on disk, so the next flush is an honest
+  three-way decision instead of a clobber (F2). A host whose adopt preserves the
+  caret adopts in place; one whose adopt does not waits for the next blur.
+  → futo-notes-sync `open_note.rs` (guarded by
+  `every_reachable_fact_combination_has_one_verdict`,
+  `a_dirty_draft_is_never_replaced` and
+  `keeping_a_draft_always_rebases_onto_what_is_actually_on_disk`), projected by
+  `e2ee_classify_open_note` (desktop) and `classify_open_note` (UniFFI)
+  > **Gap:** No shell renders the verb yet — desktop, iOS and Android each
+  > still run their own copy of the decision (two of them on desktop, with
+  > different toast wording). The verb and both projections landed first so the
+  > adoptions can be reviewed one surface at a time; desktop's is staged in
+  > scripts/command-reachability-allowlist.json with its reason.
