@@ -26,6 +26,7 @@ pub(crate) fn run() {
                 crate::panic_reporter::install(root.join(".crashlogs"));
             }
             crate::platform_integration::configure_app(handle)?;
+            crate::instance_journal::install(handle);
             crate::local_notes::init_on_startup(handle);
             Ok(())
         })

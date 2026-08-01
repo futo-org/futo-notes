@@ -9,6 +9,7 @@ mod application_state;
 mod background_tasks;
 mod filesystem_watcher;
 mod image_commands;
+mod instance_journal;
 mod local_notes;
 mod panic_reporter;
 mod platform_integration;

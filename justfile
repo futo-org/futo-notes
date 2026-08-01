@@ -72,6 +72,30 @@ tauri-build:
 updater-localdev *args:
   node scripts/release-build.mjs e2e {{args}}
 
+# ── Instance journal (desktop) ──
+# Read what a running instance actually DID: the app writes a JSONL event
+# journal (futo_notes_core::journal) under its app data dir — never inside a
+# vault, never uploaded anywhere. Today it records one `sync_run` event per
+# sync cycle: trigger (manual/live-catch-up/local-change/remote-change/
+# safety-poll), push and pull timings, counts, the version watermarks either
+# side of the run, and the per-file reconcile decisions with the reason the
+# summary counters throw away.
+#
+#   just journal                    # last 20 events
+#   just journal tail 100
+#   just journal type sync_run      # or journal_drops (queue pressure)
+#   just journal last-sync          # readable summary of the newest cycle
+#   just journal where              # which directory it is reading
+#   just journal ... --release      # the release app, not the dev build
+#   just journal ... --dir <path>   # somewhere else entirely (a pulled phone journal)
+#
+# Resolution matches the app: $FUTO_NOTES_DATA_DIR wins (that is what
+# `just tauri-dev` sets, per worktree), then <app data>/<bundle id>/journal.
+# `--json` prints raw lines, so `just journal type sync_run --json | jq` works.
+# Native shells do not journal yet (see docs/spec/sync.md).
+journal *args:
+  @node scripts/journal.mjs {{args}}
+
 # ── Native mobile shells (SwiftUI / Compose — the SHIPPING mobile apps) ──
 # These reuse the shared Rust core (futo-notes-ffi) + the embedded web editor.
 # There is no longer a Tauri mobile shell; mobile = native.

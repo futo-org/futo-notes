@@ -838,6 +838,42 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   double-tombstone path is gone. → futo-notes-sync sync module; F4/F5
   cross-platform scenarios.
 
+## Instance journal
+
+- **Every sync cycle writes one `sync_run` record to the instance journal
+  *(desktop)*.** The record names why the cycle ran (`manual`, `live_catch_up`,
+  `local_change`, `remote_change`, `safety_poll`), how long each phase took
+  (bootstrap / push / pull / total), what it moved (pushed, pulled, deleted,
+  conflicts, local writes, failures, renames, oversize skips, tombstones), the
+  version watermarks either side of it (`max_version`, `pull_cursor`, tracked
+  objects, oversize-skipped), and the per-file reconcile decisions with the
+  reason each branch was taken. A cycle that fails is recorded too, with its
+  error and the phases that did run. → futo-notes-sync `journal.rs` +
+  `sync/mod.rs` (guarded by "a journaled cycle records one run with its trigger
+  counts and decisions" and "a failed cycle is still journaled with its error
+  and watermarks" in `session/cycle.rs`)
+- **A decision line is only written where the cycle acted.** Unchanged files,
+  no-op re-pushes, and already-current objects are not journaled: a vault-sized
+  wall of no-ops would bury the lines that explain an incident. →
+  futo-notes-sync `sync/outcome.rs` `ReconcileDecision`
+- **Journaling never changes what sync decides and never blocks it.** The
+  writer is a bounded queue plus one background thread; under pressure it drops
+  events and reports the count as a `journal_drops` record rather than applying
+  backpressure. Push-first ordering is untouched. → futo-notes-core
+  `journal/`
+- **The journal lives in the app data dir, never inside a vault, and is never
+  uploaded.** Desktop resolves `<app data>/<bundle id>/journal`, so the
+  dev/release split follows the bundle identifier and `FUTO_NOTES_DATA_DIR`
+  redirects both; journal files must not sync and must not appear in the note
+  list. Retention is a size-capped ring (~20 MB, oldest segment dropped). →
+  futo-notes-tauri `instance_journal.rs`
+- Read it with `just journal` (`tail`, `type <event>`, `last-sync`, `where`), or
+  with `jq` over the JSONL directly. → scripts/journal.mjs
+  > **Gap:** Only the desktop shell opens a journal. iOS and Android run the
+  > same sync crate, but `SyncSession::set_journal` is not exposed through
+  > `futo-notes-ffi`, so a native shell's runs are not recorded and `just
+  > journal --dir` has nothing to read from a phone.
+
 ## Polling
 
 - Desktop auto-sync poll interval is intentionally short (the SSE live stream is
