@@ -15,6 +15,12 @@ Behaviors and constraints that hold across every surface and platform.
   sandbox — never `await` one before first render. _(desktop Tauri; originally
   observed on the since-removed iOS Tauri shell — the native iOS app doesn't
   use `@tauri-apps/plugin-fs` at all)_
+- If notes fail to load at startup (store init or vault bootstrap rejects), the
+  app stays responsive: the notes-readiness promise settles as `failed` instead
+  of leaving its awaiters (tab hydration → hash routing) pending forever, and
+  the failure is logged (#33). → `initNotes` /
+  `whenNotesReady` in src/features/notes/notes.svelte.ts,
+  createAppBootstrap.svelte.ts
 
 ## Notes & files
 

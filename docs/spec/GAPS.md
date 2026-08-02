@@ -7,8 +7,8 @@ flag gaps the codebase suggests have been implemented.
 
 ## app.md
 
-- [app.md:123](app.md#L123) — Android pre-11 (API < 30) devices can't use Device storage (All-files access is an API-30 mechanism) — they only get App storage, so their vault is not visible in a file manager. _(Android)_
-- [app.md:127](app.md#L127) — The vault folder is fixed per mode and not a user-pickable arbitrary directory on mobile (desktop allows a custom folder); iOS has no iCloud Drive vault option. Both are possible follow-ups. _(iOS / Android)_
+- [app.md:129](app.md#L129) — Android pre-11 (API < 30) devices can't use Device storage (All-files access is an API-30 mechanism) — they only get App storage, so their vault is not visible in a file manager. _(Android)_
+- [app.md:133](app.md#L133) — The vault folder is fixed per mode and not a user-pickable arbitrary directory on mobile (desktop allows a custom folder); iOS has no iCloud Drive vault option. Both are possible follow-ups. _(iOS / Android)_
 
 ## editor.md
 
