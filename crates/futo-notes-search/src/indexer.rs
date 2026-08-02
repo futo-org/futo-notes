@@ -209,6 +209,14 @@ fn apply_pending(
                 ChangeKind::Upsert => {
                     let abs = notes_root.join(rel);
                     let Ok(body) = fs::read_to_string(&abs) else {
+                        // The debounce map keeps one ChangeKind per path, so a
+                        // Changed can coalesce over an earlier Remove (e.g. a
+                        // sync-pull rename). An upsert for a vanished file must
+                        // act as a remove, or the stale document ghosts in the
+                        // index until the next full reconcile.
+                        if !abs.exists() {
+                            idx.delete_note(&rel_to_note_id(rel));
+                        }
                         continue;
                     };
                     let mtime_ms = mtime_ms_of(&abs).unwrap_or(0);
@@ -526,6 +534,36 @@ mod tests {
     #[cfg(unix)]
     extern "C" {
         fn utimes(path: *const std::os::raw::c_char, times: *const libc_timeval) -> i32;
+    }
+
+    #[test]
+    fn upsert_for_a_vanished_file_removes_the_stale_document() {
+        let vault = ScopedTempDir::new("vault");
+        let index = ScopedTempDir::new("index");
+        std::fs::write(vault.path().join("old.md"), "zzqm distinctive body").unwrap();
+        assert_eq!(run_reconcile(vault.path(), index.path()), 1);
+
+        // A peer rename arriving via sync pull queues Removed(old) then
+        // Changed(old); the debounce map keeps one ChangeKind per path, so
+        // only the Upsert survives — and by apply time the file is gone.
+        std::fs::remove_file(vault.path().join("old.md")).unwrap();
+        {
+            let (ctx, indices, status) = make_state(index.path());
+            apply_pending(
+                &ctx,
+                vault.path(),
+                &indices,
+                &status,
+                vec![("old.md".to_string(), ChangeKind::Upsert)],
+            );
+        }
+
+        let idx = TantivyIndices::open(index.path()).unwrap();
+        let ids = idx.list_bm25_note_ids().unwrap();
+        assert!(
+            !ids.contains(&"old".to_string()),
+            "upsert for a vanished file left the stale document in the index: {ids:?}"
+        );
     }
 
     #[test]

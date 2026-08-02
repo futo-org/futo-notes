@@ -33,6 +33,10 @@ desktop, iOS, and Android query that owner through thin adapters.
   not issue per-file search notifications.
 - Sync and external filesystem writes bypass local workflows, so each completed
   peer batch or watcher batch requests one store rescan. Pure push echoes do not.
+- Debounced index changes converge regardless of arrival order: an upsert whose
+  file no longer exists on disk removes the stale document, so a peer rename
+  delivered as remove-then-change never leaves the old id searchable until
+  restart. → `futo-notes-search` `indexer::apply_pending`
 - Full reset clears the vault through the store and leaves the rebuildable index
   owned by that same instance.
 - A failed engine start (bad/locked index dir, momentary disk pressure) degrades
