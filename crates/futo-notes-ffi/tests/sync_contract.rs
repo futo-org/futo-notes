@@ -147,7 +147,6 @@ fn the_open_note_verb_projects_every_disposition() {
             renamed_to: None,
             editor_focused: false,
             edited_during_cycle: false,
-            adopt_preserves_caret: false,
         }
     }
 

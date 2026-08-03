@@ -51,7 +51,6 @@ export type OpenNoteFactsInput = {
 	renamedTo: string | null,
 	editorFocused: boolean,
 	editedDuringCycle: boolean,
-	adoptPreservesCaret: boolean,
 };
 
 export type RenamePair = {

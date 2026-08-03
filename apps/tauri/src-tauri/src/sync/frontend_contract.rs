@@ -124,7 +124,6 @@ pub(crate) struct OpenNoteFactsInput {
     pub(crate) renamed_to: Option<String>,
     pub(crate) editor_focused: bool,
     pub(crate) edited_during_cycle: bool,
-    pub(crate) adopt_preserves_caret: bool,
 }
 
 impl From<OpenNoteFactsInput> for futo_notes_sync::OpenNoteFacts {
@@ -136,7 +135,6 @@ impl From<OpenNoteFactsInput> for futo_notes_sync::OpenNoteFacts {
             renamed_to: input.renamed_to,
             editor_focused: input.editor_focused,
             edited_during_cycle: input.edited_during_cycle,
-            adopt_preserves_caret: input.adopt_preserves_caret,
         }
     }
 }
@@ -465,8 +463,7 @@ mod tests {
     fn open_note_facts_deserialize_from_the_camel_case_wire_shape() {
         let input: OpenNoteFactsInput = serde_json::from_str(
             r#"{"base":"b","draft":"d","disk":null,"renamedTo":"Note (2)",
-                "editorFocused":true,"editedDuringCycle":true,
-                "adoptPreservesCaret":false}"#,
+                "editorFocused":true,"editedDuringCycle":true}"#,
         )
         .unwrap();
         let facts = futo_notes_sync::OpenNoteFacts::from(input);
@@ -476,7 +473,6 @@ mod tests {
         assert_eq!(facts.renamed_to.as_deref(), Some("Note (2)"));
         assert!(facts.editor_focused);
         assert!(facts.edited_during_cycle);
-        assert!(!facts.adopt_preserves_caret);
     }
 
     #[test]

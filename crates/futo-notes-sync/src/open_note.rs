@@ -37,10 +37,6 @@ pub struct OpenNoteFacts {
     /// so the draft is newer than the decision that started it — even if the
     /// buffer happens to match the base again.
     pub edited_during_cycle: bool,
-    /// This host can replace the buffer without moving the caret or selection
-    /// (the native shells' `applyExternalContent`). A host that cannot waits
-    /// for the next blur instead of interrupting the typist.
-    pub adopt_preserves_caret: bool,
 }
 
 /// Why a draft is being kept, so each shell can say so in its own words.
@@ -139,7 +135,12 @@ pub fn classify_open_note(facts: OpenNoteFacts) -> OpenNoteDisposition {
         };
     }
 
-    if facts.editor_focused && !facts.adopt_preserves_caret {
+    // A focused editor is never interrupted, on any host. Hosts differ in
+    // whether their adopt can preserve the caret (the native shells'
+    // `applyExternalContent` can, desktop's cannot), but the verdict does not
+    // take that as an input: waiting for the next blur is the one answer
+    // everywhere, so a caret never moves under a typist on any surface.
+    if facts.editor_focused {
         return OpenNoteDisposition::DeferAdopt;
     }
 
@@ -150,8 +151,8 @@ pub fn classify_open_note(facts: OpenNoteFacts) -> OpenNoteDisposition {
 mod tests {
     use super::*;
 
-    /// A clean, unfocused editor on a caret-disturbing host, sitting on a note
-    /// nothing has touched. Each test perturbs exactly the facts it is about.
+    /// A clean, unfocused editor sitting on a note nothing has touched. Each
+    /// test perturbs exactly the facts it is about.
     fn facts() -> OpenNoteFacts {
         OpenNoteFacts {
             base: "base".to_owned(),
@@ -160,7 +161,6 @@ mod tests {
             renamed_to: None,
             editor_focused: false,
             edited_during_cycle: false,
-            adopt_preserves_caret: false,
         }
     }
 
@@ -172,8 +172,8 @@ mod tests {
     }
 
     /// The disposition table, exhaustively. Every row is one reachable
-    /// combination of (reported rename, disk state, dirtiness, focus, host
-    /// adopt capability); together they cover every arm of the classifier.
+    /// combination of (reported rename, disk state, dirtiness, focus);
+    /// together they cover every arm of the classifier.
     #[test]
     fn every_reachable_fact_combination_has_one_verdict() {
         let cases: Vec<(&str, OpenNoteFacts, OpenNoteDisposition)> = vec![
@@ -250,25 +250,13 @@ mod tests {
                 },
             ),
             (
-                "clean editor, peer edit, focused on a caret-disturbing host",
+                "clean editor, peer edit, focused — every host waits for blur",
                 OpenNoteFacts {
                     disk: Some("peer".to_owned()),
                     editor_focused: true,
                     ..facts()
                 },
                 OpenNoteDisposition::DeferAdopt,
-            ),
-            (
-                "clean editor, peer edit, focused on a caret-preserving host",
-                OpenNoteFacts {
-                    disk: Some("peer".to_owned()),
-                    editor_focused: true,
-                    adopt_preserves_caret: true,
-                    ..facts()
-                },
-                OpenNoteDisposition::Adopt {
-                    content: "peer".to_owned(),
-                },
             ),
             (
                 "dirty draft, disk unchanged",
@@ -329,12 +317,12 @@ mod tests {
     fn a_dirty_draft_is_never_replaced() {
         for disk in [None, Some("peer"), Some("base"), Some("mine")] {
             for focused in [false, true] {
-                for preserves_caret in [false, true] {
+                for edited_during_cycle in [false, true] {
                     let disposition = classify_open_note(OpenNoteFacts {
                         draft: "mine".to_owned(),
                         disk: disk.map(str::to_owned),
                         editor_focused: focused,
-                        adopt_preserves_caret: preserves_caret,
+                        edited_during_cycle,
                         ..facts()
                     });
                     assert!(
@@ -343,7 +331,7 @@ mod tests {
                             OpenNoteDisposition::Adopt { .. } | OpenNoteDisposition::Close
                         ),
                         "dirty draft was discarded: disk={disk:?} focused={focused} \
-                         preserves_caret={preserves_caret} -> {disposition:?}"
+                         edited_during_cycle={edited_during_cycle} -> {disposition:?}"
                     );
                 }
             }

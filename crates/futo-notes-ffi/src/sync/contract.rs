@@ -58,7 +58,6 @@ pub struct OpenNoteFacts {
     pub renamed_to: Option<String>,
     pub editor_focused: bool,
     pub edited_during_cycle: bool,
-    pub adopt_preserves_caret: bool,
 }
 
 /// Why a draft is being kept, so each shell says it in its own words.
@@ -101,7 +100,6 @@ pub fn classify_open_note(facts: OpenNoteFacts) -> OpenNoteDisposition {
         renamed_to: facts.renamed_to,
         editor_focused: facts.editor_focused,
         edited_during_cycle: facts.edited_during_cycle,
-        adopt_preserves_caret: facts.adopt_preserves_caret,
     })
     .into()
 }

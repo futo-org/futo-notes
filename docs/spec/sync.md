@@ -984,8 +984,11 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   seam — a peer-deleted note with a draft stays open for the flush verb's
   Recreated arm), and a verdict that leaves the buffer alone always rebases the
   baseline onto what is actually on disk, so the next flush is an honest
-  three-way decision instead of a clobber (F2). A host whose adopt preserves the
-  caret adopts in place; one whose adopt does not waits for the next blur.
+  three-way decision instead of a clobber (F2). **A focused editor is never
+  interrupted on any surface**: the verdict is `DeferAdopt` and the content is
+  applied on the next blur, whether or not that host's adopt could have
+  preserved the caret. Host adopt capability is deliberately NOT an input — one
+  answer for all three shells, so a caret never moves under a typist.
   → futo-notes-sync `open_note.rs` (guarded by
   `every_reachable_fact_combination_has_one_verdict`,
   `a_dirty_draft_is_never_replaced` and
@@ -995,4 +998,6 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   > still run their own copy of the decision (two of them on desktop, with
   > different toast wording). The verb and both projections landed first so the
   > adoptions can be reviewed one surface at a time; desktop's is staged in
-  > scripts/command-reachability-allowlist.json with its reason.
+  > scripts/command-reachability-allowlist.json with its reason. Until then the
+  > native in-place focused adopt above still stands; adopting the verb changes
+  > it to a deferred adopt on blur.
