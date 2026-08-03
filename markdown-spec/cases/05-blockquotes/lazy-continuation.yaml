@@ -1,0 +1,16 @@
+- name: blockquote-lazy-continuation
+  complexity: 30
+  markdown: |
+    > first
+    continuation one
+    continuation two
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+        count: 1
+      - class: cm-md-quote-single
+        count: 1
+      - class: cm-md-quote-last
+        count: 0
+    visible_text_contains: "continuation two"

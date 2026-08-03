@@ -38,6 +38,7 @@ import {
   collectWikilinkRanges,
   isInsideWikilink,
 } from './wikilinkDecorations';
+import { getViewportScanRanges, type DocumentRange } from './viewportScanRanges';
 
 function decorateMarkdownNode(
   nodeName: string,
@@ -46,18 +47,26 @@ function decorateMarkdownNode(
   view: EditorView,
   decorations: PendingDecoration[],
   quoteLinesProcessed: Set<number>,
+  scanRange: DocumentRange,
 ): void {
-  const text = view.state.doc.sliceString(from, to);
-  if (isHeadingNode(nodeName)) decorateHeading(nodeName, from, to, text, view, decorations);
-  else if (isEmphasisNode(nodeName)) decorateEmphasis(nodeName, from, to, text, view, decorations);
-  else if (isCodeNode(nodeName)) decorateCode(nodeName, from, to, text, view, decorations);
-  else if (isStrikethroughNode(nodeName)) decorateStrikethrough(from, to, view, decorations);
-  else if (isLinkNode(nodeName)) decorateLink(from, to, text, view, decorations);
-  else if (isImageNode(nodeName)) decorateImage(from, to, text, decorations);
-  else if (isBlockQuoteNode(nodeName)) {
-    decorateBlockQuote(from, to, view, decorations, quoteLinesProcessed);
-  } else if (isListItemNode(nodeName)) decorateListItem(from, text, view, decorations);
-  else if (isHorizontalRuleNode(nodeName)) decorateHorizontalRule(from, to, decorations);
+  const doc = view.state.doc;
+  if (isHeadingNode(nodeName)) {
+    decorateHeading(nodeName, from, to, doc.sliceString(from, to), view, decorations);
+  } else if (isEmphasisNode(nodeName)) {
+    decorateEmphasis(nodeName, from, to, doc.sliceString(from, to), view, decorations);
+  } else if (isCodeNode(nodeName)) {
+    const text = nodeName === 'InlineCode' ? doc.sliceString(from, to) : '';
+    decorateCode(nodeName, from, to, text, view, decorations, scanRange);
+  } else if (isStrikethroughNode(nodeName)) decorateStrikethrough(from, to, view, decorations);
+  else if (isLinkNode(nodeName)) {
+    decorateLink(from, to, doc.sliceString(from, to), view, decorations);
+  } else if (isImageNode(nodeName)) {
+    decorateImage(from, to, doc.sliceString(from, to), decorations);
+  } else if (isBlockQuoteNode(nodeName)) {
+    decorateBlockQuote(from, to, view, decorations, quoteLinesProcessed, scanRange);
+  } else if (isListItemNode(nodeName)) {
+    decorateListItem(from, doc.sliceString(from, doc.lineAt(from).to), view, decorations);
+  } else if (isHorizontalRuleNode(nodeName)) decorateHorizontalRule(from, to, decorations);
 }
 
 export function createLiveMarkdownDecorationBuilder() {
@@ -69,34 +78,40 @@ export function createLiveMarkdownDecorationBuilder() {
     const decorations: PendingDecoration[] = [];
     const selectionRanges = view.state.selection.ranges;
     const quoteLinesProcessed = new Set<number>();
-    const wikilinkRanges = collectWikilinkRanges(view.state.doc);
+    const scanRanges = getViewportScanRanges(view.state.doc, view.visibleRanges);
+    const wikilinkRanges = collectWikilinkRanges(view.state.doc, scanRanges);
     const headerEndOffset = headerTags.getHeaderEndOffset(view.state.doc);
+    const tree = syntaxTree(view.state);
 
-    syntaxTree(view.state).iterate({
-      enter: (node) => {
-        const { name, from, to } = node;
-        if (headerEndOffset > 0 && from < headerEndOffset) return;
-        if (name !== 'Document' && isInsideWikilink(wikilinkRanges, from, to)) return;
+    for (const range of scanRanges) {
+      tree.iterate({
+        from: range.from,
+        to: range.to,
+        enter: (node) => {
+          const { name, from, to } = node;
+          if (headerEndOffset > 0 && from < headerEndOffset) return;
+          if (name !== 'Document' && isInsideWikilink(wikilinkRanges, from, to)) return;
 
-        const blockSyntaxRevealed =
-          isBlockRevealSensitive(name) &&
-          shouldSkipBlockDecorations(name, from, to, view.hasFocus, selectionRanges);
-        if (blockSyntaxRevealed && !isHeadingNode(name)) {
-          if (name === 'ListItem') decorateListItemIndentOnly(from, view, decorations);
-          return;
-        }
-        if (
-          /^(Image|Task)/.test(name) &&
-          selectionTouchesRange(view.hasFocus, selectionRanges, from, to)
-        ) {
-          return;
-        }
-        decorateMarkdownNode(name, from, to, view, decorations, quoteLinesProcessed);
-      },
-    });
+          const blockSyntaxRevealed =
+            isBlockRevealSensitive(name) &&
+            shouldSkipBlockDecorations(name, from, to, view.hasFocus, selectionRanges);
+          if (blockSyntaxRevealed && !isHeadingNode(name)) {
+            if (name === 'ListItem') decorateListItemIndentOnly(from, view, decorations);
+            return;
+          }
+          if (
+            /^(Image|Task)/.test(name) &&
+            selectionTouchesRange(view.hasFocus, selectionRanges, from, to)
+          ) {
+            return;
+          }
+          decorateMarkdownNode(name, from, to, view, decorations, quoteLinesProcessed, range);
+        },
+      });
+    }
 
-    addWikilinkDecorations(view, decorations);
-    headerTags.addInlineTagDecorations(view, decorations);
+    addWikilinkDecorations(view, decorations, scanRanges);
+    headerTags.addInlineTagDecorations(view, decorations, scanRanges);
     return createDecorationSet(view, decorations, headerEndOffset);
   };
 }

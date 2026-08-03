@@ -1,3 +1,4 @@
+import type { Text } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 
 import type { PendingDecoration } from './decorationTypes';
@@ -7,7 +8,32 @@ import {
   shouldRevealInlineMarkers,
   shouldRevealMarkdownSyntax,
 } from './selectionReveal';
+import type { DocumentRange } from './viewportScanRanges';
 import { CodeLanguageLabelWidget, HorizontalRuleWidget, formatCodeLanguage } from './widgets';
+
+interface LineNumberRange {
+  first: number;
+  last: number;
+}
+
+/**
+ * Line numbers where a syntax node overlaps the viewport scan range, or null
+ * when the node lies entirely outside it.
+ */
+function getIntersectingLineNumbers(
+  doc: Text,
+  nodeFrom: number,
+  nodeTo: number,
+  scanRange: DocumentRange,
+): LineNumberRange | null {
+  const intersectionFrom = Math.max(nodeFrom, scanRange.from);
+  const intersectionTo = Math.min(nodeTo, scanRange.to);
+  if (intersectionFrom > intersectionTo) return null;
+  return {
+    first: doc.lineAt(intersectionFrom).number,
+    last: doc.lineAt(intersectionTo).number,
+  };
+}
 
 export function decorateHeading(
   nodeName: string,
@@ -135,6 +161,7 @@ function decorateCodeBlock(
   to: number,
   view: EditorView,
   decorations: PendingDecoration[],
+  scanRange: DocumentRange,
 ): void {
   const doc = view.state.doc;
   const startLine = doc.lineAt(from);
@@ -146,8 +173,10 @@ function decorateCodeBlock(
     nodeName === 'FencedCode' && hasClosingFence ? endLine.number - 1 : endLine.number;
   const contentLineCount = Math.max(0, contentEndLine - contentStartLine + 1);
   const cursorInBlock = selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
+  const visibleLines = getIntersectingLineNumbers(doc, from, to, scanRange);
+  if (!visibleLines) return;
 
-  for (let lineNumber = startLine.number; lineNumber <= endLine.number; lineNumber++) {
+  for (let lineNumber = visibleLines.first; lineNumber <= visibleLines.last; lineNumber += 1) {
     const line = doc.line(lineNumber);
     const openingMatch =
       lineNumber === startLine.number
@@ -195,11 +224,12 @@ export function decorateCode(
   text: string,
   view: EditorView,
   decorations: PendingDecoration[],
+  scanRange: DocumentRange,
 ): void {
   if (nodeName === 'InlineCode') {
     decorateInlineCode(from, to, text, view, decorations);
   } else {
-    decorateCodeBlock(nodeName, from, to, view, decorations);
+    decorateCodeBlock(nodeName, from, to, view, decorations, scanRange);
   }
 }
 
@@ -216,20 +246,41 @@ function quoteSegments(lineText: string, lineFrom: number) {
   return { segments, nestLevel, contentOffset: position };
 }
 
+/**
+ * Marker line used for visible quote-edge classes. Searches only the visible
+ * intersection plus one following line, bounding work to the viewport even
+ * when the blockquote has thousands of trailing lazy continuations.
+ */
+function getVisibleQuoteEdgeMarkerLineNumber(
+  doc: Text,
+  nodeFirstLine: number,
+  nodeLastLine: number,
+  visibleLines: LineNumberRange,
+): number {
+  const lastLineToInspect = Math.min(nodeLastLine, visibleLines.last + 1);
+  for (let lineNumber = lastLineToInspect; lineNumber >= visibleLines.first; lineNumber -= 1) {
+    if (quoteSegments(doc.line(lineNumber).text, 0).nestLevel > 0) return lineNumber;
+  }
+  return nodeFirstLine;
+}
+
 export function decorateBlockQuote(
   from: number,
   to: number,
   view: EditorView,
   decorations: PendingDecoration[],
   processedLines: Set<number>,
+  scanRange: DocumentRange,
 ): void {
   const doc = view.state.doc;
   const selectionRanges = view.state.selection.ranges;
   const quoteLines: Array<{ lineNumber: number; nestLevel: number }> = [];
-  const firstLine = doc.lineAt(from).number;
-  const lastLine = doc.lineAt(to).number;
+  const nodeFirstLine = doc.lineAt(from).number;
+  const nodeLastLine = doc.lineAt(to).number;
+  const visibleLines = getIntersectingLineNumbers(doc, from, to, scanRange);
+  if (!visibleLines) return;
 
-  for (let lineNumber = firstLine; lineNumber <= lastLine; lineNumber++) {
+  for (let lineNumber = visibleLines.first; lineNumber <= visibleLines.last; lineNumber += 1) {
     if (processedLines.has(lineNumber)) continue;
     const line = doc.line(lineNumber);
     const { segments, nestLevel, contentOffset } = quoteSegments(line.text, line.from);
@@ -264,11 +315,18 @@ export function decorateBlockQuote(
     processedLines.add(lineNumber);
   }
 
-  quoteLines.forEach(({ lineNumber, nestLevel }, index) => {
+  if (quoteLines.length === 0) return;
+  const quoteEdgeMarkerLine = getVisibleQuoteEdgeMarkerLineNumber(
+    doc,
+    nodeFirstLine,
+    nodeLastLine,
+    visibleLines,
+  );
+  quoteLines.forEach(({ lineNumber, nestLevel }) => {
     let cssClass = `cm-md-quote cm-md-quote-level-${nestLevel}`;
-    if (quoteLines.length === 1) cssClass += ' cm-md-quote-single';
-    else if (index === 0) cssClass += ' cm-md-quote-first';
-    else if (index === quoteLines.length - 1) cssClass += ' cm-md-quote-last';
+    if (nodeFirstLine === quoteEdgeMarkerLine) cssClass += ' cm-md-quote-single';
+    else if (lineNumber === nodeFirstLine) cssClass += ' cm-md-quote-first';
+    else if (lineNumber === quoteEdgeMarkerLine) cssClass += ' cm-md-quote-last';
     else cssClass += ' cm-md-quote-middle';
     const lineFrom = doc.line(lineNumber).from;
     decorations.push({

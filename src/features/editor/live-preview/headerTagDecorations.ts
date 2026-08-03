@@ -6,6 +6,7 @@ import { scanTags } from '$lib/rules';
 
 import type { PendingDecoration } from './decorationTypes';
 import { isCodeNode } from './markdownNodes';
+import { forEachLineInRanges, type DocumentRange } from './viewportScanRanges';
 
 const TAG_LINE_RE = /^\s*#[a-zA-Z][a-zA-Z0-9_-]{0,49}(\s+#[a-zA-Z][a-zA-Z0-9_-]{0,49})*\s*$/;
 
@@ -35,12 +36,15 @@ export function createHeaderTagDecorator() {
     return offset;
   }
 
-  function addInlineTagDecorations(view: EditorView, decorations: PendingDecoration[]): void {
+  function addInlineTagDecorations(
+    view: EditorView,
+    decorations: PendingDecoration[],
+    scanRanges: readonly DocumentRange[],
+  ): void {
     const doc = view.state.doc;
     const tree = syntaxTree(view.state);
-    for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
-      const line = doc.line(lineNumber);
-      if (!line.text.includes('#')) continue;
+    forEachLineInRanges(doc, scanRanges, (line) => {
+      if (!line.text.includes('#')) return;
 
       for (const match of scanTags(line.text)) {
         const from = line.from + match.start;
@@ -68,7 +72,7 @@ export function createHeaderTagDecorator() {
           });
         }
       }
-    }
+    });
   }
 
   return { getHeaderEndOffset, addInlineTagDecorations };

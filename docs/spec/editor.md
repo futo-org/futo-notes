@@ -320,9 +320,19 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   no-op inside a WKWebView, which is why the bridge round-trip is required.
   Android additionally enforces in `EditorWebView.kt` that only `file://` editor
   assets may load in the reused WebView; all other schemes are intercepted and
-  launched with `ACTION_VIEW`. Verified emulator + simulator 2026-07-08 (tapping
-  a rendered link opens Safari / Chrome to the target; iOS `openUrl` case and
-  Android `ACTION_VIEW` intent both fire).
+  launched with `ACTION_VIEW`. iOS enforces the same policy in
+  `EditorWebView.swift`'s `decidePolicyFor` (added 2026-07-30): main-frame loads
+  are allowed only for the bundled `editor.html` itself (exact standardized-path
+  match — any other `file://` URL is denied, since `loadFileURL` grants read
+  access to the whole bundle resources directory) and the `about:blank`
+  missing-bundle fallback; `http/https/mailto/tel` navigations are cancelled and
+  routed through the same scheme-guarded external open as the `openUrl` bridge
+  case; every other scheme (including `javascript:`/`data:`) is denied, so a
+  programmatic top-level navigation can never replace the editor. Policy is a
+  pure function (`editorNavigationDecision`) unit-tested in
+  `EditorNavigationDecisionTests.swift`. Verified emulator + simulator
+  2026-07-08 (tapping a rendered link opens Safari / Chrome to the target; iOS
+  `openUrl` case and Android `ACTION_VIEW` intent both fire).
   → platform/openExternalUrl.ts, MarkdownEditor.svelte `linkClickHandler` (`onopenurl`),
   editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
   EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
@@ -334,9 +344,6 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   spans that blank space — places the caret instead of opening the URL.
   → interactions/linkInteractions.ts `findExternalLinkElementAtPoint`,
   tests/p1-regressions.spec.ts
-  > **Gap:** iOS native still lacks an explicit `WKWebView` navigation-policy
-  > guard (the `openUrl` bridge covers taps on decorated links, but a
-  > programmatic top-level navigation inside the WebView is not yet policed).
 
 ## Interactive elements
 
@@ -553,6 +560,42 @@ EditorWebView.swift, EditorWebView.kt
 
 - Wikilinks and tags inside inline code or fenced blocks are NOT decorated and
   NOT extracted. → markdown-spec/cases/03-code, 08-wikilinks, 09-tags
+
+## Performance
+
+- Per-keystroke editor work is bounded by the viewport plus a small margin,
+  never by document size: live-preview decorations scan only
+  `view.visibleRanges` and markdown parsing is forced only to
+  `viewport.to + 5000` chars. Typing dispatch stays within one 60fps frame
+  (median ≤ 16.7 ms, measured in the desktop app, 2026-07) in
+  multi-thousand-line notes. `tests/typing-perf.spec.ts` (E2E suite) guards
+  the regression class, not that number: it asserts the median hook-driven
+  keystroke in a ~32k-block note stays ≤ 60 ms — a bound sized to fail an
+  O(document) decoration scan (~700 ms measured), with the measurement
+  including the test hook's full-document read-back. Reaching a
+  not-yet-parsed region (e.g. jumping straight to the end of a large note)
+  parses the intervening document incrementally in ≤ 200 ms slices — amortized
+  once per region, decorations may arrive a beat late; steady-state scrolling
+  through parsed text stays viewport-bounded. → LiveMarkdownPlugin.ts,
+  buildLiveMarkdownDecorations.ts, viewportScanRanges.ts,
+  tests/typing-perf.spec.ts
+- Interactive table decoration updates are incremental: syntax discovery scans
+  only changed/affected parsed blocks, while offset refresh work is bounded by
+  the number of known tables. → table/interactiveTableEditor.ts,
+  table/interactiveTableEditor.test.ts
+  > **Gap:** a note whose text forms one giant markdown *leaf* — tens of KB
+  > with no blank line, e.g. a 3000-line contiguous blockquote, one huge
+  > paragraph, or a single ~500 KB line — still types at ~30–50 ms/keystroke
+  > (grows with leaf size; ~240 ms at 1.2 MB). Root cause is upstream:
+  > `@lezer/markdown` re-runs inline parsing (`parseInline`/`LinkEnd`) over
+  > the entire leaf on each edit, as one uninterruptible step CM6's parse
+  > budget cannot preempt (CPU-profile attributed, 2026-07-29). This is an
+  > ecosystem-wide CM6/lezer characteristic — Obsidian exhibits the same
+  > class of large-note typing lag — not FUTO Notes code. Candidate future
+  > fix: a lezer block-parser extension splitting leaves every ~32 KB
+  > (VS Code-style bounded tokenization). Repro: open a note that is one giant
+  > contiguous block (e.g. a 3000-line blockquote with no blank lines) in
+  > `just tauri-dev` and type.
 
 ## Saving & rename
 

@@ -123,3 +123,4 @@ apps/tauri/src-tauri/redist/
 
 # Agent-tooling skill mirror (synced into the worktree by session tooling)
 .agents/
+.pnpm-store/

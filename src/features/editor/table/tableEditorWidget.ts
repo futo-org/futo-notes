@@ -32,7 +32,7 @@ export class TableEditorWidget extends WidgetType {
     addRow: (rowIndex) => this.mutateAndSync((table) => addRow(table, rowIndex)),
     leaveTable: () => {
       if (!this.view) return;
-      this.view.dispatch({ selection: { anchor: this.to } });
+      this.view.dispatch({ selection: { anchor: this.currentRange()?.to ?? this.to } });
       this.view.focus();
     },
   });
