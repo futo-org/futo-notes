@@ -306,6 +306,46 @@
           "kind": "test"
         }
       ]
+    },
+    {
+      "concept": "editor-exit-ordering",
+      "description": "The order an open note's exit runs in (admission -> latch -> cancel -> drain -> commit -> effect) so no async completion lands against a stale note identity. One EditorSession per native shell. This duplicate is permitted because every step being ordered is a host-runtime handle the engine cannot hold (a Compose coroutine, a Swift Task, a WebView round-trip, a vetoable navigation) — the engine still owns what a save MEANS via flush_draft/persist-or-park (ADR-0001), reached only through injected effects. The shells also legitimately differ: navigation commit order, where the committed body comes from, and move-picker drain timing. Partial: each shell is pinned by its OWN ordering tests, and the shared invariant is stated in prose in docs/spec/editor.md \"Editor exits\" — nothing mechanically holds the two implementations together. Changing one shell's exit ordering updates that spec section and checks the sibling in the same MR, or records the divergence there. If a third divergence ships as a device bug after this, the next step is the deferred Rust editor engine (crates/futo-notes-editor), not a bigger fixture.",
+      "lockStatus": "partial",
+      "copies": [
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorSession.kt",
+          "pattern": "internal class EditorSession"
+        },
+        {
+          "location": "apps/ios/Sources/Notes/Editor/EditorSession.swift",
+          "pattern": "final class EditorSession"
+        }
+      ],
+      "locks": [
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorSessionTest.kt",
+          "kind": "test"
+        },
+        {
+          "path": "apps/ios/Tests/Notes/Editor/EditorSessionTests.swift",
+          "kind": "test"
+        },
+        {
+          "path": "docs/spec/editor.md",
+          "kind": "spec"
+        }
+      ],
+      "scan": {
+        "dirs": [
+          "apps/ios/Sources",
+          "apps/android/app/src/main"
+        ],
+        "extensions": [
+          ".swift",
+          ".kt"
+        ],
+        "pattern": "enum (class )?EditorExit\\b"
+      }
     }
   ]
 }

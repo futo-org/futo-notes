@@ -121,6 +121,35 @@ const PROBES = [
     },
     hint: 'editor-embed/main.ts now appears to act on a broken wikilink tap — native create-on-broken-tap may be implemented; verify and close the gap.',
   },
+  {
+    // issue #79 — the iOS navigation exit ignores a parked-conflict disposition.
+    // Closing it means the exit has to learn the disposition, which today's
+    // `commitBody` (-> Bool) cannot carry: either EditorSession gains the
+    // parked case, or NoteEditorView grows a second `editorMoveSourceId` call
+    // site (it has exactly two today — the definition and the move path).
+    match: /navigation exit iOS ignores a parked-conflict/,
+    closed: () => {
+      const session = read('apps/ios/Sources/Notes/Editor/EditorSession.swift');
+      const view = read('apps/ios/Sources/Notes/Editor/NoteEditorView.swift');
+      return /parkedConflict/.test(session) || view.split('editorMoveSourceId(').length - 1 > 2;
+    },
+    hint: 'the iOS editor session or navigation path now references the parked-conflict id — the #79 divergence may be closed.',
+  },
+  {
+    // issue #80 — Android drops an editor change that lands mid-delete. iOS's
+    // counterpart is named `quarantine`/`takeQuarantined`, so any quarantine
+    // vocabulary appearing in Android's session or editor screen means the
+    // buffer was added.
+    match: /destructive latch is DROPPED on Android/,
+    closed: () =>
+      /quarantin/i.test(
+        read('apps/android/app/src/main/java/com/futo/notes/ui/EditorSession.kt'),
+      ) ||
+      /quarantin/i.test(
+        read('apps/android/app/src/main/java/com/futo/notes/ui/NoteEditorScreen.kt'),
+      ),
+    hint: 'Android now has quarantine vocabulary in the editor session/screen — the #80 dropped-keystroke divergence may be closed.',
+  },
 ];
 
 // ── render ─────────────────────────────────────────────────────────────────

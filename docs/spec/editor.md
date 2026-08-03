@@ -638,18 +638,18 @@ EditorWebView.swift, EditorWebView.kt
 - A confirmed local delete is the final editor mutation for that note. Android
   serializes body saves, title flush/rename, conflict adoption, the complete
   flush-and-move transaction (including its final id update), and delete through
-  one editor mutation gate. iOS cancellation chains own the actual committed
-  move—not only presentation of its picker—and delete awaits the complete
-  save/rename/adoption/move chain before removing the final id. Once closing
-  starts, iOS blurs the WebView, quarantines late bridge changes, and never
-  flushes that closing view on disappear. Its centered delete card is a
+  one editor session (see "Editor exits"). iOS cancellation chains own the
+  actual committed move—not only presentation of its picker—and delete awaits
+  the complete save/rename/adoption/move chain before removing the final id.
+  Once closing starts, iOS blurs the WebView, quarantines late bridge changes,
+  and never flushes that closing view on disappear. Its centered delete card is a
   transparent cover, and presenting that cover is explicitly excluded from the
   editor's navigation-disappear cleanup. A committed delete discards the
   quarantine; a failed delete restores and autosaves it, so the note is neither
   recreated after success nor stripped of a late edit after failure. An
   in-flight conflict flush, move, title debounce, or queued bridge callback
   therefore cannot recreate or rename a note after its delete commits. _(iOS,
-  Android)_ → `EditorMutationGate`,
+  Android)_ → `EditorSession` (EditorSession.kt / EditorSession.swift),
   `EditorDraftCoordinator`, NoteEditorScreen.kt, NoteEditorView.swift,
   NativeMutationOutcomeTests
 - Backgrounding the app makes a **best-effort** flush of the open editor's
@@ -735,6 +735,117 @@ EditorWebView.swift, EditorWebView.kt
   in-flight keystrokes; moving focus into the editor body flushes the pending
   title save immediately. → `noteSession.svelte.ts` `debouncedSave`,
   `NotesShell.svelte` `handleEditorFocusChange`
+
+## Editor exits — every way an open note ends _(iOS/Android)_
+
+While a note is open both native shells run asynchronous workflows against ONE
+note identity — the debounced body save, the debounced title rename, live-sync
+adoption of an on-disk change, plus a fourth per shell (iOS the folder move,
+Android an image insertion) — and the user can leave at any moment: Back, the
+system back gesture / leading-edge swipe, a resolved wikilink, Move, Delete.
+Every exit is one case of a single verb that runs **admission → latch → cancel →
+drain → commit → the exit's own effect**. The guarantee the ordering exists to
+keep: no async completion may land against a stale note identity (a save holding
+the pre-rename id recreates a ghost note; a rename landing after a delete
+resurrects the file).
+
+Each shell owns its own implementation, in its own idiom — Android one mutex
+where taking the lock IS the drain, iOS per-workflow cancellation chains awaited
+in a declared order. The engine owns what a save MEANS (persist-or-park,
+ADR-0001) and is reached only through injected effects; the shells own only when
+that work runs and in what order, because every step being ordered is a
+host-runtime handle (a Compose coroutine, a Swift `Task`, a WebView round-trip, a
+navigation that has to stay vetoable). This section is the shared statement of
+that ordering — the two implementations are held together by it plus each shell's
+ordering tests, not by shared code. → EditorSession.kt, EditorSession.swift,
+EditorSessionTest.kt, EditorSessionTests.swift
+
+- Every latch an exit sets lands **before the first suspension**: the destructive
+  latch, the one-exit-at-a-time admission, and the interaction lock are all set
+  in the same turn as the user's tap, so the exit verb is deliberately neither a
+  `suspend fun` (Android — `rememberCoroutineScope` dispatches on the next frame)
+  nor `async` (iOS). A keystroke, a second Back, or a queued save arriving after
+  the tap is therefore already fenced. _(iOS/Android)_ → EditorSession.kt `end`,
+  EditorSession.swift `end(_:effects:)`
+- A destructive exit's cancels land **before** the drain: delete cancels the
+  queued debounces synchronously (iOS all four workflows, Android inside the same
+  pre-suspension step as the latch), so the drain only ever waits for work that
+  was already in flight, and anything queued behind the latch touches nothing at
+  all — Android's `runWork` returns null, an iOS scheduled workflow sees
+  `isActive == false`. The debounced body save is the one exception, neutralised
+  as the first step of the commit rather than at admission (cancel, then await
+  it): a save already running has to finish and be projected before the exit
+  captures, or the capture races the write it supersedes. _(iOS/Android)_
+- The body an exit commits is the **exact snapshot it captured** — never a
+  re-read of disk, and never an earlier buffer than the one the capture returned.
+  The single exception is specified below: on a destructive exit a change that
+  lands mid-exit is folded in, because it is newer than the capture.
+  _(iOS/Android)_
+- An exit that cannot commit does not leave: a failed capture, a failed body
+  flush, or a pending rename that will not commit refuses the exit, releases
+  every latch that exit set, and reports which step failed so the shell can word
+  the message. A failed delete un-latches so the editor stays usable, and a
+  failed draft write never deletes. _(iOS/Android)_
+- A **committed** delete's latch is one-way for that session: no pending
+  workflow, queued bridge callback, title debounce, or in-flight adoption can
+  touch the note afterwards. _(iOS/Android)_
+- Only one navigation exit runs at a time. A second Back while the first is
+  still draining is dropped, and a refused exit may be retried. _(iOS/Android)_
+- The exit's own effect cannot interleave with a tracked workflow. Same
+  guarantee, three mechanisms: Android runs move and delete inside the drain
+  lock; iOS's move exits register their task as the move workflow, so a later
+  exit draining that workflow waits for them; iOS navigation and delete instead
+  rely on admission plus a post-drain re-check (a delete that latched while the
+  drain ran abandons the exit rather than committing into it). _(iOS/Android)_
+- Editor change events are fenced before the initial off-main read lands (an
+  empty `setContent` echo must never be saved back over the note) and once a
+  destructive exit has latched. Android additionally fences them while the vault
+  is migrating to another storage root. _(iOS/Android)_ → EditorSession.kt
+  `acceptsEditorChange`, EditorSession.swift `disposition(loaded:)`
+- A peer delete adopted by live sync is its own ending: the file is already gone,
+  so there is nothing to drain and nothing to commit, and the session only has to
+  ensure no pending workflow resurrects it. _(iOS)_ → EditorSession.swift
+  `closeForExternalDelete`
+- An exit with no editor attached drains nothing and commits nothing against an
+  unknown body — it just leaves. Only the legacy-WebView notice (github#8) is in
+  that state deliberately: it renders no editor at all and its Back must still
+  work. Any other detached state means the editor is mid-attach, and the exit is
+  dropped. _(Android)_ → EditorSession.kt `exitWithoutEditor`,
+  EditorAttachmentGate.kt
+
+Three **permitted** divergences — each shell keeps its own sequence; the shared
+invariant above is what both must satisfy:
+
+- Navigation commit order: Android commits the body, then the title; iOS commits
+  the title (the rename), then the body. Both commit both before the file moves,
+  so neither can strand a body at a dead id. _(iOS/Android)_
+- Where the committed body comes from: iOS captures out of the WebView on every
+  committing exit; Android round-trips the WebView for navigation and uses the
+  live content buffer for move and delete. Coupled to the quarantine gap below —
+  revisit the capture source when Android gains one. _(iOS/Android)_
+- Move-picker timing: iOS drains before presenting the destination picker (its
+  own `prepareMove` exit); Android presents immediately and drains in `onPick`.
+  Both complete the drain before the move commits. _(iOS/Android)_
+
+Two divergences are **not** permitted — each is one shell failing the invariant,
+left open because closing it is a behavior change, not a refactor:
+
+- On a parked-conflict flush the editor follows the parked id, so it never stays
+  pointed at an id whose disk content is now the peer's version.
+  > **Gap (iOS):** on the navigation exit iOS ignores a parked-conflict
+  > disposition — the engine parks the draft as a conflict copy and the editor
+  > stays on the original id, whose content on disk is now the peer's version.
+  > Only the move exit follows the parked id (`editorMoveSourceId`). Android
+  > re-keys the open note on navigation too. Observed 2026-08-01 reading both
+  > shells' exits side by side; → issue #79.
+- An editor change that arrives after a destructive exit has latched is
+  quarantined and folded into the final commit, never dropped: a committed delete
+  discards it, a failed delete restores it.
+  > **Gap (Android):** an editor change that lands after the destructive latch is
+  > DROPPED on Android — `acceptsEditorChange` returns false once closed and
+  > there is no quarantine buffer, so a keystroke inside the delete window is
+  > lost when that delete then fails. iOS quarantines it, folds it into the
+  > commit, and hands it back on failure. Observed 2026-08-01; → issue #80.
 
 ## Android — IME
 
