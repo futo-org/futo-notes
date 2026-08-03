@@ -1,6 +1,9 @@
 // The futoBridge contract (editor ↔ host).
 export * from './bridge';
 
+// How the bundle boots itself from the host config that contract carries.
+export * from './hostBoot';
+
 // The mobile markdown-toolbar manifest (items/order/icons/visibility) —
 // rendered by the embed's web toolbar and codegen'd into the native shells
 // (scripts/gen-toolbar-spec.ts).

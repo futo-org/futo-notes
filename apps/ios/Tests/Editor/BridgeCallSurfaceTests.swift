@@ -18,7 +18,7 @@ struct BridgeCallSurfaceTests {
     /// together: a method added here without a bridge.ts counterpart is not a
     /// real contract member.
     static let documentedMethods: Set<String> = [
-        "setContent", "getContent", "focus", "setTheme", "setNotes",
+        "initialize", "setContent", "getContent", "focus", "setTheme", "setNotes",
         "applyExternalContent", "insertImage", "setImageBaseUrl",
         "exec", "blur", "setNativeToolbar",
     ]
@@ -63,8 +63,8 @@ struct BridgeCallSurfaceTests {
         )
     }
 
-    @Test("documented set matches the 11-method FutoEditorApi contract")
+    @Test("documented set matches the 12-method FutoEditorApi contract")
     func documentedSetMatchesContract() {
-        #expect(Self.documentedMethods.count == 11)
+        #expect(Self.documentedMethods.count == 12)
     }
 }

@@ -46,10 +46,12 @@ internal fun isInAppEditorNavigation(scheme: String?): Boolean =
  *   - editor → host: messages posted to `window.futoBridge.postMessage(json)`
  *     (the injected `@JavascriptInterface`) — `ready` / `change` / `focus` /
  *     `openNote` / `pickImage` (bridge v2) / `cursorContext` (bridge v3) /
- *     `openUrl` (bridge v6).
- *   - host → editor: `window.FutoEditor.setContent/getContent/focus/setTheme/
- *     setNotes/applyExternalContent/insertImage/setImageBaseUrl` plus the
- *     bridge-v3 native-toolbar calls `exec/blur/setNativeToolbar` via
+ *     `openUrl` (bridge v6) / `initialized` + `bridgeVersionMismatch`
+ *     (bridge v7).
+ *   - host → editor: `window.FutoEditor.initialize` (bridge v7 — the whole boot
+ *     config in one call) plus `setContent/getContent/focus/setTheme/setNotes/
+ *     applyExternalContent/insertImage/setImageBaseUrl` and the bridge-v3
+ *     native-toolbar calls `exec/blur/setNativeToolbar`, via
  *     `evaluateJavascript`.
  *
  * The WebView is NOT created per note-open. A cold WebView boot (Chromium
@@ -158,7 +160,17 @@ class EditorHost private constructor(appContext: Context) {
     var onListLine by mutableStateOf(false)
         private set
 
+    /** The bundle has applied this shell's host config and the note is on
+     *  screen (the `initialized` message) — not merely that the page loaded. */
     private var isReady = false
+
+    // What this shell last SENT the bundle, so a recomposition per keystroke
+    // (the composable pushes on every one) does not become an
+    // evaluateJavascript per keystroke carrying the whole note universe (M5).
+    // Purely a transport gate — what counts as a change, and what the editor
+    // does about it, is decided in packages/editor/src/hostBoot.ts. iOS keeps
+    // the same gate for the same reason; the right way to retire both is to
+    // stop pushing from a composition body, not to delete the compares.
     private var currentTheme: String? = null
     private var lastPushedContent: String? = null
     private var desiredTheme: String = "light"
@@ -244,59 +256,60 @@ class EditorHost private constructor(appContext: Context) {
 
     /** Replace the dead WebView with a fresh one and re-arm the editor state.
      *  Must run on the main thread. The renderer is gone, so the old instance
-     *  is destroyed; the new one reloads editor.html and re-pushes content on
-     *  its 'ready'. */
+     *  is destroyed; the new one reloads editor.html and gets the same host
+     *  config on its 'ready', which restores the open note.
+     *
+     *  Nothing but readiness needs resetting — the config is applied
+     *  unconditionally, so the dedupe markers [sendHostConfig] sets are correct
+     *  for the fresh page too. */
     private fun rebuildWebView() {
         val dead = webView
         (dead.parent as? ViewGroup)?.removeView(dead)
         dead.destroy()
-        // Reset readiness + dedupe so the fresh editor gets a full re-push.
         isReady = false
-        currentTheme = null
-        lastPushedContent = null
-        lastNotesJsonHash = null
-        currentImageBaseUrl = null
         webView = createWebView()
         recreations++
     }
 
     private fun handle(msg: JSONObject) {
         when (msg.optString("type")) {
-            "ready" -> {
+            // The page is alive but shows nothing until it is configured. Hand
+            // it this shell's whole intent in one call; the bundle owns the
+            // order it applies them in and the bridge-version policy
+            // (packages/editor/src/hostBoot.ts).
+            "ready" -> sendHostConfig()
+            // The config landed and the note is on screen — the point where
+            // this shell's per-note follow-up is meaningful.
+            "initialized" -> {
                 isReady = true
-                // Bridge version handshake (bridge.ts BRIDGE_VERSION /
-                // architecture-hardening.md F11) — a stale editor.html bundle
-                // vs a newer native binary (or vice versa) used to degrade to
-                // silent no-ops with nobody reading `ready.version`. Loud now.
-                val editorBridgeVersion = msg.optInt("version", -1)
-                if (editorBridgeVersion != BridgeSpec.BRIDGE_VERSION) {
-                    Log.e(
-                        "FutoBridgeDBG",
-                        "Bridge version mismatch: editor.html reports v$editorBridgeVersion, " +
-                            "native expects v${BridgeSpec.BRIDGE_VERSION}",
-                    )
-                    if (BuildConfig.DEBUG) {
-                        Toast.makeText(
-                            appContext,
-                            "Bridge version mismatch: editor v$editorBridgeVersion vs native " +
-                                "v${BridgeSpec.BRIDGE_VERSION}",
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
-                }
-                // Suppress the embed's web toolbar — this shell renders the
-                // native Compose toolbar (EditorToolbar.kt) [editor.md].
-                eval("window.FutoEditor && window.FutoEditor.setNativeToolbar(true);")
-                // Align the note body's left edge with the inline title field
-                // (NoteEditorScreen's title BasicTextField, 22dp). The `.cm-line`
-                // adds its own 6px, so the content padding is 16px. [list.md]
-                eval("document.documentElement.style.setProperty('--futo-cm-pad-inline','16px');")
-                pushTheme(desiredTheme)
-                pushContent(desiredContent)
-                desiredImageBaseUrl?.let { pushImageBaseUrl(it) }
-                desiredNotesJson?.let { pushNotes(it) }
+                // The desired state can have moved (a sync adopt, a theme flip)
+                // between sending the config and this reply; each of these is
+                // deduped and so a no-op when it hasn't.
+                setTheme(desiredTheme)
+                setContent(desiredContent)
+                desiredImageBaseUrl?.let { setImageBaseUrl(it) }
+                desiredNotesJson?.let { setNotes(it) }
                 onReady()
                 if (autoFocus) focusEditor()
+            }
+            // A stale editor.html next to a newer binary, or the reverse — a
+            // build-hygiene problem, never a shipped one (the APK carries both).
+            // The bundle boots anyway; this is the developer's alarm.
+            "bridgeVersionMismatch" -> {
+                val hostVersion = msg.optInt("hostVersion", -1)
+                val bundleVersion = msg.optInt("bundleVersion", -1)
+                Log.e(
+                    "FutoBridgeDBG",
+                    "Bridge version mismatch: editor.html reports v$bundleVersion, " +
+                        "native expects v$hostVersion — rebuild the editor bundle",
+                )
+                if (BuildConfig.DEBUG) {
+                    Toast.makeText(
+                        appContext,
+                        "Bridge version mismatch: editor v$bundleVersion vs native v$hostVersion",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
             }
             "change" -> {
                 val c = msg.optString("content")
@@ -330,6 +343,45 @@ class EditorHost private constructor(appContext: Context) {
                 if (data.isNotEmpty() && ext.isNotEmpty()) onSaveImageData(data, ext)
             }
         }
+    }
+
+    /**
+     * Everything this shell wants the freshly-loaded page to be, sent once per
+     * page load in reply to `ready`. The bundle applies it in its own order and
+     * answers with `initialized` (packages/editor/src/hostBoot.ts), so a
+     * renderer rebuild restores the open note by re-sending this and nothing
+     * else.
+     *
+     * Auto-focus is deliberately NOT in here: raising the soft keyboard needs
+     * the native focus + `showSoftInput` retry only this shell can do
+     * (see [focusEditor]).
+     */
+    private fun sendHostConfig() {
+        val config = JSONObject().apply {
+            put("bridgeVersion", BridgeSpec.BRIDGE_VERSION)
+            put("theme", desiredTheme)
+            put("content", desiredContent)
+            // The markdown toolbar is native Compose here (EditorToolbar.kt),
+            // so the embed must keep its own web toolbar hidden [editor.md].
+            put("nativeToolbar", true)
+            // Aligns the note body's left edge with the inline title field
+            // (NoteEditorScreen's title BasicTextField, 22dp); the embed's
+            // `.cm-line` contributes the remaining 6px. [list.md]
+            put("contentPaddingInlinePx", CONTENT_PADDING_INLINE_PX)
+            desiredNotesJson?.let { put("notesJson", it) }
+            desiredImageBaseUrl?.let { put("imageBaseUrl", it) }
+        }
+        // Record what the config carries, so the catch-up on `initialized`
+        // re-pushes only what actually moved while it was in flight.
+        currentTheme = desiredTheme
+        lastPushedContent = desiredContent
+        lastNotesJsonHash = desiredNotesJson?.hashCode()
+        currentImageBaseUrl = desiredImageBaseUrl
+
+        eval(
+            "window.FutoEditor && window.FutoEditor.initialize(" +
+                "${JSONObject.quote(config.toString())});",
+        )
     }
 
     /** Bind a note's callbacks. Returns a token for the matching [detach].
@@ -575,6 +627,10 @@ class EditorHost private constructor(appContext: Context) {
     }
 
     companion object {
+        /** Left/right inset of the note body, sent to the bundle in the host
+         *  config so it lines up with this shell's native title field. */
+        private const val CONTENT_PADDING_INLINE_PX = 16
+
         @Volatile
         private var instance: EditorHost? = null
 
