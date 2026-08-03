@@ -13,11 +13,14 @@ test.describe('Sidebar Collapse/Expand', () => {
     await expect(sidebar).toBeVisible();
     await expect(collapseBtn).toBeVisible();
     await expect(expandBtn).not.toBeVisible();
+    expect(await sidebar.evaluate((drawer) => getComputedStyle(drawer).transform)).toBe('none');
 
     // Collapse
     await collapseBtn.click();
     await expect(page.locator('.notes-shell')).toHaveClass(/sidebar-collapsed/);
     await expect(expandBtn).toBeVisible();
+    expect(await sidebar.evaluate((drawer) => getComputedStyle(drawer).width)).toBe('280px');
+    await expect(sidebar).toBeHidden();
 
     const firstTab = page.locator('.tab-pill').first();
     if (await firstTab.count()) {

@@ -20,6 +20,37 @@ func editorGenerationAfterDetach(
     detachedToken == currentGeneration ? currentGeneration + 1 : currentGeneration
 }
 
+enum EditorNavigationDecision: Equatable {
+    case allow
+    case openExternally(URL)
+    case deny
+}
+
+func editorNavigationDecision(
+    for url: URL?,
+    isMainFrame: Bool,
+    permittedFileURL: URL?
+) -> EditorNavigationDecision {
+    guard isMainFrame else { return .allow }
+    guard let url, let scheme = url.scheme?.lowercased() else { return .deny }
+
+    switch scheme {
+    case "file":
+        guard let permittedFileURL,
+              permittedFileURL.isFileURL,
+              url.standardizedFileURL.path == permittedFileURL.standardizedFileURL.path
+        else { return .deny }
+        return .allow
+    case "about" where url.absoluteString.caseInsensitiveCompare("about:blank") == .orderedSame:
+        // The missing-bundle fallback uses loadHTMLString with a nil base URL.
+        return .allow
+    case "http", "https", "mailto", "tel":
+        return .openExternally(url)
+    default:
+        return .deny
+    }
+}
+
 @MainActor
 final class EditorCompletionQueue {
     private var tail: Task<Void, Never>?
@@ -277,6 +308,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         self?.performToolbarAction(item)
     }
 
+    private let editorFileURL: URL?
     let webView: WKWebView
 
     private override init() {
@@ -313,6 +345,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 wv.isInspectable = true
             }
         #endif
+        self.editorFileURL = Bundle.main.url(
+            forResource: "editor",
+            withExtension: "html"
+        )
         self.webView = wv
         super.init()
 
@@ -331,7 +367,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// opaque/null origin that `baseURL: nil` produces, leaving the editor
     /// blank. A file:// origin is non-opaque, so the inline module runs.
     private func loadEditor() {
-        if let url = Bundle.main.url(forResource: "editor", withExtension: "html") {
+        if let url = editorFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
             webView.loadHTMLString(
@@ -569,13 +605,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // User tapped an EXTERNAL link — open it in the system browser.
             // window.open is a no-op inside a WKWebView, and the reused editor
             // WebView must never load a non-editor URL, so it leaves the app.
-            // Scheme-guarded so a crafted link can't reach file:/javascript:.
             if let urlString = body["url"] as? String,
-                let url = URL(string: urlString),
-                let scheme = url.scheme?.lowercased(),
-                scheme == "http" || scheme == "https" || scheme == "mailto" || scheme == "tel"
-            {
-                UIApplication.shared.open(url)
+               let url = URL(string: urlString) {
+                openEditorURLExternally(url)
             }
         case .pickImage:
             // Toolbar image button: open the native picker, save the bytes into
@@ -695,7 +727,37 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
     }
 
+    private func openEditorURLExternally(_ url: URL) {
+        guard case .openExternally(let safeURL) = editorNavigationDecision(
+            for: url,
+            isMainFrame: true,
+            permittedFileURL: editorFileURL
+        ) else { return }
+        UIApplication.shared.open(safeURL)
+    }
+
     // MARK: WKNavigationDelegate
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+        switch editorNavigationDecision(
+            for: navigationAction.request.url,
+            isMainFrame: isMainFrame,
+            permittedFileURL: editorFileURL
+        ) {
+        case .allow:
+            decisionHandler(.allow)
+        case .openExternally(let url):
+            openEditorURLExternally(url)
+            decisionHandler(.cancel)
+        case .deny:
+            decisionHandler(.cancel)
+        }
+    }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // Replace the keyboard's default prev/next/Done accessory bar with the

@@ -32,6 +32,7 @@ interface NotesShellTestHook {
   seedOpenNote: NotesShellTestHookOptions['seedOpenNote'];
   flushSave: NotesShellTestHookOptions['flushSave'];
   typeInEditor: (text: string) => string;
+  replaceEditorContent: (content: string) => string;
   getState: NotesShellTestHookOptions['getState'];
 }
 
@@ -49,6 +50,7 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
     },
     flushSave: options.flushSave,
     typeInEditor: (text) => typeInEditor(options.getEditorView(), text),
+    replaceEditorContent: (content) => replaceEditorContent(options.getEditorView(), content),
     getState: options.getState,
   };
   return () => {
@@ -65,6 +67,16 @@ function typeInEditor(view: EditorView | null, text: string): string {
     selection: { anchor: main.from + text.length },
     scrollIntoView: true,
     userEvent: 'input.type',
+  });
+  return view.state.doc.toString();
+}
+
+function replaceEditorContent(view: EditorView | null, content: string): string {
+  if (!view) throw new Error('editor view not ready');
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: content },
+    selection: { anchor: content.length },
+    userEvent: 'input',
   });
   return view.state.doc.toString();
 }
