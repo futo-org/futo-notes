@@ -66,11 +66,14 @@ final class EditorCompletionQueue {
 /// (their reparent + external-sync adopt are gated on visibility), so the
 /// visible editor always owns it.
 ///
-/// The page exposes `window.FutoEditor` (setContent/getContent/focus/setTheme
-/// plus the v2 additions setNotes/applyExternalContent/insertImage/
-/// setImageBaseUrl and the v3 additions exec/blur/setNativeToolbar) and posts
-/// messages to the native handler named exactly "futoBridge":
-///   { type: 'ready' }
+/// The page exposes `window.FutoEditor` — the v7 `initialize(configJson)` boot
+/// entry point plus setContent/getContent/focus/setTheme, the v2 additions
+/// setNotes/applyExternalContent/insertImage/setImageBaseUrl and the v3
+/// additions exec/blur/setNativeToolbar — and posts messages to the native
+/// handler named exactly "futoBridge":
+///   { type: 'ready' }                                          → send config
+///   { type: 'initialized', version }                           (v7)
+///   { type: 'bridgeVersionMismatch', hostVersion, bundleVersion } (v7)
 ///   { type: 'change', content: <markdown> }
 ///   { type: 'focus', focused: <bool> }
 ///   { type: 'openNote', id: <resolved note id> }
@@ -228,12 +231,27 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     static let shared = EditorHost()
     nonisolated static let logger = Logger(subsystem: "com.futo.notes", category: "editor-webview")
 
+    /// Left/right inset of the note body, sent to the bundle in the host
+    /// config. `EditorEdgeSwipeBack.stripWidth` is this plus the embed's
+    /// `.cm-line` 6px, so the swipe strip covers margin rather than text.
+    nonisolated static let contentPaddingInlinePx = 14
+
     private var onChange: (String) -> Void = { _ in }
     private var onReady: (() -> Void)? = nil
     private var onOpenNote: ((String) -> Void)? = nil
     private var autoFocus = false
 
+    /// The bundle has applied this shell's host config and the note is on
+    /// screen (the `initialized` message) — not merely that the page loaded.
     private var isReady = false
+
+    // What this shell last SENT the bundle, so a SwiftUI update per keystroke
+    // does not become an evaluateJavaScript per keystroke carrying the whole
+    // note universe (M5). Purely a transport gate — what counts as a change,
+    // and what the editor does about it, is decided in
+    // packages/editor/src/hostBoot.ts. Android keeps the same gate for the same
+    // reason; the right way to retire both is to stop calling the setters from
+    // a view update, not to delete the compares.
     private var currentTheme: String?
     private var desiredTheme = "light"
     private var desiredContent = ""
@@ -500,25 +518,33 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
         switch type {
         case .ready:
-            guard let version = body["version"] as? Int, version == BridgeSpec.version else {
-                EditorHost.logger.error("editor bridge version mismatch")
-                return
-            }
+            // The page is alive but shows nothing until it is configured. Hand
+            // it this shell's whole intent in one call; the bundle owns the
+            // order it applies them in and the bridge-version policy
+            // (packages/editor/src/hostBoot.ts).
+            sendHostConfig()
+        case .initialized:
+            // The config landed and the note is on screen — the point where
+            // this shell's per-note follow-up is meaningful.
             isReady = true
-            pushTheme(desiredTheme)
-            // Local image filenames in ![](f) resolve through the native
-            // futo-asset scheme (served from the vault root).
-            pushImageBaseUrl()
-            // The toolbar is native (keyboard accessory) — tell the embed to
-            // keep its web toolbar hidden. Per page load, so re-sent on every
-            // fresh 'ready'.
-            pushNativeToolbar()
-            // Align the note body's left edge with the inline title field.
-            pushContentPadding()
-            pushContent(desiredContent)
-            if let json = desiredNotesJson { pushNotes(json) }
+            // The desired state can have moved (a sync adopt, a theme flip)
+            // between sending the config and this reply; each of these is
+            // deduped and so a no-op when it hasn't.
+            updateDesired(content: desiredContent, theme: desiredTheme)
+            if let json = desiredNotesJson { setNotes(json) }
             onReady?()
             if autoFocus { startAutoFocus() }
+        case .bridgeVersionMismatch:
+            // A stale editor.html next to a newer binary, or the reverse — a
+            // build-hygiene problem, never a shipped one (the app carries both
+            // in a single artifact). The bundle boots anyway; this is the
+            // developer's alarm.
+            let hostVersion = (body["hostVersion"] as? Int) ?? -1
+            let bundleVersion = (body["bundleVersion"] as? Int) ?? -1
+            let versions = "native expects v\(hostVersion), editor.html reports v\(bundleVersion)"
+            EditorHost.logger.error(
+                "bridge version mismatch (\(versions, privacy: .public)) — rebuild the bundle"
+            )
         case .change:
             if let content = body["content"] as? String {
                 lastPushedContent = content
@@ -680,16 +706,17 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// The WebKit content process died (OOM / jetsam under memory pressure).
     /// The editor — the app's core surface — is now blank with no automatic
-    /// recovery. Reload it: the fresh 'ready' re-pushes theme/content/notes
-    /// (all retained in `desired*`), so the open note's text is restored
+    /// recovery. Reload it: the fresh page's `ready` gets the same host config
+    /// (built from the retained `desired*` state), which restores the open note
     /// without the user noticing more than a brief flash. Without this handler
     /// the editor stays permanently blank after a backgrounded jetsam.
+    ///
+    /// Nothing but readiness needs resetting — the config is applied
+    /// unconditionally, so the dedupe markers `sendHostConfig` sets are correct
+    /// for the fresh page too.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         EditorHost.logger.error("WebContent process terminated; reloading editor")
         isReady = false
-        currentTheme = nil
-        lastPushedContent = nil
-        lastPushedNotesJson = nil
         loadEditor()
     }
 
@@ -736,26 +763,54 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
-    private func pushImageBaseUrl() {
-        let js =
-            "window.FutoEditor && window.FutoEditor.setImageBaseUrl(\(jsLiteral("futo-asset:///")));"
-        webView.evaluateJavaScript(js, completionHandler: nil)
-    }
+    /// Everything this shell wants the freshly-loaded page to be, sent once per
+    /// page load in reply to `ready`. The bundle applies it in its own order
+    /// and answers with `initialized` (packages/editor/src/hostBoot.ts), so a
+    /// WebContent reload restores the open note by re-sending this and nothing
+    /// else.
+    ///
+    /// Auto-focus is deliberately NOT in here: raising the keyboard needs the
+    /// swizzled WKContentView focus method, which only this shell has.
+    private func sendHostConfig() {
+        var config: [String: Any] = [
+            "bridgeVersion": BridgeSpec.version,
+            "theme": desiredTheme,
+            "content": desiredContent,
+            // The markdown toolbar is a native keyboard accessory here, so the
+            // embed must keep its own web toolbar hidden.
+            "nativeToolbar": true,
+            // Aligns the note body's left edge with the inline title field
+            // (NoteEditorView's TitleTextField, 20pt); the embed's `.cm-line`
+            // contributes the remaining 6px.
+            "contentPaddingInlinePx": EditorHost.contentPaddingInlinePx,
+            // Local image filenames in ![](f) resolve through the native
+            // futo-asset scheme, served from the vault root.
+            "imageBaseUrl": "\(FutoAssetSchemeHandler.scheme):///",
+        ]
+        if let json = desiredNotesJson { config["notesJson"] = json }
 
-    private func pushNativeToolbar() {
-        webView.evaluateJavaScript(
-            "window.FutoEditor && window.FutoEditor.setNativeToolbar(true);",
-            completionHandler: nil)
-    }
+        guard let data = try? JSONSerialization.data(withJSONObject: config),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            EditorHost.logger.error("could not serialize the editor host config")
+            return
+        }
+        // Record what the config carries, so the catch-up on `initialized`
+        // re-pushes only what actually moved while it was in flight.
+        currentTheme = desiredTheme
+        lastPushedContent = desiredContent
+        lastPushedNotesJson = desiredNotesJson
 
-    /// Set the CSS var that drives the note body's left inset so it lines up
-    /// with the inline title field (NoteEditorView's TitleTextField, 20pt).
-    /// The `.cm-line` contributes its own 6px, so the content padding is 14px.
-    /// Re-sent on every fresh 'ready' (survives a WebContent reload).
-    private func pushContentPadding() {
         webView.evaluateJavaScript(
-            "document.documentElement.style.setProperty('--futo-cm-pad-inline','14px');",
-            completionHandler: nil)
+            "window.FutoEditor && window.FutoEditor.initialize(\(jsLiteral(json)));"
+        ) { _, error in
+            // The bundle throws on a config it cannot read. Without this the
+            // failure mode is a silently unconfigured editor.
+            if let error {
+                EditorHost.logger.error(
+                    "FutoEditor.initialize failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 }
 

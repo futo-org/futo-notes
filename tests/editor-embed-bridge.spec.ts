@@ -6,7 +6,7 @@ import { test as base, expect, type Page } from '@playwright/test';
 import { EDITOR_BUNDLE_PATH, EDITOR_URL } from './editorEmbedBundle';
 
 /**
- * futoBridge v6 protocol contract — executable.
+ * futoBridge v7 protocol contract — executable.
  *
  * This drives the SAME single-file `editor.html` bundle the native iOS/Android
  * shells ship (built by `vite.editor.config.ts`) with a FAKE host installed
@@ -43,6 +43,7 @@ interface FakeHostWindow extends Window {
   __msgs: BridgeMessage[];
   __openCalls: unknown[][];
   FutoEditor: {
+    initialize(configJson: string): void;
     setContent(markdown: string): void;
     getContent(): string;
     focus(): void;
@@ -131,10 +132,99 @@ async function exec(page: Page, commandId: string): Promise<void> {
 // Handshake — ready message and transport routing
 // ============================================================
 
-test('posts ready exactly once with bridge version 6', async ({ page }) => {
+test('posts ready exactly once with bridge version 7', async ({ page }) => {
   const ready = await messagesOfType(page, 'ready');
   expect(ready).toHaveLength(1);
-  expect(ready[0].version).toBe(6);
+  expect(ready[0].version).toBe(7);
+});
+
+// ============================================================
+// Boot — the host answers `ready` with one initialize(config)
+// ============================================================
+
+// The config a native shell sends in reply to `ready` (packages/editor
+// hostBoot.ts owns what happens to it — these tests prove it reaches the real
+// bundle and lands on the real page).
+function hostConfig(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    bridgeVersion: 7,
+    theme: 'light',
+    content: '',
+    nativeToolbar: true,
+    contentPaddingInlinePx: 14,
+    ...overrides,
+  });
+}
+
+async function initialize(page: Page, configJson: string): Promise<void> {
+  await page.evaluate(
+    (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
+    configJson,
+  );
+  await flushFrames(page);
+}
+
+test('one initialize applies the whole host config and reports initialized', async ({ page }) => {
+  await clearMessages(page);
+
+  await initialize(
+    page,
+    hostConfig({
+      theme: 'dark',
+      content: '# booted',
+      contentPaddingInlinePx: 16,
+      imageBaseUrl: 'file:///vault/',
+      notesJson: JSON.stringify([{ id: 'target', title: 'target', modifiedMs: 1 }]),
+    }),
+  );
+
+  expect(await getContent(page)).toBe('# booted');
+  expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
+  expect(
+    await page.evaluate(() =>
+      document.documentElement.style.getPropertyValue('--futo-cm-pad-inline'),
+    ),
+  ).toBe('16px');
+  expect(await messagesOfType(page, 'initialized')).toEqual([{ type: 'initialized', version: 7 }]);
+});
+
+test('initialize suppresses the web toolbar for a shell that renders its own', async ({ page }) => {
+  await initialize(page, hostConfig({ nativeToolbar: true }));
+  expect(
+    await page.evaluate(() => document.documentElement.classList.contains('futo-native')),
+  ).toBe(true);
+
+  await initialize(page, hostConfig({ nativeToolbar: false }));
+  expect(
+    await page.evaluate(() => document.documentElement.classList.contains('futo-native')),
+  ).toBe(false);
+});
+
+test('a stale host still gets a working editor, plus a version-mismatch report', async ({
+  page,
+}) => {
+  // Refusing to boot would turn a build-hygiene mistake into a permanently
+  // blank editor — see BridgeVersionMismatchMessage in bridge.ts.
+  await clearMessages(page);
+
+  await initialize(page, hostConfig({ bridgeVersion: 6, content: 'still editable' }));
+
+  expect(await getContent(page)).toBe('still editable');
+  expect(await messagesOfType(page, 'bridgeVersionMismatch')).toEqual([
+    { type: 'bridgeVersionMismatch', hostVersion: 6, bundleVersion: 7 },
+  ]);
+  expect(await messagesOfType(page, 'initialized')).toHaveLength(1);
+});
+
+test('re-initializing restores the open note (the renderer-death path)', async ({ page }) => {
+  await initialize(page, hostConfig({ content: 'the open note' }));
+  await hostSetContent(page, 'something else');
+  await clearMessages(page);
+
+  await initialize(page, hostConfig({ content: 'the open note' }));
+
+  expect(await getContent(page)).toBe('the open note');
+  expect(await messagesOfType(page, 'initialized')).toHaveLength(1);
 });
 
 test('prefers the iOS webkit transport when both hosts are present', async ({ browser }) => {
@@ -162,7 +252,7 @@ test('prefers the iOS webkit transport when both hosts are present', async ({ br
     () => (window as unknown as { __android: BridgeMessage[] }).__android,
   );
   expect(ios.filter((m) => m.type === 'ready')).toHaveLength(1);
-  expect(ios[0].version).toBe(6);
+  expect(ios[0].version).toBe(7);
   expect(android).toHaveLength(0);
 
   await context.close();

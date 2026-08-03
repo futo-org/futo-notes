@@ -37,7 +37,7 @@
     "test:platform-tauri": "vitest run src/lib/platform/index.contract.test.ts src/lib/platform/tauri/adapter.contract.test.ts src/lib/platform/tauri/appConfig.test.ts src/lib/platform/tauri/imageRendering.contract.test.ts src/lib/platform/tauri/images.test.ts src/lib/platform/tauri/notesRoot.test.ts src/app/createAppBootstrap.contract.test.ts src/app/startNativeShell.test.ts src/app/startTabsPersistence.test.ts",
     "test:unit:full": "vitest run",
     "test:editor": "pnpm run test:editor:minimal",
-    "test:editor:minimal": "pnpm --filter @futo-notes/editor exec vitest run src/conformance.test.ts src/images.test.ts src/bridge.test.ts",
+    "test:editor:minimal": "pnpm --filter @futo-notes/editor exec vitest run src/conformance.test.ts src/images.test.ts src/bridge.test.ts src/hostBoot.test.ts",
     "test:editor:full": "pnpm --filter @futo-notes/editor test",
     "test:unit:watch": "vitest",
     "test:headed": "playwright test --headed",

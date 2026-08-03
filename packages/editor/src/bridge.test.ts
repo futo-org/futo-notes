@@ -9,17 +9,24 @@ import {
 describe('futoBridge contract', () => {
   it('pins the contract version', () => {
     // Bumping this is a deliberate, breaking change — update all three hosts.
-    expect(BRIDGE_VERSION).toBe(6);
+    expect(BRIDGE_VERSION).toBe(7);
   });
 
   it('ready message carries the version', () => {
     const msg: FutoEditorOutboundMessage = { type: 'ready', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'ready', version: 6 });
+    expect(msg).toEqual({ type: 'ready', version: 7 });
+  });
+
+  it('initialized message carries the version', () => {
+    const msg: FutoEditorOutboundMessage = { type: 'initialized', version: BRIDGE_VERSION };
+    expect(msg).toEqual({ type: 'initialized', version: 7 });
   });
 
   it('outbound messages are a discriminated union over `type`', () => {
     const msgs: FutoEditorOutboundMessage[] = [
       { type: 'ready', version: BRIDGE_VERSION },
+      { type: 'initialized', version: BRIDGE_VERSION },
+      { type: 'bridgeVersionMismatch', hostVersion: 6, bundleVersion: 7 },
       { type: 'change', content: '# hi' },
       { type: 'focus', focused: true },
       { type: 'openNote', id: 'folder/note' },
@@ -32,6 +39,8 @@ describe('futoBridge contract', () => {
     ];
     expect(msgs.map((m) => m.type)).toEqual([
       'ready',
+      'initialized',
+      'bridgeVersionMismatch',
       'change',
       'focus',
       'openNote',
@@ -44,10 +53,11 @@ describe('futoBridge contract', () => {
     ]);
   });
 
-  it('FutoEditorApi surface is the eleven host-callable methods', () => {
+  it('FutoEditorApi surface is the twelve host-callable methods', () => {
     // A structural stand-in proves the shape compiles; the real impl lives in
     // src/editor-embed/main.ts.
     const api: FutoEditorApi = {
+      initialize: () => {},
       setContent: () => {},
       getContent: () => '',
       focus: () => {},
@@ -66,6 +76,7 @@ describe('futoBridge contract', () => {
       'exec',
       'focus',
       'getContent',
+      'initialize',
       'insertImage',
       'setContent',
       'setImageBaseUrl',

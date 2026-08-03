@@ -44,8 +44,16 @@
  *      native shells never let a non-editor URL load in the reused WebView.
  *      Additive — a host that doesn't handle it just drops the message (the tap
  *      is a no-op, exactly the pre-v6 behavior).
+ * - 7: host-config boot (`initialize`; initialized/bridgeVersionMismatch
+ *      outbound messages). BREAKING: the boot sequence a host used to perform
+ *      itself — theme, image base URL, toolbar suppression, content padding,
+ *      note universe, content, in whatever order that host chose — is now ONE
+ *      `initialize(configJson)` call the bundle applies in its own canonical
+ *      order (see `hostBoot.ts`). A v6 host would configure a v7 bundle only
+ *      partially, and a v7 host's single `initialize` means nothing to a v6
+ *      bundle, so both native hosts move together (M10).
  */
-export const BRIDGE_VERSION = 6 as const;
+export const BRIDGE_VERSION = 7 as const;
 
 /** Editor color theme. */
 export type EditorTheme = 'light' | 'dark';
@@ -67,6 +75,18 @@ export interface BridgeNote {
  * bundle. Hosts call these via `evaluateJavaScript` / `evaluateJavascript`.
  */
 export interface FutoEditorApi {
+  /**
+   * Configure the freshly-loaded page from the host, exactly once per page
+   * load: the host's answer to the `ready` message it just received. `configJson`
+   * is a JSON-serialized `EditorHostConfig` (see `hostBoot.ts`, which owns the
+   * order the settings are applied in and the bridge-version policy). The bundle
+   * replies with {@link InitializedMessage} when the note is on screen.
+   *
+   * Re-callable: after a WebView renderer death the host reloads the bundle and
+   * answers the new `ready` with the same call, which restores the open note.
+   * Throws on a malformed config — that is a host bug, not a user-facing state.
+   */
+  initialize(configJson: string): void;
   /** Replace the entire document. A load, not a sync — selection is reset. */
   setContent(markdown: string): void;
   /** Read the current document text. */
@@ -122,11 +142,47 @@ export interface FutoEditorApi {
   setNativeToolbar(enabled: boolean): void;
 }
 
-/** Emitted once, after the editor mounts and is ready to receive content. */
+/**
+ * Emitted once, after the editor mounts and is ready to receive content. The
+ * host's only correct response is {@link FutoEditorApi.initialize} — the bundle
+ * shows nothing until it is configured.
+ */
 export interface ReadyMessage {
   type: 'ready';
   /** {@link BRIDGE_VERSION} the bundle was built against. */
   version: number;
+}
+
+/**
+ * Emitted once per {@link FutoEditorApi.initialize}, after the whole host config
+ * has been applied and the note is on screen. Hosts treat this — not `ready` —
+ * as "this page is showing my note": it is the point where a shell may run its
+ * own per-note follow-up (its ready callback, its auto-focus keyboard shim).
+ */
+export interface InitializedMessage {
+  type: 'initialized';
+  /** {@link BRIDGE_VERSION} the bundle was built against. */
+  version: number;
+}
+
+/**
+ * Emitted during {@link FutoEditorApi.initialize} when the host was built
+ * against a different {@link BRIDGE_VERSION} than the bundle — in practice a
+ * stale `editor.html` next to a newer native binary (or the reverse) on a
+ * developer machine, since a shipped app carries both in one artifact.
+ *
+ * The bundle boots ANYWAY and this message is purely diagnostic. Refusing to
+ * boot would turn a build-hygiene mistake into a permanently blank editor —
+ * the app's core surface — which is strictly worse than driving a bundle whose
+ * skew has been additive at every version since v2. Hosts log it (and may
+ * surface it in a debug build); they must not use it to suppress the editor.
+ */
+export interface BridgeVersionMismatchMessage {
+  type: 'bridgeVersionMismatch';
+  /** The version the host declared in its config. */
+  hostVersion: number;
+  /** {@link BRIDGE_VERSION} the bundle was built against. */
+  bundleVersion: number;
 }
 
 /** Emitted when the document changes (already rAF-coalesced by the editor). */
@@ -222,6 +278,8 @@ export interface OpenUrlMessage {
  */
 export type FutoEditorOutboundMessage =
   | ReadyMessage
+  | InitializedMessage
+  | BridgeVersionMismatchMessage
   | ChangeMessage
   | FocusMessage
   | OpenNoteMessage
@@ -242,6 +300,8 @@ export type FutoEditorOutboundMessage =
  */
 export const OUTBOUND_MESSAGE_TYPES = [
   'ready',
+  'initialized',
+  'bridgeVersionMismatch',
   'change',
   'focus',
   'openNote',
