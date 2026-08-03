@@ -38,7 +38,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RATCHET_PATH = path.join(ROOT, 'scripts/debt-ratchet.json');
@@ -135,86 +135,122 @@ function countDocsPlanNonArchiveFiles() {
     }).length;
 }
 
-const current = {
-  tauriImportsOutsideShims: countTauriImportsOutsideShims(),
-  invokeCallsOutsideShims: countInvokeCallsOutsideShims(),
-  unlockedDriftRegistryEntries: countUnlockedDriftRegistryEntries(),
-  ignoredPropertyTests: countIgnoredPropertyTests(),
-};
-
-const baseline = JSON.parse(fs.readFileSync(RATCHET_PATH, 'utf8')).counts;
-
-const failures = [];
-
-// A counter this script no longer computes is dead weight, and a silent one:
-// the loop below walks the COMPUTED keys, so a stale entry in the JSON is never
-// read. Retiring a counter therefore used to be un-finishable — every long-lived
-// branch still carrying the old file quietly reintroduced it on merge, green.
-// Fail loudly instead.
-for (const key of Object.keys(baseline)) {
-  if (!(key in current)) {
-    failures.push(
-      `'${key}' is in ${path.relative(ROOT, RATCHET_PATH)} but this script no longer computes it — ` +
-        `a retired counter came back, most likely from a rebase carrying an older copy of the file. ` +
-        `Delete the '${key}' entry.`,
-    );
+// Keys present in `baseline` but not in `current` (a retired counter/ceiling
+// the script no longer computes — most likely reintroduced by a rebase
+// carrying an older copy of the file) and keys `current` computes that
+// `baseline` doesn't have (a brand-new metric never locked in) both silently
+// compare against `undefined` otherwise (`now > undefined` and
+// `now < undefined` are both false), so neither direction of drift ever
+// trips the gate. Shared by both the counts and the ceilings comparisons
+// below — see commit a6c6e2d5, which fixed this for counts; the same hole
+// existed in the ceilings loop until this change.
+export function findBaselineKeyMismatches(current, baseline, { noun, ratchetRelPath }) {
+  const failures = [];
+  for (const key of Object.keys(baseline)) {
+    if (!(key in current)) {
+      failures.push(
+        `'${key}' is in ${ratchetRelPath} but this script no longer computes it — ` +
+          `a retired ${noun} came back, most likely from a rebase carrying an older copy of the file. ` +
+          `Delete the '${key}' entry.`,
+      );
+    }
   }
+  for (const key of Object.keys(current)) {
+    if (!(key in baseline)) {
+      failures.push(
+        `'${key}' is computed but missing from ${ratchetRelPath} — ` +
+          `add it with the current value (${current[key]}) so the ${noun} can hold it.`,
+      );
+    }
+  }
+  return failures;
 }
 
-for (const key of Object.keys(current)) {
-  const now = current[key];
-  const was = baseline[key];
-  if (was === undefined) {
-    failures.push(
-      `'${key}' is computed but missing from ${path.relative(ROOT, RATCHET_PATH)} — ` +
-        `add it with the current value (${now}) so the ratchet can hold it.`,
-    );
-    continue;
+export function computeCountFailures(current, baseline, ratchetRelPath) {
+  const failures = findBaselineKeyMismatches(current, baseline, {
+    noun: 'counter',
+    ratchetRelPath,
+  });
+  for (const key of Object.keys(current)) {
+    if (!(key in baseline)) continue; // already reported above
+    const now = current[key];
+    const was = baseline[key];
+    if (now === was) continue;
+    if (now > was) {
+      failures.push(
+        `'${key}' increased from ${was} to ${now} — new debt of this kind is not allowed. ` +
+          `Fix the regression (move the offending code behind a shim / lock the registry entry) ` +
+          `rather than raising the number in ${ratchetRelPath}.`,
+      );
+    } else {
+      failures.push(
+        `'${key}' decreased from ${was} to ${now} — nice, but ${ratchetRelPath} ` +
+          `must be updated to lock it in. Run: node -e "const fs=require('fs'),p='${ratchetRelPath}',j=JSON.parse(fs.readFileSync(p));j.counts.${key}=${now};fs.writeFileSync(p,JSON.stringify(j,null,2)+'\\n')" ` +
+          `then commit the updated file alongside this change.`,
+      );
+    }
   }
-  if (now === was) continue;
-  if (now > was) {
-    failures.push(
-      `'${key}' increased from ${was} to ${now} — new debt of this kind is not allowed. ` +
-        `Fix the regression (move the offending code behind a shim / lock the registry entry) ` +
-        `rather than raising the number in ${path.relative(ROOT, RATCHET_PATH)}.`,
-    );
-  } else {
-    failures.push(
-      `'${key}' decreased from ${was} to ${now} — nice, but ${path.relative(ROOT, RATCHET_PATH)} ` +
-        `must be updated to lock it in. Run: node -e "const fs=require('fs'),p='${path.relative(ROOT, RATCHET_PATH)}',j=JSON.parse(fs.readFileSync(p));j.counts.${key}=${now};fs.writeFileSync(p,JSON.stringify(j,null,2)+'\\n')" ` +
-        `then commit the updated file alongside this change.`,
-    );
-  }
+  return failures;
 }
 
-// Ceilings: fixed caps (regrowth guard), not ratchets — only an OVER-cap fails.
-const ceilings = JSON.parse(fs.readFileSync(RATCHET_PATH, 'utf8')).ceilings || {};
-const currentCeilings = {
-  agentsMdLines: countAgentsMdLines(),
-  docsPlanNonArchiveFiles: countDocsPlanNonArchiveFiles(),
-};
-for (const key of Object.keys(ceilings)) {
-  const now = currentCeilings[key];
-  const cap = ceilings[key];
-  if (now > cap) {
-    failures.push(
-      `'${key}' is ${now}, over its ceiling of ${cap} — the decluttered prose state is regrowing. ` +
-        `Trim it back under the cap rather than raising the ceiling in ${path.relative(ROOT, RATCHET_PATH)}.`,
-    );
+// Ceilings: fixed caps (regrowth guard), not ratchets — only an OVER-cap
+// fails for a key present on both sides; an unknown/renamed key must still
+// fail rather than comparing `now > undefined` (always false).
+export function computeCeilingFailures(currentCeilings, ceilings, ratchetRelPath) {
+  const failures = findBaselineKeyMismatches(currentCeilings, ceilings, {
+    noun: 'ceiling',
+    ratchetRelPath,
+  });
+  for (const key of Object.keys(currentCeilings)) {
+    if (!(key in ceilings)) continue; // already reported above
+    const now = currentCeilings[key];
+    const cap = ceilings[key];
+    if (now > cap) {
+      failures.push(
+        `'${key}' is ${now}, over its ceiling of ${cap} — the decluttered prose state is regrowing. ` +
+          `Trim it back under the cap rather than raising the ceiling in ${ratchetRelPath}.`,
+      );
+    }
   }
+  return failures;
 }
 
-if (failures.length > 0) {
-  console.error('Debt ratchet gate FAILED:\n');
-  for (const failure of failures) console.error(`  - ${failure}`);
-  console.error(`\n${failures.length} issue(s).`);
-  process.exit(1);
+function main() {
+  const current = {
+    tauriImportsOutsideShims: countTauriImportsOutsideShims(),
+    invokeCallsOutsideShims: countInvokeCallsOutsideShims(),
+    unlockedDriftRegistryEntries: countUnlockedDriftRegistryEntries(),
+    ignoredPropertyTests: countIgnoredPropertyTests(),
+  };
+
+  const ratchetJson = JSON.parse(fs.readFileSync(RATCHET_PATH, 'utf8'));
+  const baseline = ratchetJson.counts;
+  const ceilings = ratchetJson.ceilings || {};
+  const currentCeilings = {
+    agentsMdLines: countAgentsMdLines(),
+    docsPlanNonArchiveFiles: countDocsPlanNonArchiveFiles(),
+  };
+  const ratchetRelPath = path.relative(ROOT, RATCHET_PATH);
+
+  const failures = [
+    ...computeCountFailures(current, baseline, ratchetRelPath),
+    ...computeCeilingFailures(currentCeilings, ceilings, ratchetRelPath),
+  ];
+
+  if (failures.length > 0) {
+    console.error('Debt ratchet gate FAILED:\n');
+    for (const failure of failures) console.error(`  - ${failure}`);
+    console.error(`\n${failures.length} issue(s).`);
+    process.exit(1);
+  }
+
+  console.log(
+    `Debt ratchet gate OK — ${Object.entries(current)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(', ')}; ceilings ${Object.entries(currentCeilings)
+      .map(([k, v]) => `${k}=${v}/${ceilings[k]}`)
+      .join(', ')}.`,
+  );
 }
 
-console.log(
-  `Debt ratchet gate OK — ${Object.entries(current)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(', ')}; ceilings ${Object.entries(currentCeilings)
-    .map(([k, v]) => `${k}=${v}/${ceilings[k]}`)
-    .join(', ')}.`,
-);
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main();

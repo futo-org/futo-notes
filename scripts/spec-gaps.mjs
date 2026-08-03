@@ -12,7 +12,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SPEC_DIR = path.join(ROOT, 'docs/spec');
@@ -74,72 +74,21 @@ function read(rel) {
   }
 }
 
-function ktScreenFiles() {
-  const dir = path.join(ROOT, 'apps/android/app/src/main/java');
-  const out = [];
-  const walk = (d) => {
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      const p = path.join(d, e.name);
-      // Skip generated UniFFI bindings: these closure probes look for
-      // hand-written UI affordances, and a generated binding mirrors every FFI
-      // method name (e.g. `renameFolder`), which would falsely report a
-      // UI-affordance gap as closed the moment the vault exposes that verb.
-      if (e.isDirectory()) {
-        if (e.name !== 'uniffi') walk(p);
-      } else if (e.name.endsWith('.kt') && e.name !== 'NotesStore.kt') out.push(p);
-    }
-  };
-  if (fs.existsSync(dir)) walk(dir);
-  return out;
-}
-
+// Retired probes (2026-07-31): each of these matched the wording of a Gap
+// note that was already closed AND removed from docs/spec/*.md, so the probe
+// could never again find a matching gap to watch — dead code claiming
+// coverage (see the "matches zero recorded gaps" check below, which is what
+// caught them). Left here as a paper trail instead of silently vanishing:
+//   - "Android native has no move UI" / "no New Folder affordance" /
+//     "no folder-delete UI" / "iOS…app has no Settings surface" — all four
+//     closed by ba2ef7a2 ("native shells: close all 15 spec gaps").
+//   - "native shells expose no folder-rename/folder-move affordance" — closed
+//     by 33312c91 ("feat(folders): add rename and move actions across
+//     platforms").
+//   - "title places the cursor at the start of the prefilled Untitled" —
+//     closed by 7d3a0bff ("feat(mobile): quick-capture notes, inline
+//     tappable title, illegal-title UX").
 const PROBES = [
-  {
-    match: /Android native has no move UI/,
-    closed: () => ktScreenFiles().some((f) => /\.moveNote\(/.test(fs.readFileSync(f, 'utf8'))),
-    hint: 'an Android screen now calls store.moveNote() — move UI may exist.',
-  },
-  {
-    match: /Android native has no New Folder affordance/,
-    closed: () =>
-      ktScreenFiles().some((f) => /New Folder|\.createFolder\(/.test(fs.readFileSync(f, 'utf8'))),
-    hint: 'an Android screen now references folder creation.',
-  },
-  {
-    match: /Android native has no folder-delete UI/,
-    closed: () =>
-      ktScreenFiles().some((f) =>
-        /\.deleteFolder\(|Delete folder/i.test(fs.readFileSync(f, 'utf8')),
-      ),
-    hint: 'an Android screen now references folder deletion.',
-  },
-  {
-    match: /native shells expose no folder-rename affordance/,
-    closed: () =>
-      /renameFolder|Rename Folder/i.test(read('apps/ios/Sources/Notes/List/NoteListView.swift')) ||
-      ktScreenFiles().some((f) => /renameFolder|Rename folder/i.test(fs.readFileSync(f, 'utf8'))),
-    hint: 'a native shell now references folder rename — the folder-rename gap may be closed.',
-  },
-  {
-    match: /native shells .* expose no folder-move affordance/,
-    closed: () =>
-      /moveFolder|Move Folder/i.test(read('apps/ios/Sources/Notes/List/NoteListView.swift')) ||
-      ktScreenFiles().some((f) => /moveFolder|Move folder/i.test(fs.readFileSync(f, 'utf8'))),
-    hint: 'a native shell now references folder move — the folder-move gap may be closed.',
-  },
-  {
-    match: /iOS.* app has no Settings surface/,
-    closed: () => fs.existsSync(path.join(ROOT, 'apps/ios/Sources/Settings/SettingsView.swift')),
-    hint: 'apps/ios/Sources now has a Settings file.',
-  },
-  {
-    match: /title places the cursor at the start of the prefilled "Untitled"/,
-    closed: () =>
-      /TextFieldValue|TextRange|selectAll/.test(
-        read('apps/android/app/src/main/java/com/futo/notes/ui/NoteEditorScreen.kt'),
-      ),
-    hint: 'NoteEditorScreen.kt now manages the title selection — the prefill may be select-all’d.',
-  },
   {
     match: /sync live pull.*land above the viewport|reloadAsync.*no at-top re-pin/s,
     closed: () =>
@@ -152,7 +101,14 @@ const PROBES = [
     hint: 'the Android sync-pull path now references an at-top re-pin — the live-pull anchoring gap may be closed.',
   },
   {
-    match: /native shells.*no-op a broken wikilink tap/s,
+    // Was `/native shells.*no-op a broken wikilink tap/s` — born dead in
+    // 12b077b7: docs/spec/editor.md:211 writes "the **native** shells", and
+    // the `**` bold markers around "native" broke the "native shells"
+    // substring match, so this probe had never once been able to fire.
+    // Matching just the distinctive, markdown-free tail of the gap's prose
+    // is both sufficient (the phrase is unique in docs/spec/*.md) and immune
+    // to bold/italic markup drift around "native shells".
+    match: /no-op a broken wikilink tap/,
     closed: () => {
       const embed = read('src/editor-embed/main.ts');
       // Today the embed posts `openNote` ONLY when `resolved !== null`; a broken
@@ -194,53 +150,79 @@ flag gaps the codebase suggests have been implemented.
   return md;
 }
 
+// A probe whose `match` regex hits zero of the currently recorded gaps is
+// watching nothing — either its target gap was closed and removed from
+// docs/spec (repair by retiring the probe with a comment) or the regex never
+// matched the gap's actual prose (repair by fixing the regex; the wikilink-tap
+// probe above was born dead this way, broken by markdown `**bold**` markers
+// around "native shells"). Either way it is dead code claiming coverage, so
+// `--check` fails the gate rather than reporting it silently alongside the
+// live probes.
+export function findDeadProbes(probes, gaps) {
+  return probes.filter((probe) => !gaps.some((g) => probe.match.test(g.text)));
+}
+
 // ── main ───────────────────────────────────────────────────────────────────
 
-const mode = process.argv[2];
-const gaps = collectGaps();
+function main() {
+  const mode = process.argv[2];
+  const gaps = collectGaps();
 
-if (mode === '--write') {
-  fs.writeFileSync(OUT, render(gaps));
-  console.log(`Wrote ${path.relative(ROOT, OUT)} (${gaps.length} gaps).`);
-} else if (mode === '--check') {
-  let failed = false;
+  if (mode === '--write') {
+    fs.writeFileSync(OUT, render(gaps));
+    console.log(`Wrote ${path.relative(ROOT, OUT)} (${gaps.length} gaps).`);
+  } else if (mode === '--check') {
+    let failed = false;
 
-  const expected = render(gaps);
-  const actual = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf8') : '';
-  if (expected !== actual) {
-    console.error('GAPS.md is stale — run `just spec-gaps` and commit the result.');
-    failed = true;
-  }
+    const expected = render(gaps);
+    const actual = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf8') : '';
+    if (expected !== actual) {
+      console.error('GAPS.md is stale — run `just spec-gaps` and commit the result.');
+      failed = true;
+    }
 
-  for (const gap of gaps) {
-    for (const probe of PROBES) {
-      if (probe.match.test(gap.text) && probe.closed()) {
-        console.error(
-          `Closure probe fired for ${gap.file}:${gap.line}\n` +
-            `  gap:  ${gap.text.slice(0, 100)}…\n` +
-            `  hint: ${probe.hint}\n` +
-            `  → verify the behavior, then update/remove the Gap note (and run \`just spec-gaps\`).`,
-        );
-        failed = true;
+    for (const probe of findDeadProbes(PROBES, gaps)) {
+      console.error(
+        `Closure probe matches zero recorded gaps: ${probe.match}\n` +
+          `  hint: ${probe.hint}\n` +
+          `  → either its gap was closed and removed (retire the probe with a comment saying so), ` +
+          `or the regex no longer matches the gap's current wording (fix the regex).`,
+      );
+      failed = true;
+    }
+
+    for (const gap of gaps) {
+      for (const probe of PROBES) {
+        if (probe.match.test(gap.text) && probe.closed()) {
+          console.error(
+            `Closure probe fired for ${gap.file}:${gap.line}\n` +
+              `  gap:  ${gap.text.slice(0, 100)}…\n` +
+              `  hint: ${probe.hint}\n` +
+              `  → verify the behavior, then update/remove the Gap note (and run \`just spec-gaps\`).`,
+          );
+          failed = true;
+        }
       }
     }
-  }
 
-  const today = new Date();
-  for (const gap of gaps) {
-    const m = gap.text.match(/(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) continue;
-    const age = (today - new Date(`${m[0]}T00:00:00Z`)) / 86_400_000;
-    if (age > MAX_AGE_DAYS) {
-      console.warn(
-        `note: ${gap.file}:${gap.line} was observed ${m[0]} (${Math.round(age)}d ago) — consider re-verifying.`,
-      );
+    const today = new Date();
+    for (const gap of gaps) {
+      const m = gap.text.match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) continue;
+      const age = (today - new Date(`${m[0]}T00:00:00Z`)) / 86_400_000;
+      if (age > MAX_AGE_DAYS) {
+        console.warn(
+          `note: ${gap.file}:${gap.line} was observed ${m[0]} (${Math.round(age)}d ago) — consider re-verifying.`,
+        );
+      }
     }
-  }
 
-  if (failed) process.exit(1);
-  console.log(`Gap inventory OK (${gaps.length} gaps, ${PROBES.length} probes).`);
-} else {
-  console.error('usage: node scripts/spec-gaps.mjs --write | --check');
-  process.exit(2);
+    if (failed) process.exit(1);
+    console.log(`Gap inventory OK (${gaps.length} gaps, ${PROBES.length} probes).`);
+  } else {
+    console.error('usage: node scripts/spec-gaps.mjs --write | --check');
+    process.exit(2);
+  }
 }
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main();
