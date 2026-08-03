@@ -111,6 +111,87 @@ pub(crate) struct RenamePair {
     pub(crate) to_id: String,
 }
 
+/// The facts the frontend gathers before asking the engine what happens to the
+/// open note. Field-for-field the engine's `OpenNoteFacts`; see that type for
+/// what each one means.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OpenNoteFactsInput {
+    pub(crate) base: String,
+    pub(crate) draft: String,
+    pub(crate) disk: Option<String>,
+    pub(crate) renamed_to: Option<String>,
+    pub(crate) editor_focused: bool,
+    pub(crate) edited_during_cycle: bool,
+}
+
+impl From<OpenNoteFactsInput> for futo_notes_sync::OpenNoteFacts {
+    fn from(input: OpenNoteFactsInput) -> Self {
+        Self {
+            base: input.base,
+            draft: input.draft,
+            disk: input.disk,
+            renamed_to: input.renamed_to,
+            editor_focused: input.editor_focused,
+            edited_during_cycle: input.edited_during_cycle,
+        }
+    }
+}
+
+/// The engine's verdict on the open note, tagged the same way a flush
+/// disposition is so the frontend renders both through one shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum OpenNoteDispositionOutput {
+    Leave,
+    Adopt {
+        content: String,
+    },
+    DeferAdopt,
+    #[serde(rename_all = "camelCase")]
+    FollowRename {
+        to_id: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    KeepDraft {
+        base: String,
+        reason: KeepDraftReasonOutput,
+    },
+    Close,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum KeepDraftReasonOutput {
+    PeerDeleted,
+    Diverged,
+    Converged,
+}
+
+impl From<futo_notes_sync::OpenNoteDisposition> for OpenNoteDispositionOutput {
+    fn from(disposition: futo_notes_sync::OpenNoteDisposition) -> Self {
+        use futo_notes_sync::{KeepDraftReason, OpenNoteDisposition};
+        match disposition {
+            OpenNoteDisposition::Leave => Self::Leave,
+            OpenNoteDisposition::Adopt { content } => Self::Adopt { content },
+            OpenNoteDisposition::DeferAdopt => Self::DeferAdopt,
+            OpenNoteDisposition::FollowRename { to_id } => Self::FollowRename { to_id },
+            OpenNoteDisposition::KeepDraft { base, reason } => Self::KeepDraft {
+                base,
+                reason: match reason {
+                    KeepDraftReason::PeerDeleted => KeepDraftReasonOutput::PeerDeleted,
+                    KeepDraftReason::Diverged => KeepDraftReasonOutput::Diverged,
+                    KeepDraftReason::Converged => KeepDraftReasonOutput::Converged,
+                },
+            },
+            OpenNoteDisposition::Close => Self::Close,
+        }
+    }
+}
+
 impl From<&futo_notes_sync::SyncSummary> for SyncSummary {
     fn from(summary: &futo_notes_sync::SyncSummary) -> Self {
         Self {
@@ -170,7 +251,9 @@ mod tests {
             .register::<E2eeConnectOutput>()
             .register::<E2eeResumeInput>()
             .register::<E2eeStatusOutput>()
-            .register::<SyncSummary>();
+            .register::<SyncSummary>()
+            .register::<OpenNoteFactsInput>()
+            .register::<OpenNoteDispositionOutput>();
 
         Typescript::default()
             // Tauri serializes u64/usize as JSON numbers; mirror that wire shape.
@@ -332,6 +415,64 @@ mod tests {
         assert_eq!(projected.renamed.len(), renamed.len());
         assert_eq!(projected.renamed[0].from_id, renamed[0].from_id);
         assert_eq!(projected.renamed[0].to_id, renamed[0].to_id);
+    }
+
+    /// The desktop projection of the open-note verb reaches every arm, and its
+    /// wire shape matches the flush disposition's (`{ kind, … }`) so the
+    /// frontend renders both through one shape. The decision table itself is
+    /// exhaustively tested in `futo-notes-sync::open_note`.
+    #[test]
+    fn open_note_disposition_projects_every_arm_as_a_tagged_union() {
+        use futo_notes_sync::{KeepDraftReason, OpenNoteDisposition};
+
+        let json = |disposition: OpenNoteDisposition| {
+            serde_json::to_string(&OpenNoteDispositionOutput::from(disposition)).unwrap()
+        };
+
+        assert_eq!(json(OpenNoteDisposition::Leave), r#"{"kind":"leave"}"#);
+        assert_eq!(
+            json(OpenNoteDisposition::Adopt {
+                content: "peer".into()
+            }),
+            r#"{"kind":"adopt","content":"peer"}"#
+        );
+        assert_eq!(
+            json(OpenNoteDisposition::DeferAdopt),
+            r#"{"kind":"deferAdopt"}"#
+        );
+        assert_eq!(
+            json(OpenNoteDisposition::FollowRename {
+                to_id: "Note (2)".into()
+            }),
+            r#"{"kind":"followRename","toId":"Note (2)"}"#
+        );
+        assert_eq!(
+            json(OpenNoteDisposition::KeepDraft {
+                base: "peer".into(),
+                reason: KeepDraftReason::Diverged,
+            }),
+            r#"{"kind":"keepDraft","base":"peer","reason":"diverged"}"#
+        );
+        assert_eq!(json(OpenNoteDisposition::Close), r#"{"kind":"close"}"#);
+    }
+
+    /// The frontend's gathered facts survive the camelCase wire hop intact —
+    /// a silently-dropped `renamedTo` or `editedDuringCycle` would flip the
+    /// verdict rather than fail loudly.
+    #[test]
+    fn open_note_facts_deserialize_from_the_camel_case_wire_shape() {
+        let input: OpenNoteFactsInput = serde_json::from_str(
+            r#"{"base":"b","draft":"d","disk":null,"renamedTo":"Note (2)",
+                "editorFocused":true,"editedDuringCycle":true}"#,
+        )
+        .unwrap();
+        let facts = futo_notes_sync::OpenNoteFacts::from(input);
+        assert_eq!(facts.base, "b");
+        assert_eq!(facts.draft, "d");
+        assert_eq!(facts.disk, None);
+        assert_eq!(facts.renamed_to.as_deref(), Some("Note (2)"));
+        assert!(facts.editor_focused);
+        assert!(facts.edited_during_cycle);
     }
 
     #[test]

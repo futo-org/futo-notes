@@ -45,6 +45,7 @@ pub(crate) fn run() {
             crate::sync::tauri_commands::e2ee_start_live,
             crate::sync::tauri_commands::e2ee_stop_live,
             crate::sync::tauri_commands::e2ee_note_changed,
+            crate::sync::tauri_commands::e2ee_classify_open_note,
             crate::sync::password_store::e2ee_password_get,
             crate::sync::password_store::e2ee_password_set,
             crate::sync::password_store::e2ee_password_delete,
