@@ -10,24 +10,6 @@ import uniffi.futo_notes_ffi.FlushDisposition
 
 class EditorNavigationCommitTest {
     @Test
-    fun `pending navigation disables editor interaction`() {
-        assertTrue(isEditorInteractionEnabled(navigationPending = false))
-        assertFalse(isEditorInteractionEnabled(navigationPending = true))
-    }
-
-    @Test
-    fun `pending navigation consumes back without starting a second navigation`() {
-        assertTrue(shouldStartEditorBackNavigation(navigationPending = false))
-        assertFalse(shouldStartEditorBackNavigation(navigationPending = true))
-    }
-
-    @Test
-    fun `legacy WebView notice can navigate without an editor attachment`() {
-        assertTrue(canNavigateWithoutEditorAttachment(webViewTooOld = true))
-        assertFalse(canNavigateWithoutEditorAttachment(webViewTooOld = false))
-    }
-
-    @Test
     fun `navigation commits a valid title without waiting for the debounce`() = runBlocking {
         var renamed: Pair<String, String>? = null
 
@@ -55,17 +37,6 @@ class EditorNavigationCommitTest {
 
         assertEquals("Folder/Old title", result.id)
         assertFalse(result.isCommitted)
-    }
-
-    @Test
-    fun `navigation admission rejects a second request until failure permits retry`() {
-        val admission = EditorNavigationAdmission()
-
-        assertTrue(admission.tryBegin())
-        assertFalse(admission.tryBegin())
-
-        admission.retryAfterFailure()
-        assertTrue(admission.tryBegin())
     }
 
     @Test

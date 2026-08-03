@@ -140,44 +140,59 @@ fun NoteEditorScreen(
     var saveJob by remember { mutableStateOf<Job?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
-    val mutationGate = remember(initialNoteId) { EditorMutationGate() }
-    val navigationAdmission = remember(initialNoteId) { EditorNavigationAdmission() }
-    var navigationPending by remember(initialNoteId) { mutableStateOf(false) }
-    val interactionEnabled = isEditorInteractionEnabled(navigationPending)
+    var interactionLocked by remember(initialNoteId) { mutableStateOf(false) }
+    // The one owner of "a note is open; here is every way it ends" — the task
+    // ordering, the latches, and the drain-and-commit each exit runs. See
+    // EditorSession.kt for the drain table.
+    val session = remember(initialNoteId) {
+        EditorSession(scope) { locked -> interactionLocked = locked }
+    }
     val theme = if (darkTheme) "dark" else "light"
 
     fun navigateAfterSaving(navigate: () -> Unit) {
         val attachment = host.currentAttachment()
-        if (attachment == null) {
-            if (canNavigateWithoutEditorAttachment(webViewTooOld)) {
-                navigate()
-            }
-            return
-        }
-        if (!navigationAdmission.tryBegin()) return
-        navigationPending = true
-        focusManager.clearFocus(force = true)
-        host.blur()
-        scope.launch {
-            val canNavigate = mutationGate.runEditorMutation {
-                if (!host.isCurrentAttachment(attachment)) return@runEditorMutation false
-                saveJob?.cancel()
-                val capturedContent =
-                    host.captureContentAndWait(attachment) ?: return@runEditorMutation false
-                content = capturedContent
-                val commit = commitEditorNavigationSnapshot(
-                    savedContent = savedContent,
-                    content = capturedContent,
-                    flush = { base, snapshot ->
-                        store.flushDraft(PendingDraft(noteId, base, snapshot))
-                    },
-                )
-                savedContent = commit.savedContent
-                if (commit.disposition is FlushDisposition.ParkedConflict) {
-                    noteId = commit.disposition.parkedId
+        session.end(
+            EditorExit.NAVIGATE,
+            object : EditorExitEffects {
+                override fun isAttached(): Boolean =
+                    attachment != null && host.isCurrentAttachment(attachment)
+
+                // The legacy-WebView notice (github#8) renders no editor, so
+                // Back must still work there with nothing to drain or commit.
+                override fun exitWithoutEditor() {
+                    if (webViewTooOld) navigate()
                 }
-                val titleCommit = if (commit.canNavigate) {
-                    commitEditorTitleSnapshot(
+
+                override fun prepare() {
+                    focusManager.clearFocus(force = true)
+                    host.blur()
+                }
+
+                override suspend fun cancelPendingSave() {
+                    saveJob?.cancel()
+                }
+
+                override suspend fun captureBody(): String? =
+                    attachment?.let { host.captureContentAndWait(it) }
+
+                override suspend fun commitBody(body: String): Boolean {
+                    content = body
+                    val commit = commitEditorNavigationSnapshot(
+                        savedContent = savedContent,
+                        content = body,
+                        flush = { base, snapshot ->
+                            store.flushDraft(PendingDraft(noteId, base, snapshot))
+                        },
+                    )
+                    savedContent = commit.savedContent
+                    if (commit.disposition is FlushDisposition.ParkedConflict) {
+                        noteId = commit.disposition.parkedId
+                    }
+                    return commit.canNavigate
+                }
+
+                override suspend fun commitTitle(): Boolean {
+                    val titleCommit = commitEditorTitleSnapshot(
                         currentId = noteId,
                         targetId = editorTitleTarget(
                             currentId = noteId,
@@ -186,26 +201,26 @@ fun NoteEditorScreen(
                         ),
                         rename = store::rename,
                     )
-                } else {
-                    EditorTitleCommit(noteId, isCommitted = false)
+                    noteId = titleCommit.id
+                    return titleCommit.isCommitted
                 }
-                noteId = titleCommit.id
-                titleCommit.isCommitted && host.isCurrentAttachment(attachment)
-            } ?: false
-            if (canNavigate) {
-                navigate()
-            } else {
-                navigationAdmission.retryAfterFailure()
-                navigationPending = false
-                if (host.isCurrentAttachment(attachment)) {
-                    Toast.makeText(
-                        context,
-                        "Couldn't save note. Your changes are still pending.",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+
+                override suspend fun perform(): Boolean {
+                    navigate()
+                    return true
                 }
-            }
-        }
+
+                override fun onFailed(failure: EditorExitFailure) {
+                    if (attachment != null && host.isCurrentAttachment(attachment)) {
+                        Toast.makeText(
+                            context,
+                            "Couldn't save note. Your changes are still pending.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            },
+        )
     }
 
     fun saveImageForAttachment(
@@ -214,9 +229,9 @@ fun NoteEditorScreen(
         save: (File) -> String?,
     ) {
         scope.launch {
-            val name = mutationGate.runEditorMutation {
+            val name = session.runWork {
                 if (!host.isCurrentAttachment(attachment)) {
-                    return@runEditorMutation null
+                    return@runWork null
                 }
                 store.saveImageIntoVault(
                     save = save,
@@ -236,9 +251,9 @@ fun NoteEditorScreen(
     }
 
     BackHandler {
-        if (shouldStartEditorBackNavigation(navigationPending)) {
-            navigateAfterSaving(onBack)
-        }
+        // The session refuses a second exit on its own; consuming Back here
+        // keeps the gesture from falling through to the list while one runs.
+        if (!interactionLocked) navigateAfterSaving(onBack)
     }
 
     // The editor's note universe [editor.md:77]: id/title/modifiedMs/tags JSON
@@ -358,7 +373,7 @@ fun NoteEditorScreen(
                     val conflictId = noteId
                     while (noteId == conflictId) {
                         val flushed = content
-                        val disposition = mutationGate.runEditorMutation {
+                        val disposition = session.runWork {
                             store.flushDraft(
                                 PendingDraft(conflictId, savedContent, flushed),
                             )
@@ -407,7 +422,7 @@ fun NoteEditorScreen(
             // would recreate a ghost note at the old id (data loss). The derived
             // register re-keys to the new id after the rename (its content follows
             // the live noteId), so no manual draft repointing is needed (PKT-1 R4).
-            mutationGate.runEditorMutation {
+            session.runWork {
                 saveJob?.cancel()
                 // Snapshot the body BEFORE the suspending write and advance savedContent
                 // to exactly that snapshot — never to the live `content`. If the user
@@ -425,7 +440,7 @@ fun NoteEditorScreen(
                             "Couldn't save note. Your changes are still pending.",
                             Toast.LENGTH_SHORT,
                         ).show()
-                        return@runEditorMutation
+                        return@runWork
                     }
                 }
                 val titleCommit = commitEditorTitleSnapshot(
@@ -501,14 +516,14 @@ fun NoteEditorScreen(
                 title = {},
                 navigationIcon = {
                     IconButton(
-                        enabled = interactionEnabled,
+                        enabled = !interactionLocked,
                         onClick = { navigateAfterSaving(onBack) },
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
                     }
                 },
                 actions = {
-                    IconButton(enabled = interactionEnabled, onClick = {
+                    IconButton(enabled = !interactionLocked, onClick = {
                         val share = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TITLE, titleValue.text)
@@ -519,7 +534,7 @@ fun NoteEditorScreen(
                         Icon(Icons.Filled.Share, contentDescription = "Share", tint = c.textSecondary)
                     }
                     var menu by remember { mutableStateOf(false) }
-                    IconButton(enabled = interactionEnabled, onClick = { menu = true }) {
+                    IconButton(enabled = !interactionLocked, onClick = { menu = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = c.textSecondary)
                     }
                     // Overflow parity with the list rows [list.md:62].
@@ -561,7 +576,7 @@ fun NoteEditorScreen(
                 .imePadding(),
         ) {
             BasicTextField(
-                enabled = interactionEnabled,
+                enabled = !interactionLocked,
                 value = titleValue,
                 onValueChange = { v ->
                     // Strip forbidden filesystem chars in-place (desktop parity —
@@ -650,9 +665,10 @@ fun NoteEditorScreen(
                             // real body loads; saving that empty echo would clobber the
                             // note on disk. Once loaded, all edits flow through.
                             if (
-                                loaded &&
-                                !mutationGate.isDestructiveActionStarted &&
-                                !store.isVaultMigrationStarted
+                                session.acceptsEditorChange(
+                                    loaded = loaded,
+                                    storageMigrationStarted = store.isVaultMigrationStarted,
+                                )
                             ) {
                                 // Just update the buffer state. The unsaved-draft
                                 // register follows from the snapshotFlow derivation
@@ -666,7 +682,7 @@ fun NoteEditorScreen(
                                     // Re-read noteId at fire time so a save that lands
                                     // after a rename writes to the renamed note, not the
                                     // stale id.
-                                    val outcome = mutationGate.runEditorMutation {
+                                    val outcome = session.runWork {
                                         store.write(noteId, newContent)
                                     } ?: return@launch
                                     savedContent = confirmedSavedContent(
@@ -710,7 +726,7 @@ fun NoteEditorScreen(
             }
         }
     }
-        if (navigationPending) {
+        if (interactionLocked) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -730,56 +746,64 @@ fun NoteEditorScreen(
             confirmLabel = "Delete",
             onConfirm = {
                 confirmDelete = false
-                mutationGate.beginDestructiveAction()
-                saveJob?.cancel()
-                host.blur()
-                scope.launch {
-                    var saveFailed = false
-                    val outcome = mutationGate.runDestructiveMutation {
-                        val flushed = content
-                        val hasPendingChanges = flushed != savedContent
-                        val writeOutcome = if (hasPendingChanges) {
-                            store.write(noteId, flushed)
-                        } else {
-                            null
+                session.end(
+                    EditorExit.DELETE,
+                    object : EditorExitEffects {
+                        override fun prepare() {
+                            // The session has already latched closed, so a
+                            // change arriving from here on is dropped; killing
+                            // the queued debounce keeps it from waiting behind
+                            // the delete only to be refused.
+                            saveJob?.cancel()
+                            host.blur()
                         }
-                        if (writeOutcome != null) {
-                            savedContent = confirmedSavedContent(
-                                savedContent,
-                                flushed,
-                                writeOutcome,
-                            )
-                        }
-                        if (
-                            !shouldContinueDeleteAfterEditorWrite(
+
+                        override suspend fun captureBody(): String = content
+
+                        override suspend fun commitBody(body: String): Boolean {
+                            val hasPendingChanges = body != savedContent
+                            val writeOutcome = if (hasPendingChanges) {
+                                store.write(noteId, body)
+                            } else {
+                                null
+                            }
+                            if (writeOutcome != null) {
+                                savedContent = confirmedSavedContent(
+                                    savedContent,
+                                    body,
+                                    writeOutcome,
+                                )
+                            }
+                            return shouldContinueDeleteAfterEditorWrite(
                                 hasPendingChanges,
                                 writeOutcome,
                             )
-                        ) {
-                            saveFailed = true
-                            return@runDestructiveMutation NoteMutationOutcome.Failed
                         }
-                        store.delete(noteId)
-                    }
-                    if (shouldCompleteNoteAction(outcome)) {
-                        // Mark clean only after delete commits, so onDispose
-                        // cannot recreate the deleted note from its dirty draft.
-                        savedContent = content
-                        Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
-                        onBack()
-                    } else {
-                        mutationGate.cancelDestructiveAction()
-                        Toast.makeText(
-                            context,
-                            if (saveFailed) {
-                                "Couldn't save note. Delete is paused while your changes remain pending."
-                            } else {
-                                "Couldn't delete note. It remains in your notes."
-                            },
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
+
+                        override suspend fun perform(): Boolean =
+                            shouldCompleteNoteAction(store.delete(noteId))
+
+                        override fun onSucceeded() {
+                            // Mark clean only after delete commits, so onDispose
+                            // cannot recreate the deleted note from its dirty draft.
+                            savedContent = content
+                            Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
+                            onBack()
+                        }
+
+                        override fun onFailed(failure: EditorExitFailure) {
+                            Toast.makeText(
+                                context,
+                                if (failure == EditorExitFailure.BODY) {
+                                    "Couldn't save note. Delete is paused while your changes remain pending."
+                                } else {
+                                    "Couldn't delete note. It remains in your notes."
+                                },
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    },
+                )
             },
             onDismiss = { confirmDelete = false },
         )
@@ -790,45 +814,57 @@ fun NoteEditorScreen(
             store = store,
             onDismiss = { showMoveSheet = false },
             onPick = { folder, isNew ->
-                scope.launch {
-                    // Flush the draft to the CURRENT id before the file moves —
-                    // a stale save would recreate a ghost at the old id. The
-                    // derived register re-keys to the moved id afterwards (its
-                    // content follows the live noteId), so no manual clear (R4).
-                    val outcome = mutationGate.runEditorMutation {
-                        saveJob?.cancel()
-                        // Snapshot before the suspending write; advance savedContent to
-                        // the snapshot, not live `content`, so a keystroke typed during
-                        // the write stays dirty in the register and survives a later
-                        // background flush (PKT-12 F1 — same as the rename path).
-                        val flushed = content
-                        if (flushed != savedContent) {
-                            val writeOutcome = store.write(noteId, flushed)
+                session.end(
+                    EditorExit.MOVE,
+                    object : EditorExitEffects {
+                        // Move never touches the WebView, so the live buffer IS
+                        // the freshest body. Snapshot it inside the drain and
+                        // advance savedContent to that snapshot, not to live
+                        // `content`, so a keystroke typed during the write stays
+                        // dirty in the register and survives a later background
+                        // flush (PKT-12 F1 — same as the rename path).
+                        override suspend fun captureBody(): String = content
+
+                        override suspend fun cancelPendingSave() {
+                            saveJob?.cancel()
+                        }
+
+                        // Flush the draft to the CURRENT id before the file
+                        // moves — a stale save would recreate a ghost at the old
+                        // id. The derived register re-keys to the moved id
+                        // afterwards (its content follows the live noteId), so
+                        // no manual clear (R4).
+                        override suspend fun commitBody(body: String): Boolean {
+                            if (body == savedContent) return true
+                            val writeOutcome = store.write(noteId, body)
                             savedContent =
-                                confirmedSavedContent(savedContent, flushed, writeOutcome)
+                                confirmedSavedContent(savedContent, body, writeOutcome)
                             if (writeOutcome === NoteMutationOutcome.Failed) {
                                 Toast.makeText(
                                     context,
                                     "Couldn't save note. Your changes are still pending.",
                                     Toast.LENGTH_SHORT,
                                 ).show()
-                                return@runEditorMutation NoteMutationOutcome.Failed
+                                return false
                             }
+                            return true
                         }
-                        val moveOutcome = store.moveNote(
-                            noteId,
-                            folder,
-                            createFolder = isNew,
-                        )
-                        if (moveOutcome is NoteMutationOutcome.Committed) {
-                            // Update the live id before releasing the gate. A delete
-                            // already waiting behind this move must target the final id.
+
+                        override suspend fun perform(): Boolean {
+                            val moveOutcome = store.moveNote(
+                                noteId,
+                                folder,
+                                createFolder = isNew,
+                            )
+                            if (moveOutcome !is NoteMutationOutcome.Committed) return false
+                            // Update the live id before releasing the drain. A
+                            // delete already waiting behind this move must
+                            // target the final id.
                             noteId = moveOutcome.value
+                            return true
                         }
-                        moveOutcome
-                    } ?: return@launch
-                    when (outcome) {
-                        is NoteMutationOutcome.Committed -> {
+
+                        override fun onSucceeded() {
                             showMoveSheet = false
                             Toast.makeText(
                                 context,
@@ -836,13 +872,19 @@ fun NoteEditorScreen(
                                 Toast.LENGTH_SHORT,
                             ).show()
                         }
-                        NoteMutationOutcome.Failed -> Toast.makeText(
-                            context,
-                            "Couldn't move note. It remains in its current folder.",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
+
+                        override fun onFailed(failure: EditorExitFailure) {
+                            // REJECTED (a delete latched first) stays silent —
+                            // the delete reports for itself.
+                            if (failure == EditorExitFailure.REJECTED) return
+                            Toast.makeText(
+                                context,
+                                "Couldn't move note. It remains in its current folder.",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    },
+                )
             },
         )
     }
