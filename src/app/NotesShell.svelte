@@ -219,6 +219,7 @@
   }
 
   function handleEditorFocusChange(focused: boolean): void {
+    if (focused) void session.flushSave();
     void sync.handleEditorFocusChange(focused);
   }
 

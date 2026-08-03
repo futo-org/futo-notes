@@ -106,6 +106,61 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await expect(page.locator('text=Title cannot end with a dot')).toBeVisible();
   });
 
+  async function openNoteForRetitle(page: Page, id: string): Promise<void> {
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('.notes-drawer', { timeout: 10_000 });
+    await page.evaluate(async (noteId) => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote(noteId, 'body');
+    }, id);
+    await page.locator(`.note-row[data-note-id="${id}"]`).click();
+    await page.waitForSelector('.cm-content', { timeout: 10_000 });
+    await page.locator('.title-input').click();
+  }
+
+  test('pressing Enter in the title commits the rename to the sidebar', async ({ page }) => {
+    await openNoteForRetitle(page, 'Enter Note');
+    await page.locator('.title-input').fill('Enter Renamed');
+    await page.keyboard.press('Enter');
+
+    await expect(page.locator('.note-row[data-note-id="Enter Renamed"]')).toHaveText(
+      'Enter Renamed',
+    );
+    await expect(page.locator('.note-row[data-note-id="Enter Note"]')).toHaveCount(0);
+  });
+
+  test('clicking out of the title commits the rename to the sidebar', async ({ page }) => {
+    await openNoteForRetitle(page, 'Click Note');
+    await page.locator('.title-input').fill('Click Renamed');
+    await page.locator('.cm-content').click();
+
+    await expect(page.locator('.note-row[data-note-id="Click Renamed"]')).toHaveText(
+      'Click Renamed',
+    );
+    await expect(page.locator('.note-row[data-note-id="Click Note"]')).toHaveCount(0);
+  });
+
+  test('renaming then clicking straight to another note commits and switches', async ({ page }) => {
+    await openNoteForRetitle(page, 'Switch Note');
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('Neighbour', 'other body');
+    });
+    await page.locator('.title-input').click();
+    await page.locator('.title-input').fill('Switch Renamed');
+
+    await page.locator('.note-row[data-note-id="Neighbour"]').click();
+
+    await expect(page.locator('.note-row[data-note-id="Switch Renamed"]')).toHaveCount(1);
+    await expect(page.locator('.note-row[data-note-id="Switch Note"]')).toHaveCount(0);
+    await expect(page.locator('.title-input')).toHaveValue('Neighbour');
+  });
+
   // Toggle formatting via CM6 view (toolbar is mobile-only, not available in Playwright)
   async function toggleFormatting(page: Page, fn: string): Promise<void> {
     await page.evaluate((fnName) => {

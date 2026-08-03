@@ -750,9 +750,17 @@ EditorWebView.swift, EditorWebView.kt
   backlinks (see "Wikilinks — navigation & integrity"). Verified on Android
   Tauri 2026-06-09. Title-only edits use an aggressive ~10 s debounce (body
   edits keep ~500 ms) so a rename round-trip never fires mid-typing and clobbers
-  in-flight keystrokes; moving focus into the editor body flushes the pending
-  title save immediately. → `noteSession.svelte.ts` `debouncedSave`,
-  `NotesShell.svelte` `handleEditorFocusChange`
+  in-flight keystrokes. That debounce is a **backstop, not the commit path**:
+  **the editor body taking focus commits the pending rename immediately** (Enter
+  in the title focuses the body, so it commits too), so the list picks up the new
+  name when the user is done naming rather than only as a side effect of the next
+  body edit. Switching notes, closing, and sync keep flushing on their own paths.
+  The commit hangs off editor focus and **not a title blur** — blur fires on
+  pointer-DOWN, and committing there re-sorts the list (renamed note jumps to
+  the top on mtime) before the click lands, so a click aimed at another note
+  opens the wrong one; the price is that a press on inert chrome does not itself
+  commit. → `noteSession.svelte.ts` `debouncedSave`, `NotesShell.svelte`
+  `handleEditorFocusChange`; tests/p2-regressions.spec.ts
 
 ## Editor exits — every way an open note ends _(iOS/Android)_
 
