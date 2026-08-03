@@ -143,6 +143,18 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await expect(page.locator('.note-row[data-note-id="Click Note"]')).toHaveCount(0);
   });
 
+  test('clicking off the title onto inert chrome commits the rename', async ({ page }) => {
+    await openNoteForRetitle(page, 'Inert Note');
+    await page.locator('.title-input').fill('Inert Renamed');
+
+    // Not the body and not another note — just somewhere that takes focus off
+    // the title. The commit must not wait for the 10 s backstop.
+    await page.locator('.drawer-search-area').click();
+
+    await expect(page.locator('.note-row[data-note-id="Inert Renamed"]')).toHaveCount(1);
+    await expect(page.locator('.note-row[data-note-id="Inert Note"]')).toHaveCount(0);
+  });
+
   test('the open note never loses its selection while the rename re-sorts', async ({ page }) => {
     await openNoteForRetitle(page, 'Alpha');
     await page.evaluate(async () => {

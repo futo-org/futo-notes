@@ -65,6 +65,7 @@ export interface NoteSession {
   loadNote: (id: string | null) => Promise<void>;
   handleTitleInput: (event: Event) => void;
   handleTitleKeydown: (event: KeyboardEvent) => void;
+  handleTitleBlur: () => void;
   handleTitleFocus: (event: FocusEvent) => void;
   handleTitlePointerDown: (event: PointerEvent) => void;
   seedOpenNote: (id: string, body: string) => void;
@@ -142,6 +143,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     },
     hasDuplicateTitle,
     scheduleSave: () => debouncedSave(),
+    flushSave: () => void saveQueue.flush(),
     focusEditor: deps.focusEditor,
     getTextarea: deps.getTitleTextarea,
   });
@@ -330,6 +332,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,
     handleTitleKeydown: titleController.handleKeydown,
+    handleTitleBlur: titleController.handleBlur,
     handleTitleFocus: titleController.handleFocus,
     handleTitlePointerDown: titleController.handlePointerDown,
     seedOpenNote,

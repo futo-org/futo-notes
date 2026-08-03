@@ -73,6 +73,7 @@
       placeholder="Untitled"
       oninput={session.handleTitleInput}
       onkeydown={session.handleTitleKeydown}
+      onblur={session.handleTitleBlur}
       onfocus={session.handleTitleFocus}
       onpointerdown={session.handleTitlePointerDown}></textarea>
     {#if session.titleWarning}

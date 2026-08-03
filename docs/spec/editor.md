@@ -751,16 +751,22 @@ EditorWebView.swift, EditorWebView.kt
   Tauri 2026-06-09. Title-only edits use an aggressive ~10 s debounce (body
   edits keep ~500 ms) so a rename round-trip never fires mid-typing and clobbers
   in-flight keystrokes. That debounce is a **backstop, not the commit path**:
-  **the editor body taking focus commits the pending rename immediately** (Enter
-  in the title focuses the body, so it commits too), so the list picks up the new
-  name when the user is done naming rather than only as a side effect of the next
-  body edit. Switching notes, closing, and sync keep flushing on their own paths.
-  The commit hangs off editor focus and **not a title blur** — blur fires on
-  pointer-DOWN, and committing there re-sorts the list (renamed note jumps to
-  the top on mtime) before the click lands, so a click aimed at another note
-  opens the wrong one; the price is that a press on inert chrome does not itself
-  commit. → `noteSession.svelte.ts` `debouncedSave`, `NotesShell.svelte`
-  `handleEditorFocusChange`; tests/p2-regressions.spec.ts
+  **the title field losing focus commits the pending rename**, wherever focus
+  goes — the body, another note, or inert chrome — so the list picks up the new
+  name when the user is done naming rather than only as a side effect of the
+  next body edit. Enter commits too (it moves focus to the body). A title left
+  unchanged writes nothing.
+  The commit is **deferred until no pointer button is held**. `blur` fires on
+  pointer-DOWN, and a rename re-sorts the list (the note jumps to the top on
+  mtime): commit during the press and the row under the cursor changes before
+  the click is delivered, so a click aimed at another note opens the wrong one —
+  and the click, whose press and release now hit different rows, reaches no row
+  at all. The deferral drains one task after the gesture's click, or on a short
+  fallback for a drag or cancel that never delivers one.
+  → `noteSession.svelte.ts` `debouncedSave`,
+  `createNoteTitleController.svelte.ts` `handleBlur`,
+  `$shared/dom/pointerGesture.ts` `runWhenPointerIdle`;
+  tests/p2-regressions.spec.ts, src/shared/dom/pointerGesture.test.ts
 
 ## Editor exits — every way an open note ends _(iOS/Android)_
 
