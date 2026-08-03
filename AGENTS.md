@@ -7,6 +7,11 @@ shipped as **three apps** — Tauri desktop, native SwiftUI iOS, native Compose 
 E2EE sync against an external server (`~/Developer/futo-notes-server`). Rules marked **CRITICAL**
 protect user data or shipped behavior; never weaken one to pass a test, build, or pipeline.
 
+## Engineering defaults
+
+- Choose the simplest implementation that fully meets the current requirements.
+- Prefer established, well-maintained libraries over custom implementations.
+
 ## Before you modify
 
 `docs/architecture/codebase-organization.md` is the canonical standard for code ownership, placement,
