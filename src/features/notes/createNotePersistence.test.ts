@@ -106,7 +106,7 @@ describe('createNotePersistence', () => {
     expect(onSaved).toHaveBeenCalledOnce();
   });
 
-  it('reconciles the open note without advancing its saved baseline when the draft parks', async () => {
+  it('reconciles a parked draft against the exact raw editor title snapshot', async () => {
     vi.mocked(updateNote).mockResolvedValue({
       id: 'Original',
       mtime: 123,
@@ -124,7 +124,7 @@ describe('createNotePersistence', () => {
         originalId: 'Original',
         savedContent: 'original content',
         savedTitle: 'Original',
-        title: 'Original',
+        title: ' Original ',
       }),
       hasDuplicateTitle: () => false,
       onSaved,
@@ -135,6 +135,9 @@ describe('createNotePersistence', () => {
     await expect(saveNote()).resolves.toBe(false);
 
     expect(onSaved).not.toHaveBeenCalled();
-    expect(reconcileOpenNote).toHaveBeenCalledExactlyOnceWith('Original');
+    expect(reconcileOpenNote).toHaveBeenCalledExactlyOnceWith('Original', {
+      content: 'my draft',
+      title: ' Original ',
+    });
   });
 });

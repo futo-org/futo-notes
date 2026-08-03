@@ -2,6 +2,7 @@ import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
 
 import { normalizeTitleForPersistence, shouldWriteNoteToDisk } from './noteSessionChanges';
+import type { ParkedDraftSnapshot } from './noteSession.svelte';
 import { updateNote } from './notes.svelte';
 
 interface NotePersistenceState {
@@ -26,7 +27,7 @@ interface CreateNotePersistenceOptions {
   getState: () => NotePersistenceState;
   hasDuplicateTitle: (title: string) => boolean;
   onSaved: (state: SavedNoteState) => void;
-  reconcileOpenNote: (id: string) => Promise<unknown>;
+  reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<unknown>;
   showTitleWarning: (message: string) => void;
 }
 
@@ -74,7 +75,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         base: state.savedContent,
       });
       if (result.disposition === 'parked') {
-        await options.reconcileOpenNote(result.id);
+        await options.reconcileOpenNote(result.id, { content: editorContent, title: state.title });
         return false;
       }
 

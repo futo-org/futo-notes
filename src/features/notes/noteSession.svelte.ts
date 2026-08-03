@@ -33,8 +33,14 @@ export interface NoteSessionDeps {
   getPendingFolder?: () => string | null;
   clearPendingFolder?: () => void;
   onNoteRenamed: (savedOriginalId: string | null, realId: string) => void;
-  reconcileOpenNote: (id: string) => Promise<unknown>;
+  reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<unknown>;
   navigate: (path: string) => void;
+}
+
+/** The exact body and title a save parked as a conflict copy. */
+export interface ParkedDraftSnapshot {
+  content: string;
+  title: string;
 }
 
 export interface NoteSession {

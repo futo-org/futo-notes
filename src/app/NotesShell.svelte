@@ -4,7 +4,7 @@
   import { isDesktop } from '$lib/platform';
   import { saveConfig } from '$lib/platform/tauri';
   import { getAllNotes } from '$features/notes/notes.svelte';
-  import { createNoteSession } from '$features/notes/noteSession.svelte';
+  import { createNoteSession, type ParkedDraftSnapshot } from '$features/notes/noteSession.svelte';
   import ForYouPage from '$features/notes/ForYouPage.svelte';
   import SearchPopup from '$features/search/SearchPopup.svelte';
   import SettingsScreen from '$features/settings/SettingsScreen.svelte';
@@ -57,7 +57,10 @@
     writeHash(noteId);
   }
 
-  let reconcileOpenNote: (id: string) => Promise<boolean> = async () => false;
+  let reconcileOpenNote: (
+    id: string,
+    parkedDraft: ParkedDraftSnapshot,
+  ) => Promise<boolean> = async () => false;
 
   const session = createNoteSession({
     getEditorContent: () => editor?.getContent(),
@@ -77,7 +80,7 @@
       else tabsStore.replaceTabNoteId(tabsStore.activeTabId, toId);
       tabTransition.setLoadedNoteId(toId);
     },
-    reconcileOpenNote: (id) => reconcileOpenNote(id),
+    reconcileOpenNote: (id, parkedDraft) => reconcileOpenNote(id, parkedDraft),
     navigate,
   });
 
@@ -219,6 +222,10 @@
     void sync.handleEditorFocusChange(focused);
   }
 
+  function handleEditorCompositionEnd(): void {
+    void sync.handleEditorCompositionEnd();
+  }
+
   keyboard.init();
 
   const stopTabsPersistence = startTabsPersistence({
@@ -350,6 +357,7 @@
         active={activeNoteId !== null}
         onopenlink={openWikilink}
         onfocuschange={handleEditorFocusChange}
+        oncompositionend={handleEditorCompositionEnd}
         bind:editorApi={editor}
         bind:noteBodyEl={noteBody}
         bind:titleEl={titleTextarea}

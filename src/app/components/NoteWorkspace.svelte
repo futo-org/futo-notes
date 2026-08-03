@@ -30,6 +30,7 @@
     active: boolean;
     onopenlink: (title: string, event: MouseEvent) => void;
     onfocuschange?: (focused: boolean) => void;
+    oncompositionend?: () => void;
     editorApi?: EditorApi;
     noteBodyEl?: HTMLElement;
     titleEl?: HTMLTextAreaElement;
@@ -42,6 +43,7 @@
     active,
     onopenlink,
     onfocuschange,
+    oncompositionend,
     editorApi = $bindable(),
     noteBodyEl = $bindable(),
     titleEl = $bindable(),
@@ -91,6 +93,7 @@
       scrollParent={noteBodyEl ?? null}
       onchange={(content) => session.debouncedSave(content)}
       onfocuschange={handleFocusChange}
+      {oncompositionend}
       {onopenlink}
     />
   </div>

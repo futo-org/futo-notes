@@ -1,6 +1,6 @@
 import { listen } from '@tauri-apps/api/event';
 import { isTauri } from '$lib/platform';
-import type { NoteSession } from '$features/notes/noteSession.svelte';
+import type { NoteSession, ParkedDraftSnapshot } from '$features/notes/noteSession.svelte';
 import { writeSuppressor } from '$lib/platform/writeSuppression';
 import { createSyncCoordinator, type SyncCoordinator } from './syncCoordinator';
 import type { FileChangeEvent } from '$lib/platform/types';
@@ -30,8 +30,9 @@ export interface SyncManager {
   enqueueFileChange: (event: FileChangeEvent) => void;
 
   handleEditorFocusChange: (focused: boolean) => Promise<void>;
+  handleEditorCompositionEnd: () => Promise<void>;
 
-  reconcileOpenNote: (id: string) => Promise<boolean>;
+  reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<boolean>;
 
   notifySaved: () => void;
 
@@ -105,7 +106,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     writeSuppressor,
     raiseSyncError: (message) => raiseSyncError(message),
     clearSyncError: () => clearSyncError('sync'),
-    getSyncStartEditVersion: () => syncCoord?.getSyncStartEditVersion() ?? 0,
+    getSyncStartEditVersion: (trigger) =>
+      trigger === undefined
+        ? (syncCoord?.getLiveSyncStartEditVersion() ?? 0)
+        : (syncCoord?.getSyncStartEditVersion() ?? 0),
     setCompletionStatus: (message, durationMs) =>
       syncCoord?.setStatusWithTimeout(message, durationMs),
     setSyncStatusMessage: (message) => {
@@ -150,7 +154,17 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     let liveUnlisteners: Array<() => void> = [];
     if (isTauri) {
       void listen('sync:live-synced', (e) => {
-        void handleSyncComplete(e.payload as SyncSummary);
+        // The live epoch advances only at completion arrival: any Rust-emitted
+        // cycle-start (or connect) signal reaches this webview asynchronously,
+        // so an edit racing that dispatch could be captured as pre-cycle and
+        // adopted over. Capturing here — synchronously, after this completion
+        // has snapshotted the previous epoch, before its async processing —
+        // keeps the epoch never meaningfully newer than the next cycle's true
+        // start; edits between cycles (or while offline) are over-protected
+        // instead: the draft wins, which is the safe direction.
+        const completion = handleSyncComplete(e.payload as SyncSummary);
+        coord.captureLiveSyncStartEditVersion();
+        void completion;
       }).then((un) => liveUnlisteners.push(un));
       void listen<LiveStatePayload>('sync:live-state', (e) => handleLiveState(e.payload)).then(
         (un) => liveUnlisteners.push(un),
@@ -188,8 +202,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
     enqueueFileChange: (event: FileChangeEvent) => watcherBatch.enqueue(event),
     handleEditorFocusChange: externalChanges.handleEditorFocusChange,
-    reconcileOpenNote: (id: string) =>
-      externalChanges.reconcileOpenNote(id, { allowPendingSave: true }),
+    handleEditorCompositionEnd: externalChanges.handleCompositionEnd,
+    reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) =>
+      externalChanges.reconcileOpenNote(id, { parkedDraft }),
     notifySaved,
     clearSyncError,
 
