@@ -29,6 +29,7 @@ flag gaps the codebase suggests have been implemented.
 ## sync.md
 
 - [sync.md:266](sync.md#L266) — The heal is not idempotent for a name ending in repeated `". "` groups — `sanitize_title` peels exactly one group per pass, so `"a. ..md"` heals to `"a..md"`, which the next cycle heals again to `"a.md"`: one rename per sync round until it settles. Closing it means changing the title rule in both `packages/editor/src/filename.ts` and `futo-notes-core` plus regenerated conformance fixtures (AGENTS.md M7); the invariant is recorded as the `#[ignore]`d `healing_an_incoming_path_settles_in_one_round` property.
-- [sync.md:954](sync.md#L954) — Android leaves the open editor bound to the deleted id (its snapshotFlow adopt early-returns on the missing note); the peer-delete close/keep + banner is not yet ported there.
+- [sync.md:587](sync.md#L587) — The native shells receive the per-id delta but do not yet act on it: `onLivePull` is a zero-argument callback, so iOS and Android still rescan the whole vault after every cycle and never follow a reported rename. An open note that sync relocates reads as a peer delete on iOS ("Note was deleted during sync") and strands the Android editor on the old id. Scoping the list refresh additionally needs a per-id metadata verb; the engine exposes only whole-vault `scan()` today.
+- [sync.md:971](sync.md#L971) — Android leaves the open editor bound to the deleted id (its snapshotFlow adopt early-returns on the missing note); the peer-delete close/keep + banner is not yet ported there.
 
-_11 gaps._
+_12 gaps._

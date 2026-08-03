@@ -274,6 +274,66 @@ mod tests {
         }
     }
 
+    /// The desktop projection is lossless, and stays lossless in lockstep with
+    /// the UniFFI one: both adapters destructure a fully populated engine
+    /// summary, so a new engine field cannot reach one shell family while
+    /// silently skipping the other. That asymmetry is exactly what let the
+    /// native summary carry only counters for eight months.
+    /// Twin: `futo_notes_ffi::sync::contract::projection_carries_every_engine_field`.
+    #[test]
+    fn projection_carries_every_engine_field() {
+        let engine = || futo_notes_sync::SyncSummary {
+            uploaded: 1,
+            downloaded: 2,
+            deleted: 3,
+            conflicts: 4,
+            local_writes_applied: 5,
+            failures: vec![futo_notes_sync::SyncFailure {
+                filename: "note.md".to_owned(),
+                kind: futo_notes_sync::FailureKind::Upload,
+                status_code: Some(500),
+            }],
+            updated_ids: vec!["updated".to_owned()],
+            deleted_ids: vec!["deleted".to_owned()],
+            peer_updated_ids: vec!["peer-updated".to_owned()],
+            peer_deleted_ids: vec!["peer-deleted".to_owned()],
+            renamed: vec![futo_notes_sync::RenamePair {
+                from_id: "old".to_owned(),
+                to_id: "new".to_owned(),
+            }],
+        };
+        let futo_notes_sync::SyncSummary {
+            uploaded,
+            downloaded,
+            deleted,
+            conflicts,
+            local_writes_applied,
+            failures,
+            updated_ids,
+            deleted_ids,
+            peer_updated_ids,
+            peer_deleted_ids,
+            renamed,
+        } = engine();
+
+        let projected = SyncSummary::from(&engine());
+
+        assert_eq!(projected.uploaded, uploaded as usize);
+        assert_eq!(projected.downloaded, downloaded as usize);
+        assert_eq!(projected.deleted, deleted as usize);
+        assert_eq!(projected.conflicts, conflicts as usize);
+        assert_eq!(projected.local_writes_applied, local_writes_applied as usize);
+        assert_eq!(projected.failures.len(), failures.len());
+        assert_eq!(projected.failures[0].kind, "upload");
+        assert_eq!(projected.updated_ids, updated_ids);
+        assert_eq!(projected.deleted_ids, deleted_ids);
+        assert_eq!(projected.peer_updated_ids, peer_updated_ids);
+        assert_eq!(projected.peer_deleted_ids, peer_deleted_ids);
+        assert_eq!(projected.renamed.len(), renamed.len());
+        assert_eq!(projected.renamed[0].from_id, renamed[0].from_id);
+        assert_eq!(projected.renamed[0].to_id, renamed[0].to_id);
+    }
+
     #[test]
     fn generated_typescript_contract_is_current() {
         let path = generated_contract_path();

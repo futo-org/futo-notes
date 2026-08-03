@@ -1,7 +1,8 @@
 use std::fs;
 
 use futo_notes_ffi::{
-    ConnectInfo, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus, SyncSummary,
+    ConnectInfo, RenamePair, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus,
+    SyncSummary,
 };
 
 mod support;
@@ -50,6 +51,11 @@ fn sync_records_errors_callbacks_and_threading_keep_the_full_semantic_shape() {
         local_writes_applied,
         failures,
         failure_message,
+        updated_ids,
+        deleted_ids,
+        peer_updated_ids,
+        peer_deleted_ids,
+        renamed,
     } = SyncSummary {
         uploaded: 1,
         downloaded: 2,
@@ -58,6 +64,14 @@ fn sync_records_errors_callbacks_and_threading_keep_the_full_semantic_shape() {
         local_writes_applied: 5,
         failures: Vec::new(),
         failure_message: Some("failure".to_owned()),
+        updated_ids: vec!["updated".to_owned()],
+        deleted_ids: vec!["deleted".to_owned()],
+        peer_updated_ids: vec!["peer-updated".to_owned()],
+        peer_deleted_ids: vec!["peer-deleted".to_owned()],
+        renamed: vec![RenamePair {
+            from_id: "old".to_owned(),
+            to_id: "new".to_owned(),
+        }],
     };
     assert_eq!(
         (
@@ -71,6 +85,17 @@ fn sync_records_errors_callbacks_and_threading_keep_the_full_semantic_shape() {
         ),
         (1, 2, 3, 4, 5, 0, Some("failure"))
     );
+    // The per-id delta and rename intent are part of the native shells' wire
+    // shape, not desktop-only: a shell scopes its refresh and follows reported
+    // renames from these, never from the counters above.
+    assert_eq!(updated_ids, ["updated"]);
+    assert_eq!(deleted_ids, ["deleted"]);
+    assert_eq!(peer_updated_ids, ["peer-updated"]);
+    assert_eq!(peer_deleted_ids, ["peer-deleted"]);
+    let [RenamePair { from_id, to_id }] = renamed.as_slice() else {
+        panic!("expected exactly one reported rename");
+    };
+    assert_eq!((from_id.as_str(), to_id.as_str()), ("old", "new"));
 
     let SyncStatus {
         connected,

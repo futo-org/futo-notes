@@ -4,7 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import uniffi.futo_notes_ffi.SyncFailure
-import uniffi.futo_notes_ffi.SyncSummary
 
 /**
  * Pins [SyncManager.applyOutcome], the single reporter for a completed
@@ -17,15 +16,7 @@ class SyncManagerOutcomeTest {
     private fun summary(
         failures: List<SyncFailure> = emptyList(),
         failureMessage: String? = null,
-    ) = SyncSummary(
-        uploaded = 0u,
-        downloaded = 0u,
-        deleted = 0u,
-        conflicts = 0u,
-        localWritesApplied = 0u,
-        failures = failures,
-        failureMessage = failureMessage,
-    )
+    ) = syncSummary(failures = failures, failureMessage = failureMessage)
 
     @Test
     fun cleanCycleReportsSyncCompleteAndClearsError() {
