@@ -767,15 +767,20 @@ EditorSessionTest.kt, EditorSessionTests.swift
   nor `async` (iOS). A keystroke, a second Back, or a queued save arriving after
   the tap is therefore already fenced. _(iOS/Android)_ → EditorSession.kt `end`,
   EditorSession.swift `end(_:effects:)`
-- Cancels come **before** the drain, and the drain before any commit. A delete
-  cancels the queued debounces synchronously, so the drain only ever waits for
-  work that was already in flight, and anything queued behind the latch touches
-  nothing at all — Android's `runWork` returns null, an iOS scheduled workflow
-  sees `isActive == false`. _(iOS/Android)_
-- The body an exit commits is the **exact snapshot it captured** after the
-  debounced save was cancelled and awaited — never a re-read, never a later
-  buffer. A save already running finishes first, so the capture cannot race the
-  write it supersedes. _(iOS/Android)_
+- A destructive exit's cancels land **before** the drain: delete cancels the
+  queued debounces synchronously (iOS all four workflows, Android inside the same
+  pre-suspension step as the latch), so the drain only ever waits for work that
+  was already in flight, and anything queued behind the latch touches nothing at
+  all — Android's `runWork` returns null, an iOS scheduled workflow sees
+  `isActive == false`. The debounced body save is the one exception, neutralised
+  as the first step of the commit rather than at admission (cancel, then await
+  it): a save already running has to finish and be projected before the exit
+  captures, or the capture races the write it supersedes. _(iOS/Android)_
+- The body an exit commits is the **exact snapshot it captured** — never a
+  re-read of disk, and never an earlier buffer than the one the capture returned.
+  The single exception is specified below: on a destructive exit a change that
+  lands mid-exit is folded in, because it is newer than the capture.
+  _(iOS/Android)_
 - An exit that cannot commit does not leave: a failed capture, a failed body
   flush, or a pending rename that will not commit refuses the exit, releases
   every latch that exit set, and reports which step failed so the shell can word
@@ -786,10 +791,12 @@ EditorSessionTest.kt, EditorSessionTests.swift
   touch the note afterwards. _(iOS/Android)_
 - Only one navigation exit runs at a time. A second Back while the first is
   still draining is dropped, and a refused exit may be retried. _(iOS/Android)_
-- The exit's own effect cannot interleave with a tracked workflow: Android runs
-  move and delete inside the drain lock, iOS registers the exit's task under the
-  workflow a later exit drains. Same guarantee, different mechanism.
-  _(iOS/Android)_
+- The exit's own effect cannot interleave with a tracked workflow. Same
+  guarantee, three mechanisms: Android runs move and delete inside the drain
+  lock; iOS's move exits register their task as the move workflow, so a later
+  exit draining that workflow waits for them; iOS navigation and delete instead
+  rely on admission plus a post-drain re-check (a delete that latched while the
+  drain ran abandons the exit rather than committing into it). _(iOS/Android)_
 - Editor change events are fenced before the initial off-main read lands (an
   empty `setContent` echo must never be saved back over the note) and once a
   destructive exit has latched. Android additionally fences them while the vault
