@@ -79,34 +79,8 @@ struct NativeMutationOutcomeTests {
         )
     }
 
-    @Test("delete requires a live editor capture and keeps the latest quarantined callback")
-    func deleteCaptureDecision() {
-        #expect(
-            editorDeleteContent(
-                capturedContent: nil,
-                quarantinedContent: "late image markdown"
-            ) == nil
-        )
-        #expect(
-            editorDeleteContent(
-                capturedContent: "captured image markdown",
-                quarantinedContent: nil
-            ) == "captured image markdown"
-        )
-        #expect(
-            editorDeleteContent(
-                capturedContent: "captured image markdown",
-                quarantinedContent: "later bridge callback"
-            ) == "later bridge callback"
-        )
-    }
-
-    @Test("closing editor quarantines bridge changes until delete resolves")
-    func closingEditorQuarantinesBridgeChanges() {
-        #expect(editorChangeDisposition(loaded: false, isClosing: false) == .ignore)
-        #expect(editorChangeDisposition(loaded: true, isClosing: false) == .apply)
-        #expect(editorChangeDisposition(loaded: true, isClosing: true) == .quarantine)
-    }
+    // The capture/quarantine decision and the change disposition are now cases
+    // of the session's one exit verb — see EditorSessionTests.
 
     @Test("async editor completion stays with the generation that started it")
     func editorCompletionGeneration() {
@@ -138,72 +112,9 @@ struct NativeMutationOutcomeTests {
         #expect(events == ["save", "insert", "capture"])
     }
 
-    @Test("closing editor never flushes a newly dirty buffer on disappear")
-    func closingEditorDoesNotFlushOnDisappear() {
-        #expect(
-            shouldFlushEditorOnDisappear(
-                loaded: true,
-                isClosing: false,
-                content: "local edit",
-                savedContent: "base"
-            )
-        )
-        #expect(
-            !shouldFlushEditorOnDisappear(
-                loaded: true,
-                isClosing: true,
-                content: "late bridge edit",
-                savedContent: "delete snapshot"
-            )
-        )
-    }
-
-    @Test("delete confirmation cover is not treated as editor navigation")
-    func deleteConfirmationPreservesEditorLifecycle() {
-        #expect(
-            !shouldHandleEditorDisappear(isDeleteConfirmationPresented: true)
-        )
-        #expect(
-            shouldHandleEditorDisappear(isDeleteConfirmationPresented: false)
-        )
-    }
-
-    @Test("navigation commits only a loaded dirty editor")
-    func navigationCommitDecision() {
-        #expect(
-            needsEditorCommitBeforeNavigation(
-                loaded: true,
-                content: "local edit",
-                savedContent: "base"
-            )
-        )
-        #expect(
-            !needsEditorCommitBeforeNavigation(
-                loaded: true,
-                content: "same",
-                savedContent: "same"
-            )
-        )
-        #expect(
-            !needsEditorCommitBeforeNavigation(
-                loaded: false,
-                content: "placeholder",
-                savedContent: ""
-            )
-        )
-    }
-
-    @Test("navigation completes after any durable persist-or-park outcome")
-    func navigationFlushDecision() {
-        #expect(shouldCompleteEditorNavigation(.wrote))
-        #expect(shouldCompleteEditorNavigation(.converged))
-        #expect(
-            shouldCompleteEditorNavigation(
-                .parkedConflict(parkedId: "note (conflict 2026-07-23)")
-            )
-        )
-        #expect(!shouldCompleteEditorNavigation(nil))
-    }
+    // The leave-flush, delete-cover, dirty-commit, and persist-or-park-completes
+    // decisions are all reachable through the session now — see
+    // EditorSessionTests.
 
     @Test("move follows a draft parked under a conflict identity")
     func moveSourceIdentity() {
