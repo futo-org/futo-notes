@@ -3,7 +3,7 @@ import { sanitizeFilename, validateTitle } from '$lib/rules';
 
 import { normalizeTitleForPersistence, shouldWriteNoteToDisk } from './noteSessionChanges';
 import type { ParkedDraftSnapshot } from './noteSession.svelte';
-import { updateNote } from './notes.svelte';
+import { _applyLocalMutation, updateNote } from './notes.svelte';
 
 interface NotePersistenceState {
   originalId: string | null;
@@ -74,6 +74,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         originalId: state.originalId ?? undefined,
         base: state.savedContent,
       });
+      if (result.mutation) _applyLocalMutation(result.mutation);
       if (result.disposition === 'parked') {
         await options.reconcileOpenNote(result.id, { content: editorContent, title: state.title });
         return false;

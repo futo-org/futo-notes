@@ -143,6 +143,50 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await expect(page.locator('.note-row[data-note-id="Click Note"]')).toHaveCount(0);
   });
 
+  test('the open note never loses its selection while the rename re-sorts', async ({ page }) => {
+    await openNoteForRetitle(page, 'Alpha');
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('Beta', 'body');
+      await win.__testNotes.createNote('Gamma', 'body');
+    });
+    await page.locator('.title-input').click();
+    await page.locator('.title-input').fill('Alpha Renamed');
+
+    await page.evaluate(() => {
+      const states: Array<{ rows: number; selected: number }> = [];
+      (window as unknown as { __states: typeof states }).__states = states;
+      const record = (): void => {
+        const rows = document.querySelectorAll('.note-row');
+        states.push({
+          rows: rows.length,
+          selected: document.querySelectorAll('.note-row.selected').length,
+        });
+      };
+      new MutationObserver(record).observe(document.querySelector('.folder-tree-scroll')!, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['class', 'data-note-id'],
+      });
+      record();
+    });
+
+    await page.locator('.cm-content').click();
+    await expect(page.locator('.note-row[data-note-id="Alpha Renamed"]')).toHaveClass(/selected/);
+
+    // A rename bumps mtime, so the row jumps to the top of the engine-ordered
+    // list. The projection and the session's new id must reach the DOM in the
+    // same render: any sampled state with rows but no selection is a flicker.
+    const states = await page.evaluate(
+      () => (window as unknown as { __states: Array<{ rows: number; selected: number }> }).__states,
+    );
+    expect(states.length).toBeGreaterThan(1);
+    expect(states.filter((s) => s.rows > 0 && s.selected === 0)).toEqual([]);
+  });
+
   test('renaming then clicking straight to another note commits and switches', async ({ page }) => {
     await openNoteForRetitle(page, 'Switch Note');
     await page.evaluate(async () => {

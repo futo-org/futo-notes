@@ -3,14 +3,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/platform', () => ({ hasFileSystem: true }));
-vi.mock('./notes.svelte', () => ({ updateNote: vi.fn() }));
+vi.mock('./notes.svelte', () => ({ updateNote: vi.fn(), _applyLocalMutation: vi.fn() }));
 
-import { updateNote } from './notes.svelte';
+import { _applyLocalMutation, updateNote } from './notes.svelte';
 import { createNotePersistence } from './createNotePersistence';
+import type { LocalNoteMutation } from '$lib/localNoteStore';
 
 describe('createNotePersistence', () => {
   beforeEach(() => {
     vi.mocked(updateNote).mockReset();
+    vi.mocked(_applyLocalMutation).mockClear();
   });
 
   it('warns when a duplicate title blocks the save', async () => {
@@ -107,11 +109,13 @@ describe('createNotePersistence', () => {
   });
 
   it('reconciles a parked draft against the exact raw editor title snapshot', async () => {
+    const parkedMutation = { warnings: [] } as unknown as LocalNoteMutation;
     vi.mocked(updateNote).mockResolvedValue({
       id: 'Original',
       mtime: 123,
       disposition: 'parked',
       parkedId: 'Original (conflict 2026-07-29)',
+      mutation: parkedMutation,
     });
     const onSaved = vi.fn();
     const reconcileOpenNote = vi.fn(async () => true);
@@ -139,5 +143,11 @@ describe('createNotePersistence', () => {
       content: 'my draft',
       title: ' Original ',
     });
+    // The conflict copy must reach the list, and before the reconcile re-reads
+    // the original from disk — dropping it hides the copy until a rescan.
+    expect(_applyLocalMutation).toHaveBeenCalledExactlyOnceWith(parkedMutation);
+    expect(vi.mocked(_applyLocalMutation).mock.invocationCallOrder[0]).toBeLessThan(
+      reconcileOpenNote.mock.invocationCallOrder[0],
+    );
   });
 });

@@ -65,6 +65,11 @@ function preview(id: string): NotePreview {
   return { id, title: id, preview: '', modificationTime: 1, tags: [] };
 }
 
+/** `updateNote` hands its mutation back unprojected; this is the caller's half. */
+function projectAsCallerWould(result: { mutation: LocalNoteMutation | null }): void {
+  if (result.mutation) _applyLocalMutation(result.mutation);
+}
+
 function fakeStore(overrides: Partial<LocalNoteStore> = {}): LocalNoteStore {
   return {
     bootstrap: vi.fn(),
@@ -135,15 +140,15 @@ describe('TypeScript local-note projection', () => {
     const save = vi.fn();
     _setLocalNoteStoreForTest(fakeStore({ flushDraft, save }));
 
-    await expect(
-      updateNote('Note', 'ignored shell title', 'latest body', {
-        originalId: 'Note',
-        base: 'saved body',
-      }),
-    ).resolves.toMatchObject({ id: 'Note', disposition });
+    const result = await updateNote('Note', 'ignored shell title', 'latest body', {
+      originalId: 'Note',
+      base: 'saved body',
+    });
 
+    expect(result).toMatchObject({ id: 'Note', disposition, mutation: committed });
     expect(flushDraft).toHaveBeenCalledWith('Note', 'saved body', 'latest body');
     expect(save).not.toHaveBeenCalled();
+    projectAsCallerWould(result);
     expect(getAllNotes().map((note) => note.id)).toEqual(['Note']);
   });
 
@@ -169,17 +174,13 @@ describe('TypeScript local-note projection', () => {
     const flushDraft = vi.fn(async () => flushResult('parkedConflict', parked, parkedId));
     _setLocalNoteStoreForTest(fakeStore({ flushDraft }));
 
-    await expect(
-      updateNote('Note', 'ignored shell title', 'my draft', {
-        originalId: 'Note',
-        base: 'saved body',
-      }),
-    ).resolves.toMatchObject({
-      id: 'Note',
-      disposition: 'parked',
-      parkedId,
+    const result = await updateNote('Note', 'ignored shell title', 'my draft', {
+      originalId: 'Note',
+      base: 'saved body',
     });
 
+    expect(result).toMatchObject({ id: 'Note', disposition: 'parked', parkedId });
+    projectAsCallerWould(result);
     expect(getAllNotes().map((note) => note.id)).toEqual(['Note', parkedId]);
   });
 
