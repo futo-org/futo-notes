@@ -485,40 +485,6 @@ test:e2e:smoke:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *web-e2e-smoke-changes
 
-test:e2e:markdown-spec:
-  stage: test
-  cache:
-    - !reference [.cache-pnpm, cache]
-    - !reference [.cache-playwright, cache]
-  script:
-    - pnpm install --frozen-lockfile --prefer-offline
-    - !reference [.setup-playwright, script]
-    - pnpm run test:markdown-spec
-  artifacts:
-    when: always
-    paths:
-      - test-results/
-      - playwright-report/
-    expire_in: 1 week
-  rules:
-    - if: $CI_COMMIT_TAG
-    # Deterministic editor corpus, already blocking on tags — auto-run and
-    # block on the MRs that can break it.
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - src/**/*
-        - packages/editor/**/*
-        - markdown-spec/**/*
-        - tests/markdown-spec.spec.ts
-        - tests/lib/**/*
-        - playwright.config.ts
-        - package.json
-        - pnpm-lock.yaml
-        - .gitlab-ci.yml
-    - if: $CI_MERGE_REQUEST_IID
-      when: manual
-      allow_failure: true
-
 test:e2e:rest:
   stage: test
   cache:
@@ -537,11 +503,13 @@ test:e2e:rest:
   rules:
     - if: $CI_COMMIT_TAG
     # Same web surface as test:e2e:smoke, plus any spec edit re-runs the
-    # suite that contains it.
+    # suite that contains it. Includes the markdown-spec corpus (formerly its
+    # own job) — one dev server + browser install instead of two.
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - src/**/*
         - packages/editor/**/*
+        - markdown-spec/**/*
         - tests/**/*.spec.ts
         - tests/lib/**/*
         - playwright.config.ts
@@ -673,12 +641,15 @@ test:rust:macos:
     - cirrus run testRustMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_TAG
-    # Auto on Rust-touching MRs. allow_failure stays: this runs through
-    # Cirrus on the single macscript runner, and infra flakiness must not
-    # block merges — but the result is now visible instead of opt-in.
-    # All of crates/ (not just the FFI crate): this task also carries the
-    # aarch64-apple-ios compile check of the FFI dependency tree, and any
-    # inner crate can break the mobile target.
+    # Auto on Rust-touching MRs, but the Cirrus task (.cirrus.yml) runs ONLY
+    # the aarch64-apple-ios compile check of the FFI dependency tree on MR
+    # pipelines — `cargo test --workspace` is already the hard Linux gate in
+    # test:rust:workspace, and duplicating it here spent ~6 min of the single
+    # contended macscript runner per Rust MR for an allow_failure result.
+    # The full macOS `cargo test --workspace` runs on main pushes and tags.
+    # All of crates/ (not just the FFI crate): any inner crate can break the
+    # mobile target. allow_failure stays on MRs: this runs through Cirrus on
+    # the single macscript runner, and infra flakiness must not block merges.
     - if: $CI_MERGE_REQUEST_IID
       changes: &rust-macos-changes
         - Cargo.toml
@@ -690,6 +661,10 @@ test:rust:macos:
         - .cirrus.yml
         - .gitlab-ci.yml
       allow_failure: true
+    # Full macOS workspace tests on Rust-touching main pushes, so a macOS-only
+    # break surfaces before tag time (M13) instead of first failing on the tag.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *rust-macos-changes
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -927,9 +902,12 @@ test:desktop-smoke:macos:
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
-    # Auto on desktop-touching MRs; allow_failure stays (single macscript
-    # runner via Cirrus — see test:rust:macos).
-    - if: $CI_MERGE_REQUEST_IID
+    # Main pushes + tags, not MRs: the src/** filter matched essentially every
+    # MR, spending ~7 min run + ~6 min queue on the single macscript runner
+    # per MR for an allow_failure (non-blocking) result. Every merged change
+    # still gets the real-binary boot check on the main push; MRs keep the
+    # manual button below.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - apps/tauri/**/*
         - src/**/*
@@ -1357,12 +1335,12 @@ build:ios-native:
       - buildFutoNotesIOSNative/binary/*.ipa
     expire_in: 4 weeks
   rules:
-    - if: $CI_MERGE_REQUEST_IID
-      changes: &native-ios-changes
-        - apps/ios/**/*
-        - crates/futo-notes-ffi/**/*
-        - Cargo.lock
-        - scripts/build-rust-ios.sh
+    # No MR rule: test:ios-native compiles the same FFI xcframework + editor
+    # bundle + app (xcodebuild test builds the app target) AND runs the Swift
+    # tests, so a second unsigned compile-check here doubled the Mac cost of
+    # every iOS-touching MR for no extra signal. test:ios-native's changes:
+    # cover this job's former MR paths (apps/ios, futo-notes-ffi, Cargo.lock,
+    # build-rust-ios.sh).
     # Every push to the default branch builds a SIGNED IPA (no changes: filter)
     # so publish:ios:main can ship the latest main to TestFlight. Editor/UI
     # changes live in src/ and packages/editor and bundle into the app, so a
@@ -1394,6 +1372,10 @@ test:ios-native:
     - if: $CI_MERGE_REQUEST_IID
       changes: &native-ios-test-changes
         - apps/ios/**/*
+        # FFI paths formerly covered by build:ios-native's MR rule — this job
+        # builds the same xcframework + app and runs the Swift tests on top.
+        - crates/futo-notes-ffi/**/*
+        - Cargo.lock
         - tests/conformance/**/*
         - packages/editor/src/bridge.ts
         - scripts/build-rust-ios.sh
@@ -1734,7 +1716,7 @@ release:gate:
     # past a failed test:cross-platform-sync).
     - job: test
     - job: test:e2e:smoke
-    - job: test:e2e:markdown-spec
+    # markdown-spec corpus runs inside test:e2e:rest (merged 2026-08)
     - job: test:e2e:rest
     - job: test:e2e:editor-embed
     - job: test:rust:workspace
@@ -1819,7 +1801,9 @@ publish:ios:
   script:
     - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
-    - if: $CI_COMMIT_TAG
+    # STABLE tags only — same guard as `release:`. A bare $CI_COMMIT_TAG rule
+    # would ship an -rc or throwaway tag straight to TestFlight.
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
 # Ship the latest default-branch build to TestFlight on every push — the
 # maintainer's dogfood feedback loop, so the newest main is always on-device.
@@ -1902,7 +1886,9 @@ publish:android:
         exit "$PUBLISH_STATUS"
       fi
   rules:
-    - if: $CI_COMMIT_TAG
+    # STABLE tags only — same guard as `release:`. A bare $CI_COMMIT_TAG rule
+    # would ship an -rc or throwaway tag straight to the Play internal track.
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
 release:
   stage: release
@@ -2105,7 +2091,10 @@ update-fdroid:
   script:
     - python3 scripts/update-fdroid-index.py
   rules:
-    - if: $CI_COMMIT_TAG
+    # STABLE tags only. Also structurally required: this job `needs: release`,
+    # which exists only on stable tags — a bare-tag rule made prerelease-tag
+    # pipelines fail creation ("needs 'release' which was not created").
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
 # ─────────────────────────────────────────────────────────────
 # Publish to the FUTO Linux package repo (pkg.futoinfra.com)
@@ -2138,7 +2127,9 @@ pkg-futoinfra:prep:
     reports:
       dotenv: pkg.env
   rules:
-    - if: $CI_COMMIT_TAG
+    # STABLE tags only — needs: release, which exists only on stable tags
+    # (see update-fdroid).
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
 pkg-futoinfra:trigger:
   stage: trigger
@@ -2154,4 +2145,5 @@ pkg-futoinfra:trigger:
     project: devops/cloudflare/pkg.futoinfra.com
     branch: main
   rules:
-    - if: $CI_COMMIT_TAG
+    # STABLE tags only — chained off pkg-futoinfra:prep (see update-fdroid).
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
