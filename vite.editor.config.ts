@@ -43,9 +43,10 @@ export default defineConfig({
   build: {
     // ES2020 (optional chaining/nullish coalescing) sets the editor's WebView
     // floor at Chromium 80. Non-updated Android System WebViews below that (down
-    // to Chromium 66 on stock Android 9/10) can't parse the bundle at all, so the
-    // Android shell gates on the WebView version and shows an "update System
-    // WebView" screen there instead of a blank editor (github#8).
+    // to Chromium 66 on stock Android 9/10) can't parse the bundle at all, so
+    // editor.html's ES5 preflight compiles this syntax up front and the Android
+    // shell shows an "update System WebView" screen instead of a blank editor
+    // (github#8). Raising this target means widening that preflight's probe.
     target: 'ES2020',
     outDir: nativeEditorOutDir,
     sourcemap: false,

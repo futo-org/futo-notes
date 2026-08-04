@@ -346,6 +346,27 @@
         ],
         "pattern": "enum (class )?EditorExit\\b"
       }
+    },
+    {
+      "concept": "editor-engine-unsupported-global",
+      "description": "The name of the pre-bridge global the editor.html ES5 capability preflight publishes its verdict on (window.__futoEngineUnsupported) and the Android host's probe program that reads it (EditorEngineSupport.kt ENGINE_PROBE_JS). Deliberately NOT part of the versioned futoBridge contract: the preflight has to work in exactly the case where the ES2020 bundle that owns bridge.ts failed to parse, and a bridge message would bump BRIDGE_VERSION and oblige both native hosts (M10) for a verdict only Android reads. A source-scan unit test holds the two spellings together.",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "editor.html",
+          "pattern": "window\\.__futoEngineUnsupported ="
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorEngineSupport.kt",
+          "pattern": "window\\.__futoEngineUnsupported"
+        }
+      ],
+      "locks": [
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorEngineSupportTest.kt",
+          "kind": "test"
+        }
+      ]
     }
   ]
 }
