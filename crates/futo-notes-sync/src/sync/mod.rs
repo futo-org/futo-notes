@@ -135,3 +135,5 @@ pub(crate) async fn cycle_with_checkpoint(
 
 #[cfg(test)]
 mod behavior_tests;
+#[cfg(test)]
+mod failure_boundary_tests;

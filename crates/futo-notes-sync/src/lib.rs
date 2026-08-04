@@ -4,6 +4,8 @@
 //! sync cycles mutually exclusive, persists progress, and runs live sync.
 
 mod checkpoint;
+#[cfg(test)]
+mod fault_injection;
 mod journal;
 mod open_note;
 mod server;
