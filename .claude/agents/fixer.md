@@ -1,6 +1,7 @@
 ---
 name: fixer
 description: Implements well-scoped bug fixes handed off by the orchestrator — root-cause diagnosis, minimal fix, tests where the layer supports them, compile/test verification. Not for exploratory work.
+model: opus
 effort: high
 ---
 
