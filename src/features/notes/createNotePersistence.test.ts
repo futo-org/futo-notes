@@ -143,7 +143,6 @@ describe('createNotePersistence', () => {
       content: 'my draft',
       title: ' Original ',
     });
-    // Before the reconcile re-reads from disk, or the copy is hidden until a rescan.
     expect(_applyLocalMutation).toHaveBeenCalledExactlyOnceWith(parkedMutation);
     expect(vi.mocked(_applyLocalMutation).mock.invocationCallOrder[0]).toBeLessThan(
       reconcileOpenNote.mock.invocationCallOrder[0],

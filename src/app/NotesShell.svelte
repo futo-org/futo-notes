@@ -78,7 +78,9 @@
     onNoteRenamed: (fromId, toId) => {
       if (fromId) tabsStore.applyRename(fromId, toId);
       else tabsStore.replaceTabNoteId(tabsStore.activeTabId, toId);
-      tabTransition.setLoadedNoteId(toId);
+      // A rename can land mid-switch; stamping the transition then marks a note it
+      // never loaded, and the next click on that row no-ops.
+      if (tabsStore.activeNoteId === toId) tabTransition.setLoadedNoteId(toId);
     },
     reconcileOpenNote: (id, parkedDraft) => reconcileOpenNote(id, parkedDraft),
     navigate,

@@ -187,8 +187,8 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await page.locator('.cm-content').click();
     await expect(page.locator('.note-row[data-note-id="Alpha Renamed"]')).toHaveClass(/selected/);
 
-    // The rename bumps mtime, so the row jumps to the top: any sampled state with
-    // rows but no selection means the projection and the new id split renders.
+    // The rename bumps mtime, so the row jumps to the top; rows without a
+    // selection means the projection and the new id split renders.
     const states = await page.evaluate(
       () => (window as unknown as { __states: Array<{ rows: number; selected: number }> }).__states,
     );
@@ -214,9 +214,27 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await expect(page.locator('.title-input')).toHaveValue('Neighbour');
   });
 
+  test('a renamed note reopens on the first click after switching away', async ({ page }) => {
+    await openNoteForRetitle(page, 'Reopen Note');
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('Other', 'other body');
+    });
+    await page.locator('.title-input').click();
+    await page.locator('.title-input').fill('Reopen Renamed');
+
+    await page.locator('.note-row[data-note-id="Other"]').click();
+    await expect(page.locator('.title-input')).toHaveValue('Other');
+
+    await page.locator('.note-row[data-note-id="Reopen Renamed"]').click();
+    await expect(page.locator('.title-input')).toHaveValue('Reopen Renamed');
+    await expect(page.locator('.cm-content')).toContainText('body');
+    await expect(page.locator('.note-row[data-note-id="Reopen Renamed"]')).toHaveClass(/selected/);
+  });
+
   test('dragging a renamed note into a folder still moves it', async ({ page }) => {
-    // The drop handler acts on the id captured at `dragstart`, so a rename landing
-    // mid-drag leaves it moving a file that no longer exists.
     await openNoteForRetitle(page, 'Drag Note');
     await page.evaluate(async () => {
       const win = window as unknown as {

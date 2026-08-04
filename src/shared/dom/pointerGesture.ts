@@ -16,8 +16,7 @@ function disarm(): void {
 
 function runWaiters(): void {
   disarm();
-  // A fresh gesture can start inside the window this one armed; its own release
-  // re-arms. The only drain point, so the only place that has to be sure.
+  // A fresh gesture can start inside the window this one armed; its release re-arms.
   if (pointersDown > 0 || dragging) return;
   const pending = waiters;
   waiters = [];
@@ -55,7 +54,6 @@ function armDrain(): void {
   // `dragstart` cancels the pointer, but the drop still acts on the id captured
   // when the drag began — a drag's release is `dragend`, which fires after `drop`.
   if (dragging || pointersDown > 0 || waiters.length === 0) return;
-  // A drag or a cancel delivers no click, so the fallback keeps work from stranding.
   clearFallback();
   window.addEventListener('click', onClick, { capture: true, once: true });
   fallbackTimer = window.setTimeout(runWaiters, 100);
@@ -87,8 +85,8 @@ function uninstall(): void {
 }
 
 if (typeof window !== 'undefined') {
-  // At import, not on first use: the first caller is itself a blur handler inside
-  // a press, so a lazy install would miss the `pointerdown` it needs.
+  // At import, not lazily: the first caller is a blur handler already inside a
+  // press, so it would miss the `pointerdown` it needs.
   install();
   // Otherwise HMR leaves the old listeners attached and every press counts twice.
   import.meta.hot?.dispose(uninstall);
@@ -96,10 +94,8 @@ if (typeof window !== 'undefined') {
 
 /**
  * Runs `fn` once no pointer gesture is in flight — immediately when none is.
- *
- * For work that moves elements the gesture is about to act on. `blur` fires on
- * pointer-DOWN, so reordering a list from a blur handler swaps the element under
- * the cursor. A drag counts as in flight until `dragend`.
+ * `blur` fires on pointer-DOWN, so reordering a list from a blur handler swaps
+ * the element under the cursor.
  */
 export function runWhenPointerIdle(fn: () => void): void {
   if (pointersDown === 0) {

@@ -164,9 +164,8 @@ export interface UpdateNoteResult {
   disposition: UpdateNoteDisposition;
   parkedId?: string;
   /**
-   * The caller applies this via `_applyLocalMutation` in the same synchronous
-   * block as its own identity update — split across two renders, the one in
-   * between has the selection pointing at an id the list no longer contains.
+   * Apply via `_applyLocalMutation` in the same synchronous block as the caller's
+   * own identity update, or the render in between selects a since-removed id.
    */
   unappliedMutation: LocalNoteMutation | null;
 }

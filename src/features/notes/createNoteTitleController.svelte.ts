@@ -75,8 +75,6 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
     options.focusEditor();
   }
 
-  // Done naming, so commit now rather than waiting out the long title debounce.
-  // Deferred because the rename re-sorts the list and blur fires on pointer-DOWN.
   function handleBlur(): void {
     runWhenPointerIdle(options.flushSave);
   }
