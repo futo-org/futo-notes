@@ -106,3 +106,11 @@ the other.
 - **Legacy WebViews are version-bound, not OS-bound.** The System WebView updates
   independently of Android, so editor rendering bugs track Chromium versions
   (github#8); minSdk 28.
+- **A WebView `versionName` is not a Chromium version.** Only Google's WebView
+  numbers itself with Chromium; a vendor provider uses its own scheme (Huawei
+  WebView 12.x/15.x on a modern Chromium), so comparing it against a Chromium
+  floor rejects working engines — it locked a Huawei P Smart 2021 out of the
+  editor with "needs 80 or newer. This device has version 15". Engine support is
+  therefore decided by capability (`editor.html`'s preflight +
+  `EditorEngineSupport.kt`), and the only version number that travels across
+  providers is the UA's `Chrome/<major>`, which is wording, not a gate.

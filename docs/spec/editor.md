@@ -63,16 +63,34 @@ this file states the behaviors a human cares about.
   token via the unlayered `[data-theme='dark']` variables and falling back to
   the literal light token. _(Android)_ → editor.html,
   tests/editor-embed-bridge.spec.ts (legacy WebView tests)
-- The editor needs a System WebView of **Chromium 80 or newer**: the bundle
-  targets ES2020, an `editor.html` `String.prototype.replaceAll` shim covers
-  Chromium 80–84 (Svelte 5's runtime would otherwise throw), and the editor uses
-  `textContent = ''` rather than `Element.replaceChildren` (Chromium 86) in its
-  own DOM code so tables and the slash menu work down to the floor too. Below the
-  floor — or when there is no WebView provider at all — the shell shows a native
-  "update Android System WebView" notice in place of a blank editor pane; the
-  rest of the app (native list/search/settings) still works. _(Android)_ →
-  editor.html, slashMenuRenderer.ts, tableEditorWidget.ts, vite.editor.config.ts,
-  LegacyWebViewNotice.kt, NoteEditorScreen.kt
+- The editor needs a System WebView engine of **Chromium 80 or newer**: the
+  bundle targets ES2020, an `editor.html` `String.prototype.replaceAll` shim
+  covers Chromium 80–84 (Svelte 5's runtime would otherwise throw), and the
+  editor uses `textContent = ''` rather than `Element.replaceChildren` (Chromium
+  86) in its own DOM code so tables and the slash menu work down to the floor
+  too. _(Android)_ → editor.html, slashMenuRenderer.ts, tableEditorWidget.ts,
+  vite.editor.config.ts
+- Whether an engine is supported is decided by **capability, never by a version
+  number**: the page reports what it couldn't parse and whether the editor
+  mounted, and the shell reads that. A WebView `versionName` is never consulted —
+  a vendor provider numbers itself (Huawei WebView 12.x/15.x on a modern
+  Chromium), so a version floor rejects working engines. _(Android)_ →
+  editor.html, EditorEngineSupport.kt, EditorWebView.kt,
+  tests/editor-embed-bridge.spec.ts (engine preflight tests)
+- A note whose editor can't run shows the native "update Android System WebView"
+  notice in place of a blank editor pane — when the engine reported a missing
+  capability, never produced a mounted editor, or there is no WebView provider at
+  all. The rest of the app (native list/search/settings) still works, and back
+  navigation from the notice needs no editor save. _(Android)_ →
+  LegacyWebViewNotice.kt, NoteEditorScreen.kt, EditorSession.kt
+  `exitWithoutEditor`
+- The notice names the engine the user has to act on: the Chromium major from the
+  WebView's User-Agent (the one version number that means the same thing across
+  providers) plus the provider package and its version. _(Android)_ →
+  LegacyWebViewNotice.kt, EditorEngineSupport.kt
+- iOS needs no such gate: WKWebView ships with the OS and the deployment floor is
+  far above the ES2020 syntax floor, so the preflight's verdict is always empty
+  there. _(iOS)_ → apps/ios/project.yml
 - Minimum supported OS is **Android 9 (API 28)** — `minSdk 28`. This is an OS
   floor independent of the System WebView (which updates through the store), so a
   supported Android 9/10 device can still fall below the Chromium floor above and

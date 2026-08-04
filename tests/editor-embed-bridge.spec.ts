@@ -763,6 +763,47 @@ test('legacy WebView (no native replaceAll): the editor.html shim lets the bundl
   await context.close();
 });
 
+// The engine capability preflight in editor.html — what the native host reads
+// instead of comparing WebView version numbers (github#8 follow-up;
+// apps/android/AGENTS.md has the vendor-WebView story). Both directions matter:
+// a modern engine must report nothing missing, and one below the ES2020 syntax
+// floor must say so.
+function engineVerdict(page: Page): Promise<string | null> {
+  return page.evaluate(
+    () => (window as unknown as { __futoEngineUnsupported: string | null }).__futoEngineUnsupported,
+  );
+}
+
+test('engine preflight: a modern engine reports no missing capability', async ({ page }) => {
+  expect(await engineVerdict(page)).toBeNull();
+});
+
+test('engine preflight: an engine below the ES2020 floor is reported unsupported', async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  // Simulate a pre-ES2020 parser: the preflight decides by compiling the syntax
+  // it needs through `new Function`, so make exactly that compilation throw the
+  // SyntaxError an old engine would. `prototype` is carried over so `instanceof
+  // Function` keeps working for everything else on the page. No host is
+  // installed — the verdict is set by a classic <head> script, before any bundle.
+  await context.addInitScript(() => {
+    const real = window.Function;
+    const stub = function (this: unknown, ...args: string[]) {
+      if (/\?\.|\?\?/.test(args[args.length - 1] ?? '')) {
+        throw new SyntaxError('simulated pre-ES2020 engine');
+      }
+      return (real as (...a: string[]) => unknown)(...args);
+    };
+    stub.prototype = real.prototype;
+    Object.defineProperty(window, 'Function', { value: stub, configurable: true });
+  });
+  const page = await context.newPage();
+  await page.goto(EDITOR_URL);
+  expect(await engineVerdict(page)).toContain('ES2020 syntax');
+  await context.close();
+});
+
 test('setNativeToolbar(true) hides the embed web toolbar shown on focus', async ({ page }) => {
   await hostSetContent(page, 'doc');
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());

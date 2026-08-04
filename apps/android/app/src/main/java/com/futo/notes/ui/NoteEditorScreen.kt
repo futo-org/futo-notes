@@ -115,9 +115,12 @@ fun NoteEditorScreen(
     // EditorWebView props) for the bridge-v2 imperative calls:
     // applyExternalContent (sync adopt) and insertImage (picker round-trip).
     val host = remember { EditorHost.get(context) }
-    // Gate the editor pane on the System WebView being new enough to run the
-    // bundle (github#8); the provider is fixed for the app's lifetime.
-    val webViewTooOld = remember { isWebViewTooOldForEditor() }
+    // Gate the editor pane on the boot outcome, not a WebView version
+    // (EditorEngineSupport.kt). Read as state, not remember{}, so a late verdict
+    // swaps the notice in — though the app-start prewarm normally settles it
+    // before the first note-open.
+    val hasWebViewProvider = remember { currentWebViewProvider() != null }
+    val editorPaneUnavailable = isEditorPaneUnavailable(hasWebViewProvider, host.engineFailure)
 
     var noteId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
     // TextFieldValue (not String) so we can control the selection: tapping a
@@ -160,7 +163,7 @@ fun NoteEditorScreen(
                 // The legacy-WebView notice (github#8) renders no editor, so
                 // Back must still work there with nothing to drain or commit.
                 override fun exitWithoutEditor() {
-                    if (webViewTooOld) navigate()
+                    if (editorPaneUnavailable) navigate()
                 }
 
                 override fun prepare() {
@@ -630,11 +633,9 @@ fun NoteEditorScreen(
             Spacer(Modifier.size(8.dp))
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                // A System WebView older than the editor bundle's engine floor
-                // can't run the editor at all (blank pane, github#8) — show a
-                // native "update WebView" notice there instead. Read once: the
-                // provider can't change while the app is running.
-                if (webViewTooOld) {
+                // An engine that can't run the bundle would paint a blank pane
+                // (github#8) — show the native "update WebView" notice instead.
+                if (editorPaneUnavailable) {
                     LegacyWebViewNotice()
                 } else {
                     EditorWebView(

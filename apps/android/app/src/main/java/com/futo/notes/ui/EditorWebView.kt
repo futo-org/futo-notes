@@ -201,6 +201,33 @@ class EditorHost private constructor(appContext: Context) {
     var recreations by mutableStateOf(0)
         private set
 
+    /**
+     * Why this WebView's engine can't run the editor bundle, or null while
+     * nothing says it can't — the boot OUTCOME, not a version number
+     * (EditorEngineSupport.kt). Because the host is pre-warmed at app start
+     * ([prewarm]), it is already decided by the first note-open; the editor
+     * screen reads it to swap in [LegacyWebViewNotice] instead of a blank pane.
+     */
+    var engineFailure by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * The bundle has parsed and mounted (`window.FutoEditor` exists) — the only
+     * thing this gate decides, so once it is true there is nothing left to probe.
+     *
+     * Deliberately NOT [isReady], which on bridge v7 means the whole
+     * `initialize(config)` round-trip came back (the `initialized` message) — a
+     * strictly later point. Gating on that would leave the notice one config
+     * round-trip away from an engine that demonstrably runs the editor, and would
+     * make an unrelated handshake bug look like an unsupported WebView.
+     */
+    private var engineBooted = false
+
+    /** The post-grace-period probe (see [ENGINE_BOOT_GRACE_MS]). Held as one
+     *  Runnable so a boot or a rebuild can cancel it — left queued, it would
+     *  keep a destroyed WebView alive for the rest of the grace period. */
+    private val graceProbe = Runnable { probeEngine(isFinal = true) }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(): WebView = WebView(appContext).apply {
         settings.javaScriptEnabled = true
@@ -247,8 +274,46 @@ class EditorHost private constructor(appContext: Context) {
                 main.post { rebuildWebView() }
                 return true
             }
+
+            // Ask the loaded page for the engine's capability verdict now
+            // (EditorEngineSupport.kt), and once more after the boot grace
+            // period in case the bundle is still mounting.
+            override fun onPageFinished(view: WebView?, url: String?) {
+                probeEngine(isFinal = false)
+                main.removeCallbacks(graceProbe)
+                main.postDelayed(graceProbe, ENGINE_BOOT_GRACE_MS)
+            }
         }
         loadUrl("file:///android_asset/editor.html")
+    }
+
+    /** Ask the page whether the editor bundle mounted, and record any failure.
+     *  Nothing to ask once the answer is in either direction — a recorded failure
+     *  is only ever cleared by a later boot or a rebuild. */
+    private fun probeEngine(isFinal: Boolean) {
+        if (engineBooted || engineFailure != null) return
+        val probed = webView
+        probed.evaluateJavascript(ENGINE_PROBE_JS) { raw ->
+            // A rebuild (renderer recovery) took over while the probe was in
+            // flight: that WebView's verdict is no longer this host's.
+            if (probed !== webView) return@evaluateJavascript
+            val probe = decodeJavascriptString(raw)
+            if (editorEngineBooted(probe)) {
+                markEngineBooted()
+                return@evaluateJavascript
+            }
+            val failure = editorEngineFailure(probe, isFinal) ?: return@evaluateJavascript
+            engineFailure = failure
+            Log.e("FutoEditor", "Editor engine can't run the bundle: $failure")
+        }
+    }
+
+    /** This engine runs the editor, whatever its provider calls itself: stop
+     *  probing, and disprove any failure a slow boot had already earned. */
+    private fun markEngineBooted() {
+        engineBooted = true
+        main.removeCallbacks(graceProbe)
+        engineFailure = null
     }
 
     var webView: WebView = createWebView()
@@ -259,14 +324,19 @@ class EditorHost private constructor(appContext: Context) {
      *  is destroyed; the new one reloads editor.html and gets the same host
      *  config on its 'ready', which restores the open note.
      *
-     *  Nothing but readiness needs resetting — the config is applied
-     *  unconditionally, so the dedupe markers [sendHostConfig] sets are correct
-     *  for the fresh page too. */
+     *  Nothing but readiness and the engine verdict needs resetting — the config
+     *  is applied unconditionally, so the dedupe markers [sendHostConfig] sets
+     *  are correct for the fresh page too. */
     private fun rebuildWebView() {
         val dead = webView
         (dead.parent as? ViewGroup)?.removeView(dead)
         dead.destroy()
         isReady = false
+        // The engine verdict is re-earned by the new WebView's own boot, and the
+        // dead one's pending probe must not outlive it.
+        main.removeCallbacks(graceProbe)
+        engineBooted = false
+        engineFailure = null
         webView = createWebView()
         recreations++
     }
@@ -282,6 +352,10 @@ class EditorHost private constructor(appContext: Context) {
             // this shell's per-note follow-up is meaningful.
             "initialized" -> {
                 isReady = true
+                // Only the bundle can send this, so it proves the engine ran it.
+                // A shortcut, never the gate: the gate is the probe (see
+                // [engineBooted]), which does not wait for the config round-trip.
+                markEngineBooted()
                 // The desired state can have moved (a sync adopt, a theme flip)
                 // between sending the config and this reply; each of these is
                 // deduped and so a no-op when it hasn't.

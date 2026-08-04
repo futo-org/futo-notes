@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import android.webkit.WebView
+import android.webkit.WebSettings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +22,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -33,63 +34,28 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 
 /**
- * Minimum System WebView Chromium major version the embedded editor can run in.
- *
- * The editor bundle targets ES2020 (optional chaining / nullish coalescing),
- * which only *parses* on Chromium 80+, and Svelte 5's runtime additionally calls
- * String.prototype.replaceAll (Chromium 85), shimmed back down to 80 in
- * editor.html. Below this floor the bundle throws on load and the editor never
- * mounts — a blank pane (github#8) — so the shell shows [LegacyWebViewNotice]
- * instead. Keep in step with `vite.editor.config.ts`'s build `target`.
- */
-const val MIN_SUPPORTED_WEBVIEW_MAJOR = 80
-
-/**
- * Chromium major version from a WebView versionName like "83.0.4103.106" → 83;
- * null when absent or unparseable. Pure seam, unit-tested in
- * LegacyWebViewNoticeTest without a device.
- */
-fun parseChromiumMajor(versionName: String?): Int? =
-    versionName?.substringBefore('.')?.toIntOrNull()
-
-/**
- * Whether a WebView versionName is new enough to run the editor. An unknown
- * version (null / unparseable) is treated as supported so a parsing quirk never
- * hides a working editor behind the notice.
- */
-fun isSupportedWebViewVersion(versionName: String?): Boolean {
-    val major = parseChromiumMajor(versionName) ?: return true
-    return major >= MIN_SUPPORTED_WEBVIEW_MAJOR
-}
-
-/** The active System WebView's Chromium major version (e.g. 83), or null when
- *  it can't be read. */
-fun webViewChromiumMajor(): Int? =
-    parseChromiumMajor(WebView.getCurrentWebViewPackage()?.versionName)
-
-/**
- * True when the editor can't run in the current System WebView: either there is
- * no provider at all (`getCurrentWebViewPackage()` null — the WebView can't even
- * be constructed) or the provider is below the floor. A provider whose version
- * string is merely unparseable is treated as supported, so a parse quirk never
- * hides a working editor behind the notice.
- */
-fun isWebViewTooOldForEditor(): Boolean {
-    val provider = WebView.getCurrentWebViewPackage() ?: return true
-    return !isSupportedWebViewVersion(provider.versionName)
-}
-
-/**
- * Shown in place of the editor WebView when [isWebViewTooOldForEditor] is true.
- * The rest of the app (native Compose list/search/settings) still works — only
- * the editor needs a modern engine — so this fills just the editor pane below
- * the note's native title, leaving the back button reachable.
+ * Shown in place of the editor WebView when the engine can't run the bundle
+ * ([isEditorPaneUnavailable]). The rest of the app (native Compose
+ * list/search/settings) still works — only the editor needs a modern engine —
+ * so this fills just the editor pane below the note's native title, leaving the
+ * back button reachable.
  */
 @Composable
 fun LegacyWebViewNotice(modifier: Modifier = Modifier) {
     val c = FutoTheme.colors
     val context = LocalContext.current
-    val current = webViewChromiumMajor()
+    // The provider and its engine are fixed for the app's lifetime, so resolve
+    // the wording once instead of on every recomposition.
+    val body = remember {
+        val provider = currentWebViewProvider()
+        editorEngineNoticeBody(
+            chromiumMajor = parseChromiumMajorFromUserAgent(
+                runCatching { WebSettings.getDefaultUserAgent(context) }.getOrNull(),
+            ),
+            providerName = provider?.packageName,
+            providerVersion = provider?.versionName,
+        )
+    }
 
     Column(
         modifier = modifier.fillMaxSize().padding(horizontal = 32.dp),
@@ -111,13 +77,7 @@ fun LegacyWebViewNotice(modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            buildString {
-                append("FUTO Notes' editor needs Android System WebView ")
-                append(MIN_SUPPORTED_WEBVIEW_MAJOR)
-                append(" or newer. ")
-                if (current != null) append("This device has version $current. ")
-                append("Update it from your app store, then reopen the note.")
-            },
+            body,
             style = FutoType.body,
             color = c.textSecondary,
             textAlign = TextAlign.Center,
@@ -142,7 +102,7 @@ fun LegacyWebViewNotice(modifier: Modifier = Modifier) {
  * that screen.
  */
 private fun openSystemWebViewListing(context: Context) {
-    val pkg = WebView.getCurrentWebViewPackage()?.packageName ?: "com.google.android.webview"
+    val pkg = currentWebViewProvider()?.packageName ?: "com.google.android.webview"
     val flags = Intent.FLAG_ACTIVITY_NEW_TASK
     try {
         context.startActivity(
