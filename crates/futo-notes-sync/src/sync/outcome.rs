@@ -405,3 +405,42 @@ pub(super) fn combine(mut push: SyncSummary, pull: SyncSummary) -> SyncSummary {
     remove_rename_ghost_ids(&mut push);
     push
 }
+
+#[cfg(test)]
+mod summary_shape_tests {
+    use super::*;
+
+    /// The tripwire for [`SyncSummary`]'s shape. The two shell projections
+    /// (`futo_notes_ffi::sync::contract` and the desktop
+    /// `sync::frontend_contract`) each assert losslessness by destructuring an
+    /// engine summary, but neither can name `decisions` — it is `pub(crate)`,
+    /// so both must end their patterns with `..`, and a new field would slip
+    /// past them silently. That is the failure this crate has to catch
+    /// instead: the native summary carried only counters for eight months
+    /// precisely because nothing forced a new field to be projected.
+    ///
+    /// Adding a field to `SyncSummary` breaks this pattern. When it does,
+    /// decide whether the field belongs in the shell contracts and update
+    /// BOTH twins — or, for engine-internal diagnostics like `decisions`,
+    /// list it below as deliberately not projected and say why.
+    #[test]
+    fn every_summary_field_is_either_projected_or_deliberately_internal() {
+        let SyncSummary {
+            // Projected to both shell families.
+            uploaded: _,
+            downloaded: _,
+            deleted: _,
+            conflicts: _,
+            local_writes_applied: _,
+            failures: _,
+            updated_ids: _,
+            deleted_ids: _,
+            peer_updated_ids: _,
+            peer_deleted_ids: _,
+            renamed: _,
+            // Deliberately NOT projected: instance-journal diagnostics. The
+            // shells build their summaries field by field and never see this.
+            decisions: _,
+        } = SyncSummary::default();
+    }
+}

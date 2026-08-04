@@ -363,27 +363,37 @@ mod tests {
     /// silently skipping the other. That asymmetry is exactly what let the
     /// native summary carry only counters for eight months.
     /// Twin: `futo_notes_ffi::sync::contract::projection_carries_every_engine_field`.
+    ///
+    /// The trailing `..` covers only `SyncSummary`'s `pub(crate) decisions`
+    /// field, which this crate cannot name. It does mean a newly added engine
+    /// field no longer breaks this pattern, so the exhaustiveness tripwire now
+    /// lives where every field IS nameable:
+    /// `futo_notes_sync::sync::outcome::summary_shape_tests`.
     #[test]
     fn projection_carries_every_engine_field() {
-        let engine = || futo_notes_sync::SyncSummary {
-            uploaded: 1,
-            downloaded: 2,
-            deleted: 3,
-            conflicts: 4,
-            local_writes_applied: 5,
-            failures: vec![futo_notes_sync::SyncFailure {
+        // Built from `default()` and then filled in, rather than with a struct
+        // literal, for the same `pub(crate) decisions` reason.
+        let engine = || {
+            let mut summary = futo_notes_sync::SyncSummary::default();
+            summary.uploaded = 1;
+            summary.downloaded = 2;
+            summary.deleted = 3;
+            summary.conflicts = 4;
+            summary.local_writes_applied = 5;
+            summary.failures = vec![futo_notes_sync::SyncFailure {
                 filename: "note.md".to_owned(),
                 kind: futo_notes_sync::FailureKind::Upload,
                 status_code: Some(500),
-            }],
-            updated_ids: vec!["updated".to_owned()],
-            deleted_ids: vec!["deleted".to_owned()],
-            peer_updated_ids: vec!["peer-updated".to_owned()],
-            peer_deleted_ids: vec!["peer-deleted".to_owned()],
-            renamed: vec![futo_notes_sync::RenamePair {
+            }];
+            summary.updated_ids = vec!["updated".to_owned()];
+            summary.deleted_ids = vec!["deleted".to_owned()];
+            summary.peer_updated_ids = vec!["peer-updated".to_owned()];
+            summary.peer_deleted_ids = vec!["peer-deleted".to_owned()];
+            summary.renamed = vec![futo_notes_sync::RenamePair {
                 from_id: "old".to_owned(),
                 to_id: "new".to_owned(),
-            }],
+            }];
+            summary
         };
         let futo_notes_sync::SyncSummary {
             uploaded,
@@ -397,6 +407,7 @@ mod tests {
             peer_updated_ids,
             peer_deleted_ids,
             renamed,
+            ..
         } = engine();
 
         let projected = SyncSummary::from(&engine());
