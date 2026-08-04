@@ -216,6 +216,19 @@ describe('committing the title without waiting out the debounce', () => {
     expect(updateNote).toHaveBeenCalledTimes(1);
     expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
   });
+
+  it('renames when the title field loses focus', async () => {
+    const session = createNoteSession(makeTitleDeps());
+    const { updateNote } = await import('./notes.svelte');
+
+    typeTitle(session, 'Grocery list');
+    session.handleTitleBlur();
+    // Microtasks only: reaching the 10 s backstop would rename regardless.
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(updateNote).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
+  });
 });
 
 describe('title debounce vs body debounce (character-loss race)', () => {

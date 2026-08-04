@@ -27,7 +27,6 @@ describe('runWhenPointerIdle', () => {
   it('holds the work until after the click the gesture delivers', () => {
     const run = vi.fn();
     fire('pointerdown');
-    // The caller is a blur handler, which fires during the press.
     runWhenPointerIdle(run);
     expect(run).not.toHaveBeenCalled();
 
@@ -35,7 +34,6 @@ describe('runWhenPointerIdle', () => {
     expect(run).not.toHaveBeenCalled();
 
     fire('click');
-    // Still queued: the click's own handlers have to finish first.
     expect(run).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(0);
@@ -83,22 +81,6 @@ describe('runWhenPointerIdle', () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it('recovers when a release is never delivered and the window loses focus', () => {
-    const run = vi.fn();
-    fire('pointerdown');
-    runWhenPointerIdle(run);
-    // Pointer released outside the window: no pointerup, no pointercancel.
-    expect(run).not.toHaveBeenCalled();
-
-    fire('blur');
-    expect(run).toHaveBeenCalledOnce();
-
-    // The stuck count is cleared, so the next blur commits immediately.
-    const later = vi.fn();
-    runWhenPointerIdle(later);
-    expect(later).toHaveBeenCalledOnce();
-  });
-
   it('waits for every held pointer before running', () => {
     const run = vi.fn();
     fire('pointerdown');
@@ -109,6 +91,117 @@ describe('runWhenPointerIdle', () => {
     vi.advanceTimersByTime(100);
     expect(run).not.toHaveBeenCalled();
 
+    fire('pointerup');
+    fire('click');
+    vi.advanceTimersByTime(0);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('recovers when a release is never delivered and the window loses focus', () => {
+    const run = vi.fn();
+    fire('pointerdown');
+    runWhenPointerIdle(run);
+    expect(run).not.toHaveBeenCalled(); // no pointerup, no pointercancel
+
+    fire('blur');
+    expect(run).toHaveBeenCalledOnce();
+
+    const later = vi.fn();
+    runWhenPointerIdle(later);
+    expect(later).toHaveBeenCalledOnce();
+  });
+});
+
+describe('runWhenPointerIdle during a drag', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    _resetPointerGestureForTest();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    _resetPointerGestureForTest();
+  });
+
+  it('holds the work for the whole drag, not just to the pointercancel', () => {
+    const run = vi.fn();
+    fire('pointerdown');
+    runWhenPointerIdle(run);
+
+    fire('dragstart');
+    fire('pointercancel');
+    vi.advanceTimersByTime(1000);
+    expect(run).not.toHaveBeenCalled();
+
+    fire('drop');
+    fire('dragend');
+    vi.advanceTimersByTime(100);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('keeps waiting after a drag ends while another pointer is still held', () => {
+    const run = vi.fn();
+    fire('pointerdown');
+    runWhenPointerIdle(run);
+    fire('pointerdown');
+
+    fire('dragstart');
+    fire('pointercancel');
+    fire('dragend');
+    vi.advanceTimersByTime(100);
+    expect(run).not.toHaveBeenCalled();
+
+    fire('pointerup');
+    fire('click');
+    vi.advanceTimersByTime(0);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('does not let a fallback armed by an earlier gesture drain into a new drag', () => {
+    const run = vi.fn();
+    fire('pointerdown');
+    runWhenPointerIdle(run);
+
+    fire('dragstart');
+    fire('pointercancel');
+    fire('dragend');
+
+    vi.advanceTimersByTime(50);
+    fire('pointerdown');
+    fire('dragstart');
+    fire('pointercancel');
+    vi.advanceTimersByTime(50);
+    expect(run).not.toHaveBeenCalled();
+
+    fire('dragend');
+    vi.advanceTimersByTime(100);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('does not drain on a window blur that arrives mid-drag', () => {
+    const run = vi.fn();
+    fire('pointerdown');
+    runWhenPointerIdle(run);
+    fire('dragstart');
+    fire('pointercancel');
+
+    fire('blur');
+    vi.advanceTimersByTime(100);
+    expect(run).not.toHaveBeenCalled();
+
+    fire('dragend');
+    vi.advanceTimersByTime(100);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('recovers on the next press when dragend is never delivered', () => {
+    const run = vi.fn();
+    fire('pointerdown');
+    runWhenPointerIdle(run);
+    fire('dragstart');
+    fire('pointercancel');
+
+    fire('pointerdown');
     fire('pointerup');
     fire('click');
     vi.advanceTimersByTime(0);

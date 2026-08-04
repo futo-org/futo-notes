@@ -164,13 +164,11 @@ export interface UpdateNoteResult {
   disposition: UpdateNoteDisposition;
   parkedId?: string;
   /**
-   * The committed mutation, NOT yet projected — the caller applies it via
-   * `_applyLocalMutation` in the same synchronous block as its own identity
-   * update, so a rename's row change and the new selection reach the DOM in
-   * one render. Applying it here instead would render once in between, with
-   * the selection pointing at an id the list no longer contains.
+   * The caller applies this via `_applyLocalMutation` in the same synchronous
+   * block as its own identity update — split across two renders, the one in
+   * between has the selection pointing at an id the list no longer contains.
    */
-  mutation: LocalNoteMutation | null;
+  unappliedMutation: LocalNoteMutation | null;
 }
 
 export async function updateNote(
@@ -191,7 +189,7 @@ export async function updateNote(
         mtime: getNoteById(originalId)?.modificationTime ?? Date.now(),
         disposition: 'parked',
         parkedId: flush.disposition.parkedId,
-        mutation: flush.mutation,
+        unappliedMutation: flush.mutation,
       };
     }
 
@@ -202,13 +200,18 @@ export async function updateNote(
           ? (getNoteById(originalId)?.modificationTime ?? Date.now())
           : mtimeFor(flush.mutation, originalId),
       disposition: flush.disposition.kind,
-      mutation: flush.mutation,
+      unappliedMutation: flush.mutation,
     };
   }
 
   const mutation = await store.save(originalId ?? null, id, content, overrideMtime);
   const savedId = mutation.finalId ?? id;
-  return { id: savedId, mtime: mtimeFor(mutation, savedId), disposition: 'wrote', mutation };
+  return {
+    id: savedId,
+    mtime: mtimeFor(mutation, savedId),
+    disposition: 'wrote',
+    unappliedMutation: mutation,
+  };
 }
 
 export async function moveNote(

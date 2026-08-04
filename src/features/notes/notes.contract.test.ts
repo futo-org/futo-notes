@@ -65,9 +65,8 @@ function preview(id: string): NotePreview {
   return { id, title: id, preview: '', modificationTime: 1, tags: [] };
 }
 
-/** `updateNote` hands its mutation back unprojected; this is the caller's half. */
-function projectAsCallerWould(result: { mutation: LocalNoteMutation | null }): void {
-  if (result.mutation) _applyLocalMutation(result.mutation);
+function projectAsCallerWould(result: { unappliedMutation: LocalNoteMutation | null }): void {
+  if (result.unappliedMutation) _applyLocalMutation(result.unappliedMutation);
 }
 
 function fakeStore(overrides: Partial<LocalNoteStore> = {}): LocalNoteStore {
@@ -145,7 +144,7 @@ describe('TypeScript local-note projection', () => {
       base: 'saved body',
     });
 
-    expect(result).toMatchObject({ id: 'Note', disposition, mutation: committed });
+    expect(result).toMatchObject({ id: 'Note', disposition, unappliedMutation: committed });
     expect(flushDraft).toHaveBeenCalledWith('Note', 'saved body', 'latest body');
     expect(save).not.toHaveBeenCalled();
     projectAsCallerWould(result);

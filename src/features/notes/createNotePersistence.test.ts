@@ -115,7 +115,7 @@ describe('createNotePersistence', () => {
       mtime: 123,
       disposition: 'parked',
       parkedId: 'Original (conflict 2026-07-29)',
-      mutation: parkedMutation,
+      unappliedMutation: parkedMutation,
     });
     const onSaved = vi.fn();
     const reconcileOpenNote = vi.fn(async () => true);
@@ -143,8 +143,7 @@ describe('createNotePersistence', () => {
       content: 'my draft',
       title: ' Original ',
     });
-    // The conflict copy must reach the list, and before the reconcile re-reads
-    // the original from disk — dropping it hides the copy until a rescan.
+    // Before the reconcile re-reads from disk, or the copy is hidden until a rescan.
     expect(_applyLocalMutation).toHaveBeenCalledExactlyOnceWith(parkedMutation);
     expect(vi.mocked(_applyLocalMutation).mock.invocationCallOrder[0]).toBeLessThan(
       reconcileOpenNote.mock.invocationCallOrder[0],

@@ -75,11 +75,8 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
     options.focusEditor();
   }
 
-  /**
-   * Leaving the field means the user is done naming, so commit the rename now
-   * instead of waiting out the long title debounce. Deferred past any held
-   * pointer: the rename re-sorts the note list, and blur fires on pointer-DOWN.
-   */
+  // Done naming, so commit now rather than waiting out the long title debounce.
+  // Deferred because the rename re-sorts the list and blur fires on pointer-DOWN.
   function handleBlur(): void {
     runWhenPointerIdle(options.flushSave);
   }

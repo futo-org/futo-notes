@@ -74,7 +74,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         originalId: state.originalId ?? undefined,
         base: state.savedContent,
       });
-      if (result.mutation) _applyLocalMutation(result.mutation);
+      if (result.unappliedMutation) _applyLocalMutation(result.unappliedMutation);
       if (result.disposition === 'parked') {
         await options.reconcileOpenNote(result.id, { content: editorContent, title: state.title });
         return false;

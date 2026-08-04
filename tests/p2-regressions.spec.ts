@@ -147,8 +147,6 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await openNoteForRetitle(page, 'Inert Note');
     await page.locator('.title-input').fill('Inert Renamed');
 
-    // Not the body and not another note — just somewhere that takes focus off
-    // the title. The commit must not wait for the 10 s backstop.
     await page.locator('.drawer-search-area').click();
 
     await expect(page.locator('.note-row[data-note-id="Inert Renamed"]')).toHaveCount(1);
@@ -189,9 +187,8 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await page.locator('.cm-content').click();
     await expect(page.locator('.note-row[data-note-id="Alpha Renamed"]')).toHaveClass(/selected/);
 
-    // A rename bumps mtime, so the row jumps to the top of the engine-ordered
-    // list. The projection and the session's new id must reach the DOM in the
-    // same render: any sampled state with rows but no selection is a flicker.
+    // The rename bumps mtime, so the row jumps to the top: any sampled state with
+    // rows but no selection means the projection and the new id split renders.
     const states = await page.evaluate(
       () => (window as unknown as { __states: Array<{ rows: number; selected: number }> }).__states,
     );
@@ -215,6 +212,48 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await expect(page.locator('.note-row[data-note-id="Switch Renamed"]')).toHaveCount(1);
     await expect(page.locator('.note-row[data-note-id="Switch Note"]')).toHaveCount(0);
     await expect(page.locator('.title-input')).toHaveValue('Neighbour');
+  });
+
+  test('dragging a renamed note into a folder still moves it', async ({ page }) => {
+    // The drop handler acts on the id captured at `dragstart`, so a rename landing
+    // mid-drag leaves it moving a file that no longer exists.
+    await openNoteForRetitle(page, 'Drag Note');
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('Work/placeholder', 'body');
+    });
+    await page.locator('.title-input').click();
+    await page.locator('.title-input').fill('Drag Renamed');
+
+    const row = await page.locator('.note-row[data-note-id="Drag Note"]').boundingBox();
+    const folder = await page.locator('[data-folder-path="Work"]').first().boundingBox();
+    if (!row || !folder) throw new Error('setup: missing note row or folder row');
+
+    // Must be pointer-driven: synthetic DragEvents fire no pointercancel.
+    await page.mouse.move(row.x + row.width / 2, row.y + row.height / 2);
+    await page.mouse.down();
+    for (let step = 1; step <= 12; step++) {
+      await page.mouse.move(
+        row.x + row.width / 2 + ((folder.x - row.x) * step) / 12,
+        row.y + row.height / 2 + ((folder.y - row.y) * step) / 12,
+      );
+      // Duration is input, not a condition wait: a real drag outlasts the deferral.
+      await page.waitForTimeout(30);
+    }
+    await page.mouse.up();
+
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          const win = window as unknown as {
+            __testNotes: { getAllNotes: () => Array<{ id: string }> };
+          };
+          return win.__testNotes.getAllNotes().map((note) => note.id);
+        }),
+      )
+      .toContain('Work/Drag Renamed');
   });
 
   // Toggle formatting via CM6 view (toolbar is mobile-only, not available in Playwright)
