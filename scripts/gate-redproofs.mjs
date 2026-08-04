@@ -96,6 +96,23 @@ const TITLE_KOTLIN = 'apps/android/app/src/main/java/com/futo/notes/ui/TitleSpec
 const BRIDGE_SWIFT = 'apps/ios/Sources/Editor/GeneratedContracts/BridgeSpec.swift';
 const BRIDGE_KOTLIN = 'apps/android/app/src/main/java/com/futo/notes/ui/BridgeSpec.kt';
 
+// The live closure probe the `spec-gaps/closure-probe-fires` proof borrows (issue
+// #80, the Android dropped-keystroke divergence). A closure probe fires only when
+// BOTH halves line up — a gap note its `match` hits, and codebase evidence its
+// `closed()` finds — so the proof has to seed both. These name the two halves:
+// the phrase the probe matches on, and the file plus the vocabulary its
+// `closed()` greps for.
+//
+// A probe is retired the moment its gap closes, which is a NORMAL, healthy
+// event — so the proof asserts the coupling itself and fails loudly with
+// instructions when this probe goes. Do not silently delete the proof: repoint
+// these four constants at another live probe in scripts/spec-gaps.mjs.
+const CLOSURE_PROBE_GAP_PHRASE = 'destructive latch is DROPPED on Android';
+const CLOSURE_PROBE_EVIDENCE_FILE =
+  'apps/android/app/src/main/java/com/futo/notes/ui/EditorSession.kt';
+const CLOSURE_PROBE_EVIDENCE_ANCHOR = 'package com.futo.notes.ui';
+const CLOSURE_PROBE_EVIDENCE_VOCAB = 'quarantine';
+
 // ---------------------------------------------------------------------------
 // Seeding helpers — every mutation goes through these so revert stays simple
 // ---------------------------------------------------------------------------
@@ -356,16 +373,44 @@ const PROOFS = [
     gate: 'spec-gaps',
     id: 'closure-probe-fires',
     seeded:
-      'added a `> **Gap:**` note to docs/spec/settings.md whose closure probe already has codebase evidence',
+      'added a `> **Gap:**` note to docs/spec/settings.md AND the codebase evidence that makes its closure probe fire',
     claim: 'a recorded gap the codebase shows as implemented must fail, so the spec gets updated',
-    inject: (wt) =>
+    // BOTH halves are seeded deliberately. A closure probe fires only when a gap
+    // note matches AND `closed()` finds evidence in the tree, so seeding the note
+    // alone can never turn one red — which is exactly how this proof shipped:
+    // it asserted the `iOS.* app has no Settings surface` probe that had been
+    // retired (correctly — iOS grew a Settings surface) long before, so it was
+    // red from the moment it merged, and its `fix:` line sent readers after a
+    // probe that no longer existed. Seeding the evidence too makes the proof
+    // exercise the PROBES mechanism instead of depending on whichever real gap
+    // happens to be open.
+    inject: (wt) => {
+      // Assert the borrowed probe still exists BEFORE seeding, so its retirement
+      // reads as `inject-failed` with instructions rather than a bare
+      // `marker-missing` that leaves the next person guessing.
+      if (!seed.read(wt, 'scripts/spec-gaps.mjs').includes(CLOSURE_PROBE_GAP_PHRASE)) {
+        throw new Error(
+          `no closure probe in scripts/spec-gaps.mjs matches ` +
+            `${JSON.stringify(CLOSURE_PROBE_GAP_PHRASE)} — it was almost certainly retired ` +
+            `when its gap closed, which is normal. Repoint the CLOSURE_PROBE_* constants in ` +
+            `scripts/gate-redproofs.mjs at another live probe and the evidence its closed() ` +
+            `greps for. Do not delete this proof.`,
+        );
+      }
       seed.append(
         wt,
         'docs/spec/settings.md',
-        '\n> **Gap:** REDPROOF-SENTINEL the iOS native app has no Settings surface.\n',
-      ),
+        `\n> **Gap:** REDPROOF-SENTINEL ${CLOSURE_PROBE_GAP_PHRASE}.\n`,
+      );
+      seed.replace(
+        wt,
+        CLOSURE_PROBE_EVIDENCE_FILE,
+        CLOSURE_PROBE_EVIDENCE_ANCHOR,
+        `${CLOSURE_PROBE_EVIDENCE_ANCHOR}\n\n// ${CLOSURE_PROBE_EVIDENCE_VOCAB}: seeded by scripts/gate-redproofs.mjs`,
+      );
+    },
     expect: ['Closure probe fired for settings.md:', 'REDPROOF-SENTINEL'],
-    fix: 'the PROBES loop in scripts/spec-gaps.mjs stopped running, or the iOS-Settings probe no longer matches. Closure probes are what stop docs/spec/ recording gaps that were fixed months ago.',
+    fix: `the PROBES loop in scripts/spec-gaps.mjs stopped running, or the probe matching ${JSON.stringify(CLOSURE_PROBE_GAP_PHRASE)} no longer reports its hits. Closure probes are what stop docs/spec/ recording gaps that were fixed months ago. If that probe was retired because its gap closed, this proof throws from inject() with repointing instructions instead of reaching here.`,
   },
   {
     gate: 'spec-gaps',
