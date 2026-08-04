@@ -1,14 +1,13 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, Mutex};
 
 use crate::checkpoint::ConnectedState;
-use crate::sync::PreWrite;
 
 use super::super::{connect, SyncSessionListener};
 use super::connected_stream::{run_connected_stream, LiveCycle, LiveSchedule, StreamOutcome};
+use super::LiveTaskContext;
 
 const RECONNECT_BACKOFF_MIN: Duration = Duration::from_secs(1);
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
@@ -26,14 +25,18 @@ enum ReconnectOutcome {
 }
 
 pub(super) async fn run_live_task(
-    state: Arc<Mutex<Option<ConnectedState>>>,
-    cycle_gate: Arc<Mutex<()>>,
-    root: PathBuf,
-    listener: Arc<dyn SyncSessionListener>,
-    pre_write: Arc<PreWrite>,
+    context: LiveTaskContext,
     mut cancel: mpsc::Receiver<()>,
     mut note_changed: mpsc::Receiver<()>,
 ) {
+    let LiveTaskContext {
+        state,
+        cycle_gate,
+        root,
+        listener,
+        pre_write,
+        journal,
+    } = context;
     let mut schedule = LiveSchedule::start().await;
     let mut reconnect_backoff = RECONNECT_BACKOFF_MIN;
 
@@ -59,6 +62,7 @@ pub(super) async fn run_live_task(
             &root,
             listener.as_ref(),
             pre_write.as_ref(),
+            &journal,
         );
         if matches!(
             run_connected_stream(

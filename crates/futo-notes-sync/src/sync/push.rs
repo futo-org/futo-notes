@@ -16,8 +16,8 @@ use super::tombstones::recover_stale_claims;
 use super::vault::{local_files, read_content, write_content, LocalFile};
 use super::vault_fs;
 use super::{
-    CycleFailure, FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind,
-    SyncFailure, SyncProgress, SyncSummary,
+    decision, CycleFailure, FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint,
+    SyncErrorKind, SyncFailure, SyncPhase, SyncProgress, SyncSummary,
 };
 
 pub(super) struct Upload<'a> {
@@ -26,6 +26,30 @@ pub(super) struct Upload<'a> {
     pub(super) hash: String,
     pub(super) size: u64,
     pub(super) mtime: i64,
+    /// Why this file is being created rather than updated — the journal's
+    /// per-file reason, which the caller knows and `create_fresh` does not.
+    pub(super) reason: &'static str,
+}
+
+/// Reasons a push takes the branch it does, named once so the journal reads the
+/// same way from every site.
+mod reason {
+    pub(super) const NOT_ON_SERVER: &str = "not_on_server";
+    pub(super) const REMOTE_OBJECT_DELETED: &str = "remote_object_was_deleted";
+    pub(super) const LOCAL_CONTENT_CHANGED: &str = "local_content_changed";
+    pub(super) const SERVER_REJECTED_413: &str = "server_rejected_413";
+    pub(super) const UNCHANGED_SINCE_413: &str = "unchanged_since_413";
+    pub(super) const LOCAL_FILE_GONE: &str = "local_file_gone";
+    pub(super) const SAME_HASH_AND_BASENAME: &str = "same_hash_and_basename";
+    pub(super) const DELETE_LOST_TO_REMOTE_EDIT: &str = "delete_lost_to_remote_edit";
+    pub(super) const ENCRYPT_ERROR: &str = "encrypt_error";
+    pub(super) const READ_ERROR: &str = "read_error";
+    pub(super) const UPLOAD_ERROR: &str = "upload_error";
+    pub(super) const DELETE_ERROR: &str = "delete_error";
+}
+
+fn status_detail(status: Option<u16>) -> String {
+    status.map_or_else(|| "no status".to_owned(), |status| format!("HTTP {status}"))
 }
 
 pub(super) async fn create_fresh(
@@ -42,6 +66,12 @@ pub(super) async fn create_fresh(
                 kind: FailureKind::Upload,
                 status_code: None,
             });
+            summary.decide(
+                SyncPhase::Push,
+                upload.name,
+                decision::FAILED,
+                reason::ENCRYPT_ERROR,
+            );
             return None;
         }
     };
@@ -50,11 +80,23 @@ pub(super) async fn create_fresh(
             state.max_version = state.max_version.max(write.collection_version);
             state.oversize_skip.remove(upload.name);
             summary.uploaded += 1;
+            summary.decide(
+                SyncPhase::Push,
+                upload.name,
+                decision::UPLOADED_NEW,
+                upload.reason,
+            );
             Some(object_state(&write, upload.hash, upload.size))
         }
         Err(error) if error.is(413) => {
             state.oversize_skip.insert(upload.name.into(), upload.mtime);
             summary.conflicts += 1;
+            summary.decide(
+                SyncPhase::Push,
+                upload.name,
+                decision::SKIPPED_OVERSIZE,
+                reason::SERVER_REJECTED_413,
+            );
             None
         }
         Err(error) => {
@@ -63,6 +105,13 @@ pub(super) async fn create_fresh(
                 kind: FailureKind::Upload,
                 status_code: error.status,
             });
+            summary.decide_with(
+                SyncPhase::Push,
+                upload.name,
+                decision::FAILED,
+                reason::UPLOAD_ERROR,
+                status_detail(error.status),
+            );
             None
         }
     }
@@ -92,6 +141,12 @@ async fn update_existing(
                 kind: FailureKind::Upload,
                 status_code: None,
             });
+            context.summary.decide(
+                SyncPhase::Push,
+                &file.name,
+                decision::FAILED,
+                reason::ENCRYPT_ERROR,
+            );
             return None;
         }
     };
@@ -114,6 +169,7 @@ async fn update_existing(
                 hash,
                 size: file.size,
                 mtime: file.mtime,
+                reason: reason::REMOTE_OBJECT_DELETED,
             },
             context.summary,
         )
@@ -123,6 +179,12 @@ async fn update_existing(
             context.state.max_version = context.state.max_version.max(write.collection_version);
             context.state.oversize_skip.remove(&file.name);
             context.summary.uploaded += 1;
+            context.summary.decide(
+                SyncPhase::Push,
+                &file.name,
+                decision::UPLOADED_UPDATE,
+                reason::LOCAL_CONTENT_CHANGED,
+            );
             Some((file.name.clone(), object_state(&write, hash, file.size)))
         }
         Ok(Mutation::Conflict(conflict)) => {
@@ -143,6 +205,12 @@ async fn update_existing(
                 .oversize_skip
                 .insert(file.name.clone(), file.mtime);
             context.summary.conflicts += 1;
+            context.summary.decide(
+                SyncPhase::Push,
+                &file.name,
+                decision::SKIPPED_OVERSIZE,
+                reason::SERVER_REJECTED_413,
+            );
             None
         }
         Err(error) => {
@@ -151,6 +219,13 @@ async fn update_existing(
                 kind: FailureKind::Upload,
                 status_code: error.status,
             });
+            context.summary.decide_with(
+                SyncPhase::Push,
+                &file.name,
+                decision::FAILED,
+                reason::UPLOAD_ERROR,
+                status_detail(error.status),
+            );
             None
         }
     }
@@ -214,6 +289,13 @@ fn detect_local_renames(
         state.object_map.insert(file.name.clone(), entry.clone());
         claimed_missing.insert(old.clone());
         renamed_files.insert(file.name.clone());
+        summary.decide_with(
+            SyncPhase::Push,
+            old,
+            decision::RENAME_DETECTED,
+            reason::SAME_HASH_AND_BASENAME,
+            file.name.clone(),
+        );
         summary.renamed.push(RenamePair {
             from_id: note_id(old),
             to_id: note_id(&file.name),
@@ -248,6 +330,12 @@ fn reuse_unchanged_object(
 async fn push_local_file(mut context: PushContext<'_>, file: &LocalFile, renamed: bool) -> bool {
     if context.state.oversize_skip.get(&file.name) == Some(&file.mtime) {
         context.summary.conflicts += 1;
+        context.summary.decide(
+            SyncPhase::Push,
+            &file.name,
+            decision::SKIPPED_OVERSIZE,
+            reason::UNCHANGED_SINCE_413,
+        );
         return false;
     }
     let existing = context.state.object_map.get(&file.name).cloned();
@@ -266,6 +354,12 @@ async fn push_local_file(mut context: PushContext<'_>, file: &LocalFile, renamed
                 kind: FailureKind::Upload,
                 status_code: None,
             });
+            context.summary.decide(
+                SyncPhase::Push,
+                &file.name,
+                decision::FAILED,
+                reason::READ_ERROR,
+            );
             return false;
         }
     };
@@ -287,6 +381,7 @@ async fn push_local_file(mut context: PushContext<'_>, file: &LocalFile, renamed
                 hash,
                 size: file.size,
                 mtime: file.mtime,
+                reason: reason::NOT_ON_SERVER,
             },
             context.summary,
         )
@@ -370,6 +465,13 @@ async fn apply_delete_conflict(
     context.summary.conflicts += 1;
     context.summary.local_writes_applied += 1;
     context.summary.peer_updated_ids.push(note_id(&target));
+    context.summary.decide_with(
+        SyncPhase::Push,
+        name,
+        decision::DOWNLOADED,
+        reason::DELETE_LOST_TO_REMOTE_EDIT,
+        target.clone(),
+    );
     Ok(())
 }
 
@@ -406,15 +508,30 @@ async fn delete_missing_objects(
                 context.state.object_map.remove(&name);
                 context.summary.deleted += 1;
                 context.summary.deleted_ids.push(note_id(&name));
+                context.summary.decide(
+                    SyncPhase::Push,
+                    &name,
+                    decision::DELETED_REMOTE,
+                    reason::LOCAL_FILE_GONE,
+                );
             }
             Ok(Mutation::Conflict(_)) => {
                 apply_delete_conflict(&mut context, &name, &entry).await?;
             }
-            Err(error) => context.summary.failures.push(SyncFailure {
-                filename: name,
-                kind: FailureKind::Delete,
-                status_code: error.status,
-            }),
+            Err(error) => {
+                context.summary.failures.push(SyncFailure {
+                    filename: name.clone(),
+                    kind: FailureKind::Delete,
+                    status_code: error.status,
+                });
+                context.summary.decide_with(
+                    SyncPhase::Push,
+                    &name,
+                    decision::FAILED,
+                    reason::DELETE_ERROR,
+                    status_detail(error.status),
+                );
+            }
         }
     }
     Ok(())

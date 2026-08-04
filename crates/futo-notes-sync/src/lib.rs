@@ -4,6 +4,7 @@
 //! sync cycles mutually exclusive, persists progress, and runs live sync.
 
 mod checkpoint;
+mod journal;
 mod open_note;
 mod server;
 mod session;
@@ -12,6 +13,7 @@ mod sync;
 use std::path::Path;
 
 pub use checkpoint::{ConnectedState, ObjectState as E2eeObjectMapEntry};
+pub use journal::SyncTrigger;
 pub use open_note::{classify_open_note, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts};
 pub use session::{ResumeCredentials, SyncSession, SyncSessionListener};
 pub use sync::{
@@ -70,7 +72,17 @@ pub async fn run_sync(
     progress: &Progress,
     pre_write: &PreWrite,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
-    sync::cycle(state, root, progress, pre_write).await
+    // The journal is attached to a `SyncSession`, which this compatibility
+    // wrapper does not have; the acceptance tests that call it assert on files
+    // and summaries, not on journal contents.
+    sync::cycle(
+        state,
+        root,
+        progress,
+        pre_write,
+        &journal::SyncRunJournal::disabled(),
+    )
+    .await
 }
 
 #[doc(hidden)]

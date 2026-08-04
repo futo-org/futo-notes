@@ -5,12 +5,24 @@ mod runner;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futo_notes_core::journal::Journal;
 use tokio::sync::{mpsc, Mutex};
 
 use crate::checkpoint::ConnectedState;
 use crate::sync::PreWrite;
 
 use super::SyncSessionListener;
+
+/// Everything the live task owns for its whole lifetime — the same set it hands
+/// to a fresh `LiveCycle` after every reconnect.
+pub(super) struct LiveTaskContext {
+    pub(super) state: Arc<Mutex<Option<ConnectedState>>>,
+    pub(super) cycle_gate: Arc<Mutex<()>>,
+    pub(super) root: PathBuf,
+    pub(super) listener: Arc<dyn SyncSessionListener>,
+    pub(super) pre_write: Arc<PreWrite>,
+    pub(super) journal: Journal,
+}
 
 pub(super) struct LiveTask {
     cancel: mpsc::Sender<()>,
@@ -40,15 +52,19 @@ pub(super) fn spawn_live_task(
     root: PathBuf,
     listener: Arc<dyn SyncSessionListener>,
     pre_write: Arc<PreWrite>,
+    journal: Journal,
 ) -> LiveTask {
     let (cancel_sender, cancel_receiver) = mpsc::channel(1);
     let (note_changed_sender, note_changed_receiver) = mpsc::channel(1);
     let task = tokio::spawn(runner::run_live_task(
-        state,
-        cycle_gate,
-        root,
-        listener,
-        pre_write,
+        LiveTaskContext {
+            state,
+            cycle_gate,
+            root,
+            listener,
+            pre_write,
+            journal,
+        },
         cancel_receiver,
         note_changed_receiver,
     ));

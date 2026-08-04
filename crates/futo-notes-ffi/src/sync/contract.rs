@@ -209,27 +209,30 @@ impl From<sync::SyncSummary> for SyncSummary {
 mod tests {
     use super::*;
 
+    // Built from `default()` and then filled in, rather than with a struct
+    // literal: `SyncSummary` carries an engine-internal `pub(crate) decisions`
+    // field for the instance journal that this crate cannot name.
     fn engine_summary() -> sync::SyncSummary {
-        sync::SyncSummary {
-            uploaded: 1,
-            downloaded: 2,
-            deleted: 3,
-            conflicts: 4,
-            local_writes_applied: 5,
-            failures: vec![sync::SyncFailure {
-                filename: "note.md".to_owned(),
-                kind: sync::FailureKind::Upload,
-                status_code: Some(500),
-            }],
-            updated_ids: vec!["updated".to_owned()],
-            deleted_ids: vec!["deleted".to_owned()],
-            peer_updated_ids: vec!["peer-updated".to_owned()],
-            peer_deleted_ids: vec!["peer-deleted".to_owned()],
-            renamed: vec![sync::RenamePair {
-                from_id: "old".to_owned(),
-                to_id: "new".to_owned(),
-            }],
-        }
+        let mut summary = sync::SyncSummary::default();
+        summary.uploaded = 1;
+        summary.downloaded = 2;
+        summary.deleted = 3;
+        summary.conflicts = 4;
+        summary.local_writes_applied = 5;
+        summary.failures = vec![sync::SyncFailure {
+            filename: "note.md".to_owned(),
+            kind: sync::FailureKind::Upload,
+            status_code: Some(500),
+        }];
+        summary.updated_ids = vec!["updated".to_owned()];
+        summary.deleted_ids = vec!["deleted".to_owned()];
+        summary.peer_updated_ids = vec!["peer-updated".to_owned()];
+        summary.peer_deleted_ids = vec!["peer-deleted".to_owned()];
+        summary.renamed = vec![sync::RenamePair {
+            from_id: "old".to_owned(),
+            to_id: "new".to_owned(),
+        }];
+        summary
     }
 
     /// The projection is lossless: every semantic field the engine computes
@@ -238,6 +241,12 @@ mod tests {
     /// rename and fell back to a whole-vault rescan after every cycle. A new
     /// engine field must appear here (and in the desktop contract) or this
     /// destructuring stops compiling.
+    ///
+    /// The trailing `..` covers only `SyncSummary`'s `pub(crate) decisions`
+    /// field, which this crate cannot name. It does mean a newly added engine
+    /// field no longer breaks this pattern, so the exhaustiveness tripwire now
+    /// lives where every field IS nameable:
+    /// `futo_notes_sync::sync::outcome::summary_shape_tests`.
     #[test]
     fn projection_carries_every_engine_field() {
         let sync::SyncSummary {
@@ -252,6 +261,7 @@ mod tests {
             peer_updated_ids,
             peer_deleted_ids,
             renamed,
+            ..
         } = engine_summary();
 
         let projected = SyncSummary::from(engine_summary());
