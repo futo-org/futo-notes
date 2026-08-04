@@ -10,7 +10,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use futo_notes_core::hash::hash_sha256;
 
 use crate::checkpoint::{Ancestry, ConnectedState};
+// These boundary cases assert sync OUTCOMES, not journal contents, so they run
+// against a disabled journal — the same stand-in the cycle tests next door use.
 use crate::fault_injection::{restart_from_checkpoint, Fault, FaultServer, Route, When};
+use crate::journal::SyncRunJournal;
 
 use super::{cycle, pull, push, FailureKind, SyncSummary};
 
@@ -176,9 +179,15 @@ async fn a_pull_failure_outranks_a_push_watermark_from_the_same_cycle() {
     state.max_version = 1;
     state.pull_cursor = 1;
 
-    let (summary, next) = cycle(&state, root.path(), &no_progress, &no_pre_write)
-        .await
-        .unwrap();
+    let (summary, next) = cycle(
+        &state,
+        root.path(),
+        &no_progress,
+        &no_pre_write,
+        &SyncRunJournal::disabled(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(summary.uploaded, 1, "the push half must have succeeded");
     assert!(
@@ -312,9 +321,15 @@ async fn restart_between_push_persistence_and_pull_still_receives_the_peer_chang
     state.max_version = 1;
     state.pull_cursor = 1;
 
-    cycle(&state, root.path(), &no_progress, &no_pre_write)
-        .await
-        .expect_err("the injected list failure must cut the cycle short after push");
+    cycle(
+        &state,
+        root.path(),
+        &no_progress,
+        &no_pre_write,
+        &SyncRunJournal::disabled(),
+    )
+    .await
+    .expect_err("the injected list failure must cut the cycle short after push");
 
     // Only what push persisted survives the restart.
     let restarted = restart_from_checkpoint(root.path(), &state);
@@ -323,9 +338,15 @@ async fn restart_between_push_persistence_and_pull_still_receives_the_peer_chang
         "the completed upload must be in the persisted checkpoint"
     );
 
-    let (summary, next) = cycle(&restarted, root.path(), &no_progress, &no_pre_write)
-        .await
-        .unwrap();
+    let (summary, next) = cycle(
+        &restarted,
+        root.path(),
+        &no_progress,
+        &no_pre_write,
+        &SyncRunJournal::disabled(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         std::fs::read_to_string(root.path().join("peer.md")).unwrap(),
