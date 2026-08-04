@@ -16,9 +16,11 @@ export interface SyncCoordinatorUI {
 
 export interface SyncCoordinator {
   shouldDeferSync: () => boolean;
+  captureLiveSyncStartEditVersion: () => void;
   onSyncStateChange: (active: boolean) => void;
   onOfflineChange: (offline: boolean) => void;
   getSyncStartEditVersion: () => number;
+  getLiveSyncStartEditVersion: () => number;
   setStatusWithTimeout: (msg: string, ms: number) => void;
   destroy: () => void;
 }
@@ -28,6 +30,7 @@ export function createSyncCoordinator(
   ui: SyncCoordinatorUI,
 ): SyncCoordinator {
   let syncStartEditVersion = 0;
+  let liveSyncStartEditVersion = 0;
   let syncStatusClearTimer: number | null = null;
   let syncIndicatorTimer: number | null = null;
 
@@ -35,10 +38,18 @@ export function createSyncCoordinator(
     return deps.isSavePending() || deps.isComposing() || Date.now() - deps.getLastEditTime() < 1000;
   }
 
+  function captureSyncStartEditVersion(): void {
+    syncStartEditVersion = deps.getEditVersion();
+  }
+
+  function captureLiveSyncStartEditVersion(): void {
+    liveSyncStartEditVersion = deps.getEditVersion();
+  }
+
   function onSyncStateChange(active: boolean): void {
     deps.watcherBatch.setSyncActive(active);
     if (active) {
-      syncStartEditVersion = deps.getEditVersion();
+      captureSyncStartEditVersion();
       if (syncStatusClearTimer !== null) {
         clearTimeout(syncStatusClearTimer);
         syncStatusClearTimer = null;
@@ -69,6 +80,10 @@ export function createSyncCoordinator(
     return syncStartEditVersion;
   }
 
+  function getLiveSyncStartEditVersion(): number {
+    return liveSyncStartEditVersion;
+  }
+
   function setStatusWithTimeout(msg: string, ms: number): void {
     if (syncStatusClearTimer !== null) {
       clearTimeout(syncStatusClearTimer);
@@ -94,9 +109,11 @@ export function createSyncCoordinator(
 
   return {
     shouldDeferSync,
+    captureLiveSyncStartEditVersion,
     onSyncStateChange,
     onOfflineChange,
     getSyncStartEditVersion,
+    getLiveSyncStartEditVersion,
     setStatusWithTimeout,
     destroy,
   };

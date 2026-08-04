@@ -681,7 +681,10 @@ async function externalWatcherReloadsCleanNote(a, _b, _server) {
   );
 }
 
-async function externalWatcherAdoptsOverDirtyDraft(a, _b, _server) {
+async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _server) {
+  // A blocked dirty draft is protected from the external change; restoring a
+  // valid title settles it — the draft parks as a conflict copy against the
+  // changed disk base and the editor then adopts the external bytes.
   await a.openNewNote();
   await a.setTitle('taken title');
   await a.typeInEditor('# Other note');
@@ -703,32 +706,43 @@ async function externalWatcherAdoptsOverDirtyDraft(a, _b, _server) {
 
   await externalWriteNote(a, 'watch dirty', '# Changed on disk');
 
+  // Protection: wait until the watcher has processed the event (the storage
+  // refresh surfaces the external bytes in the notes-cache preview), then
+  // assert the blocked dirty draft still owns the editor — no silent adoption.
+  await a.waitForCondition(
+    `window.__testNotes.getAllNotes().some((n) => n.id === 'watch dirty' && (n.preview || '').includes('Changed on disk'))`,
+    30_000,
+    'watcher refreshed the notes projection with the external content',
+  );
+  const protectedState = await a.getOpenNoteState();
+  assert(
+    protectedState.editorContent.includes('Local draft'),
+    'dirty draft must be protected from the external change while blocked',
+  );
+
+  // Settle: restore a valid title; the draft parks against the changed disk
+  // base and the deferred adoption applies the external content.
+  await a.setTitle('watch dirty');
+  await a.flushSave();
   const adoptedState = await waitForEditorContent(a, '# Changed on disk', 30_000);
   assertEqual(
     adoptedState.originalId,
     'watch dirty',
-    'dirty external change should keep the disk-backed note open',
-  );
-  assertEqual(
-    adoptedState.hash,
-    `#/note/${encodeURIComponent('watch dirty')}`,
-    'dirty external change should keep the same route',
-  );
-  assertEqual(
-    adoptedState.title,
-    'watch dirty',
-    'dirty external change should restore the disk-backed title',
-  );
-  assertEqual(
-    adoptedState.toastMessage,
-    '',
-    'dirty external change should be adopted without a draft-preservation toast',
+    'settled external change should keep the disk-backed note open',
   );
   const diskContent = await a.readNote('watch dirty');
   assertEqual(
     diskContent,
     '# Changed on disk',
     'external disk content should remain on disk after the UI adopts it',
+  );
+  const files = (await a.listNotes()).map((f) => f.filename || f.name || f);
+  const conflictCopy = files.find((name) => name.includes('conflict'));
+  assert(conflictCopy, 'the parked draft must survive as a conflict copy');
+  const conflictContent = await a.readNote(conflictCopy.replace(/\.md$/, ''));
+  assert(
+    conflictContent.includes('Local draft'),
+    `the conflict copy must hold the parked draft bytes, got: ${conflictContent}`,
   );
 }
 
@@ -1777,8 +1791,8 @@ const scenarios = [
     skipOnCi: true,
   },
   {
-    name: 'external watcher adopts over dirty draft',
-    fn: externalWatcherAdoptsOverDirtyDraft,
+    name: 'external watcher protects dirty draft then settles',
+    fn: externalWatcherProtectsDirtyDraftThenSettles,
     matrices: ['desktop-desktop'],
     skipOnCi: true,
   },

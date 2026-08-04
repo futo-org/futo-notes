@@ -20,6 +20,7 @@
     content?: string;
     onchange?: (content: string) => void;
     onfocuschange?: (focused: boolean) => void;
+    oncompositionend?: () => void;
     oncursorcontext?: (ctx: { onListLine: boolean }) => void;
     scrollParent?: HTMLElement | null;
     nativeShell?: boolean;
@@ -36,6 +37,7 @@
     content = '',
     onchange,
     onfocuschange,
+    oncompositionend,
     oncursorcontext,
     scrollParent = null,
     nativeShell = false,
@@ -230,4 +232,4 @@
   }
 </script>
 
-<div bind:this={container}></div>
+<div bind:this={container} oncompositionend={() => oncompositionend?.()}></div>

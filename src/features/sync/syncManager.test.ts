@@ -2,6 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let autoSyncCallbacks: import('./autoSyncV2').AutoSyncCallbacks | null = null;
+const tauriEventMocks = vi.hoisted(() => ({
+  listeners: new Map<string, (event: { payload: unknown }) => void>(),
+}));
 vi.mock('./autoSyncV2', () => ({
   startAutoSyncV2: (callbacks: import('./autoSyncV2').AutoSyncCallbacks) => {
     autoSyncCallbacks = callbacks;
@@ -9,8 +12,13 @@ vi.mock('./autoSyncV2', () => ({
   stopAutoSyncV2: vi.fn(),
   notifySavedV2: vi.fn(),
 }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => () => {}) }));
-vi.mock('$lib/platform', () => ({ hasFileSystem: true, isTauri: false }));
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async (event: string, listener: (event: { payload: unknown }) => void) => {
+    tauriEventMocks.listeners.set(event, listener);
+    return () => tauriEventMocks.listeners.delete(event);
+  }),
+}));
+vi.mock('$lib/platform', () => ({ hasFileSystem: true, isTauri: true }));
 vi.mock('$shared/state/appState', () => ({ updateAppState: vi.fn(async () => {}) }));
 const rescanLocalNotes = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('$lib/localNoteStore', () => ({
@@ -65,6 +73,7 @@ type SessionState = {
   savePending: boolean;
   editVersion: number;
   lastEditTime: number;
+  title: string;
 };
 
 function makeSession(overrides: Partial<SessionState> = {}) {
@@ -78,6 +87,7 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     savePending: false,
     editVersion: 0,
     lastEditTime: 0,
+    title: overrides.id ?? '',
     ...overrides,
   };
   if (overrides.savedContent === undefined) state.savedContent = state.content ?? '';
@@ -96,6 +106,9 @@ function makeSession(overrides: Partial<SessionState> = {}) {
   });
   const awaitSaveIdle = vi.fn(async () => {});
   const session = {
+    get title() {
+      return state.title;
+    },
     get originalId() {
       return state.id;
     },
@@ -193,8 +206,21 @@ function makeLiveNoteSession(id: string, body: string) {
   };
 }
 
+function controlledPromise<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+async function yieldMicrotasks(): Promise<void> {
+  for (let index = 0; index < 5; index += 1) await Promise.resolve();
+}
+
 beforeEach(() => {
   autoSyncCallbacks = null;
+  tauriEventMocks.listeners.clear();
   vi.mocked(readNote).mockReset();
   vi.mocked(readNote).mockResolvedValue('FRESH');
   vi.mocked(noteExists).mockReset();
@@ -365,7 +391,7 @@ describe('peer projections', () => {
       ...emptySummary,
       renamed: [{ fromId: 'Old', toId: 'New' }],
     });
-    await Promise.resolve();
+    await yieldMicrotasks();
 
     expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
     expect(bundle.state.savedContent).toBe('base');
@@ -391,7 +417,7 @@ describe('peer projections', () => {
       ...emptySummary,
       renamed: [{ fromId: 'Old', toId: 'New' }],
     });
-    await Promise.resolve();
+    await yieldMicrotasks();
     sessionBundle.state.id = 'Other';
     releaseSave();
     await reconciliation;
@@ -446,9 +472,19 @@ describe('peer projections', () => {
   });
 });
 
+// eslint-disable-next-line max-lines-per-function -- One editor reconciliation matrix shares the manager/session harness.
 describe('editor reconciliation', () => {
   it('rebases a draft saved during sync so the next flush persists it over pulled content', async () => {
     const live = makeLiveNoteSession('During sync', 'base');
+    const manager = createSyncManager({
+      session: live.session,
+      showToast: vi.fn(),
+      onRename: vi.fn(),
+      pruneTabsForDeletedIds: vi.fn(),
+    });
+    const cleanup = manager.start();
+    autoSyncCallbacks!.onSyncStateChange(true);
+
     live.editContent('local draft');
     await live.session.flushSave();
     expect(live.session.savedContent).toBe('local draft');
@@ -456,13 +492,6 @@ describe('editor reconciliation', () => {
 
     vi.mocked(updateNote).mockClear();
     vi.mocked(readNote).mockResolvedValue('# Remote update');
-    const manager = createSyncManager({
-      session: live.session,
-      showToast: vi.fn(),
-      onRename: vi.fn(),
-      pruneTabsForDeletedIds: vi.fn(),
-    });
-
     await manager.handleSyncComplete({ ...emptySummary, updatedIds: ['During sync'] });
 
     expect(live.getEditorContent()).toBe('local draft');
@@ -479,6 +508,225 @@ describe('editor reconciliation', () => {
     );
     expect(live.session.savedContent).toBe('local draft');
     expect(live.session.dirty).toBe(false);
+    cleanup();
+  });
+
+  it('adopts a live pull when no edits landed since the previous live completion', async () => {
+    const live = makeLiveNoteSession('Live pull', 'old content');
+    live.editContent('already synced content');
+    await live.session.flushSave();
+    expect(live.session.editVersion).toBe(1);
+    expect(live.session.dirty).toBe(false);
+
+    const manager = createSyncManager({
+      session: live.session,
+      showToast: vi.fn(),
+      onRename: vi.fn(),
+      pruneTabsForDeletedIds: vi.fn(),
+    });
+    const cleanup = manager.start();
+    const liveSynced = tauriEventMocks.listeners.get('sync:live-synced');
+    expect(liveSynced).toBeDefined();
+
+    // The previous live completion advances the epoch past the historical edit.
+    liveSynced!({ payload: { ...emptySummary } });
+    await yieldMicrotasks();
+
+    vi.mocked(readNote).mockResolvedValue('peer content');
+    liveSynced!({ payload: { ...emptySummary, updatedIds: ['Live pull'] } });
+    await yieldMicrotasks();
+
+    expect(live.getEditorContent()).toBe('peer content');
+    expect(live.session.savedContent).toBe('peer content');
+    expect(live.session.dirty).toBe(false);
+    cleanup();
+  });
+
+  it('protects an edit that raced the live cycle start against the pulled content', async () => {
+    const live = makeLiveNoteSession('Race window', 'old content');
+    const manager = createSyncManager({
+      session: live.session,
+      showToast: vi.fn(),
+      onRename: vi.fn(),
+      pruneTabsForDeletedIds: vi.fn(),
+    });
+    const cleanup = manager.start();
+
+    // Edit + autosave land while a live cycle already runs in Rust; no
+    // completion boundary has advanced the live epoch past them. A late
+    // cycle-start capture must not reclassify the edit as pre-cycle.
+    live.editContent('draft in the race window');
+    await live.session.flushSave();
+    expect(live.session.dirty).toBe(false);
+
+    vi.mocked(readNote).mockResolvedValue('# Remote update');
+    tauriEventMocks.listeners.get('sync:live-synced')!({
+      payload: { ...emptySummary, updatedIds: ['Race window'] },
+    });
+    await yieldMicrotasks();
+
+    expect(live.getEditorContent()).toBe('draft in the race window');
+    expect(live.session.savedContent).toBe('# Remote update');
+    expect(live.session.dirty).toBe(true);
+    cleanup();
+  });
+
+  it('advances the live epoch at completion arrival, not after its processing', async () => {
+    const live = makeLiveNoteSession('Queued arrival', 'old content');
+    const manager = createSyncManager({
+      session: live.session,
+      showToast: vi.fn(),
+      onRename: vi.fn(),
+      pruneTabsForDeletedIds: vi.fn(),
+    });
+    const cleanup = manager.start();
+    const liveSynced = tauriEventMocks.listeners.get('sync:live-synced')!;
+
+    // Completion 1 stalls on its disk read while the user edits and saves.
+    const read = controlledPromise<string>();
+    vi.mocked(readNote).mockReturnValueOnce(read.promise);
+    liveSynced({ payload: { ...emptySummary, updatedIds: ['Queued arrival'] } });
+    live.editContent('draft during processing');
+    await live.session.flushSave();
+    read.resolve('remote 1');
+    await yieldMicrotasks();
+    expect(live.session.savedContent).toBe('remote 1');
+
+    // The rebased draft persists; the session is clean again.
+    await live.session.flushSave();
+    expect(live.session.dirty).toBe(false);
+    expect(live.session.savedContent).toBe('draft during processing');
+
+    // Completion 2's epoch was captured at completion 1's ARRIVAL — before the
+    // edit — so the pulled content must be protected against, not adopted. An
+    // epoch captured after completion 1's processing would misclassify the
+    // edit as pre-cycle and adopt 'remote 2' over the draft.
+    vi.mocked(readNote).mockResolvedValue('remote 2');
+    liveSynced({ payload: { ...emptySummary, updatedIds: ['Queued arrival'] } });
+    await yieldMicrotasks();
+
+    expect(live.getEditorContent()).toBe('draft during processing');
+    expect(live.session.savedContent).toBe('remote 2');
+    expect(live.session.dirty).toBe(true);
+    cleanup();
+  });
+
+  it('does not advance the live epoch on connect, protecting offline edits', async () => {
+    const live = makeLiveNoteSession('Offline edit', 'old content');
+    const manager = createSyncManager({
+      session: live.session,
+      showToast: vi.fn(),
+      onRename: vi.fn(),
+      pruneTabsForDeletedIds: vi.fn(),
+    });
+    const cleanup = manager.start();
+
+    live.editContent('edited while offline');
+    await live.session.flushSave();
+    expect(live.session.dirty).toBe(false);
+
+    // A connect capture would classify the offline edit as pre-cycle and let
+    // the first pull adopt over it.
+    manager.handleLiveState({ live: true, status: 'connected' });
+
+    vi.mocked(readNote).mockResolvedValue('peer content');
+    tauriEventMocks.listeners.get('sync:live-synced')!({
+      payload: { ...emptySummary, updatedIds: ['Offline edit'] },
+    });
+    await yieldMicrotasks();
+
+    expect(live.getEditorContent()).toBe('edited while offline');
+    expect(live.session.savedContent).toBe('peer content');
+    expect(live.session.dirty).toBe(true);
+    cleanup();
+  });
+
+  it('keeps the live epoch independent of a JS cycle capture', async () => {
+    const bundle = makeManager(
+      makeSession({ id: 'Epoch overlap', content: 'old content', editVersion: 1 }),
+    );
+    vi.mocked(readNote).mockResolvedValue('peer content');
+    const cleanup = bundle.manager.start();
+
+    // The JS cycle captures its own epoch at the current edit version; the
+    // live epoch stays at its last completion boundary (0).
+    autoSyncCallbacks!.onSyncStateChange(true);
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['Epoch overlap'],
+    });
+
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    expect(bundle.rebaseSavedContent).toHaveBeenCalledWith('peer content');
+    cleanup();
+  });
+
+  it('settles an in-flight parked save before deciding how to reconcile pulled content', async () => {
+    const save = controlledPromise<void>();
+    const bundle = makeManager(
+      makeSession({
+        id: 'Save race',
+        content: 'local draft',
+        savedContent: 'old base',
+        dirty: true,
+        savePending: true,
+      }),
+    );
+    vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
+      await save.promise;
+      await bundle.manager.reconcileOpenNote('Save race', {
+        content: 'local draft',
+        title: 'Save race',
+      });
+      bundle.state.savePending = false;
+      bundle.state.dirty = false;
+    });
+    vi.mocked(readNote).mockResolvedValue('peer content');
+
+    const reconciliation = bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['Save race'],
+    });
+    await yieldMicrotasks();
+
+    expect(bundle.session.flushSave).toHaveBeenCalledOnce();
+    expect(readNote).not.toHaveBeenCalled();
+    expect(bundle.rebaseSavedContent).not.toHaveBeenCalled();
+
+    save.resolve();
+    await reconciliation;
+
+    expect(bundle.applyExternalContent).toHaveBeenCalledWith('peer content');
+    expect(bundle.state.content).toBe('peer content');
+    expect(bundle.state.savedContent).toBe('peer content');
+  });
+
+  it('serializes overlapping completions so the later cycle content wins', async () => {
+    const firstRead = controlledPromise<string>();
+    vi.mocked(readNote)
+      .mockReturnValueOnce(firstRead.promise)
+      .mockResolvedValueOnce('later cycle content');
+    const bundle = makeManager(makeSession({ id: 'Overlap', content: 'base' }));
+
+    const first = bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['Overlap'],
+    });
+    const second = bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['Overlap'],
+    });
+    await yieldMicrotasks();
+
+    expect(readNote).toHaveBeenCalledTimes(1);
+    firstRead.resolve('earlier cycle content');
+    await Promise.all([first, second]);
+
+    expect(bundle.applyExternalContent.mock.calls).toEqual([
+      ['earlier cycle content'],
+      ['later cycle content'],
+    ]);
+    expect(bundle.state.content).toBe('later cycle content');
   });
 
   it('silently rebases when pulled content already matches the editor', async () => {
@@ -529,7 +777,7 @@ describe('editor reconciliation', () => {
     expect(synced.applyExternalContent).toHaveBeenCalledWith('FRESH');
   });
 
-  it('silently adopts sync content after blur even when a draft was created while deferred', async () => {
+  it('flushes a draft created while deferred before adopting sync content on blur', async () => {
     const bundle = makeManager(makeSession({ id: 'DirtyLater', content: 'OLD', focused: true }));
     await bundle.manager.handleSyncComplete({ ...emptySummary, updatedIds: ['DirtyLater'] });
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
@@ -537,8 +785,12 @@ describe('editor reconciliation', () => {
     bundle.state.focused = false;
     bundle.state.dirty = true;
     bundle.state.content = 'LOCAL';
+    vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
+      bundle.state.dirty = false;
+    });
     await bundle.manager.handleEditorFocusChange(false);
 
+    expect(bundle.session.flushSave).toHaveBeenCalledOnce();
     expect(bundle.applyExternalContent).toHaveBeenCalledWith('FRESH');
     expect(bundle.toasts).toEqual([]);
   });

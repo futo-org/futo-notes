@@ -432,9 +432,10 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 - Live sync is also wired on **Tauri desktop** — Rust `e2ee_start_live` /
   `e2ee_stop_live` drive the same `SyncSession`, emitting
   `sync:live-state` (tracks stream health internally via `setLiveConnected`; no
-  user-facing "Live" label is rendered) and `sync:live-synced`
-  (carries the per-note `SyncSummary`, which the JS routes through the normal
-  `handleSyncComplete` reconciliation so the open note + list refresh live).
+  user-facing "Live" label is rendered) and
+  `sync:live-synced` (carries the per-note `SyncSummary`, which the JS routes
+  through the normal `handleSyncComplete` reconciliation so the open note + list refresh live;
+  its arrival also advances the live edit epoch — see the draft-protection section).
   `ensureLiveSync()` starts the stream after the first successful sync; the 15 s
   poll remains the fallback. →
   `apps/tauri/src-tauri/src/sync/cycle_runner.rs`,
@@ -848,25 +849,34 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 
 - **External filesystem changes to the open note mirror disk, IDE-style
   *(desktop)*.** A watcher `change` whose disk content differs from the
-  session's last-saved baseline is adopted immediately, even over a dirty or
-  focused draft; equality with the live editor is still adopted as a zero-diff
-  apply so the saved baseline advances. Active-note `change` events bypass
+  session's last-saved baseline is adopted immediately when the session is
+  clean; a dirty draft is protected first and the adoption is deferred until
+  the draft settles (blur, composition end, or one scheduled settle pass when
+  the deferral arises while the editor is already blurred — a deferral is
+  retained, never dropped, when a save races the disk read). Equality with the
+  live editor is still adopted as a zero-diff apply so the saved baseline
+  advances. Active-note `change` events bypass
   recent local/sync-write TTL suppression — including events buffered during a
   manual sync — so content comparison, not event timing, decides whether they
-  are genuine external edits. An active IME composition defers the adopt until
-  blur, which re-reads current disk content before applying it silently. Only
+  are genuine external edits. An active IME composition defers before any
+  flush or open-note disk read, refreshes the storage projection, and re-drives
+  reconciliation when composition ends (or on blur); the deferred pass flushes
+  safely and re-reads current disk content. Only
   content matching the saved baseline is a self-write echo and is dropped by
   comparison rather than event counting. The session is
   re-checked after each asynchronous disk read: a note switch drops the stale
-  adopt. Every active-note `change` flushes the session before reading, so a
-  timer-scheduled or in-flight dirty draft first runs through `flush_draft` and
-  either writes or parks against the current disk base. Reconciliation never
-  adopts over a save scheduled during the asynchronous read; that save settles
-  through the same path, and only the guarded post-park reconcile re-reads and
-  adopts while the save queue is still technically in flight. If validation or
+  adopt. Every non-composing active-note `change` flushes the session before
+  reading, so a timer-scheduled or in-flight dirty draft first runs through
+  `flush_draft` and either writes or parks against the current disk base.
+  Reconciliation never adopts over a save scheduled during the asynchronous
+  read; that save settles through the same path, and only the guarded post-park
+  reconcile re-reads and adopts while the save queue is still technically in flight. If validation or
   a write failure leaves the forced flush dirty, the watcher refreshes storage
-  without adopting over that draft. The save itself is conditional against the
-  session's saved-content base:
+  and defers adoption; the final adopt gate also refuses to replace any dirty
+  session outside the guarded post-park path. That path carries the exact body
+  and title parked by the save and adopts only while the live editor still
+  matches both, including across its asynchronous disk read. The save itself is
+  conditional against the session's saved-content base:
   matching disk is written, identical disk converges without a rewrite, and a
   stale draft against diverged disk is parked as a conflict copy instead of
   clobbering it. After a park, desktop projects the copy and explicitly
@@ -881,7 +891,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   completes afterward, its disk write still notifies sync but cannot restore
   the cleared session. → createExternalChangeCoordinator.ts (guarded by
   createExternalChangeCoordinator.test.ts and the cross-platform scenario
-  "external watcher adopts over dirty draft")
+  "external watcher protects dirty draft then settles")
 - A remote edit to the **currently-open note** is adopted into the open editor
   when the local draft is clean (`content == savedContent`); a dirty draft
   still wins and is never overwritten *(iOS/Android)*. Without this, the open editor kept
@@ -906,13 +916,25 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   pulled disk content. The draft is therefore honestly dirty again, and the
   next ordinary `flush_draft` persists it against that pulled base; if disk
   already equals the editor, the same rebase silently makes the session clean.
-  Once a focused-editor
+  Rust live cycles advance their edit epoch only when a completion event
+  arrives (synchronously, after that completion snapshots the previous epoch),
+  never from an in-cycle start or connect signal: such signals reach the
+  webview asynchronously, so an edit racing their dispatch could be captured
+  as pre-cycle and adopted over. The epoch is therefore never meaningfully
+  newer than the next cycle's true start — edits between live cycles, and all
+  edits made while offline, are over-protected (the draft wins and is pushed)
+  rather than ever under-protected. Live and JS-driven epochs are tracked
+  separately and snapshotted when each completion arrives. Completion handlers are serialized, and each completion flushes a
+  pending or in-flight save before reading disk and re-evaluating session
+  identity and draft state;
+  a parked save can therefore finish its guarded disk adoption before the
+  completion chooses whether to adopt or rebase. Once a focused-editor
   adopt is deferred, blur re-reads current disk content through
   `reconcileOpenNote` and applies it silently if the same note is still open
   and it differs from the saved baseline; content already matching the editor
   is still applied as a zero-diff baseline advance. → noteSession
-  `isEditorChangeEcho`, syncManager `handleSyncComplete` (guarded by "silently
-  adopts sync content after blur even when a draft was created while deferred"
+  `isEditorChangeEcho`, syncManager `handleSyncComplete` (guarded by "flushes
+  a draft created while deferred before adopting sync content on blur"
   in syncManager.test.ts)
 
 - The native clean-adopt **preserves the caret/selection and scroll**: the

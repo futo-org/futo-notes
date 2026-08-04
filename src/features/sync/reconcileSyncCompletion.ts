@@ -29,15 +29,17 @@ interface SyncCompletionOptions {
   clearSyncError: () => void;
   dependencies: SyncCompletionDependencies;
   externalChanges: ExternalChangeCoordinator;
-  getSyncStartEditVersion: () => number;
+  getSyncStartEditVersion: (trigger?: SyncTrigger) => number;
   raiseSyncError: (message: string) => void;
   setCompletionStatus: (message: string, durationMs: number) => void;
   setSyncStatusMessage: (message: string) => void;
   writeSuppressor: WriteSuppressor;
 }
 
+// eslint-disable-next-line max-lines-per-function -- One reconciler serializes the complete ordered sync-outcome transaction.
 export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
   const { dependencies, externalChanges, writeSuppressor } = options;
+  let completionTail: Promise<void> = Promise.resolve();
 
   async function applyRename(fromId: string, toId: string): Promise<void> {
     const slash = toId.lastIndexOf('/');
@@ -83,11 +85,19 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     }
   }
 
-  async function reconcileOpenNote(summary: SyncSummary): Promise<string | null> {
+  async function reconcileOpenNote(
+    summary: SyncSummary,
+    syncStartEditVersion: number,
+  ): Promise<string | null> {
     const openId = dependencies.session.originalId;
     const openDeleted = !!openId && summary.deletedIds.includes(openId);
     const openUpdated = !!openId && summary.updatedIds.includes(openId);
     if (!openId || !(openDeleted || openUpdated)) return null;
+
+    if (dependencies.session.savePending) {
+      await dependencies.session.flushSave();
+      if (dependencies.session.originalId !== openId) return null;
+    }
 
     let keptDraftId: string | null = null;
     const closeOrKeepDeletedOpenNote = async (): Promise<void> => {
@@ -136,8 +146,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
           dependencies.session.rebaseSavedContent(freshContent);
         }
       } else {
-        const editedDuringSync =
-          dependencies.session.editVersion !== options.getSyncStartEditVersion();
+        const editedDuringSync = dependencies.session.editVersion !== syncStartEditVersion;
         if (editedDuringSync || dependencies.session.dirty) {
           dependencies.session.rebaseSavedContent(freshContent);
         } else {
@@ -157,9 +166,10 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     return keptDraftId;
   }
 
-  return async function reconcileSyncCompletion(
+  async function reconcileSyncCompletion(
     summary: SyncSummary,
-    trigger?: SyncTrigger,
+    trigger: SyncTrigger | undefined,
+    syncStartEditVersion: number,
   ): Promise<void> {
     if (summary.failureMessage) {
       options.raiseSyncError(summary.failureMessage);
@@ -174,7 +184,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     recordSyncedFiles(summary);
     reindexPeerChanges(summary);
     await reconcileRenames(summary);
-    const keptDeletedDraftId = await reconcileOpenNote(summary);
+    const keptDeletedDraftId = await reconcileOpenNote(summary, syncStartEditVersion);
 
     const pruneCandidates = summary.deletedIds.filter((id) => id !== keptDeletedDraftId);
     const pruneExistence = await Promise.all(
@@ -190,5 +200,19 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     } else {
       options.setSyncStatusMessage('');
     }
+  }
+
+  return function serializeSyncCompletion(
+    summary: SyncSummary,
+    trigger?: SyncTrigger,
+  ): Promise<void> {
+    const syncStartEditVersion = options.getSyncStartEditVersion(trigger);
+    const operation = () => reconcileSyncCompletion(summary, trigger, syncStartEditVersion);
+    const run = completionTail.then(operation, operation);
+    completionTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   };
 }
