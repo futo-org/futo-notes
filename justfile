@@ -501,6 +501,19 @@ check-debt-ratchet:
 check-agent-docs:
   node scripts/check-agent-docs.mjs
 
+# The meta-gate: prove every OTHER gate actually fails on the violation it
+# claims to catch. Seeds one violation per gate inside a throwaway git worktree
+# and requires the gate to exit non-zero AND name what it found — an
+# exit-code-only pass is rejected, because a gate that dies on a missing module
+# also exits non-zero. Six commits (d87173eb, 54d1cc41, 90a62902, a6c6e2d5,
+# db31586c, f81a61d0) fixed guards that were green while stepping over real
+# violations; this is the standing red-proof they lacked. `--include-cargo`
+# adds the Rust dependency-boundary proof (the portable set runs in CI, whose
+# image has no cargo). Rationale + limitations: scripts/gate-redproofs.mjs
+# (documented there, not in AGENTS.md — that file is at its ratchet ceiling).
+gate-redproofs *args:
+  node scripts/gate-redproofs.mjs --include-cargo {{args}}
+
 # Run the same focused architecture checks embedded in GitLab's mandatory test job.
 # package.json owns the membership because the pinned CI image does not include just.
 arch-gate:
@@ -533,8 +546,10 @@ check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
 # flake on the odd slow navigation/click; one retry absorbs those while a
 # genuinely broken test still fails both attempts (and is reported "flaky"
 # when it passes only on retry — treat repeat offenders as real bugs).
+# `check` runs the PORTABLE red-proof set through arch-gate; the explicit
+# recipe here adds the cargo-dependent Rust dependency-boundary proof.
 # Maximal pre-push gate: `check` + full Rust workspace + full E2E + cross-platform sync.
-prepush: check test-rust-full
+prepush: check test-rust-full gate-redproofs
   pnpm exec playwright test --retries=1
   pnpm run test:cross-platform
   @echo "prepush green — check + rust workspace + full e2e + cross-platform sync all passed"
