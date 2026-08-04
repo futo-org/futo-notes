@@ -11,10 +11,15 @@ import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from '$features/sync/aut
 import { disconnectE2ee, stopLiveSync } from '$features/sync/syncServiceE2ee';
 import { setFolderSnapshot } from '$features/folders/emptyFolders.svelte';
 
+/** How startup init settled: 'failed' means the cache is empty because
+ * bootstrap failed, not because the vault is empty — awaiters must not treat
+ * it as an authoritative empty note list. */
+export type NotesReadiness = 'ready' | 'failed';
+
 let notesCache = $state<NotePreview[]>([]);
 let initialized = false;
-let notesReadyResolve: (() => void) | null = null;
-const notesReadyPromise = new Promise<void>((resolve) => {
+let notesReadyResolve: ((readiness: NotesReadiness) => void) | null = null;
+const notesReadyPromise = new Promise<NotesReadiness>((resolve) => {
   notesReadyResolve = resolve;
 });
 let searchReady: Promise<void> | null = null;
@@ -65,29 +70,37 @@ function mtimeFor(mutation: LocalNoteMutation, id: string): number {
   return mutation.upserted.find((entry) => entry.note.id === id)?.note.modifiedMs ?? Date.now();
 }
 
-export function whenNotesReady(): Promise<void> {
+export function whenNotesReady(): Promise<NotesReadiness> {
   return notesReadyPromise;
 }
 
 export async function initNotes(onStep?: (label: string) => void): Promise<void> {
   if (initialized) return;
-  onStep?.('initNotes: local store');
-  const store = await getLocalNoteStore();
-  onStep?.('initNotes: bootstrap');
-  const bootstrap = await store.bootstrap();
-  replaceFromSnapshot(bootstrap.snapshot);
-  for (const warning of bootstrap.warnings) console.warn(`[local-notes] ${warning}`);
+  try {
+    onStep?.('initNotes: local store');
+    const store = await getLocalNoteStore();
+    onStep?.('initNotes: bootstrap');
+    const bootstrap = await store.bootstrap();
+    replaceFromSnapshot(bootstrap.snapshot);
+    for (const warning of bootstrap.warnings) console.warn(`[local-notes] ${warning}`);
 
-  // Search may await background index readiness, but initial rendering never
-  // does. Timeout or rejection degrades to empty results while the engine heals.
-  searchReady = store.waitUntilSearchReady(searchReadyTimeoutMs).then(
-    () => undefined,
-    (err) => {
-      console.warn('[local-notes] search readiness wait failed:', err);
-    },
-  );
+    // Search may await background index readiness, but initial rendering never
+    // does. Timeout or rejection degrades to empty results while the engine heals.
+    searchReady = store.waitUntilSearchReady(searchReadyTimeoutMs).then(
+      () => undefined,
+      (err) => {
+        console.warn('[local-notes] search readiness wait failed:', err);
+      },
+    );
+  } catch (error) {
+    // #33: a failed bootstrap must still settle readiness, or every awaiter
+    // (tab hydration → hash routing) hangs forever and the app goes dead.
+    notesReadyResolve?.('failed');
+    notesReadyResolve = null;
+    throw error;
+  }
   initialized = true;
-  notesReadyResolve?.();
+  notesReadyResolve?.('ready');
   notesReadyResolve = null;
   onStep?.('initNotes: done');
 }

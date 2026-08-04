@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getAllNotes: vi.fn(),
   getConfig: vi.fn(),
   hydrate: vi.fn(),
+  markHydrated: vi.fn(),
   saveConfig: vi.fn(),
   setPersister: vi.fn(),
   whenNotesReady: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('$features/notes/notes.svelte', () => ({
 vi.mock('$features/tabs/tabsStore.svelte', () => ({
   tabsStore: {
     hydrate: mocks.hydrate,
+    markHydrated: mocks.markHydrated,
     setPersister: mocks.setPersister,
   },
 }));
@@ -37,7 +39,7 @@ describe('startTabsPersistence', () => {
       setItem: (key: string, value: string) => storage.set(key, value),
     });
     mocks.getAllNotes.mockReturnValue([]);
-    mocks.whenNotesReady.mockResolvedValue(undefined);
+    mocks.whenNotesReady.mockResolvedValue('ready');
   });
 
   afterEach(() => {
@@ -118,6 +120,28 @@ describe('startTabsPersistence', () => {
 
     await vi.waitFor(() => expect(mocks.hydrate).toHaveBeenCalledOnce());
     expect(mocks.hydrate.mock.calls[0][2]).toBeNull();
+  });
+
+  // #33: a failed notes bootstrap leaves the cache empty; pruning persisted
+  // tab ids against it and installing the persister would destroy the saved
+  // tab layout over a transient failure. Hydration must unblock non-destructively.
+  it('marks tabs hydrated without pruning or persisting when notes init failed', async () => {
+    mocks.getConfig.mockResolvedValue({
+      sidebarWidth: 280,
+      openTabs: { tabs: [{ id: 't1', noteId: 'kept' }], activeTabId: 't1' },
+    });
+    mocks.whenNotesReady.mockResolvedValue('failed');
+
+    startTabsPersistence({
+      getRequestedNoteId: () => null,
+      setSidebarCollapsed: vi.fn(),
+      setSidebarWidth: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(mocks.markHydrated).toHaveBeenCalledOnce());
+    expect(mocks.hydrate).not.toHaveBeenCalled();
+    expect(mocks.setPersister).not.toHaveBeenCalled();
+    expect(mocks.saveConfig).not.toHaveBeenCalled();
   });
 
   it('clamps a persisted sidebar width that would wrap the brand', async () => {

@@ -17,7 +17,9 @@ export interface TabsPersistenceDeps {
 // (whenNotesReady) so a stale id can't resurrect a note; the returned disposer
 // is safe to call before any async step finishes (it just detaches the
 // persister), which is what keeps a fast unmount from hydrating a torn-down
-// shell.
+// shell. If notes init failed (#33) hydration is marked complete WITHOUT
+// pruning against the empty cache and WITHOUT installing the persister, so a
+// transient bootstrap failure can't wipe the persisted tab layout.
 export function startTabsPersistence(deps: TabsPersistenceDeps): () => void {
   let disposed = false;
 
@@ -38,8 +40,17 @@ export function startTabsPersistence(deps: TabsPersistenceDeps): () => void {
       }
     }
 
-    await whenNotesReady();
+    const readiness = await whenNotesReady();
     if (disposed) return;
+
+    if (readiness === 'failed') {
+      // Bootstrap failed, so the notes cache is empty: validating persisted
+      // tab ids against it would prune every tab, and a persister would write
+      // that pruned set back over the user's saved layout. Unblock hydration
+      // (routing, tab transitions) and leave the persisted tabs untouched.
+      tabsStore.markHydrated();
+      return;
+    }
 
     const validIds = new Set(getAllNotes().map((note) => note.id));
     tabsStore.hydrate(persistedTabs, (id) => validIds.has(id), deps.getRequestedNoteId());
