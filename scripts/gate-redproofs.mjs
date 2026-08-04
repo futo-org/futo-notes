@@ -520,16 +520,23 @@ const SELF_TEST_PROOF = {
 // Worktree plumbing
 // ---------------------------------------------------------------------------
 
+// maxBuffer: `ls-files --others` enumerates EVERY untracked file, and CI
+// restores $CI_PROJECT_DIR/.pnpm-store (not gitignored) into the build dir —
+// a pnpm content-addressable store is ~25 MB of path text, 25x Node's 1 MB
+// default. On overflow spawnSync SIGTERMs git and returns status=null with an
+// empty stderr, which used to surface as a blank "git ... failed:".
 function git(args, cwd = ROOT) {
-  return spawnSync('git', args, { cwd, encoding: 'utf8' });
+  return spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
 function gitOrThrow(args, cwd = ROOT) {
   const result = git(args, cwd);
   if (result.status !== 0) {
-    throw new Error(
-      `git ${args.join(' ')} failed:\n${result.stderr ?? result.error?.message ?? ''}`,
-    );
+    // `||`, not `??`: an empty stderr must fall through to error.message, or a
+    // spawn-level failure (ENOBUFS, ENOENT) reports its reason as nothing at all.
+    const reason =
+      result.stderr || result.error?.message || `exited with signal ${result.signal ?? 'unknown'}`;
+    throw new Error(`git ${args.join(' ')} failed:\n${reason}`);
   }
   return result.stdout.trim();
 }
@@ -576,10 +583,13 @@ function createWorktree(rev) {
   return { dir, wt };
 }
 
+// No `git worktree prune` here: `remove --force` already deregisters this
+// worktree, and a blanket prune would also deregister every OTHER worktree
+// whose directory has since vanished (this repo carries agent scratchpads
+// under /tmp) — a side effect a throwaway proof worktree has no business having.
 function destroyWorktree({ dir, wt }) {
   git(['worktree', 'remove', '--force', wt]);
   fs.rmSync(dir, { recursive: true, force: true });
-  git(['worktree', 'prune']);
 }
 
 // `.gitignore` lists `node_modules/` as a DIRECTORY pattern, and the
@@ -756,12 +766,17 @@ function main() {
   const selfTestOnly = argv.includes('--self-test');
   const includeCargo = argv.includes('--include-cargo');
 
-  const base = resolveBase();
-  const worktree = createWorktree(base.rev);
-  const started = Date.now();
+  // Inside the try: a plumbing failure here (git refusing, a spawn overflowing)
+  // must surface as the ABORTED harness report below, never as a bare stack
+  // trace that reads like a crash of unknown consequence.
+  let worktree = null;
   let failures = 0;
 
   try {
+    const base = resolveBase();
+    worktree = createWorktree(base.rev);
+    const started = Date.now();
+
     console.log('Gate red-proof harness — every guard must actually fail on its own violation.');
     console.log(`  proving: ${base.label}`);
     console.log(`  worktree: ${worktree.wt}`);
@@ -849,7 +864,7 @@ function main() {
     );
     return 1;
   } finally {
-    destroyWorktree(worktree);
+    if (worktree) destroyWorktree(worktree);
   }
 }
 

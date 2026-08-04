@@ -100,6 +100,17 @@ futo-notes-data
 /.futo-notes-cli.json
 autoresearch-results.tsv
 
+# CI caches/checkouts that GitLab restores INTO $CI_PROJECT_DIR. Untracked and
+# enormous (a pnpm store is ~185k files / ~25MB of path text), so any tool that
+# enumerates untracked files — `git ls-files --others` — must not see them.
+.pnpm-store/
+.cargo-home/
+.cache-ms-playwright/
+.gradle-native/
+.futo-notes-server/
+.cienv
+build.env
+
 # Rust
 target/
 # proptest writes a failing seed here; the failure output already prints it, and
