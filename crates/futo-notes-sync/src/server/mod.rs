@@ -5,6 +5,18 @@ use reqwest::{Method, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 
+mod batch_download;
+mod batch_upload;
+#[cfg(test)]
+mod tests;
+
+use batch_download::parse_batch_frames;
+pub(crate) use batch_download::{BatchBlobEntry, BatchBlobStatus};
+pub(crate) use batch_upload::{
+    batch_write_frame_size, BatchMutation, BatchWriteEntry, BatchWriteOperation,
+};
+use batch_upload::{encode_batch_write_frames, parse_batch_write_results};
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -108,6 +120,12 @@ pub(crate) struct Write {
     pub collection_version: u64,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct CreateWrite {
+    pub write: Write,
+    pub replayed: Option<bool>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Conflict {
@@ -127,6 +145,7 @@ struct WriteBody {
     object: Object,
     #[serde(rename = "collectionVersion", deserialize_with = "number")]
     collection_version: u64,
+    replayed: Option<bool>,
 }
 
 impl From<WriteBody> for Write {
@@ -365,6 +384,45 @@ impl Http {
             })
     }
 
+    pub async fn blobs_batch(
+        &self,
+        keys: &[String],
+        expected_bytes: u64,
+    ) -> Result<Vec<BatchBlobEntry>, HttpError> {
+        let response = self
+            .request(Method::POST, "/api/blobs/batch")
+            .timeout(download_timeout(expected_bytes))
+            .json(&serde_json::json!({ "keys": keys }))
+            .send()
+            .await
+            .map_err(|error| HttpError {
+                status: error.status().map(|status| status.as_u16()),
+                message: error.to_string(),
+            })?;
+        if !response.status().is_success() {
+            return Err(Self::response_error(response).await);
+        }
+        let body = response.bytes().await.map_err(|error| HttpError {
+            status: None,
+            message: error.to_string(),
+        })?;
+        let entries = parse_batch_frames(&body).map_err(|message| HttpError {
+            status: None,
+            message: format!("batch frames: {message}"),
+        })?;
+        if entries.len() != keys.len() {
+            return Err(HttpError {
+                status: None,
+                message: format!(
+                    "batch frames: expected {} entries, got {}",
+                    keys.len(),
+                    entries.len()
+                ),
+            });
+        }
+        Ok(entries)
+    }
+
     async fn mutation(request: reqwest::RequestBuilder) -> Result<Mutation, HttpError> {
         let response = request.send().await.map_err(|e| HttpError {
             status: e.status().map(|s| s.as_u16()),
@@ -396,23 +454,57 @@ impl Http {
     pub async fn create_object(
         &self,
         collection: &str,
+        mutation_id: &str,
         ciphertext: Vec<u8>,
-    ) -> Result<Write, HttpError> {
+    ) -> Result<CreateWrite, HttpError> {
         let timeout = transfer_timeout(ciphertext.len() as u64);
-        match Self::mutation(
-            self.request(
+        let response = self
+            .request(
                 Method::POST,
                 &format!("/api/collections/{collection}/blob-objects"),
             )
             .header("content-type", "application/octet-stream")
+            .header("mutation-id", mutation_id)
             .timeout(timeout)
-            .body(ciphertext),
-        )
-        .await?
-        {
-            Mutation::Written(write) => Ok(write),
-            Mutation::Conflict(_) => unreachable!("create cannot conflict"),
+            .body(ciphertext)
+            .send()
+            .await
+            .map_err(|error| HttpError {
+                status: error.status().map(|status| status.as_u16()),
+                message: error.to_string(),
+            })?;
+        if !response.status().is_success() {
+            return Err(Self::response_error(response).await);
         }
+        let body = response
+            .json::<WriteBody>()
+            .await
+            .map_err(|error| HttpError {
+                status: None,
+                message: error.to_string(),
+            })?;
+        let replayed = body.replayed;
+        Ok(CreateWrite {
+            write: body.into(),
+            replayed,
+        })
+    }
+
+    pub async fn create_mutation(
+        &self,
+        collection: &str,
+        mutation_id: &str,
+    ) -> Result<CreateWrite, HttpError> {
+        let body = Self::json::<WriteBody>(self.request(
+            Method::GET,
+            &format!("/api/collections/{collection}/create-mutations/{mutation_id}"),
+        ))
+        .await?;
+        let replayed = body.replayed;
+        Ok(CreateWrite {
+            write: body.into(),
+            replayed,
+        })
     }
 
     pub async fn update_object(
@@ -433,6 +525,36 @@ impl Http {
             .body(ciphertext),
         )
         .await
+    }
+
+    pub async fn write_objects_batch(
+        &self,
+        collection: &str,
+        entries: &[BatchWriteEntry],
+    ) -> Result<Vec<BatchMutation>, HttpError> {
+        let body = encode_batch_write_frames(entries)?;
+        let response = self
+            .request(
+                Method::POST,
+                &format!("/api/collections/{collection}/blob-objects/batch"),
+            )
+            .header("content-type", "application/octet-stream")
+            .timeout(transfer_timeout(body.len() as u64))
+            .body(body)
+            .send()
+            .await
+            .map_err(|error| HttpError {
+                status: error.status().map(|status| status.as_u16()),
+                message: error.to_string(),
+            })?;
+        if !response.status().is_success() {
+            return Err(Self::response_error(response).await);
+        }
+        let body = response.bytes().await.map_err(|error| HttpError {
+            status: None,
+            message: error.to_string(),
+        })?;
+        parse_batch_write_results(&body, entries)
     }
 
     pub async fn delete_object(
@@ -638,291 +760,5 @@ Content-Type: application/json\r\nConnection: close\r\n\r\n";
         for _ in 0..100 {
             tokio::task::yield_now().await;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::mpsc;
-
-    use super::stalled_http::*;
-    use super::*;
-
-    #[test]
-    fn timestamp_matches_javascript_date_milliseconds() {
-        assert_eq!(timestamp_ms("2026-06-05T12:34:56.789Z"), 1_780_662_896_789);
-        assert_eq!(timestamp_ms("not a timestamp"), 0);
-    }
-
-    #[test]
-    fn numeric_wire_fields_accept_numbers_and_decimal_strings() {
-        for version in [serde_json::json!(7), serde_json::json!("7")] {
-            let value = serde_json::json!({
-                "id": "o1",
-                "version": version,
-                "change_seq": "9",
-                "size_bytes": "12"
-            });
-            let object: Object = serde_json::from_value(value).unwrap();
-            assert_eq!(object.version, 7);
-            assert_eq!(object.change_seq, 9);
-            assert_eq!(object.size_bytes, Some(12));
-        }
-        assert!(serde_json::from_value::<Object>(serde_json::json!({
-            "id":"o1", "version":"nope", "change_seq":1
-        }))
-        .is_err());
-    }
-
-    #[test]
-    fn transfer_timeout_scales_with_expected_bytes() {
-        assert_eq!(transfer_timeout(0), REQUEST_TIMEOUT);
-        assert_eq!(transfer_timeout(32 * 1024 * 1024), Duration::from_secs(286));
-        assert_eq!(
-            transfer_timeout(100 * 1024 * 1024),
-            Duration::from_secs(830)
-        );
-    }
-
-    #[test]
-    fn download_timeout_caps_untrusted_expected_size() {
-        assert_eq!(download_timeout(u64::MAX), Duration::from_secs(830));
-    }
-
-    #[test]
-    fn upload_timeout_scales_past_the_download_cap() {
-        assert_eq!(
-            transfer_timeout(200 * 1024 * 1024),
-            Duration::from_secs(1630)
-        );
-    }
-
-    #[test]
-    fn unparseable_size_bytes_degrades_to_none() {
-        for size in [
-            serde_json::json!(1.5),
-            serde_json::json!(-1),
-            serde_json::json!("nope"),
-            serde_json::json!(null),
-            serde_json::json!({}),
-        ] {
-            let object: Object = serde_json::from_value(serde_json::json!({
-                "id": "o1",
-                "version": 1,
-                "change_seq": 1,
-                "size_bytes": size
-            }))
-            .unwrap();
-            assert_eq!(object.size_bytes, None);
-        }
-    }
-
-    #[test]
-    fn base_url_is_trimmed_and_requires_http() {
-        assert_eq!(
-            Http::new("  http://example.test///  ").unwrap().base,
-            "http://example.test"
-        );
-        assert!(Http::new("ftp://example.test").is_err());
-        assert!(Http::new("example.test").is_err());
-    }
-
-    #[test]
-    fn delete_response_can_omit_blob_key_and_updated_at() {
-        let body: WriteBody = serde_json::from_value(serde_json::json!({
-            "object": {
-                "id":"o1",
-                "version":"2",
-                "change_seq":"8",
-                "deleted":true
-            },
-            "collectionVersion":"8"
-        }))
-        .unwrap();
-        assert!(body.object.deleted);
-        assert!(body.object.blob_key.is_none());
-        assert_eq!(body.object.updated_at, "");
-        assert_eq!(body.collection_version, 8);
-    }
-
-    #[test]
-    fn dropping_before_a_request_wakes_the_server_listener() {
-        let server = HangingServer::new(StallPoint::ResponseHeaders);
-        let (dropped_tx, dropped_rx) = mpsc::channel();
-        let drop_task = std::thread::spawn(move || {
-            drop(server);
-            dropped_tx.send(()).unwrap();
-        });
-
-        dropped_rx
-            .recv_timeout(Duration::from_secs(2))
-            .expect("server drop remained blocked in accept");
-        drop_task.join().unwrap();
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn ordinary_requests_have_a_total_timeout() {
-        let server = HangingServer::new(StallPoint::ResponseHeaders);
-        let http = Http::new(&server.base_url).unwrap().token("token");
-        let request = tokio::spawn(async move { http.collections().await });
-        server.wait_for_request().await;
-
-        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
-        allow_timeout_task_to_finish(&request).await;
-
-        assert!(
-            request.is_finished(),
-            "ordinary request remained pending past the shared timeout"
-        );
-        assert!(request.await.unwrap().is_err());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn ordinary_response_bodies_have_a_total_timeout() {
-        let server = HangingServer::new(StallPoint::SuccessfulResponseBody);
-        let http = Http::new(&server.base_url).unwrap().token("token");
-        let request = tokio::spawn(async move { http.collections().await });
-        server.wait_for_request().await;
-        allow_network_task_to_settle().await;
-
-        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
-        allow_timeout_task_to_finish(&request).await;
-
-        assert!(
-            request.is_finished(),
-            "ordinary request remained pending while reading its response body"
-        );
-        assert!(request.await.unwrap().is_err());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn auth_mode_uses_the_short_probe_timeout() {
-        let server = HangingServer::new(StallPoint::ResponseHeaders);
-        let http = Http::new(&server.base_url).unwrap();
-        let request = tokio::spawn(async move { http.auth_mode().await });
-        server.wait_for_request().await;
-
-        tokio::time::advance(PROBE_TIMEOUT + Duration::from_millis(1)).await;
-        allow_timeout_task_to_finish(&request).await;
-
-        assert!(
-            request.is_finished(),
-            "auth-mode probe remained pending past its shorter timeout"
-        );
-        assert!(request.await.unwrap().is_err());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn blob_download_without_known_size_uses_the_base_request_timeout() {
-        let server = HangingServer::new(StallPoint::ResponseHeaders);
-        let http = Http::new(&server.base_url).unwrap().token("token");
-        let request = tokio::spawn(async move { http.blob("blob-key", 0).await });
-        server.wait_for_request().await;
-
-        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
-        allow_timeout_task_to_finish(&request).await;
-
-        assert!(
-            request.is_finished(),
-            "blob download remained pending past the shared timeout"
-        );
-        assert!(request.await.unwrap().is_err());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn blob_download_timeout_scales_with_expected_size() {
-        let server = HangingServer::new(StallPoint::ResponseHeaders);
-        let http = Http::new(&server.base_url).unwrap().token("token");
-        let request = tokio::spawn(async move { http.blob("blob-key", 128 * 1024).await });
-        server.wait_for_request().await;
-        allow_network_task_to_settle().await;
-
-        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
-        allow_timeout_task_to_finish(&request).await;
-        assert!(
-            !request.is_finished(),
-            "blob download ignored its expected-size timeout"
-        );
-
-        tokio::time::advance(Duration::from_secs(1)).await;
-        allow_timeout_task_to_finish(&request).await;
-        assert!(request.is_finished(), "blob download had no finite timeout");
-        assert!(request.await.unwrap().is_err());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn blob_upload_timeout_scales_with_payload_size() {
-        let server = HangingServer::new(StallPoint::ResponseHeaders);
-        let http = Http::new(&server.base_url).unwrap().token("token");
-        let request =
-            tokio::spawn(
-                async move { http.create_object("collection", vec![0; 128 * 1024]).await },
-            );
-        server.wait_for_request().await;
-        allow_network_task_to_settle().await;
-
-        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
-        allow_timeout_task_to_finish(&request).await;
-        assert!(
-            !request.is_finished(),
-            "blob upload ignored its payload-scaled timeout"
-        );
-
-        tokio::time::advance(Duration::from_secs(1)).await;
-        allow_timeout_task_to_finish(&request).await;
-        assert!(request.is_finished(), "blob upload had no finite timeout");
-        assert!(request.await.unwrap().is_err());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn event_stream_has_no_total_request_timeout() {
-        let mut server = HangingServer::new(StallPoint::EventStreamBody);
-        let http = Http::new(&server.base_url).unwrap().token("token");
-        let response = tokio::spawn(async move { http.events().await });
-        server.wait_for_request().await;
-        let mut response = response.await.unwrap().unwrap();
-
-        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
-        server.release();
-
-        let chunk = response.chunk().await.unwrap().unwrap();
-        assert_eq!(chunk, "event: ready\ndata:\n\n");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn event_stream_response_headers_have_a_timeout() {
-        let server = HangingServer::new(StallPoint::ResponseHeaders);
-        let http = Http::new(&server.base_url).unwrap().token("token");
-        let request = tokio::spawn(async move { http.events().await });
-        server.wait_for_request().await;
-        allow_network_task_to_settle().await;
-
-        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
-        allow_timeout_task_to_finish(&request).await;
-
-        assert!(
-            request.is_finished(),
-            "event stream remained pending while waiting for response headers"
-        );
-        assert!(request.await.unwrap().is_err());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn event_stream_error_body_has_a_timeout() {
-        let server = HangingServer::new(StallPoint::ErrorBody);
-        let http = Http::new(&server.base_url).unwrap().token("token");
-        let request = tokio::spawn(async move { http.events().await });
-        server.wait_for_request().await;
-        allow_network_task_to_settle().await;
-
-        tokio::time::advance(REQUEST_TIMEOUT + Duration::from_millis(1)).await;
-        allow_timeout_task_to_finish(&request).await;
-
-        assert!(
-            request.is_finished(),
-            "event stream remained pending while reading an error response body"
-        );
-        let error = request.await.unwrap().unwrap_err();
-        assert_eq!(error.status, Some(500));
     }
 }
