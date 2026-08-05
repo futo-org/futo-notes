@@ -143,9 +143,17 @@ this file states the behaviors a human cares about.
   the tap lands at its end. **Out to either side** is a tap away from it: the
   caret stays where it was. The side edge is one straight line at every height,
   so the surface is a rectangle rather than an L.
-- A modified tap (Shift/Alt/Cmd/Ctrl) is a selection gesture, left to the
-  platform, and a note that is nothing but a hidden tag block has no reachable
-  position at all — a tap in it must not land in the markup.
+- **Reaching also hands the editor focus; tapping off takes it away.** Inside the
+  surface the caret moves AND the editor focuses, so the note is ready to type
+  into — being able to type is the whole point of reaching. Outside it the editor
+  gives up focus and the caret stays put, so the note reads as deselected rather
+  than half-selected. → tests/editor-ux.spec.ts
+- Only a **primary (left) press** reaches. Any other button leaves the caret where
+  it is, so a right-press in the blank space opens the platform menu without
+  dragging the cursor along first. A modified tap (Shift/Alt/Cmd/Ctrl) is likewise
+  a selection gesture, left to the platform, and a note that is nothing but a
+  hidden tag block has no reachable position at all — a tap in it must not land in
+  the markup. → NoteWorkspace.svelte `handleBlankSpaceMouseDown`
   > **Gap:** the native shells have no reach rules of their own. Their blank space
   > below the text is INSIDE the contenteditable (editor.html's `.cm-content
   > { min-height: 100% }`), so the engine resolves those taps: there is no
@@ -155,6 +163,12 @@ this file states the behaviors a human cares about.
   focuses with `preventScroll`, then sets the selection — it must NOT use the
   native contenteditable tap-focus path, which scroll-jumps the whole app during
   keyboard presentation. → docs/learnings/ios-keyboard-editor-jump.md _(iOS)_
+  > **Gap:** a first tap that resolves to NO CM line — the blank space below the
+  > text, which on the native shells is inside the contenteditable — has no
+  > position to set, so `iosTapFocus` declines and that native tap-focus path runs
+  > after all. Certain from the gating (`getLineHitAtPoint` finds no `.cm-line`,
+  > so `resolveTapPositionAt` answers null); whether the scroll-jump actually
+  > follows is NOT verified on device. Predates the reach work. _(iOS)_
 - **Tapping an UNFOCUSED editor places the caret at the tap AND raises the
   keyboard** — on refocus, WebKit and Blink restore the selection saved at
   blur (e.g. the header the cursor was on when the keyboard was dismissed,

@@ -726,6 +726,22 @@ test.describe('Click in the blank space around the note', () => {
     const sel = await getSelection(page);
     expect(sel).not.toEqual({ from: 25, to: 25 }); // not collapsed to the end
   });
+
+  // Only a primary press reaches. A right-press opens the platform menu, and
+  // moving the caret out from under it first is not what was asked for.
+  test('a right-press in the reach zone leaves the caret alone', async ({ page }) => {
+    await setupEditor(page, 'alpha bravo charlie delta');
+    const probe = await probePoint(page, { side: 0.5 });
+    await setCursor(page, 6);
+    expect(probe.hitsBlankSpace).toBe(true);
+    // The same point reaches on a left press, so the button is the only variable.
+    expect(probe.onLinePos).toBe(25);
+
+    await page.mouse.click(probe.x, probe.y, { button: 'right' });
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: 6, to: 6 });
+  });
 });
 
 // ============================================================================
