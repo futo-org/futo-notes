@@ -646,8 +646,6 @@ test.describe('Folder support', () => {
       )
       .toEqual(['Bystander', 'Work/Mover', 'Work/placeholder']);
 
-    // The note the user landed on keeps its own identity — the move must not
-    // retarget the session it no longer owns.
     await expect(page.locator('.title-input')).toHaveValue('Bystander');
     await expect(page.locator('.cm-content')).toContainText('bystander body');
   });
@@ -674,10 +672,9 @@ test.describe('Folder support', () => {
       .toEqual(['Bystander', 'Work/Mover', 'Work/placeholder']);
   });
 
-  // The right-click that opens the menu is also the blur that commits the rename,
-  // so the id the menu captured dies mid-action. Both orderings of that race are
-  // reachable — a slow vault settles after the action starts, a fast one before —
-  // and the menu holds the pre-rename id either way.
+  // The right-click both opens the menu and blurs the title, so the id the menu
+  // captured dies mid-action. A slow vault settles after the action starts, a fast
+  // one before; the delete must land either way.
   for (const [when, settle] of [
     ['the flush finishes after the action starts', async () => {}],
     ['the flush finishes first', async (page: Page) => page.waitForTimeout(600)],

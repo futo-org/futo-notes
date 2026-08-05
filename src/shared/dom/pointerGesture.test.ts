@@ -69,9 +69,9 @@ describe('runWhenPointerIdle', () => {
     const run = vi.fn();
     fire('pointerdown');
     runWhenPointerIdle(run);
-    fire('pointercancel'); // no click — arms the 100ms fallback
+    fire('pointercancel');
 
-    fire('pointerdown'); // user presses again before it elapses
+    fire('pointerdown');
     vi.advanceTimersByTime(100);
     expect(run).not.toHaveBeenCalled();
 
@@ -101,7 +101,7 @@ describe('runWhenPointerIdle', () => {
     const run = vi.fn();
     fire('pointerdown');
     runWhenPointerIdle(run);
-    expect(run).not.toHaveBeenCalled(); // no pointerup, no pointercancel
+    expect(run).not.toHaveBeenCalled();
 
     fire('blur');
     expect(run).toHaveBeenCalledOnce();

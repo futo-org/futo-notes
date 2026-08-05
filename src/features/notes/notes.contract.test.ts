@@ -304,8 +304,6 @@ describe('the recorded save identity change', () => {
     notes.recordSaveIdentityChange('Draft', 'Draft final');
     expect(notes.getSaveIdentityChange()).toEqual({ from: 'Draft', to: 'Draft final' });
 
-    // A new note reuses the freed name, so the rename can no longer be what
-    // explains a later absence of 'Draft'.
     notes._applyLocalMutation(mutation({ upserted: [upsert('Draft')] }));
 
     expect(notes.getSaveIdentityChange()).toBeNull();

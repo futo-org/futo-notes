@@ -44,8 +44,6 @@ describe('confirmDeleteSidebarNote', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.confirmDialog.mockResolvedValue(true);
-    // Notes exist unless a test says otherwise; the action target is resolved
-    // against the projection.
     mocks.getNoteById.mockImplementation((id: string) => ({ id }));
     mocks.getSaveIdentityChange.mockReturnValue(null);
   });
@@ -99,7 +97,6 @@ describe('confirmDeleteSidebarNote', () => {
       });
       return operation();
     });
-    // The flush renamed it, so the old id is no longer a note.
     mocks.getNoteById.mockImplementation((id: string) =>
       id === 'Projects/Renamed roadmap' ? { id } : undefined,
     );

@@ -187,8 +187,7 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await page.locator('.cm-content').click();
     await expect(page.locator('.note-row[data-note-id="Alpha Renamed"]')).toHaveClass(/selected/);
 
-    // The rename bumps mtime, so the row jumps to the top; rows without a
-    // selection means the projection and the new id split renders.
+    // Rows present but none selected = the projection and the new id split renders.
     const states = await page.evaluate(
       () => (window as unknown as { __states: Array<{ rows: number; selected: number }> }).__states,
     );

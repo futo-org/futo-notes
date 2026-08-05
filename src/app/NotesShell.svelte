@@ -78,7 +78,7 @@
     onNoteRenamed: (fromId, toId) => {
       if (fromId) tabsStore.applyRename(fromId, toId);
       else tabsStore.replaceTabNoteId(tabsStore.activeTabId, toId);
-      // A rename can land mid-switch; stamping the transition then marks a note it
+      // A rename landing mid-switch would otherwise stamp a note the transition
       // never loaded, and the next click on that row no-ops.
       if (tabsStore.activeNoteId === toId) tabTransition.setLoadedNoteId(toId);
     },
@@ -107,8 +107,7 @@
 
   function retargetActiveNote(fromId: string, toId: string, title: string): void {
     tabsStore.applyRename(fromId, toId);
-    // Any tab pointing at the old id has to follow it, but the session only
-    // follows a note it still holds — it may have moved on mid-operation.
+    // The session follows only a note it still holds; it may have moved on.
     if (session.originalId !== fromId) return;
     session.applyRemoteRename(toId, title);
     tabTransition.setLoadedNoteId(toId);

@@ -39,8 +39,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
 
     try {
       const state = options.getState();
-      // Navigating Home clears the tab's note id before this queued save runs,
-      // so the session is what says whether there is still a note to write.
+      // Navigating Home clears the tab's note id before this queued save runs.
       if (noteId === null && state.originalId === null) return false;
       const newTitle = normalizeTitleForPersistence(state.title);
       const blockingTitleIssue = validateTitle(newTitle).find((issue) => issue.kind !== 'empty');

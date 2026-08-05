@@ -23,8 +23,6 @@ import { createCurrentNoteActions } from './createCurrentNoteActions.svelte';
 describe('createCurrentNoteActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Notes exist unless a test says otherwise; the action target is resolved
-    // against the projection.
     mocks.getNoteById.mockImplementation((id: string) => ({ id }));
     mocks.getSaveIdentityChange.mockReturnValue(null);
   });
@@ -92,8 +90,6 @@ describe('createCurrentNoteActions', () => {
       onDeleteConfirmed: vi.fn(),
     });
 
-    // Must resolve — a rejection here escapes the void onpick handler as an
-    // unhandled promise rejection (the regression this locks).
     await expect(actions.moveToFolder('Archive')).resolves.toBeUndefined();
 
     expect(showToast).toHaveBeenCalledWith('A note with that name already exists');
@@ -180,8 +176,6 @@ describe('createCurrentNoteActions note targeting', () => {
   it('deletes nothing when the picked note vanished without the flush renaming it', async () => {
     let activeId: string | null = 'Doomed';
     mocks.confirmDialog.mockResolvedValue(true);
-    // Neither id resolves: the picked note was removed under us, and the note
-    // now open is not what the user asked to delete.
     mocks.getNoteById.mockImplementation((id: string) => (id === 'Bystander' ? { id } : undefined));
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
       activeId = 'Bystander';
@@ -237,7 +231,6 @@ describe('createCurrentNoteActions note targeting', () => {
       });
       return operation();
     });
-    // The flush renamed it, so the old id is no longer a note.
     mocks.getNoteById.mockImplementation((id: string) =>
       id === 'Projects/Renamed roadmap' ? { id } : undefined,
     );

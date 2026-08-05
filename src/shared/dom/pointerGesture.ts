@@ -16,21 +16,19 @@ function disarm(): void {
 
 function runWaiters(): void {
   disarm();
-  // A fresh gesture can start inside the window this one armed; its release re-arms.
   if (pointersDown > 0 || dragging) return;
   const pending = waiters;
   waiters = [];
   for (const run of pending) run();
 }
 
-// A task, not a microtask: the work has to land past the click target's own handler.
+// A task, not a microtask: the work must land past the click target's own handler.
 function onClick(): void {
   clearFallback();
   setTimeout(runWaiters, 0);
 }
 
 function onPointerDown(): void {
-  // A press cannot start mid-drag, so this also recovers a lost `dragend`.
   dragging = false;
   pointersDown += 1;
 }
@@ -39,7 +37,6 @@ function onDragStart(): void {
   dragging = true;
 }
 
-// Releases no pointer: `pointercancel` already accounted for the one the drag took.
 function onDragEnd(): void {
   dragging = false;
   armDrain();
@@ -51,15 +48,14 @@ function onRelease(): void {
 }
 
 function armDrain(): void {
-  // `dragstart` cancels the pointer, but the drop still acts on the id captured
-  // when the drag began — a drag's release is `dragend`, which fires after `drop`.
+  // A drag's release is `dragend` (after `drop`), not the `pointercancel` that
+  // `dragstart` fires — so a drag holds the queue for its whole gesture.
   if (dragging || pointersDown > 0 || waiters.length === 0) return;
   clearFallback();
   window.addEventListener('click', onClick, { capture: true, once: true });
   fallbackTimer = window.setTimeout(runWaiters, 100);
 }
 
-// A release outside the window is never delivered, stranding the count above zero.
 function onWindowBlur(): void {
   pointersDown = 0;
   runWaiters();
@@ -85,10 +81,9 @@ function uninstall(): void {
 }
 
 if (typeof window !== 'undefined') {
-  // At import, not lazily: the first caller is a blur handler already inside a
-  // press, so it would miss the `pointerdown` it needs.
+  // At import: the first caller is a blur handler already inside a press, so a
+  // lazy install would miss the `pointerdown` it needs.
   install();
-  // Otherwise HMR leaves the old listeners attached and every press counts twice.
   import.meta.hot?.dispose(uninstall);
 }
 

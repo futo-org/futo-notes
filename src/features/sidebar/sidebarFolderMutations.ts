@@ -91,8 +91,8 @@ export async function moveSidebarNote(
 ): Promise<void> {
   try {
     const pick = pickNoteForAction(noteId);
-    // Always through the lock: whether this row is the open note can only be
-    // answered once the open note's pending rename has landed.
+    // Always locked: whether this row is the open note is unanswerable until its
+    // pending rename has landed.
     await options.runWithActiveNoteLock(async () => {
       const fromId = pick.resolve();
       if (!fromId) return showGlobalToast('That note is no longer available');

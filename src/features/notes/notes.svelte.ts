@@ -52,9 +52,8 @@ function replaceFromSnapshot(snapshot: LocalNoteSnapshot): void {
 
 let lastSaveIdentityChange: { from: string | null; to: string } | null = null;
 
-/** The id a save gave the note it wrote, when it differs from the one the
- * session held: the mint of a first save, or the move a title edit performed.
- * `noteActionTarget` reads it to follow a picked note across its own flush. */
+/** The id a save gave the note it wrote: the mint of a first save, or the move a
+ * title edit performed. `noteActionTarget` follows a picked note across it. */
 export function recordSaveIdentityChange(from: string | null, to: string): void {
   lastSaveIdentityChange = { from, to };
 }
@@ -77,8 +76,7 @@ export function _applyLocalMutation(mutation: LocalNoteMutation): void {
   }
   notesCache = next;
   setFolderSnapshot(mutation.folders, notesCache);
-  // The renamed-from id names a note again, so that rename can no longer be
-  // what explains a later absence of it.
+  // The old id names a note again, so the rename can no longer explain its absence.
   const recorded = lastSaveIdentityChange?.from;
   if (recorded && mutation.upserted.some((entry) => entry.note.id === recorded)) {
     lastSaveIdentityChange = null;
