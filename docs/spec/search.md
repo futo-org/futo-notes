@@ -17,6 +17,18 @@ desktop, iOS, and Android query that owner through thin adapters.
 - The index covers note title, folder, tags, and body text.
 - Internal hyphens are parsed as an adjacent phrase by the shared Tantivy query
   behavior (`folder-scoped` matches the compound, not distant words).
+- A multi-word query prefers notes containing EVERY word: retrieval runs
+  all-words first, and only falls back to any-word when no note contains them
+  all. BM25 alone ranks a short one-word match above a long all-words match.
+  → `futo-notes-search` `TantivyIndices::run_pass`
+- A query that matches nothing exactly retries at edit distance 1, so one
+  mistyped character returns the note instead of an empty list. Fuzzy is a last
+  resort only — an exactly-spelled query is never diluted by near-spellings.
+- Terms match as typed: there is no stemming, so `meeting` does not retrieve
+  `meetings`. Measured on a 2,608-note corpus, adding the English stemmer cost
+  more ranking quality on exact titles than it recovered on word variants.
+- Retrieval is lexical. There is no semantic/embedding search, so a query
+  sharing no words with a note will not find it.
 - Empty-query UI behavior remains surface-specific: desktop and Android show
   eight recent notes; iOS shows the normal current-folder list.
 - Result rows show title, preview, and a folder badge for foldered notes.

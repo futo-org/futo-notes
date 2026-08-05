@@ -170,15 +170,27 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(10);
         while !engine.status().keyword.ready {
-            assert!(Instant::now() < deadline, "keyword index never became ready");
+            assert!(
+                Instant::now() < deadline,
+                "keyword index never became ready"
+            );
             std::thread::sleep(Duration::from_millis(25));
         }
 
         let hits = engine.query("milk", 10).expect("query ok");
         let ids: Vec<&str> = hits.iter().map(|h| h.note_id.as_str()).collect();
-        assert!(ids.contains(&"Grocery list"), "expected grocery hit, got {ids:?}");
-        assert!(ids.contains(&"Pancakes"), "expected pancakes hit, got {ids:?}");
-        assert!(!ids.contains(&"Bank"), "bank should not match 'milk', got {ids:?}");
+        assert!(
+            ids.contains(&"Grocery list"),
+            "expected grocery hit, got {ids:?}"
+        );
+        assert!(
+            ids.contains(&"Pancakes"),
+            "expected pancakes hit, got {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"Bank"),
+            "bank should not match 'milk', got {ids:?}"
+        );
         assert!(hits.iter().all(|h| h.source == "bm25"));
         assert!(engine.query("   ", 10).unwrap().is_empty());
     }
@@ -210,14 +222,20 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(10);
         while !engine.status().keyword.ready {
-            assert!(Instant::now() < deadline, "keyword index never became ready");
+            assert!(
+                Instant::now() < deadline,
+                "keyword index never became ready"
+            );
             std::thread::sleep(Duration::from_millis(25));
         }
 
         // Hyphenated token → phrase: only the literal compound matches.
         let hits = engine.query("folder-scoped", 10).expect("query ok");
         let ids: Vec<&str> = hits.iter().map(|h| h.note_id.as_str()).collect();
-        assert!(ids.contains(&"Compound"), "expected compound hit, got {ids:?}");
+        assert!(
+            ids.contains(&"Compound"),
+            "expected compound hit, got {ids:?}"
+        );
         assert!(
             !ids.contains(&"Separated"),
             "non-adjacent words must not match the hyphenated phrase, got {ids:?}"
@@ -226,7 +244,132 @@ mod tests {
         // Space-separated words → both notes match.
         let hits = engine.query("folder scoped", 10).expect("query ok");
         let ids: Vec<&str> = hits.iter().map(|h| h.note_id.as_str()).collect();
-        assert!(ids.contains(&"Compound"), "expected compound hit, got {ids:?}");
-        assert!(ids.contains(&"Separated"), "expected separated hit, got {ids:?}");
+        assert!(
+            ids.contains(&"Compound"),
+            "expected compound hit, got {ids:?}"
+        );
+        assert!(
+            ids.contains(&"Separated"),
+            "expected separated hit, got {ids:?}"
+        );
+    }
+
+    /// Boot an engine over `notes` (id → body) and block until it is queryable.
+    fn engine_over(notes: &[(&str, &str)]) -> (ScopedTempDir, ScopedTempDir, SearchEngine) {
+        let vault = ScopedTempDir::new();
+        let index = ScopedTempDir::new();
+        for (id, body) in notes {
+            std::fs::write(vault.path().join(format!("{id}.md")), body).unwrap();
+        }
+        let engine = SearchEngine::start(
+            SearchConfig {
+                notes_root: vault.path().clone(),
+                index_dir: index.path().clone(),
+            },
+            Arc::new(|_| {}),
+        )
+        .expect("engine starts");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !engine.status().keyword.ready {
+            assert!(
+                Instant::now() < deadline,
+                "keyword index never became ready"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        (vault, index, engine)
+    }
+
+    fn ids(hits: &[SearchHit]) -> Vec<&str> {
+        hits.iter().map(|h| h.note_id.as_str()).collect()
+    }
+
+    /// A note containing EVERY query word outranks a short note containing only
+    /// one, even when BM25 length normalization favors the short one.
+    ///
+    /// Regression: measured against the real 2,608-note corpus, the single note
+    /// containing both query words reached rank 1 in 1 of 20 cases and top-10 in
+    /// 2 of 20, because a should-clause parse lets a tiny one-term note win.
+    #[test]
+    fn a_note_matching_every_word_beats_a_short_one_word_note() {
+        let (_v, _i, engine) = engine_over(&[
+            // Short and dense in "material" — the BM25 length-normalization winner.
+            ("Standup material", "material"),
+            // Long, mentions both words once each.
+            (
+                "Self managed life",
+                &format!(
+                    "{} material for the talk covers encryption at rest",
+                    "filler ".repeat(400)
+                ),
+            ),
+        ]);
+
+        let hits = engine.query("material encryption", 10).expect("query ok");
+        assert_eq!(
+            ids(&hits).first().copied(),
+            Some("Self managed life"),
+            "the only note with BOTH words must rank first, got {:?}",
+            ids(&hits)
+        );
+    }
+
+    /// When no note contains all the words, the query still returns the notes
+    /// that match some of them rather than nothing.
+    #[test]
+    fn a_query_no_note_fully_satisfies_falls_back_to_any_word() {
+        let (_v, _i, engine) = engine_over(&[
+            ("Hiring", "notes about hiring engineers"),
+            ("Groceries", "milk and eggs"),
+        ]);
+
+        let hits = engine
+            .query("what should I do about hiring", 10)
+            .expect("query ok");
+        assert!(
+            ids(&hits).contains(&"Hiring"),
+            "an over-constrained query must degrade to any-word, got {:?}",
+            ids(&hits)
+        );
+    }
+
+    /// One mistyped character still finds the note.
+    ///
+    /// Regression: 24 of 24 single-character misspellings of otherwise-unique
+    /// words returned an empty result list against the real corpus.
+    #[test]
+    fn a_single_character_typo_still_finds_the_note() {
+        let (_v, _i, engine) = engine_over(&[
+            ("Cars", "an essay about driverless vehicles"),
+            ("Bank", "call the bank"),
+        ]);
+
+        // deletion, substitution, insertion, transposition
+        for typo in ["driverles", "drivarless", "driverlesss", "drivreless"] {
+            let hits = engine.query(typo, 10).expect("query ok");
+            assert!(
+                ids(&hits).contains(&"Cars"),
+                "typo {typo:?} should still find the note, got {:?}",
+                ids(&hits)
+            );
+        }
+    }
+
+    /// Fuzzy is a last resort, not a default: an exactly-spelled query must not
+    /// have its results diluted by edit-distance-1 neighbors.
+    #[test]
+    fn fuzzy_does_not_fire_when_the_exact_spelling_matches() {
+        let (_v, _i, engine) = engine_over(&[
+            ("Exact", "cart"),
+            ("Neighbor one", "cars"),
+            ("Neighbor two", "cast"),
+        ]);
+
+        let hits = engine.query("cart", 10).expect("query ok");
+        assert_eq!(
+            ids(&hits),
+            vec!["Exact"],
+            "an exact match must not pull in fuzzy neighbors"
+        );
     }
 }
