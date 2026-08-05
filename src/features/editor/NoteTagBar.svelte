@@ -8,7 +8,7 @@
     content: string;
     getEditorView: () => EditorView | null;
     notes: NotePreview[];
-    /** The bar's own box, so the shell can treat its slack as note surface. */
+    /** The bar's own box, for the shell's blank-space reach. */
     element?: HTMLElement;
   }
 

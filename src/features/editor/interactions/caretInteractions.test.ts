@@ -4,18 +4,11 @@ import type { EditorView } from '@codemirror/view';
 
 import { EditorCaretInteractions } from './caretInteractions';
 
-/**
- * `resolveTapPositionAt` decides WHICH position a tap means; the engine decides
- * where a tap lands natively. The two only agree when we answer for taps we can
- * actually resolve — a tap off any line has no answer here, and guessing one
- * overrides a native placement that was already right (Android walked the caret
- * between the guess and the placement on alternate taps).
- */
 function fakeView(overrides: {
   posAtCoords?: (coords: { x: number; y: number }) => number | null;
   posAtDOM?: () => number;
   line?: { from: number; to: number };
-  /** Rows the position could draw on, as `{ [-1]: top, [1]: top }`. */
+  /** Row tops the position draws at, per association. */
   rowTops?: { before: number; after: number };
 }) {
   const line = overrides.line ?? { from: 23, to: 31 };
@@ -45,7 +38,7 @@ describe('resolveTapPositionAt', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div class="cm-content"><div class="cm-line">last one</div></div>';
     document.elementFromPoint = () => hitElement;
-    // jsdom lays nothing out, and the tap's y is clamped into the LINE's box —
+    // jsdom lays nothing out, and the tap's y is clamped into the line's box —
     // a zero rect would clamp every tap to the same point.
     const line = document.querySelector('.cm-line') as HTMLElement;
     line.getBoundingClientRect = () => ({ top: 130, bottom: 200, left: 40, right: 400 }) as DOMRect;
@@ -56,7 +49,6 @@ describe('resolveTapPositionAt', () => {
     const view = fakeView({});
 
     expect(interactions().resolveTapPositionAt(46, 107, view, hitElement)).toBeNull();
-    // The point of the fix: no fallback guess is computed at all.
     expect(view.posAtCoords).not.toHaveBeenCalled();
   });
 
@@ -67,8 +59,7 @@ describe('resolveTapPositionAt', () => {
     expect(interactions().resolveTapPositionAt(46, 90, view, hitElement)?.head).toBe(26);
   });
 
-  // The correction exists because Blink drops to position 0 on a line with no
-  // text of its own; that case must keep resolving to the line.
+  // Blink drops to position 0 on a line with no text of its own.
   it('answers the line start for a tap on an empty line', () => {
     hitElement = document.querySelector('.cm-line');
     const view = fakeView({ line: { from: 12, to: 12 }, posAtCoords: () => 0 });
@@ -76,11 +67,8 @@ describe('resolveTapPositionAt', () => {
     expect(interactions().resolveTapPositionAt(46, 90, view, hitElement)?.head).toBe(12);
   });
 
-  // A wrap point is one position drawn in two places. The tap decides which,
-  // and the caller (iOS tap-focus, the Android correction) dispatches the
-  // association verbatim — without it the caret jumps to the next row's start.
   describe('at a wrap point, the association follows the tapped row', () => {
-    // Row tops: the position draws at y=140 (end of row 1) or y=170 (start of row 2).
+    // The position draws at y=140 (end of row 1) or y=170 (start of row 2).
     const wrapped = () => fakeView({ posAtCoords: () => 26, rowTops: { before: 140, after: 170 } });
 
     it('holds the caret on the upper row for a tap there', () => {

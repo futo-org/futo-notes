@@ -236,8 +236,6 @@
     });
   }
 
-  /** Places a caret resolved from a pointer, association included — at a wrap
-   *  point that association is the only thing deciding which row it draws on. */
   export function setCaret(at: SelectionRange): void {
     if (!view) return;
     view.dispatch({ selection: EditorSelection.create([at]) });

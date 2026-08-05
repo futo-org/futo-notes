@@ -110,9 +110,8 @@ export class EditorCaretInteractions {
     targetNode?: Node | null,
   ): SelectionRange | null {
     const hit = this.getLineHitAtPoint(clientX, clientY, view, targetNode);
-    // Off a line there is nothing to correct, and no answer to give: posAtCoords
-    // reports an END of the document for any point outside the text, discarding
-    // the column the engine already resolved from the same tap.
+    // No answer off a line: posAtCoords would report a document end and override
+    // the engine's own placement. → docs/spec/editor.md
     if (!hit) return null;
     const { line, lineElement } = hit;
     if (line.from === line.to) return EditorSelection.cursor(line.from);
@@ -153,20 +152,13 @@ export class EditorCaretInteractions {
     return EditorView.domEventHandlers({ mousedown: selectLine, click: selectLine });
   }
 
-  /**
-   * The end of the VISUAL row the pointer is on. A wrapped line's `line.to` is
-   * the end of its LAST row, so clicking past the text on any earlier row sent
-   * the caret down a row instead of leaving it where the click was. The `-1`
-   * association is what holds it there: a wrap point is one position with two
-   * places to draw it, and the default picks the next row's start.
-   */
+  /** The end of the visual row the pointer is on, not the wrapped line's end. */
   private rowEndAt(clientY: number, hit: LineHit, view: EditorView): SelectionRange {
     const rect = hit.lineElement.getBoundingClientRect();
     const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
 
-    // On the row that carries the line's end, the answer is that end and not
-    // what the row renders: hidden trailing markers (a wikilink's `]]`) stop the
-    // rendered row short of the source it stands for.
+    // The row carrying the line's end answers with it, not with what the row
+    // renders: hidden trailing markers (a wikilink's `]]`) stop it short.
     const lineEnd = view.coordsAtPos(hit.line.to, -1);
     if (lineEnd && y >= lineEnd.top && y <= lineEnd.bottom) {
       return EditorSelection.cursor(hit.line.to);

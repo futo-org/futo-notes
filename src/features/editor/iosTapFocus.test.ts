@@ -56,9 +56,7 @@ describe('iosTapFocus', () => {
     view.contentDOM.dispatchEvent(end);
 
     expect(view.state.selection.main.head).toBe(3);
-    // The association travels with the position: on a wrapped line it is the
-    // only thing deciding whether the caret draws at the end of the tapped row
-    // or at the start of the next one.
+    // On a wrapped line the association is what keeps the caret on the tapped row.
     expect(view.state.selection.main.assoc).toBe(-1);
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
     expect(preventDefault).toHaveBeenCalled();

@@ -9,7 +9,7 @@ interface TapPoint {
 
 export interface IosTapFocusOptions {
   enabled: boolean;
-  /** The caret the tap means, association included — a wrap point needs it. */
+  /** The caret the tap means, association included. */
   resolveTapPosition: (point: TapPoint, view: EditorView) => SelectionRange | null;
   shouldIgnoreTap?: (target: EventTarget | null) => boolean;
 }

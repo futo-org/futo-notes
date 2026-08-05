@@ -60,13 +60,12 @@
     onfocuschange?.(focused);
   }
 
-  // The CM DOM is only as tall and wide as the text, so blank space around it
-  // reaches the editor through no one. → docs/spec/editor.md
+  // The CM DOM is only as big as the text, so the blank space around it reaches
+  // the editor through no one. → docs/spec/editor.md
   function handleBlankSpaceMouseDown(event: MouseEvent): void {
     if (event.button !== 0) return;
     if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
-    // The tag bar's slack is note surface; its pills, buttons and input are not,
-    // nor is the title row.
+    // Only a container's own slack — descendants keep their clicks.
     if (event.target !== event.currentTarget && event.target !== tagBarEl) return;
     const view = editorApi?.getView();
     if (!view) return;

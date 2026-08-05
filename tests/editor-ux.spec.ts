@@ -295,7 +295,7 @@ async function rowsOfFirstLine(
   });
 }
 
-/** Where the caret is actually DRAWN, plus the line end it could have snapped to. */
+/** Where the caret is drawn, plus the first line's end for comparison. */
 async function caretState(page: Page) {
   return page.evaluate(() => {
     const view = (window as any).__cmGetView();
@@ -310,13 +310,10 @@ async function caretState(page: Page) {
 }
 
 test.describe('Clicking past the end of a line', () => {
-  // A wrapped line is ONE markdown line with several rows on screen, and its
-  // `line.to` is the end of the LAST row. Snapping there dropped the caret a row
-  // below the click — visibly, right after the engine had placed it correctly.
   test('a click past the text on a wrapped row keeps the caret on that row', async ({ page }) => {
     await setupEditor(page, `${WRAPPING_LINE}\nsecond markdown line`);
     const rows = await rowsOfFirstLine(page);
-    // Precondition: the line really does wrap, and the row clicked is not its last.
+    // Precondition: the line wraps, and the clicked row is not its last.
     expect(rows.length).toBeGreaterThan(1);
     const row = rows[0];
     await setCursor(page, 0);
@@ -330,8 +327,6 @@ test.describe('Clicking past the end of a line', () => {
     expect(caret.head).toBeLessThan(caret.firstLineTo);
   });
 
-  // The affordance itself: past the text of a line that does NOT wrap, the caret
-  // still goes to that line's end rather than the nearest character.
   test('a click past the text on an unwrapped line lands at its end', async ({ page }) => {
     await setupEditor(page, 'short line\nsecond markdown line');
     const rows = await rowsOfFirstLine(page);
@@ -344,11 +339,8 @@ test.describe('Clicking past the end of a line', () => {
     expect(await getSelection(page)).toEqual({ from: 10, to: 10 });
   });
 
-  // The same click, but landing OUTSIDE the editor's own box, where the shell's
-  // blank-space handler answers instead. Both paths resolve the same wrap point,
-  // and a bare offset there draws the caret a row below the click — which is what
-  // the row above catches only when the font happens to put its click outside the
-  // editor (it did in CI, not locally).
+  // Same wrap point as the case above, but resolved by the shell's blank-space
+  // handler rather than the editor's.
   test('a click in the blank space beside a wrapped row keeps the caret on that row', async ({
     page,
   }) => {
@@ -364,7 +356,7 @@ test.describe('Clicking past the end of a line', () => {
       return Math.round(content.right + view.defaultLineHeight);
     });
     const y = Math.round((row.top + row.bottom) / 2);
-    // Precondition: this really is the shell's blank space, not the editor's.
+    // Precondition: the shell's blank space, not the editor's.
     expect(
       await page.evaluate(({ x, y }) => !document.elementFromPoint(x, y)?.closest('.cm-editor'), {
         x,
@@ -386,10 +378,8 @@ test.describe('Clicking past the end of a line', () => {
 // ============================================================================
 
 /**
- * The caret follows a click into the blank space only within REACH_IN_LINES of
- * the text (NoteWorkspace.svelte). Each geometry below is expressed in multiples
- * of that reach so the cases stay on the intended side of the boundary.
- * → docs/spec/editor.md
+ * Geometry below is in multiples of the editor's reach, so each case stays on the
+ * intended side of the boundary. → docs/spec/editor.md
  */
 type Probe = {
   x: number;
@@ -399,10 +389,9 @@ type Probe = {
 };
 
 /**
- * A click point relative to the text, in units of the editor's reach:
- * `down` from the last line's bottom, `side` from the content column's edge
- * (negative = left). Also reports what a click at the same COLUMN but on the
- * last line resolves to, which is the reference for below-the-text cases.
+ * A click point in units of reach: `down` from the last line's bottom, `side`
+ * from the content column's edge (negative = left). `onLinePos` is what the same
+ * column resolves to ON the last line — the reference for below-the-text cases.
  */
 async function probePoint(
   page: Page,
@@ -426,8 +415,8 @@ async function probePoint(
         x,
         y,
         onLinePos: view.posAtCoords({ x, y: (last.top + last.bottom) / 2 }, false),
-        // Outside the editor's own DOM, i.e. a container the handler owns —
-        // otherwise the case would be proving CM's placement, not the handler's.
+        // Outside the editor's own DOM, or the case proves CM's placement
+        // rather than the handler's.
         hitsBlankSpace: Boolean(hit && !hit.closest('.cm-editor') && hit.closest('.note-body')),
       };
     },
@@ -436,8 +425,6 @@ async function probePoint(
 }
 
 test.describe('Click in the blank space around the note', () => {
-  // Just below the text the column still picks the character, exactly as if the
-  // click had landed on the last line.
   test('within reach below the text lands on the same character as the line would', async ({
     page,
   }) => {
@@ -446,7 +433,7 @@ test.describe('Click in the blank space around the note', () => {
     await setCursor(page, 0);
 
     expect(probe.hitsBlankSpace).toBe(true);
-    // A middle column, so end-of-note would be a visibly different answer.
+    // A middle column, so end-of-note would be a different answer.
     expect(probe.onLinePos).toBeGreaterThan(0);
     expect(probe.onLinePos).toBeLessThan(25);
 
@@ -456,7 +443,6 @@ test.describe('Click in the blank space around the note', () => {
     expect(await getSelection(page)).toEqual({ from: probe.onLinePos, to: probe.onLinePos });
   });
 
-  // Past the reach the column stops mattering — the note's end is what's wanted.
   test('beyond reach below the text lands at the end of the note', async ({ page }) => {
     await setupEditor(page, 'alpha bravo charlie delta');
     const probe = await probePoint(page, { down: 2, atPos: 12 });
@@ -474,7 +460,6 @@ test.describe('Click in the blank space around the note', () => {
     );
   });
 
-  // Beside a line, within reach: the near end of THAT line.
   for (const [side, offset, expected] of [
     ['left', -0.5, 11],
     ['right', 0.5, 22],
@@ -483,8 +468,8 @@ test.describe('Click in the blank space around the note', () => {
       page,
     }) => {
       await setupEditor(page, 'first line\nsecond line');
-      // The doc end sits on the second line, so probePoint's vertical reference
-      // is that line. 'first line\nsecond line' — it spans 11..22.
+      // The doc end is on the second line, so that is probePoint's vertical
+      // reference; 'first line\nsecond line' spans 11..22.
       const probe = await probePoint(page, { side: offset });
       await setCursor(page, 0);
       expect(probe.hitsBlankSpace).toBe(true);
@@ -499,8 +484,6 @@ test.describe('Click in the blank space around the note', () => {
     });
   }
 
-  // Far out to either side is a click AWAY from the note: the caret stays where
-  // it was and the editor gives up focus.
   for (const [side, offset] of [
     ['left', -2],
     ['right', 2],
@@ -521,9 +504,7 @@ test.describe('Click in the blank space around the note', () => {
     });
   }
 
-  // The click-off corridor is the SAME at every height. This used to be an L: the
-  // side gate was evaluated per vertical zone, so out at the far left, level with
-  // a line clicked off while a few px lower jumped to the end of the note.
+  // The corridor is a rectangle, not an L: one straight edge at every height.
   test('beyond reach to the side clicks off at every height', async ({ page }) => {
     await setupEditor(page, 'first line\nsecond line');
     const heights = await Promise.all(
@@ -544,8 +525,6 @@ test.describe('Click in the blank space around the note', () => {
     }
   });
 
-  // The tag bar's slack is the note's topmost strip and used to be a ~31px band of
-  // blank space directly above the first line where a click killed the caret.
   test('the tag bar slack reaches into the first line', async ({ page }) => {
     await setupEditor(page, 'alpha bravo charlie delta');
     const probe = await page.evaluate(() => {
@@ -560,7 +539,7 @@ test.describe('Click in the blank space around the note', () => {
         y,
         clearOfTheButton: x > addBtn.right + 10,
         hitsBarItself: Boolean(hit && hit.classList.contains('note-tag-bar')),
-        // The column resolved ON the first line — what the tap has to reproduce.
+        // The column resolved on the first line, which the tap must reproduce.
         onLinePos: view.posAtCoords(
           { x, y: (view.coordsAtPos(0).top + view.coordsAtPos(0).bottom) / 2 },
           false,
@@ -581,9 +560,8 @@ test.describe('Click in the blank space around the note', () => {
     );
   });
 
-  // A note whose header tag block is hidden renders those lines `display: none`,
-  // so the tag bar's slack must reach the first VISIBLE line. Reaching position 0
-  // instead pops open the raw `#tag` markup the bar exists to replace.
+  // A hidden header tag block renders `display: none`, so the slack has to reach
+  // past it to the first visible line.
   test('the tag bar slack never reaches into a hidden header tag block', async ({ page }) => {
     await setupEditor(page, '#work #ideas\n\nbody text line here');
     const probe = await page.evaluate(() => {
@@ -601,7 +579,7 @@ test.describe('Click in the blank space around the note', () => {
         bodyStart: view.state.doc.line(3).from,
       };
     });
-    // Preconditions: the tags really are pills and the markup really is hidden.
+    // Preconditions: the tags are pills and the markup is hidden.
     expect(probe.pills).toEqual(['work', 'ideas']);
     expect(probe.blockHidden).toBe(true);
 
@@ -619,13 +597,11 @@ test.describe('Click in the blank space around the note', () => {
     expect(after.blockStillHidden).toBe(true);
   });
 
-  // A note that is ONLY a tag block has no visible line, so every candidate
-  // position sits in the hidden markup. Landing there reveals it and the next
-  // keystroke corrupts a tag (`#ideas` + "hello" → `#ideashello`).
+  // Every candidate position sits in hidden markup, where a keystroke would
+  // corrupt a tag (`#ideas` + "hello" → `#ideashello`).
   test('a note that is only a hidden tag block has nothing to reach', async ({ page }) => {
     await setupEditor(page, '#work #ideas');
-    // setupEditor leaves the caret in the tag line, which reveals it; the block
-    // only collapses once the editor is blurred.
+    // The block only collapses once the editor is blurred.
     await page.evaluate(() => (window as any).__cmGetView().contentDOM.blur());
     await page.waitForFunction(
       () => document.querySelector('.cm-line')!.getBoundingClientRect().height === 0,
@@ -642,7 +618,7 @@ test.describe('Click in the blank space around the note', () => {
         ),
       };
     });
-    // Preconditions: the whole doc really is the hidden block.
+    // Precondition: the whole doc is the hidden block.
     expect(probe.pills).toEqual(['work', 'ideas']);
     expect(probe.noVisibleLine).toBe(true);
 
@@ -659,9 +635,8 @@ test.describe('Click in the blank space around the note', () => {
     ).toEqual(['work', 'ideas']);
   });
 
-  // Reaching up must not swallow anything the surrounding chrome owns. The title
-  // input is the sharpest case: preventDefault on a hijacked mousedown would stop
-  // it focusing at all.
+  // The title input is the sharpest case: a preventDefault on a hijacked mousedown
+  // would stop it focusing at all.
   test('the surrounding chrome keeps its own clicks', async ({ page }) => {
     await setupEditor(page, 'first line');
     await setCursor(page, 5);
@@ -670,16 +645,14 @@ test.describe('Click in the blank space around the note', () => {
     await expect(page.locator('.title-input')).toBeFocused();
     expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
 
-    // The Add button sits INSIDE the note's surface, so only the target check
-    // keeps this click. A hijacked mousedown still lets the click through to
-    // `startAdding` — the body caret moving is what gives it away.
+    // The Add button is inside the surface, so only the target check keeps this
+    // click; a hijack still reaches `startAdding`, so watch the body caret.
     await page.locator('.tag-add-btn').click();
     await expect(page.locator('.tag-input')).toBeFocused();
     expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
   });
 
-  // The title row sits above the note's surface, whose top edge is the tag bar.
-  // Probed INSIDE the corridor so the side gate can't be what rejects it.
+  // Probed inside the corridor, so the side gate cannot be what rejects it.
   test('within the corridor but above the tag bar clicks off', async ({ page }) => {
     await setupEditor(page, 'first line\nsecond line');
     await setCursor(page, 5);
@@ -727,14 +700,12 @@ test.describe('Click in the blank space around the note', () => {
     expect(sel).not.toEqual({ from: 25, to: 25 }); // not collapsed to the end
   });
 
-  // Only a primary press reaches. A right-press opens the platform menu, and
-  // moving the caret out from under it first is not what was asked for.
   test('a right-press in the reach zone leaves the caret alone', async ({ page }) => {
     await setupEditor(page, 'alpha bravo charlie delta');
     const probe = await probePoint(page, { side: 0.5 });
     await setCursor(page, 6);
     expect(probe.hitsBlankSpace).toBe(true);
-    // The same point reaches on a left press, so the button is the only variable.
+    // This point reaches on a left press, so the button is the only variable.
     expect(probe.onLinePos).toBe(25);
 
     await page.mouse.click(probe.x, probe.y, { button: 'right' });
