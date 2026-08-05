@@ -1,6 +1,7 @@
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
 
+import { recordSaveIdentityChange } from './noteActionTarget';
 import { normalizeTitleForPersistence, shouldWriteNoteToDisk } from './noteSessionChanges';
 import type { ParkedDraftSnapshot } from './noteSession.svelte';
 import { _applyLocalMutation, updateNote } from './notes.svelte';
@@ -84,6 +85,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
       }
 
       options.clearPendingFolder();
+      if (result.id !== state.originalId) recordSaveIdentityChange(state.originalId, result.id);
       options.onSaved({
         id: result.id,
         title: newTitle,

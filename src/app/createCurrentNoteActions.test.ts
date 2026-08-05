@@ -16,6 +16,7 @@ vi.mock('$features/notes/notes.svelte', () => ({
   getNoteById: mocks.getNoteById,
 }));
 
+import { recordSaveIdentityChange } from '$features/notes/noteActionTarget';
 import { createCurrentNoteActions } from './createCurrentNoteActions.svelte';
 
 describe('createCurrentNoteActions', () => {
@@ -76,6 +77,58 @@ describe('createCurrentNoteActions', () => {
     expect(showToast).toHaveBeenCalledWith('coming soon');
   });
 
+  it('shows a failure toast and does not reject when the move fails', async () => {
+    mocks.moveNote.mockRejectedValue(new Error('A note with that name already exists'));
+    const showToast = vi.fn();
+    const onMoved = vi.fn();
+    const actions = createCurrentNoteActions({
+      getActiveNoteId: () => 'Projects/Roadmap',
+      runWithActiveNoteLock: async <T>(operation: () => Promise<T>) => operation(),
+      showToast,
+      onMoved,
+      onDeleted: vi.fn(),
+      onDeleteConfirmed: vi.fn(),
+    });
+
+    // Must resolve — a rejection here escapes the void onpick handler as an
+    // unhandled promise rejection (the regression this locks).
+    await expect(actions.moveToFolder('Archive')).resolves.toBeUndefined();
+
+    expect(showToast).toHaveBeenCalledWith('A note with that name already exists');
+    expect(onMoved).not.toHaveBeenCalled();
+  });
+});
+
+describe('createCurrentNoteActions note targeting', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getNoteById.mockImplementation((id: string) => ({ id }));
+  });
+
+  it('ignores a rename recorded before the action started', async () => {
+    // An id can be renamed away, reused by a new note, then removed under us.
+    // Only a rename this action's own flush performed may retarget it.
+    recordSaveIdentityChange('Recycled', 'Renamed earlier');
+    mocks.confirmDialog.mockResolvedValue(true);
+    mocks.getNoteById.mockImplementation((id: string) =>
+      id === 'Renamed earlier' ? { id } : undefined,
+    );
+    const showToast = vi.fn();
+    const actions = createCurrentNoteActions({
+      getActiveNoteId: () => 'Recycled',
+      runWithActiveNoteLock: async <T>(operation: () => Promise<T>) => operation(),
+      showToast,
+      onMoved: vi.fn(),
+      onDeleted: vi.fn(),
+      onDeleteConfirmed: vi.fn(),
+    });
+
+    await actions.deleteCurrentNote();
+
+    expect(mocks.deleteNote).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('That note is no longer available');
+  });
+
   it('deletes the picked note, not one navigated to while the flush ran', async () => {
     let activeId: string = 'Doomed';
     mocks.confirmDialog.mockResolvedValue(true);
@@ -96,6 +149,59 @@ describe('createCurrentNoteActions', () => {
     await actions.deleteCurrentNote();
 
     expect(mocks.deleteNote).toHaveBeenCalledExactlyOnceWith('Doomed');
+  });
+
+  it('deletes the id the flush minted for an unsaved draft, not the note switched to', async () => {
+    let activeId: string | null = null;
+    mocks.confirmDialog.mockResolvedValue(true);
+    mocks.getNoteById.mockImplementation((id: string) =>
+      id === 'Fresh draft' || id === 'Bystander' ? { id } : undefined,
+    );
+    const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
+      recordSaveIdentityChange(null, 'Fresh draft');
+      activeId = 'Bystander';
+      return operation();
+    });
+    const actions = createCurrentNoteActions({
+      getActiveNoteId: () => activeId,
+      runWithActiveNoteLock,
+      showToast: vi.fn(),
+      onMoved: vi.fn(),
+      onDeleted: vi.fn(),
+      onDeleteConfirmed: vi.fn(),
+    });
+
+    await actions.deleteCurrentNote();
+
+    expect(mocks.deleteNote).toHaveBeenCalledExactlyOnceWith('Fresh draft');
+  });
+
+  it('deletes nothing when the picked note vanished without the flush renaming it', async () => {
+    let activeId: string | null = 'Doomed';
+    mocks.confirmDialog.mockResolvedValue(true);
+    // Neither id resolves: the picked note was removed under us, and the note
+    // now open is not what the user asked to delete.
+    mocks.getNoteById.mockImplementation((id: string) => (id === 'Bystander' ? { id } : undefined));
+    const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
+      activeId = 'Bystander';
+      return operation();
+    });
+    const onDeleted = vi.fn();
+    const showToast = vi.fn();
+    const actions = createCurrentNoteActions({
+      getActiveNoteId: () => activeId,
+      runWithActiveNoteLock,
+      showToast,
+      onMoved: vi.fn(),
+      onDeleted,
+      onDeleteConfirmed: vi.fn(),
+    });
+
+    await actions.deleteCurrentNote();
+
+    expect(mocks.deleteNote).not.toHaveBeenCalled();
+    expect(onDeleted).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('That note is no longer available');
   });
 
   it('moves the picked note, not one navigated to while the flush ran', async () => {
@@ -124,6 +230,7 @@ describe('createCurrentNoteActions', () => {
     let activeId = 'Projects/Roadmap';
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
       activeId = 'Projects/Renamed roadmap';
+      recordSaveIdentityChange('Projects/Roadmap', 'Projects/Renamed roadmap');
       return operation();
     });
     // The flush renamed it, so the old id is no longer a note.
@@ -156,26 +263,5 @@ describe('createCurrentNoteActions', () => {
       'Archive/Renamed roadmap',
       'Renamed roadmap',
     );
-  });
-
-  it('shows a failure toast and does not reject when the move fails', async () => {
-    mocks.moveNote.mockRejectedValue(new Error('A note with that name already exists'));
-    const showToast = vi.fn();
-    const onMoved = vi.fn();
-    const actions = createCurrentNoteActions({
-      getActiveNoteId: () => 'Projects/Roadmap',
-      runWithActiveNoteLock: async <T>(operation: () => Promise<T>) => operation(),
-      showToast,
-      onMoved,
-      onDeleted: vi.fn(),
-      onDeleteConfirmed: vi.fn(),
-    });
-
-    // Must resolve — a rejection here escapes the void onpick handler as an
-    // unhandled promise rejection (the regression this locks).
-    await expect(actions.moveToFolder('Archive')).resolves.toBeUndefined();
-
-    expect(showToast).toHaveBeenCalledWith('A note with that name already exists');
-    expect(onMoved).not.toHaveBeenCalled();
   });
 });

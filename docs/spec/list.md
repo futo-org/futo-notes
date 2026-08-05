@@ -157,12 +157,13 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   while the action's own save flush runs. Holds for the sidebar's right-click menu
   too. _(Tauri)_ → `noteActionTarget.ts`, `createCurrentNoteActions.svelte.ts`,
   `sidebarFolderMutations.ts`
-- They follow that note through a rename the flush commits, so renaming a title
-  and then moving or deleting acts on the renamed file. _(Tauri)_
-  > **Gap:** the two are told apart by whether the picked id still names a note,
-  > so a note deleted by a sync pull mid-action is indistinguishable from one the
-  > flush renamed, and the action falls through to the note the user is now on.
-  > Closing this needs the flush's `renamed` mapping threaded to the resolver.
+- They follow that note through the identity its own flush gave it — the rename a
+  title edit commits, or the id a first save mints for an unsaved draft — so
+  renaming or starting a note and then moving or deleting acts on that file.
+  _(Tauri)_
+- They act on nothing, and toast "That note is no longer available", when the
+  picked note disappears for any other reason (a sync pull or an external delete
+  mid-action) — never falling through to whatever note is open by then. _(Tauri)_
 - "Delete note" asks for confirmation ("This action cannot be undone."), then
   deletes the file. _(Desktop)_ routes through the OS trash — recoverable via
   the OS trash — falling back to permanent delete if the platform trash is

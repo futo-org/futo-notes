@@ -1,7 +1,7 @@
 import { clearDragHoverExpanded } from '$features/folders/folderExpansion.svelte';
 import { getEmptyFolders } from '$features/folders/emptyFolders.svelte';
 import { deleteFolder, moveFolder, renameOrMoveFolder } from '$features/folders/folderOperations';
-import { noteActionTargetId } from '$features/notes/noteActionTarget';
+import { pickNoteForAction } from '$features/notes/noteActionTarget';
 import { deleteNote, getAllNotes, moveNote } from '$features/notes/notes.svelte';
 import { idLeaf } from '$lib/platform/pathSafety';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
@@ -91,10 +91,10 @@ export async function moveSidebarNote(
 ): Promise<void> {
   try {
     const movingActiveNote = options.getActiveNoteId() === noteId;
+    const pick = movingActiveNote ? pickNoteForAction(noteId) : null;
     const move = async () => {
-      const fromId = movingActiveNote
-        ? (noteActionTargetId(noteId, options.getActiveNoteId()) ?? noteId)
-        : noteId;
+      const fromId = pick ? pick.resolve() : noteId;
+      if (!fromId) return showGlobalToast('That note is no longer available');
       const newId = target ? `${target}/${idLeaf(fromId)}` : idLeaf(fromId);
       if (newId === fromId) return;
       const result = await moveNote(fromId, newId);
@@ -129,10 +129,10 @@ export async function confirmDeleteSidebarNote(
 
   try {
     const deletingActiveNote = options.getActiveNoteId() === id;
+    const pick = deletingActiveNote ? pickNoteForAction(id) : null;
     const remove = async () => {
-      const deleteId = deletingActiveNote
-        ? (noteActionTargetId(id, options.getActiveNoteId()) ?? id)
-        : id;
+      const deleteId = pick ? pick.resolve() : id;
+      if (!deleteId) return showGlobalToast('That note is no longer available');
       await deleteNote(deleteId);
       if (deletingActiveNote) options.onActiveNoteDeleted();
       options.onNoteIdsDeleted([deleteId]);
