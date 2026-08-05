@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { iosTapFocus } from './iosTapFocus';
@@ -9,7 +10,7 @@ function setup(enabled = true): EditorView {
   const parent = document.createElement('div');
   document.body.appendChild(parent);
   const resolveTapPosition = vi.fn(({ clientX, clientY }) =>
-    clientX === 12 && clientY === 6 ? 3 : null,
+    clientX === 12 && clientY === 6 ? EditorSelection.cursor(3, -1) : null,
   );
   const view = new EditorView({
     doc: 'hello',
@@ -55,6 +56,10 @@ describe('iosTapFocus', () => {
     view.contentDOM.dispatchEvent(end);
 
     expect(view.state.selection.main.head).toBe(3);
+    // The association travels with the position: on a wrapped line it is the
+    // only thing deciding whether the caret draws at the end of the tapped row
+    // or at the start of the next one.
+    expect(view.state.selection.main.assoc).toBe(-1);
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
     expect(preventDefault).toHaveBeenCalled();
     expect(

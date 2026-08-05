@@ -272,6 +272,427 @@ test.describe('Pointer selection (marker snapping)', () => {
 });
 
 // ============================================================================
+// CLICKING PAST THE END OF A LINE
+// ============================================================================
+
+const WRAPPING_LINE =
+  'The quick brown fox jumps over the lazy dog and keeps running far past the ' +
+  'edge of the column so this line wraps onto a second row.';
+
+/** The client rects of each VISUAL row of the first line, top row first. */
+async function rowsOfFirstLine(
+  page: Page,
+): Promise<{ top: number; bottom: number; right: number }[]> {
+  return page.evaluate(() => {
+    const line = document.querySelector('.cm-line') as HTMLElement;
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    return [...range.getClientRects()].map((r) => ({
+      top: Math.round(r.top),
+      bottom: Math.round(r.bottom),
+      right: Math.round(r.right),
+    }));
+  });
+}
+
+/** Where the caret is actually DRAWN, plus the line end it could have snapped to. */
+async function caretState(page: Page) {
+  return page.evaluate(() => {
+    const view = (window as any).__cmGetView();
+    const drawn = document.querySelector('.cm-cursor')?.getBoundingClientRect();
+    return {
+      head: view.state.selection.main.head,
+      firstLineTo: view.state.doc.line(1).to,
+      drawnTop: drawn ? Math.round(drawn.top) : null,
+      drawnLeft: drawn ? Math.round(drawn.left) : null,
+    };
+  });
+}
+
+test.describe('Clicking past the end of a line', () => {
+  // A wrapped line is ONE markdown line with several rows on screen, and its
+  // `line.to` is the end of the LAST row. Snapping there dropped the caret a row
+  // below the click — visibly, right after the engine had placed it correctly.
+  test('a click past the text on a wrapped row keeps the caret on that row', async ({ page }) => {
+    await setupEditor(page, `${WRAPPING_LINE}\nsecond markdown line`);
+    const rows = await rowsOfFirstLine(page);
+    // Precondition: the line really does wrap, and the row clicked is not its last.
+    expect(rows.length).toBeGreaterThan(1);
+    const row = rows[0];
+    await setCursor(page, 0);
+
+    await page.mouse.click(row.right + 8, Math.round((row.top + row.bottom) / 2));
+    await page.waitForTimeout(100);
+
+    const caret = await caretState(page);
+    expect(caret.drawnTop).toBeGreaterThanOrEqual(row.top - 2);
+    expect(caret.drawnTop).toBeLessThan(row.bottom);
+    expect(caret.head).toBeLessThan(caret.firstLineTo);
+  });
+
+  // The affordance itself: past the text of a line that does NOT wrap, the caret
+  // still goes to that line's end rather than the nearest character.
+  test('a click past the text on an unwrapped line lands at its end', async ({ page }) => {
+    await setupEditor(page, 'short line\nsecond markdown line');
+    const rows = await rowsOfFirstLine(page);
+    expect(rows).toHaveLength(1);
+    await setCursor(page, 0);
+
+    await page.mouse.click(rows[0].right + 120, Math.round((rows[0].top + rows[0].bottom) / 2));
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: 10, to: 10 });
+  });
+});
+
+// ============================================================================
+// CLICK IN THE BLANK SPACE AROUND THE NOTE
+// ============================================================================
+
+/**
+ * The caret follows a click into the blank space only within REACH_IN_LINES of
+ * the text (NoteWorkspace.svelte). Each geometry below is expressed in multiples
+ * of that reach so the cases stay on the intended side of the boundary.
+ * → docs/spec/editor.md
+ */
+type Probe = {
+  x: number;
+  y: number;
+  onLinePos: number;
+  hitsBlankSpace: boolean;
+};
+
+/**
+ * A click point relative to the text, in units of the editor's reach:
+ * `down` from the last line's bottom, `side` from the content column's edge
+ * (negative = left). Also reports what a click at the same COLUMN but on the
+ * last line resolves to, which is the reference for below-the-text cases.
+ */
+async function probePoint(
+  page: Page,
+  { down = 0, side = 0, atPos }: { down?: number; side?: number; atPos?: number },
+): Promise<Probe> {
+  return page.evaluate(
+    ({ down, side, atPos }) => {
+      const view = (window as any).__cmGetView();
+      const reach = view.defaultLineHeight * 2;
+      const content = document.querySelector('.cm-content')!.getBoundingClientRect();
+      const last = view.coordsAtPos(view.state.doc.length);
+
+      const x =
+        atPos !== undefined
+          ? Math.round(view.coordsAtPos(atPos).left)
+          : Math.round(side < 0 ? content.left + side * reach : content.right + side * reach);
+      const y = Math.round(down > 0 ? last.bottom + down * reach : (last.top + last.bottom) / 2);
+      const hit = document.elementFromPoint(x, y);
+
+      return {
+        x,
+        y,
+        onLinePos: view.posAtCoords({ x, y: (last.top + last.bottom) / 2 }, false),
+        // Outside the editor's own DOM, i.e. a container the handler owns —
+        // otherwise the case would be proving CM's placement, not the handler's.
+        hitsBlankSpace: Boolean(hit && !hit.closest('.cm-editor') && hit.closest('.note-body')),
+      };
+    },
+    { down, side, atPos },
+  );
+}
+
+test.describe('Click in the blank space around the note', () => {
+  // Just below the text the column still picks the character, exactly as if the
+  // click had landed on the last line.
+  test('within reach below the text lands on the same character as the line would', async ({
+    page,
+  }) => {
+    await setupEditor(page, 'alpha bravo charlie delta');
+    const probe = await probePoint(page, { down: 0.5, atPos: 12 });
+    await setCursor(page, 0);
+
+    expect(probe.hitsBlankSpace).toBe(true);
+    // A middle column, so end-of-note would be a visibly different answer.
+    expect(probe.onLinePos).toBeGreaterThan(0);
+    expect(probe.onLinePos).toBeLessThan(25);
+
+    await page.mouse.click(probe.x, probe.y);
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: probe.onLinePos, to: probe.onLinePos });
+  });
+
+  // Past the reach the column stops mattering — the note's end is what's wanted.
+  test('beyond reach below the text lands at the end of the note', async ({ page }) => {
+    await setupEditor(page, 'alpha bravo charlie delta');
+    const probe = await probePoint(page, { down: 2, atPos: 12 });
+    await setCursor(page, 0);
+
+    expect(probe.hitsBlankSpace).toBe(true);
+    expect(probe.onLinePos).toBeLessThan(25); // same column as the case above
+
+    await page.mouse.click(probe.x, probe.y);
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: 25, to: 25 });
+    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor')))).toBe(
+      true,
+    );
+  });
+
+  // Beside a line, within reach: the near end of THAT line.
+  for (const [side, offset, expected] of [
+    ['left', -0.5, 11],
+    ['right', 0.5, 22],
+  ] as const) {
+    test(`within reach ${side} of the second line lands at its ${side === 'left' ? 'start' : 'end'}`, async ({
+      page,
+    }) => {
+      await setupEditor(page, 'first line\nsecond line');
+      // The doc end sits on the second line, so probePoint's vertical reference
+      // is that line. 'first line\nsecond line' — it spans 11..22.
+      const probe = await probePoint(page, { side: offset });
+      await setCursor(page, 0);
+      expect(probe.hitsBlankSpace).toBe(true);
+
+      await page.mouse.click(probe.x, probe.y);
+      await page.waitForTimeout(100);
+
+      expect(await getSelection(page)).toEqual({ from: expected, to: expected });
+      expect(
+        await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor'))),
+      ).toBe(true);
+    });
+  }
+
+  // Far out to either side is a click AWAY from the note: the caret stays where
+  // it was and the editor gives up focus.
+  for (const [side, offset] of [
+    ['left', -2],
+    ['right', 2],
+  ] as const) {
+    test(`beyond reach ${side} of a line clicks off the note`, async ({ page }) => {
+      await setupEditor(page, 'first line\nsecond line');
+      const probe = await probePoint(page, { side: offset });
+      await setCursor(page, 5);
+      expect(probe.hitsBlankSpace).toBe(true);
+
+      await page.mouse.click(probe.x, probe.y);
+      await page.waitForTimeout(100);
+
+      expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
+      expect(
+        await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor'))),
+      ).toBe(false);
+    });
+  }
+
+  // The click-off corridor is the SAME at every height. This used to be an L: the
+  // side gate was evaluated per vertical zone, so out at the far left, level with
+  // a line clicked off while a few px lower jumped to the end of the note.
+  test('beyond reach to the side clicks off at every height', async ({ page }) => {
+    await setupEditor(page, 'first line\nsecond line');
+    const heights = await Promise.all(
+      [0, 0.5, 1.5, 3].map((down) => probePoint(page, { side: -2, down })),
+    );
+
+    for (const probe of heights) {
+      await setCursor(page, 5);
+      expect(probe.hitsBlankSpace).toBe(true);
+
+      await page.mouse.click(probe.x, probe.y);
+      await page.waitForTimeout(100);
+
+      expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
+      expect(
+        await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor'))),
+      ).toBe(false);
+    }
+  });
+
+  // The tag bar's slack is the note's topmost strip and used to be a ~31px band of
+  // blank space directly above the first line where a click killed the caret.
+  test('the tag bar slack reaches into the first line', async ({ page }) => {
+    await setupEditor(page, 'alpha bravo charlie delta');
+    const probe = await page.evaluate(() => {
+      const view = (window as any).__cmGetView();
+      const bar = document.querySelector('.note-tag-bar')!.getBoundingClientRect();
+      const addBtn = document.querySelector('.tag-add-btn')!.getBoundingClientRect();
+      const x = Math.round(view.coordsAtPos(12).left);
+      const y = Math.round(bar.top + bar.height / 2);
+      const hit = document.elementFromPoint(x, y);
+      return {
+        x,
+        y,
+        clearOfTheButton: x > addBtn.right + 10,
+        hitsBarItself: Boolean(hit && hit.classList.contains('note-tag-bar')),
+        // The column resolved ON the first line — what the tap has to reproduce.
+        onLinePos: view.posAtCoords(
+          { x, y: (view.coordsAtPos(0).top + view.coordsAtPos(0).bottom) / 2 },
+          false,
+        ),
+      };
+    });
+    await setCursor(page, 0);
+    expect(probe.clearOfTheButton).toBe(true);
+    expect(probe.hitsBarItself).toBe(true);
+    expect(probe.onLinePos).toBeGreaterThan(0);
+
+    await page.mouse.click(probe.x, probe.y);
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: probe.onLinePos, to: probe.onLinePos });
+    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor')))).toBe(
+      true,
+    );
+  });
+
+  // A note whose header tag block is hidden renders those lines `display: none`,
+  // so the tag bar's slack must reach the first VISIBLE line. Reaching position 0
+  // instead pops open the raw `#tag` markup the bar exists to replace.
+  test('the tag bar slack never reaches into a hidden header tag block', async ({ page }) => {
+    await setupEditor(page, '#work #ideas\n\nbody text line here');
+    const probe = await page.evaluate(() => {
+      const view = (window as any).__cmGetView();
+      view.contentDOM.blur(); // a caret in the block would reveal it on its own
+      const bar = document.querySelector('.note-tag-bar')!.getBoundingClientRect();
+      const addBtn = document.querySelector('.tag-add-btn')!.getBoundingClientRect();
+      const lines = [...document.querySelectorAll('.cm-line')];
+      return {
+        x: Math.round(addBtn.right + 60),
+        y: Math.round(bar.top + bar.height / 2),
+        pills: [...document.querySelectorAll('.tag-pill-name')].map((p) => p.textContent),
+        blockHidden: lines[0].getBoundingClientRect().height === 0,
+        // 'body text line here' begins here; anything below is inside the block.
+        bodyStart: view.state.doc.line(3).from,
+      };
+    });
+    // Preconditions: the tags really are pills and the markup really is hidden.
+    expect(probe.pills).toEqual(['work', 'ideas']);
+    expect(probe.blockHidden).toBe(true);
+
+    await page.mouse.click(probe.x, probe.y);
+    await page.waitForTimeout(100);
+
+    const after = await page.evaluate(() => {
+      const view = (window as any).__cmGetView();
+      return {
+        caret: view.state.selection.main.head,
+        blockStillHidden: document.querySelector('.cm-line')!.getBoundingClientRect().height === 0,
+      };
+    });
+    expect(after.caret).toBeGreaterThanOrEqual(probe.bodyStart);
+    expect(after.blockStillHidden).toBe(true);
+  });
+
+  // A note that is ONLY a tag block has no visible line, so every candidate
+  // position sits in the hidden markup. Landing there reveals it and the next
+  // keystroke corrupts a tag (`#ideas` + "hello" → `#ideashello`).
+  test('a note that is only a hidden tag block has nothing to reach', async ({ page }) => {
+    await setupEditor(page, '#work #ideas');
+    // setupEditor leaves the caret in the tag line, which reveals it; the block
+    // only collapses once the editor is blurred.
+    await page.evaluate(() => (window as any).__cmGetView().contentDOM.blur());
+    await page.waitForFunction(
+      () => document.querySelector('.cm-line')!.getBoundingClientRect().height === 0,
+    );
+
+    const probe = await page.evaluate(() => {
+      const content = document.querySelector('.cm-content')!.getBoundingClientRect();
+      return {
+        x: Math.round(content.left + 80),
+        y: Math.round(content.top + 40),
+        pills: [...document.querySelectorAll('.tag-pill-name')].map((p) => p.textContent),
+        noVisibleLine: [...document.querySelectorAll('.cm-line')].every(
+          (l) => l.getBoundingClientRect().height === 0,
+        ),
+      };
+    });
+    // Preconditions: the whole doc really is the hidden block.
+    expect(probe.pills).toEqual(['work', 'ideas']);
+    expect(probe.noVisibleLine).toBe(true);
+
+    await page.mouse.click(probe.x, probe.y);
+    await page.waitForTimeout(100);
+    await page.keyboard.type('hello');
+    await page.waitForTimeout(100);
+
+    expect(await getDocText(page)).toBe('#work #ideas');
+    expect(
+      await page.evaluate(() =>
+        [...document.querySelectorAll('.tag-pill-name')].map((p) => p.textContent),
+      ),
+    ).toEqual(['work', 'ideas']);
+  });
+
+  // Reaching up must not swallow anything the surrounding chrome owns. The title
+  // input is the sharpest case: preventDefault on a hijacked mousedown would stop
+  // it focusing at all.
+  test('the surrounding chrome keeps its own clicks', async ({ page }) => {
+    await setupEditor(page, 'first line');
+    await setCursor(page, 5);
+
+    await page.locator('.title-input').click();
+    await expect(page.locator('.title-input')).toBeFocused();
+    expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
+
+    // The Add button sits INSIDE the note's surface, so only the target check
+    // keeps this click. A hijacked mousedown still lets the click through to
+    // `startAdding` — the body caret moving is what gives it away.
+    await page.locator('.tag-add-btn').click();
+    await expect(page.locator('.tag-input')).toBeFocused();
+    expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
+  });
+
+  // The title row sits above the note's surface, whose top edge is the tag bar.
+  // Probed INSIDE the corridor so the side gate can't be what rejects it.
+  test('within the corridor but above the tag bar clicks off', async ({ page }) => {
+    await setupEditor(page, 'first line\nsecond line');
+    await setCursor(page, 5);
+
+    const point = await page.evaluate(() => {
+      const view = (window as any).__cmGetView();
+      const content = document.querySelector('.cm-content')!.getBoundingClientRect();
+      const bar = document.querySelector('.note-tag-bar')!.getBoundingClientRect();
+      const x = Math.round(content.left - view.defaultLineHeight); // half a reach out
+      const y = Math.round(bar.top - 6);
+      const hit = document.elementFromPoint(x, y);
+      return {
+        x,
+        y,
+        insideCorridor: x > content.left - view.defaultLineHeight * 2,
+        aboveTheBar: y < bar.top,
+        hitsBlankSpace: Boolean(hit?.classList.contains('note-body')),
+      };
+    });
+    expect(point.insideCorridor).toBe(true);
+    expect(point.aboveTheBar).toBe(true);
+    expect(point.hitsBlankSpace).toBe(true);
+
+    await page.mouse.click(point.x, point.y);
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
+    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor')))).toBe(
+      false,
+    );
+  });
+
+  // A modified click is a selection gesture; the platform owns it.
+  test('shift-clicking in the reach zone does not collapse the selection', async ({ page }) => {
+    await setupEditor(page, 'alpha bravo charlie delta');
+    const probe = await probePoint(page, { side: 0.5 });
+    await setCursor(page, 6);
+
+    await page.keyboard.down('Shift');
+    await page.mouse.click(probe.x, probe.y);
+    await page.keyboard.up('Shift');
+    await page.waitForTimeout(100);
+
+    const sel = await getSelection(page);
+    expect(sel).not.toEqual({ from: 25, to: 25 }); // not collapsed to the end
+  });
+});
+
+// ============================================================================
 // SLASH MENU
 // ============================================================================
 

@@ -1,4 +1,4 @@
-import type { Extension } from '@codemirror/state';
+import { EditorSelection, type Extension, type SelectionRange } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 
 const INLINE_STYLED_SELECTOR = '.cm-md-emphasis, .cm-md-strong, .cm-md-strikethrough, .cm-md-code';
@@ -63,7 +63,7 @@ export class EditorCaretInteractions {
   private lineEndPending: {
     clientX: number;
     clientY: number;
-    lineTo: number;
+    rowEnd: SelectionRange;
   } | null = null;
 
   readonly extensions: Extension[];
@@ -106,22 +106,38 @@ export class EditorCaretInteractions {
     clientY: number,
     view: EditorView,
     targetNode?: Node | null,
-    requireLine = false,
-  ): number | null {
+  ): SelectionRange | null {
     const hit = this.getLineHitAtPoint(clientX, clientY, view, targetNode);
-    if (!hit) return requireLine ? null : view.posAtCoords({ x: clientX, y: clientY }, false);
+    // Off a line there is nothing to correct, and no answer to give: posAtCoords
+    // reports an END of the document for any point outside the text, discarding
+    // the column the engine already resolved from the same tap.
+    if (!hit) return null;
     const { line, lineElement } = hit;
-    if (line.from === line.to) return line.from;
+    if (line.from === line.to) return EditorSelection.cursor(line.from);
 
     const rect = lineElement.getBoundingClientRect();
     const x = Math.min(Math.max(clientX, rect.left + 1), rect.right - 1);
     const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
     const position = view.posAtCoords({ x, y }, false);
-    if (position !== null && position >= line.from && position <= line.to) return position;
+    if (position !== null && position >= line.from && position <= line.to) {
+      return this.cursorOnTappedRow(position, y, view);
+    }
 
     const visibleRight = getRenderedLineRight(lineElement);
-    if (visibleRight !== null && clientX > visibleRight + 1) return line.to;
-    return line.from;
+    if (visibleRight !== null && clientX > visibleRight + 1) return EditorSelection.cursor(line.to);
+    return EditorSelection.cursor(line.from);
+  }
+
+  /**
+   * A wrap point is ONE position the caret can be drawn in two places — the end
+   * of a row or the start of the next — and only the association tells them
+   * apart. The tap picks: the caret belongs on the row the finger was on.
+   */
+  private cursorOnTappedRow(position: number, clientY: number, view: EditorView): SelectionRange {
+    const before = view.coordsAtPos(position, -1);
+    const after = view.coordsAtPos(position, 1);
+    if (!before || !after || before.top === after.top) return EditorSelection.cursor(position);
+    return EditorSelection.cursor(position, clientY < after.top ? -1 : 1);
   }
 
   private createTripleClickHandler(): Extension {
@@ -147,6 +163,29 @@ export class EditorCaretInteractions {
     return EditorView.domEventHandlers({ mousedown: selectLine, click: selectLine });
   }
 
+  /**
+   * The end of the VISUAL row the pointer is on. A wrapped line's `line.to` is
+   * the end of its LAST row, so clicking past the text on any earlier row sent
+   * the caret down a row instead of leaving it where the click was. The `-1`
+   * association is what holds it there: a wrap point is one position with two
+   * places to draw it, and the default picks the next row's start.
+   */
+  private rowEndAt(clientY: number, hit: LineHit, view: EditorView): SelectionRange {
+    const rect = hit.lineElement.getBoundingClientRect();
+    const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
+
+    // On the row that carries the line's end, the answer is that end and not
+    // what the row renders: hidden trailing markers (a wikilink's `]]`) stop the
+    // rendered row short of the source it stands for.
+    const lineEnd = view.coordsAtPos(hit.line.to, -1);
+    if (lineEnd && y >= lineEnd.top && y <= lineEnd.bottom) {
+      return EditorSelection.cursor(hit.line.to);
+    }
+
+    const inRow = view.posAtCoords({ x: rect.right - 1, y }, false);
+    return this.cursorOnTappedRow(inRow ?? hit.line.to, y, view);
+  }
+
   private createLineEndClickHandler(): Extension {
     return EditorView.domEventHandlers({
       mousedown: (event, view) => {
@@ -166,7 +205,7 @@ export class EditorCaretInteractions {
         this.lineEndPending = {
           clientX: event.clientX,
           clientY: event.clientY,
-          lineTo: hit.line.to,
+          rowEnd: this.rowEndAt(event.clientY, hit, view),
         };
         return false;
       },
@@ -183,7 +222,7 @@ export class EditorCaretInteractions {
         }
 
         event.preventDefault();
-        view.dispatch({ selection: { anchor: pending.lineTo } });
+        view.dispatch({ selection: EditorSelection.create([pending.rowEnd]) });
         return true;
       },
     });
@@ -202,8 +241,8 @@ export class EditorCaretInteractions {
           view,
           event.target as Node | null,
         );
-        if (desired === null || desired === selection.head) return false;
-        view.dispatch({ selection: { anchor: desired }, scrollIntoView: false });
+        if (desired === null || desired.head === selection.head) return false;
+        view.dispatch({ selection: EditorSelection.create([desired]), scrollIntoView: false });
         return false;
       },
     });

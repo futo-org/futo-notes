@@ -8,9 +8,11 @@
     content: string;
     getEditorView: () => EditorView | null;
     notes: NotePreview[];
+    /** The bar's own box, so the shell can treat its slack as note surface. */
+    element?: HTMLElement;
   }
 
-  let { content, getEditorView, notes }: Props = $props();
+  let { content, getEditorView, notes, element = $bindable() }: Props = $props();
 
   let adding = $state(false);
   let inputValue = $state('');
@@ -178,7 +180,7 @@
   }
 </script>
 
-<div class="note-tag-bar">
+<div class="note-tag-bar" bind:this={element}>
   {#each tags as tag}
     <span class="tag-pill">
       <span class="tag-pill-name">{tag.replace(/^#/, '')}</span>
