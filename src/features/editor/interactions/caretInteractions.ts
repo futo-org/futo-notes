@@ -1,6 +1,8 @@
 import { EditorSelection, type Extension, type SelectionRange } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 
+import { cursorOnTappedRow } from './caretRow';
+
 const INLINE_STYLED_SELECTOR = '.cm-md-emphasis, .cm-md-strong, .cm-md-strikethrough, .cm-md-code';
 const VISIBLE_LINE_EDGE_SELECTOR = [
   '.cm-md-wikilink',
@@ -120,24 +122,12 @@ export class EditorCaretInteractions {
     const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
     const position = view.posAtCoords({ x, y }, false);
     if (position !== null && position >= line.from && position <= line.to) {
-      return this.cursorOnTappedRow(position, y, view);
+      return cursorOnTappedRow(view, position, y);
     }
 
     const visibleRight = getRenderedLineRight(lineElement);
     if (visibleRight !== null && clientX > visibleRight + 1) return EditorSelection.cursor(line.to);
     return EditorSelection.cursor(line.from);
-  }
-
-  /**
-   * A wrap point is ONE position the caret can be drawn in two places — the end
-   * of a row or the start of the next — and only the association tells them
-   * apart. The tap picks: the caret belongs on the row the finger was on.
-   */
-  private cursorOnTappedRow(position: number, clientY: number, view: EditorView): SelectionRange {
-    const before = view.coordsAtPos(position, -1);
-    const after = view.coordsAtPos(position, 1);
-    if (!before || !after || before.top === after.top) return EditorSelection.cursor(position);
-    return EditorSelection.cursor(position, clientY < after.top ? -1 : 1);
   }
 
   private createTripleClickHandler(): Extension {
@@ -183,7 +173,7 @@ export class EditorCaretInteractions {
     }
 
     const inRow = view.posAtCoords({ x: rect.right - 1, y }, false);
-    return this.cursorOnTappedRow(inRow ?? hit.line.to, y, view);
+    return cursorOnTappedRow(view, inRow ?? hit.line.to, y);
   }
 
   private createLineEndClickHandler(): Extension {

@@ -1,6 +1,11 @@
 <script lang="ts">
   import { EditorView } from '@codemirror/view';
-  import { EditorState, Transaction } from '@codemirror/state';
+  import {
+    EditorSelection,
+    EditorState,
+    Transaction,
+    type SelectionRange,
+  } from '@codemirror/state';
   import { onMount } from 'svelte';
   import { preloadImages, liveMarkdownRefresh } from './liveMarkdownTransform';
   import { getImageWebPath } from '$features/images/imageFiles';
@@ -229,6 +234,13 @@
     view.dispatch({
       selection: { anchor: clampedFrom, head: clampedTo },
     });
+  }
+
+  /** Places a caret resolved from a pointer, association included — at a wrap
+   *  point that association is the only thing deciding which row it draws on. */
+  export function setCaret(at: SelectionRange): void {
+    if (!view) return;
+    view.dispatch({ selection: EditorSelection.create([at]) });
   }
 </script>
 

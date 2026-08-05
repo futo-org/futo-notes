@@ -122,9 +122,11 @@ this file states the behaviors a human cares about.
   the association distinguishes them; the tap's own y picks. Every path that
   places a caret from a pointer dispatches that association rather than a bare
   offset, or the caret appears one row below an otherwise correct tap. This bit
-  a tap on an UNFOCUSED editor long after the focused path was right, because
-  the two resolve through different handlers.
-  → interactions/caretInteractions.ts `cursorOnTappedRow`, iosTapFocus.ts,
+  a tap on an UNFOCUSED editor long after the focused path was right, and again
+  the blank space beside a wrapped row, because each resolves through a different
+  handler — the rule holds only where every one of them applies it.
+  → interactions/caretRow.ts `cursorOnTappedRow`, interactions/caretInteractions.ts,
+  interactions/blankSpaceCaret.ts, iosTapFocus.ts, MarkdownEditor.svelte `setCaret`,
   interactions/caretInteractions.test.ts
 - **Tapping the blank space around a note reaches into it.** The note's tappable
   surface is the text plus two line-heights to either side and below it, and

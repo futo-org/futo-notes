@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { SelectionRange } from '@codemirror/state';
   import type { EditorView } from '@codemirror/view';
 
   import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
@@ -22,7 +23,7 @@
     getView: () => EditorView | null;
     refreshDecorations: () => void;
     placeCaretAtEnd: () => void;
-    setSelection: (from: number, to: number) => void;
+    setCaret: (at: SelectionRange) => void;
   }
 
   interface Props {
@@ -70,16 +71,16 @@
     const view = editorApi?.getView();
     if (!view) return;
 
-    const pos = resolveBlankSpaceCaret(view, {
+    const at = resolveBlankSpaceCaret(view, {
       x: event.clientX,
       y: event.clientY,
       topLimit: (tagBarEl ?? view.contentDOM).getBoundingClientRect().top,
     });
-    if (pos === null) return;
+    if (at === null) return;
 
     event.preventDefault(); // don't blur the contenteditable
     editorApi?.focus();
-    editorApi?.setSelection(pos, pos);
+    editorApi?.setCaret(at);
   }
 </script>
 

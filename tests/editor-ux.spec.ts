@@ -343,6 +343,42 @@ test.describe('Clicking past the end of a line', () => {
 
     expect(await getSelection(page)).toEqual({ from: 10, to: 10 });
   });
+
+  // The same click, but landing OUTSIDE the editor's own box, where the shell's
+  // blank-space handler answers instead. Both paths resolve the same wrap point,
+  // and a bare offset there draws the caret a row below the click — which is what
+  // the row above catches only when the font happens to put its click outside the
+  // editor (it did in CI, not locally).
+  test('a click in the blank space beside a wrapped row keeps the caret on that row', async ({
+    page,
+  }) => {
+    await setupEditor(page, WRAPPING_LINE);
+    const rows = await rowsOfFirstLine(page);
+    expect(rows.length).toBeGreaterThan(1);
+    const row = rows[0];
+    await setCursor(page, 0);
+
+    const x = await page.evaluate(() => {
+      const view = (window as any).__cmGetView();
+      const content = document.querySelector('.cm-content')!.getBoundingClientRect();
+      return Math.round(content.right + view.defaultLineHeight);
+    });
+    const y = Math.round((row.top + row.bottom) / 2);
+    // Precondition: this really is the shell's blank space, not the editor's.
+    expect(
+      await page.evaluate(({ x, y }) => !document.elementFromPoint(x, y)?.closest('.cm-editor'), {
+        x,
+        y,
+      }),
+    ).toBe(true);
+
+    await page.mouse.click(x, y);
+    await page.waitForTimeout(100);
+
+    const caret = await caretState(page);
+    expect(caret.drawnTop).toBeGreaterThanOrEqual(row.top - 2);
+    expect(caret.drawnTop).toBeLessThan(row.bottom);
+  });
 });
 
 // ============================================================================
