@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   confirmDialog: vi.fn(),
   deleteNote: vi.fn(),
   moveNote: vi.fn(),
+  getNoteById: vi.fn(),
 }));
 
 vi.mock('$lib/platform', () => ({ isTauri: false, getPlatformFS: vi.fn() }));
@@ -12,6 +13,7 @@ vi.mock('$shared/dialogs/confirmDialog', () => ({ confirmDialog: mocks.confirmDi
 vi.mock('$features/notes/notes.svelte', () => ({
   deleteNote: mocks.deleteNote,
   moveNote: mocks.moveNote,
+  getNoteById: mocks.getNoteById,
 }));
 
 import { createCurrentNoteActions } from './createCurrentNoteActions.svelte';
@@ -19,6 +21,9 @@ import { createCurrentNoteActions } from './createCurrentNoteActions.svelte';
 describe('createCurrentNoteActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Notes exist unless a test says otherwise; the action target is resolved
+    // against the projection.
+    mocks.getNoteById.mockImplementation((id: string) => ({ id }));
   });
 
   it('confirms before deleting the active note and reports the completed action', async () => {
@@ -71,12 +76,60 @@ describe('createCurrentNoteActions', () => {
     expect(showToast).toHaveBeenCalledWith('coming soon');
   });
 
+  it('deletes the picked note, not one navigated to while the flush ran', async () => {
+    let activeId: string = 'Doomed';
+    mocks.confirmDialog.mockResolvedValue(true);
+    mocks.getNoteById.mockImplementation((id: string) => (id === 'Doomed' ? { id } : undefined));
+    const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
+      activeId = 'Innocent';
+      return operation();
+    });
+    const actions = createCurrentNoteActions({
+      getActiveNoteId: () => activeId,
+      runWithActiveNoteLock,
+      showToast: vi.fn(),
+      onMoved: vi.fn(),
+      onDeleted: vi.fn(),
+      onDeleteConfirmed: vi.fn(),
+    });
+
+    await actions.deleteCurrentNote();
+
+    expect(mocks.deleteNote).toHaveBeenCalledExactlyOnceWith('Doomed');
+  });
+
+  it('moves the picked note, not one navigated to while the flush ran', async () => {
+    let activeId: string = 'Mover';
+    mocks.getNoteById.mockImplementation((id: string) => (id === 'Mover' ? { id } : undefined));
+    const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
+      activeId = 'Bystander';
+      return operation();
+    });
+    mocks.moveNote.mockResolvedValue({ id: 'Work/Mover', mtime: 1 });
+    const actions = createCurrentNoteActions({
+      getActiveNoteId: () => activeId,
+      runWithActiveNoteLock,
+      showToast: vi.fn(),
+      onMoved: vi.fn(),
+      onDeleted: vi.fn(),
+      onDeleteConfirmed: vi.fn(),
+    });
+
+    await actions.moveToFolder('Work');
+
+    expect(mocks.moveNote).toHaveBeenCalledWith('Mover', 'Work/Mover');
+  });
+
   it('flushes a pending save before moving and uses the post-save note id', async () => {
     let activeId = 'Projects/Roadmap';
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
       activeId = 'Projects/Renamed roadmap';
       return operation();
     });
+    // The flush renamed it, so the old id is no longer a note.
+    mocks.getNoteById.mockImplementation((id: string) =>
+      id === 'Projects/Renamed roadmap' ? { id } : undefined,
+    );
     mocks.moveNote.mockResolvedValue({ id: 'Archive/Renamed roadmap', mtime: 1 });
     const onMoved = vi.fn();
     const actions = createCurrentNoteActions({

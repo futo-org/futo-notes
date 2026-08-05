@@ -107,6 +107,9 @@
 
   function retargetActiveNote(fromId: string, toId: string, title: string): void {
     tabsStore.applyRename(fromId, toId);
+    // Any tab pointing at the old id has to follow it, but the session only
+    // follows a note it still holds — it may have moved on mid-operation.
+    if (session.originalId !== fromId) return;
     session.applyRemoteRename(toId, title);
     tabTransition.setLoadedNoteId(toId);
   }

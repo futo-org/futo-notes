@@ -153,6 +153,16 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - "Move to folder" opens a folder picker (root "Notes" + folder tree, nesting
   shown); picking a destination moves the file, keeps the note open under its
   new id, and rewrites backlinks. → FolderPickerModal.svelte
+- Move and Delete act on the note the action was started for, not on one selected
+  while the action's own save flush runs. Holds for the sidebar's right-click menu
+  too. _(Tauri)_ → `noteActionTarget.ts`, `createCurrentNoteActions.svelte.ts`,
+  `sidebarFolderMutations.ts`
+- They follow that note through a rename the flush commits, so renaming a title
+  and then moving or deleting acts on the renamed file. _(Tauri)_
+  > **Gap:** the two are told apart by whether the picked id still names a note,
+  > so a note deleted by a sync pull mid-action is indistinguishable from one the
+  > flush renamed, and the action falls through to the note the user is now on.
+  > Closing this needs the flush's `renamed` mapping threaded to the resolver.
 - "Delete note" asks for confirmation ("This action cannot be undone."), then
   deletes the file. _(Desktop)_ routes through the OS trash — recoverable via
   the OS trash — falling back to permanent delete if the platform trash is

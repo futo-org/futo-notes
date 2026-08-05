@@ -2,6 +2,7 @@ import { getPlatformFS, isTauri } from '$lib/platform';
 import { idLeaf, safeNotePath } from '$lib/platform/pathSafety';
 import { getConfig } from '$lib/platform/tauri';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
+import { noteActionTargetId } from '$features/notes/noteActionTarget';
 import { deleteNote as deleteNoteFromVault, moveNote } from '$features/notes/notes.svelte';
 
 export interface CurrentNoteActionsDeps {
@@ -58,8 +59,9 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
 
   async function moveToFolder(folderPath: string): Promise<void> {
     movePickerOpen = false;
+    const pickedId = deps.getActiveNoteId();
     await deps.runWithActiveNoteLock(async () => {
-      const fromId = deps.getActiveNoteId();
+      const fromId = noteActionTargetId(pickedId, deps.getActiveNoteId());
       if (!fromId) return;
       const leaf = idLeaf(fromId);
       const wantedId = folderPath ? `${folderPath}/${leaf}` : leaf;
@@ -76,18 +78,23 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
 
   async function deleteCurrentNote(): Promise<void> {
     closeMenu();
+    const pickedId = deps.getActiveNoteId();
     const confirmed = await confirmDialog('Delete this note? This action cannot be undone.', {
       title: 'Delete note',
       kind: 'warning',
     });
     if (!confirmed) return;
     await deps.runWithActiveNoteLock(async () => {
-      const id = deps.getActiveNoteId();
+      const id = noteActionTargetId(pickedId, deps.getActiveNoteId());
       if (!id) return;
-      await deleteNoteFromVault(id);
-      deps.onDeleteConfirmed();
-      deps.onDeleted(id);
-      deps.showToast('Note deleted');
+      try {
+        await deleteNoteFromVault(id);
+        deps.onDeleteConfirmed();
+        deps.onDeleted(id);
+        deps.showToast('Note deleted');
+      } catch (error) {
+        deps.showToast(error instanceof Error ? error.message : 'Delete failed');
+      }
     });
   }
 

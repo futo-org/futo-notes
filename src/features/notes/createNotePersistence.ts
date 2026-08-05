@@ -35,10 +35,13 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
   return async function saveNote(): Promise<boolean> {
     const noteId = options.getNoteId();
     const editorContent = options.getEditorContent();
-    if (!hasFileSystem || editorContent === undefined || noteId === null) return false;
+    if (!hasFileSystem || editorContent === undefined) return false;
 
     try {
       const state = options.getState();
+      // Navigating Home clears the tab's note id before this queued save runs,
+      // so the session is what says whether there is still a note to write.
+      if (noteId === null && state.originalId === null) return false;
       const newTitle = normalizeTitleForPersistence(state.title);
       const blockingTitleIssue = validateTitle(newTitle).find((issue) => issue.kind !== 'empty');
       if (blockingTitleIssue) {

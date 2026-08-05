@@ -234,6 +234,16 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await expect(page.locator('.note-row[data-note-id="Reopen Renamed"]')).toHaveClass(/selected/);
   });
 
+  test('navigating Home still commits a pending rename', async ({ page }) => {
+    await openNoteForRetitle(page, 'Home Note');
+    await page.locator('.title-input').fill('Home Renamed');
+
+    await page.locator('.brand-text').click();
+
+    await expect(page.locator('.note-row[data-note-id="Home Renamed"]')).toHaveCount(1);
+    await expect(page.locator('.note-row[data-note-id="Home Note"]')).toHaveCount(0);
+  });
+
   test('dragging a renamed note into a folder still moves it', async ({ page }) => {
     await openNoteForRetitle(page, 'Drag Note');
     await page.evaluate(async () => {

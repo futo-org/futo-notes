@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   moveNote: vi.fn(),
   renameOrMoveFolder: vi.fn(),
   showGlobalToast: vi.fn(),
+  getNoteById: vi.fn(),
 }));
 
 vi.mock('$features/folders/folderExpansion.svelte', () => ({
@@ -21,6 +22,7 @@ vi.mock('$features/folders/folderOperations', () => ({
 vi.mock('$features/notes/notes.svelte', () => ({
   deleteNote: mocks.deleteNote,
   getAllNotes: vi.fn(() => []),
+  getNoteById: mocks.getNoteById,
   moveNote: mocks.moveNote,
 }));
 vi.mock('$shared/dialogs/confirmDialog', () => ({
@@ -40,6 +42,9 @@ describe('confirmDeleteSidebarNote', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.confirmDialog.mockResolvedValue(true);
+    // Notes exist unless a test says otherwise; the action target is resolved
+    // against the projection.
+    mocks.getNoteById.mockImplementation((id: string) => ({ id }));
   });
 
   it('closes the live session when the deleted sidebar row is the active note', async () => {
@@ -87,6 +92,10 @@ describe('confirmDeleteSidebarNote', () => {
       activeId = 'Projects/Renamed roadmap';
       return operation();
     });
+    // The flush renamed it, so the old id is no longer a note.
+    mocks.getNoteById.mockImplementation((id: string) =>
+      id === 'Projects/Renamed roadmap' ? { id } : undefined,
+    );
     mocks.moveNote.mockResolvedValue({ id: 'Archive/Renamed roadmap-2', mtime: 1 });
     const onActiveNoteMoved = vi.fn();
     const onNoteIdsRenamed = vi.fn();
