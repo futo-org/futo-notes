@@ -41,27 +41,32 @@ export function shortestUniqueSuffix(targetId: string, allIds: Iterable<string>)
   return targetId;
 }
 
+/**
+ * Resolve a wikilink target to a note id: an exact id wins outright, otherwise
+ * the target must name the trailing path components of exactly ONE note.
+ * Ambiguous or absent targets are broken links (`null`).
+ *
+ * "`target` is a component-aligned suffix of `id`" is tested as "`id` ends with
+ * `target` at a `/` boundary" rather than by splitting both — every wikilink
+ * decoration resolves against every note id in the vault on every render, and
+ * splitting there allocated an array per id per link per frame.
+ */
 export function resolveWikilink(target: string, allIds: Iterable<string>): string | null {
   if (target === '') return null;
-  const ids: string[] = Array.from(allIds);
-  if (ids.includes(target)) {
-    return target;
+  let onlyMatch: string | null = null;
+  let matches = 0;
+  for (const id of allIds) {
+    if (id === target) return target;
+    if (
+      id.length > target.length &&
+      id.endsWith(target) &&
+      id[id.length - target.length - 1] === '/'
+    ) {
+      matches += 1;
+      onlyMatch = id;
+    }
   }
-  if (!target.includes('/')) {
-    const candidates = ids.filter((id) => noteIdLeaf(id) === target);
-    if (candidates.length === 1) return candidates[0];
-    return null; // ambiguous (or absent) — broken
-  }
-  const targetParts = components(target);
-  const candidates: string[] = [];
-  for (const id of ids) {
-    const idParts = components(id);
-    if (idParts.length < targetParts.length) continue;
-    const tail = idParts.slice(idParts.length - targetParts.length);
-    if (tail.join('/') === target) candidates.push(id);
-  }
-  if (candidates.length === 1) return candidates[0];
-  return null;
+  return matches === 1 ? onlyMatch : null;
 }
 
 export interface WikilinkOccurrence {
