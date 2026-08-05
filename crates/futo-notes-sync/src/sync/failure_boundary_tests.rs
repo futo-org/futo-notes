@@ -55,6 +55,7 @@ fn connected(base_url: &str) -> ConnectedState {
         collection_id: "collection".into(),
         vault_key: [5; 32],
         object_map: HashMap::new(),
+        pending_creates: HashMap::new(),
         max_version: 0,
         pull_cursor: 0,
         oversize_skip: HashMap::new(),
