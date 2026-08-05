@@ -3,7 +3,7 @@ import { isLinux, isMac, isTauri } from '$lib/platform';
 // nav.md §Desktop shell: expose the chrome reservation as CSS custom properties
 // (consumed by desktop-shell.css / app-shell.css) so it lives in one place,
 // independent of sidebar state.
-const MACOS_TRAFFIC_LIGHTS_WIDTH = '78px';
+export const MACOS_TRAFFIC_LIGHTS_WIDTH = '73px';
 const LINUX_TITLEBAR_HEIGHT = '36px';
 
 export interface WindowChrome {

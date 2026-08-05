@@ -28,6 +28,6 @@ describe('sidebar drag & drop: dragDropEnabled is off where wry intercepts', () 
     const w = windowConf('tauri.macos.conf.json');
     expect(w?.titleBarStyle).toBe('Overlay');
     expect(w?.hiddenTitle).toBe(true);
-    expect(w?.trafficLightPosition).toEqual({ x: 19, y: 20 });
+    expect(w?.trafficLightPosition).toEqual(windowConf('tauri.conf.json')?.trafficLightPosition);
   });
 });

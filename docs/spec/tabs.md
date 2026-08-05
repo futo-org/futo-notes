@@ -12,6 +12,10 @@ shells are single-document. → TabsStrip.svelte, tabsStore.svelte.ts
 - Middle-click or Ctrl/Cmd+W closes a tab; Ctrl/Cmd+Shift+T reopens the last
   closed tab.
 - Tabs drag to reorder.
+- A hairline separates the top band from the editor beneath it; the active tab
+  breaks it and shares the editor's background, so the tab reads as the top of
+  the page rather than a floating card. Where the sidebar is beneath the band
+  instead, there is no hairline. → tabsStrip.css, desktop-shell.css
 - Open tabs, their order, per-tab scroll position, and the active tab persist
   across restarts in `.app-config.json`; saves merge the `openTabs` snapshot
   without discarding sidebar layout fields. →

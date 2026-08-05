@@ -52,12 +52,13 @@
 
 .notes-shell.desktop-layout.sidebar-collapsed .topband-chrome {
   /* No sidebar to mirror — shrink to just the gutter + toggle and blend into
-     the strip so the whole band reads as one surface. The explicit compact
-     width (toggle + right padding + transparent border) can animate from the
-     open sidebar width. */
-  width: calc(var(--macos-traffic-lights-width, 0px) + 32px + 8px + 1px);
+     the strip so the whole band reads as one surface. */
+  width: calc(var(--macos-traffic-lights-width, 0px) + 11px + 32px + 11px);
+  padding-left: calc(var(--macos-traffic-lights-width, 0px) + 11px);
+  padding-right: 11px;
   background-color: var(--color-surface, var(--color-bg));
-  border-right-color: transparent;
+  border-right-width: 0;
+  box-shadow: inset 0 -1px 0 var(--color-border);
 }
 
 .notes-shell.desktop-layout .sidebar-toggle-btn {
