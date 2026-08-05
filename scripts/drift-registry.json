@@ -231,9 +231,9 @@
     },
     {
       "concept": "title-validation-constants",
-      "description": "MAX_TITLE_LENGTH (200) and the visible forbidden-character set, shared by packages/editor/src/filename.ts and Rust, and generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts. The numeric 200 is additionally locked cross-language via constants.json (TS+Rust only). Platform-specific control-character handling remains template-authored: Android matches the TS C0 + DEL set, while iOS matches Rust's wider Unicode control-character rule.",
+      "description": "MAX_TITLE_LENGTH (200) and the visible forbidden-character set, shared by packages/editor/src/filename.ts and Rust, and generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts. The numeric 200 is additionally locked cross-language via constants.json (TS+Rust only). Control characters are still spelled per language in the generator templates, but all four now cover the same Unicode Cc set (C0, DEL, C1).",
       "lockStatus": "partial",
-      "note": "PARTIAL: generation locks MAX_TITLE_LENGTH and the visible forbidden characters from packages/editor/src/filename.ts into both native files. Control-character handling is still authored in the generator templates: Android/TS use C0 + DEL while iOS/Rust use the wider Unicode control set, so the whole rule is not fully conformance-locked.",
+      "note": "PARTIAL: generation locks MAX_TITLE_LENGTH and the visible forbidden characters from packages/editor/src/filename.ts into both native files. The control-character set is authored separately in each generator template (Swift `.controlCharacters`, a Kotlin regex range, the TS `CONTROL_CHARS` range, Rust `char::is_control()`) — they agree on Unicode Cc as of the C1 fix, but nothing generates one from another.",
       "copies": [
         {
           "location": "packages/editor/src/filename.ts",
