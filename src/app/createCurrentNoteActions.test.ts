@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   deleteNote: vi.fn(),
   moveNote: vi.fn(),
   getNoteById: vi.fn(),
+  getSaveIdentityChange: vi.fn(),
 }));
 
 vi.mock('$lib/platform', () => ({ isTauri: false, getPlatformFS: vi.fn() }));
@@ -14,9 +15,9 @@ vi.mock('$features/notes/notes.svelte', () => ({
   deleteNote: mocks.deleteNote,
   moveNote: mocks.moveNote,
   getNoteById: mocks.getNoteById,
+  getSaveIdentityChange: mocks.getSaveIdentityChange,
 }));
 
-import { recordSaveIdentityChange } from '$features/notes/noteActionTarget';
 import { createCurrentNoteActions } from './createCurrentNoteActions.svelte';
 
 describe('createCurrentNoteActions', () => {
@@ -25,6 +26,7 @@ describe('createCurrentNoteActions', () => {
     // Notes exist unless a test says otherwise; the action target is resolved
     // against the projection.
     mocks.getNoteById.mockImplementation((id: string) => ({ id }));
+    mocks.getSaveIdentityChange.mockReturnValue(null);
   });
 
   it('confirms before deleting the active note and reports the completed action', async () => {
@@ -103,19 +105,18 @@ describe('createCurrentNoteActions note targeting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getNoteById.mockImplementation((id: string) => ({ id }));
+    mocks.getSaveIdentityChange.mockReturnValue(null);
   });
 
-  it('ignores a rename recorded before the action started', async () => {
-    // An id can be renamed away, reused by a new note, then removed under us.
-    // Only a rename this action's own flush performed may retarget it.
-    recordSaveIdentityChange('Recycled', 'Renamed earlier');
+  it('ignores a save that renamed some other note', async () => {
+    mocks.getSaveIdentityChange.mockReturnValue({ from: 'Something else', to: 'Its new name' });
     mocks.confirmDialog.mockResolvedValue(true);
     mocks.getNoteById.mockImplementation((id: string) =>
-      id === 'Renamed earlier' ? { id } : undefined,
+      id === 'Its new name' ? { id } : undefined,
     );
     const showToast = vi.fn();
     const actions = createCurrentNoteActions({
-      getActiveNoteId: () => 'Recycled',
+      getActiveNoteId: () => 'Doomed',
       runWithActiveNoteLock: async <T>(operation: () => Promise<T>) => operation(),
       showToast,
       onMoved: vi.fn(),
@@ -158,7 +159,7 @@ describe('createCurrentNoteActions note targeting', () => {
       id === 'Fresh draft' || id === 'Bystander' ? { id } : undefined,
     );
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
-      recordSaveIdentityChange(null, 'Fresh draft');
+      mocks.getSaveIdentityChange.mockReturnValue({ from: null, to: 'Fresh draft' });
       activeId = 'Bystander';
       return operation();
     });
@@ -230,7 +231,10 @@ describe('createCurrentNoteActions note targeting', () => {
     let activeId = 'Projects/Roadmap';
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
       activeId = 'Projects/Renamed roadmap';
-      recordSaveIdentityChange('Projects/Roadmap', 'Projects/Renamed roadmap');
+      mocks.getSaveIdentityChange.mockReturnValue({
+        from: 'Projects/Roadmap',
+        to: 'Projects/Renamed roadmap',
+      });
       return operation();
     });
     // The flush renamed it, so the old id is no longer a note.

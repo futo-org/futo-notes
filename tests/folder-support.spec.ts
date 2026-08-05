@@ -674,19 +674,29 @@ test.describe('Folder support', () => {
       .toEqual(['Bystander', 'Work/Mover', 'Work/placeholder']);
   });
 
-  test('deleting a note whose title was just renamed still deletes it', async ({ page }) => {
-    // The click that opens the menu is also the blur that commits the rename, so
-    // the id the action starts with is gone by the time the flush finishes.
-    await seedActionNotes(page);
-    page.on('dialog', (dialog) => void dialog.accept());
-    await page.locator('.title-input').click();
-    await page.locator('.title-input').fill('Mover Renamed');
+  // The right-click that opens the menu is also the blur that commits the rename,
+  // so the id the menu captured dies mid-action. Both orderings of that race are
+  // reachable — a slow vault settles after the action starts, a fast one before —
+  // and the menu holds the pre-rename id either way.
+  for (const [when, settle] of [
+    ['the flush finishes after the action starts', async () => {}],
+    ['the flush finishes first', async (page: Page) => page.waitForTimeout(600)],
+  ] as const) {
+    test(`deleting a note whose title was just renamed still deletes it when ${when}`, async ({
+      page,
+    }) => {
+      await seedActionNotes(page);
+      page.on('dialog', (dialog) => void dialog.accept());
+      await page.locator('.title-input').click();
+      await page.locator('.title-input').fill('Mover Renamed');
 
-    await page.locator('.note-row[data-note-id="Mover"]').click({ button: 'right' });
-    await page.locator('.menu-item').filter({ hasText: 'Delete' }).click();
+      await page.locator('.note-row[data-note-id="Mover"]').click({ button: 'right' });
+      await settle(page);
+      await page.locator('.menu-item').filter({ hasText: 'Delete' }).click();
 
-    await expect.poll(() => vaultIds(page)).toEqual(['Bystander', 'Work/placeholder']);
-  });
+      await expect.poll(() => vaultIds(page)).toEqual(['Bystander', 'Work/placeholder']);
+    });
+  }
 
   test('sidebar delete acts on the right-clicked note, not one clicked mid-delete', async ({
     page,

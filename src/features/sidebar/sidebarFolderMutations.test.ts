@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   renameOrMoveFolder: vi.fn(),
   showGlobalToast: vi.fn(),
   getNoteById: vi.fn(),
+  getSaveIdentityChange: vi.fn(),
 }));
 
 vi.mock('$features/folders/folderExpansion.svelte', () => ({
@@ -23,6 +24,7 @@ vi.mock('$features/notes/notes.svelte', () => ({
   deleteNote: mocks.deleteNote,
   getAllNotes: vi.fn(() => []),
   getNoteById: mocks.getNoteById,
+  getSaveIdentityChange: mocks.getSaveIdentityChange,
   moveNote: mocks.moveNote,
 }));
 vi.mock('$shared/dialogs/confirmDialog', () => ({
@@ -32,7 +34,6 @@ vi.mock('$shared/notifications/toastBus.svelte', () => ({
   showGlobalToast: mocks.showGlobalToast,
 }));
 
-import { recordSaveIdentityChange } from '$features/notes/noteActionTarget';
 import {
   confirmDeleteSidebarNote,
   moveSidebarNote,
@@ -46,6 +47,7 @@ describe('confirmDeleteSidebarNote', () => {
     // Notes exist unless a test says otherwise; the action target is resolved
     // against the projection.
     mocks.getNoteById.mockImplementation((id: string) => ({ id }));
+    mocks.getSaveIdentityChange.mockReturnValue(null);
   });
 
   it('closes the live session when the deleted sidebar row is the active note', async () => {
@@ -91,7 +93,10 @@ describe('confirmDeleteSidebarNote', () => {
     let activeId = 'Projects/Roadmap';
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
       activeId = 'Projects/Renamed roadmap';
-      recordSaveIdentityChange('Projects/Roadmap', 'Projects/Renamed roadmap');
+      mocks.getSaveIdentityChange.mockReturnValue({
+        from: 'Projects/Roadmap',
+        to: 'Projects/Renamed roadmap',
+      });
       return operation();
     });
     // The flush renamed it, so the old id is no longer a note.
@@ -174,6 +179,8 @@ describe('sidebar note targeting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.confirmDialog.mockResolvedValue(true);
+    mocks.getNoteById.mockImplementation((id: string) => ({ id }));
+    mocks.getSaveIdentityChange.mockReturnValue(null);
   });
 
   it('deletes the id the flush renamed the active note to', async () => {
@@ -186,7 +193,10 @@ describe('sidebar note targeting', () => {
       getActiveNoteId: () => activeId,
       runWithActiveNoteLock: async <T>(operation: () => Promise<T>) => {
         activeId = 'Projects/Renamed roadmap';
-        recordSaveIdentityChange('Projects/Roadmap', 'Projects/Renamed roadmap');
+        mocks.getSaveIdentityChange.mockReturnValue({
+          from: 'Projects/Roadmap',
+          to: 'Projects/Renamed roadmap',
+        });
         return operation();
       },
       onNoteIdsRenamed: vi.fn(),

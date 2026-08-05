@@ -47,6 +47,20 @@ function preview(note: LocalNoteMetadata): NotePreview {
 function replaceFromSnapshot(snapshot: LocalNoteSnapshot): void {
   notesCache = snapshot.notes.map(preview);
   setFolderSnapshot(snapshot.folders, notesCache);
+  lastSaveIdentityChange = null;
+}
+
+let lastSaveIdentityChange: { from: string | null; to: string } | null = null;
+
+/** The id a save gave the note it wrote, when it differs from the one the
+ * session held: the mint of a first save, or the move a title edit performed.
+ * `noteActionTarget` reads it to follow a picked note across its own flush. */
+export function recordSaveIdentityChange(from: string | null, to: string): void {
+  lastSaveIdentityChange = { from, to };
+}
+
+export function getSaveIdentityChange(): { from: string | null; to: string } | null {
+  return lastSaveIdentityChange;
 }
 
 /** Project a committed Rust mutation by removing affected rows and splicing
@@ -63,6 +77,12 @@ export function _applyLocalMutation(mutation: LocalNoteMutation): void {
   }
   notesCache = next;
   setFolderSnapshot(mutation.folders, notesCache);
+  // The renamed-from id names a note again, so that rename can no longer be
+  // what explains a later absence of it.
+  const recorded = lastSaveIdentityChange?.from;
+  if (recorded && mutation.upserted.some((entry) => entry.note.id === recorded)) {
+    lastSaveIdentityChange = null;
+  }
   for (const warning of mutation.warnings) console.warn(`[local-notes] ${warning}`);
 }
 

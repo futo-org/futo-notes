@@ -1,10 +1,9 @@
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
 
-import { recordSaveIdentityChange } from './noteActionTarget';
 import { normalizeTitleForPersistence, shouldWriteNoteToDisk } from './noteSessionChanges';
 import type { ParkedDraftSnapshot } from './noteSession.svelte';
-import { _applyLocalMutation, updateNote } from './notes.svelte';
+import { _applyLocalMutation, recordSaveIdentityChange, updateNote } from './notes.svelte';
 
 interface NotePersistenceState {
   originalId: string | null;

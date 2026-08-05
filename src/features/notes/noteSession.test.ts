@@ -14,6 +14,8 @@ vi.mock('./notes.svelte', () => ({
   readNote: vi.fn(async () => ''),
   createNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
   getNoteById: vi.fn(() => undefined),
+  _applyLocalMutation: vi.fn(),
+  recordSaveIdentityChange: vi.fn(),
   handleExternalFileChange: vi.fn(async () => {}),
   refreshNotesFromStorage: vi.fn(async () => {}),
 }));

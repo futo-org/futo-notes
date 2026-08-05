@@ -298,6 +298,29 @@ function bootstrapResult(notes: LocalNoteMetadata[] = []) {
 
 // A4: the engine-owned readiness wait is bounded and a rejection cannot poison
 // later searches.
+describe('the recorded save identity change', () => {
+  it('is dropped once the renamed-from id names a note again', async () => {
+    const { notes } = await freshModules();
+    notes.recordSaveIdentityChange('Draft', 'Draft final');
+    expect(notes.getSaveIdentityChange()).toEqual({ from: 'Draft', to: 'Draft final' });
+
+    // A new note reuses the freed name, so the rename can no longer be what
+    // explains a later absence of 'Draft'.
+    notes._applyLocalMutation(mutation({ upserted: [upsert('Draft')] }));
+
+    expect(notes.getSaveIdentityChange()).toBeNull();
+  });
+
+  it('survives a mutation that touches other notes', async () => {
+    const { notes } = await freshModules();
+    notes.recordSaveIdentityChange('Draft', 'Draft final');
+
+    notes._applyLocalMutation(mutation({ upserted: [upsert('Unrelated')] }));
+
+    expect(notes.getSaveIdentityChange()).toEqual({ from: 'Draft', to: 'Draft final' });
+  });
+});
+
 describe('search readiness (A4)', () => {
   it('passes the configured budget to the engine wait and degrades when it reports not-ready', async () => {
     const { notes, ln } = await freshModules();

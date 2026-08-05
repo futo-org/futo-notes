@@ -3,7 +3,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/platform', () => ({ hasFileSystem: true }));
-vi.mock('./notes.svelte', () => ({ updateNote: vi.fn(), _applyLocalMutation: vi.fn() }));
+vi.mock('./notes.svelte', () => ({
+  updateNote: vi.fn(),
+  _applyLocalMutation: vi.fn(),
+  recordSaveIdentityChange: vi.fn(),
+}));
 
 import { _applyLocalMutation, updateNote } from './notes.svelte';
 import { createNotePersistence } from './createNotePersistence';
