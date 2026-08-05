@@ -153,6 +153,10 @@ this file states the behaviors a human cares about.
 - Emphasis: bold, italic, bold-italic, strikethrough — `*` and `_` markers.
 - Code: inline (single and double backtick) and fenced (triple backticks or
   triple tildes, with optional language).
+- Fenced-code syntax colouring covers a curated language set (~35), each grammar
+  fetched the first time a fence uses it. A fence in any other language still
+  renders as a code block, just uncoloured.
+  → src/features/editor/codeFenceLanguages.ts
 - Links: `[text](url)`, autolinks `<url>`, and bare GFM URLs.
 - Blockquotes including nested; the `>` marker is dimmed when the cursor is on
   the line.
