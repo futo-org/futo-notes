@@ -18,7 +18,7 @@ pub use parked_backup::{recover_parked_backups, RecoveredBackup};
 pub use paths::{
     classify_incoming_sync_path, ensure_safe_note_id, note_id_from_filename,
     note_id_from_relative_path, safe_appdata_path, safe_note_path, IncomingSyncPath,
-    MAX_FOLDER_DEPTH, NAME_MAX,
+    IGNORE_NOT_A_NOTE, IGNORE_UNPORTABLE_NAME, MAX_FOLDER_DEPTH, NAME_MAX,
 };
 pub use timestamps::{file_mtime_ms, mtime_or_now, now_ms, set_file_mtime_ms};
 pub use vault_lock::vault_mutation_guard;

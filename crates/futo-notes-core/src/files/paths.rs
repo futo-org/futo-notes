@@ -61,9 +61,17 @@ pub fn safe_appdata_path(base: &Path, relative: &str) -> Result<PathBuf, String>
     Ok(path)
 }
 
+/// Why a path was ignored. `Ignore` means "left strictly alone": never written,
+/// never reported to the user, never counted as a failure. The reason exists
+/// because the two cases want different treatment downstream — a non-note file
+/// is noise, while a name this platform cannot hold is the answer to "why is
+/// that note not on my phone" and is worth a journal line.
+pub const IGNORE_NOT_A_NOTE: &str = "not a syncable file";
+pub const IGNORE_UNPORTABLE_NAME: &str = "name no portable filesystem can hold";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IncomingSyncPath {
-    Ignore,
+    Ignore(&'static str),
     Accept,
     Sanitize(String),
     Reject(&'static str),
@@ -85,7 +93,7 @@ pub fn classify_incoming_sync_path(relative: &str) -> IncomingSyncPath {
         return Reject("empty path");
     }
     if !crate::image::is_syncable_filename(relative) {
-        return Ignore;
+        return Ignore(IGNORE_NOT_A_NOTE);
     }
 
     let normalized = relative.replace('\\', "/");
@@ -112,8 +120,14 @@ pub fn classify_incoming_sync_path(relative: &str) -> IncomingSyncPath {
         } else {
             (component, "")
         };
+        // A Windows-illegal character is not dangerous — it cannot escape the
+        // vault, and macOS/Linux hold it happily. It is simply a name no
+        // portable filesystem can carry, so the file is left alone rather than
+        // failed: not written here, not surfaced, not retried. Contrast the
+        // screens above and below, which reject names that are genuinely unsafe
+        // (traversal) or physically impossible (past NAME_MAX).
         if stem.chars().any(forbidden_path_character) {
-            return Reject("forbidden character");
+            return Ignore(IGNORE_UNPORTABLE_NAME);
         }
         let safe_stem = sanitize_title(stem);
         changed |= safe_stem != stem;
@@ -190,7 +204,10 @@ mod tests {
         use IncomingSyncPath::*;
         assert_eq!(classify_incoming_sync_path("Folder/note.md"), Accept);
         assert_eq!(classify_incoming_sync_path("photo.PNG"), Accept);
-        assert_eq!(classify_incoming_sync_path("scan.tiff"), Ignore);
+        assert_eq!(
+            classify_incoming_sync_path("scan.tiff"),
+            Ignore(IGNORE_NOT_A_NOTE)
+        );
         assert_eq!(
             classify_incoming_sync_path("CON.md"),
             Sanitize("CON_.md".to_owned())
@@ -203,10 +220,23 @@ mod tests {
             classify_incoming_sync_path("../note.md"),
             Reject(_)
         ));
-        assert!(matches!(
-            classify_incoming_sync_path("a<bad>.md"),
-            Reject(_)
-        ));
+        // Windows-illegal characters are IGNORED, not rejected: the name is
+        // unportable, not unsafe, so the file is left alone in silence rather
+        // than raising a permanent failure the user can never clear.
+        for unportable in [
+            "a<bad>.md",
+            "Recipe: braised short ribs.md",
+            "What now?.md",
+            "a|b.md",
+            "star*.md",
+            "Folder: notes/inner.md",
+        ] {
+            assert_eq!(
+                classify_incoming_sync_path(unportable),
+                Ignore(IGNORE_UNPORTABLE_NAME),
+                "{unportable}",
+            );
+        }
 
         let healed = match classify_incoming_sync_path("CON.md") {
             Sanitize(path) => path,
