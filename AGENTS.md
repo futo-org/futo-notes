@@ -78,6 +78,10 @@ File it before moving on — don't stop working, don't fix-and-forget:
 
     papercuts add "<what you hit and what would have prevented it>" --tag <area>
 
+`command not found`? Install it first — `cargo install papercuts` (MIT, builds in ~15s) — then file
+the cut, including one for whatever sent you looking. If the install itself fails, don't sink time
+into it: say so in your final report and carry on.
+
 Severity: `minor` (default) annoyance · `--severity major` time sink · `--severity blocker` hard wall.
 Tool failures take `--cmd`/`--exit`/`--stderr-file` (never raw env dumps). `papercuts schema` is the
 full contract; `papercuts list --format md` is the review digest. The log is `.papercuts.jsonl` at the
