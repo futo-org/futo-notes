@@ -37,6 +37,7 @@
   const SIDEBAR_VIEW_KEY = 'futo-notes:sidebarView';
 
   let editor: EditorApi | undefined = $state();
+  let testEditorFocused: boolean | null = null;
   let noteBody: HTMLElement | undefined = $state();
   let titleTextarea: HTMLTextAreaElement | undefined = $state();
   let sidebarCollapsed = $state(false);
@@ -61,7 +62,7 @@
     getEditorContent: () => editor?.getContent(),
     setEditorContent: (content, options) => editor?.setContent(content, options),
     focusEditor: () => editor?.focus(),
-    isEditorFocused: () => editor?.hasFocus() ?? false,
+    isEditorFocused: () => testEditorFocused ?? editor?.hasFocus() ?? false,
     isComposing: () => editor?.isComposing() ?? false,
     getNotes: getAllNotes,
     getNoteBody: () => noteBody,
@@ -246,7 +247,11 @@
     flushSave: session.flushSave,
     getEditorView: () => editor?.getView() ?? null,
     focusEditor: () => editor?.focus(),
-    isEditorFocused: () => editor?.hasFocus() ?? false,
+    setEditorFocused: async (focused) => {
+      testEditorFocused = focused;
+      await sync.handleEditorFocusChange(focused);
+    },
+    isEditorFocused: () => testEditorFocused ?? editor?.hasFocus() ?? false,
     getState: () => ({
       originalId: session.originalId,
       title: session.title,

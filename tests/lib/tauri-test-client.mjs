@@ -249,10 +249,11 @@ export class TauriTestClient {
     return this._executeRead(`window.__notesShellTest.getState()`, 'getOpenNoteState');
   }
 
-  // Focus through the debug-only shell hook so headless window-manager focus
-  // cannot make the precondition timing-dependent.
+  // Drive the shell's public focus-change seam through its debug-only hook.
+  // CodeMirror focus wiring has separate component coverage; this keeps the
+  // cross-process disposition scenario independent of the host window manager.
   async focusEditor() {
-    await this._executeMutation(`window.__notesShellTest.focusEditor()`, 'focusEditor');
+    await this._executeMutation(`window.__notesShellTest.setEditorFocused(true)`, 'focusEditor');
     await this.waitForCondition(
       `window.__notesShellTest.isEditorFocused() === true`,
       5000,
@@ -260,19 +261,10 @@ export class TauriTestClient {
     );
   }
 
-  // Blur the editor (moving DOM focus off .cm-content) and report whether it
-  // is now unfocused. CodeMirror's updateListener fires focusChanged on the
-  // blur, which drives the host's handleEditorFocusChange(false).
+  // Drive the matching blur seam so deferred adoption settles before the
+  // scenario reads the editor again.
   async blurEditor() {
-    await this._executeMutation(
-      `(() => {
-        const cm = document.querySelector('.cm-content');
-        if (cm instanceof HTMLElement) cm.blur();
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-        return document.activeElement !== cm;
-      })()`,
-      'blurEditor',
-    );
+    await this._executeMutation(`window.__notesShellTest.setEditorFocused(false)`, 'blurEditor');
     await this.waitForCondition(
       `window.__notesShellTest.isEditorFocused() === false`,
       5000,

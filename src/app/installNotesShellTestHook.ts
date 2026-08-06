@@ -22,6 +22,7 @@ interface NotesShellTestHookOptions {
   flushSave: () => Promise<void>;
   getEditorView: () => EditorView | null;
   focusEditor: () => void;
+  setEditorFocused: (focused: boolean) => Promise<void>;
   isEditorFocused: () => boolean;
   getState: () => NotesShellTestState;
 }
@@ -33,7 +34,7 @@ interface NotesShellTestHook {
   seedOpenNote: NotesShellTestHookOptions['seedOpenNote'];
   flushSave: NotesShellTestHookOptions['flushSave'];
   typeInEditor: (text: string) => string;
-  focusEditor: NotesShellTestHookOptions['focusEditor'];
+  setEditorFocused: NotesShellTestHookOptions['setEditorFocused'];
   isEditorFocused: NotesShellTestHookOptions['isEditorFocused'];
   getState: NotesShellTestHookOptions['getState'];
 }
@@ -52,7 +53,7 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
     },
     flushSave: options.flushSave,
     typeInEditor: (text) => typeInEditor(options.getEditorView(), text),
-    focusEditor: options.focusEditor,
+    setEditorFocused: options.setEditorFocused,
     isEditorFocused: options.isEditorFocused,
     getState: options.getState,
   };
