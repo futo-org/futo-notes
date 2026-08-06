@@ -12,6 +12,13 @@ use futo_notes_core::image::{is_image_filename, is_syncable_filename};
 use super::vault_fs;
 use super::PreWrite;
 
+mod guarded_write;
+
+pub(super) use guarded_write::{
+    copy_content_if_hash_matches, replace_content_if_hash_matches,
+    write_content_if_source_and_target_absent, GuardedWriteOutcome,
+};
+
 #[derive(Clone, Debug)]
 pub(super) struct LocalFile {
     pub(super) name: String,
@@ -130,18 +137,6 @@ pub(super) fn read_content(root: &Path, name: &str) -> Result<String, String> {
     } else {
         String::from_utf8(bytes).map_err(|error| error.to_string())
     }
-}
-
-pub(super) fn write_content(
-    root: &Path,
-    name: &str,
-    content: &str,
-    pre_write: &PreWrite,
-) -> Result<(), String> {
-    let bytes = content_bytes(name, content)?;
-    pre_write(name);
-    let _vault_mutation = vault_mutation_guard()?;
-    vault_fs::write_atomic(root, name, &bytes)
 }
 
 fn content_bytes(name: &str, content: &str) -> Result<Vec<u8>, String> {
@@ -390,27 +385,6 @@ mod tests {
 
         assert!(read_content(&root.0, "linked-file.md").is_err());
         assert!(read_content(&root.0, "linked-directory/secret.md").is_err());
-        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn content_writes_never_follow_symlinked_parents() {
-        use std::os::unix::fs::symlink;
-
-        let root = TempRoot::new();
-        let outside = TempRoot::new();
-        let secret = outside.0.join("secret.md");
-        std::fs::write(&secret, "outside").unwrap();
-        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
-
-        assert!(write_content(
-            &root.0,
-            "linked-directory/secret.md",
-            "replacement",
-            &|_| {}
-        )
-        .is_err());
         assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
     }
 

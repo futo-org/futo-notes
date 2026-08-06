@@ -204,6 +204,14 @@ collect-secrets-from-op:
         echo "Installing tauri-cli via binstall..."
         cargo binstall tauri-cli --no-confirm --locked
       fi
+    # Last step before any cargo invocation, and shared by every job that
+    # restores a cargo `target/` cache. Cache restore runs AFTER get_sources, so
+    # a restored artifact can be newer than the source it was built from and
+    # cargo — which decides freshness by mtime, never by content — skips the
+    # rebuild. Pipeline 33129 / job 211040 linked futo-notes-ffi against a
+    # futo_notes_sync rlib predating open_note.rs and died with 13 "could not
+    # find OpenNoteDisposition in `sync`" errors. See the script header.
+    - node "$CI_PROJECT_DIR/scripts/ci-cargo-cache-freshness.mjs"
 
 .setup-linux-deps:
   script:

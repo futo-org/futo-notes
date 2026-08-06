@@ -29,7 +29,15 @@ pub(super) async fn decrypt(
             kind: FailureKind::Download,
             status_code: error.status,
         })?;
-    let plaintext = e2ee::aes_gcm_decrypt(key, &ciphertext).map_err(|_| SyncFailure {
+    decrypt_bytes(key, object, &ciphertext)
+}
+
+pub(super) fn decrypt_bytes(
+    key: &[u8; 32],
+    object: &Object,
+    ciphertext: &[u8],
+) -> Result<RemoteNote, SyncFailure> {
+    let plaintext = e2ee::aes_gcm_decrypt(key, ciphertext).map_err(|_| SyncFailure {
         filename: String::new(),
         kind: FailureKind::Decrypt,
         status_code: None,

@@ -278,17 +278,17 @@ mod tests {
                 size_bytes: None,
             },
         );
-        ConnectedState {
-            base_url: "http://x".into(),
-            token: "tok".into(),
-            user_id: "uX".into(),
-            collection_id: "cY".into(),
-            vault_key: [1u8; 32],
-            object_map,
-            max_version: 12,
-            pull_cursor: 12,
-            oversize_skip: HashMap::new(),
-        }
+        let mut state = ConnectedState::new(
+            "http://x".into(),
+            "tok".into(),
+            "uX".into(),
+            "cY".into(),
+            [1u8; 32],
+        );
+        state.object_map = object_map;
+        state.max_version = 12;
+        state.pull_cursor = 12;
+        state
     }
 
     #[test]

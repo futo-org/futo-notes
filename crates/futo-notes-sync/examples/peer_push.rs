@@ -76,10 +76,9 @@ async fn main() {
 
     let no_progress = |_p: futo_notes_sync::SyncProgress| {};
     let no_pre_write = |_f: &str| {};
-    let (counts, _next) =
-        futo_notes_sync::run_push(&state, &vault, &no_progress, &no_pre_write)
-            .await
-            .expect("push");
+    let (counts, _next) = futo_notes_sync::run_push(&state, &vault, &no_progress, &no_pre_write)
+        .await
+        .expect("push");
 
     println!(
         "peer connected user={} collection={} auth={} — pushed {rel} (uploaded={})",

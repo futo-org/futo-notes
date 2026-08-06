@@ -98,6 +98,7 @@ fn connected_state(
         collection_id,
         vault_key,
         object_map: loaded.object_map,
+        pending_creates: loaded.pending_creates,
         max_version: loaded.max_version,
         pull_cursor: loaded.pull_cursor,
         oversize_skip: HashMap::new(),

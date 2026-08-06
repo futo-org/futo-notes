@@ -895,37 +895,28 @@ async function rapidReconnect(a, _b, server) {
 async function offlineAccumulation(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Pause live sync so the explicit cycles exercise batch upload and download.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
 
-  // A writes 10 unique notes without syncing
   for (let i = 0; i < 10; i++) {
     await a.writeNote(`a only ${i}`, `# A Note ${i}`);
   }
 
-  // B writes 10 different unique notes without syncing
   for (let i = 0; i < 10; i++) {
     await b.writeNote(`b only ${i}`, `# B Note ${i}`);
   }
 
-  // A syncs (uploads 10 — auto-sync may have sent some already)
   const aResult = await a.syncNow();
-  assert(aResult.summary.uploaded <= 10, `A uploaded=${aResult.summary.uploaded}, expected ≤10`);
+  assertEqual(aResult.summary.uploaded, 10, 'A batch upload count');
 
-  // B syncs (uploads its 10, downloads A's 10 — auto-sync may have handled some)
   const bResult = await b.syncNow();
-  assert(bResult.summary.uploaded <= 10, `B uploaded=${bResult.summary.uploaded}, expected ≤10`);
-  assert(
-    bResult.summary.downloaded <= 10,
-    `B downloaded=${bResult.summary.downloaded}, expected ≤10`,
-  );
+  assertEqual(bResult.summary.uploaded, 10, 'B batch upload count');
+  assertEqual(bResult.summary.downloaded, 10, 'B batch download count');
 
-  // A syncs again to pick up B's notes
   const aResult2 = await a.syncNow();
-  assert(
-    aResult2.summary.downloaded <= 10,
-    `A second sync downloaded=${aResult2.summary.downloaded}, expected ≤10`,
-  );
+  assertEqual(aResult2.summary.downloaded, 10, 'A second batch download count');
 
-  // Both should have all 20 notes
   for (let i = 0; i < 10; i++) {
     assert(await a.noteExists(`b only ${i}`), `A should have b only ${i}`);
     assert(await b.noteExists(`a only ${i}`), `B should have a only ${i}`);

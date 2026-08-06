@@ -1,0 +1,4 @@
+# Every worktree appends its own agent papercuts; union-merge so parallel
+# branches never conflict on the log. Duplicate lines are harmless — the fold
+# is first-wins and `papercuts add` is duplicate-safe.
+.papercuts.jsonl merge=union
