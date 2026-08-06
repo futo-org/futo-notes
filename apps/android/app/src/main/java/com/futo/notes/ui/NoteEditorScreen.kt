@@ -105,6 +105,11 @@ private fun SyncSummary.affectsOpenNote(id: String): Boolean =
         id in deletedIds ||
         renamed.any { it.fromId == id || it.toId == id }
 
+internal fun editedDuringOpenNoteGather(
+    reconciliationStartVersion: Long,
+    currentEditVersion: Long,
+): Boolean = currentEditVersion != reconciliationStartVersion
+
 private fun logOpenNoteDisposition(
     disposition: OpenNoteDisposition?,
     focused: Boolean,
@@ -164,7 +169,9 @@ fun NoteEditorScreen(
     var loaded by remember(initialNoteId) { mutableStateOf(false) }
     var saveJob by remember { mutableStateOf<Job?>(null) }
     var editVersion by remember(initialNoteId) { mutableStateOf(0L) }
-    var lastSyncEditVersion by remember(initialNoteId) { mutableStateOf(0L) }
+    var editorAttachment by remember(initialNoteId) {
+        mutableStateOf<EditorAttachmentToken?>(null)
+    }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
     var interactionLocked by remember(initialNoteId) { mutableStateOf(false) }
@@ -180,7 +187,7 @@ fun NoteEditorScreen(
         saveJob?.cancel()
         saveJob = scope.launch {
             delay(400)
-            session.runWork {
+            session.runAutosave {
                 val targetId = noteId
                 val base = savedContent
                 when (
@@ -216,10 +223,13 @@ fun NoteEditorScreen(
 
     fun openNoteEffects(
         summary: SyncSummary?,
-        cycleEditVersion: Long,
+        reconciliationStartEditVersion: Long,
     ): OpenNoteEffects =
         object : OpenNoteEffects {
             override fun currentNoteId(): String = noteId
+
+            override fun isCurrentEditor(): Boolean =
+                editorAttachment?.let(host::isCurrentAttachment) == true
 
             override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
                 // The reconciliation owns the debounce now. If it was already
@@ -238,24 +248,27 @@ fun NoteEditorScreen(
                         ?.firstOrNull { it.fromId == noteId }
                         ?.toId,
                     editorFocused = host.editorFocused,
-                    editedDuringCycle = editVersion != cycleEditVersion,
+                    editedDuringCycle = editedDuringOpenNoteGather(
+                        reconciliationStartVersion = reconciliationStartEditVersion,
+                        currentEditVersion = editVersion,
+                    ),
                 )
             }
 
             override fun classify(facts: OpenNoteFacts): OpenNoteDisposition =
                 classifyOpenNote(facts)
 
-            override fun shouldContinueAfterRename(noteId: String): Boolean =
-                summary?.affectsOpenNote(noteId) == true
+            override fun resumeDraftPersistence() {
+                if (content != savedContent) scheduleBodySave(content)
+            }
 
-            override suspend fun apply(
+            override fun apply(
                 noteIdAtRead: String,
                 disposition: OpenNoteDisposition,
             ) {
                 when (disposition) {
                     OpenNoteDisposition.Leave,
-                    OpenNoteDisposition.DeferAdopt,
-                    -> Unit
+                    OpenNoteDisposition.DeferAdopt -> Unit
 
                     is OpenNoteDisposition.Adopt -> {
                         host.applyExternalContent(disposition.content)
@@ -490,7 +503,10 @@ fun NoteEditorScreen(
     // deferred until blur.
     LaunchedEffect(initialNoteId) {
         store.localTreeChanges.collect { summary ->
-            val cycleStart = lastSyncEditVersion
+            // A delivered summary starts a fresh native reconciliation epoch.
+            // Carrying the previous completion's version would misclassify an
+            // already-saved clean local edit as still in flight.
+            val reconciliationStartEditVersion = editVersion
             try {
                 // Do not drop a cycle that lands during the initial disk read:
                 // wait for the buffer, then classify it against current disk.
@@ -499,7 +515,9 @@ fun NoteEditorScreen(
                 }
                 if (summary.affectsOpenNote(noteId)) {
                     val disposition =
-                        session.reconcileOpenNote(openNoteEffects(summary, cycleStart))
+                        session.reconcileOpenNote(
+                            openNoteEffects(summary, reconciliationStartEditVersion),
+                        )
                     logOpenNoteDisposition(disposition, host.editorFocused)
                 }
             } catch (e: CancellationException) {
@@ -511,8 +529,6 @@ fun NoteEditorScreen(
                     "Couldn't refresh the open note. Your draft is still open.",
                     Toast.LENGTH_SHORT,
                 ).show()
-            } finally {
-                lastSyncEditVersion = editVersion
             }
         }
     }
@@ -521,7 +537,10 @@ fun NoteEditorScreen(
         if (loaded && !host.editorFocused && !session.isClosing) {
             try {
                 val disposition = session.settleDeferredAdoption(
-                    openNoteEffects(summary = null, cycleEditVersion = editVersion),
+                    openNoteEffects(
+                        summary = null,
+                        reconciliationStartEditVersion = editVersion,
+                    ),
                 )
                 logOpenNoteDisposition(disposition, host.editorFocused)
             } catch (e: CancellationException) {
@@ -768,6 +787,7 @@ fun NoteEditorScreen(
                         // [editor.md:121] (allowFileAccess stays on, see EditorHost).
                         imageBaseUrl = "file://${store.rootPath}/",
                         modifier = Modifier.fillMaxSize(),
+                        onAttachmentChange = { editorAttachment = it },
                         onOpenNote = { linkedNoteId ->
                             if (linkedNoteId != noteId) {
                                 navigateAfterSaving { onOpenNote(linkedNoteId) }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.futo_notes_ffi.KeepDraftReason
@@ -28,13 +29,17 @@ class EditorSessionTest {
         val dispositions: ArrayDeque<OpenNoteDisposition>,
         val log: MutableList<String>,
         val duringFacts: (() -> Unit)? = null,
-        val continueAfterRename: Set<String> = emptySet(),
+        val isCurrentEditor: () -> Boolean = { true },
+        val gatherFailure: Exception? = null,
     ) : OpenNoteEffects {
         override fun currentNoteId(): String = noteId
+
+        override fun isCurrentEditor(): Boolean = isCurrentEditor.invoke()
 
         override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
             log += "facts:$noteId"
             duringFacts?.invoke()
+            gatherFailure?.let { throw it }
             return OpenNoteFacts(
                 base = "base",
                 draft = "draft",
@@ -50,7 +55,7 @@ class EditorSessionTest {
             return dispositions.removeFirst()
         }
 
-        override suspend fun apply(
+        override fun apply(
             noteId: String,
             disposition: OpenNoteDisposition,
         ) {
@@ -60,8 +65,9 @@ class EditorSessionTest {
             }
         }
 
-        override fun shouldContinueAfterRename(noteId: String): Boolean =
-            noteId in continueAfterRename
+        override fun resumeDraftPersistence() {
+            log += "resume-draft"
+        }
     }
 
     /** Records every effect the session invokes, in order. */
@@ -137,7 +143,6 @@ class EditorSessionTest {
         val dispositions = listOf(
             OpenNoteDisposition.Leave,
             OpenNoteDisposition.Adopt("peer"),
-            OpenNoteDisposition.FollowRename("renamed"),
             OpenNoteDisposition.KeepDraft("peer", KeepDraftReason.DIVERGED),
         )
 
@@ -150,10 +155,10 @@ class EditorSessionTest {
                     log = log,
                 ),
             )
-            assertEquals(
-                listOf("facts:note", "classify", "apply:note:${disposition::class.simpleName}"),
-                log,
-            )
+            val expected = mutableListOf("facts:note", "classify")
+            if (disposition === OpenNoteDisposition.Leave) expected += "resume-draft"
+            expected += "apply:note:${disposition::class.simpleName}"
+            assertEquals(expected, log)
         }
 
         val closeLog = mutableListOf<String>()
@@ -199,7 +204,7 @@ class EditorSessionTest {
     }
 
     @Test
-    fun `a rename target affected in the same cycle is classified before work can interleave`() =
+    fun `every rename target is classified even when the summary omits the target`() =
         runBlocking {
             val log = mutableListOf<String>()
             val session = EditorSession(scope())
@@ -211,7 +216,6 @@ class EditorSessionTest {
                     ),
                 ),
                 log = log,
-                continueAfterRename = setOf("renamed"),
             )
 
             session.reconcileOpenNote(effects)
@@ -230,6 +234,25 @@ class EditorSessionTest {
         }
 
     @Test
+    fun `rename cycles stop after each identity is seen once`() = runBlocking {
+        val log = mutableListOf<String>()
+        val effects = RecordingOpenNoteEffects(
+            dispositions = ArrayDeque(
+                listOf(
+                    OpenNoteDisposition.FollowRename("renamed"),
+                    OpenNoteDisposition.FollowRename("note"),
+                ),
+            ),
+            log = log,
+        )
+
+        EditorSession(scope()).reconcileOpenNote(effects)
+
+        assertEquals(2, log.count { it.startsWith("facts:") })
+        assertEquals(2, log.count { it == "classify" })
+    }
+
+    @Test
     fun `an identity change during fact gathering applies nothing`() = runBlocking {
         val log = mutableListOf<String>()
         lateinit var effects: RecordingOpenNoteEffects
@@ -242,6 +265,98 @@ class EditorSessionTest {
         EditorSession(scope()).reconcileOpenNote(effects)
 
         assertEquals(listOf("facts:note"), log)
+    }
+
+    @Test
+    fun `an outgoing editor attachment cannot adopt or close the incoming editor`() = runBlocking {
+        listOf(
+            OpenNoteDisposition.Adopt("outgoing bytes"),
+            OpenNoteDisposition.Close,
+        ).forEach { disposition ->
+            var attached = true
+            val log = mutableListOf<String>()
+            val effects = RecordingOpenNoteEffects(
+                dispositions = ArrayDeque(listOf(disposition)),
+                log = log,
+                duringFacts = { attached = false },
+                isCurrentEditor = { attached },
+            )
+            val session = EditorSession(scope())
+
+            session.reconcileOpenNote(effects)
+
+            assertEquals(listOf("facts:note"), log)
+            assertFalse(session.isClosing)
+        }
+    }
+
+    @Test
+    fun `a gather failure rearms draft persistence before reaching the error boundary`() =
+        runBlocking {
+            val failure = IllegalStateException("read failed")
+            val log = mutableListOf<String>()
+            val effects = RecordingOpenNoteEffects(
+                dispositions = ArrayDeque(),
+                log = log,
+                gatherFailure = failure,
+            )
+
+            val caught = runCatching {
+                EditorSession(scope()).reconcileOpenNote(effects)
+            }.exceptionOrNull()
+
+            assertSame(failure, caught)
+            assertEquals(listOf("facts:note", "resume-draft"), log)
+        }
+
+    @Test
+    fun `an admitted autosave completes its base update before a replacement runs`() =
+        runBlocking {
+            val session = EditorSession(scope())
+            val admitted = CompletableDeferred<Unit>()
+            val releaseWrite = CompletableDeferred<Unit>()
+            val log = mutableListOf<String>()
+
+            val first = launch {
+                session.runAutosave {
+                    admitted.complete(Unit)
+                    releaseWrite.await()
+                    log += "disk committed"
+                    log += "base advanced"
+                }
+            }
+            admitted.await()
+            first.cancel()
+            val replacement = launch {
+                session.runAutosave {
+                    log += "replacement read base"
+                }
+            }
+
+            releaseWrite.complete(Unit)
+            first.join()
+            replacement.join()
+
+            assertEquals(
+                listOf("disk committed", "base advanced", "replacement read base"),
+                log,
+            )
+        }
+
+    @Test
+    fun `edit protection starts at reconciliation rather than the prior sync completion`() {
+        assertFalse(
+            editedDuringOpenNoteGather(
+                reconciliationStartVersion = 7,
+                currentEditVersion = 7,
+            ),
+        )
+        assertTrue(
+            editedDuringOpenNoteGather(
+                reconciliationStartVersion = 7,
+                currentEditVersion = 8,
+            ),
+        )
     }
 
     @Test
