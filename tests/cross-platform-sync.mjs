@@ -1514,6 +1514,65 @@ async function emptyFolderDoesNotSync(a, b, server) {
   );
 }
 
+async function unportableNameNeverSyncsAndIsLeftAlone(a, b, server) {
+  // "A file whose name no portable filesystem can hold is left strictly alone:
+  //  it never syncs, it never breaks the cycle, and it is never touched on disk."
+  //
+  // The name has to be planted externally because the app itself cannot mint
+  // one — sanitizeTitle strips `:` — which is exactly how these files arrive in
+  // real vaults: an Obsidian folder, a git clone, a Syncthing share, or a file
+  // made on macOS/Linux where `:` is a legal filename character.
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+
+  const unportable = 'Recipe: braised short ribs';
+  await a.externalWriteNote(unportable, '# Braised short ribs\n\n3 hours at 160C.');
+  await a.writeNote('portable control', '# Control note');
+
+  await a.syncNow();
+  const bFirstCycle = await b.syncNow();
+
+  // The discriminating assertion: before this change A uploaded the file and B
+  // raised a PERMANENT `rejected` failure for it on every cycle, forever. The
+  // rest of this scenario passes either way — the absence of a failure is what
+  // proves the fix.
+  const bFailures = bFirstCycle?.summary?.failures ?? [];
+  assert(
+    bFailures.length === 0,
+    `B must record no sync failure for an unportable name, got ${JSON.stringify(bFailures)}`,
+  );
+
+  // The control note proves the cycle ran and was not aborted by its neighbour.
+  assert(
+    await b.noteExists('portable control'),
+    'B should have the control note — the unportable name must not break the cycle',
+  );
+  assert(
+    !(await b.noteExists(unportable)),
+    'B must not receive a note whose name no portable filesystem can hold',
+  );
+  assert(
+    !existsSync(join(b.notesDir, `${unportable}.md`)),
+    'B must not have the unportable file on disk either',
+  );
+
+  // And it survives on A, untouched, across repeated cycles — the push side
+  // skips it without ever treating it as a local delete.
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    await a.syncNow();
+    await b.syncNow();
+  }
+  const stillThere = join(a.notesDir, `${unportable}.md`);
+  assert(
+    existsSync(stillThere),
+    `A must still hold ${unportable}.md — it is never renamed or removed`,
+  );
+  assert(
+    readFileSync(stillThere, 'utf8').includes('3 hours at 160C'),
+    'the unportable file is left byte-for-byte alone',
+  );
+}
+
 // A real (tiny) PNG. Non-UTF-8 bytes — exactly the kind of content that the
 // old `.md`-only, read_to_string sync pipeline could never carry. We assert
 // the bytes survive byte-for-byte across the E2EE round-trip.
@@ -1769,6 +1828,11 @@ const scenarios = [
     matrices: ['desktop-desktop'],
   },
   { name: 'empty folder does not sync', fn: emptyFolderDoesNotSync, matrices: ['desktop-desktop'] },
+  {
+    name: 'unportable name never syncs and is left alone',
+    fn: unportableNameNeverSyncsAndIsLeftAlone,
+    matrices: ['desktop-desktop'],
+  },
   // TODO(justin): both external-watcher scenarios race under Docker/xvfb.
   // They swap which one hits the inotify delay run-to-run; one or the other
   // times out at 30s roughly half the time. Locally they pass in <2s, so

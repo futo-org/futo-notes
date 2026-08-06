@@ -324,10 +324,14 @@ test('applyExternalContent with unchanged content preserves the selection', asyn
 // exec(id) — the 11 shared TOOLBAR_EXEC commands
 // ============================================================
 
+async function selectAll(page: Page): Promise<void> {
+  await page.keyboard.press('ControlOrMeta+a');
+}
+
 async function execInline(page: Page, text: string, commandId: string): Promise<string> {
   await hostSetContent(page, text);
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
-  await page.keyboard.press('Control+a');
+  await selectAll(page);
   await exec(page, commandId);
   return getContent(page);
 }
@@ -374,7 +378,7 @@ test('exec task-list toggles a - [ ] marker', async ({ page }) => {
 test('exec link wraps a selection as [sel]() with the caret in the URL slot', async ({ page }) => {
   await hostSetContent(page, 'word');
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
-  await page.keyboard.press('Control+a');
+  await selectAll(page);
   await exec(page, 'link');
   expect(await getContent(page)).toBe('[word]()');
 

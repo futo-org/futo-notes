@@ -24,7 +24,7 @@ Read `factory/AGENTS.md` before the first run of a session.
 
 - [ ] The user's own Obsidian must NOT be running (the daemon rewrites the Obsidian vault
       registry to a throwaway factory vault, and restores it afterward).
-- [ ] Don't run alongside the Playwright web suite — both fight over `:5173`. Tear the daemon
+- [ ] Don't run alongside the Playwright web suite — both fight over this worktree's web port. Tear the daemon
       down (`just factory-down`) before `just test-e2e*`.
 - [ ] If a previous daemon was `kill -9`'d at boot time, the registry self-heals on the next
       run — expect one throwaway run.

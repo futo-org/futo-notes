@@ -6,12 +6,13 @@
 package com.futo.notes.ui
 
 /**
- * Characters stripped by the Android live title filter: `< > : " / \ | ? *`,
- * C0 control characters, and DEL, matching the shared TS fast path. The
- * canonical Rust FFI validator supplies authoritative validation + messages.
+ * Characters stripped by the Android live title filter: `< > : " / \ | ? *`
+ * plus the Unicode Cc control characters (C0, DEL, C1), matching the
+ * canonical Rust rule. The Rust FFI validator supplies authoritative
+ * validation + messages.
  */
 object TitleSpec {
-    val forbiddenChars = Regex("[<>:\"/\\\\|?*\\x00-\\x1F\\x7F]")
+    val forbiddenChars = Regex("[<>:\"/\\\\|?*\\u0000-\\u001F\\u007F-\\u009F]")
 
     /** Max title length (chars) — matches the shared `MAX_TITLE_LENGTH`. */
     const val maxLength = 200

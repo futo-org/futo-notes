@@ -2,6 +2,7 @@ import { getPlatformFS, isTauri } from '$lib/platform';
 import { idLeaf, safeNotePath } from '$lib/platform/pathSafety';
 import { getConfig } from '$lib/platform/tauri';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
+import { pickNoteForAction } from '$features/notes/noteActionTarget';
 import { deleteNote as deleteNoteFromVault, moveNote } from '$features/notes/notes.svelte';
 
 export interface CurrentNoteActionsDeps {
@@ -58,9 +59,10 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
 
   async function moveToFolder(folderPath: string): Promise<void> {
     movePickerOpen = false;
+    const pick = pickNoteForAction(deps.getActiveNoteId());
     await deps.runWithActiveNoteLock(async () => {
-      const fromId = deps.getActiveNoteId();
-      if (!fromId) return;
+      const fromId = pick.resolve();
+      if (!fromId) return deps.showToast('That note is no longer available');
       const leaf = idLeaf(fromId);
       const wantedId = folderPath ? `${folderPath}/${leaf}` : leaf;
       if (wantedId === fromId) return;
@@ -76,18 +78,23 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
 
   async function deleteCurrentNote(): Promise<void> {
     closeMenu();
+    const pick = pickNoteForAction(deps.getActiveNoteId());
     const confirmed = await confirmDialog('Delete this note? This action cannot be undone.', {
       title: 'Delete note',
       kind: 'warning',
     });
     if (!confirmed) return;
     await deps.runWithActiveNoteLock(async () => {
-      const id = deps.getActiveNoteId();
-      if (!id) return;
-      await deleteNoteFromVault(id);
-      deps.onDeleteConfirmed();
-      deps.onDeleted(id);
-      deps.showToast('Note deleted');
+      const id = pick.resolve();
+      if (!id) return deps.showToast('That note is no longer available');
+      try {
+        await deleteNoteFromVault(id);
+        deps.onDeleteConfirmed();
+        deps.onDeleted(id);
+        deps.showToast('Note deleted');
+      } catch (error) {
+        deps.showToast(error instanceof Error ? error.message : 'Delete failed');
+      }
     });
   }
 

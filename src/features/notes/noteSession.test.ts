@@ -14,6 +14,8 @@ vi.mock('./notes.svelte', () => ({
   readNote: vi.fn(async () => ''),
   createNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
   getNoteById: vi.fn(() => undefined),
+  _applyLocalMutation: vi.fn(),
+  recordSaveIdentityChange: vi.fn(),
   handleExternalFileChange: vi.fn(async () => {}),
   refreshNotesFromStorage: vi.fn(async () => {}),
 }));
@@ -151,60 +153,92 @@ describe('isEditorChangeEcho', () => {
   });
 });
 
-describe('title debounce vs body debounce (character-loss race)', () => {
-  let editorContent = '';
+let titleEditorContent = '';
 
-  function makeDeps() {
-    return {
-      getEditorContent: () => editorContent,
-      setEditorContent: vi.fn((text: string) => {
-        editorContent = text;
-      }),
-      focusEditor: vi.fn(),
-      isEditorFocused: () => false,
-      isComposing: () => false,
-      getNotes: () => [],
-      getNoteBody: () => undefined,
-      getTitleTextarea: () => undefined,
-      getNoteId: () => 'new',
-      setPrevNoteId: vi.fn(),
-      onNoteRenamed: vi.fn(),
-      reconcileOpenNote: vi.fn(async () => false),
-      navigate: vi.fn(),
-    } satisfies NoteSessionDeps;
+function makeTitleDeps() {
+  return {
+    getEditorContent: () => titleEditorContent,
+    setEditorContent: vi.fn((text: string) => {
+      titleEditorContent = text;
+    }),
+    focusEditor: vi.fn(),
+    isEditorFocused: () => false,
+    isComposing: () => false,
+    getNotes: () => [],
+    getNoteBody: () => undefined,
+    getTitleTextarea: () => undefined,
+    getNoteId: () => 'new',
+    setPrevNoteId: vi.fn(),
+    onNoteRenamed: vi.fn(),
+    reconcileOpenNote: vi.fn(async () => false),
+    navigate: vi.fn(),
+  } satisfies NoteSessionDeps;
+}
+
+function typeTitle(session: ReturnType<typeof createNoteSession>, fullTitle: string): void {
+  for (let i = 1; i <= fullTitle.length; i++) {
+    const value = fullTitle.slice(0, i);
+    const target = { value, selectionStart: value.length, setSelectionRange: vi.fn() };
+    session.handleTitleInput({ target } as unknown as Event);
   }
+}
 
-  function typeTitle(session: ReturnType<typeof createNoteSession>, fullTitle: string): void {
-    for (let i = 1; i <= fullTitle.length; i++) {
-      const value = fullTitle.slice(0, i);
-      const target = { value, selectionStart: value.length, setSelectionRange: vi.fn() };
-      session.handleTitleInput({ target } as unknown as Event);
-    }
-  }
+async function useTitleSaveFakes(): Promise<void> {
+  titleEditorContent = '';
+  const { updateNote } = await import('./notes.svelte');
+  vi.mocked(updateNote).mockReset();
+  vi.mocked(updateNote).mockImplementation(async (id: string) => ({
+    id,
+    mtime: 0,
+    disposition: 'wrote',
+  }));
+  vi.useFakeTimers();
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+    cb(0);
+    return 0;
+  });
+}
 
-  beforeEach(async () => {
-    editorContent = '';
+function restoreTitleSaveFakes(): void {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+}
+
+describe('committing the title without waiting out the debounce', () => {
+  beforeEach(useTitleSaveFakes);
+  afterEach(restoreTitleSaveFakes);
+
+  it('renames on flush with no timer advance at all', async () => {
+    const session = createNoteSession(makeTitleDeps());
     const { updateNote } = await import('./notes.svelte');
-    vi.mocked(updateNote).mockReset();
-    vi.mocked(updateNote).mockImplementation(async (id: string) => ({
-      id,
-      mtime: 0,
-      disposition: 'wrote',
-    }));
-    vi.useFakeTimers();
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      cb(0);
-      return 0;
-    });
+
+    typeTitle(session, 'Grocery list');
+    await session.flushSave();
+
+    expect(updateNote).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
+  it('renames when the title field loses focus', async () => {
+    const session = createNoteSession(makeTitleDeps());
+    const { updateNote } = await import('./notes.svelte');
+
+    typeTitle(session, 'Grocery list');
+    session.handleTitleBlur();
+    // Microtasks only: reaching the 10 s backstop would rename regardless.
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(updateNote).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
   });
+});
+
+describe('title debounce vs body debounce (character-loss race)', () => {
+  beforeEach(useTitleSaveFakes);
+  afterEach(restoreTitleSaveFakes);
 
   it('does NOT rename mid-typing: a title-only edit holds for ~10s, not 500ms', async () => {
-    const deps = makeDeps();
+    const deps = makeTitleDeps();
     const session = createNoteSession(deps);
     const { updateNote } = await import('./notes.svelte');
 
@@ -226,7 +260,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   });
 
   it('body content edits keep the existing short (500ms) debounce', async () => {
-    const deps = makeDeps();
+    const deps = makeTitleDeps();
     const session = createNoteSession(deps);
     const { updateNote } = await import('./notes.svelte');
 
@@ -238,7 +272,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   });
 
   it('is clean after saving a title with trailing whitespace', async () => {
-    const session = createNoteSession(makeDeps());
+    const session = createNoteSession(makeTitleDeps());
 
     typeTitle(session, 'Foo ');
     await session.flushSave();
@@ -247,9 +281,9 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   });
 
   it('flushes editor content even when rAF never delivered onchange', async () => {
-    const session = createNoteSession(makeDeps());
+    const session = createNoteSession(makeTitleDeps());
     await session.loadNote('new');
-    editorContent = '# hidden-window keystroke';
+    titleEditorContent = '# hidden-window keystroke';
 
     await session.flushSave();
 
@@ -261,7 +295,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   });
 
   it('awaits only an in-flight save without starting a scheduled save', async () => {
-    const session = createNoteSession(makeDeps());
+    const session = createNoteSession(makeTitleDeps());
     const { updateNote } = await import('./notes.svelte');
 
     session.debouncedSave('# scheduled');
@@ -272,10 +306,10 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   });
 
   it('queues saves typed during a local move until the session has retargeted', async () => {
-    const session = createNoteSession(makeDeps());
+    const session = createNoteSession(makeTitleDeps());
     const { updateNote } = await import('./notes.svelte');
     session.seedOpenNote('Projects/Roadmap', 'base');
-    editorContent = 'base';
+    titleEditorContent = 'base';
 
     let releaseMove!: () => void;
     let markMoveStarted!: () => void;
@@ -292,8 +326,8 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     });
     await moveStarted;
 
-    editorContent = 'draft typed during move';
-    session.debouncedSave(editorContent);
+    titleEditorContent = 'draft typed during move';
+    session.debouncedSave(titleEditorContent);
     vi.advanceTimersByTime(500);
     await Promise.resolve();
     expect(updateNote).not.toHaveBeenCalled();
