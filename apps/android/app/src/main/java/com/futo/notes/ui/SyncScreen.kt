@@ -161,14 +161,16 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
                         enabled = !sync.busy && password.isNotEmpty(),
                         colors = emberColors,
                         shape = RoundedCornerShape(FutoRadius.md),
-                        onClick = { scope.launch { sync.connectAndSync(store.rootPath, password); store.reload() } },
+                        onClick = {
+                            scope.launch { sync.connectAndSync(store.rootPath, password) }
+                        },
                     ) { Text("Connect & Sync") }
                 } else {
                     Button(
                         enabled = !sync.busy,
                         colors = emberColors,
                         shape = RoundedCornerShape(FutoRadius.md),
-                        onClick = { scope.launch { sync.syncNow(); store.reload() } },
+                        onClick = { scope.launch { sync.syncNow() } },
                     ) { Text("Sync now") }
                     OutlinedButton(
                         shape = RoundedCornerShape(FutoRadius.md),

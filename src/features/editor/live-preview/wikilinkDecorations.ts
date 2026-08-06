@@ -8,39 +8,42 @@ import { resolveWikilink, shortestUniqueSuffix, WIKILINK_RE } from '$shared/note
 import type { PendingDecoration } from './decorationTypes';
 import { isCodeNode } from './markdownNodes';
 import { selectionTouchesRange } from './selectionReveal';
+import { forEachLineInRanges, type DocumentRange } from './viewportScanRanges';
 import { WikilinkDisplayWidget } from './widgets';
 
-export interface MarkdownRange {
-  from: number;
-  to: number;
-}
-
-export function collectWikilinkRanges(doc: Text): MarkdownRange[] {
-  const ranges: MarkdownRange[] = [];
+/** Collects the wikilink `[[...]]` spans found within the given scan ranges. */
+export function collectWikilinkRanges(
+  doc: Text,
+  scanRanges: readonly DocumentRange[],
+): DocumentRange[] {
+  const ranges: DocumentRange[] = [];
   const regex = new RegExp(WIKILINK_RE.source, 'g');
-  for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
-    const line = doc.line(lineNumber);
+  forEachLineInRanges(doc, scanRanges, (line) => {
     regex.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = regex.exec(line.text)) !== null) {
       ranges.push({ from: line.from + match.index, to: line.from + match.index + match[0].length });
     }
-  }
+  });
   return ranges;
 }
 
-export function isInsideWikilink(ranges: MarkdownRange[], from: number, to: number): boolean {
+/** True when the span sits inside a wikilink collected by collectWikilinkRanges. */
+export function isInsideWikilink(ranges: DocumentRange[], from: number, to: number): boolean {
   return ranges.some((range) => range.from <= from && to <= range.to);
 }
 
-export function addWikilinkDecorations(view: EditorView, decorations: PendingDecoration[]): void {
+export function addWikilinkDecorations(
+  view: EditorView,
+  decorations: PendingDecoration[],
+  scanRanges: readonly DocumentRange[],
+): void {
   const doc = view.state.doc;
   const tree = syntaxTree(view.state);
   const regex = new RegExp(WIKILINK_RE.source, 'g');
   const allNoteIds = getAllNotes().map((note) => note.id);
 
-  for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
-    const line = doc.line(lineNumber);
+  forEachLineInRanges(doc, scanRanges, (line) => {
     regex.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = regex.exec(line.text)) !== null) {
@@ -86,5 +89,5 @@ export function addWikilinkDecorations(view: EditorView, decorations: PendingDec
         },
       });
     }
-  }
+  });
 }

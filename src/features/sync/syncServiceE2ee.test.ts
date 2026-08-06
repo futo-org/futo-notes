@@ -25,6 +25,7 @@ vi.mock('$shared/state/appState', () => ({
 import { invoke } from '@tauri-apps/api/core';
 import { getAppState, saveAppState } from '$shared/state/appState';
 import {
+  classifyOpenNote,
   validateSyncServerUrl,
   connectE2ee,
   isRecoverableSessionError,
@@ -38,6 +39,21 @@ const mockSaveAppState = vi.mocked(saveAppState);
 const serverUrlFixture = JSON.parse(
   readFileSync(new URL('../../../tests/conformance/server-url.json', import.meta.url), 'utf8'),
 ) as { op: string; cases: { input: string; expected: string | null }[] };
+
+it('sends editor facts to the disk-gathering open-note command', async () => {
+  mockInvoke.mockResolvedValueOnce({ kind: 'leave' });
+  const facts = {
+    id: 'Note',
+    base: 'base',
+    draft: 'draft',
+    renamedTo: null,
+    editorFocused: true,
+    editedDuringCycle: true,
+  };
+
+  await expect(classifyOpenNote(facts)).resolves.toEqual({ kind: 'leave' });
+  expect(mockInvoke).toHaveBeenCalledExactlyOnceWith('e2ee_classify_open_note', { facts });
+});
 
 describe('validateSyncServerUrl — conformance fixture (tests/conformance/server-url.json)', () => {
   for (const c of serverUrlFixture.cases) {

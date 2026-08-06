@@ -87,7 +87,6 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
           clientY,
           view,
           target instanceof Node ? target : null,
-          true,
         ),
       shouldIgnoreTap: (target) => {
         const element =

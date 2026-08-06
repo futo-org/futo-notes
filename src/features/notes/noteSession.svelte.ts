@@ -6,7 +6,11 @@ import { createNoteSaveQueue } from './noteSaveQueue';
 import { createNoteTitleController } from './createNoteTitleController.svelte';
 import { createNotePersistence } from './createNotePersistence';
 import { createNoteLoader } from './createNoteLoader';
-import { editorHasUnseenChanges, isEditorChangeEcho } from './noteSessionChanges';
+import {
+  editorHasUnseenChanges,
+  isEditorChangeEcho,
+  normalizeTitleForPersistence,
+} from './noteSessionChanges';
 import { getNoteById } from './notes.svelte';
 
 export {
@@ -29,7 +33,14 @@ export interface NoteSessionDeps {
   getPendingFolder?: () => string | null;
   clearPendingFolder?: () => void;
   onNoteRenamed: (savedOriginalId: string | null, realId: string) => void;
+  reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<unknown>;
   navigate: (path: string) => void;
+}
+
+/** The exact body and title a save parked as a conflict copy. */
+export interface ParkedDraftSnapshot {
+  content: string;
+  title: string;
 }
 
 export interface NoteSession {
@@ -42,12 +53,15 @@ export interface NoteSession {
   readonly editVersion: number;
   readonly lastEditTime: number;
   readonly savePending: boolean;
+  readonly savedContent: string;
   readonly dirty: boolean;
   readonly editorContent: string | undefined;
   readonly editorFocused: boolean;
   readonly composing: boolean;
   debouncedSave: (content?: string) => void;
+  resumeDraftPersistence: () => void;
   flushSave: () => Promise<void>;
+  awaitSaveIdle: () => Promise<void>;
   runWithSaveLock: <T>(operation: () => Promise<T>) => Promise<T>;
   loadNote: (id: string | null) => Promise<void>;
   handleTitleInput: (event: Event) => void;
@@ -57,6 +71,8 @@ export interface NoteSession {
   seedOpenNote: (id: string, body: string) => void;
   cancelAndClear: () => void;
   applyExternalContent: (freshContent: string) => void;
+  /** Replaces the saved-content base without changing the live editor buffer. */
+  rebaseSavedContent: (freshContent: string) => void;
   applyRemoteRename: (toId: string, newTitle: string) => void;
 }
 
@@ -75,7 +91,7 @@ function hasDuplicateNoteTitle(
   originalId: string | null,
   pendingFolder: string | null,
 ): boolean {
-  const leaf = sanitizeFilename(checkTitle.trim() || 'Untitled');
+  const leaf = sanitizeFilename(normalizeTitleForPersistence(checkTitle));
   const slash = originalId?.lastIndexOf('/') ?? -1;
   const parentFolder = originalId
     ? slash === -1
@@ -138,7 +154,15 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     getState: () => ({ title, originalId, savedTitle, savedContent }),
     hasDuplicateTitle,
     showTitleWarning: (message) => titleController.showWarning(message, null),
+    reconcileOpenNote: deps.reconcileOpenNote,
     onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId }) => {
+      // A first save has no original id, so the route must still identify the
+      // new-note session; existing-note saves remain bound by original id.
+      const isCurrentSave =
+        savedOriginalId === null
+          ? deps.getNoteId() === 'new' && originalId === null
+          : savedOriginalId === originalId;
+      if (!isCurrentSave) return;
       originalId = id;
       if (deps.getEditorContent() === newContent) content = newContent;
       savedContent = newContent;
@@ -226,6 +250,10 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     titleController.clearWarning();
   }
 
+  function rebaseSavedContent(freshContent: string): void {
+    savedContent = freshContent;
+  }
+
   function applyRemoteRename(toId: string, newTitle: string): void {
     originalId = toId;
     title = newTitle;
@@ -281,6 +309,9 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     get savePending() {
       return saveQueue.isPending();
     },
+    get savedContent() {
+      return savedContent;
+    },
     get dirty() {
       return isDirty();
     },
@@ -294,7 +325,9 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       return deps.isComposing();
     },
     debouncedSave,
+    resumeDraftPersistence: saveQueue.resume,
     flushSave: saveQueue.flush,
+    awaitSaveIdle: saveQueue.awaitSaveIdle,
     runWithSaveLock,
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,
@@ -304,6 +337,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     seedOpenNote,
     cancelAndClear,
     applyExternalContent,
+    rebaseSavedContent,
     applyRemoteRename,
   };
 }

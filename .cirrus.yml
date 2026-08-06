@@ -13,7 +13,16 @@ test_rust_macos_task:
     - mkdir -p dist
     # Whole workspace so the new core crates (model/index/sync) are covered on
     # macOS too; ignored server tests stay skipped (no FUTO_TEST_SERVER).
-    - cargo test --workspace
+    # Main pushes and tags only: on MR pipelines the same command is already
+    # the hard Linux gate (test:rust:workspace), and rerunning it here spent
+    # ~6 min of the single macscript runner per Rust MR for an allow_failure
+    # result. MRs keep only the iOS compile check below.
+    - |
+      if [ -n "${CI_COMMIT_TAG:-}" ] || { [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; }; then
+        cargo test --workspace
+      else
+        echo "MR pipeline: skipping cargo test --workspace (hard-gated on Linux in test:rust:workspace); running the iOS target check only"
+      fi
     # Mobile-target compile check: the full iOS app build only runs when the
     # shell or futo-notes-ffi itself changes, but every futo-notes crate is in
     # the FFI dependency tree. Type-check the tree for the device target so an

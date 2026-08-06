@@ -12,10 +12,18 @@ shells are single-document. → TabsStrip.svelte, tabsStore.svelte.ts
 - Middle-click or Ctrl/Cmd+W closes a tab; Ctrl/Cmd+Shift+T reopens the last
   closed tab.
 - Tabs drag to reorder.
+- A hairline separates the top band from the editor beneath it; the active tab
+  breaks it and shares the editor's background, so the tab reads as the top of
+  the page rather than a floating card. Where the sidebar is beneath the band
+  instead, there is no hairline. → tabsStrip.css, desktop-shell.css
 - Open tabs, their order, per-tab scroll position, and the active tab persist
   across restarts in `.app-config.json`; saves merge the `openTabs` snapshot
   without discarding sidebar layout fields. →
   `src/lib/platform/tauri/appConfig.ts`, `startTabsPersistence.ts`
+- If notes failed to load at startup, tab hydration still completes (so routing
+  and tab transitions work) but skips validating persisted ids against the
+  empty cache and installs no persister — a transient bootstrap failure never
+  prunes or overwrites the saved tab layout (#33). → `startTabsPersistence.ts`
 - A new tab (background or foreground) inserts immediately after the active
   tab, not at the end of the strip; opening the unsaved "new" note twice
   reuses the existing unsaved tab. → tabsStore.svelte.ts `openNote`

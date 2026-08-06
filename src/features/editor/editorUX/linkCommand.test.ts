@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
 import { markdown } from '@codemirror/lang-markdown';
 import { toggleCodeInline, toggleLink } from './linkCommand';
@@ -9,6 +9,7 @@ const views: EditorView[] = [];
 afterEach(() => {
   for (const v of views) v.destroy();
   views.length = 0;
+  vi.restoreAllMocks();
 });
 
 function setup(doc: string, selection?: { anchor: number; head?: number }): EditorView {
@@ -56,6 +57,17 @@ describe('toggleCodeInline', () => {
 });
 
 describe('toggleLink', () => {
+  it('wraps selection into an empty-url scaffold without opening a dialog by default', () => {
+    const v = setup('hello world', { anchor: 0, head: 5 });
+    const prompt = vi.spyOn(window, 'prompt');
+
+    toggleLink(v);
+
+    expect(v.state.doc.toString()).toBe('[hello]() world');
+    expect(sel(v)).toEqual({ from: 8, to: 8 });
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
   it('wraps selection into [text](url) using provided url', () => {
     const v = setup('hello world', { anchor: 0, head: 5 });
     toggleLink(v, () => 'https://x.test');

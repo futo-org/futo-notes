@@ -25,10 +25,15 @@ this skill is the mechanism that drives the existing counts toward zero.
    recompute logic in that script tells you where each counted instance lives.
    - `invokeCallsOutsideShims` / `tauriImportsOutsideShims`: move the call behind the owning shim
      (`src/lib/platform/`, `syncServiceE2ee.ts`, or `localNoteStore.ts`) and shrink the allowlist.
-   - `specGapsCount`: closing a spec gap is feature work, NOT burndown — skip this count unless
-     the gap note itself says the behavior already shipped (then it's a spec edit: follow
-     `/spec-sync`).
+   - `ignoredPropertyTests`: each is a `#[ignore = "known gap: …"]` property whose comment names
+     the real defect. Closing one means fixing that defect, un-ignoring the test, and lowering the
+     count in the same commit — check the comment first, since some are deliberately deferred to a
+     coordinated two-sided rule change (M7).
    - `unlockedDriftRegistryEntries`: handled by rule 2 below.
+
+   Counters come and go: one was retired in 2026-07 because capping it punished honest discovery
+   rather than reducing debt. Read the live `counts` object rather than assuming this list is
+   complete.
 2. **`scripts/drift-registry.json` entries with `lockStatus: "unlocked"`, then `"partial"`** —
    either consolidate the duplicate copies down to one owner, or add the missing lock (a
    conformance fixture, a generated spec, or a cross-language test that reads a shared fixture,

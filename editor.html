@@ -25,6 +25,30 @@
       };
     }
   </script>
+  <!-- Engine capability preflight (github#8). The bundle is built with vite
+       `target: 'ES2020'`, so an engine that can't parse it throws on the module
+       script below and the editor never mounts — a blank pane. This classic ES5
+       script parses on ANY engine, compiles the syntax the bundle needs, and
+       leaves the verdict here for the native host to read (Android:
+       EditorEngineSupport.kt's ENGINE_PROBE_JS). Capability, never a version
+       number — apps/android/AGENTS.md records the vendor-WebView regression that
+       taught us the difference. Deliberately not a futoBridge message: the
+       contract in packages/editor/src/bridge.ts belongs to the bundle that just
+       failed to parse, and adding a message would bump BRIDGE_VERSION and oblige
+       both native hosts (M10) for a verdict only Android reads. -->
+  <script>
+    window.__futoEngineUnsupported = (function () {
+      try {
+        // Parse-only: constructing a Function compiles the body, never runs it.
+        // Optional chaining and nullish coalescing both landed in Chromium 80,
+        // so one probe covers the floor.
+        new Function('var o = {}; return o?.a ?? 1;');
+        return null;
+      } catch (e) {
+        return 'ES2020 syntax (optional chaining / nullish coalescing)';
+      }
+    })();
+  </script>
   <style>
     /* ------------------------------------------------------------------ *
      * Embedded editor layout for the native-iOS WKWebView host.

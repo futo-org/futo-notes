@@ -3,4 +3,5 @@ pub mod e2ee;
 pub mod files;
 pub mod hash;
 pub mod image;
+pub mod journal;
 pub mod merge;

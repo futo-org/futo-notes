@@ -11,6 +11,13 @@ import { createLiveMarkdownDecorationBuilder } from './buildLiveMarkdownDecorati
 import { imageCacheUpdated } from './images';
 import { liveMarkdownRefresh } from './refreshEffect';
 
+// Pre-parse near-scroll content so decorations are ready as the viewport moves.
+const PARSE_MARGIN_CHARS = 5_000;
+
+function getParseTarget(view: EditorView): number {
+  return Math.min(view.viewport.to + PARSE_MARGIN_CHARS, view.state.doc.length);
+}
+
 export class LiveMarkdownPlugin implements PluginValue {
   decorations: DecorationSet = Decoration.none;
   private lastTreeLength = 0;
@@ -22,7 +29,7 @@ export class LiveMarkdownPlugin implements PluginValue {
   private readonly buildDecorations = createLiveMarkdownDecorationBuilder();
 
   constructor(view: EditorView) {
-    ensureSyntaxTree(view.state, view.state.doc.length, 200);
+    ensureSyntaxTree(view.state, getParseTarget(view), 200);
     this.lastTreeLength = syntaxTree(view.state).length;
     this.decorations = this.buildDecorations(view);
     this.lastCursorPosition = view.state.selection.main.head;
@@ -48,11 +55,12 @@ export class LiveMarkdownPlugin implements PluginValue {
     const wasRefreshRequested = update.transactions.some((transaction) =>
       transaction.effects.some((effect) => effect.is(liveMarkdownRefresh)),
     );
-    if (didTreeGrow) this.lastTreeLength = tree.length;
+    this.lastTreeLength = tree.length;
 
     const { didCursorLineChange, didSelectionMoveWithinLine } = this.trackSelection(update);
     const shouldRebuild =
       update.docChanged ||
+      update.viewportChanged ||
       didCursorLineChange ||
       didSelectionMoveWithinLine ||
       update.focusChanged ||
@@ -105,12 +113,13 @@ export class LiveMarkdownPlugin implements PluginValue {
     if (this.pendingRefresh !== null) clearTimeout(this.pendingRefresh);
     this.pendingRefresh = null;
     if (view.composing || view.compositionStarted || view.state.doc.length === 0) return;
-    if (syntaxTree(view.state).length >= view.state.doc.length) return;
+    const parseTarget = getParseTarget(view);
+    if (syntaxTree(view.state).length >= parseTarget) return;
 
     this.pendingRefresh = setTimeout(() => {
       this.pendingRefresh = null;
       if (this.isDestroyed) return;
-      ensureSyntaxTree(view.state, view.state.doc.length, 200);
+      ensureSyntaxTree(view.state, parseTarget, 200);
       view.dispatch({ effects: liveMarkdownRefresh.of(null) });
     }, 16);
   }

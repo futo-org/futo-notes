@@ -113,7 +113,7 @@ The **FutoNotesNativeTests** Swift Testing target now exists (`project.yml`,
 `type: bundle.unit-test`, hosted by the app so `@testable import` reaches its
 internal symbols). It ships an initial suite: `validateServerURL` conformance
 against the shared `tests/conformance/server-url.json` case-set (closing the
-AGENTS.md §12 drift-watchlist hole — the Swift copy previously had no fixture
+AGENTS.md "Drift watchlist" hole — the Swift copy previously had no fixture
 check), a host→editor bridge call-surface guard (every `window.FutoEditor.*`
 call in `Sources/Editor/EditorWebView.swift` must be in the `FutoEditorApi`
 contract), and
@@ -121,8 +121,9 @@ contract), and
 list. Run it with `just test-ios-native`. Remaining coverage to add (`struct`
 suites, `#expect`/`#require`, parameterized; never XCTest):
 
-- [ ] **Conflict resolution** — `adoptExternalChange` clean / dirty / converged /
-  true-3-way branches (pure logic, high value, untested).
+- [x] **Open-note reconciliation** — the engine dispositions, rename-before-
+  delete ordering, focused/hidden deferral, mid-read identity changes, and
+  cancellation are covered through `OpenNoteReconcilerTests`.
 - [ ] **Path-traversal guard** — `FutoAssetSchemeHandler` rejects `../`, nested
   `/`, and non-image extensions (security-relevant).
 - [ ] **`VaultImages`** — filename uniqueness (the `mimeType` mapping vs the

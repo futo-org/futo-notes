@@ -25,6 +25,7 @@ import {
 import * as net from 'net';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { webPort } from '../../scripts/lib/slot.mjs';
 import { loadSpecCases, getCasesDir } from '../../markdown-spec/loader.ts';
 import type { SpecCase, CursorMove } from '../../markdown-spec/schema.ts';
 import { diffStates, summarize, type ScenarioReport } from './diff.ts';
@@ -49,7 +50,7 @@ const OBSIDIAN_CONFIG_DIR = path.join(
   '.var/app/md.obsidian.Obsidian/config/obsidian',
 );
 const FACTORY_VAULT_ID = 'fac701ffac701ff0';
-const DEV_URL = 'http://localhost:5173';
+const DEV_URL = `http://localhost:${webPort()}`;
 const REPORT_OUT = path.join(REPO, 'factory/captures/last-run.json');
 const SOCKET_PATH = path.join(REPO, 'factory/captures/daemon.sock');
 

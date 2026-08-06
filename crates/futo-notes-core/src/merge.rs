@@ -171,3 +171,148 @@ mod tests {
         }
     }
 }
+
+// Property-based tests. The examples above pin known merge shapes; these pin the
+// invariants a note merge must hold for EVERY input, because a merge that loses
+// a side's edit destroys user data silently.
+#[cfg(test)]
+mod property_tests {
+    use std::collections::HashSet;
+
+    use proptest::prelude::*;
+
+    use super::*;
+
+    const DISJOINT_BASE_LINES: usize = 12;
+
+    /// Multi-line note text over a tiny alphabet, so two independently
+    /// generated sides actually share lines instead of always being disjoint
+    /// noise. The optional trailing newline covers the "\ No newline at end of
+    /// file" shape real notes hit.
+    fn note_text() -> impl Strategy<Value = String> {
+        (prop::collection::vec("[a-c]{0,3}", 0..8), any::<bool>()).prop_map(
+            |(lines, trailing_newline)| {
+                let joined = lines.join("\n");
+                if trailing_newline {
+                    format!("{joined}\n")
+                } else {
+                    joined
+                }
+            },
+        )
+    }
+
+    fn numbered_lines() -> String {
+        (0..DISJOINT_BASE_LINES)
+            .map(|index| format!("line {index}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
+    }
+
+    fn replace_line(text: &str, index: usize, replacement: &str) -> String {
+        let mut lines = text.lines().map(str::to_owned).collect::<Vec<_>>();
+        lines[index] = replacement.to_owned();
+        lines.join("\n") + "\n"
+    }
+
+    proptest! {
+        #[test]
+        fn merging_the_same_inputs_twice_gives_the_same_result(
+            base in note_text(),
+            server in note_text(),
+            client in note_text(),
+        ) {
+            prop_assert_eq!(
+                three_way_merge(&base, &server, &client),
+                three_way_merge(&base, &server, &client),
+            );
+        }
+
+        #[test]
+        fn an_unchanged_server_side_yields_the_client_text(
+            base in note_text(),
+            client in note_text(),
+        ) {
+            prop_assert_eq!(
+                three_way_merge(&base, &base, &client),
+                MergeResult::Clean(client),
+            );
+        }
+
+        #[test]
+        fn an_unchanged_client_side_yields_the_server_text(
+            base in note_text(),
+            server in note_text(),
+        ) {
+            prop_assert_eq!(
+                three_way_merge(&base, &server, &base),
+                MergeResult::Clean(server),
+            );
+        }
+
+        #[test]
+        fn identical_sides_yield_that_side(
+            base in note_text(),
+            edited in note_text(),
+        ) {
+            prop_assert_eq!(
+                three_way_merge(&base, &edited, &edited),
+                MergeResult::Clean(edited),
+            );
+        }
+
+        /// A clean merge may drop a line only if a side deleted it; it must
+        /// never introduce a line neither side has (conflict markers included).
+        #[test]
+        fn a_clean_merge_invents_no_line(
+            base in note_text(),
+            server in note_text(),
+            client in note_text(),
+        ) {
+            if let MergeResult::Clean(merged) = three_way_merge(&base, &server, &client) {
+                let side_lines: HashSet<&str> = server.lines().chain(client.lines()).collect();
+                for line in merged.lines() {
+                    prop_assert!(
+                        side_lines.contains(line),
+                        "merge invented line {:?} (server {:?}, client {:?})",
+                        line,
+                        server,
+                        client,
+                    );
+                }
+            }
+        }
+
+        /// Edits far apart in the same note must both survive: this is the
+        /// concurrent-edit case sync relies on, and the one where losing a side
+        /// silently discards a user's typing.
+        #[test]
+        fn edits_to_distant_lines_keep_both_sides_content(
+            server_index in 0usize..4,
+            client_index in 8usize..DISJOINT_BASE_LINES,
+        ) {
+            let base = numbered_lines();
+            let server = replace_line(&base, server_index, "EDITED BY SERVER");
+            let client = replace_line(&base, client_index, "EDITED BY CLIENT");
+
+            let merged = match three_way_merge(&base, &server, &client) {
+                MergeResult::Clean(merged) => merged,
+                MergeResult::Conflict => {
+                    return Err(TestCaseError::fail(format!(
+                        "distant edits at {server_index}/{client_index} conflicted"
+                    )))
+                }
+            };
+
+            let merged_lines: HashSet<&str> = merged.lines().collect();
+            prop_assert!(merged_lines.contains("EDITED BY SERVER"));
+            prop_assert!(merged_lines.contains("EDITED BY CLIENT"));
+            for (index, line) in base.lines().enumerate() {
+                if index != server_index && index != client_index {
+                    prop_assert!(merged_lines.contains(line), "lost untouched line {line:?}");
+                }
+            }
+        }
+    }
+}

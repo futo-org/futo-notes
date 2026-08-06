@@ -5,6 +5,44 @@ The editor is a shared CodeMirror 6 WebView — the **same `editor.html` /
 preview. Fine-grained decoration/cursor cases live in `markdown-spec/cases/`;
 this file states the behaviors a human cares about.
 
+## Native host boot _(iOS/Android)_
+
+- The native shells load the bundle ONCE, pre-warmed at app start, and it shows
+  nothing until it is configured: the page posts `ready`, and the shell's only
+  correct reply is a single `FutoEditor.initialize(configJson)` carrying its
+  whole intent — bridge version, theme, the open note's markdown, the note
+  universe, the local-image base URL, whether the shell renders its own toolbar,
+  and the note body's inline inset. The bundle applies them in ONE order it
+  owns (layout, toolbar and theme before any text; image base and note universe
+  before the content so images size and wikilinks resolve on the first render;
+  the note text last), then posts `initialized`. _(iOS/Android)_ →
+  packages/editor/src/hostBoot.ts, bridge.ts v7, EditorWebView.swift
+  `sendHostConfig`, EditorWebView.kt `sendHostConfig`,
+  tests/editor-embed-bridge.spec.ts
+- A shell treats `initialized` — not `ready` — as "this page is showing my
+  note": it is where the shell fires its per-note ready callback and its
+  auto-focus keyboard shim, and where it re-pushes anything the user or a sync
+  changed while the config was in flight. _(iOS/Android)_ → EditorWebView.swift,
+  EditorWebView.kt
+- The note body's left inset is a per-shell VALUE the shell declares
+  (iOS 14px, Android 16px — each aligning with its own native title field, on
+  top of the embed's own 6px `.cm-line` inset), not per-shell knowledge: only
+  the bundle knows which CSS variable carries it. _(iOS/Android)_ →
+  hostBoot.ts `contentPaddingInlinePx`, editor-native-layout.css
+- When the shell and the bundle were built against different bridge versions,
+  the editor **still boots** and the bundle posts `bridgeVersionMismatch`; each
+  shell logs it (Android also toasts in a debug build). A shipped app carries
+  both halves in one artifact, so a mismatch only ever means a stale developer
+  build — and refusing to boot would turn that into a permanently blank editor,
+  the app's core surface. _(iOS/Android)_ → bridge.ts
+  `BridgeVersionMismatchMessage`, hostBoot.ts, tests/editor-embed-bridge.spec.ts
+- When a WebView renderer dies (OOM / jetsam), the shell reloads the bundle and
+  answers the fresh `ready` with the same config, restoring the open note with
+  no more than a brief flash. The shell resets only its readiness flag: the
+  config is applied unconditionally, so nothing else needs unwinding.
+  _(iOS/Android)_ → EditorWebView.swift
+  `webViewWebContentProcessDidTerminate`, EditorWebView.kt `rebuildWebView`
+
 ## Theming
 
 - The editor follows the app theme. Desktop applies `data-theme` directly; the
@@ -25,16 +63,34 @@ this file states the behaviors a human cares about.
   token via the unlayered `[data-theme='dark']` variables and falling back to
   the literal light token. _(Android)_ → editor.html,
   tests/editor-embed-bridge.spec.ts (legacy WebView tests)
-- The editor needs a System WebView of **Chromium 80 or newer**: the bundle
-  targets ES2020, an `editor.html` `String.prototype.replaceAll` shim covers
-  Chromium 80–84 (Svelte 5's runtime would otherwise throw), and the editor uses
-  `textContent = ''` rather than `Element.replaceChildren` (Chromium 86) in its
-  own DOM code so tables and the slash menu work down to the floor too. Below the
-  floor — or when there is no WebView provider at all — the shell shows a native
-  "update Android System WebView" notice in place of a blank editor pane; the
-  rest of the app (native list/search/settings) still works. _(Android)_ →
-  editor.html, slashMenuRenderer.ts, tableEditorWidget.ts, vite.editor.config.ts,
-  LegacyWebViewNotice.kt, NoteEditorScreen.kt
+- The editor needs a System WebView engine of **Chromium 80 or newer**: the
+  bundle targets ES2020, an `editor.html` `String.prototype.replaceAll` shim
+  covers Chromium 80–84 (Svelte 5's runtime would otherwise throw), and the
+  editor uses `textContent = ''` rather than `Element.replaceChildren` (Chromium
+  86) in its own DOM code so tables and the slash menu work down to the floor
+  too. _(Android)_ → editor.html, slashMenuRenderer.ts, tableEditorWidget.ts,
+  vite.editor.config.ts
+- Whether an engine is supported is decided by **capability, never by a version
+  number**: the page reports what it couldn't parse and whether the editor
+  mounted, and the shell reads that. A WebView `versionName` is never consulted —
+  a vendor provider numbers itself (Huawei WebView 12.x/15.x on a modern
+  Chromium), so a version floor rejects working engines. _(Android)_ →
+  editor.html, EditorEngineSupport.kt, EditorWebView.kt,
+  tests/editor-embed-bridge.spec.ts (engine preflight tests)
+- A note whose editor can't run shows the native "update Android System WebView"
+  notice in place of a blank editor pane — when the engine reported a missing
+  capability, never produced a mounted editor, or there is no WebView provider at
+  all. The rest of the app (native list/search/settings) still works, and back
+  navigation from the notice needs no editor save. _(Android)_ →
+  LegacyWebViewNotice.kt, NoteEditorScreen.kt, EditorSession.kt
+  `exitWithoutEditor`
+- The notice names the engine the user has to act on: the Chromium major from the
+  WebView's User-Agent (the one version number that means the same thing across
+  providers) plus the provider package and its version. _(Android)_ →
+  LegacyWebViewNotice.kt, EditorEngineSupport.kt
+- iOS needs no such gate: WKWebView ships with the OS and the deployment floor is
+  far above the ES2020 syntax floor, so the preflight's verdict is always empty
+  there. _(iOS)_ → apps/ios/project.yml
 - Minimum supported OS is **Android 9 (API 28)** — `minSdk 28`. This is an OS
   floor independent of the System WebView (which updates through the store), so a
   supported Android 9/10 device can still fall below the Chromium floor above and
@@ -53,10 +109,66 @@ this file states the behaviors a human cares about.
 
 - **Tapping in the editor places the cursor at the tapped character** — not the
   start/end of the line or document. → MarkdownEditor.svelte
+- **A tap past the end of a line's text lands at the end of the tapped VISUAL
+  row.** A wrapped line is one markdown line across several rows, and its
+  `line.to` is the end of the LAST row: snapping there dropped the caret a row
+  below the tap, right after the engine had placed it correctly. On the row that
+  carries the line's end the answer IS `line.to`, because hidden trailing markers
+  (a wikilink's `]]`) stop the rendered row short of the source it stands for.
+  → interactions/caretInteractions.ts `rowEndAt`, tests/editor-ux.spec.ts,
+  tests/wikilinks.spec.ts
+- **A resolved caret carries its row.** A wrap point is ONE position the caret can
+  be drawn in two places — the end of a row or the start of the next — and only
+  the association distinguishes them; the tap's own y picks. Every path that
+  places a caret from a pointer dispatches that association rather than a bare
+  offset, or the caret appears one row below an otherwise correct tap. This bit
+  a tap on an UNFOCUSED editor long after the focused path was right, and again
+  the blank space beside a wrapped row, because each resolves through a different
+  handler — the rule holds only where every one of them applies it.
+  → interactions/caretRow.ts `cursorOnTappedRow`, interactions/caretInteractions.ts,
+  interactions/blankSpaceCaret.ts, iosTapFocus.ts, MarkdownEditor.svelte `setCaret`,
+  interactions/caretInteractions.test.ts
+- **Tapping the blank space around a note reaches into it.** The note's tappable
+  surface is the text plus two line-heights to either side and below it, and
+  upward it takes in the whole tag bar — the bar's slack is part of the surface,
+  while its pills, buttons and input keep their own taps. The title row is
+  outside. → NoteWorkspace.svelte `handleBlankSpaceMouseDown`,
+  interactions/blankSpaceCaret.ts `resolveBlankSpaceCaret`, tests/editor-ux.spec.ts
+- Inside that surface the caret goes to the **nearest position in the text**:
+  left of a line → its start, right of it → its end, and below the last line →
+  whatever the same tap would have hit ON that line, so the column under the
+  pointer picks the character. A tap above the text reaches the first VISIBLE
+  line, never a hidden header tag block — the caret would reveal its markup.
+- Past the surface the directions differ. **Below** the note is still the note:
+  the tap lands at its end. **Out to either side** is a tap away from it: the
+  caret stays where it was. The side edge is one straight line at every height,
+  so the surface is a rectangle rather than an L.
+- **Reaching also hands the editor focus; tapping off takes it away.** Inside the
+  surface the caret moves AND the editor focuses, so the note is ready to type
+  into — being able to type is the whole point of reaching. Outside it the editor
+  gives up focus and the caret stays put, so the note reads as deselected rather
+  than half-selected. → tests/editor-ux.spec.ts
+- Only a **primary (left) press** reaches. Any other button leaves the caret where
+  it is, so a right-press in the blank space opens the platform menu without
+  dragging the cursor along first. A modified tap (Shift/Alt/Cmd/Ctrl) is likewise
+  a selection gesture, left to the platform, and a note that is nothing but a
+  hidden tag block has no reachable position at all — a tap in it must not land in
+  the markup. → NoteWorkspace.svelte `handleBlankSpaceMouseDown`
+  > **Gap:** the native shells have no reach rules of their own. Their blank space
+  > below the text is INSIDE the contenteditable (editor.html's `.cm-content
+  > { min-height: 100% }`), so the engine resolves those taps: there is no
+  > two-line boundary and no click-off zone, at any distance. The reach rules
+  > above are desktop/web only. _(native shells)_
 - The first tap that opens the editor resolves the tapped CM line on `touchend`,
   focuses with `preventScroll`, then sets the selection — it must NOT use the
   native contenteditable tap-focus path, which scroll-jumps the whole app during
   keyboard presentation. → docs/learnings/ios-keyboard-editor-jump.md _(iOS)_
+  > **Gap:** a first tap that resolves to NO CM line — the blank space below the
+  > text, which on the native shells is inside the contenteditable — has no
+  > position to set, so `iosTapFocus` declines and that native tap-focus path runs
+  > after all. Certain from the gating (`getLineHitAtPoint` finds no `.cm-line`,
+  > so `resolveTapPositionAt` answers null); whether the scroll-jump actually
+  > follows is NOT verified on device. Predates the reach work. _(iOS)_
 - **Tapping an UNFOCUSED editor places the caret at the tap AND raises the
   keyboard** — on refocus, WebKit and Blink restore the selection saved at
   blur (e.g. the header the cursor was on when the keyboard was dismissed,
@@ -66,8 +178,13 @@ this file states the behaviors a human cares about.
   a JS focus — and re-places the caret on click
   (`mobileTapCaretCorrection`, which also fixes Android Chrome dropping to
   position 0 on empty/widget lines — that fallback bites even while focused,
-  so Android corrects ALL single taps; iOS focused taps are left to WebKit's
-  native placement). The correction is anchored on the host-asserted
+  so Android corrects every single tap that lands ON a line; iOS focused taps
+  are left to WebKit's native placement). A tap that lands on NO line — the
+  blank space below the text — has no answer to correct to, and the engine's
+  own placement stands: answering "end of the document" there discarded the
+  column the engine had resolved from the same tap, and the caret then walked
+  between the two answers on alternate taps. The correction is anchored on the
+  host-asserted
   `nativeShell` prop, never a UA-sniffed flag alone — pinned-false flags
   silently disabled tap paths in the native embeds twice. On a WRAPPED line
   the tap resolves within the tapped visual row (the tap's own y, clamped
@@ -282,10 +399,20 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   no-op inside a WKWebView, which is why the bridge round-trip is required.
   Android additionally enforces in `EditorWebView.kt` that only `file://` editor
   assets may load in the reused WebView; all other schemes are intercepted and
-  launched with `ACTION_VIEW`. Verified emulator + simulator 2026-07-08 (tapping
-  a rendered link opens Safari / Chrome to the target; iOS `openUrl` case and
-  Android `ACTION_VIEW` intent both fire).
-  → openUrl.ts, MarkdownEditor.svelte `linkClickHandler` (`onopenurl`),
+  launched with `ACTION_VIEW`. iOS enforces the same policy in
+  `EditorWebView.swift`'s `decidePolicyFor` (added 2026-07-30): main-frame loads
+  are allowed only for the bundled `editor.html` itself (exact standardized-path
+  match — any other `file://` URL is denied, since `loadFileURL` grants read
+  access to the whole bundle resources directory) and the `about:blank`
+  missing-bundle fallback; `http/https/mailto/tel` navigations are cancelled and
+  routed through the same scheme-guarded external open as the `openUrl` bridge
+  case; every other scheme (including `javascript:`/`data:`) is denied, so a
+  programmatic top-level navigation can never replace the editor. Policy is a
+  pure function (`editorNavigationDecision`) unit-tested in
+  `EditorNavigationDecisionTests.swift`. Verified emulator + simulator
+  2026-07-08 (tapping a rendered link opens Safari / Chrome to the target; iOS
+  `openUrl` case and Android `ACTION_VIEW` intent both fire).
+  → platform/openExternalUrl.ts, MarkdownEditor.svelte `linkClickHandler` (`onopenurl`),
   editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
   EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
   `shouldOverrideUrlLoading` / `isInAppEditorNavigation`,
@@ -296,9 +423,6 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   spans that blank space — places the caret instead of opening the URL.
   → interactions/linkInteractions.ts `findExternalLinkElementAtPoint`,
   tests/p1-regressions.spec.ts
-  > **Gap:** iOS native still lacks an explicit `WKWebView` navigation-policy
-  > guard (the `openUrl` bridge covers taps on decorated links, but a
-  > programmatic top-level navigation inside the WebView is not yet policed).
 
 ## Interactive elements
 
@@ -313,8 +437,10 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   numbers ordered items, renumbers on edit); Backspace at item start dedents;
   Backspace in an empty item deletes it. → listContinuation.ts
 - A desktop single-line selection raises a floating Bold, Italic, Strikethrough, Code, and Link
-  toolbar; it hides for empty/multi-line selections and inside tables/code. Settings, search, and
-  folder-dialog overlays always cover it. → selectionToolbar.ts,
+  toolbar; Link wraps the selection into a `[text](url)` scaffold with the caret in the URL slot
+  and opens no dialog (shared `toggleLink` behavior, the same as the native toolbar). It hides for
+  empty/multi-line selections and inside tables/code. Settings, search, and folder-dialog overlays
+  always cover it. → selectionToolbar.ts, editorUX/linkCommand.ts,
   editor-selection-toolbar.css, tests/editor-ux.spec.ts
 - Typing `/` at the start of an empty block opens a block-command menu
   (headings, lists, tasks, quote, code, table, HR). Arrow keys move the
@@ -514,7 +640,43 @@ EditorWebView.swift, EditorWebView.kt
 - Wikilinks and tags inside inline code or fenced blocks are NOT decorated and
   NOT extracted. → markdown-spec/cases/03-code, 08-wikilinks, 09-tags
 
-## Saving & rename _(native shells)_
+## Performance
+
+- Per-keystroke editor work is bounded by the viewport plus a small margin,
+  never by document size: live-preview decorations scan only
+  `view.visibleRanges` and markdown parsing is forced only to
+  `viewport.to + 5000` chars. Typing dispatch stays within one 60fps frame
+  (median ≤ 16.7 ms, measured in the desktop app, 2026-07) in
+  multi-thousand-line notes. `tests/typing-perf.spec.ts` (E2E suite) guards
+  the regression class, not that number: it asserts the median hook-driven
+  keystroke in a ~32k-block note stays ≤ 60 ms — a bound sized to fail an
+  O(document) decoration scan (~700 ms measured), with the measurement
+  including the test hook's full-document read-back. Reaching a
+  not-yet-parsed region (e.g. jumping straight to the end of a large note)
+  parses the intervening document incrementally in ≤ 200 ms slices — amortized
+  once per region, decorations may arrive a beat late; steady-state scrolling
+  through parsed text stays viewport-bounded. → LiveMarkdownPlugin.ts,
+  buildLiveMarkdownDecorations.ts, viewportScanRanges.ts,
+  tests/typing-perf.spec.ts
+- Interactive table decoration updates are incremental: syntax discovery scans
+  only changed/affected parsed blocks, while offset refresh work is bounded by
+  the number of known tables. → table/interactiveTableEditor.ts,
+  table/interactiveTableEditor.test.ts
+  > **Gap:** a note whose text forms one giant markdown *leaf* — tens of KB
+  > with no blank line, e.g. a 3000-line contiguous blockquote, one huge
+  > paragraph, or a single ~500 KB line — still types at ~30–50 ms/keystroke
+  > (grows with leaf size; ~240 ms at 1.2 MB). Root cause is upstream:
+  > `@lezer/markdown` re-runs inline parsing (`parseInline`/`LinkEnd`) over
+  > the entire leaf on each edit, as one uninterruptible step CM6's parse
+  > budget cannot preempt (CPU-profile attributed, 2026-07-29). This is an
+  > ecosystem-wide CM6/lezer characteristic — Obsidian exhibits the same
+  > class of large-note typing lag — not FUTO Notes code. Candidate future
+  > fix: a lezer block-parser extension splitting leaves every ~32 KB
+  > (VS Code-style bounded tokenization). Repro: open a note that is one giant
+  > contiguous block (e.g. a 3000-line blockquote with no blank lines) in
+  > `just tauri-dev` and type.
+
+## Saving & rename
 
 - Body edits autosave on a debounce (~400 ms). The save re-reads the current
   note id at fire time, so a save landing **after** a rename writes to the
@@ -555,18 +717,18 @@ EditorWebView.swift, EditorWebView.kt
 - A confirmed local delete is the final editor mutation for that note. Android
   serializes body saves, title flush/rename, conflict adoption, the complete
   flush-and-move transaction (including its final id update), and delete through
-  one editor mutation gate. iOS cancellation chains own the actual committed
-  move—not only presentation of its picker—and delete awaits the complete
-  save/rename/adoption/move chain before removing the final id. Once closing
-  starts, iOS blurs the WebView, quarantines late bridge changes, and never
-  flushes that closing view on disappear. Its centered delete card is a
+  one editor session (see "Editor exits"). iOS cancellation chains own the
+  actual committed move—not only presentation of its picker—and delete awaits
+  the complete save/rename/adoption/move chain before removing the final id.
+  Once closing starts, iOS blurs the WebView, quarantines late bridge changes,
+  and never flushes that closing view on disappear. Its centered delete card is a
   transparent cover, and presenting that cover is explicitly excluded from the
   editor's navigation-disappear cleanup. A committed delete discards the
   quarantine; a failed delete restores and autosaves it, so the note is neither
   recreated after success nor stripped of a late edit after failure. An
   in-flight conflict flush, move, title debounce, or queued bridge callback
   therefore cannot recreate or rename a note after its delete commits. _(iOS,
-  Android)_ → `EditorMutationGate`,
+  Android)_ → `EditorSession` (EditorSession.kt / EditorSession.swift),
   `EditorDraftCoordinator`, NoteEditorScreen.kt, NoteEditorView.swift,
   NativeMutationOutcomeTests
 - Backgrounding the app makes a **best-effort** flush of the open editor's
@@ -576,30 +738,43 @@ EditorWebView.swift, EditorWebView.kt
   write — true on both native shells. → Android MainActivity `onPause` →
   `NotesStore.flushPendingEditor`; iOS FutoNotesApp scenePhase
   `.inactive`/`.background` → `NotesStore.flushPendingEditor`
-- A leave/background flush goes through the engine's ONE draft-saving verb
-  (persist-or-park, ADR-0001): `flush_draft(id, base, content)` resolves every
-  surprise itself under the engine's per-workflow serialization and returns one
-  flush disposition plus the mutation to apply — **wrote** (the note still held
-  `base`; content a live pull adopted since the editor's last read is never
+- A native leave/background flush and the desktop editor's debounced body save
+  go through the engine's ONE draft-saving verb (persist-or-park, ADR-0001):
+  `flush_draft(id, base, content)` resolves every surprise itself under the
+  store gate plus the process-wide vault mutation guard shared with sync, and
+  returns one flush disposition plus the mutation to apply — **wrote** (the
+  note still held `base`; content a live pull adopted since the editor's last read is never
   clobbered by a stale flush), **converged** (disk already equals the draft —
   explicit, no rewrite, no mtime bump; shells never read disk to compare),
   **recreated** (peer deleted; the edit wins at the ORIGINAL id — the same home
   the editor's resume autosave rewrites, so survive + jetsam converge with no
-  duplicate copy; the install is atomic no-replace, so a live-sync write that
-  recreates the id outside the engine's serialization in the flush window is
-  not clobbered — the draft is parked instead), or **parked** as a conflict
+  duplicate copy; the install is no-replace on every filesystem — atomic where
+  one offers the primitive, an exclusive create plus copy where none does (see
+  app.md) — so a live-sync write that recreates the id outside the engine's
+  serialization in the flush window is not clobbered — the draft is parked
+  instead), or **parked** as a conflict
   copy (peer changed; both versions survive, the copy id reported). A dirty
   draft is never silently dropped; a clean editor never flushes, so a genuinely
   abandoned note is never resurrected. Conflict copies are named by the
   engine's one conflict-naming rule ("<title> (conflict YYYY-MM-DD)", counter
   suffix on a same-day collision), and parking is idempotent — a crash-window
-  double-park mints ONE copy. _(iOS, Android; desktop saves unconditionally.)_ →
+  double-park mints ONE copy. On desktop, a parked disposition adds the
+  conflict copy's returned mutation to the note projection, leaves the draft
+  baseline uncommitted, then re-reads and adopts the diverged original from
+  disk through `reconcileOpenNote`; the copy appears in the list with no toast.
+  On desktop, only a same-id body save uses `flush_draft`; a rename persists
+  the title and body through the store's single save workflow, never as a
+  separately committed flush followed by a move. _(desktop, iOS, Android)_ →
   `futo_notes_store::LocalNoteStore::flush_draft` via FFI `flush_draft`;
-  native `NotesStore.flushDraft`/`flushAsync`; conflict naming
+  desktop `notes.svelte.ts updateNote` through
+  `createNotePersistence`/`noteSession.svelte.ts`; native
+  `NotesStore.flushDraft`/`flushAsync`; conflict naming
   `futo_notes_core::conflict_names`. Guarded by the flush_draft unit tests in
   crates/futo-notes-store/src/tests.rs (all four dispositions, converged/park
   boundary, recreate-vs-reappeared window, park idempotency, recreate-arm
-  mutation positioning), the FFI note_contract test, and
+  mutation positioning, store-vs-sync serialization), desktop
+  `notes.contract.test.ts` / `createNotePersistence.test.ts` /
+  `createExternalChangeCoordinator.test.ts`, the FFI note_contract test, and
   apps/ios/Tests/Notes/Editor/FlushDraftVerbTests.swift and Android's
   `EditorLifecycleFlushTest`. Earlier behavior verified on iOS 2026-07-13
   (sim); iOS verb wiring verified via `just test-ios-native` 2026-07-21 and
@@ -622,6 +797,11 @@ EditorWebView.swift, EditorWebView.kt
   the surviving-process flush path, not an actual jetsam-during-background kill.
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines.
+- A title that differs from the saved title only by leading or trailing
+  whitespace leaves the session clean and skips the write. Only the saved-title
+  comparison is normalized; the visible editor title keeps its whitespace.
+- A duplicate title blocks the save and shows the inline warning text
+  "A note with this name already exists".
 - The editor chrome shows **no word count** (or any other document
   statistic) — just the title and the document (spec decision 2026-06-10;
   Android native previously rendered an "N words" line under the title, no
@@ -634,6 +814,117 @@ EditorWebView.swift, EditorWebView.kt
   in-flight keystrokes; moving focus into the editor body flushes the pending
   title save immediately. → `noteSession.svelte.ts` `debouncedSave`,
   `NotesShell.svelte` `handleEditorFocusChange`
+
+## Editor exits — every way an open note ends _(iOS/Android)_
+
+While a note is open both native shells run asynchronous workflows against ONE
+note identity — the debounced body save, the debounced title rename, live-sync
+adoption of an on-disk change, plus a fourth per shell (iOS the folder move,
+Android an image insertion) — and the user can leave at any moment: Back, the
+system back gesture / leading-edge swipe, a resolved wikilink, Move, Delete.
+Every exit is one case of a single verb that runs **admission → latch → cancel →
+drain → commit → the exit's own effect**. The guarantee the ordering exists to
+keep: no async completion may land against a stale note identity (a save holding
+the pre-rename id recreates a ghost note; a rename landing after a delete
+resurrects the file).
+
+Each shell owns its own implementation, in its own idiom — Android one mutex
+where taking the lock IS the drain, iOS per-workflow cancellation chains awaited
+in a declared order. The engine owns what a save MEANS (persist-or-park,
+ADR-0001) and is reached only through injected effects; the shells own only when
+that work runs and in what order, because every step being ordered is a
+host-runtime handle (a Compose coroutine, a Swift `Task`, a WebView round-trip, a
+navigation that has to stay vetoable). This section is the shared statement of
+that ordering — the two implementations are held together by it plus each shell's
+ordering tests, not by shared code. → EditorSession.kt, EditorSession.swift,
+EditorSessionTest.kt, EditorSessionTests.swift
+
+- Every latch an exit sets lands **before the first suspension**: the destructive
+  latch, the one-exit-at-a-time admission, and the interaction lock are all set
+  in the same turn as the user's tap, so the exit verb is deliberately neither a
+  `suspend fun` (Android — `rememberCoroutineScope` dispatches on the next frame)
+  nor `async` (iOS). A keystroke, a second Back, or a queued save arriving after
+  the tap is therefore already fenced. _(iOS/Android)_ → EditorSession.kt `end`,
+  EditorSession.swift `end(_:effects:)`
+- A destructive exit's cancels land **before** the drain: delete cancels the
+  queued debounces synchronously (iOS all four workflows, Android inside the same
+  pre-suspension step as the latch), so the drain only ever waits for work that
+  was already in flight, and anything queued behind the latch touches nothing at
+  all — Android's `runWork` returns null, an iOS scheduled workflow sees
+  `isActive == false`. The debounced body save is the one exception, neutralised
+  as the first step of the commit rather than at admission (cancel, then await
+  it): a save already running has to finish and be projected before the exit
+  captures, or the capture races the write it supersedes. _(iOS/Android)_
+- The body an exit commits is the **exact snapshot it captured** — never a
+  re-read of disk, and never an earlier buffer than the one the capture returned.
+  The single exception is specified below: on a destructive exit a change that
+  lands mid-exit is folded in, because it is newer than the capture.
+  _(iOS/Android)_
+- An exit that cannot commit does not leave: a failed capture, a failed body
+  flush, or a pending rename that will not commit refuses the exit, releases
+  every latch that exit set, and reports which step failed so the shell can word
+  the message. A failed delete un-latches so the editor stays usable, and a
+  failed draft write never deletes. _(iOS/Android)_
+- A **committed** delete's latch is one-way for that session: no pending
+  workflow, queued bridge callback, title debounce, or in-flight adoption can
+  touch the note afterwards. _(iOS/Android)_
+- Only one navigation exit runs at a time. A second Back while the first is
+  still draining is dropped, and a refused exit may be retried. _(iOS/Android)_
+- The exit's own effect cannot interleave with a tracked workflow. Same
+  guarantee, three mechanisms: Android runs move and delete inside the drain
+  lock; iOS's move exits register their task as the move workflow, so a later
+  exit draining that workflow waits for them; iOS navigation and delete instead
+  rely on admission plus a post-drain re-check (a delete that latched while the
+  drain ran abandons the exit rather than committing into it). _(iOS/Android)_
+- Editor change events are fenced before the initial off-main read lands (an
+  empty `setContent` echo must never be saved back over the note) and once a
+  destructive exit has latched. Android additionally fences them while the vault
+  is migrating to another storage root. _(iOS/Android)_ → EditorSession.kt
+  `acceptsEditorChange`, EditorSession.swift `disposition(loaded:)`
+- A peer delete adopted by live sync is its own ending: the file is already gone,
+  so there is nothing to drain and nothing to commit, and the session only has to
+  ensure no pending workflow resurrects it. _(iOS)_ → EditorSession.swift
+  `closeForExternalDelete`
+- An exit with no editor attached drains nothing and commits nothing against an
+  unknown body — it just leaves. Only the legacy-WebView notice (github#8) is in
+  that state deliberately: it renders no editor at all and its Back must still
+  work. Any other detached state means the editor is mid-attach, and the exit is
+  dropped. _(Android)_ → EditorSession.kt `exitWithoutEditor`,
+  EditorAttachmentGate.kt
+
+Three **permitted** divergences — each shell keeps its own sequence; the shared
+invariant above is what both must satisfy:
+
+- Navigation commit order: Android commits the body, then the title; iOS commits
+  the title (the rename), then the body. Both commit both before the file moves,
+  so neither can strand a body at a dead id. _(iOS/Android)_
+- Where the committed body comes from: iOS captures out of the WebView on every
+  committing exit; Android round-trips the WebView for navigation and uses the
+  live content buffer for move and delete. Coupled to the quarantine gap below —
+  revisit the capture source when Android gains one. _(iOS/Android)_
+- Move-picker timing: iOS drains before presenting the destination picker (its
+  own `prepareMove` exit); Android presents immediately and drains in `onPick`.
+  Both complete the drain before the move commits. _(iOS/Android)_
+
+Two divergences are **not** permitted — each is one shell failing the invariant,
+left open because closing it is a behavior change, not a refactor:
+
+- On a parked-conflict flush the editor follows the parked id, so it never stays
+  pointed at an id whose disk content is now the peer's version.
+  > **Gap (iOS):** on the navigation exit iOS ignores a parked-conflict
+  > disposition — the engine parks the draft as a conflict copy and the editor
+  > stays on the original id, whose content on disk is now the peer's version.
+  > Only the move exit follows the parked id (`editorMoveSourceId`). Android
+  > re-keys the open note on navigation too. Observed 2026-08-01 reading both
+  > shells' exits side by side; → issue #79.
+- An editor change that arrives after a destructive exit has latched is
+  quarantined and folded into the final commit, never dropped: a committed delete
+  discards it, a failed delete restores it.
+  > **Gap (Android):** an editor change that lands after the destructive latch is
+  > DROPPED on Android — `acceptsEditorChange` returns false once closed and
+  > there is no quarantine buffer, so a keystroke inside the delete window is
+  > lost when that delete then fails. iOS quarantines it, folds it into the
+  > commit, and hands it back on failure. Observed 2026-08-01; → issue #80.
 
 ## Android — IME
 

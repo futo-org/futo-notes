@@ -4,7 +4,7 @@ use futo_notes_ffi::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
     sanitize_title, split_id, validate_title, ConditionalWrite, CreateOutcome, FlushDisposition,
     FlushDraftResult, FlushOutcome, NoteBootstrap, NoteError, NoteIdParts, NoteMetadata,
-    NoteMutation, NoteSnapshot, NoteStore, SearchHit, TitleIssue,
+    NoteMutation, NoteSnapshot, NoteStore, RenamePair, SearchHit, TitleIssue,
 };
 
 mod support;
@@ -125,51 +125,22 @@ fn note_store_projects_complete_workflow_results() {
     assert_eq!(written.upserted[0].note.id, "Projects/Beta");
     assert_eq!(written.final_id.as_deref(), Some("Projects/Beta"));
 
-    let flushed = store
-        .write_if_unchanged(
-            "Projects/Beta".to_owned(),
-            "version two".to_owned(),
-            "version three".to_owned(),
-        )
-        .unwrap();
-    assert_eq!(flushed.outcome, FlushOutcome::Wrote);
-    assert!(flushed.mutation.is_some());
-
-    let changed = store
-        .write_if_unchanged(
-            "Projects/Beta".to_owned(),
-            "version two".to_owned(),
-            "must not win".to_owned(),
-        )
-        .unwrap();
-    assert_eq!(changed.outcome, FlushOutcome::SkippedChanged);
-    assert!(changed.mutation.is_none());
-    assert_eq!(store.read("Projects/Beta".to_owned()), "version three");
-
+    // write_if_unchanged/create_if_absent are deliberately NOT exposed on this
+    // FFI facade (ADR-0001) — their store-level behavior is covered by
+    // futo-notes-store's own tests. Re-create the note through the exported
+    // create_note verb before continuing the workflow.
     let deleted = store.delete("Projects/Beta".to_owned()).unwrap();
     assert_eq!(deleted.removed, vec!["Projects/Beta"]);
-    let missing = store
-        .write_if_unchanged(
-            "Projects/Beta".to_owned(),
-            "version three".to_owned(),
-            "must not resurrect".to_owned(),
+    assert!(!store.exists("Projects/Beta".to_owned()));
+
+    let recreated = store
+        .create_note(
+            "Beta".to_owned(),
+            "Projects".to_owned(),
+            "restored".to_owned(),
         )
         .unwrap();
-    assert_eq!(missing.outcome, FlushOutcome::SkippedMissing);
-    assert!(missing.mutation.is_none());
-
-    assert_eq!(
-        store
-            .create_if_absent("Projects/Beta".to_owned(), "restored".to_owned())
-            .unwrap(),
-        CreateOutcome::Created
-    );
-    assert_eq!(
-        store
-            .create_if_absent("Projects/Beta".to_owned(), "must not overwrite".to_owned())
-            .unwrap(),
-        CreateOutcome::Existed
-    );
+    assert_eq!(recreated.upserted[0].note.id, "Projects/Beta");
     assert_eq!(store.read("Projects/Beta".to_owned()), "restored");
 
     let renamed = store
@@ -234,6 +205,96 @@ fn note_store_projects_complete_workflow_results() {
     assert!(after_reset.notes.is_empty());
     assert!(after_reset.folders.is_empty());
     assert!(notes_root.is_dir(), "reset must preserve the vault root");
+}
+
+#[test]
+fn note_store_reads_existing_notes_without_collapsing_empty_and_missing() {
+    let temp = TempTree::new();
+    let notes_root = temp.path("vault");
+    fs::create_dir_all(&notes_root).unwrap();
+    fs::write(notes_root.join("Empty.md"), "").unwrap();
+    let store = NoteStore::new(path_string(&notes_root));
+
+    assert_eq!(store.read_if_exists("Empty".to_owned()).unwrap(), Some(String::new()));
+    assert_eq!(store.read_if_exists("Missing".to_owned()).unwrap(), None);
+    assert!(matches!(
+        store.read_if_exists("../outside".to_owned()),
+        Err(NoteError::Io(_))
+    ));
+}
+
+#[test]
+fn note_store_projects_reported_external_changes_as_one_mutation() {
+    let temp = TempTree::new();
+    let notes_root = temp.path("vault");
+    fs::create_dir_all(&notes_root).unwrap();
+    fs::write(notes_root.join("old.md"), "old body").unwrap();
+    let store = NoteStore::new(path_string(&notes_root));
+    let before = store.scan();
+
+    fs::rename(notes_root.join("old.md"), notes_root.join("new.md")).unwrap();
+    fs::write(notes_root.join("created.md"), "# Fresh").unwrap();
+    let mutation = store
+        .refresh_external_changes(
+            vec!["created".to_owned()],
+            Vec::new(),
+            vec![RenamePair {
+                from_id: "old".to_owned(),
+                to_id: "new".to_owned(),
+            }],
+        )
+        .unwrap();
+
+    assert_eq!(mutation.removed, ["old"]);
+    assert_eq!(
+        mutation
+            .upserted
+            .iter()
+            .map(|entry| entry.note.id.as_str())
+            .collect::<Vec<_>>(),
+        ["created", "new"]
+    );
+    let mut projected = before
+        .notes
+        .into_iter()
+        .filter(|note| !mutation.removed.contains(&note.id))
+        .map(|note| note.id)
+        .collect::<Vec<_>>();
+    for entry in mutation.upserted {
+        projected.retain(|id| id != &entry.note.id);
+        projected.insert(
+            (entry.position as usize).min(projected.len()),
+            entry.note.id,
+        );
+    }
+    assert_eq!(
+        projected,
+        store
+            .scan()
+            .notes
+            .into_iter()
+            .map(|note| note.id)
+            .collect::<Vec<_>>()
+    );
+}
+
+// ADR-0001: the raw save primitives (conditional write, create-if-absent,
+// park) are deliberately private to the engine — re-exposing them over the
+// FFI would let a shell re-stitch a per-platform save workflow and restart
+// the drift `flush_draft` was built to end. This scans the exported-methods
+// source directly so re-adding either verb to `NoteStore` fails loudly here
+// instead of silently reappearing in the generated Kotlin/Swift bindings.
+#[test]
+fn raw_save_primitives_stay_off_the_note_store_ffi_surface() {
+    let source = include_str!("../src/notes/store.rs");
+    assert!(
+        !source.contains("fn write_if_unchanged"),
+        "write_if_unchanged must not be re-exposed on NoteStore (ADR-0001)"
+    );
+    assert!(
+        !source.contains("fn create_if_absent"),
+        "create_if_absent must not be re-exposed on NoteStore (ADR-0001)"
+    );
 }
 
 // The one draft-saving verb (persist-or-park, issue #37) projects all four

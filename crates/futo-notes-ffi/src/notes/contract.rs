@@ -169,6 +169,40 @@ impl From<store::VaultMigrationFinalization> for VaultMigrationFinalization {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum VaultDestinationState {
+    Empty,
+    Occupied,
+    Unusable,
+}
+
+impl From<store::VaultDestinationState> for VaultDestinationState {
+    fn from(state: store::VaultDestinationState) -> Self {
+        match state {
+            store::VaultDestinationState::Empty => Self::Empty,
+            store::VaultDestinationState::Occupied => Self::Occupied,
+            store::VaultDestinationState::Unusable => Self::Unusable,
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct VaultDestinationInspection {
+    pub state: VaultDestinationState,
+    pub notes: u32,
+    pub last_modified_ms: u64,
+}
+
+impl From<store::VaultDestinationInspection> for VaultDestinationInspection {
+    fn from(inspection: store::VaultDestinationInspection) -> Self {
+        Self {
+            state: inspection.state.into(),
+            notes: inspection.notes,
+            last_modified_ms: inspection.last_modified_ms,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct VaultMigrationOutcome {
     pub status: VaultMigrationStatus,

@@ -19,7 +19,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 
 ## Key Constraints
 
-- **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CodeMirror overrides inside layered CSS.
+- **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CodeMirror overrides inside layered CSS (`editor-ux.css` is imported unlayered on purpose). Dark theme is `[data-theme='dark']`.
 - **Svelte 5 reactivity**: Use `$state()` runes, not stores. Read `scrollParent` and `onchange` lazily inside callbacks (not in `$effect` body) to avoid tracking them as dependencies — prevents editor destruction/recreation.
 - **Editor responsiveness is sacred.** Never let background operations (sync, search indexing, save) block or delay typing.
 - **Image preloading**: Editor preloads image dimensions for CM6 widget sizing. Images served via Tauri asset protocol (`asset://`).
@@ -29,6 +29,8 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **Adding markdown elements**: Put traversal in `src/features/editor/live-preview/buildLiveMarkdownDecorations.ts`, element-specific processing in the matching `src/features/editor/live-preview/*Decorations.ts` module, and styling in the matching `src/styles/markdown-*.css` capability file. Keep `liveMarkdownTransform.ts` and `src/styles/markdown.css` as public facades. Test with `tests/gfm-test-note.md`.
 - **Theme tokens**: `src/styles/theme.css` → `@theme` block (primary, text, border, surface, muted, bg).
 - **Platform-specific behavior**: Implement in `PlatformFS` interface, never branch on platform in components.
+- **Toasts/dialogs**: non-component toasts use `showGlobalToast()`; dialogs use `confirmDialog()`/`ask()`/`message()` — `window.confirm`/`alert` do not block in the Tauri webview.
+- **A new persisted setting is four steps**: field on `AppState` (`src/shared/state/appState.ts`), guard in `sanitize()`, default in `defaultState()`, threaded through the `AppPreferences` facade. UI-layout state (sidebar width, open folders, tabs) instead goes in `.app-config.json` via `getConfig`/`saveConfig`.
 - **Search**: Full-text search is owned solely by the shared Rust local-note store. UI code consumes ranked note IDs and must not build, persist, or maintain a second body index in JavaScript. Synchronous wikilink completion filters note IDs from `notesCache`.
 
 ## Tauri MCP Shortcuts

@@ -1,6 +1,13 @@
 import { Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import type { BridgeNote, EditorTheme, FutoEditorApi } from '@futo-notes/editor';
+import {
+  createEditorHostBoot,
+  postToHost,
+  type BridgeNote,
+  type EditorHostEffects,
+  type EditorTheme,
+  type FutoEditorApi,
+} from '@futo-notes/editor';
 
 import { preloadImages, setLocalImageBaseUrl } from '$features/editor/liveMarkdownTransform';
 import { TOOLBAR_EXEC } from '$features/editor/markdownToolbar';
@@ -59,10 +66,51 @@ function parseBridgeNotes(notesJson: string): NotePreview[] | null {
 export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEditorApi {
   const { editor } = options;
 
-  return {
-    setContent(markdown: string): void {
+  // The page-level effects the boot sequence drives. `hostBoot` decides WHEN
+  // each runs and whether it runs at all; these only know HOW.
+  const effects: EditorHostEffects = {
+    applyContentPadding(px: number): void {
+      // editor-native-layout.css reads this; the shells only supply the value.
+      document.documentElement.style.setProperty('--futo-cm-pad-inline', `${px}px`);
+    },
+    applyNativeToolbar(enabled: boolean): void {
+      options.setNativeToolbar(enabled);
+    },
+    applyTheme(theme: EditorTheme): void {
+      document.documentElement.dataset.theme = theme;
+      document
+        .querySelector('meta[name="theme-color"]')
+        ?.setAttribute('content', theme === 'dark' ? '#000000' : '#ffffff');
+    },
+    applyImageBaseUrl(base: string): void {
+      setLocalImageBaseUrl(base);
+      preloadImages(editor.getContent(), undefined, () => editor.getView());
+      editor.refreshDecorations();
+    },
+    applyNotes(notesJson: string): void {
+      const notes = parseBridgeNotes(notesJson);
+      if (!notes) return;
+      setNotesUniverse(notes);
+      editor.refreshDecorations();
+    },
+    applyContent(markdown: string): void {
       if (markdown !== editor.getContent()) options.markExternalChange();
       editor.setContent(markdown, { preserveSelection: false });
+    },
+    readContent(): string {
+      return editor.getContent();
+    },
+    post: postToHost,
+  };
+
+  const boot = createEditorHostBoot(effects);
+
+  return {
+    initialize(configJson: string): void {
+      boot.initialize(configJson);
+    },
+    setContent(markdown: string): void {
+      boot.setContent(markdown);
     },
     getContent(): string {
       return editor.getContent();
@@ -71,16 +119,10 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       editor.focus();
     },
     setTheme(theme: EditorTheme): void {
-      document.documentElement.dataset.theme = theme;
-      document
-        .querySelector('meta[name="theme-color"]')
-        ?.setAttribute('content', theme === 'dark' ? '#000000' : '#ffffff');
+      boot.setTheme(theme);
     },
     setNotes(notesJson: string): void {
-      const notes = parseBridgeNotes(notesJson);
-      if (!notes) return;
-      setNotesUniverse(notes);
-      editor.refreshDecorations();
+      boot.setNotes(notesJson);
     },
     applyExternalContent(markdown: string): void {
       if (markdown !== editor.getContent()) options.markExternalChange();
@@ -99,9 +141,7 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       preloadImages(insert, undefined, () => editor.getView());
     },
     setImageBaseUrl(base: string): void {
-      setLocalImageBaseUrl(base);
-      preloadImages(editor.getContent(), undefined, () => editor.getView());
-      editor.refreshDecorations();
+      boot.setImageBaseUrl(base);
     },
     exec(commandId: string): void {
       const run = TOOLBAR_EXEC[commandId];

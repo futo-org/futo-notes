@@ -55,11 +55,10 @@ class SyncManager(
     var live by mutableStateOf(false)
         private set
 
-    /** Invoked on the main thread after a sync that changed the vault on disk
-     *  (downloaded/deleted > 0). The note list is a separate [NotesStore], so the
-     *  Activity wires this to [NotesStore.reload] to surface pulled notes without
-     *  a manual sync. Mirrors the iOS `SyncManager.onLivePull`. */
-    var onLivePull: (() -> Unit)? = null
+    /** Invoked on the main thread after a sync that changed the vault on disk.
+     *  The complete summary lets [NotesStore] project only affected rows and
+     *  lets the open editor render the engine's disposition. */
+    var onLocalTreeChanged: ((SyncSummary) -> Unit)? = null
 
     private var client: SyncClient? = null
 
@@ -91,7 +90,7 @@ class SyncManager(
                 applyOutcome(summary)
                 // A live cycle wrote to disk — refresh the list + open editor
                 // (skip no-op pulls). Includes push-side merges (F2).
-                if (wroteLocalChanges(summary)) onLivePull?.invoke()
+                if (wroteLocalChanges(summary)) onLocalTreeChanged?.invoke(summary)
             }
         }
         override fun onConnected() {
@@ -143,7 +142,7 @@ class SyncManager(
             applyOutcome(initial)
             // Refresh the list/editor if the initial (catch-up) sync changed
             // the local tree — pulls OR push-side merges (F2).
-            if (wroteLocalChanges(initial)) onLivePull?.invoke()
+            if (wroteLocalChanges(initial)) onLocalTreeChanged?.invoke(initial)
             c.startLive(LiveListener()) // onConnected flips `live` when the stream is up
         } catch (e: Exception) {
             connected = client != null
@@ -159,7 +158,9 @@ class SyncManager(
             val c = client ?: return@runAccessIfAvailable
             busy = true; lastError = null; status = "Syncing…"
             try {
-                applyOutcome(c.syncNow())
+                val summary = c.syncNow()
+                applyOutcome(summary)
+                if (wroteLocalChanges(summary)) onLocalTreeChanged?.invoke(summary)
             } catch (e: Exception) {
                 // Re-login for both a collapsed vault and an expired bearer token.
                 // The same-vault path keeps the persisted cursor/object map, so
@@ -350,7 +351,7 @@ class SyncManager(
             if (isDebug) DEFAULT_SERVER else ""
 
         /** Did this cycle change the local notes tree such that the open editor
-         *  must reload from disk? Peer downloads and deletes are obvious; the
+         *  must reconcile from disk? Peer downloads and deletes are obvious; the
          *  subtle case is a PUSH-side clean merge, which writes merged text to
          *  disk but reports only `uploaded` — the core surfaces those in
          *  `localWritesApplied`. Gating on `downloaded`/`deleted` alone let the

@@ -69,6 +69,8 @@ describe('sanitizeTitle', () => {
 
   it('strips control characters', () => {
     expect(sanitizeTitle('a\x00b\x1fc')).toBe('abc');
+    // C1 (U+0080–U+009F) is Cc too, so Rust's `is_control()` strips it.
+    expect(sanitizeTitle('a\x85b\x9fc')).toBe('abc');
   });
 
   it('strips DEL character (0x7f)', () => {

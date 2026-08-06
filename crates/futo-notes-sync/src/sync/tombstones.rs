@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use futo_notes_core::conflict_names::{collision_conflict_filename, conflict_filename};
-use futo_notes_core::files::{classify_incoming_sync_path, IncomingSyncPath};
+use futo_notes_core::files::{classify_incoming_sync_path, vault_mutation_guard, IncomingSyncPath};
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::is_image_filename;
 
@@ -18,7 +18,7 @@ use super::object_map::mapped_name;
 use super::outcome::note_id;
 use super::vault::{conflict_date, local_files};
 use super::vault_fs;
-use super::{PreWrite, SyncSummary};
+use super::{decision, PreWrite, SyncPhase, SyncSummary};
 
 const CLAIM_PREFIX: &str = ".sf-tomb-";
 const CLAIM_SIDECAR_SUFFIX: &str = ".path";
@@ -41,6 +41,9 @@ fn remove_if_present(root: &Path, name: &str) -> Result<(), String> {
 }
 
 fn recover_stale_claim(root: &Path, name: &str, pre_write: &PreWrite) {
+    let Ok(_vault_mutation) = vault_mutation_guard() else {
+        return;
+    };
     let sidecar = format!("{name}{CLAIM_SIDECAR_SUFFIX}");
     let Ok(original) = vault_fs::read(root, &sidecar)
         .and_then(|bytes| String::from_utf8(bytes).map_err(|error| error.to_string()))
@@ -68,6 +71,9 @@ fn recover_stale_claim(root: &Path, name: &str, pre_write: &PreWrite) {
 }
 
 fn remove_orphan_sidecars(root: &Path, names: &[String]) {
+    let Ok(_vault_mutation) = vault_mutation_guard() else {
+        return;
+    };
     for name in names
         .iter()
         .filter(|name| name.ends_with(CLAIM_SIDECAR_SUFFIX))
@@ -104,6 +110,7 @@ fn claim_local_names(
     object_id: &str,
     pre_write: &PreWrite,
 ) -> Result<Option<(String, String)>, String> {
+    let _vault_mutation = vault_mutation_guard()?;
     let (claim, sidecar) = claim_names(name, object_id);
     vault_fs::write_atomic(root, &sidecar, name.as_bytes())?;
     pre_write(name);
@@ -134,6 +141,9 @@ pub(super) fn claim_local(
 }
 
 fn restore_claim(root: &Path, claim: &str, sidecar: &str, destination: &str) {
+    let Ok(_vault_mutation) = vault_mutation_guard() else {
+        return;
+    };
     if vault_fs::exists(root, destination).is_ok_and(|exists| !exists)
         && matches!(vault_fs::rename(root, claim, destination), Ok(true))
     {
@@ -180,16 +190,21 @@ fn park_divergent_claim(
     summary: &mut SyncSummary,
 ) -> Result<(), String> {
     let (claim, sidecar) = claim_names;
-    let names = local_files(root)?
-        .into_iter()
-        .map(|file| file.name)
-        .collect();
-    let mut copy = collision_conflict_filename(name, object_id);
-    if vault_fs::exists(root, &copy)? {
-        copy = conflict_filename(name, &conflict_date(), &names);
-    }
-    pre_write(&copy);
-    match vault_fs::rename(root, claim, &copy) {
+    let (copy, rename_result) = {
+        let _vault_mutation = vault_mutation_guard()?;
+        let names = local_files(root)?
+            .into_iter()
+            .map(|file| file.name)
+            .collect();
+        let mut copy = collision_conflict_filename(name, object_id);
+        if vault_fs::exists(root, &copy)? {
+            copy = conflict_filename(name, &conflict_date(), &names);
+        }
+        pre_write(&copy);
+        let rename_result = vault_fs::rename(root, claim, &copy);
+        (copy, rename_result)
+    };
+    match rename_result {
         Ok(true) => {}
         Ok(false) => {
             restore_claim(root, claim, sidecar, name);
@@ -204,6 +219,13 @@ fn park_divergent_claim(
     summary.local_writes_applied += 1;
     summary.updated_ids.push(note_id(&copy));
     summary.peer_updated_ids.push(note_id(&copy));
+    summary.decide_with(
+        SyncPhase::Pull,
+        name,
+        decision::TOMBSTONE_PARKED,
+        "local_content_diverged_from_the_deleted_version",
+        copy,
+    );
     Ok(())
 }
 
@@ -230,11 +252,21 @@ pub(super) fn apply_tombstone(
         }
     };
     if hash_sha256(&current) == expected_hash {
-        if let Err(error) = remove_if_present(root, &claim) {
+        let remove_result = {
+            let _vault_mutation = vault_mutation_guard()?;
+            remove_if_present(root, &claim)
+        };
+        if let Err(error) = remove_result {
             restore_claim(root, &claim, &sidecar, &name);
             return Err(error);
         }
         summary.local_writes_applied += 1;
+        summary.decide(
+            SyncPhase::Pull,
+            &name,
+            decision::TOMBSTONE_APPLIED,
+            "local_content_matched_the_deleted_version",
+        );
     } else {
         park_divergent_claim(
             root,
@@ -245,7 +277,10 @@ pub(super) fn apply_tombstone(
             summary,
         )?;
     }
-    remove_if_present(root, &sidecar)?;
+    {
+        let _vault_mutation = vault_mutation_guard()?;
+        remove_if_present(root, &sidecar)?;
+    }
     state.object_map.remove(&name);
     summary.deleted += 1;
     summary.deleted_ids.push(note_id(&name));

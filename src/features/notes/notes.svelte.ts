@@ -11,10 +11,15 @@ import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from '$features/sync/aut
 import { disconnectE2ee, stopLiveSync } from '$features/sync/syncServiceE2ee';
 import { setFolderSnapshot } from '$features/folders/emptyFolders.svelte';
 
+/** How startup init settled: 'failed' means the cache is empty because
+ * bootstrap failed, not because the vault is empty — awaiters must not treat
+ * it as an authoritative empty note list. */
+export type NotesReadiness = 'ready' | 'failed';
+
 let notesCache = $state<NotePreview[]>([]);
 let initialized = false;
-let notesReadyResolve: (() => void) | null = null;
-const notesReadyPromise = new Promise<void>((resolve) => {
+let notesReadyResolve: ((readiness: NotesReadiness) => void) | null = null;
+const notesReadyPromise = new Promise<NotesReadiness>((resolve) => {
   notesReadyResolve = resolve;
 });
 let searchReady: Promise<void> | null = null;
@@ -65,29 +70,37 @@ function mtimeFor(mutation: LocalNoteMutation, id: string): number {
   return mutation.upserted.find((entry) => entry.note.id === id)?.note.modifiedMs ?? Date.now();
 }
 
-export function whenNotesReady(): Promise<void> {
+export function whenNotesReady(): Promise<NotesReadiness> {
   return notesReadyPromise;
 }
 
 export async function initNotes(onStep?: (label: string) => void): Promise<void> {
   if (initialized) return;
-  onStep?.('initNotes: local store');
-  const store = await getLocalNoteStore();
-  onStep?.('initNotes: bootstrap');
-  const bootstrap = await store.bootstrap();
-  replaceFromSnapshot(bootstrap.snapshot);
-  for (const warning of bootstrap.warnings) console.warn(`[local-notes] ${warning}`);
+  try {
+    onStep?.('initNotes: local store');
+    const store = await getLocalNoteStore();
+    onStep?.('initNotes: bootstrap');
+    const bootstrap = await store.bootstrap();
+    replaceFromSnapshot(bootstrap.snapshot);
+    for (const warning of bootstrap.warnings) console.warn(`[local-notes] ${warning}`);
 
-  // Search may await background index readiness, but initial rendering never
-  // does. Timeout or rejection degrades to empty results while the engine heals.
-  searchReady = store.waitUntilSearchReady(searchReadyTimeoutMs).then(
-    () => undefined,
-    (err) => {
-      console.warn('[local-notes] search readiness wait failed:', err);
-    },
-  );
+    // Search may await background index readiness, but initial rendering never
+    // does. Timeout or rejection degrades to empty results while the engine heals.
+    searchReady = store.waitUntilSearchReady(searchReadyTimeoutMs).then(
+      () => undefined,
+      (err) => {
+        console.warn('[local-notes] search readiness wait failed:', err);
+      },
+    );
+  } catch (error) {
+    // #33: a failed bootstrap must still settle readiness, or every awaiter
+    // (tab hydration → hash routing) hangs forever and the app goes dead.
+    notesReadyResolve?.('failed');
+    notesReadyResolve = null;
+    throw error;
+  }
   initialized = true;
-  notesReadyResolve?.();
+  notesReadyResolve?.('ready');
   notesReadyResolve = null;
   onStep?.('initNotes: done');
 }
@@ -137,18 +150,57 @@ export async function createNote(
   return { id: createdId, mtime: mtimeFor(mutation, createdId) };
 }
 
+export interface UpdateNoteOptions {
+  originalId?: string;
+  base?: string;
+  overrideMtime?: number;
+}
+
+export type UpdateNoteDisposition = 'wrote' | 'converged' | 'recreated' | 'parked';
+
+export interface UpdateNoteResult {
+  id: string;
+  mtime: number;
+  disposition: UpdateNoteDisposition;
+  parkedId?: string;
+}
+
 export async function updateNote(
   id: string,
   _title: string,
   content: string,
-  originalId?: string,
-  overrideMtime?: number,
-): Promise<{ id: string; mtime: number }> {
+  options: UpdateNoteOptions = {},
+): Promise<UpdateNoteResult> {
   const store = await getLocalNoteStore();
+  const { originalId, base, overrideMtime } = options;
+
+  if (originalId === id && base !== undefined && overrideMtime === undefined) {
+    const flush = await store.flushDraft(originalId, base, content);
+    if (flush.mutation) _applyLocalMutation(flush.mutation);
+
+    if (flush.disposition.kind === 'parkedConflict') {
+      return {
+        id: originalId,
+        mtime: getNoteById(originalId)?.modificationTime ?? Date.now(),
+        disposition: 'parked',
+        parkedId: flush.disposition.parkedId,
+      };
+    }
+
+    return {
+      id: originalId,
+      mtime:
+        flush.mutation === null
+          ? (getNoteById(originalId)?.modificationTime ?? Date.now())
+          : mtimeFor(flush.mutation, originalId),
+      disposition: flush.disposition.kind,
+    };
+  }
+
   const mutation = await store.save(originalId ?? null, id, content, overrideMtime);
   _applyLocalMutation(mutation);
   const savedId = mutation.finalId ?? id;
-  return { id: savedId, mtime: mtimeFor(mutation, savedId) };
+  return { id: savedId, mtime: mtimeFor(mutation, savedId), disposition: 'wrote' };
 }
 
 export async function moveNote(

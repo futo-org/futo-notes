@@ -89,8 +89,8 @@ Per bug:
      correct), or **not attemptable here** (needs hardware/vendor state we
      don't have — e.g. an OEM dark-mode variant on a physical device).
 3. **If reproduced:** follow `/bugfix` — failing regression test first, root
-   cause named, minimal fix, sibling-occurrence grep (M17), the layer's §7
-   verification chain. Branch `fix/gh-<number>-<slug>`, MR on GitLab titled
+   cause named, minimal fix, sibling-occurrence grep (M17), the layer's
+   verification chain from AGENTS.md's "Testing & quality bar". Branch `fix/gh-<number>-<slug>`, MR on GitLab titled
    `fix(<scope>): <summary> (github#<number>)` with the full issue URL in the
    description. **MR is left open — never merged, never marked auto-merge.**
    Post the MR link to the issue's Zulip topic.

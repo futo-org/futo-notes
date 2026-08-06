@@ -21,7 +21,7 @@ dispositions (wrote / converged / recreated / parked). Shells own only *when* to
   answer.
 - The rejected alternative — keeping per-shell copies locked by shared conformance fixtures —
   prevents silent drift but keeps N copies forever; it remains the fallback only for genuinely
-  per-keystroke hot-path rules (see AGENTS.md §4.2), which this decision does not change.
+  per-keystroke hot-path rules (see AGENTS.md's "Where logic lives"), which this decision does not change.
 
 Origin: architecture review + grilling, 2026-07-20. Spec: GitLab issue #34; vocabulary in
 CONTEXT.md (mutation, projection, flush disposition, park, persist-or-park promise).

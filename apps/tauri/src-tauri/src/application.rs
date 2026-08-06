@@ -26,6 +26,7 @@ pub(crate) fn run() {
                 crate::panic_reporter::install(root.join(".crashlogs"));
             }
             crate::platform_integration::configure_app(handle)?;
+            crate::instance_journal::install(handle);
             crate::local_notes::init_on_startup(handle);
             Ok(())
         })
@@ -45,6 +46,7 @@ pub(crate) fn run() {
             crate::sync::tauri_commands::e2ee_start_live,
             crate::sync::tauri_commands::e2ee_stop_live,
             crate::sync::tauri_commands::e2ee_note_changed,
+            crate::sync::tauri_commands::e2ee_classify_open_note,
             crate::sync::password_store::e2ee_password_get,
             crate::sync::password_store::e2ee_password_set,
             crate::sync::password_store::e2ee_password_delete,

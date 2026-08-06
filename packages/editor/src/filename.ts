@@ -11,9 +11,10 @@
  */
 export const FORBIDDEN_TITLE_CHARS_VISIBLE = '<>:"/\\|?*';
 
-const CONTROL_CHARS =
-  Array.from({ length: 32 }, (_, index) => String.fromCharCode(index)).join('') +
-  String.fromCharCode(127);
+// Unicode general category Cc: C0, DEL, and C1. Exactly the set Rust's
+// `char::is_control()` rejects, so both sides of the note-rules twin strip the
+// same codepoints — C1 chars used to survive here but not in Rust.
+const CONTROL_CHARS = '\\u0000-\\u001F\\u007F-\\u009F';
 // Escape the backslash in FORBIDDEN_TITLE_CHARS_VISIBLE for use inside a
 // regex character class; the other visible chars need no escaping there.
 const FORBIDDEN_PATTERN = `[${FORBIDDEN_TITLE_CHARS_VISIBLE.replace(/\\/g, '\\\\')}${CONTROL_CHARS}]`;

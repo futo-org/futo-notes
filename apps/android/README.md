@@ -51,6 +51,7 @@ pnpm exec vite build --config vite.editor.config.ts # editor.html
 ### Prerequisites
 
 - **Android SDK** (`ANDROID_HOME`) + a recent Android Gradle Plugin toolchain.
+- **JDK 17** — required by the Android Gradle Plugin.
 - **Android NDK** (`ANDROID_NDK_HOME`) — `scripts/build-rust-android.sh` checks
   for it early and errors with install instructions if missing.
 - `cargo install cargo-ndk` + the android rust targets:
@@ -59,3 +60,17 @@ pnpm exec vite build --config vite.editor.config.ts # editor.html
 > Verified independently of the NDK/SDK: `futo-notes-ffi` builds as a `cdylib`
 > and `uniffi-bindgen --language kotlin` generates the bindings the app imports.
 > Full device build/run requires the Android toolchain above.
+
+## Device notes
+
+- **Gradle wrapper is committed** and pinned to 8.14.3 (`gradle/wrapper/gradle-wrapper.properties`).
+  Use `./gradlew`; don't run `gradle wrapper`, it would overwrite the pin.
+- **Empty-editor soft keyboard.** Android `WebView` can refuse to raise the keyboard for an empty
+  `contenteditable`. `EditorWebView.kt` does not yet carry the iOS swizzle / Tauri "IME shield"
+  equivalent — if a brand-new note won't accept typing until a second tap, port the approach in
+  `docs/learnings/ime-shield-workaround.md`.
+- **`usesCleartextTraffic=true` in all build types** (deliberate) so self-hosters can sync to a
+  plain `http://` server; note content is E2EE before upload, so cleartext carries only encrypted
+  blobs + auth. HTTPS is still recommended.
+- **`applicationId`**: release `com.futo.notes`, debug appends `.dev`, so dev installs keep separate
+  app data.

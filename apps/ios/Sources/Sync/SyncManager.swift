@@ -50,11 +50,11 @@ final class SyncManager: ObservableObject {
     /// can surface from both the manual sync path and the live loop at once.
     private var healing = false
 
-    /// Invoked on the main actor after a live pull that changed the vault on
-    /// disk (downloaded/deleted > 0). The note list is a separate `NotesStore`,
-    /// so the app wires this to `store.reload()` to surface the pulled note
-    /// without a manual sync. (Manual `syncNow` reloads via the Sync view.)
-    var onLivePull: (() -> Void)?
+    /// Invoked on the main actor after any completed cycle that changed the
+    /// local notes tree. The lossless summary is carried to the note projection
+    /// and open-note reconciler; neither re-derives rename/delete intent from
+    /// counters or a vault scan.
+    var onLocalTreeChanged: ((SyncSummary) -> Void)?
 
     /// Single reporter for a completed cycle's outcome (docs/spec/sync.md):
     /// clean → just "Sync complete" (never uploaded/downloaded/deleted/conflict
@@ -89,7 +89,7 @@ final class SyncManager: ObservableObject {
     }
 
     /// Did this cycle change the local notes tree such that the open editor
-    /// must reload from disk? Peer downloads/deletes are obvious; the subtle
+    /// must reconcile from disk? Peer downloads/deletes are obvious; the subtle
     /// case is a PUSH-side clean merge, which writes merged text to disk but
     /// reports only `uploaded` — the core surfaces those in `localWritesApplied`.
     /// Gating on `downloaded`/`deleted` alone let a stale editor keep a base
@@ -135,8 +135,8 @@ final class SyncManager: ObservableObject {
             // Refresh the list/editor if the initial (catch-up) sync changed
             // the local tree — pulls OR push-side merges (F2). Covers
             // `restoreSession` on a cold launch, where there's no Sync view to
-            // reload the store afterward.
-            if Self.wroteLocalChanges(summary) { onLivePull?() }
+            // project the summary afterward.
+            if Self.wroteLocalChanges(summary) { onLocalTreeChanged?(summary) }
             await startLive()
         } catch {
             connected = client != nil
@@ -164,6 +164,7 @@ final class SyncManager: ObservableObject {
         do {
             let summary = try await c.syncNow()
             applyOutcome(summary)
+            if Self.wroteLocalChanges(summary) { onLocalTreeChanged?(summary) }
         } catch {
             // Re-login for both a collapsed vault and an expired bearer token.
             // connect() reuses the persisted cursor/map for the same vault, so
@@ -247,7 +248,7 @@ final class SyncManager: ObservableObject {
         liveError = nil  // a completed live pull means the stream is healthy
         // A live cycle wrote to disk — refresh the note list + open editor
         // (only on an actual change, incl. push-side merges; F2).
-        if Self.wroteLocalChanges(s) { onLivePull?() }
+        if Self.wroteLocalChanges(s) { onLocalTreeChanged?(s) }
     }
 
     fileprivate func setLive(_ v: Bool) {

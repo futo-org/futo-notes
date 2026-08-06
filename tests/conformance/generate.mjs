@@ -102,6 +102,9 @@ const filename = {
       '   ',
       'a\x00b\x1fc',
       'a\x7fb',
+      // C1 (U+0080–U+009F) is Unicode Cc, so Rust's `is_control()` strips it —
+      // the TS side must too.
+      'a\x85b\x9fc',
       '  hello  ',
       // D4/B2b: Windows-reserved de-reservation + leading/trailing-dot strip.
       'CON',
@@ -124,6 +127,7 @@ const filename = {
       'v2.0 notes',
       'Dr. Smith',
       'a\x7fb',
+      'a\x85b',
     ]),
     group('isValidTitle', 'isValidTitle', isValidTitle, ['my note', '.hidden', 'a<b', '']),
     group('isWindowsReservedName', 'isWindowsReservedName', isWindowsReservedName, [

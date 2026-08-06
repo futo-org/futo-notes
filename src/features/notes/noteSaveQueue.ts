@@ -21,6 +21,18 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
     }, delayMilliseconds);
   }
 
+  function resume(): void {
+    if (!options.hasUnseenChanges() || saveTimer !== null) return;
+    if (saveInFlight) {
+      saveQueued = true;
+      return;
+    }
+    saveTimer = window.setTimeout(() => {
+      saveTimer = null;
+      void runQueuedSave();
+    }, 0);
+  }
+
   async function flush(): Promise<void> {
     const hadPendingTimer = saveTimer !== null;
     if (saveTimer !== null) window.clearTimeout(saveTimer);
@@ -33,6 +45,10 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
     } catch (error) {
       console.warn('Failed to flush note save:', error);
     }
+  }
+
+  async function awaitSaveIdle(): Promise<void> {
+    if (saveInFlight) await saveInFlight;
   }
 
   async function runQueuedSave(): Promise<void> {
@@ -70,7 +86,9 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
     },
     isPending: () => saveTimer !== null || saveInFlight !== null || saveQueued,
     schedule,
+    resume,
     flush,
+    awaitSaveIdle,
     cancelPending,
   };
 }

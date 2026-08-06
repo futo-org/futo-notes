@@ -226,6 +226,23 @@ initial `which idb` said absent). It talks to the iOS 26.5 sim.
   and secure fields are the flaky spots. For those, `xcrun simctl` +
   `describe-point` reads + `defaults` writes are more reliable than blind taps.
 
+#### Addendum 2026-07-27 — superseded by AXe
+
+`idb` is no longer the iOS driver; see the `/verify` skill's
+`references/ios.md`. Two things this section got right are worth keeping,
+because they were the clue that solved it:
+
+- The shallow `describe-all` observed here was the whole problem. It is a tool
+  limitation, not a SwiftUI one — `axe describe-ui` reports the nav-bar controls
+  with labels, identifiers, and button traits, and `axe tap --id` activates
+  them. The "taps on small SwiftUI toolbar buttons are flaky/toggly" symptom
+  also came from tapping screenshot coordinates rather than a resolved element.
+- The nav.md AX gap was **already closed here** via `describe-point`, but that
+  closure never reached `docs/spec/nav.md`, so the gap stayed on the books for
+  another three weeks and kept being cited as an app defect (it is now closed
+  with dated evidence). A finding recorded only in a learnings file has not
+  landed — update the spec in the same pass.
+
 ### Judgment calls made (for review)
 
 - **Benchmark section removed from settings-visual.md**: the desktop

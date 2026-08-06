@@ -18,29 +18,6 @@ internal data class EditorTitleCommit(
     val isCommitted: Boolean,
 )
 
-internal class EditorNavigationAdmission {
-    private var isStarted = false
-
-    fun tryBegin(): Boolean {
-        if (isStarted) return false
-        isStarted = true
-        return true
-    }
-
-    fun retryAfterFailure() {
-        isStarted = false
-    }
-}
-
-internal fun isEditorInteractionEnabled(navigationPending: Boolean): Boolean =
-    !navigationPending
-
-internal fun shouldStartEditorBackNavigation(navigationPending: Boolean): Boolean =
-    !navigationPending
-
-internal fun canNavigateWithoutEditorAttachment(webViewTooOld: Boolean): Boolean =
-    webViewTooOld
-
 internal suspend fun commitEditorTitleSnapshot(
     currentId: String,
     targetId: String?,

@@ -1,7 +1,7 @@
 # futo-notes: suites, isolation, and consumers per scope
 
-Repo-specific mechanics for the contract-rewrite phases. AGENTS.md §8 is the authoritative
-testing map; this file organizes it by rewrite concern.
+Repo-specific mechanics for the contract-rewrite phases. AGENTS.md's "Testing & quality bar" is the
+authoritative testing map; this file organizes it by rewrite concern.
 
 ## Acceptance suites by layer (the contract gate)
 
@@ -64,19 +64,20 @@ before judging native shells (M9). Whole umbrella before merge: `just check`.
 
 ## Repo-specific contract constraints
 
-- **Conformance-locked pairs (§12)**: note rules exist in TS (`packages/editor`) AND Rust.
-  A rewrite of either side must keep `tests/conformance/*` green bit-for-bit or change both
-  sides + regenerate fixtures (§7.3). The fixtures ARE part of the contract.
+- **Conformance-locked pairs (AGENTS.md "Drift watchlist")**: note rules exist in TS
+  (`packages/editor`) AND Rust. A rewrite of either side must keep `tests/conformance/*` green
+  bit-for-bit or change both sides + regenerate fixtures (AGENTS.md "Testing & quality bar", Note
+  rule). The fixtures ARE part of the contract.
 - **Drift registry** (`just check-drift` via arch-gate): registered multi-copy concepts
   (path safety, notes-root split, image extensions, sort order, bridge handling) — a rewrite
   that touches one copy touches all, and the registry must stay consistent.
 - **Debt ratchet** (`scripts/debt-ratchet.json`): if the rewrite reduces a counted debt,
   update the file in the same change; it only turns one way.
-- **CRITICAL invariant sources for Phase 1**: `docs/spec/<area>.md` (behavior), AGENTS.md §6
-  M1–M5 (data/render safety), and for sync specifically the invariant list in
+- **CRITICAL invariant sources for Phase 1**: `docs/spec/<area>.md` (behavior), AGENTS.md
+  "Named mistakes" M1–M5 (data/render safety), and for sync specifically the invariant list in
   `docs/learnings/sync-rewrite.md` §2 (push-first, cursor caps, collection identity,
   ancestry demotion, tombstone safety, path triage, one cycle gate).
 - **Watcher suppression**: any rewritten code that mutates the note tree registers filenames
   in the suppression map before writing.
-- Stop-and-ask list (AGENTS.md §11) still applies mid-rewrite: hash/crypto functions,
+- Stop-and-ask list (AGENTS.md "When uncertain") still applies mid-rewrite: hash/crypto functions,
   dev/prod root split, push-first ordering, `release:gate` needs, protocol shapes.

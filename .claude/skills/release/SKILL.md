@@ -166,8 +166,10 @@ Determine the version tag:
   ```
 - Confirm with the user via AskUserQuestion.
 
+Releases are **annotated** `vX.Y.Z` tags — never a lightweight tag:
+
 ```bash
-git tag <version>
+git tag -a <version> -m "<version>"
 git push origin <version>
 ```
 

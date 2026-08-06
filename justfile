@@ -72,6 +72,30 @@ tauri-build:
 updater-localdev *args:
   node scripts/release-build.mjs e2e {{args}}
 
+# ── Instance journal (desktop) ──
+# Read what a running instance actually DID: the app writes a JSONL event
+# journal (futo_notes_core::journal) under its app data dir — never inside a
+# vault, never uploaded anywhere. Today it records one `sync_run` event per
+# sync cycle: trigger (manual/live-catch-up/local-change/remote-change/
+# safety-poll), push and pull timings, counts, the version watermarks either
+# side of the run, and the per-file reconcile decisions with the reason the
+# summary counters throw away.
+#
+#   just journal                    # last 20 events
+#   just journal tail 100
+#   just journal type sync_run      # or journal_drops (queue pressure)
+#   just journal last-sync          # readable summary of the newest cycle
+#   just journal where              # which directory it is reading
+#   just journal ... --release      # the release app, not the dev build
+#   just journal ... --dir <path>   # somewhere else entirely (a pulled phone journal)
+#
+# Resolution matches the app: $FUTO_NOTES_DATA_DIR wins (that is what
+# `just tauri-dev` sets, per worktree), then <app data>/<bundle id>/journal.
+# `--json` prints raw lines, so `just journal type sync_run --json | jq` works.
+# Native shells do not journal yet (see docs/spec/sync.md).
+journal *args:
+  @node scripts/journal.mjs {{args}}
+
 # ── Native mobile shells (SwiftUI / Compose — the SHIPPING mobile apps) ──
 # These reuse the shared Rust core (futo-notes-ffi) + the embedded web editor.
 # There is no longer a Tauri mobile shell; mobile = native.
@@ -160,6 +184,18 @@ test-android-native: build-rust-android
 test-android-native-ui: build-rust-android
   cd apps/android && ./gradlew connectedDebugAndroidTest
 
+# User-level storage-location stories against the REAL native Android app: the
+# first-run picker, both migration directions, and opening an already-populated
+# folder — each asserted on the vault that actually lands on disk. ~35s, of which
+# ~30s is the two stories that deliberately tap real UI; the rest drive the debug
+# build's hooks via tests/lib/android/. Needs a device/emulator with the debug app
+# installed (`just android-native`); honors $ANDROID_SERIAL. It CLEARS the debug
+# app's data, so claim a pool device first (`just qa-claim android`) rather than
+# pointing it at a phone you care about. Deliberately not in `check`/CI — runners
+# have no emulator.
+test-android-storage:
+  node tests/android-storage-migration.mjs
+
 # ── Parallel QA isolation (multiple worktrees, one machine) ──
 # Worktree path → slot → pooled devices (futo-qa-0..6 per platform) + a
 # per-slot sync server with its own Postgres database. Your personal
@@ -174,6 +210,11 @@ qa-claim target="all":
 # Show pool devices + per-slot sync servers, and which worktree owns each.
 qa-status:
   @node scripts/qa.mjs status
+
+# Slot-derived, so parallel checkouts never collide. $FUTO_DEV_PORT pins `web`.
+# Print every port this worktree owns.
+ports:
+  @node scripts/lib/slot.mjs
 
 # Release this worktree's devices (add --shutdown to also power them off).
 # Also stops this worktree's qa-server so nothing is left orphaned.
@@ -285,7 +326,7 @@ emu-screenshot name="emu":
 # `adb logcat -c` first for a clean slate; crashes land under AndroidRuntime.
 # Tag-scoped logcat for the native Android app's stable log tags.
 emu-logs:
-  adb logcat -s FutoStartup FutoSearch NotesStore FutoToolbarDBG FutoBridgeDBG AndroidRuntime
+  adb logcat -s FutoStartup FutoSearch NotesStore FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
 
 # Debug builds only; re-run after every app restart (the WebView pid changes).
 # adb forward host ports are machine-global, so the port is per-worktree
@@ -294,8 +335,7 @@ emu-logs:
 cdp-forward:
   #!/usr/bin/env bash
   set -euo pipefail
-  SLOT=$(( $(printf "%d" "0x$(echo -n "$(git rev-parse --show-toplevel)" | md5sum | cut -c1-8)") % 50 ))
-  PORT="${CDP_PORT:-$((9330 + SLOT))}"
+  PORT="${CDP_PORT:-$(node scripts/lib/slot.mjs cdp)}"
   PID=$(adb shell pidof com.futo.notes.dev | tr -d '\r')
   [ -n "$PID" ] || { echo "com.futo.notes.dev is not running — launch the app first." >&2; exit 1; }
   SOCKET=$(adb shell 'cat /proc/net/unix' | grep -o "webview_devtools_remote_${PID}" | head -1)
@@ -303,6 +343,14 @@ cdp-forward:
   adb forward "tcp:${PORT}" "localabstract:${SOCKET}"
   echo "Forwarded localhost:${PORT} → ${SOCKET}"
   echo "  export CDP_PORT=${PORT}   # then: node scripts/cdp-invoke.mjs \"document.title\""
+
+# Drive the native Android app: read its state, tap labels, run debug hooks.
+# `state` answers from the app itself (~100ms) instead of an accessibility dump
+# (~2s), and reports what the a11y tree can't — which vault is live, whether a
+# migration is in flight. Run with no arguments for the command list. Debug
+# builds only; honors $ANDROID_SERIAL.
+android-drive *args:
+  @node scripts/android-drive.mjs {{args}}
 
 build:
   #!/usr/bin/env bash
@@ -469,13 +517,14 @@ sync-contract-check:
 # Fail on a stale drift-registry.json entry (copy missing / pattern no longer
 # matches / lock file missing / lockStatus inconsistent), or a NEW file
 # matching a registered concept's scan pattern outside its registered copies
-# (architecture-hardening.md R1 — AGENTS.md §12 as code, deny-by-default).
+# (architecture-hardening.md R1 — AGENTS.md "Drift watchlist" as code, deny-by-default).
 check-drift:
   node scripts/drift-check.mjs
 
 # Fail if any of the 4 checked-in debt counts (scripts/debt-ratchet.json)
 # increased, or if one decreased without the file being updated to match
-# (architecture-hardening.md R2 — the ratchet only turns one way).
+# (architecture-hardening.md R2 — the ratchet only turns one way). Also fails
+# if a "ceilings" metric exceeds its fixed cap.
 check-debt-ratchet:
   node scripts/debt-ratchet.mjs
 
@@ -485,6 +534,19 @@ check-debt-ratchet:
 # a dead end. See scripts/check-agent-docs.mjs for the escape hatch.
 check-agent-docs:
   node scripts/check-agent-docs.mjs
+
+# The meta-gate: prove every OTHER gate actually fails on the violation it
+# claims to catch. Seeds one violation per gate inside a throwaway git worktree
+# and requires the gate to exit non-zero AND name what it found — an
+# exit-code-only pass is rejected, because a gate that dies on a missing module
+# also exits non-zero. Six commits (d87173eb, 54d1cc41, 90a62902, a6c6e2d5,
+# db31586c, f81a61d0) fixed guards that were green while stepping over real
+# violations; this is the standing red-proof they lacked. `--include-cargo`
+# adds the Rust dependency-boundary proof (the portable set runs in CI, whose
+# image has no cargo). Rationale + limitations: scripts/gate-redproofs.mjs
+# (documented there, not in AGENTS.md — that file is at its ratchet ceiling).
+gate-redproofs *args:
+  node scripts/gate-redproofs.mjs --include-cargo {{args}}
 
 # Run the same focused architecture checks embedded in GitLab's mandatory test job.
 # package.json owns the membership because the pinned CI image does not include just.
@@ -518,8 +580,10 @@ check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
 # flake on the odd slow navigation/click; one retry absorbs those while a
 # genuinely broken test still fails both attempts (and is reported "flaky"
 # when it passes only on retry — treat repeat offenders as real bugs).
+# `check` runs the PORTABLE red-proof set through arch-gate; the explicit
+# recipe here adds the cargo-dependent Rust dependency-boundary proof.
 # Maximal pre-push gate: `check` + full Rust workspace + full E2E + cross-platform sync.
-prepush: check test-rust-full
+prepush: check test-rust-full gate-redproofs
   pnpm exec playwright test --retries=1
   pnpm run test:cross-platform
   @echo "prepush green — check + rust workspace + full e2e + cross-platform sync all passed"

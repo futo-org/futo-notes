@@ -49,8 +49,9 @@ struct NoteListView: View {
             .toolbar {
                 // Distinct ToolbarItem `id:`s so the two leading controls expose
                 // as SEPARATE accessibility elements instead of collapsing into
-                // one unlabeled container (VoiceOver/idb couldn't read or tap
-                // them). [nav.md:13]
+                // one unlabeled container. Confirmed reaching the AX tree with
+                // labels and identifiers on iOS 26.5 (see nav.md); an earlier
+                // report that they did not was `idb` returning a shallow tree.
                 ToolbarItem(id: "settings", placement: .topBarLeading) {
                     Button {
                         showSettings = true

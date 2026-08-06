@@ -20,6 +20,17 @@ actor NoteVault {
     func scan() -> NoteSnapshot { core.scan() }
     func read(_ id: String) -> String { core.read(id: id) }
     func exists(_ id: String) -> Bool { core.exists(id: id) }
+    func readIfExists(_ id: String) throws -> String? {
+        try core.readIfExists(id: id)
+    }
+
+    func refreshExternalChanges(_ summary: SyncSummary) throws -> NoteMutation {
+        try core.refreshExternalChanges(
+            updatedIds: summary.updatedIds,
+            deletedIds: summary.deletedIds,
+            renamed: summary.renamed
+        )
+    }
 
     func write(_ id: String, content: String) throws -> NoteMutation {
         try core.write(id: id, content: content)
@@ -81,7 +92,12 @@ actor NoteVault {
         }
     }
 
-    func rescan() { core.rescan() }
+    /// Error recovery only. Normal sync projection is the scoped engine verb.
+    func recoveryScan() -> NoteSnapshot {
+        core.rescan()
+        return core.scan()
+    }
+
     func reset() throws { try core.reset() }
 }
 
@@ -141,42 +157,6 @@ func derivePendingDraft(loaded: Bool, noteId: String, savedContent: String, cont
         ? PendingDraft(id: noteId, base: savedContent, content: content) : nil
 }
 
-/// What the live-pull conflict path (`NoteEditorView.adoptExternalChange`) does
-/// to the OPEN editor once the engine's flush verb resolves a dirty draft.
-enum AdoptFlushOutcome: Equatable {
-    /// The draft is durable ON DISK at the original id — keep it in the editor.
-    /// wrote/recreated installed it; converged means disk already equalled it.
-    case keepDraft
-    /// The draft was parked as a conflict copy — re-read and adopt the current
-    /// on-disk peer version. The snapshot from before the flush is stale by
-    /// definition because the flush performed its own serialized re-check.
-    case reloadDisk
-    /// The flush failed (I/O) — leave the draft dirty; the next signal retries.
-    case retryLater
-}
-
-/// Map a flush disposition to the open-note adopt outcome. Pure + top-level (like
-/// `derivePendingDraft`) so the persist-or-park arm choice — above all the
-/// converged race, where an in-flight unconditional autosave lands the draft on
-/// disk just before `flush_draft` runs — is a table test, not a device scenario.
-///
-/// `.converged` groups with `.wrote`/`.recreated`, NOT with `.parkedConflict`
-/// (issue #37 F3): converged means the engine saw disk ALREADY hold the draft,
-/// so the draft is the on-disk content. Adopting the caller's pre-flush `disk`
-/// snapshot here would show a version no longer on disk, mark it clean, and let
-/// the next keystroke's unconditional autosave destroy the just-persisted draft
-/// with no conflict copy — a regression against the persist-or-park promise.
-func adoptFlushOutcome(for disposition: FlushDisposition?) -> AdoptFlushOutcome {
-    switch disposition {
-    case .parkedConflict:
-        return .reloadDisk
-    case .wrote, .recreated, .converged:
-        return .keepDraft
-    case .none:
-        return .retryLater
-    }
-}
-
 /// SwiftUI projection of the canonical local-note store. The published arrays
 /// are a cache only: Rust commits each workflow and returns every affected row.
 /// This type is presentation glue plus the iOS lifecycle machinery the Rust
@@ -186,6 +166,7 @@ final class NotesStore: ObservableObject {
     @Published private(set) var notes: [NoteItem] = []
     @Published private(set) var folders: [String] = []
     @Published private(set) var hasBootstrapped = false
+    @Published private(set) var localTreeChange: SyncSummary?
 
     /// A short-lived status message shown as a bottom banner over the whole
     /// NavigationStack (list + any pushed editor). Used for sync-side events the
@@ -316,6 +297,7 @@ final class NotesStore: ObservableObject {
     private var flushedThisEpisode: [String: PendingDraft] = [:]
     private let editorDraftCoordinator = EditorDraftCoordinator()
     private var editorDraftTail: Task<Void, Never>?
+    private var localTreeChangeTail: Task<Void, Never>?
 
     /// Flush every live editor's pending draft to disk (scenePhase inactive/
     /// background). Coalesces by note id, keeping the highest-token (most recently
@@ -400,10 +382,6 @@ final class NotesStore: ObservableObject {
         hasBootstrapped = true
     }
 
-    func reload() {
-        Task { applySnapshot(await vault.scan()) }
-    }
-
     private static func item(from metadata: NoteMetadata) -> NoteItem {
         NoteItem(
             id: metadata.id,
@@ -437,7 +415,14 @@ final class NotesStore: ObservableObject {
     }
 
     func read(_ id: String) async -> String { await vault.read(id) }
-    func exists(_ id: String) async -> Bool { await vault.exists(id) }
+    func readIfExists(_ id: String) async throws -> String? {
+        do {
+            return try await vault.readIfExists(id)
+        } catch {
+            print("read existing note failed for \(id): \(error)")
+            throw error
+        }
+    }
 
     func write(_ id: String, content: String) async -> NoteMutationOutcome<Void> {
         do {
@@ -682,10 +667,23 @@ final class NotesStore: ObservableObject {
         return (try? await vault.search(query, limit: limit)) ?? []
     }
 
-    func liveDataChanged() {
-        Task {
-            await vault.rescan()
-            applySnapshot(await vault.scan())
+    /// A sync cycle wrote the vault. Serialize projection with prior cycles,
+    /// then publish the same lossless summary to open editors only after the
+    /// durable mutation is visible to the rest of the native shell.
+    func localTreeChanged(_ summary: SyncSummary) {
+        let previous = localTreeChangeTail
+        localTreeChangeTail = Task {
+            await previous?.value
+            do {
+                applyMutation(try await vault.refreshExternalChanges(summary))
+            } catch {
+                // Scoped projection should fail only for an engine/storage
+                // error. Keep the shell usable with a recovery scan; normal
+                // sync cycles never pay for a whole-vault refresh.
+                print("external-change projection failed: \(error)")
+                applySnapshot(await vault.recoveryScan())
+            }
+            localTreeChange = summary
         }
     }
 

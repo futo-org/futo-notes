@@ -31,6 +31,27 @@ export type E2eeStatusOutput = {
 	objectCount: number,
 };
 
+export type KeepDraftReasonOutput = "peerDeleted" | "diverged" | "converged";
+
+/**
+ *  The engine's verdict on the open note, tagged the same way a flush
+ *  disposition is so the frontend renders both through one shape.
+ */
+export type OpenNoteDispositionOutput = { kind: "leave" } | { kind: "adopt"; content: string } | { kind: "deferAdopt" } | { kind: "followRename"; toId: string } | { kind: "keepDraft"; base: string; reason: KeepDraftReasonOutput } | { kind: "close" };
+
+/**
+ *  The editor facts supplied by the frontend. The adapter gathers the
+ *  authoritative disk value before asking the engine for a verdict.
+ */
+export type OpenNoteRequestInput = {
+	id: string,
+	base: string,
+	draft: string,
+	renamedTo: string | null,
+	editorFocused: boolean,
+	editedDuringCycle: boolean,
+};
+
 export type RenamePair = {
 	fromId: string,
 	toId: string,

@@ -3,9 +3,11 @@ use std::sync::Arc;
 
 use futo_notes_store as store;
 
+use crate::RenamePair;
+
 use super::{
-    ConditionalWrite, CreateOutcome, FlushDraftResult, NoteBootstrap, NoteError, NoteMutation,
-    NoteSnapshot, SearchHit, VaultMigrationFinalization, VaultMigrationOutcome,
+    FlushDraftResult, NoteBootstrap, NoteError, NoteMutation, NoteSnapshot, SearchHit,
+    VaultDestinationInspection, VaultMigrationFinalization, VaultMigrationOutcome,
 };
 
 #[derive(uniffi::Object)]
@@ -38,41 +40,36 @@ impl NoteStore {
         self.inner.read(&id)
     }
 
+    pub fn read_if_exists(&self, id: String) -> Result<Option<String>, NoteError> {
+        self.inner.read_existing(&id).map_err(NoteError::Io)
+    }
+
     pub fn exists(&self, id: String) -> bool {
         self.inner.exists(&id)
+    }
+
+    pub fn refresh_external_changes(
+        &self,
+        updated_ids: Vec<String>,
+        deleted_ids: Vec<String>,
+        renamed: Vec<RenamePair>,
+    ) -> Result<NoteMutation, NoteError> {
+        let renamed = renamed
+            .into_iter()
+            .map(|pair| store::NoteRename {
+                from: pair.from_id,
+                to: pair.to_id,
+            })
+            .collect::<Vec<_>>();
+        self.inner
+            .refresh_external_changes(&updated_ids, &deleted_ids, &renamed)
+            .map(Into::into)
+            .map_err(NoteError::Io)
     }
 
     pub fn write(&self, id: String, content: String) -> Result<NoteMutation, NoteError> {
         self.inner
             .write(&id, &content, None)
-            .map(Into::into)
-            .map_err(NoteError::Io)
-    }
-
-    /// Skips stale or missing notes, but is not a true filesystem CAS.
-    pub fn write_if_unchanged(
-        &self,
-        id: String,
-        expected_prev: String,
-        content: String,
-    ) -> Result<ConditionalWrite, NoteError> {
-        self.inner
-            .write_if_unchanged(&id, &expected_prev, &content)
-            .map(|result| ConditionalWrite {
-                outcome: result.outcome.into(),
-                mutation: result.mutation.map(Into::into),
-            })
-            .map_err(NoteError::Io)
-    }
-
-    /// Uses no-replace installation so a concurrent live-sync writer cannot be overwritten.
-    pub fn create_if_absent(
-        &self,
-        id: String,
-        content: String,
-    ) -> Result<CreateOutcome, NoteError> {
-        self.inner
-            .create_if_absent(&id, &content)
             .map(Into::into)
             .map_err(NoteError::Io)
     }
@@ -172,6 +169,12 @@ impl NoteStore {
 
     pub fn reset(&self) -> Result<(), NoteError> {
         self.inner.reset().map_err(NoteError::Io)
+    }
+
+    pub fn inspect_vault_destination(&self, destination: String) -> VaultDestinationInspection {
+        self.inner
+            .inspect_vault_destination(&PathBuf::from(destination))
+            .into()
     }
 
     pub fn stage_vault_migration(

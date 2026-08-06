@@ -63,16 +63,18 @@ describe('pre-merge JavaScript test routing', () => {
   });
 
   it('uses bounded Playwright concurrency without multiplying CI jobs', () => {
-    const markdownJob = topLevelBlock(gitlabPipeline, /^test:e2e:markdown-spec:$/m);
     const restJob = topLevelBlock(gitlabPipeline, /^test:e2e:rest:$/m);
 
-    expect(markdownJob).toContain('pnpm run test:markdown-spec');
+    // The markdown-spec corpus runs inside test:e2e:rest (its former
+    // standalone job was merged in to stop paying a third dev-server +
+    // browser-install setup); the rest suite must not filter it back out
+    // and must re-run when the corpus changes.
+    expect(gitlabPipeline).not.toMatch(/^test:e2e:markdown-spec:$/m);
+    expect(packageScripts['test:e2e:rest']).not.toContain('Markdown Spec');
+    expect(restJob).toContain('- markdown-spec/**/*');
     expect(restJob).toContain('pnpm run test:e2e:rest');
-    expect(packageScripts['test:markdown-spec']).not.toContain('--workers=');
     expect(packageScripts['test:e2e:rest']).toContain('--workers=2');
-    expect(markdownJob).not.toContain('parallel: 2');
     expect(restJob).not.toContain('parallel: 2');
-    expect(markdownJob).not.toContain('--shard=');
     expect(restJob).not.toContain('--shard=');
   });
 
@@ -159,6 +161,46 @@ describe('pre-merge JavaScript test routing', () => {
     expect(macosRustJob).toContain('- crates/**/*');
     expect(macosRustTask).toContain('cargo check -p futo-notes-ffi --target aarch64-apple-ios');
     expect(releaseGate).toContain('- job: test:rust:ffi-android');
+  });
+
+  it('runs full macOS workspace tests on main and tags but not MR pipelines', () => {
+    const macosRustJob = topLevelBlock(gitlabPipeline, /^test:rust:macos:$/m);
+    const macosRustTask = topLevelBlock(cirrusTasks, /^test_rust_macos_task:$/m);
+
+    // MRs get only the iOS compile check (the workspace suite is the hard
+    // Linux gate); the Cirrus task keys the full run off tag/default-branch.
+    expect(macosRustTask).toContain('cargo test --workspace');
+    expect(macosRustTask).toContain('"${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}"');
+    expect(macosRustJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
+  });
+
+  it('keeps MR iOS coverage in one Mac job after dropping build:ios-native from MRs', () => {
+    const iosBuildJob = topLevelBlock(gitlabPipeline, /^build:ios-native:$/m);
+    const iosTestJob = topLevelBlock(gitlabPipeline, /^test:ios-native:$/m);
+    const smokeJob = topLevelBlock(gitlabPipeline, /^test:desktop-smoke:macos:$/m);
+
+    // build:ios-native is main+tag only; test:ios-native carries its former
+    // MR paths so an FFI change still gets an iOS build (plus tests) on MRs.
+    expect(iosBuildJob).not.toContain('$CI_MERGE_REQUEST_IID');
+    expect(iosTestJob).toContain('- crates/futo-notes-ffi/**/*');
+    expect(iosTestJob).toContain('- Cargo.lock');
+    // Desktop smoke auto-runs on main pushes, manual-only on MRs.
+    expect(smokeJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
+    expect(smokeJob).not.toMatch(/\$CI_MERGE_REQUEST_IID\n {6}changes:/);
+  });
+
+  it('publishes stores and package repos only from stable tags', () => {
+    const stableTag = 'if: $CI_COMMIT_TAG =~ /^v[0-9]+\\.[0-9]+\\.[0-9]+$/';
+    for (const jobName of [
+      /^publish:ios:$/m,
+      /^publish:android:$/m,
+      /^release:$/m,
+      /^update-fdroid:$/m,
+      /^pkg-futoinfra:prep:$/m,
+      /^pkg-futoinfra:trigger:$/m,
+    ]) {
+      expect(topLevelBlock(gitlabPipeline, jobName)).toContain(stableTag);
+    }
   });
 
   it('keeps iOS tests required for iOS changes while exposing an optional MR run', () => {

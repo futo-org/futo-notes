@@ -1,4 +1,4 @@
-// Drift registry gate (architecture-hardening.md PKT-8 / R1). AGENTS.md §12's
+// Drift registry gate (architecture-hardening.md PKT-8 / R1). AGENTS.md's "Drift watchlist"
 // "same logic in >=2 places" watchlist as code, deny-by-default:
 // scripts/drift-registry.json enumerates every PERMITTED duplicate concept —
 // each copy's file + a pattern that must still be found there, and the lock
@@ -20,7 +20,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REGISTRY_PATH = path.join(ROOT, 'scripts/drift-registry.json');
@@ -28,6 +28,9 @@ const REGISTRY_PATH = path.join(ROOT, 'scripts/drift-registry.json');
 const SKIP_DIRS = new Set([
   'node_modules',
   'target',
+  // A scan.dirs entry may name ".claude", which in the main checkout holds
+  // every agent worktree — each a whole repo.
+  'worktrees',
   'dist',
   '.git',
   '.build',
@@ -39,7 +42,6 @@ const SKIP_DIRS = new Set([
 ]);
 
 function walk(dir, exts, out = []) {
-  if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
     const full = path.join(dir, entry.name);
@@ -78,93 +80,116 @@ function tokenClusterMatcher({ tokens, minDistinct }) {
   };
 }
 
-const registry = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
-const failures = [];
-const rel = (p) => path.relative(ROOT, p);
+// A registered scan.dirs entry that doesn't exist (moved/typo'd directory)
+// used to make `walk()` silently return zero files — the deny-by-default
+// scan would then find nothing to compare against and report OK, exactly
+// the way a moved directory switches the duplicate detector off silently.
+// Returns the subset of `dirs` for which `dirExists` is false.
+export function findMissingScanDirs(dirs, dirExists) {
+  return dirs.filter((d) => !dirExists(d));
+}
 
-for (const entry of registry.entries) {
-  const { concept } = entry;
-  const copies = entry.copies ?? [];
-  const locks = entry.locks ?? [];
-  const registeredLocations = new Set(copies.map((c) => c.location));
+function main() {
+  const registry = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
+  const failures = [];
+  const rel = (p) => path.relative(ROOT, p);
 
-  // (a) every registered copy exists where claimed, pattern still matches.
-  for (const copy of copies) {
-    const full = path.join(ROOT, copy.location);
-    if (!fs.existsSync(full)) {
-      failures.push(
-        `[${concept}] registered copy '${copy.location}' does not exist — stale registry ` +
-          `entry (file moved/deleted). Update drift-registry.json.`,
-      );
-      continue;
-    }
-    const text = fs.readFileSync(full, 'utf8');
-    const re = new RegExp(copy.pattern, copy.flags ?? '');
-    if (!re.test(text)) {
-      failures.push(
-        `[${concept}] pattern ${JSON.stringify(copy.pattern)} no longer matches in ` +
-          `'${copy.location}' — the code changed shape, or the registry is stale. Update the ` +
-          `pattern (don't delete the entry) if the copy still exists in spirit.`,
-      );
-    }
-  }
+  for (const entry of registry.entries) {
+    const { concept } = entry;
+    const copies = entry.copies ?? [];
+    const locks = entry.locks ?? [];
+    const registeredLocations = new Set(copies.map((c) => c.location));
 
-  // (b) every declared lock file exists; lockStatus is consistent.
-  for (const lock of locks) {
-    const full = path.join(ROOT, lock.path);
-    if (!fs.existsSync(full)) {
-      failures.push(
-        `[${concept}] registered lock '${lock.path}' does not exist — stale registry entry.`,
-      );
-    }
-  }
-  if (entry.lockStatus === 'locked' && locks.length === 0) {
-    failures.push(
-      `[${concept}] lockStatus is 'locked' but no locks are registered — either add the ` +
-        `lock file(s), or downgrade lockStatus to 'partial'/'unlocked'.`,
-    );
-  }
-  if (entry.lockStatus === 'unlocked' && locks.length > 0) {
-    failures.push(
-      `[${concept}] lockStatus is 'unlocked' but ${locks.length} lock(s) are registered — ` +
-        `upgrade lockStatus to 'locked' or 'partial'.`,
-    );
-  }
-
-  // (c) no NEW unregistered occurrence of the concept's detection pattern.
-  if (entry.scan) {
-    const { dirs, extensions } = entry.scan;
-    const files = dirs.flatMap((d) => walk(path.join(ROOT, d), extensions));
-    const matcher =
-      entry.scan.mode === 'token-cluster'
-        ? tokenClusterMatcher(entry.scan)
-        : regexMatcher(entry.scan);
-    for (const file of files) {
-      const text = fs.readFileSync(file, 'utf8');
-      if (!matcher(text)) continue;
-      const fileRel = rel(file);
-      if (!registeredLocations.has(fileRel)) {
+    // (a) every registered copy exists where claimed, pattern still matches.
+    for (const copy of copies) {
+      const full = path.join(ROOT, copy.location);
+      if (!fs.existsSync(full)) {
         failures.push(
-          `[${concept}] NEW unregistered occurrence of this concept's pattern found in ` +
-            `'${fileRel}' — register it in drift-registry.json (if a genuinely new permitted ` +
-            `copy), or consolidate it into an existing copy instead of duplicating.`,
+          `[${concept}] registered copy '${copy.location}' does not exist — stale registry ` +
+            `entry (file moved/deleted). Update drift-registry.json.`,
+        );
+        continue;
+      }
+      const text = fs.readFileSync(full, 'utf8');
+      const re = new RegExp(copy.pattern, copy.flags ?? '');
+      if (!re.test(text)) {
+        failures.push(
+          `[${concept}] pattern ${JSON.stringify(copy.pattern)} no longer matches in ` +
+            `'${copy.location}' — the code changed shape, or the registry is stale. Update the ` +
+            `pattern (don't delete the entry) if the copy still exists in spirit.`,
         );
       }
     }
+
+    // (b) every declared lock file exists; lockStatus is consistent.
+    for (const lock of locks) {
+      const full = path.join(ROOT, lock.path);
+      if (!fs.existsSync(full)) {
+        failures.push(
+          `[${concept}] registered lock '${lock.path}' does not exist — stale registry entry.`,
+        );
+      }
+    }
+    if (entry.lockStatus === 'locked' && locks.length === 0) {
+      failures.push(
+        `[${concept}] lockStatus is 'locked' but no locks are registered — either add the ` +
+          `lock file(s), or downgrade lockStatus to 'partial'/'unlocked'.`,
+      );
+    }
+    if (entry.lockStatus === 'unlocked' && locks.length > 0) {
+      failures.push(
+        `[${concept}] lockStatus is 'unlocked' but ${locks.length} lock(s) are registered — ` +
+          `upgrade lockStatus to 'locked' or 'partial'.`,
+      );
+    }
+
+    // (c) no NEW unregistered occurrence of the concept's detection pattern.
+    if (entry.scan) {
+      const { dirs, extensions } = entry.scan;
+      const missingDirs = findMissingScanDirs(dirs, (d) => fs.existsSync(path.join(ROOT, d)));
+      for (const d of missingDirs) {
+        failures.push(
+          `[${concept}] scan.dirs entry '${d}' does not exist — a moved/typo'd directory would ` +
+            `silently scan zero files, so the deny-by-default gate would find nothing to flag. ` +
+            `Fix the path in drift-registry.json.`,
+        );
+      }
+      const files = dirs
+        .filter((d) => !missingDirs.includes(d))
+        .flatMap((d) => walk(path.join(ROOT, d), extensions));
+      const matcher =
+        entry.scan.mode === 'token-cluster'
+          ? tokenClusterMatcher(entry.scan)
+          : regexMatcher(entry.scan);
+      for (const file of files) {
+        const text = fs.readFileSync(file, 'utf8');
+        if (!matcher(text)) continue;
+        const fileRel = rel(file);
+        if (!registeredLocations.has(fileRel)) {
+          failures.push(
+            `[${concept}] NEW unregistered occurrence of this concept's pattern found in ` +
+              `'${fileRel}' — register it in drift-registry.json (if a genuinely new permitted ` +
+              `copy), or consolidate it into an existing copy instead of duplicating.`,
+          );
+        }
+      }
+    }
   }
+
+  if (failures.length > 0) {
+    console.error('Drift registry gate FAILED:\n');
+    for (const failure of failures) console.error(`  - ${failure}`);
+    console.error(`\n${failures.length} issue(s).`);
+    process.exit(1);
+  }
+
+  const locked = registry.entries.filter((e) => e.lockStatus === 'locked').length;
+  const partial = registry.entries.filter((e) => e.lockStatus === 'partial').length;
+  const unlocked = registry.entries.filter((e) => e.lockStatus === 'unlocked').length;
+  console.log(
+    `Drift registry gate OK — ${registry.entries.length} concept(s) registered ` +
+      `(${locked} locked, ${partial} partial, ${unlocked} unlocked).`,
+  );
 }
 
-if (failures.length > 0) {
-  console.error('Drift registry gate FAILED:\n');
-  for (const failure of failures) console.error(`  - ${failure}`);
-  console.error(`\n${failures.length} issue(s).`);
-  process.exit(1);
-}
-
-const locked = registry.entries.filter((e) => e.lockStatus === 'locked').length;
-const partial = registry.entries.filter((e) => e.lockStatus === 'partial').length;
-const unlocked = registry.entries.filter((e) => e.lockStatus === 'unlocked').length;
-console.log(
-  `Drift registry gate OK — ${registry.entries.length} concept(s) registered ` +
-    `(${locked} locked, ${partial} partial, ${unlocked} unlocked).`,
-);
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main();

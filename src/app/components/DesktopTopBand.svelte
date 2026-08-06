@@ -15,7 +15,7 @@
      sole sidebar toggle + the macOS traffic-light gutter) then the tab strip.
      The band is a drag region so the window moves from its empty areas. -->
 <div class="desktop-topband" data-tauri-drag-region>
-  <div class="topband-chrome">
+  <div class="topband-chrome" data-tauri-drag-region>
     <button
       class="sidebar-toggle-btn"
       aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}

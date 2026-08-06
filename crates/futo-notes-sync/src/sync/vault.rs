@@ -5,12 +5,19 @@ use std::path::{Path, PathBuf};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use futo_notes_core::conflict_names::{collision_conflict_filename, conflict_filename};
-use futo_notes_core::files::file_mtime_ms;
+use futo_notes_core::files::{file_mtime_ms, vault_mutation_guard};
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::{is_image_filename, is_syncable_filename};
 
 use super::vault_fs;
 use super::PreWrite;
+
+mod guarded_write;
+
+pub(super) use guarded_write::{
+    copy_content_if_hash_matches, replace_content_if_hash_matches,
+    write_content_if_source_and_target_absent, GuardedWriteOutcome,
+};
 
 #[derive(Clone, Debug)]
 pub(super) struct LocalFile {
@@ -132,13 +139,7 @@ pub(super) fn read_content(root: &Path, name: &str) -> Result<String, String> {
     }
 }
 
-pub(super) fn write_content(
-    root: &Path,
-    name: &str,
-    content: &str,
-    pre_write: &PreWrite,
-) -> Result<(), String> {
-    pre_write(name);
+fn content_bytes(name: &str, content: &str) -> Result<Vec<u8>, String> {
     let bytes = if is_image_filename(name) {
         BASE64
             .decode(content)
@@ -146,11 +147,39 @@ pub(super) fn write_content(
     } else {
         content.as_bytes().to_vec()
     };
-    vault_fs::write_atomic(root, name, &bytes)
+    Ok(bytes)
+}
+
+/// Commit one pulled object under the same guard as its hash check.
+pub(super) fn write_content_if_changed(
+    root: &Path,
+    name: &str,
+    content: &str,
+    expected_hash: &str,
+    modified_ms: i64,
+    pre_write: &PreWrite,
+) -> Result<bool, String> {
+    let bytes = content_bytes(name, content)?;
+    pre_write(name);
+    let _vault_mutation = vault_mutation_guard()?;
+    let changed = content_hash(root, name).as_deref() != Some(expected_hash);
+    if changed {
+        vault_fs::write_atomic(root, name, &bytes)?;
+    } else {
+        vault_fs::sync_parent(root, name)?;
+    }
+    if modified_ms > 0 {
+        if changed {
+            pre_write(name);
+        }
+        let _ = vault_fs::set_mtime_ms(root, name, modified_ms);
+    }
+    Ok(changed)
 }
 
 pub(super) fn remove_local(root: &Path, name: &str, pre_write: &PreWrite) -> Result<bool, String> {
     pre_write(name);
+    let _vault_mutation = vault_mutation_guard()?;
     vault_fs::remove(root, name)
 }
 
@@ -159,6 +188,7 @@ pub(super) fn path_exists(root: &Path, name: &str) -> Result<bool, String> {
 }
 
 pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
+    let _vault_mutation = vault_mutation_guard()?;
     vault_fs::rename(root, source, destination)
 }
 
@@ -355,27 +385,6 @@ mod tests {
 
         assert!(read_content(&root.0, "linked-file.md").is_err());
         assert!(read_content(&root.0, "linked-directory/secret.md").is_err());
-        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn content_writes_never_follow_symlinked_parents() {
-        use std::os::unix::fs::symlink;
-
-        let root = TempRoot::new();
-        let outside = TempRoot::new();
-        let secret = outside.0.join("secret.md");
-        std::fs::write(&secret, "outside").unwrap();
-        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
-
-        assert!(write_content(
-            &root.0,
-            "linked-directory/secret.md",
-            "replacement",
-            &|_| {}
-        )
-        .is_err());
         assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
     }
 

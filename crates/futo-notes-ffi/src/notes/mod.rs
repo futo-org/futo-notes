@@ -5,7 +5,7 @@ mod store;
 pub use contract::{
     ConditionalWrite, CreateOutcome, FlushDisposition, FlushDraftResult, FlushOutcome,
     NoteBootstrap, NoteError, NoteMetadata, NoteMutation, NoteSnapshot, SearchHit, UpsertedNote,
-    VaultMigrationFinalization, VaultMigrationOutcome,
+    VaultDestinationInspection, VaultMigrationFinalization, VaultMigrationOutcome,
 };
 pub use rules::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,

@@ -8,7 +8,8 @@ pub use notes::{
     NoteMutation, NoteSnapshot, NoteStore, SearchHit, TitleIssue, UpsertedNote,
 };
 pub use sync::{
-    ConnectInfo, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus, SyncSummary,
+    classify_open_note, ConnectInfo, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts,
+    RenamePair, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus, SyncSummary,
 };
 
 uniffi::setup_scaffolding!();

@@ -18,7 +18,7 @@
 
 <div class="titlebar" data-tauri-drag-region>
   <span class="titlebar-title">FUTO Notes</span>
-  <div class="titlebar-controls">
+  <div class="titlebar-controls" data-tauri-drag-region>
     <button class="titlebar-btn" aria-label="Minimize" onclick={minimize}>
       <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
         ><line x1="2" y1="6" x2="10" y2="6" stroke="currentColor" stroke-width="1.2" /></svg

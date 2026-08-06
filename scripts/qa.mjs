@@ -25,10 +25,10 @@
 // (progress goes to stderr), so shells can `eval "$(node scripts/qa.mjs claim all)"`.
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { portsFor, slotOf } from './lib/slot.mjs';
 
 const POOL = 7; // devices per platform; bump if you routinely run more worktrees
 const IS_MAC = process.platform === 'darwin';
@@ -60,17 +60,12 @@ const tryRun = (cmd, args, opts = {}) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ── worktree identity (must stay in sync with the /verify skill's bash) ────
+// ── worktree identity ──────────────────────────────────────────────────────
 
 function worktreeRoot() {
   const out = tryRun('git', ['rev-parse', '--show-toplevel']);
   if (!out) die('not inside a git worktree');
   return out.trim();
-}
-
-function slotOf(root) {
-  const hex = crypto.createHash('md5').update(root).digest('hex').slice(0, 8);
-  return parseInt(hex, 16) % 50;
 }
 
 function branchOf(root) {
@@ -416,7 +411,7 @@ function pgQuery(repo, url, sql) {
 async function cmdServerStart() {
   const root = worktreeRoot();
   const slot = slotOf(root);
-  const port = 3100 + slot;
+  const port = portsFor(root).sync;
   const db = `futo_notes_qa_s${slot}`;
   const dir = path.join(SRV_DIR, `s${slot}`);
   const pidFile = path.join(dir, 'server.pid');

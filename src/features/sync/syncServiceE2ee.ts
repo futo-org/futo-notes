@@ -30,6 +30,8 @@ import type {
   E2eeConnectOutput,
   E2eeResumeInput,
   E2eeStatusOutput,
+  OpenNoteDispositionOutput,
+  OpenNoteRequestInput,
   SyncFailure,
   SyncSummary,
 } from './syncContract.generated';
@@ -37,12 +39,20 @@ import type {
 // ── Public types ────────────────────────────────────────────────────────
 
 export type { SyncFailure, SyncSummary };
+export type { OpenNoteDispositionOutput, OpenNoteRequestInput };
 
 export type SyncProgress = {
   phase: 'reconciling' | 'pushing' | 'pulling';
   current: number;
   total: number;
 };
+
+/** Ask the desktop adapter for the one engine-owned verdict on the open note.
+ * The adapter reads disk inside the command, so this is the decision's only
+ * frontend round trip. */
+export function classifyOpenNote(facts: OpenNoteRequestInput): Promise<OpenNoteDispositionOutput> {
+  return invoke<OpenNoteDispositionOutput>('e2ee_classify_open_note', { facts });
+}
 
 // ── Password store (OS keyring, held in memory for the session) ─────────
 //

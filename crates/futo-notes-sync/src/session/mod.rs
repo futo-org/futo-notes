@@ -7,7 +7,10 @@ pub(crate) mod connect;
 mod cycle;
 mod live;
 
+use futo_notes_core::journal::Journal;
+
 use crate::checkpoint::{self, ConnectedState};
+use crate::journal::{SyncRunJournal, SyncTrigger};
 use crate::sync::{ConnectInfo, PreWrite, Progress, SyncErrorKind, SyncSummary};
 
 use live::LiveTask;
@@ -35,11 +38,28 @@ pub struct SyncSession {
     state: Arc<Mutex<Option<ConnectedState>>>,
     cycle_gate: Arc<Mutex<()>>,
     live: std::sync::Mutex<Option<LiveTask>>,
+    journal: std::sync::Mutex<Journal>,
 }
 
 impl SyncSession {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Points this session's runs at an instance journal. Sessions start with a
+    /// disabled one, so a shell that has not resolved a data directory — every
+    /// native shell today — journals nothing and behaves exactly as before.
+    pub fn set_journal(&self, journal: Journal) {
+        if let Ok(mut current) = self.journal.lock() {
+            *current = journal;
+        }
+    }
+
+    fn journal_handle(&self) -> Journal {
+        self.journal
+            .lock()
+            .map(|journal| journal.clone())
+            .unwrap_or_default()
     }
 
     pub async fn connect(
@@ -81,7 +101,15 @@ impl SyncSession {
         progress: &Progress,
         pre_write: &PreWrite,
     ) -> Result<SyncSummary, SyncErrorKind> {
-        cycle::run(&self.state, &self.cycle_gate, root, progress, pre_write).await
+        cycle::run(
+            &self.state,
+            &self.cycle_gate,
+            root,
+            progress,
+            pre_write,
+            &SyncRunJournal::new(self.journal_handle(), SyncTrigger::Manual),
+        )
+        .await
     }
 
     pub async fn snapshot(&self) -> Option<ConnectedState> {
@@ -123,6 +151,7 @@ impl SyncSession {
             root,
             listener,
             pre_write,
+            self.journal_handle(),
         ));
         Ok(())
     }
@@ -167,6 +196,7 @@ mod tests {
             collection_id: "collection".into(),
             vault_key: [3; 32],
             object_map: HashMap::new(),
+            pending_creates: HashMap::new(),
             max_version: 0,
             pull_cursor: 0,
             oversize_skip: HashMap::new(),

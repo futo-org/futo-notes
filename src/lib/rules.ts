@@ -1,4 +1,5 @@
 export {
+  FALLBACK_TITLE,
   FORBIDDEN_CHARS_RE,
   MAX_FOLDER_DEPTH,
   sanitizeTitle,

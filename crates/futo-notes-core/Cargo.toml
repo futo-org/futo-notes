@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
+# The instance journal writes JSONL; every other crate already carries this.
+serde_json = "1"
 filetime = "0.2"
 diffy = "0.4"
 rand = "0.8"
@@ -22,4 +24,12 @@ unicode-normalization = "0.1.25"
 rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
-serde_json = "1"
+# default-features = false drops proptest's `fork`/`timeout` features, whose
+# `rusty-fork` + `tempfile` dependencies would pull the `tempfile` crate into
+# the workspace lockfile — this repo's tests hand-roll tempdirs instead
+# (crates/futo-notes-core/AGENTS.md). `bit-set` is kept because the
+# `sample::subsequence`/`Index` strategies need it.
+proptest = { version = "1.11.0", default-features = false, features = [
+  "std",
+  "bit-set",
+] }

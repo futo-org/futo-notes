@@ -28,7 +28,7 @@ the one you need before driving that platform:
 
 **Mobile is native, not Tauri**: the shipping mobile apps are the SwiftUI and
 Compose shells on the shared Rust core. Neither has the MCP bridge — the
-bridge is desktop-only. iOS is driven with `simctl` + `idb`, Android with
+bridge is desktop-only. iOS is driven with `simctl` + `axe`, Android with
 `adb` + CDP.
 
 **Platform matrix** (`uname -s`): macOS = iOS + Android + desktop; Linux =
@@ -49,23 +49,26 @@ MRs) without collisions, because every shared resource is keyed on the
   stay "free" — no other session will ever target your slot's resources.
 
 Shell variables don't persist between Bash tool calls — **re-compute these at
-the start of any block that needs them** (Linux and modern macOS both ship
-`md5sum`):
+the start of any block that needs them**. `scripts/lib/slot.mjs` owns the
+derivation (stock macOS has no `md5sum`, so don't hand-roll it in shell);
+`just ports` prints the whole map:
 
 ```bash
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
-SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
-VITE_PORT=$(( 5200 + SLOT ))
-WEB_VITE_PORT=$(( 5250 + SLOT ))
+eval "$(node "$WORKTREE_ROOT/scripts/lib/slot.mjs" env)"   # SLOT, VITE_PORT, WEB_VITE_PORT, SYNC_PORT, CDP_PORT
 TAURI_LOG="/tmp/tauri-verify-${SLOT}.log"
 PID_FILE="/tmp/tauri-verify-${SLOT}.pid"
 echo "Worktree: $WORKTREE_ROOT → Vite port $VITE_PORT, web port $WEB_VITE_PORT (slot $SLOT)"
 ```
 
+`vite.config.ts` and `playwright.config.ts` derive the web port from the same
+module, so a plain `pnpm run dev` or `playwright test` already lands on
+`$WEB_VITE_PORT` with no flags. `$FUTO_DEV_PORT` pins it for a one-off run.
+
 | Resource | Range / name | How |
 |---|---|---|
-| Tauri Vite (per worktree) | 5200–5249 | computed above (avoids 5173/5180–5182) |
-| Web Vite (per worktree) | 5250–5299 | computed above |
+| Tauri Vite (per worktree) | 5200–5249 | `just ports` (avoids 5173/5180–5182) |
+| Web Vite (per worktree) | 5250–5299 | `just ports`; config-derived, no flags needed |
 | MCP bridge (desktop) | 9223–9322 | plugin auto-scans; discover after launch |
 | Android CDP forward | 9330–9379 | `just cdp-forward` prints `export CDP_PORT=…` |
 | Sync server | 3100–3149 + own Postgres DB | `just qa-server` (see sync section) |
@@ -261,9 +264,10 @@ Postgres works too via `FUTO_NOTES_QA_PG=postgres://user:pass@localhost:5432`.
 - Reaching the server: desktop/iOS-simulator use `http://127.0.0.1:<port>`;
   the **Android emulator needs `http://10.0.2.2:<port>`**; physical devices
   need the machine's LAN IP.
-- Connecting: the Tauri **dev** webview exposes `window.__testSync` (connect/
-  status/syncNow/disconnect — see AGENTS.md "Browser Tools"); the native
-  shells have no such hook — use Settings → Sync in the app UI.
+- Connecting: the Tauri **dev** webview exposes `window.__testSync` —
+  `connect(url, password)` / `status()` / `syncNow()` / `disconnect()` /
+  `pauseAutoSync()` / `resumeAutoSync()` (`src/features/sync/testSync.ts`); the
+  native shells have no such hook — use Settings → Sync in the app UI.
 
 After connecting + syncing: check the sync toast count, wait for indexing
 (`GET /search/status` → `idle`, dirty 0), confirm the feature under test.

@@ -697,7 +697,10 @@ async function externalWatcherReloadsCleanNote(a, _b, _server) {
   );
 }
 
-async function externalWatcherKeepsDirtyDraft(a, _b, _server) {
+async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _server) {
+  // A blocked dirty draft is protected from the external change; restoring a
+  // valid title settles it — the draft parks as a conflict copy against the
+  // changed disk base and the editor then adopts the external bytes.
   await a.openNewNote();
   await a.setTitle('taken title');
   await a.typeInEditor('# Other note');
@@ -715,41 +718,47 @@ async function externalWatcherKeepsDirtyDraft(a, _b, _server) {
   await a.setTitle('taken title');
   await a.typeInEditor('\nLocal draft');
   await waitForSavePending(a, false);
-  const localDraft = (await a.getOpenNoteState()).editorContent;
   await sleep(1200);
 
   await externalWriteNote(a, 'watch dirty', '# Changed on disk');
 
-  const protectedState = await waitForToastMessage(
-    a,
-    'Open note changed externally; keeping local draft',
+  // Protection: wait until the watcher has processed the event (the storage
+  // refresh surfaces the external bytes in the notes-cache preview), then
+  // assert the blocked dirty draft still owns the editor — no silent adoption.
+  await a.waitForCondition(
+    `window.__testNotes.getAllNotes().some((n) => n.id === 'watch dirty' && (n.preview || '').includes('Changed on disk'))`,
     30_000,
+    'watcher refreshed the notes projection with the external content',
   );
+  const protectedState = await a.getOpenNoteState();
+  assert(
+    protectedState.editorContent.includes('Local draft'),
+    'dirty draft must be protected from the external change while blocked',
+  );
+
+  // Settle: restore a valid title; the draft parks against the changed disk
+  // base and the deferred adoption applies the external content.
+  await a.setTitle('watch dirty');
+  await a.flushSave();
+  const adoptedState = await waitForEditorContent(a, '# Changed on disk', 30_000);
   assertEqual(
-    protectedState.originalId,
+    adoptedState.originalId,
     'watch dirty',
-    'dirty external change should keep the original note open',
-  );
-  assertEqual(
-    protectedState.hash,
-    `#/note/${encodeURIComponent('watch dirty')}`,
-    'dirty external change should keep the same route',
-  );
-  assertEqual(
-    protectedState.title,
-    'taken title',
-    'dirty external change should keep the unsaved title draft',
-  );
-  assertEqual(
-    protectedState.editorContent,
-    localDraft,
-    'dirty external change should keep the unsaved editor draft',
+    'settled external change should keep the disk-backed note open',
   );
   const diskContent = await a.readNote('watch dirty');
   assertEqual(
     diskContent,
     '# Changed on disk',
-    'external disk content should still land on disk while the UI keeps the draft',
+    'external disk content should remain on disk after the UI adopts it',
+  );
+  const files = (await a.listNotes()).map((f) => f.filename || f.name || f);
+  const conflictCopy = files.find((name) => name.includes('conflict'));
+  assert(conflictCopy, 'the parked draft must survive as a conflict copy');
+  const conflictContent = await a.readNote(conflictCopy.replace(/\.md$/, ''));
+  assert(
+    conflictContent.includes('Local draft'),
+    `the conflict copy must hold the parked draft bytes, got: ${conflictContent}`,
   );
 }
 
@@ -903,37 +912,28 @@ async function rapidReconnect(a, _b, server) {
 async function offlineAccumulation(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Pause live sync so the explicit cycles exercise batch upload and download.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
 
-  // A writes 10 unique notes without syncing
   for (let i = 0; i < 10; i++) {
     await a.writeNote(`a only ${i}`, `# A Note ${i}`);
   }
 
-  // B writes 10 different unique notes without syncing
   for (let i = 0; i < 10; i++) {
     await b.writeNote(`b only ${i}`, `# B Note ${i}`);
   }
 
-  // A syncs (uploads 10 — auto-sync may have sent some already)
   const aResult = await a.syncNow();
-  assert(aResult.summary.uploaded <= 10, `A uploaded=${aResult.summary.uploaded}, expected ≤10`);
+  assertEqual(aResult.summary.uploaded, 10, 'A batch upload count');
 
-  // B syncs (uploads its 10, downloads A's 10 — auto-sync may have handled some)
   const bResult = await b.syncNow();
-  assert(bResult.summary.uploaded <= 10, `B uploaded=${bResult.summary.uploaded}, expected ≤10`);
-  assert(
-    bResult.summary.downloaded <= 10,
-    `B downloaded=${bResult.summary.downloaded}, expected ≤10`,
-  );
+  assertEqual(bResult.summary.uploaded, 10, 'B batch upload count');
+  assertEqual(bResult.summary.downloaded, 10, 'B batch download count');
 
-  // A syncs again to pick up B's notes
   const aResult2 = await a.syncNow();
-  assert(
-    aResult2.summary.downloaded <= 10,
-    `A second sync downloaded=${aResult2.summary.downloaded}, expected ≤10`,
-  );
+  assertEqual(aResult2.summary.downloaded, 10, 'A second batch download count');
 
-  // Both should have all 20 notes
   for (let i = 0; i < 10; i++) {
     assert(await a.noteExists(`b only ${i}`), `A should have b only ${i}`);
     assert(await b.noteExists(`a only ${i}`), `B should have a only ${i}`);
@@ -1993,8 +1993,8 @@ const scenarios = [
     skipOnCi: true,
   },
   {
-    name: 'external watcher keeps dirty draft',
-    fn: externalWatcherKeepsDirtyDraft,
+    name: 'external watcher protects dirty draft then settles',
+    fn: externalWatcherProtectsDirtyDraftThenSettles,
     matrices: ['desktop-desktop'],
     skipOnCi: true,
   },

@@ -13,13 +13,13 @@ and desktop-only session wrapper were replaced by one application API:
 The resulting crate first established four responsibilities, then the
 2026-07-14 organization rewrite made their internal ownership explicit:
 
-- `server.rs`: authentication and the real server protocol
+- `server/`: authentication and the real server protocol
 - `checkpoint.rs`: persisted object map, cursors, legacy import, and disconnect ancestry
 - `session/`: connection lifecycle, session ownership, cycle serialization, live scheduling,
   and SSE framing
 - `sync/mod.rs`: the push-first orchestration sequence only
-- `sync/{push,pull,conflict_resolution,collision_resolution,tombstones}.rs`: named sync
-  operations and data-safety boundaries
+- `sync/push/`, `sync/pull/`, `sync/conflict_resolution/`, `sync/collision_resolution.rs`, and
+  `sync/tombstones.rs`: named sync operations and data-safety boundaries
 - `sync/{vault,encrypted_note,object_map,outcome}.rs`: shared sync-owned transformations and
   contracts
 
@@ -239,6 +239,8 @@ implementation to be genuinely different.
 - **Obsolete** — asserted a private mechanism or server feature that the new
   design deliberately does not use.
 - **Follow-up** — still meaningful and not yet exercised at the best boundary.
+  Every **Follow-up** row below has since been closed; see "Follow-up
+  queue — closed".
 
 ### Former `client.rs` tests (27)
 
@@ -263,7 +265,7 @@ implementation to be genuinely different.
 | `get_blobs_batch_returns_entries_in_request_order` | The retired batch endpoint associated each response with the requested key. | **Obsolete** |
 | `get_blobs_batch_rejects_entry_count_mismatch` | The retired batch endpoint rejected missing response entries. | **Obsolete** |
 | `get_blobs_batch_propagates_404_for_fallback_detection` | A missing batch endpoint activated a legacy per-blob fallback. | **Obsolete** — per-blob transfer is now the only path. |
-| `transfer_timeout_scales_with_expected_bytes` | The retired client chose a larger timeout for a larger expected transfer. | **Obsolete** — this was transport policy, not product behavior. |
+| `transfer_timeout_scales_with_expected_bytes` | Known-size encrypted transfers get enough time to complete at a pessimistic 128 KiB/s floor while retaining a finite deadline. | **Fast** — preserve the 30 s baseline plus expected bytes / 128 KiB/s for blob uploads and downloads. |
 | `post_blob_object_sends_octet_stream` | Creating an object uploads encrypted bytes with the server's raw-blob content type. | **Acceptance** |
 | `put_blob_object_handles_409_conflict` | An optimistic-version conflict is returned as structured conflict data. | **Acceptance** |
 | `classifies_413_as_payload_too_large` | HTTP 413 is recognizable as an oversized note rather than an ordinary server error. | **Acceptance** |
@@ -478,10 +480,42 @@ The fast layer intentionally does not recreate the former planners, adapters,
 mock endpoints, or batch protocol. Its tests name behavior in the language of
 state, files, remote objects, and public summaries.
 
-## Follow-up queue
+## Preserve transport lifetimes when simplifying clients
 
-The audit leaves seven boundary cases worth adding without restoring the old
-architecture:
+The rewrite incorrectly retired timeout scaling for known-size encrypted blob
+transfers and also accidentally removed the baseline total-request deadline. A
+connect timeout alone is insufficient: once TCP connects, a server can stall
+response headers or a body forever. Because no shell imposes another deadline,
+connect and sync then remain pending without surfacing an error or reaching
+their existing retry paths. Conversely, applying the baseline 30 s deadline to
+a maximum-size blob would require roughly 28 Mbps of sustained payload
+throughput, turning a healthy slow connection into a deterministic failure.
+
+Finite and streaming requests need different client policies. The auth-mode
+probe has a 5 s total deadline, ordinary finite requests have a 30 s deadline,
+and known-size encrypted blob transfers use that baseline plus one second for
+each complete 128 KiB of expected payload. Uploads know the ciphertext body
+length; pull downloads use the server object's `size_bytes`; an unknown size
+retains the finite 30 s baseline. Clamp expected sizes to the server's 100 MiB
+blob limit: wire metadata is untrusted, and accepting an arbitrary `u64` would
+turn a corrupt size into an effectively unbounded deadline. SSE uses a separate
+client without a total deadline because the successful stream body is
+intentionally long-lived. The SSE response-header phase and any non-success
+response body are still finite operations and each has a 30 s deadline; after
+successful headers, stream liveness is owned by the live loop's read-idle
+watchdog. Keep tests for every side of this split: ordinary requests,
+unknown-size blobs, stalled SSE headers, and error bodies must time out;
+known-size transfers must scale and clamp untrusted sizes; and a successful
+event stream must survive beyond the finite-request deadline. Those tests live
+in `server.rs` and prove each deadline in isolation; the sync flow above them
+has its own guard in `sync/failure_boundary_tests.rs`, so a stalled server
+surfaces a sync failure rather than a cycle that never returns.
+
+## Follow-up queue — closed
+
+The audit left seven boundary cases that no cheap test could reach, because
+each one lives behind a specific server response or a specific process
+interruption:
 
 1. Failed blob download caps the cursor and retries on the next pull.
 2. The same cap applies during empty-map reconciliation.
@@ -492,9 +526,31 @@ architecture:
 7. Restart between push-state persistence and pull still receives a peer
    change.
 
-These should be implemented with the smallest fault-injection seam that
-exercises the current design. They should not bring back the old mock client,
-batch planner, or orchestrator decomposition.
+All seven are now covered by `sync/failure_boundary_tests.rs`, one test per
+case, each driven through the real `pull`/`push`/`cycle` entry points. The
+enabling seam is `fault_injection` — a `#[cfg(test)]` scripted server that
+speaks the real protocol over a real socket, serves a seeded encrypted vault,
+and replaces selected responses with an injected fault. It generalizes the
+per-file `MutationServer` fixtures the crate had grown privately, and it did
+not bring back the old mock client, batch planner, or orchestrator
+decomposition. Faults target three axes: the phase (a route belongs to push or
+pull), the request (`When::Nth` fails one occurrence, so the next cycle meets a
+healthy server), and the process boundary (a fault that aborts a cycle leaves
+exactly the checkpoint the client persisted, which `restart_from_checkpoint`
+reloads the way reconnecting does).
+
+Two limits are worth knowing before reaching for it. An injected `Status(409)`
+answers with an error body, so it produces a 409 transport error rather than
+the structured optimistic-version conflict the real server sends; conflict
+resolution stays owned by the real-server suite. And the tombstone-cleanup case
+fails a counted directory `fsync` (`vault_fs::fail_directory_sync_on_call`),
+so it is unix-only and its call index moves if the park path gains a sync.
+
+Each case was mutation-verified red-capable before landing: disabling
+`cap_cursor` reddens 1-5, clearing ancestry despite failures reddens 4,
+dropping the create failure's status reddens 6, not reporting a parked
+divergent note reddens 5, and making `push` advance the pull cursor — the F32
+crash-window regression — reddens 7.
 
 ## Carry-forward audit of Tier-1 data-safety invariants
 
@@ -508,7 +564,7 @@ claim-and-park, stale-claim crash recovery, ancestry demotion, and
 identical-content dedup.
 
 Two invariants had **no test that runs in any automated pipeline**. Both are now
-covered by offline crate-level unit tests in `sync/push.rs` (each proven
+covered by offline crate-level unit tests in `sync/push/` (each proven
 red-capable against the exact regression before finalizing):
 
 - **413 oversize blobs.** The only prior test
@@ -526,10 +582,11 @@ red-capable against the exact regression before finalizing):
 - **F32 crash-window.** The design is safe — `push()` never advances
   `pull_cursor`; only a completed `pull()` does — but nothing asserted it. Added
   `push_preserves_the_pull_cursor`: a crash after push and before the following
-  pull must re-deliver peer changes on restart. (This is the push-side half of
-  boundary case 7 above; the full restart-injection case remains for a later
-  fault-injection seam.) `cap_cursor` (failed download) and the 0-seed migration
-  were already tested.
+  pull must re-deliver peer changes on restart. That is the push-side half of
+  boundary case 7; the full restart-injection case is now covered too, by
+  `restart_between_push_persistence_and_pull_still_receives_the_peer_change`.
+  Both go red when `push` is made to advance the pull cursor. `cap_cursor`
+  (failed download) and the 0-seed migration were already tested.
 
 Three invariants remain red-capable only through the server or cross-platform
 suites, with no cheap crate-level guard, and were **not** given offline tests:

@@ -15,6 +15,12 @@ Behaviors and constraints that hold across every surface and platform.
   sandbox — never `await` one before first render. _(desktop Tauri; originally
   observed on the since-removed iOS Tauri shell — the native iOS app doesn't
   use `@tauri-apps/plugin-fs` at all)_
+- If notes fail to load at startup (store init or vault bootstrap rejects), the
+  app stays responsive: the notes-readiness promise settles as `failed` instead
+  of leaving its awaiters (tab hydration → hash routing) pending forever, and
+  the failure is logged (#33). → `initNotes` /
+  `whenNotesReady` in src/features/notes/notes.svelte.ts,
+  createAppBootstrap.svelte.ts
 
 ## Notes & files
 
@@ -156,8 +162,7 @@ Behaviors and constraints that hold across every surface and platform.
   banned; instead the `LiveMarkdownPlugin` constructor seeds decorations with a
   tightly time-boxed (≤200 ms) `ensureSyntaxTree(..., doc.length, 200)` parse,
   then grows decorations incrementally as parsing continues
-  (`scheduleParseRefresh`). → src/features/editor/live-preview/LiveMarkdownPlugin.ts,
-  docs/learnings/scroll-fix-handoff-report.md
+  (`scheduleParseRefresh`). → src/features/editor/live-preview/LiveMarkdownPlugin.ts
 
 ## Data safety
 
@@ -168,6 +173,12 @@ Behaviors and constraints that hold across every surface and platform.
 - Production native mobile builds use the production package/bundle id
   `com.futo.notes`; native debug builds use `com.futo.notes.dev` so local
   installs keep separate app data and credentials.
+- Creating a note never replaces an existing file: the vault installs it through
+  an atomic no-replace primitive — a hard link, else a `RENAME_NOREPLACE` rename.
+  A filesystem that supports neither, such as Android 9/10 shared storage
+  (sdcardfs), falls back to an exclusive create plus copy, which still refuses to
+  replace but is not atomic, so a crash mid-create can leave a truncated new
+  note. → `futo_notes_core::files::atomic_write::move_no_replace`
 
 ## Display backend _(Linux desktop)_
 

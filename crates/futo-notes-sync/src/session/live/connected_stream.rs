@@ -2,10 +2,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futo_notes_core::journal::Journal;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, Instant, MissedTickBehavior};
 
 use crate::checkpoint::ConnectedState;
+use crate::journal::{SyncRunJournal, SyncTrigger};
 use crate::sync::{PreWrite, SyncErrorKind};
 
 use super::super::{cycle, SyncSessionListener};
@@ -39,6 +41,7 @@ pub(super) struct LiveCycle<'a> {
     root: &'a Path,
     listener: &'a dyn SyncSessionListener,
     pre_write: &'a PreWrite,
+    journal: &'a Journal,
 }
 
 impl<'a> LiveCycle<'a> {
@@ -48,6 +51,7 @@ impl<'a> LiveCycle<'a> {
         root: &'a Path,
         listener: &'a dyn SyncSessionListener,
         pre_write: &'a PreWrite,
+        journal: &'a Journal,
     ) -> Self {
         Self {
             state,
@@ -55,6 +59,7 @@ impl<'a> LiveCycle<'a> {
             root,
             listener,
             pre_write,
+            journal,
         }
     }
 }
@@ -77,7 +82,7 @@ pub(super) async fn run_connected_stream(
     note_changed: &mut mpsc::Receiver<()>,
     schedule: &mut LiveSchedule,
 ) -> StreamOutcome {
-    if run_cycle_and_notify(&live_cycle).await == CycleOutcome::Stop {
+    if run_cycle_and_notify(&live_cycle, SyncTrigger::LiveCatchUp).await == CycleOutcome::Stop {
         return StreamOutcome::Stop;
     }
 
@@ -95,18 +100,18 @@ pub(super) async fn run_connected_stream(
             }
             _ = local_push_timer => {
                 schedule.local_push_at = None;
-                if run_cycle_and_notify(&live_cycle).await == CycleOutcome::Stop {
+                if run_cycle_and_notify(&live_cycle, SyncTrigger::LocalChange).await == CycleOutcome::Stop {
                     return StreamOutcome::Stop;
                 }
             }
             _ = remote_pull_timer => {
                 remote_pull_at = None;
-                if run_cycle_and_notify(&live_cycle).await == CycleOutcome::Stop {
+                if run_cycle_and_notify(&live_cycle, SyncTrigger::RemoteChange).await == CycleOutcome::Stop {
                     return StreamOutcome::Stop;
                 }
             }
             _ = schedule.safety_poll.tick() => {
-                if run_cycle_and_notify(&live_cycle).await == CycleOutcome::Stop {
+                if run_cycle_and_notify(&live_cycle, SyncTrigger::SafetyPoll).await == CycleOutcome::Stop {
                     return StreamOutcome::Stop;
                 }
             }
@@ -123,7 +128,10 @@ pub(super) async fn run_connected_stream(
     }
 }
 
-async fn run_cycle_and_notify(live_cycle: &LiveCycle<'_>) -> CycleOutcome {
+/// The four `select!` arms above are the live loop's whole trigger taxonomy, and
+/// each one passes its own — "which of these fired" is otherwise lost at the
+/// call, and it is the first question every live-sync investigation asks.
+async fn run_cycle_and_notify(live_cycle: &LiveCycle<'_>, trigger: SyncTrigger) -> CycleOutcome {
     let no_progress = |_: crate::sync::SyncProgress| {};
     match cycle::run(
         live_cycle.state,
@@ -131,6 +139,7 @@ async fn run_cycle_and_notify(live_cycle: &LiveCycle<'_>) -> CycleOutcome {
         live_cycle.root,
         &no_progress,
         live_cycle.pre_write,
+        &SyncRunJournal::new(live_cycle.journal.clone(), trigger),
     )
     .await
     {

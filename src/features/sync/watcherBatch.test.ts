@@ -10,6 +10,7 @@ function makeOptions(overrides?: Partial<WatcherBatchOptions>): WatcherBatchOpti
     onEvent: overrides?.onEvent ?? vi.fn(async () => {}),
     onBulkRefresh: overrides?.onBulkRefresh ?? vi.fn(async () => {}),
     suppressor: overrides?.suppressor ?? createWriteSuppressor(),
+    isDrainExempt: overrides?.isDrainExempt,
   };
 }
 
@@ -142,6 +143,32 @@ describe('watcherBatch drainPostSync', () => {
     expect(onBulkRefresh).toHaveBeenCalledTimes(1);
     const events = onBulkRefresh.mock.calls[0][0] as FileChangeEvent[];
     expect(events).toEqual([{ type: 'change', filename: 'external.md' }]);
+
+    batch.destroy();
+  });
+
+  it('keeps an exempt active-note change while filtering suppressed background changes', async () => {
+    const onBulkRefresh = vi.fn(async () => {});
+    const suppressor = createWriteSuppressor();
+    const opts = makeOptions({
+      onBulkRefresh,
+      suppressor,
+      isDrainExempt: (event) => event.type === 'change' && event.filename === 'active.md',
+    });
+    const batch = createWatcherBatch(opts);
+
+    suppressor.recordSyncWrite('active.md');
+    suppressor.recordSyncWrite('background.md');
+    batch.setSyncActive(true);
+    batch.enqueue({ type: 'change', filename: 'active.md' });
+    batch.enqueue({ type: 'change', filename: 'background.md' });
+    batch.setSyncActive(false);
+    batch.drainPostSync();
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onBulkRefresh).toHaveBeenCalledExactlyOnceWith([
+      { type: 'change', filename: 'active.md' },
+    ]);
 
     batch.destroy();
   });

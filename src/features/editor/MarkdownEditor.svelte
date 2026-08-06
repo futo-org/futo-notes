@@ -1,6 +1,11 @@
 <script lang="ts">
   import { EditorView } from '@codemirror/view';
-  import { EditorState, Transaction } from '@codemirror/state';
+  import {
+    EditorSelection,
+    EditorState,
+    Transaction,
+    type SelectionRange,
+  } from '@codemirror/state';
   import { onMount } from 'svelte';
   import { preloadImages, liveMarkdownRefresh } from './liveMarkdownTransform';
   import { getImageWebPath } from '$features/images/imageFiles';
@@ -20,6 +25,7 @@
     content?: string;
     onchange?: (content: string) => void;
     onfocuschange?: (focused: boolean) => void;
+    oncompositionend?: () => void;
     oncursorcontext?: (ctx: { onListLine: boolean }) => void;
     scrollParent?: HTMLElement | null;
     nativeShell?: boolean;
@@ -36,6 +42,7 @@
     content = '',
     onchange,
     onfocuschange,
+    oncompositionend,
     oncursorcontext,
     scrollParent = null,
     nativeShell = false,
@@ -228,6 +235,11 @@
       selection: { anchor: clampedFrom, head: clampedTo },
     });
   }
+
+  export function setCaret(at: SelectionRange): void {
+    if (!view) return;
+    view.dispatch({ selection: EditorSelection.create([at]) });
+  }
 </script>
 
-<div bind:this={container}></div>
+<div bind:this={container} oncompositionend={() => oncompositionend?.()}></div>

@@ -1,9 +1,4 @@
-import {
-  getNoteById,
-  noteExists,
-  readNote,
-  refreshNotesFromStorage,
-} from '$features/notes/notes.svelte';
+import { getNoteById, noteExists } from '$features/notes/notes.svelte';
 import type { NoteSession } from '$features/notes/noteSession.svelte';
 import { getLocalNoteStore } from '$lib/localNoteStore';
 import { updateAppState } from '$shared/state/appState';
@@ -15,7 +10,7 @@ import type { WriteSuppressor } from '$lib/platform/writeSuppression';
 
 type ExternalChangeCoordinator = Pick<
   ReturnType<typeof createExternalChangeCoordinator>,
-  'deferAdopt' | 'runRescan'
+  'reconcileOpenNote' | 'runRescan'
 >;
 
 interface SyncCompletionDependencies {
@@ -29,24 +24,21 @@ interface SyncCompletionOptions {
   clearSyncError: () => void;
   dependencies: SyncCompletionDependencies;
   externalChanges: ExternalChangeCoordinator;
-  getSyncStartEditVersion: () => number;
+  getSyncStartEditVersion: (trigger?: SyncTrigger) => number;
   raiseSyncError: (message: string) => void;
   setCompletionStatus: (message: string, durationMs: number) => void;
   setSyncStatusMessage: (message: string) => void;
   writeSuppressor: WriteSuppressor;
 }
 
+interface OpenNoteSyncResult {
+  followedRenameFromIds: Set<string>;
+  keptDraftId: string | null;
+}
+
 export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
   const { dependencies, externalChanges, writeSuppressor } = options;
-
-  function applyRename(fromId: string, toId: string): void {
-    const slash = toId.lastIndexOf('/');
-    const newTitle = getNoteById(toId)?.title ?? (slash === -1 ? toId : toId.slice(slash + 1));
-    dependencies.onRename(fromId, toId, newTitle);
-    if (dependencies.session.originalId === fromId) {
-      dependencies.session.applyRemoteRename(toId, newTitle);
-    }
-  }
+  let completionTail: Promise<void> = Promise.resolve();
 
   function recordSyncedFiles(summary: SyncSummary): void {
     for (const id of summary.updatedIds) writeSuppressor.recordSyncWrite(`${id}.md`);
@@ -71,86 +63,70 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     setTimeout(() => void externalChanges.runRescan(), 50);
   }
 
-  // The sync engine reports rename intent for every relocation it performs
-  // (including collision placements), so reported renames are applied
-  // verbatim — the open tab/editor follows through applyRename with no
-  // shell-side rename inference.
-  function reconcileRenames(summary: SyncSummary): void {
-    for (const rename of summary.renamed) {
-      applyRename(rename.fromId, rename.toId);
-    }
-  }
-
-  async function reconcileOpenNote(summary: SyncSummary): Promise<string | null> {
-    const openId = dependencies.session.originalId;
-    const openDeleted = !!openId && summary.deletedIds.includes(openId);
-    const openUpdated = !!openId && summary.updatedIds.includes(openId);
-    if (!openId || !(openDeleted || openUpdated)) return null;
-
-    let keptDraftId: string | null = null;
-    const closeOrKeepDeletedOpenNote = async (): Promise<void> => {
-      if (dependencies.session.dirty) {
-        keptDraftId = openId;
-        dependencies.showToast('Open note was deleted during sync; keeping local draft');
-        await refreshNotesFromStorage();
-      } else {
-        dependencies.session.cancelAndClear();
-        dependencies.showToast('Note was deleted during sync');
-      }
-    };
-
-    let openNoteGone = false;
-    if (openDeleted) {
-      try {
-        openNoteGone = !(await noteExists(openId));
-      } catch {
-        openNoteGone = true;
-      }
-    }
-    if (dependencies.session.originalId !== openId) return keptDraftId;
-    if (openNoteGone) {
-      await closeOrKeepDeletedOpenNote();
-      return keptDraftId;
-    }
-
-    try {
-      const freshContent = await readNote(openId);
-      let vanished = false;
-      if (openDeleted && freshContent === '') {
-        try {
-          vanished = !(await noteExists(openId));
-        } catch {
-          vanished = true;
-        }
-      }
-      if (dependencies.session.originalId !== openId) return keptDraftId;
-      if (vanished) {
-        await closeOrKeepDeletedOpenNote();
-        return keptDraftId;
-      }
-      if (freshContent !== dependencies.session.editorContent) {
-        const editedDuringSync =
-          dependencies.session.editVersion !== options.getSyncStartEditVersion();
-        if (!editedDuringSync && !dependencies.session.dirty) {
-          if (dependencies.session.editorFocused) {
-            externalChanges.deferAdopt(openId, freshContent);
-          } else {
-            dependencies.session.applyExternalContent(freshContent);
-          }
-        }
-      }
-      const meta = getNoteById(openId);
-      if (meta) dependencies.session.applyRemoteRename(openId, meta.title);
-    } catch {
-      if (dependencies.session.originalId !== openId) return keptDraftId;
-      dependencies.showToast('Open note changed during sync; keeping local draft');
-    }
-    return keptDraftId;
-  }
-
-  return async function reconcileSyncCompletion(
+  function projectBackgroundRenames(
     summary: SyncSummary,
-    trigger?: SyncTrigger,
+    followedRenameFromIds: Set<string>,
+  ): void {
+    for (const rename of summary.renamed) {
+      if (followedRenameFromIds.has(rename.fromId)) continue;
+      const slash = rename.toId.lastIndexOf('/');
+      const title =
+        getNoteById(rename.toId)?.title ??
+        (slash === -1 ? rename.toId : rename.toId.slice(slash + 1));
+      dependencies.onRename(rename.fromId, rename.toId, title);
+    }
+  }
+
+  async function reconcileOpenNote(
+    summary: SyncSummary,
+    syncStartEditVersion: number,
+  ): Promise<OpenNoteSyncResult> {
+    const openId = dependencies.session.originalId;
+    const syncResult: OpenNoteSyncResult = {
+      followedRenameFromIds: new Set(),
+      keptDraftId: null,
+    };
+    if (!openId) return syncResult;
+    const rename = summary.renamed.find((pair) => pair.fromId === openId);
+    const isAffected =
+      rename !== undefined ||
+      summary.deletedIds.includes(openId) ||
+      summary.updatedIds.includes(openId);
+    if (!isAffected) return syncResult;
+
+    // A flush can park and synchronously ask the external-change coordinator
+    // to adopt the peer version. Settle it before entering that coordinator's
+    // own serial queue, or the nested post-park reconciliation deadlocks
+    // behind the operation that is awaiting the flush.
+    if (dependencies.session.savePending) {
+      await dependencies.session.flushSave();
+      if (dependencies.session.originalId !== openId) return syncResult;
+    }
+
+    let currentId = openId;
+    const seenIds = new Set<string>();
+    // A cycle can contribute at most one fresh source per reported rename,
+    // followed by one final target classification.
+    const maxPasses = summary.renamed.length + 1;
+    for (let pass = 0; pass < maxPasses && !seenIds.has(currentId); pass += 1) {
+      seenIds.add(currentId);
+      const currentRename = summary.renamed.find((pair) => pair.fromId === currentId);
+      const result = await externalChanges.reconcileOpenNote(currentId, {
+        editedDuringCycle: dependencies.session.editVersion !== syncStartEditVersion,
+        renamedTo: currentRename?.toId ?? null,
+      });
+      syncResult.keptDraftId = result.keptDraftId;
+      if (!result.followedRenameTo) return syncResult;
+      syncResult.followedRenameFromIds.add(currentId);
+      currentId = result.followedRenameTo;
+    }
+    return syncResult;
+  }
+
+  async function reconcileSyncCompletion(
+    summary: SyncSummary,
+    trigger: SyncTrigger | undefined,
+    syncStartEditVersion: number,
   ): Promise<void> {
     if (summary.failureMessage) {
       options.raiseSyncError(summary.failureMessage);
@@ -164,10 +140,10 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
 
     recordSyncedFiles(summary);
     reindexPeerChanges(summary);
-    reconcileRenames(summary);
-    const keptDeletedDraftId = await reconcileOpenNote(summary);
+    const openNoteResult = await reconcileOpenNote(summary, syncStartEditVersion);
+    projectBackgroundRenames(summary, openNoteResult.followedRenameFromIds);
 
-    const pruneCandidates = summary.deletedIds.filter((id) => id !== keptDeletedDraftId);
+    const pruneCandidates = summary.deletedIds.filter((id) => id !== openNoteResult.keptDraftId);
     const pruneExistence = await Promise.all(
       pruneCandidates.map((id) => noteExists(id).catch(() => true)),
     );
@@ -181,5 +157,19 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     } else {
       options.setSyncStatusMessage('');
     }
+  }
+
+  return function serializeSyncCompletion(
+    summary: SyncSummary,
+    trigger?: SyncTrigger,
+  ): Promise<void> {
+    const syncStartEditVersion = options.getSyncStartEditVersion(trigger);
+    const operation = () => reconcileSyncCompletion(summary, trigger, syncStartEditVersion);
+    const run = completionTail.then(operation, operation);
+    completionTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   };
 }

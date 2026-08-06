@@ -24,7 +24,7 @@ Read `factory/AGENTS.md` before the first run of a session.
 
 - [ ] The user's own Obsidian must NOT be running (the daemon rewrites the Obsidian vault
       registry to a throwaway factory vault, and restores it afterward).
-- [ ] Don't run alongside the Playwright web suite — both fight over `:5173`. Tear the daemon
+- [ ] Don't run alongside the Playwright web suite — both fight over this worktree's web port. Tear the daemon
       down (`just factory-down`) before `just test-e2e*`.
 - [ ] If a previous daemon was `kill -9`'d at boot time, the registry self-heals on the next
       run — expect one throwaway run.
@@ -95,7 +95,7 @@ Per divergence type:
 - [ ] `satisfaction === 1`, OR every remaining divergence is explicitly classified as
       intentional (and recorded in `docs/spec/editor.md` if user-facing)
 - [ ] Every fixed divergence has a locking `markdown-spec` case; `pnpm run test:markdown-spec` green
-- [ ] `just build` + the editor unit tests green (7.2 chain in AGENTS.md)
+- [ ] `just build` + the editor unit tests green (the editor chain in AGENTS.md's "Testing & quality bar")
 - [ ] Daemon torn down (`just factory-down`), Obsidian registry restored (automatic)
 
 ## Report format

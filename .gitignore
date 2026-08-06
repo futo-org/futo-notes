@@ -39,6 +39,9 @@ release.keystore
 # prod pubkey is baked in). See keys/README.md. Like a shared debug keystore.
 !keys/localdev-updater.key
 
+# papercuts CLI log — local only
+.papercuts.jsonl
+
 # Debug
 npm-debug.*
 yarn-debug.*
@@ -76,6 +79,7 @@ playwright-report/
 .claude/local-plugins/*
 .claude/worktrees
 .claude/settings.local.json
+.claude/projects/
 
 # Local data (SQLite DB + notes)
 data/
@@ -87,6 +91,9 @@ data/
 experiments/
 .tmp
 
+# Agent scratch (handoff notes)
+handoff/
+
 # Verification
 test-screenshots
 
@@ -96,8 +103,22 @@ futo-notes-data
 /.futo-notes-cli.json
 autoresearch-results.tsv
 
+# CI caches/checkouts that GitLab restores INTO $CI_PROJECT_DIR. Untracked and
+# enormous (a pnpm store is ~185k files / ~25MB of path text), so any tool that
+# enumerates untracked files — `git ls-files --others` — must not see them.
+.pnpm-store/
+.cargo-home/
+.cache-ms-playwright/
+.gradle-native/
+.futo-notes-server/
+.cienv
+build.env
+
 # Rust
 target/
+# proptest writes a failing seed here; the failure output already prints it, and
+# a stray generated dir must never land in a commit (AGENTS.md M16).
+proptest-regressions/
 
 # MCP config (local)
 .mcp.json
@@ -116,3 +137,4 @@ apps/tauri/src-tauri/redist/
 
 # Agent-tooling skill mirror (synced into the worktree by session tooling)
 .agents/
+.pnpm-store/

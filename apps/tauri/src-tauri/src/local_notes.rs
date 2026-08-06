@@ -75,7 +75,7 @@ impl NoteStoreState {
     }
 }
 
-fn store(app: &AppHandle, state: &AppState) -> Result<Arc<LocalNoteStore>, String> {
+pub(crate) fn store(app: &AppHandle, state: &AppState) -> Result<Arc<LocalNoteStore>, String> {
     state.notes.get(app, state.watcher.suppression())
 }
 
@@ -179,9 +179,8 @@ pub async fn local_notes_save(
     blocking(move || store.save(original_id.as_deref(), &wanted_id, &content, modified_ms)).await
 }
 
-/// THE draft-saving verb (persist-or-park, ADR-0001 / issue #37). Desktop
-/// callers adopt in ticket #38; the seam ships now so both adapters honor the
-/// same flush contract.
+/// THE draft-saving verb (persist-or-park, ADR-0001 / issue #37), used by the
+/// desktop editor through the shared TypeScript note persistence path.
 fn local_notes_flush_draft_impl(
     store: &LocalNoteStore,
     id: &str,

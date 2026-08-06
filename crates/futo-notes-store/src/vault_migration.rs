@@ -35,6 +35,89 @@ pub enum VaultMigrationFinalization {
     DestinationChanged,
 }
 
+/// What a candidate notes folder already holds, so the shell can choose between
+/// migrating into it and opening it as-is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VaultDestinationState {
+    /// Absent, or present with no entries — [`stage`] will accept a copy.
+    Empty,
+    /// Holds entries already. Copying into it is refused, so it is opened instead.
+    Occupied,
+    /// Cannot host a vault: not a directory, unreadable, or nested with the
+    /// current root.
+    Unusable,
+}
+
+/// [`VaultDestinationState`] plus what a user needs to tell two folders apart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultDestinationInspection {
+    pub state: VaultDestinationState,
+    /// Notes the folder holds — 0 for [`VaultDestinationState::Empty`], and for
+    /// an occupied folder that holds only non-note files.
+    pub notes: u32,
+    /// Newest note mtime in milliseconds since the epoch, 0 when there is none.
+    pub last_modified_ms: u64,
+}
+
+pub(super) fn inspect(source: &Path, destination: &Path) -> VaultDestinationInspection {
+    let unusable = VaultDestinationInspection {
+        state: VaultDestinationState::Unusable,
+        notes: 0,
+        last_modified_ms: 0,
+    };
+    let Ok(destination) = canonical_absolute(destination) else {
+        return unusable;
+    };
+    // Canonicalizing the source only matters for the containment check, and an
+    // absent source cannot contain anything.
+    if let Ok(source) = fs::canonicalize(source) {
+        if destination.starts_with(&source) || source.starts_with(&destination) {
+            return unusable;
+        }
+    }
+    match fs::metadata(&destination) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return VaultDestinationInspection {
+                state: VaultDestinationState::Empty,
+                notes: 0,
+                last_modified_ms: 0,
+            };
+        }
+        Err(_) => return unusable,
+        Ok(metadata) if !metadata.is_dir() => return unusable,
+        Ok(_) => {}
+    }
+    let Ok(mut entries) = fs::read_dir(&destination) else {
+        return unusable;
+    };
+    if entries.next().is_none() {
+        return VaultDestinationInspection {
+            state: VaultDestinationState::Empty,
+            notes: 0,
+            last_modified_ms: 0,
+        };
+    }
+    let notes = crate::vault::note_paths(&destination);
+    VaultDestinationInspection {
+        state: VaultDestinationState::Occupied,
+        notes: notes.len().try_into().unwrap_or(u32::MAX),
+        last_modified_ms: notes
+            .iter()
+            .filter_map(|(_, path)| newest_modified_ms(path))
+            .max()
+            .unwrap_or(0),
+    }
+}
+
+fn newest_modified_ms(path: &Path) -> Option<u64> {
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|elapsed| elapsed.as_millis().try_into().unwrap_or(u64::MAX))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ManifestEntry {
     is_directory: bool,
@@ -44,7 +127,7 @@ struct ManifestEntry {
 
 pub(super) fn stage(source: &Path, destination: &Path) -> Result<VaultMigrationOutcome, String> {
     let source = canonical_existing_directory(source, "current notes folder")?;
-    let destination = absolute_path(destination)?;
+    let destination = canonical_absolute(destination)?;
     if source == destination {
         return Ok(VaultMigrationOutcome {
             status: VaultMigrationStatus::AlreadyAtDestination,
@@ -205,6 +288,40 @@ fn canonical_existing_directory(path: &Path, name: &str) -> Result<PathBuf, Stri
         return Err(format!("the {name} is not a directory"));
     }
     Ok(canonical)
+}
+
+/// Absolute path with every ancestor that exists resolved through symlinks.
+///
+/// The containment checks compare a destination against a canonicalized source,
+/// so both sides have to be canonical or the comparison is meaningless.
+/// `fs::canonicalize` can't be used on its own: a migration destination usually
+/// does not exist yet, and it errors on a missing path. So canonicalize the
+/// longest existing prefix and re-append the rest.
+///
+/// This is not cosmetic. On macOS `std::env::temp_dir()` hands out
+/// `/var/folders/…`, a symlink to `/private/var/folders/…`. An absolutized-only
+/// destination therefore shared no prefix with its canonicalized source, and
+/// `inspect` reported a destination NESTED INSIDE the current vault as `Empty`
+/// — clearing it to be copied into — instead of `Unusable`. Caught by
+/// `inspect_rejects_a_file_or_a_destination_nested_with_the_source` on the
+/// macOS CI runner only, since Linux `/tmp` is a real directory.
+fn canonical_absolute(path: &Path) -> Result<PathBuf, String> {
+    let absolute = absolute_path(path)?;
+    let mut unresolved_suffix = Vec::new();
+    let mut candidate = absolute.as_path();
+    loop {
+        if let Ok(mut resolved) = fs::canonicalize(candidate) {
+            resolved.extend(unresolved_suffix.iter().rev());
+            return Ok(resolved);
+        }
+        // Nothing on this path exists (or it is unreadable); the absolutized form
+        // is the best answer available, and it is what the old code always used.
+        let (Some(name), Some(parent)) = (candidate.file_name(), candidate.parent()) else {
+            return Ok(absolute);
+        };
+        unresolved_suffix.push(name.to_owned());
+        candidate = parent;
+    }
 }
 
 fn absolute_path(path: &Path) -> Result<PathBuf, String> {
@@ -483,7 +600,14 @@ mod tests {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir_all(&path).unwrap();
-            Self(path)
+            // Canonical, because `stage`/`inspect` canonicalize what they are
+            // handed and the sync-ordering tests below compare observed paths
+            // against ones built from this root. On macOS `temp_dir()` is
+            // `/var/folders/…`, a symlink to `/private/var/folders/…`, so an
+            // un-canonicalized root makes every such comparison fail there while
+            // passing on Linux. Reproduce that locally with
+            // `TMPDIR=<a symlink to a real dir> cargo test -p futo-notes-store`.
+            Self(fs::canonicalize(&path).unwrap_or(path))
         }
     }
 
@@ -679,6 +803,128 @@ mod tests {
             synced.iter().any(|path| path == &root.0),
             "matching destination existing ancestor was not re-synced"
         );
+    }
+
+    // ── destination inspection: migrate into empty, open occupied ──
+
+    #[test]
+    fn inspect_reports_an_absent_or_entryless_destination_as_empty() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        fs::create_dir_all(&source).unwrap();
+
+        let absent = inspect(&source, &root.0.join("absent"));
+        assert_eq!(absent.state, VaultDestinationState::Empty);
+        assert_eq!(absent.notes, 0);
+
+        let entryless = root.0.join("entryless");
+        fs::create_dir_all(&entryless).unwrap();
+        assert_eq!(
+            inspect(&source, &entryless).state,
+            VaultDestinationState::Empty
+        );
+    }
+
+    #[test]
+    fn inspect_counts_the_notes_an_occupied_destination_already_holds() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        let destination = root.0.join("destination");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(destination.join("Folder")).unwrap();
+        fs::write(destination.join("Kept.md"), "body").unwrap();
+        fs::write(destination.join("Folder/Nested.md"), "body").unwrap();
+
+        let inspection = inspect(&source, &destination);
+
+        assert_eq!(inspection.state, VaultDestinationState::Occupied);
+        assert_eq!(inspection.notes, 2);
+        assert!(
+            inspection.last_modified_ms > 0,
+            "an occupied destination should report when its notes last changed"
+        );
+    }
+
+    /// A folder holding only non-note files is still occupied — `stage` refuses
+    /// any non-empty destination — so it is opened, and honestly reports 0 notes.
+    #[test]
+    fn inspect_reports_a_destination_holding_no_notes_as_occupied_with_no_notes() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        let destination = root.0.join("destination");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(destination.join(".txt-migration-done"), "1").unwrap();
+
+        let inspection = inspect(&source, &destination);
+
+        assert_eq!(inspection.state, VaultDestinationState::Occupied);
+        assert_eq!(inspection.notes, 0);
+    }
+
+    #[test]
+    fn inspect_rejects_a_file_or_a_destination_nested_with_the_source() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        fs::create_dir_all(&source).unwrap();
+        let file = root.0.join("not-a-directory");
+        fs::write(&file, "body").unwrap();
+
+        assert_eq!(
+            inspect(&source, &file).state,
+            VaultDestinationState::Unusable
+        );
+        assert_eq!(
+            inspect(&source, &source.join("inside")).state,
+            VaultDestinationState::Unusable
+        );
+        assert_eq!(
+            inspect(&source, source.parent().unwrap()).state,
+            VaultDestinationState::Unusable
+        );
+    }
+
+    /// Reproduces on Linux what only macOS CI hit: the same folder reached
+    /// through a symlinked ancestor. macOS `temp_dir()` is `/var/folders/…`, a
+    /// symlink to `/private/var/folders/…`, so the canonicalized source and the
+    /// absolutized-only destination shared no prefix and a nested destination
+    /// read as `Empty`. An explicit symlink makes the failure host-independent.
+    #[cfg(unix)]
+    #[test]
+    fn inspect_rejects_a_nested_destination_reached_through_a_symlinked_ancestor() {
+        let root = TestDirectory::new();
+        let real = root.0.join("real");
+        let source = real.join("source");
+        fs::create_dir_all(&source).unwrap();
+        std::os::unix::fs::symlink(&real, root.0.join("link")).unwrap();
+
+        let nested_via_symlink = root.0.join("link/source/inside");
+
+        assert_eq!(
+            inspect(&source, &nested_via_symlink).state,
+            VaultDestinationState::Unusable,
+            "a destination inside the current vault must be refused however its path spells it"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stage_refuses_a_nested_destination_reached_through_a_symlinked_ancestor() {
+        let root = TestDirectory::new();
+        let real = root.0.join("real");
+        let source = real.join("source");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("note.md"), "body").unwrap();
+        std::os::unix::fs::symlink(&real, root.0.join("link")).unwrap();
+
+        let result = stage(&source, &root.0.join("link/source/inside"));
+
+        assert_eq!(
+            result.unwrap_err(),
+            "the new notes folder cannot contain or be contained by the current vault"
+        );
+        assert!(source.join("note.md").exists());
+        assert!(!source.join("inside").exists());
     }
 
     #[test]

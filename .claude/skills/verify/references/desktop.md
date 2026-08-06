@@ -112,8 +112,9 @@ Native Tauri dialogs (`@tauri-apps/plugin-dialog`) are **not in the DOM** —
 click them by screenshot coordinates via `webview_interact`.
 
 Dev-only sync hooks in this webview: `window.__testSync.connect(url, password)`
-/ `.status()` / `.syncNow()` / `.disconnect()` — prefer these over UI
-automation when switching sync servers (see AGENTS.md "Browser Tools").
+/ `.status()` / `.syncNow()` / `.disconnect()` / `.pauseAutoSync()` /
+`.resumeAutoSync()` (`src/features/sync/testSync.ts`) — prefer these over UI
+automation when switching sync servers.
 
 ### No MCP tools? Raw WebSocket fallback
 

@@ -20,11 +20,22 @@
          auth. HTTPS is still recommended; this only removes the OS-level block
          on http://. -->
 
+    <!-- Deliberately NO android:roundIcon. minSdk 28 means every supported
+         device resolves android:icon to the adaptive icon
+         (mipmap-anydpi-v26/ic_launcher.xml) and applies its own launcher mask,
+         including the round one. There is no mipmap-anydpi-v26/ic_launcher_round
+         variant, so declaring roundIcon pointed launchers that prefer it at the
+         flat legacy bitmap instead: that bitmap carries the adaptive layer's
+         18dp bleed margin, so the mark filled only ~53% of it, and the launcher
+         then normalized and circle-masked it again — the mark rendered about
+         half the size it should. Reported on 1.6.1; it broke in 1.5.5, when the
+         regenerated round bitmap lost the transparent corners that had made it
+         genuinely round. Do not re-add roundIcon without also adding an adaptive
+         mipmap-anydpi-v26/ic_launcher_round.xml. -->
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="${appLabel}"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Material3.DayNight.NoActionBar"
         android:usesCleartextTraffic="true">

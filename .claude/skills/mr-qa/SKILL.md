@@ -1,19 +1,65 @@
 ---
 name: mr-qa
-description: Parallel QA of one or more merge requests across desktop/iOS/Android, including cross-client sync. Use when the user wants MRs tested — "test MR !123", "QA these five MRs in parallel", "spin up QA for my open MRs", "test this branch on mobile" — or wants a full spec pass. Creates a worktree per MR, pre-builds, fans out app-qa agents concurrently, and aggregates verdicts.
+description: Parallel QA of one or more merge requests across desktop/iOS/Android, including cross-client sync. Use when the user wants MRs tested — "test MR !123", "QA these five MRs in parallel", "spin up QA for my open MRs", "test this branch on mobile" — or wants a full spec pass. Works the open MRs oldest-first and skips drafts. Creates a git worktree per MR for isolation, pre-builds, fans out one app-qa subagent per MR/platform leg concurrently, aggregates verdicts, and calls SHIP/NO SHIP on each — merging the SHIPs.
 ---
 
 # MR QA — parallel by default
 
-One MR = one worktree = one isolated stack (own pooled devices, own sync
-server + database). Several MRs are QA'd **concurrently**; the isolation
-model in the `/verify` skill is what makes that safe. Battle-tested
-2026-07-02: two simultaneous full-stack passes, zero cross-talk.
+One MR = one worktree = one subagent = one isolated stack (own pooled
+devices, own sync server + database). Several MRs are QA'd
+**concurrently**; the isolation model in the `/verify` skill is what makes
+that safe. Battle-tested 2026-07-02: two simultaneous full-stack passes,
+zero cross-talk.
+
+**Don't QA an MR in the main checkout, and don't give one agent two MRs.**
+Both shortcuts feel faster and both cost more than they save. Checking an
+MR branch out in the main tree strands whatever the user had in flight
+there and re-invalidates the cargo/gradle caches on every switch, so the
+"saved" worktree setup gets paid back as cold builds. And one agent
+holding two MRs will eventually attribute one MR's failure to the other —
+that has already happened here (see the `driver_session` default-app trap
+below), and a misattributed FAIL costs a re-run plus the credibility of
+the rest of the report. A worktree is `git worktree add` + `pnpm install`;
+a subagent is one tool call. Neither is worth economizing on.
+
+So prefer more, smaller subagents over one long-lived one: give each
+`app-qa` agent a single (MR × platform) leg. Its context then stays about
+one diff on one device, which is what keeps its judgment about that diff
+sharp — and a session-limit death takes out one leg instead of the pass.
+
+## Pick the MR set — oldest first, drafts skipped
+
+Work **oldest → newest** by MR iid. Old MRs have had the most time to rot:
+their branch has drifted furthest from main, they're the likeliest to need
+a conflict resolved, and their author has been waiting longest. Landing
+them in that order also shrinks the diff every younger MR must rebase
+over, so later MRs get cheaper as you go.
+
+Skip drafts. GitLab exposes the flag as `"draft": true` (the title also
+carries the `Draft:` prefix) — it's the author explicitly saying "not
+ready", and a device pass on code that's about to change is the most
+expensive kind of wasted run. Name the skipped drafts in the report so the
+user can see they were considered, not overlooked.
+
+```bash
+curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/merge_requests?state=opened&order_by=created_at&sort=asc&per_page=100" \
+  | jq -r '.[] | select(.draft == false) | "\(.iid)\t\(.source_branch)\t\(.title)"'
+```
+
+Ordering governs the *sequence you start* legs in, not a serialization —
+once launched they still run concurrently, and the oldest MR simply gets
+first claim on devices and build slots. If the user names specific MRs,
+honor their list, but still start oldest-first and still flag any draft
+among them (they may not know it's marked one). Re-query before every pass
+— the open set drifts mid-session (see the learnings below).
 
 ## Per MR (run these pipelines concurrently across MRs)
 
-1. **Worktree**: resolve the MR's source branch (GitLab API with
-   `$GITLAB_TOKEN` — see AGENTS.md "GitLab CI"), then
+1. **Worktree**: resolve the MR's source branch (GitLab API; `$GITLAB_TOKEN` is
+   already in the shell —
+   `curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/merge_requests/<iid>"`),
+   then
    `git worktree add .claude/worktrees/mr-<iid> origin/<branch>` and
    `pnpm install` (installs across worktrees can run concurrently).
 2. **Claim + pre-build — before spawning any agent.** Agents that idle-wait
@@ -31,28 +77,96 @@ model in the `/verify` skill is what makes that safe. Battle-tested
      do NOT use `just tauri-dev` here — its auto-started server would
      collide with `qa-server` on the same slot port).
    - `just qa-server` if the pass includes sync (it usually should).
-3. **Spawn one `app-qa` agent per MR** (they're model-pinned to Sonnet).
-   Hand it: the worktree path, the claimed device ids, the server
-   port/password, what the MR changes (diff summary → spec surfaces), and
-   that apps are pre-built. Agents for different MRs run concurrently.
+3. **Spawn one `app-qa` agent per MR.** Hand it: the worktree path, the
+   claimed device ids, the server port/password, what the MR changes (diff
+   summary → spec surfaces), and that apps are pre-built. Agents for
+   different MRs run concurrently.
+
+   `app-qa` is pinned to Sonnet on purpose — a QA leg is long, tool-heavy,
+   and shallow per step (tap a label, read the a11y tree, compare to one
+   spec line), so a bigger model buys little. Its real failure mode is M21
+   (believing `axe tap`'s success or a stale screencap), which the
+   pre-brief in the learnings below addresses and a model upgrade would
+   not. What stays on the orchestrator's model is the judgment work, where
+   being wrong propagates: mapping the diff to spec surfaces, deciding a
+   FAIL belongs to the MR rather than the isolation layer, and declaring
+   coverage impossible. Hand fixes to `fixer` (Opus-pinned) rather than
+   asking a QA leg to fix what it found — a wrong fix is the most
+   expensive thing this pipeline can emit.
 4. **Aggregate**: one verdict table per MR (stories + sync-mesh legs, with
    evidence paths), FAIL details quoting the spec, and a cross-MR isolation
    note (any collision finding is a bug in the isolation layer — report it
    loudly).
-5. **Teardown per worktree**: `just qa-release --shutdown` (also stops that
+5. **Call SHIP or NO SHIP on every MR, then land the SHIPs** — see below.
+6. **Teardown per worktree**: `just qa-release --shutdown` (also stops that
    worktree's server), `just qa-server-stop --drop`, kill the desktop app if
    launched, then `git worktree remove` unless the user wants to iterate on
    that MR. Pool devices persist unclaimed for instant reuse; `just qa-gc`
    reaps devices belonging to deleted worktrees.
 
+## SHIP / NO SHIP — and merging the SHIPs
+
+Every MR in the pass gets an explicit **SHIP** or **NO SHIP** line. A pass
+that ends in a wall of evidence and no verdict pushes the decision back
+onto the user, which is the one thing the QA pass existed to take off their
+plate. If the evidence genuinely doesn't support a call, that is itself a
+verdict — **NO SHIP (insufficient coverage)** — and it should name the leg
+that was blocked rather than hedging.
+
+**A SHIP is authorization to merge it.** Don't stop to ask; merge, then
+report what landed. Merge the SHIPs oldest-first, one at a time, re-checking
+the next MR's mergeability after each — landing an old MR is exactly what
+puts a younger one into conflict.
+
+SHIP requires all of these. Any one missing makes it NO SHIP, not a
+judgment call:
+
+- No unexplained FAIL. A FAIL is either fixed on the branch, or shown to be
+  pre-existing on main / an infra flake **with the evidence for that claim**
+  (reproduce it on main; "probably the isolation layer" is not evidence).
+- Coverage actually matched the diff. An `apps/ios` MR whose iOS leg was
+  impossible is NO SHIP (insufficient coverage), however clean the desktop
+  leg looked — see the Tailscale Mac probe below before concluding iOS was
+  impossible.
+- GitLab says it can merge: green pipeline **on the head sha**, no
+  conflicts, no unresolved discussion threads, not a draft.
+- `just check` passes in the MR's worktree if the diff touches shared code.
+
+**Ask before merging, even on a SHIP**, when the MR touches anything on
+AGENTS.md's stop-and-ask list — `keys/`, the updater trust boundary, a
+CRITICAL guard (dev bundle id, `fake-notes` root, push-first sync,
+`release:gate.needs`, the dep-guard, `hash.rs`), anything that publishes,
+or a cross-cutting protocol change (sync payload, `BRIDGE_VERSION`,
+`AppState` schema). A clean QA pass says the code behaves; it doesn't
+say the trust boundary or the wire format should move. Report those as
+**SHIP (needs your merge)** with the reason, and leave them open.
+
+For a NO SHIP, say what would flip it — a fix, a rerun on a specific
+platform, or a decision only the user can make. Hand fixable ones to
+`fixer` if the user asked for fixes; otherwise leave the finding on the MR
+as a comment so the author has it.
+
 ## Learnings from practice (added 2026-07-08, 7-MR run on a Linux host)
 
 - **Check host capability before choosing a topology.** The pool/topology
-  assume an M-series Mac. On a **Linux host there is no Xcode → iOS QA is
-  impossible** (`xcrun` absent). First probe: `xcrun` (iOS), `adb devices` +
+  assume an M-series Mac. On a **Linux host there is no local Xcode**
+  (`xcrun` absent). First probe: `xcrun` (iOS), `adb devices` +
   `just qa-status` (Android pool), desktop (always available on Linux). Map
   each MR to the platforms its diff actually needs and state impossible
   coverage **explicitly per-MR** in the report — don't silently drop it.
+
+- **From Linux, try the Mac over Tailscale before writing iOS off.** Justin's
+  Mac is often reachable as `justins-macbook-pro` (`ssh justin@100.101.132.29`)
+  — probe it with a cheap `ssh -o ConnectTimeout=5 … 'xcrun -f xcodebuild'`
+  rather than assuming either way; it's a laptop, so it's sometimes asleep or
+  off-net. When it answers, iOS compile checks and `just test-ios-native` are
+  back on the table, which is worth a lot on an MR touching `apps/ios` or the
+  FFI. Treat that checkout as someone else's desk: `git status` first, do the
+  work in a throwaway `git worktree add /tmp/mr-<iid>-verify <branch>`, and
+  `git worktree remove` after — never switch its working tree. Simulator QA
+  over SSH is more limited than sitting at the machine (no GUI Simulator
+  window), so scope the remote leg to builds, unit tests, and `simctl`-driven
+  checks, and say in the report which iOS coverage was remote vs. absent.
 
 - **Idle ≠ progress — never passively wait on `idle_notification`s.** app-qa
   agents emit `idle_notification {reason: available}` BOTH while parked on a
@@ -71,7 +185,7 @@ model in the `/verify` skill is what makes that safe. Battle-tested
 
 - **Pre-empt the three isolation-layer bugs in the agent brief** (they recur;
   tell every agent up front so they don't burn time rediscovering):
-  1. **Slot-hash collision** — `/verify`'s `md5(worktree_path)%50` collides at
+  1. **Slot-hash collision** — the `scripts/lib/slot.mjs` slot collides at
      ~5 concurrent worktrees (mr-40 ↔ mr-42 both → slot 0: same Vite 5200 +
      identifier `com.futo.notes.verify.s0`, and `driver_session` silently
      reused the *other* app). Brief agents to fall back to a **unique

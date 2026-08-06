@@ -36,6 +36,7 @@ interface NotesShellTestHook {
   typeInEditor: (text: string) => string;
   setEditorFocused: NotesShellTestHookOptions['setEditorFocused'];
   isEditorFocused: NotesShellTestHookOptions['isEditorFocused'];
+  replaceEditorContent: (content: string) => string;
   getState: NotesShellTestHookOptions['getState'];
 }
 
@@ -55,6 +56,7 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
     typeInEditor: (text) => typeInEditor(options.getEditorView(), text),
     setEditorFocused: options.setEditorFocused,
     isEditorFocused: options.isEditorFocused,
+    replaceEditorContent: (content) => replaceEditorContent(options.getEditorView(), content),
     getState: options.getState,
   };
   return () => {
@@ -71,6 +73,16 @@ function typeInEditor(view: EditorView | null, text: string): string {
     selection: { anchor: main.from + text.length },
     scrollIntoView: true,
     userEvent: 'input.type',
+  });
+  return view.state.doc.toString();
+}
+
+function replaceEditorContent(view: EditorView | null, content: string): string {
+  if (!view) throw new Error('editor view not ready');
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: content },
+    selection: { anchor: content.length },
+    userEvent: 'input',
   });
   return view.state.doc.toString();
 }
