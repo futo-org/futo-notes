@@ -60,7 +60,7 @@
   let reconcileOpenNote: (
     id: string,
     parkedDraft: ParkedDraftSnapshot,
-  ) => Promise<boolean> = async () => false;
+  ) => Promise<unknown> = async () => false;
 
   const session = createNoteSession({
     getEditorContent: () => editor?.getContent(),

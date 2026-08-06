@@ -5,6 +5,9 @@ vi.mock('$lib/platform', () => ({
   hasFileSystem: true,
 }));
 vi.mock('$features/sync/autoSyncV2', () => ({ notifySavedV2: vi.fn() }));
+vi.mock('$features/sync/syncServiceE2ee', () => ({
+  classifyOpenNote: vi.fn(async () => ({ kind: 'close' })),
+}));
 
 vi.mock('./notes.svelte', () => ({
   updateNote: vi.fn(),
@@ -310,7 +313,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   });
 });
 
-describe('stale save completion after an external close', () => {
+describe('external unlink during an in-flight save', () => {
   let editorContent = '';
 
   beforeEach(async () => {
@@ -323,7 +326,7 @@ describe('stale save completion after an external close', () => {
     vi.useRealTimers();
   });
 
-  it('keeps the session cleared when an external unlink races an in-flight save completion', async () => {
+  it("does not clear the save's renamed identity", async () => {
     let routeNoteId: string | null = 'active';
     let resolveSave!: (result: { id: string; mtime: number; disposition: 'wrote' }) => void;
     const saveResult = new Promise<{ id: string; mtime: number; disposition: 'wrote' }>(
@@ -364,20 +367,26 @@ describe('stale save completion after an external close', () => {
     expect(updateNote).toHaveBeenCalledOnce();
 
     const externalChanges = createExternalChangeCoordinator({
+      followRename: vi.fn(),
       session,
       notifySaved: vi.fn(),
       showToast: vi.fn(),
       writeSuppressor: createWriteSuppressor(),
     });
-    await externalChanges.handleFileChange({ type: 'unlink', filename: 'active.md' });
+    const handlingUnlink = externalChanges.handleFileChange({
+      type: 'unlink',
+      filename: 'active.md',
+    });
+    await Promise.resolve();
+    expect(session.originalId).toBe('active');
 
     resolveSave({ id: 'Renamed', mtime: 0, disposition: 'wrote' });
-    await session.flushSave();
+    await handlingUnlink;
 
-    expect(session.originalId).toBeNull();
-    expect(session.title).toBe('');
-    expect(session.content).toBe('');
-    expect(deps.onNoteRenamed).not.toHaveBeenCalled();
+    expect(session.originalId).toBe('Renamed');
+    expect(session.title).toBe('active');
+    expect(session.content).toBe('draft');
+    expect(deps.onNoteRenamed).toHaveBeenCalledExactlyOnceWith('active', 'Renamed');
     expect(notifySavedV2).toHaveBeenCalledOnce();
     expect(updateNote).toHaveBeenCalledOnce();
     expect(session.savePending).toBe(false);

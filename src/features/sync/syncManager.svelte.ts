@@ -6,7 +6,10 @@ import { createSyncCoordinator, type SyncCoordinator } from './syncCoordinator';
 import type { FileChangeEvent } from '$lib/platform/types';
 import type { SyncSummary } from './syncServiceE2ee';
 import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2, type SyncTrigger } from './autoSyncV2';
-import { createExternalChangeCoordinator } from './createExternalChangeCoordinator';
+import {
+  createExternalChangeCoordinator,
+  type OpenNoteReconcileResult,
+} from './createExternalChangeCoordinator';
 import { getSyncErrorMessage } from './syncErrorMessage';
 import { createSyncCompletionReconciler } from './reconcileSyncCompletion';
 
@@ -32,7 +35,10 @@ export interface SyncManager {
   handleEditorFocusChange: (focused: boolean) => Promise<void>;
   handleEditorCompositionEnd: () => Promise<void>;
 
-  reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<boolean>;
+  reconcileOpenNote: (
+    id: string,
+    parkedDraft: ParkedDraftSnapshot,
+  ) => Promise<OpenNoteReconcileResult>;
 
   notifySaved: () => void;
 
@@ -82,6 +88,14 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   };
 
   const externalChanges = createExternalChangeCoordinator({
+    followRename: (fromId, toId) => {
+      const slash = toId.lastIndexOf('/');
+      const title = slash === -1 ? toId : toId.slice(slash + 1);
+      deps.onRename(fromId, toId, title);
+      if (deps.session.originalId === fromId) {
+        deps.session.applyRemoteRename(toId, title);
+      }
+    },
     session: deps.session,
     notifySaved,
     showToast: deps.showToast,
