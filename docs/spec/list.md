@@ -208,6 +208,10 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   create; failure leaves it open for retry and shows a failure toast. →
   NotesStore.kt, NoteEditorScreen.kt, NoteListScreen.kt,
   NoteActionCompletionTest
+- Android's FAB → New note consumes the same explicit outcome: the editor opens
+  only on a committed create, and a failed create says "Couldn't create note.
+  Try again." rather than leaving the list unchanged with no message — the
+  silence github#13 reported. → NotesStore.kt `createNote`, NoteListScreen.kt
 - **Both native shells create notes as quick capture** (iOS "+" menu → New
   Note; Android FAB → New note): an "Untitled" note is created in the current
   folder and the editor opens with the **body** focused — no blocking title
