@@ -25,12 +25,22 @@ interface LineHit {
   lineElement: HTMLElement;
 }
 
-function getRenderedLineRight(line: HTMLElement): number | null {
-  let right: number | null = null;
+/** One rendered fragment of a line, kept per VISUAL row rather than merged. */
+interface RenderedFragment {
+  top: number;
+  bottom: number;
+  right: number;
+}
+
+function collectRenderedFragments(line: HTMLElement): RenderedFragment[] {
+  const fragments: RenderedFragment[] = [];
+  const add = (rect: DOMRect) => {
+    if (rect.width <= 0 && rect.height <= 0) return;
+    fragments.push({ top: rect.top, bottom: rect.bottom, right: rect.right });
+  };
+
   for (const candidate of line.querySelectorAll(VISIBLE_LINE_EDGE_SELECTOR)) {
-    const rect = (candidate as HTMLElement).getBoundingClientRect();
-    if (rect.width <= 0 && rect.height <= 0) continue;
-    right = right === null ? rect.right : Math.max(right, rect.right);
+    for (const rect of (candidate as HTMLElement).getClientRects()) add(rect);
   }
 
   const walker = document.createTreeWalker(line, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
@@ -41,24 +51,35 @@ function getRenderedLineRight(line: HTMLElement): number | null {
         current = walker.nextNode();
         continue;
       }
-      const rect = current.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        right = right === null ? rect.right : Math.max(right, rect.right);
-      }
+      for (const rect of current.getClientRects()) add(rect);
     } else if (current instanceof Text) {
       const parent = current.parentElement;
       if (current.textContent && parent && !parent.closest('.cm-md-marker-widget')) {
         const range = document.createRange();
         range.selectNodeContents(current);
-        for (const rect of range.getClientRects()) {
-          if (rect.width <= 0 && rect.height <= 0) continue;
-          right = right === null ? rect.right : Math.max(right, rect.right);
-        }
+        for (const rect of range.getClientRects()) add(rect);
       }
     }
     current = walker.nextNode();
   }
-  return right;
+  return fragments;
+}
+
+/**
+ * The right edge of the rendered text on the pointer's OWN row. Measured across
+ * the whole line this is the widest row, so a click past a last row shorter than
+ * an earlier one read as "not past the text" and fell through to the engine,
+ * which answers inside a wikilink's hidden `]]`. A pointer on no text row
+ * measures the whole line — the only answer available there.
+ */
+function getRenderedRowRight(line: HTMLElement, clientY: number): number | null {
+  const fragments = collectRenderedFragments(line);
+  if (fragments.length === 0) return null;
+  const onPointerRow = fragments.filter(
+    (fragment) => clientY >= fragment.top && clientY <= fragment.bottom,
+  );
+  const measured = onPointerRow.length > 0 ? onPointerRow : fragments;
+  return Math.max(...measured.map((fragment) => fragment.right));
 }
 
 export class EditorCaretInteractions {
@@ -124,7 +145,7 @@ export class EditorCaretInteractions {
       return cursorOnTappedRow(view, position, y);
     }
 
-    const visibleRight = getRenderedLineRight(lineElement);
+    const visibleRight = getRenderedRowRight(lineElement, y);
     if (visibleRight !== null && clientX > visibleRight + 1) return EditorSelection.cursor(line.to);
     return EditorSelection.cursor(line.from);
   }
@@ -181,7 +202,7 @@ export class EditorCaretInteractions {
           event.target as Node | null,
         );
         if (!hit) return false;
-        const visibleRight = getRenderedLineRight(hit.lineElement);
+        const visibleRight = getRenderedRowRight(hit.lineElement, event.clientY);
         if (visibleRight === null || event.clientX <= visibleRight + 1) return false;
 
         this.lineEndPending = {

@@ -279,6 +279,17 @@ const WRAPPING_LINE =
   'The quick brown fox jumps over the lazy dog and keeps running far past the ' +
   'edge of the column so this line wraps onto a second row.';
 
+/**
+ * A wrapped line whose LAST row is narrower than an earlier one and ends in a
+ * wikilink, so the rendered row stops at `Tests` while `line.to` sits after the
+ * hidden `]]`.
+ */
+const WRAPPING_WIKILINK_LINE =
+  'Clicking past the end of this wrapped paragraph should put the caret right ' +
+  'after the link, because the hidden closing brackets stop the drawn row short ' +
+  'of the text it stands for, and the answer is the end of the line: ' +
+  '[[Wrapping Tests]]';
+
 /** The client rects of each VISUAL row of the first line, top row first. */
 async function rowsOfFirstLine(
   page: Page,
@@ -370,6 +381,30 @@ test.describe('Clicking past the end of a line', () => {
     const caret = await caretState(page);
     expect(caret.drawnTop).toBeGreaterThanOrEqual(row.top - 2);
     expect(caret.drawnTop).toBeLessThan(row.bottom);
+  });
+
+  // "Past the text" is decided against the pointer's row. Judged across the
+  // whole line it took the widest row, so this click fell through to the engine
+  // and landed inside the wikilink's hidden `]]`, splitting the link on typing.
+  test('a click past a last row ending in a wikilink lands after the link', async ({ page }) => {
+    await setupEditor(page, WRAPPING_WIKILINK_LINE);
+    const rows = await rowsOfFirstLine(page);
+    const last = rows[rows.length - 1];
+    const widest = Math.max(...rows.map((r) => r.right));
+    // Preconditions: the line wraps, and the gap between the last row's text
+    // and the widest row — the only place this regression can be seen — exists.
+    expect(rows.length).toBeGreaterThan(1);
+    expect(widest).toBeGreaterThan(last.right + 10);
+    await setCursor(page, 0);
+
+    await page.mouse.click(
+      Math.round((last.right + widest) / 2),
+      Math.round((last.top + last.bottom) / 2),
+    );
+    await page.waitForTimeout(100);
+
+    const caret = await caretState(page);
+    expect(caret.head).toBe(caret.firstLineTo);
   });
 });
 
