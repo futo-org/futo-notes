@@ -63,6 +63,10 @@
           "expected": "ab"
         },
         {
+          "input": "abc",
+          "expected": "abc"
+        },
+        {
           "input": "  hello  ",
           "expected": "hello"
         },
@@ -158,6 +162,12 @@
         },
         {
           "input": "ab",
+          "expected": [
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "ab",
           "expected": [
             "forbidden_chars"
           ]

@@ -95,6 +95,16 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   leading gutter (`--macos-traffic-lights-width`) for them in one place,
   independent of sidebar state — so collapsing the sidebar never exposes or
   crowds the buttons. → configureWindowChrome.ts, desktop-shell.css
+- On macOS the traffic lights sit on the sidebar toggle's centre line, with even
+  spacing above them and to their left. → tauri.conf.json,
+  configureWindowChrome.ts
+- With the sidebar collapsed the toggle carries 20px of visible air on each
+  side — to the last traffic light and to the first tab. → desktop-shell.css,
+  tabsStrip.css
 - On Linux the app renders its own 36px title bar ("FUTO Notes" +
   minimize/maximize/close) above the top band; macOS and Windows use native
   window chrome instead. → configureWindowChrome.ts, TitleBar.svelte
+- Every empty area of the top band drags the window — the gaps around the tabs
+  and the whole chrome column, traffic-light gutter included; only the buttons
+  take clicks. Same on the Linux title bar. → DesktopTopBand.svelte,
+  TabsStrip.svelte, TitleBar.svelte

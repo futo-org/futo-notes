@@ -21,8 +21,9 @@ test.describe('P0 Crash and IME Regressions', () => {
     const editor = page.locator('.cm-content');
     await editor.click();
     await editor.fill('Temporary text to remove');
-    await page.keyboard.press('Control+A');
+    await page.keyboard.press('ControlOrMeta+A');
     await page.keyboard.press('Backspace');
+    await expect(editor).toHaveText('');
 
     // Desktop layout: sidebar is always visible, no toggle needed.
     // Verify sidebar is present and page didn't crash.

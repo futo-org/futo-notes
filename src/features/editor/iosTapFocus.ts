@@ -1,4 +1,4 @@
-import type { Extension } from '@codemirror/state';
+import { EditorSelection, type Extension, type SelectionRange } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 
 interface TapPoint {
@@ -9,7 +9,8 @@ interface TapPoint {
 
 export interface IosTapFocusOptions {
   enabled: boolean;
-  resolveTapPosition: (point: TapPoint, view: EditorView) => number | null;
+  /** The caret the tap means, association included. */
+  resolveTapPosition: (point: TapPoint, view: EditorView) => SelectionRange | null;
   shouldIgnoreTap?: (target: EventTarget | null) => boolean;
 }
 
@@ -61,12 +62,12 @@ export function iosTapFocus(options: IosTapFocusOptions): Extension[] {
 
         if (end && options.shouldIgnoreTap?.(end.target)) return false;
 
-        const pos = options.resolveTapPosition(end, view);
-        if (pos === null) return false;
+        const at = options.resolveTapPosition(end, view);
+        if (at === null) return false;
 
         event.preventDefault();
         focusWithoutScroll(view);
-        view.dispatch({ selection: { anchor: pos }, scrollIntoView: false });
+        view.dispatch({ selection: EditorSelection.create([at]), scrollIntoView: false });
         return true;
       },
     }),

@@ -13,13 +13,13 @@ and desktop-only session wrapper were replaced by one application API:
 The resulting crate first established four responsibilities, then the
 2026-07-14 organization rewrite made their internal ownership explicit:
 
-- `server.rs`: authentication and the real server protocol
+- `server/`: authentication and the real server protocol
 - `checkpoint.rs`: persisted object map, cursors, legacy import, and disconnect ancestry
 - `session/`: connection lifecycle, session ownership, cycle serialization, live scheduling,
   and SSE framing
 - `sync/mod.rs`: the push-first orchestration sequence only
-- `sync/{push,pull,conflict_resolution,collision_resolution,tombstones}.rs`: named sync
-  operations and data-safety boundaries
+- `sync/push/`, `sync/pull/`, `sync/conflict_resolution/`, `sync/collision_resolution.rs`, and
+  `sync/tombstones.rs`: named sync operations and data-safety boundaries
 - `sync/{vault,encrypted_note,object_map,outcome}.rs`: shared sync-owned transformations and
   contracts
 
@@ -564,7 +564,7 @@ claim-and-park, stale-claim crash recovery, ancestry demotion, and
 identical-content dedup.
 
 Two invariants had **no test that runs in any automated pipeline**. Both are now
-covered by offline crate-level unit tests in `sync/push.rs` (each proven
+covered by offline crate-level unit tests in `sync/push/` (each proven
 red-capable against the exact regression before finalizing):
 
 - **413 oversize blobs.** The only prior test

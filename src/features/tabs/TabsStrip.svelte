@@ -80,12 +80,6 @@
   }
 </script>
 
-<!-- The strip itself is a `data-tauri-drag-region` so users can drag the
-     window by its empty area (next to / between tabs). Tauri's drag
-     region only applies to the element that has the attribute directly,
-     so child buttons (tab pills, "+") still receive clicks normally.
-     This replaces the previous separate full-width drag overlay that
-     was hiding the upper rim of every tab. -->
 <div class="tabs-strip" role="tablist" aria-label="Tabs" data-tauri-drag-region>
   {#each tabsStore.tabs as tab, idx (tab.id)}
     <button

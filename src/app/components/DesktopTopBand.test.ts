@@ -39,6 +39,14 @@ describe('DesktopTopBand', () => {
     expect(target.querySelector('.tabs-strip')).not.toBeNull();
   });
 
+  it('makes the chrome column a drag region without hijacking the toggle', () => {
+    mountBand({ sidebarCollapsed: false, ontoggle: () => {} });
+    const chrome = target.querySelector('.topband-chrome') as HTMLElement;
+    expect(chrome.hasAttribute('data-tauri-drag-region')).toBe(true);
+    const btn = target.querySelector('.sidebar-toggle-btn') as HTMLButtonElement;
+    expect(btn.hasAttribute('data-tauri-drag-region')).toBe(false);
+  });
+
   it('the sidebar toggle fires ontoggle', () => {
     const ontoggle = vi.fn();
     mountBand({ sidebarCollapsed: false, ontoggle });

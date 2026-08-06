@@ -71,6 +71,27 @@ tests/, markdown-spec/, factory/   E2E + sync harness, editor fixtures, Obsidian
   UniFFI's `catch_unwind`. No `tempfile` crate — hand-roll test tempdirs like existing tests;
   env-var tests serialize on a `static Mutex`.
 
+## Papercuts (file the friction, don't eat it)
+
+Hit a dead-end tool call, a stale doc, a broken `just` recipe, a footgun config, a missing helper?
+File it before moving on — don't stop working, don't fix-and-forget:
+
+    papercuts add "<what you hit and what would have prevented it>" --tag <area>
+
+**Tooling and workflow only — never product bugs.** The test: does it slow down someone *working in
+this repo*, or someone *using the app*? Only the first is a papercut. An app defect gets fixed, or
+becomes a GitHub issue; a spec divergence becomes an inline `> **Gap:**` note. Filing those here
+buries them in a log nobody triages as a bug tracker.
+
+`command not found`? Install it first — `cargo install papercuts` (MIT, builds in ~15s) — then file
+the cut, including one for whatever sent you looking. If the install itself fails, don't sink time
+into it: say so in your final report and carry on.
+
+Severity: `minor` (default) annoyance · `--severity major` time sink · `--severity blocker` hard wall.
+Tool failures take `--cmd`/`--exit`/`--stderr-file` (never raw env dumps). `papercuts schema` is the
+full contract; `papercuts list --format md` is the review digest. The log is `.papercuts.jsonl` at the
+repo root — append-only, committed, `merge=union` so parallel worktrees never conflict on it.
+
 ## Named mistakes (institutional memory — cited elsewhere by number; the rule that prevents each)
 
 **Data/render safety (CRITICAL):**
@@ -176,8 +197,11 @@ until the user can open the app and see the result; don't hand off steps you can
 
 **Stop and ask first:** (1) anything under `keys/`, signing keys, or the updater trust boundary;
 (2) weakening a CRITICAL guard (dev bundle id, `fake-notes` root, push-first sync, `release:gate.needs`,
-the dep-guard, hash/crypto in `hash.rs`); (3) destructive ops on real data (the user's
-`~/Documents/futo-notes`, the prod server, `git push --force`, dropping DBs you didn't create);
+the dep-guard, hash/crypto in `hash.rs`); (3) destructive ops on real data or expensive local state
+(the user's `~/Documents/futo-notes`, the prod server, `git push --force`, dropping DBs you didn't
+create, recursive deletes outside your scratchpad — gitignored ≠ disposable, `target/` is a 31GB
+rebuild; cleanup removes only paths the script itself created, never a computed ancestor —
+`rmSync(rel.split('/')[0])` ate a worktree's `target/` and a tracked `factory/`);
 (4) publishing (Play/TestFlight/F-Droid uploads, tagging a release, posting to Zulip); (5) changing
 behavior the spec records — surface the conflict; (6) cross-cutting protocol changes (sync payload,
 `BRIDGE_VERSION`, `AppState` schema).

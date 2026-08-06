@@ -231,9 +231,9 @@
     },
     {
       "concept": "title-validation-constants",
-      "description": "MAX_TITLE_LENGTH (200) and the visible forbidden-character set, shared by packages/editor/src/filename.ts and Rust, and generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts. The numeric 200 is additionally locked cross-language via constants.json (TS+Rust only). Platform-specific control-character handling remains template-authored: Android matches the TS C0 + DEL set, while iOS matches Rust's wider Unicode control-character rule.",
+      "description": "MAX_TITLE_LENGTH (200) and the visible forbidden-character set, shared by packages/editor/src/filename.ts and Rust, and generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts. The numeric 200 is additionally locked cross-language via constants.json (TS+Rust only). Control characters are still spelled per language in the generator templates, but all four now cover the same Unicode Cc set (C0, DEL, C1).",
       "lockStatus": "partial",
-      "note": "PARTIAL: generation locks MAX_TITLE_LENGTH and the visible forbidden characters from packages/editor/src/filename.ts into both native files. Control-character handling is still authored in the generator templates: Android/TS use C0 + DEL while iOS/Rust use the wider Unicode control set, so the whole rule is not fully conformance-locked.",
+      "note": "PARTIAL: generation locks MAX_TITLE_LENGTH and the visible forbidden characters from packages/editor/src/filename.ts into both native files. The control-character set is authored separately in each generator template (Swift `.controlCharacters`, a Kotlin regex range, the TS `CONTROL_CHARS` range, Rust `char::is_control()`) — they agree on Unicode Cc as of the C1 fix, but nothing generates one from another.",
       "copies": [
         {
           "location": "packages/editor/src/filename.ts",
@@ -367,6 +367,42 @@
           "kind": "test"
         }
       ]
+    },
+    {
+      "concept": "worktree-slot-derivation",
+      "description": "Per-worktree slot (md5 of the repo root, mod 50) and the port map derived from it. ONE definition in scripts/lib/slot.mjs; every other consumer imports it or shells out to its CLI. Registered for the scan block, not to permit a duplicate: a slot addresses already-claimed pool devices and already-running sync servers, so a divergent copy repoints a live worktree at another's resources. scripts/lib/slot.test.mjs is listed as BOTH a copy and a lock on purpose: it holds a deliberate second implementation (legacySlot) whose only job is to assert parity.",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "scripts/lib/slot.mjs",
+          "pattern": "export function slotOf"
+        },
+        {
+          "location": "scripts/lib/slot.test.mjs",
+          "pattern": "function legacySlot"
+        }
+      ],
+      "locks": [
+        {
+          "path": "scripts/lib/slot.test.mjs",
+          "kind": "test"
+        }
+      ],
+      "scan": {
+        "dirs": [
+          ".",
+          ".claude"
+        ],
+        "extensions": [
+          ".mjs",
+          ".ts",
+          ".js",
+          ".md",
+          "justfile"
+        ],
+        "pattern": "md5[\\s\\S]{0,400}%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b|%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b[\\s\\S]{0,400}md5",
+        "flags": "i"
+      }
     }
   ]
 }

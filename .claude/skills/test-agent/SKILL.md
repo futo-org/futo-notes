@@ -59,7 +59,7 @@ Set up what's needed based on scenario categories. Reuse `/verify` infrastructur
 **For server/sync/search scenarios** — spin up an isolated test server:
 ```bash
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
-SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
+SLOT=$(node "$WORKTREE_ROOT/scripts/lib/slot.mjs" slot)
 TEST_AGENT_DIR=$(mktemp -d /tmp/futo-notes-test-agent-XXXXXX)
 echo "Test agent workspace: $TEST_AGENT_DIR"
 ```

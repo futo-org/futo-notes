@@ -21,6 +21,16 @@ pub struct ObjectState {
     pub size_bytes: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PendingCreate {
+    #[serde(alias = "objectId")]
+    pub mutation_id: String,
+    pub original_name: String,
+    pub hash: String,
+    pub size_bytes: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct ConnectedState {
     pub base_url: String,
@@ -29,9 +39,33 @@ pub struct ConnectedState {
     pub collection_id: String,
     pub vault_key: [u8; 32],
     pub object_map: HashMap<String, ObjectState>,
+    pub(crate) pending_creates: HashMap<String, PendingCreate>,
     pub max_version: u64,
     pub pull_cursor: u64,
     pub oversize_skip: HashMap<String, i64>,
+}
+
+impl ConnectedState {
+    pub fn new(
+        base_url: String,
+        token: String,
+        user_id: String,
+        collection_id: String,
+        vault_key: [u8; 32],
+    ) -> Self {
+        Self {
+            base_url,
+            token,
+            user_id,
+            collection_id,
+            vault_key,
+            object_map: HashMap::new(),
+            pending_creates: HashMap::new(),
+            max_version: 0,
+            pull_cursor: 0,
+            oversize_skip: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -40,6 +74,8 @@ struct DiskState {
     version: u8,
     #[serde(default)]
     object_map: HashMap<String, ObjectState>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pending_creates: HashMap<String, PendingCreate>,
     #[serde(default)]
     max_version: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,6 +104,7 @@ struct DiskAncestry {
 #[derive(Default)]
 pub(crate) struct Loaded {
     pub object_map: HashMap<String, ObjectState>,
+    pub pending_creates: HashMap<String, PendingCreate>,
     pub max_version: u64,
     pub pull_cursor: u64,
 }
@@ -100,6 +137,7 @@ fn read_legacy(root: &Path) -> Option<DiskState> {
     Some(DiskState {
         version: 1,
         object_map,
+        pending_creates: HashMap::new(),
         max_version: value
             .get("e2eeMaxVersion")
             .and_then(serde_json::Value::as_u64)
@@ -116,13 +154,15 @@ pub(crate) fn load(root: &Path, collection_id: &str) -> Loaded {
     let Some(disk) = read_disk_state(root).or_else(|| read_legacy(root)) else {
         return Loaded::default();
     };
-    let has_data = disk.max_version != 0 || !disk.object_map.is_empty();
+    let has_data =
+        disk.max_version != 0 || !disk.object_map.is_empty() || !disk.pending_creates.is_empty();
     if has_data && disk.collection_id.as_deref() != Some(collection_id) {
         let _ = demote(root);
         return Loaded::default();
     }
     Loaded {
         object_map: disk.object_map,
+        pending_creates: disk.pending_creates,
         max_version: disk.max_version,
         pull_cursor: disk.pull_cursor.unwrap_or(0),
     }
@@ -132,6 +172,7 @@ pub(crate) fn save(root: &Path, state: &ConnectedState) -> Result<(), String> {
     let disk = DiskState {
         version: 1,
         object_map: state.object_map.clone(),
+        pending_creates: state.pending_creates.clone(),
         max_version: state.max_version,
         pull_cursor: Some(state.pull_cursor),
         collection_id: Some(state.collection_id.clone()),
@@ -239,6 +280,7 @@ mod tests {
             collection_id: collection.into(),
             vault_key: [7; 32],
             object_map: HashMap::from([("note.md".into(), entry("o1"))]),
+            pending_creates: HashMap::new(),
             max_version: 10,
             pull_cursor: 8,
             oversize_skip: HashMap::new(),
@@ -254,6 +296,90 @@ mod tests {
         assert_eq!(loaded.max_version, 10);
         assert_eq!(loaded.pull_cursor, 8);
         assert_eq!(loaded.object_map["note.md"].object_id, "o1");
+    }
+
+    #[test]
+    fn pending_create_identity_round_trips_and_counts_as_collection_state() {
+        let root = TempRoot::new();
+        let mut connected = state("col-1");
+        connected.object_map.clear();
+        connected.max_version = 0;
+        connected.pull_cursor = 0;
+        connected.pending_creates.insert(
+            "new.md".into(),
+            PendingCreate {
+                mutation_id: "01890000-0000-7000-8000-00000000c001".into(),
+                original_name: "new.md".into(),
+                hash: "original-hash".into(),
+                size_bytes: 12,
+            },
+        );
+        save(root.path(), &connected).unwrap();
+
+        let loaded = load(root.path(), "col-1");
+        assert_eq!(
+            loaded.pending_creates["new.md"].mutation_id,
+            "01890000-0000-7000-8000-00000000c001"
+        );
+
+        let reset = load(root.path(), "col-2");
+        assert!(reset.pending_creates.is_empty());
+        assert!(!state_path(root.path()).exists());
+        assert!(load_ancestry(root.path()).is_empty());
+    }
+
+    #[test]
+    fn pending_create_accepts_the_previous_object_id_field_name() {
+        let pending: PendingCreate = serde_json::from_str(
+            r#"{
+                "objectId":"01890000-0000-7000-8000-00000000c003",
+                "originalName":"new.md",
+                "hash":"hash",
+                "sizeBytes":4
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(pending.mutation_id, "01890000-0000-7000-8000-00000000c003");
+    }
+
+    #[test]
+    fn older_checkpoint_without_pending_creates_loads_an_empty_pending_map() {
+        let root = TempRoot::new();
+        std::fs::write(
+            state_path(root.path()),
+            r#"{"version":1,"object_map":{},"max_version":0,"pull_cursor":0,"collection_id":"col-1"}"#,
+        )
+        .unwrap();
+
+        let loaded = load(root.path(), "col-1");
+        assert!(loaded.pending_creates.is_empty());
+    }
+
+    #[test]
+    fn older_client_shape_ignores_the_additive_pending_create_field() {
+        #[derive(Deserialize)]
+        struct LegacyShape {
+            object_map: HashMap<String, ObjectState>,
+            max_version: u64,
+        }
+
+        let root = TempRoot::new();
+        let mut connected = state("col-1");
+        connected.pending_creates.insert(
+            "new.md".into(),
+            PendingCreate {
+                mutation_id: "01890000-0000-7000-8000-00000000c002".into(),
+                original_name: "new.md".into(),
+                hash: "hash".into(),
+                size_bytes: 4,
+            },
+        );
+        save(root.path(), &connected).unwrap();
+        let raw = std::fs::read_to_string(state_path(root.path())).unwrap();
+
+        let legacy: LegacyShape = serde_json::from_str(&raw).unwrap();
+        assert_eq!(legacy.max_version, 10);
+        assert_eq!(legacy.object_map["note.md"].object_id, "o1");
     }
 
     #[test]

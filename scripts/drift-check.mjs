@@ -28,6 +28,9 @@ const REGISTRY_PATH = path.join(ROOT, 'scripts/drift-registry.json');
 const SKIP_DIRS = new Set([
   'node_modules',
   'target',
+  // A scan.dirs entry may name ".claude", which in the main checkout holds
+  // every agent worktree — each a whole repo.
+  'worktrees',
   'dist',
   '.git',
   '.build',

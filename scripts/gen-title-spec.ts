@@ -11,10 +11,10 @@
 //   apps/android/app/src/main/java/com/futo/notes/ui/TitleSpec.kt (consumed by NoteEditorScreen.kt)
 //
 // What is generated: the visible forbidden characters and MAX_TITLE_LENGTH —
-// the two pieces of data shared by every implementation. Control-character
-// handling remains platform-specific in these templates to preserve shipped
-// behavior: Kotlin matches the TS C0 + DEL fast path, while Swift matches
-// Rust's wider Unicode control-character rule.
+// the two pieces of data shared by every implementation. Control characters are
+// spelled per language because each has its own syntax for them, but every
+// template covers the same Unicode Cc set (C0, DEL, C1) that Rust's
+// `char::is_control()` and the TS `CONTROL_CHARS` range reject.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,9 +55,6 @@ function renderSwiftFile(): string {
     '/// Characters forbidden in a note title: `< > : " / \\ | ? *` plus Unicode',
     '/// control characters, matching the canonical Rust rule. Used only for live',
     '/// input filtering; authoritative validation + messages come from Rust FFI.',
-    '///',
-    '/// This is deliberately wider than the TS/Android live filter because Unicode',
-    '/// `.controlCharacters` also covers the C1 range (0x80–0x9F).',
     'enum TitleSpec {',
     `    static let forbiddenScalars: CharacterSet =`,
     `        CharacterSet(charactersIn: ${swiftString(FORBIDDEN_TITLE_CHARS_VISIBLE)}).union(.controlCharacters)`,
@@ -79,12 +76,13 @@ function renderKotlinFile(): string {
     'package com.futo.notes.ui',
     '',
     '/**',
-    ' * Characters stripped by the Android live title filter: `< > : " / \\ | ? *`,',
-    ' * C0 control characters, and DEL, matching the shared TS fast path. The',
-    ' * canonical Rust FFI validator supplies authoritative validation + messages.',
+    ' * Characters stripped by the Android live title filter: `< > : " / \\ | ? *`',
+    ' * plus the Unicode Cc control characters (C0, DEL, C1), matching the',
+    ' * canonical Rust rule. The Rust FFI validator supplies authoritative',
+    ' * validation + messages.',
     ' */',
     'object TitleSpec {',
-    `    val forbiddenChars = Regex("[${kotlinRegexVisibleChars(FORBIDDEN_TITLE_CHARS_VISIBLE)}\\\\x00-\\\\x1F\\\\x7F]")`,
+    `    val forbiddenChars = Regex("[${kotlinRegexVisibleChars(FORBIDDEN_TITLE_CHARS_VISIBLE)}\\\\u0000-\\\\u001F\\\\u007F-\\\\u009F]")`,
     '',
     '    /** Max title length (chars) — matches the shared `MAX_TITLE_LENGTH`. */',
     `    const val maxLength = ${MAX_TITLE_LENGTH}`,
