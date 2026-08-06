@@ -23,6 +23,10 @@ import {
 } from '../packages/editor/src/filename.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const FOUNDATION_CONTROL_CHARACTER_RANGES = [
+  [0x00, 0x1f],
+  [0x7f, 0x9f],
+] as const;
 
 function swiftString(s: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
@@ -49,6 +53,14 @@ function kotlinRegexControlRanges(): string {
 }
 
 function renderSwiftFile(): string {
+  if (
+    JSON.stringify(FORBIDDEN_TITLE_CONTROL_RANGES) !==
+    JSON.stringify(FOUNDATION_CONTROL_CHARACTER_RANGES)
+  ) {
+    throw new Error(
+      'TitleSpec.swift uses Foundation .controlCharacters; update its template for the changed canonical control ranges.',
+    );
+  }
   return [
     '// GENERATED FILE — DO NOT EDIT.',
     '// Source of truth: packages/editor/src/filename.ts (@futo-notes/editor).',

@@ -601,7 +601,7 @@ test:rust:workspace:
     - node scripts/check-rust-dependency-boundaries.mjs
     - mkdir -p dist
     - cargo test --workspace
-    - node --experimental-strip-types tests/conformance/title-rules-differential.mjs
+    - node --experimental-strip-types "$CI_PROJECT_DIR/tests/conformance/title-rules-differential.mjs"
   # Job 189242 exhausted the default 60m on a completely cold cache while
   # still compiling dependencies. Give that first run enough wall time to
   # finish and seed the existing when:always Cargo cache; warm runs remain

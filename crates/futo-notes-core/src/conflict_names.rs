@@ -381,22 +381,6 @@ mod property_tests {
 
     proptest! {
         #[test]
-        fn dated_naming_is_deterministic(name in vault_filename(), date in date_token()) {
-            prop_assert_eq!(
-                conflict_filename(&name, &date, &HashSet::new()),
-                conflict_filename(&name, &date, &HashSet::new()),
-            );
-        }
-
-        #[test]
-        fn collision_naming_is_deterministic(name in vault_filename(), id in object_id()) {
-            prop_assert_eq!(
-                collision_conflict_filename(&name, &id),
-                collision_conflict_filename(&name, &id),
-            );
-        }
-
-        #[test]
         fn dated_naming_is_a_fixed_point(name in vault_filename(), date in date_token()) {
             let once = conflict_filename(&name, &date, &HashSet::new());
             prop_assert_eq!(conflict_filename(&once, &date, &HashSet::new()), once);

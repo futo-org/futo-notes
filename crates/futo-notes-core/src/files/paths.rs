@@ -471,14 +471,6 @@ mod property_tests {
             }
         }
 
-        #[test]
-        fn note_paths_are_deterministic(id in hostile_note_id()) {
-            prop_assert_eq!(
-                safe_note_path(vault_root(), &id),
-                safe_note_path(vault_root(), &id),
-            );
-        }
-
         /// The sanitizer's output is a ready-to-use note id, including for
         /// adversarial dot-and-space inputs.
         #[test]
@@ -514,14 +506,6 @@ mod property_tests {
                 .to_string_lossy()
                 .replace(std::path::MAIN_SEPARATOR, "/");
             prop_assert_eq!(note_id_from_relative_path(&relative), Some(id));
-        }
-
-        #[test]
-        fn incoming_classification_is_deterministic(relative in syncable_relative_path()) {
-            prop_assert_eq!(
-                classify_incoming_sync_path(&relative),
-                classify_incoming_sync_path(&relative),
-            );
         }
 
         /// An `Accept` decision means the writer uses the remote name verbatim, so

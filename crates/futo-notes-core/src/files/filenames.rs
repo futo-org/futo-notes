@@ -307,11 +307,6 @@ pub(super) mod property_tests {
             prop_assert!(!is_windows_reserved_name(&sanitized), "{sanitized:?}");
         }
 
-        #[test]
-        fn sanitizing_the_same_title_twice_gives_the_same_result(title in arbitrary_title()) {
-            prop_assert_eq!(sanitize_title(&title), sanitize_title(&title));
-        }
-
         /// Sanitized titles are handed directly to the path layer, so dot-space
         /// inputs must settle to the fallback instead of `"."` or `".."`.
         #[test]

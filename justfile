@@ -408,11 +408,6 @@ test-ui:
 test-desktop-smoke:
   node tests/desktop-smoke.mjs
 
-# Compare a broad deterministic title corpus through the synchronous TypeScript
-# editor rule and the canonical Rust model in one batched process crossing.
-title-conformance-differential:
-  node --experimental-strip-types tests/conformance/title-rules-differential.mjs
-
 test-rust:
   cargo test -p futo-notes-model --test conformance
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
