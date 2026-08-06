@@ -121,8 +121,9 @@ contract), and
 list. Run it with `just test-ios-native`. Remaining coverage to add (`struct`
 suites, `#expect`/`#require`, parameterized; never XCTest):
 
-- [ ] **Conflict resolution** — `adoptExternalChange` clean / dirty / converged /
-  true-3-way branches (pure logic, high value, untested).
+- [x] **Open-note reconciliation** — the engine dispositions, rename-before-
+  delete ordering, focused/hidden deferral, mid-read identity changes, and
+  cancellation are covered through `OpenNoteReconcilerTests`.
 - [ ] **Path-traversal guard** — `FutoAssetSchemeHandler` rejects `../`, nested
   `/`, and non-image extensions (security-relevant).
 - [ ] **`VaultImages`** — filename uniqueness (the `mimeType` mapping vs the
