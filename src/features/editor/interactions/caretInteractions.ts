@@ -1,5 +1,7 @@
-import type { Extension } from '@codemirror/state';
+import { EditorSelection, type Extension, type SelectionRange } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+
+import { cursorOnTappedRow } from './caretRow';
 
 const INLINE_STYLED_SELECTOR = '.cm-md-emphasis, .cm-md-strong, .cm-md-strikethrough, .cm-md-code';
 const VISIBLE_LINE_EDGE_SELECTOR = [
@@ -23,12 +25,22 @@ interface LineHit {
   lineElement: HTMLElement;
 }
 
-function getRenderedLineRight(line: HTMLElement): number | null {
-  let right: number | null = null;
+/** One rendered fragment of a line, kept per VISUAL row rather than merged. */
+interface RenderedFragment {
+  top: number;
+  bottom: number;
+  right: number;
+}
+
+function collectRenderedFragments(line: HTMLElement): RenderedFragment[] {
+  const fragments: RenderedFragment[] = [];
+  const add = (rect: DOMRect) => {
+    if (rect.width <= 0 && rect.height <= 0) return;
+    fragments.push({ top: rect.top, bottom: rect.bottom, right: rect.right });
+  };
+
   for (const candidate of line.querySelectorAll(VISIBLE_LINE_EDGE_SELECTOR)) {
-    const rect = (candidate as HTMLElement).getBoundingClientRect();
-    if (rect.width <= 0 && rect.height <= 0) continue;
-    right = right === null ? rect.right : Math.max(right, rect.right);
+    for (const rect of (candidate as HTMLElement).getClientRects()) add(rect);
   }
 
   const walker = document.createTreeWalker(line, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
@@ -39,31 +51,42 @@ function getRenderedLineRight(line: HTMLElement): number | null {
         current = walker.nextNode();
         continue;
       }
-      const rect = current.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        right = right === null ? rect.right : Math.max(right, rect.right);
-      }
+      for (const rect of current.getClientRects()) add(rect);
     } else if (current instanceof Text) {
       const parent = current.parentElement;
       if (current.textContent && parent && !parent.closest('.cm-md-marker-widget')) {
         const range = document.createRange();
         range.selectNodeContents(current);
-        for (const rect of range.getClientRects()) {
-          if (rect.width <= 0 && rect.height <= 0) continue;
-          right = right === null ? rect.right : Math.max(right, rect.right);
-        }
+        for (const rect of range.getClientRects()) add(rect);
       }
     }
     current = walker.nextNode();
   }
-  return right;
+  return fragments;
+}
+
+/**
+ * The right edge of the rendered text on the pointer's OWN row. Measured across
+ * the whole line this is the widest row, so a click past a last row shorter than
+ * an earlier one read as "not past the text" and fell through to the engine,
+ * which answers inside a wikilink's hidden `]]`. A pointer on no text row
+ * measures the whole line — the only answer available there.
+ */
+function getRenderedRowRight(line: HTMLElement, clientY: number): number | null {
+  const fragments = collectRenderedFragments(line);
+  if (fragments.length === 0) return null;
+  const onPointerRow = fragments.filter(
+    (fragment) => clientY >= fragment.top && clientY <= fragment.bottom,
+  );
+  const measured = onPointerRow.length > 0 ? onPointerRow : fragments;
+  return Math.max(...measured.map((fragment) => fragment.right));
 }
 
 export class EditorCaretInteractions {
   private lineEndPending: {
     clientX: number;
     clientY: number;
-    lineTo: number;
+    rowEnd: SelectionRange;
   } | null = null;
 
   readonly extensions: Extension[];
@@ -106,22 +129,25 @@ export class EditorCaretInteractions {
     clientY: number,
     view: EditorView,
     targetNode?: Node | null,
-    requireLine = false,
-  ): number | null {
+  ): SelectionRange | null {
     const hit = this.getLineHitAtPoint(clientX, clientY, view, targetNode);
-    if (!hit) return requireLine ? null : view.posAtCoords({ x: clientX, y: clientY }, false);
+    // No answer off a line: posAtCoords would report a document end and override
+    // the engine's own placement. → docs/spec/editor.md
+    if (!hit) return null;
     const { line, lineElement } = hit;
-    if (line.from === line.to) return line.from;
+    if (line.from === line.to) return EditorSelection.cursor(line.from);
 
     const rect = lineElement.getBoundingClientRect();
     const x = Math.min(Math.max(clientX, rect.left + 1), rect.right - 1);
     const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
     const position = view.posAtCoords({ x, y }, false);
-    if (position !== null && position >= line.from && position <= line.to) return position;
+    if (position !== null && position >= line.from && position <= line.to) {
+      return cursorOnTappedRow(view, position, y);
+    }
 
-    const visibleRight = getRenderedLineRight(lineElement);
-    if (visibleRight !== null && clientX > visibleRight + 1) return line.to;
-    return line.from;
+    const visibleRight = getRenderedRowRight(lineElement, y);
+    if (visibleRight !== null && clientX > visibleRight + 1) return EditorSelection.cursor(line.to);
+    return EditorSelection.cursor(line.from);
   }
 
   private createTripleClickHandler(): Extension {
@@ -147,6 +173,22 @@ export class EditorCaretInteractions {
     return EditorView.domEventHandlers({ mousedown: selectLine, click: selectLine });
   }
 
+  /** The end of the visual row the pointer is on, not the wrapped line's end. */
+  private rowEndAt(clientY: number, hit: LineHit, view: EditorView): SelectionRange {
+    const rect = hit.lineElement.getBoundingClientRect();
+    const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
+
+    // The row carrying the line's end answers with it, not with what the row
+    // renders: hidden trailing markers (a wikilink's `]]`) stop it short.
+    const lineEnd = view.coordsAtPos(hit.line.to, -1);
+    if (lineEnd && y >= lineEnd.top && y <= lineEnd.bottom) {
+      return EditorSelection.cursor(hit.line.to);
+    }
+
+    const inRow = view.posAtCoords({ x: rect.right - 1, y }, false);
+    return cursorOnTappedRow(view, inRow ?? hit.line.to, y);
+  }
+
   private createLineEndClickHandler(): Extension {
     return EditorView.domEventHandlers({
       mousedown: (event, view) => {
@@ -160,13 +202,13 @@ export class EditorCaretInteractions {
           event.target as Node | null,
         );
         if (!hit) return false;
-        const visibleRight = getRenderedLineRight(hit.lineElement);
+        const visibleRight = getRenderedRowRight(hit.lineElement, event.clientY);
         if (visibleRight === null || event.clientX <= visibleRight + 1) return false;
 
         this.lineEndPending = {
           clientX: event.clientX,
           clientY: event.clientY,
-          lineTo: hit.line.to,
+          rowEnd: this.rowEndAt(event.clientY, hit, view),
         };
         return false;
       },
@@ -183,7 +225,7 @@ export class EditorCaretInteractions {
         }
 
         event.preventDefault();
-        view.dispatch({ selection: { anchor: pending.lineTo } });
+        view.dispatch({ selection: EditorSelection.create([pending.rowEnd]) });
         return true;
       },
     });
@@ -202,8 +244,8 @@ export class EditorCaretInteractions {
           view,
           event.target as Node | null,
         );
-        if (desired === null || desired === selection.head) return false;
-        view.dispatch({ selection: { anchor: desired }, scrollIntoView: false });
+        if (desired === null || desired.head === selection.head) return false;
+        view.dispatch({ selection: EditorSelection.create([desired]), scrollIntoView: false });
         return false;
       },
     });
