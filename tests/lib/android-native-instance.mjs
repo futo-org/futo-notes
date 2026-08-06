@@ -44,6 +44,7 @@ const SAVE_TIMEOUT_MS = 20_000;
 // safety poll is the backstop when an event is missed, so wait past it before
 // calling live sync broken.
 const LIVE_TIMEOUT_MS = 90_000;
+const OPEN_NOTE_LOG_TAG = 'FutoOpenNote';
 
 /**
  * Decide whether this machine can run the Android leg right now.
@@ -316,24 +317,90 @@ class AndroidNativeSyncClient {
 
   // ── Editor (WebView over CDP) ─────────────────────────────────
 
-  /** Open `id` from the note list, replace its text through the editor, and
-   *  return once the app has written it to disk. Posting the bridge `change`
-   *  message is what a real keystroke does — `setContent` alone only repaints
-   *  the WebView and never reaches the native save pipeline. */
-  async editNoteViaEditor(id, content) {
+  async openNoteInEditor(id) {
     if (id.includes('/')) {
-      throw new Error(`${this.name}: editNoteViaEditor needs a top-level note, got ${id}`);
+      throw new Error(`${this.name}: openNoteInEditor needs a top-level note, got ${id}`);
     }
     await this.openNoteList();
     await this.device.tap(id, { scroll: true });
     const onDisk = this.readNote(id);
     await this.device.waitFor(`${this.name}'s editor to load ${id}`, UI_TIMEOUT_MS, async () => {
-      const loaded = await this.#evaluateInEditor(
-        'typeof window.FutoEditor === "object" && window.FutoEditor.getContent()',
-      );
-      return loaded === onDisk;
+      return (await this.readOpenEditorContent()) === onDisk;
     });
+  }
 
+  async readOpenEditorContent() {
+    return this.#evaluateInEditor(
+      'typeof window.FutoEditor === "object" && window.FutoEditor.getContent()',
+    );
+  }
+
+  async waitForOpenEditorContent(expected, timeoutMs = LIVE_TIMEOUT_MS) {
+    await this.device.waitFor(
+      `${this.name}'s editor to hold ${JSON.stringify(expected.slice(0, 40))}`,
+      timeoutMs,
+      async () => (await this.readOpenEditorContent()) === expected,
+    );
+  }
+
+  async focusOpenEditor() {
+    await this.#evaluateInEditor(
+      `(() => {
+        window.FutoEditor.focus();
+        return true;
+      })()`,
+    );
+    await this.device.waitFor(`${this.name}'s editor to gain focus`, UI_TIMEOUT_MS, () =>
+      this.#evaluateInEditor(
+        `document.querySelector('.cm-editor')?.classList.contains('cm-focused') === true`,
+      ),
+    );
+  }
+
+  async blurOpenEditor() {
+    await this.#evaluateInEditor(
+      `(() => {
+        window.FutoEditor.blur();
+        return true;
+      })()`,
+    );
+    await this.device.waitFor(`${this.name}'s editor to lose focus`, UI_TIMEOUT_MS, () =>
+      this.#evaluateInEditor(
+        `document.querySelector('.cm-editor')?.classList.contains('cm-focused') !== true`,
+      ),
+    );
+  }
+
+  async waitForOpenEditorTitle(title, timeoutMs = LIVE_TIMEOUT_MS) {
+    await this.device.waitFor(`"${title}" as ${this.name}'s open-note title`, timeoutMs, () =>
+      this.device.isVisible(title),
+    );
+  }
+
+  openNoteDispositionCursor() {
+    return this.#openNoteDispositionLogs().length;
+  }
+
+  /** Wait for the debug build's observation-only signal that the Android shell
+   *  finished rendering an engine disposition. */
+  async waitForOpenNoteDisposition(
+    disposition,
+    { focused, afterCursor, timeoutMs = LIVE_TIMEOUT_MS },
+  ) {
+    if (!Number.isInteger(afterCursor)) {
+      throw new Error(`${this.name}: an open-note log cursor is required`);
+    }
+    const expected = `disposition=${disposition} focused=${focused ? 'true' : 'false'}`;
+    await this.device.waitFor(`${this.name} to report ${expected}`, timeoutMs, () =>
+      this.#openNoteDispositionLogs()
+        .slice(afterCursor)
+        .some((line) => line.includes(expected)),
+    );
+  }
+
+  /** Post the same bridge message as a real editor change. `setContent` alone
+   *  repaints the WebView without reaching the native save pipeline. */
+  async replaceOpenEditorContent(content) {
     const payload = JSON.stringify(content);
     await this.#evaluateInEditor(
       `(() => {
@@ -342,9 +409,20 @@ class AndroidNativeSyncClient {
         return 'sent';
       })()`,
     );
+  }
+
+  async waitForNoteMissing(id, timeoutMs = LIVE_TIMEOUT_MS) {
+    await this.device.waitFor(`${id} to be absent from ${this.name}'s vault`, timeoutMs, () => {
+      return !this.noteExists(id);
+    });
+  }
+
+  /** Open `id`, replace its text through the shipping editor bridge, and
+   *  return once the app has written it to disk. */
+  async editNoteViaEditor(id, content) {
+    await this.openNoteInEditor(id);
+    await this.replaceOpenEditorContent(content);
     await this.waitForNoteContent(id, content, SAVE_TIMEOUT_MS);
-    // Leave the editor so the note is committed and the next step starts from
-    // the list.
     await this.openNoteList();
   }
 
@@ -362,6 +440,13 @@ class AndroidNativeSyncClient {
       },
     );
     return JSON.parse(stdout);
+  }
+
+  #openNoteDispositionLogs() {
+    return this.device
+      .adb(['logcat', '-d', '-s', `${OPEN_NOTE_LOG_TAG}:D`, '*:S'], { allowFailure: true })
+      .split('\n')
+      .filter((line) => line.includes('disposition='));
   }
 
   /** The DevTools socket is named after the app's pid, so a relaunch needs a

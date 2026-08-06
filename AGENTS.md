@@ -515,7 +515,7 @@ behavior.
 | Playwright smoke | `just test-e2e` | `tests/p0-regressions.spec.ts` |
 | Playwright full | `just test-e2e-full` | all specs |
 | Markdown spec corpus | `just test-markdown-spec` | decoration/cursor YAML cases |
-| Cross-platform sync | `just test-cross-platform` | 2 real Tauri instances + server, ~26 scenarios; plus a native-Android leg (3 scenarios) whenever a device with the debug app is reachable — no device prints a loud SKIP and runs the desktop-only mesh |
+| Cross-platform sync | `just test-cross-platform` | 2 real Tauri instances + server, ~26 scenarios; plus a native-Android leg (5 scenarios) whenever a device with the debug app is reachable — no device prints a loud SKIP and runs the desktop-only mesh |
 | Android JVM | `just test-android-native` | native pure-logic tests |
 | Desktop smoke | `just test-desktop-smoke` | MCP-bridge 4-check smoke |
 | Everything local | `just check` | the pre-merge umbrella |

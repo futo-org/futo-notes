@@ -249,6 +249,25 @@ export class TauriTestClient {
     return this._executeRead(`window.__notesShellTest.getState()`, 'getOpenNoteState');
   }
 
+  // Focus the editor through CodeMirror's DOM surface. Its update listener
+  // reports the focus transition to the note session.
+  async focusEditor() {
+    await this._executeMutation(
+      `(() => {
+        const cm = document.querySelector('.cm-content');
+        if (!(cm instanceof HTMLElement)) throw new Error('editor content not found');
+        cm.focus();
+        return true;
+      })()`,
+      'focusEditor',
+    );
+    await this.waitForCondition(
+      `document.querySelector('.cm-editor')?.classList.contains('cm-focused') === true`,
+      5000,
+      'editor focused',
+    );
+  }
+
   // Blur the editor (moving DOM focus off .cm-content) and report whether it
   // is now unfocused. CodeMirror's updateListener fires focusChanged on the
   // blur, which drives the host's handleEditorFocusChange(false).

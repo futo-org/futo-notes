@@ -9,8 +9,9 @@
  *
  * A second leg pairs a desktop client with the REAL native Android app when a
  * usable device is reachable, covering the Android shell glue the desktop pair
- * cannot see (FFI wiring, live-loop lifecycle, list refresh). With no device it
- * prints a loud SKIP and runs the desktop-only mesh — see runAndroidLeg.
+ * cannot see (FFI wiring, live-loop lifecycle, open-note reconciliation, list
+ * refresh). With no device it prints a loud SKIP and runs the desktop-only mesh
+ * — see runAndroidLeg.
  *
  * Usage:
  *   node tests/cross-platform-sync.mjs
@@ -306,7 +307,8 @@ async function threeWayMerge(a, b, server) {
   // uncontrolled times, so the 3-way merge can run in a background cycle and
   // spawn a conflict copy that the explicit-sync assertion then sees. The merge
   // is trigger-agnostic, so the explicit syncs exercise the same merge code
-  // deterministically. Same family as activeNoteReload/editorRoundtrip.
+  // deterministically. Same family as the focused-open-note/editor-roundtrip
+  // scenarios.
   await a.pauseAutoSync();
   await b.pauseAutoSync();
 
@@ -366,7 +368,8 @@ async function renamePropagation(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
 
-  // Own the push/pull on both clients (same live-sync race as activeNoteReload).
+  // Own the push/pull on both clients (same live-sync race as the
+  // focused-open-note scenario).
   //  - B: with its SSE live loop up, A's rename push wakes it and it pulls
   //    concurrently with b.syncNow(); if the delete ('old name') and the create
   //    ('new name') land on separate B pull cycles, B sees a lone deletion of
@@ -526,7 +529,7 @@ async function collisionPlacementFollowsOpenNote(a, b, server) {
   assertEqual(await a.readNote(conflictId), '# from B', 'A conflict copy should hold B’s content');
 }
 
-async function activeNoteReload(a, b, server) {
+async function focusedOpenNoteDefersPeerEditUntilBlur(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
 
@@ -559,28 +562,7 @@ async function activeNoteReload(a, b, server) {
 
   await b.openNote('shared live');
   await waitForEditorContent(b, '# Version 1');
-
-  // Blur B's editor before the remote update lands. On desktop the editor
-  // autofocuses on mount (MarkdownEditor's one-shot mount rAF -> view.focus()),
-  // and whether hasFocus() is still true by the time B's second syncNow
-  // completes is timing/environment-sensitive: on a loaded/headless CI runner
-  // it reliably stays focused, on an idle dev box it often does not. That
-  // matters because handleSyncComplete's open-note reconcile DEFERS the adopt
-  // of a peer update while the editor is focused (never replace CM6's document
-  // under live focus — the F4/PKT-4 guard) and only reconciles the pending
-  // adopt on the next blur. The scenario never blurred, so under CI focus the
-  // adopt was deferred forever and the editor stayed on "# Version 1" (this is
-  // the "active note reload" flake: 3 CI hits, always the editor-content wait,
-  // never the downloaded===1 assert). This scenario exercises the direct-adopt
-  // path (open, unfocused note reloads on a peer update); the focused ->
-  // defer -> blur -> adopt contract is covered by syncManager.test.ts. Wait on
-  // the actual precondition (unfocused), not a longer timeout.
-  await b.blurEditor();
-  await b.waitForCondition(
-    `!(document.activeElement && document.activeElement.classList.contains('cm-content'))`,
-    5000,
-    'editor blurred',
-  );
+  await b.focusEditor();
 
   await a.writeNote('shared live', '# Version 2\nRemote update');
   await a.syncNow();
@@ -591,6 +573,14 @@ async function activeNoteReload(a, b, server) {
     1,
     `B downloaded=${bResult.summary.downloaded}, expected 1`,
   );
+  const deferredState = await b.getOpenNoteState();
+  assertEqual(
+    deferredState.editorContent,
+    '# Version 1',
+    'focused editor should defer a peer update',
+  );
+
+  await b.blurEditor();
   const state = await waitForEditorContent(b, '# Version 2\nRemote update');
   assertEqual(
     state.originalId,
@@ -819,7 +809,8 @@ async function peerDeleteOfOpenNoteClosesEditor(a, b, server) {
 
   // Pause B's background sync so B's explicit syncNow deterministically OWNS
   // the pull of A's delete — the deleted-open-note branch only fires for the
-  // cycle whose summary.deletedIds contains the note (mirrors activeNoteReload).
+  // cycle whose summary.deletedIds contains the note (mirrors the
+  // focused-open-note scenario).
   await b.pauseAutoSync();
 
   await a.writeNote('peer deletes me', '# Doomed content');
@@ -1729,8 +1720,9 @@ async function distinctSameBasenameSurvivesMoveDedup(a, b, server) {
 // The Rust sync engine is shared, so these assert only what the Android SHELL
 // owns: the FFI session, the SSE live loop across the app lifecycle, the list
 // refresh a pull must drive, and conflict copies landing in the device's vault.
-// Nothing here asserts a user-facing string or a summary count — the Android
-// side has no test hook, so every check is a file on disk or a row in the list.
+// The Android side has no behavioral test hook: checks use the device vault,
+// Compose semantics, the shipping FutoEditor bridge, and observation-only
+// debug logs.
 
 /** Registry marker for scenarios that need the native Android client. Unlike
  *  `--matrix`, which picks ONE desktop pair, this leg is attached to the same
@@ -1770,6 +1762,75 @@ async function desktopReceivesAndroidEditorEdit(desktop, android, server) {
   await android.editNoteViaEditor(ANDROID_SHARED_NOTE, edited);
 
   await waitForDesktopNoteContent(desktop, ANDROID_SHARED_NOTE, edited);
+}
+
+async function androidDefersFocusedPeerEditUntilBlur(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+  await desktop.pauseAutoSync();
+
+  const id = `${HARNESS_NOTE_PREFIX}focused-open`;
+  const base = '# focused on Android\nbase text';
+  await desktop.writeNote(id, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(id, base);
+
+  await android.openNoteInEditor(id);
+  await android.focusOpenEditor();
+
+  const peerEdit = '# focused on Android\npeer edit';
+  const deferCursor = android.openNoteDispositionCursor();
+  await desktop.writeNote(id, peerEdit);
+  await desktop.syncNow();
+  await android.waitForOpenNoteDisposition('DeferAdopt', {
+    focused: true,
+    afterCursor: deferCursor,
+  });
+  assertEqual(android.readNote(id), peerEdit, 'Android vault should contain the peer edit');
+  assertEqual(
+    await android.readOpenEditorContent(),
+    base,
+    'focused Android editor should not immediately adopt a peer edit',
+  );
+
+  const adoptCursor = android.openNoteDispositionCursor();
+  await android.blurOpenEditor();
+  await android.waitForOpenNoteDisposition('Adopt', {
+    focused: false,
+    afterCursor: adoptCursor,
+  });
+  await android.waitForOpenEditorContent(peerEdit);
+}
+
+async function androidFollowsPeerRenameWhileOpen(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+  await desktop.pauseAutoSync();
+
+  const oldId = `${HARNESS_NOTE_PREFIX}rename-open`;
+  const newId = `${HARNESS_NOTE_PREFIX}renamed-open`;
+  const base = '# rename while open\nbase text';
+  await desktop.writeNote(oldId, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(oldId, base);
+
+  await android.openNoteInEditor(oldId);
+  await android.focusOpenEditor();
+
+  await desktop.moveNote(oldId, newId);
+  await desktop.syncNow();
+  await android.waitForNoteMissing(oldId);
+  await android.waitForNoteContent(newId, base);
+  await android.waitForOpenEditorTitle(newId);
+  await android.waitForOpenEditorContent(base);
+
+  const editedAfterRename = '# rename while open\nedited after rename';
+  await android.replaceOpenEditorContent(editedAfterRename);
+  await android.waitForNoteContent(newId, editedAfterRename);
+  assert(!android.noteExists(oldId), 'editing after a peer rename must not resurrect old id');
+
+  await waitForDesktopNoteContent(desktop, newId, editedAfterRename);
+  assert(!(await desktop.noteExists(oldId)), 'desktop should keep the old id deleted');
 }
 
 async function androidConflictsWithDesktopEdit(desktop, android, server) {
@@ -1865,7 +1926,11 @@ const scenarios = [
     fn: collisionPlacementFollowsOpenNote,
     matrices: ['desktop-desktop'],
   },
-  { name: 'active note reload', fn: activeNoteReload, matrices: ['desktop-desktop'] },
+  {
+    name: 'focused open note defers peer edit until blur',
+    fn: focusedOpenNoteDefersPeerEditUntilBlur,
+    matrices: ['desktop-desktop'],
+  },
   // Folder-support v1 scenarios — see Specs § Sync conflict resolution.
   {
     name: 'folder rename on A edit on B',
@@ -1976,6 +2041,16 @@ const scenarios = [
   {
     name: 'desktop receives an android editor edit',
     fn: desktopReceivesAndroidEditorEdit,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'android defers a focused peer edit until blur',
+    fn: androidDefersFocusedPeerEditUntilBlur,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'android follows a peer rename while open',
+    fn: androidFollowsPeerRenameWhileOpen,
     matrices: [ANDROID_MATRIX],
   },
   {
@@ -2313,7 +2388,7 @@ async function main() {
   for (const scenario of selected) {
     if (args['android-only'] && !scenario.matrices.includes(ANDROID_MATRIX)) {
       // Not "skipped" — out of scope for this run, and reporting 31 skip rows
-      // would bury the 3 that matter. The desktop mesh has its own job.
+      // would bury the 5 that matter. The desktop mesh has its own job.
       continue;
     }
     if (scenario.matrices.includes(ANDROID_MATRIX)) {
