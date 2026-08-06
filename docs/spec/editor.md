@@ -809,11 +809,32 @@ EditorWebView.swift, EditorWebView.kt
 - On Tauri the same contract holds via the shared shell: the title is a
   textarea above the tag bar; edits debounce into a file rename and rewrite
   backlinks (see "Wikilinks — navigation & integrity"). Verified on Android
-  Tauri 2026-06-09. Title-only edits use an aggressive ~10 s debounce (body
-  edits keep ~500 ms) so a rename round-trip never fires mid-typing and clobbers
-  in-flight keystrokes; moving focus into the editor body flushes the pending
-  title save immediately. → `noteSession.svelte.ts` `debouncedSave`,
-  `NotesShell.svelte` `handleEditorFocusChange`
+  Tauri 2026-06-09.
+  - Title-only edits use an aggressive ~10 s debounce (body edits keep ~500 ms)
+    so a rename round-trip never fires mid-typing and clobbers in-flight
+    keystrokes.
+  - That debounce is a **backstop, not the commit path**: **the title field
+    losing focus commits the pending rename**, wherever focus goes — the body,
+    another note, or inert chrome — so the list picks up the new name when the
+    user is done naming rather than only as a side effect of the next body edit.
+  - Enter commits too (it moves focus to the body).
+  - A title left unchanged writes nothing.
+  - The commit is **deferred until the pointer gesture that blurred the field is
+    over**. `blur` fires on pointer-DOWN, and a rename re-sorts the list (the
+    note jumps to the top on mtime): commit during the press and the row under
+    the cursor changes before the click is delivered, so a click aimed at
+    another note opens the wrong one — and the click, whose press and release
+    now hit different rows, reaches no row at all.
+  - A drag holds the commit past the drop, until `dragend`. The drop handler
+    acts on the note id captured at `dragstart`, so a rename landing mid-drag
+    would leave it moving a file that no longer exists and the move would be
+    lost. A gesture that ends without a click or a drag drains on a short
+    fallback instead.
+
+  → `noteSession.svelte.ts` `debouncedSave`,
+  `createNoteTitleController.svelte.ts` `handleBlur`,
+  `$shared/dom/pointerGesture.ts` `runWhenPointerIdle`;
+  tests/p2-regressions.spec.ts, src/shared/dom/pointerGesture.test.ts
 
 ## Editor exits — every way an open note ends _(iOS/Android)_
 

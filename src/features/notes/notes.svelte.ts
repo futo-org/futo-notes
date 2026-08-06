@@ -47,6 +47,19 @@ function preview(note: LocalNoteMetadata): NotePreview {
 function replaceFromSnapshot(snapshot: LocalNoteSnapshot): void {
   notesCache = snapshot.notes.map(preview);
   setFolderSnapshot(snapshot.folders, notesCache);
+  lastSaveIdentityChange = null;
+}
+
+let lastSaveIdentityChange: { from: string | null; to: string } | null = null;
+
+/** The id a save gave the note it wrote: the mint of a first save, or the move a
+ * title edit performed. `noteActionTarget` follows a picked note across it. */
+export function recordSaveIdentityChange(from: string | null, to: string): void {
+  lastSaveIdentityChange = { from, to };
+}
+
+export function getSaveIdentityChange(): { from: string | null; to: string } | null {
+  return lastSaveIdentityChange;
 }
 
 /** Project a committed Rust mutation by removing affected rows and splicing
@@ -63,6 +76,11 @@ export function _applyLocalMutation(mutation: LocalNoteMutation): void {
   }
   notesCache = next;
   setFolderSnapshot(mutation.folders, notesCache);
+  // The old id names a note again, so the rename can no longer explain its absence.
+  const recorded = lastSaveIdentityChange?.from;
+  if (recorded && mutation.upserted.some((entry) => entry.note.id === recorded)) {
+    lastSaveIdentityChange = null;
+  }
   for (const warning of mutation.warnings) console.warn(`[local-notes] ${warning}`);
 }
 
@@ -163,6 +181,11 @@ export interface UpdateNoteResult {
   mtime: number;
   disposition: UpdateNoteDisposition;
   parkedId?: string;
+  /**
+   * Apply via `_applyLocalMutation` in the same synchronous block as the caller's
+   * own identity update, or the render in between selects a since-removed id.
+   */
+  unappliedMutation: LocalNoteMutation | null;
 }
 
 export async function updateNote(
@@ -176,7 +199,6 @@ export async function updateNote(
 
   if (originalId === id && base !== undefined && overrideMtime === undefined) {
     const flush = await store.flushDraft(originalId, base, content);
-    if (flush.mutation) _applyLocalMutation(flush.mutation);
 
     if (flush.disposition.kind === 'parkedConflict') {
       return {
@@ -184,6 +206,7 @@ export async function updateNote(
         mtime: getNoteById(originalId)?.modificationTime ?? Date.now(),
         disposition: 'parked',
         parkedId: flush.disposition.parkedId,
+        unappliedMutation: flush.mutation,
       };
     }
 
@@ -194,13 +217,18 @@ export async function updateNote(
           ? (getNoteById(originalId)?.modificationTime ?? Date.now())
           : mtimeFor(flush.mutation, originalId),
       disposition: flush.disposition.kind,
+      unappliedMutation: flush.mutation,
     };
   }
 
   const mutation = await store.save(originalId ?? null, id, content, overrideMtime);
-  _applyLocalMutation(mutation);
   const savedId = mutation.finalId ?? id;
-  return { id: savedId, mtime: mtimeFor(mutation, savedId), disposition: 'wrote' };
+  return {
+    id: savedId,
+    mtime: mtimeFor(mutation, savedId),
+    disposition: 'wrote',
+    unappliedMutation: mutation,
+  };
 }
 
 export async function moveNote(
