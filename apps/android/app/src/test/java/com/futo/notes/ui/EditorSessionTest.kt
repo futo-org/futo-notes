@@ -12,6 +12,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.futo_notes_ffi.KeepDraftReason
+import uniffi.futo_notes_ffi.OpenNoteDisposition
+import uniffi.futo_notes_ffi.OpenNoteFacts
 
 /**
  * The editor session's contract is an ORDER, so these tests inject recording
@@ -20,6 +23,47 @@ import org.junit.Test
  * asserted through the verb the shell actually calls.
  */
 class EditorSessionTest {
+    private class RecordingOpenNoteEffects(
+        var noteId: String = "note",
+        val dispositions: ArrayDeque<OpenNoteDisposition>,
+        val log: MutableList<String>,
+        val duringFacts: (() -> Unit)? = null,
+        val continueAfterRename: Set<String> = emptySet(),
+    ) : OpenNoteEffects {
+        override fun currentNoteId(): String = noteId
+
+        override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
+            log += "facts:$noteId"
+            duringFacts?.invoke()
+            return OpenNoteFacts(
+                base = "base",
+                draft = "draft",
+                disk = "disk",
+                renamedTo = null,
+                editorFocused = true,
+                editedDuringCycle = false,
+            )
+        }
+
+        override fun classify(facts: OpenNoteFacts): OpenNoteDisposition {
+            log += "classify"
+            return dispositions.removeFirst()
+        }
+
+        override suspend fun apply(
+            noteId: String,
+            disposition: OpenNoteDisposition,
+        ) {
+            log += "apply:$noteId:${disposition::class.simpleName}"
+            if (disposition is OpenNoteDisposition.FollowRename) {
+                this.noteId = disposition.toId
+            }
+        }
+
+        override fun shouldContinueAfterRename(noteId: String): Boolean =
+            noteId in continueAfterRename
+    }
+
     /** Records every effect the session invokes, in order. */
     private class RecordingEffects(
         val log: MutableList<String>,
@@ -86,6 +130,118 @@ class EditorSessionTest {
 
     private suspend fun CoroutineScope.settle() {
         coroutineContext.job.children.forEach { it.join() }
+    }
+
+    @Test
+    fun `open-note reconciliation renders every engine disposition`() = runBlocking {
+        val dispositions = listOf(
+            OpenNoteDisposition.Leave,
+            OpenNoteDisposition.Adopt("peer"),
+            OpenNoteDisposition.FollowRename("renamed"),
+            OpenNoteDisposition.KeepDraft("peer", KeepDraftReason.DIVERGED),
+        )
+
+        dispositions.forEach { disposition ->
+            val log = mutableListOf<String>()
+            val session = EditorSession(scope())
+            session.reconcileOpenNote(
+                RecordingOpenNoteEffects(
+                    dispositions = ArrayDeque(listOf(disposition)),
+                    log = log,
+                ),
+            )
+            assertEquals(
+                listOf("facts:note", "classify", "apply:note:${disposition::class.simpleName}"),
+                log,
+            )
+        }
+
+        val closeLog = mutableListOf<String>()
+        val closingSession = EditorSession(scope())
+        closingSession.reconcileOpenNote(
+            RecordingOpenNoteEffects(
+                dispositions = ArrayDeque(listOf(OpenNoteDisposition.Close)),
+                log = closeLog,
+            ),
+        )
+        assertTrue(closingSession.isClosing)
+        assertEquals(
+            listOf("facts:note", "classify", "apply:note:Close"),
+            closeLog,
+        )
+    }
+
+    @Test
+    fun `focused adoption is deferred exactly until the session settles on blur`() = runBlocking {
+        val log = mutableListOf<String>()
+        val session = EditorSession(scope())
+        val effects = RecordingOpenNoteEffects(
+            dispositions = ArrayDeque(
+                listOf(OpenNoteDisposition.DeferAdopt, OpenNoteDisposition.Adopt("peer")),
+            ),
+            log = log,
+        )
+
+        session.reconcileOpenNote(effects)
+        session.settleDeferredAdoption(effects)
+
+        assertEquals(
+            listOf(
+                "facts:note",
+                "classify",
+                "apply:note:DeferAdopt",
+                "facts:note",
+                "classify",
+                "apply:note:Adopt",
+            ),
+            log,
+        )
+    }
+
+    @Test
+    fun `a rename target affected in the same cycle is classified before work can interleave`() =
+        runBlocking {
+            val log = mutableListOf<String>()
+            val session = EditorSession(scope())
+            val effects = RecordingOpenNoteEffects(
+                dispositions = ArrayDeque(
+                    listOf(
+                        OpenNoteDisposition.FollowRename("renamed"),
+                        OpenNoteDisposition.Adopt("peer target"),
+                    ),
+                ),
+                log = log,
+                continueAfterRename = setOf("renamed"),
+            )
+
+            session.reconcileOpenNote(effects)
+
+            assertEquals(
+                listOf(
+                    "facts:note",
+                    "classify",
+                    "apply:note:FollowRename",
+                    "facts:renamed",
+                    "classify",
+                    "apply:renamed:Adopt",
+                ),
+                log,
+            )
+        }
+
+    @Test
+    fun `an identity change during fact gathering applies nothing`() = runBlocking {
+        val log = mutableListOf<String>()
+        lateinit var effects: RecordingOpenNoteEffects
+        effects = RecordingOpenNoteEffects(
+            dispositions = ArrayDeque(listOf(OpenNoteDisposition.Adopt("peer"))),
+            log = log,
+            duringFacts = { effects.noteId = "another-note" },
+        )
+
+        EditorSession(scope()).reconcileOpenNote(effects)
+
+        assertEquals(listOf("facts:note"), log)
     }
 
     @Test

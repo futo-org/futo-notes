@@ -5,7 +5,6 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import uniffi.futo_notes_ffi.FlushDisposition
 
 /**
  * Regression for the Android editor's unsaved-draft register (F5 lifecycle
@@ -68,29 +67,6 @@ class EditorLifecycleFlushTest {
             "renamed",
             derivePendingDraft(loaded = true, noteId = "renamed", savedContent = "A", content = "AB")!!.id,
         )
-    }
-
-    @Test
-    fun conflictAdoptionReloadsOnlyAfterTheEngineParksTheDraft() {
-        assertEquals(
-            AdoptFlushOutcome.RELOAD_DISK,
-            adoptFlushOutcome(FlushDisposition.ParkedConflict("parked")),
-        )
-        assertEquals(
-            AdoptFlushOutcome.RETRY_LATER,
-            adoptFlushOutcome(null),
-        )
-    }
-
-    @Test
-    fun conflictAdoptionKeepsDraftForEveryEngineOutcomeThatOwnsTheOriginalId() {
-        listOf(
-            FlushDisposition.Wrote,
-            FlushDisposition.Converged,
-            FlushDisposition.Recreated,
-        ).forEach { disposition ->
-            assertEquals(AdoptFlushOutcome.KEEP_DRAFT, adoptFlushOutcome(disposition))
-        }
     }
 
     // ── pull derivation: flush persists whatever the closure derives NOW ──

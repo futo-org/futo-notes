@@ -4,6 +4,27 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import uniffi.futo_notes_ffi.OpenNoteDisposition
+import uniffi.futo_notes_ffi.OpenNoteFacts
+
+/**
+ * The shell boundary for one open-note reconciliation pass. The session owns
+ * serialization, deferred-adoption lifetime, and identity revalidation; the
+ * screen owns gathering its live editor/disk facts and rendering the Rust
+ * engine's disposition.
+ */
+internal interface OpenNoteEffects {
+    fun currentNoteId(): String
+
+    suspend fun gatherFacts(noteId: String): OpenNoteFacts
+
+    fun classify(facts: OpenNoteFacts): OpenNoteDisposition
+
+    suspend fun apply(noteId: String, disposition: OpenNoteDisposition)
+
+    /** Whether a reported rename's target also needs this cycle's next pass. */
+    fun shouldContinueAfterRename(noteId: String): Boolean = false
+}
 
 /**
  * One note is open; here is every way it ends.
@@ -178,6 +199,9 @@ internal class EditorSession(
 
     private var exiting = false
 
+    /** The focused note whose clean peer update waits for blur before adoption. */
+    private var deferredAdoptionId: String? = null
+
     /**
      * True once a destructive exit has latched. One-way for this session: an
      * editor change arriving afterwards is dropped rather than buffered, and
@@ -208,6 +232,63 @@ internal class EditorSession(
      */
     suspend fun <T> runWork(block: suspend () -> T): T? =
         mutex.withLock { if (closed) null else block() }
+
+    /**
+     * Gather facts, ask the engine once per identity, revalidate that identity
+     * once, and render its answer while serialized against every other editor
+     * workflow. A same-cycle rename target gets its next pass under this lock.
+     */
+    suspend fun reconcileOpenNote(effects: OpenNoteEffects): OpenNoteDisposition? =
+        runWork {
+            var expectedId = effects.currentNoteId()
+            val seenIds = mutableSetOf(expectedId)
+            var disposition: OpenNoteDisposition?
+            do {
+                disposition = reconcilePass(expectedId, effects)
+                val nextId = effects.currentNoteId()
+                if (
+                    disposition !is OpenNoteDisposition.FollowRename ||
+                    nextId == expectedId ||
+                    !effects.shouldContinueAfterRename(nextId) ||
+                    !seenIds.add(nextId)
+                ) {
+                    break
+                }
+                expectedId = nextId
+            } while (true)
+            disposition
+        }
+
+    /**
+     * Settle the one deferred clean adoption after body-editor blur. Deferred
+     * state lives here rather than in Compose so a later unrelated sync cannot
+     * accidentally adopt it, and a rename/navigation drops it by identity.
+     */
+    suspend fun settleDeferredAdoption(effects: OpenNoteEffects): OpenNoteDisposition? {
+        val deferredId = deferredAdoptionId ?: return null
+        if (effects.currentNoteId() != deferredId) {
+            deferredAdoptionId = null
+            return null
+        }
+        return runWork { reconcilePass(deferredId, effects) }
+    }
+
+    private suspend fun reconcilePass(
+        expectedId: String,
+        effects: OpenNoteEffects,
+    ): OpenNoteDisposition? {
+        val facts = effects.gatherFacts(expectedId)
+        // THE identity revalidation: the disk read above suspended, so the note
+        // may have been renamed or replaced by navigation while it ran.
+        if (effects.currentNoteId() != expectedId) return null
+
+        val disposition = effects.classify(facts)
+        deferredAdoptionId =
+            if (disposition === OpenNoteDisposition.DeferAdopt) expectedId else null
+        if (disposition === OpenNoteDisposition.Close) closed = true
+        effects.apply(expectedId, disposition)
+        return disposition
+    }
 
     /**
      * THE exit verb: admission, latches, drain, commit, effect.
