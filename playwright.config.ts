@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import { webPort } from './scripts/lib/slot.mjs';
 
 const isCI = !!process.env.CI;
+const baseURL = `http://localhost:${webPort()}`;
 
 export default defineConfig({
   testDir: './tests',
@@ -21,7 +23,7 @@ export default defineConfig({
     ['html', { open: 'never', outputFolder: 'playwright-report' }],
   ],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL,
     // retries: 0 means 'on-first-retry' never fires — retain evidence for
     // every failure instead so a red CI run leaves a trace/video behind.
     trace: 'retain-on-failure',
@@ -36,7 +38,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'pnpm run dev',
-    url: 'http://localhost:5173',
+    url: baseURL,
     reuseExistingServer: !!process.env.PLAYWRIGHT_REUSE_DEV_SERVER,
     timeout: isCI ? 90000 : 30000,
   },

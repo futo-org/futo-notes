@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
+import { webPort } from './scripts/lib/slot.mjs';
 
 export default defineConfig({
   plugins: [tailwindcss(), svelte()],
@@ -44,8 +45,10 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
-    strictPort: false,
+    // strictPort: vite's fallback lands on port+1 — another worktree's port —
+    // while every consumer still points at the original.
+    port: webPort(),
+    strictPort: true,
     // Dev only. The Tauri WebKitGTK webview heuristically disk-caches module
     // responses across app restarts. After a dev-server restart the cached
     // parent-component JS executes without a server hit and imports its

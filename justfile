@@ -211,6 +211,11 @@ qa-claim target="all":
 qa-status:
   @node scripts/qa.mjs status
 
+# Slot-derived, so parallel checkouts never collide. $FUTO_DEV_PORT pins `web`.
+# Print every port this worktree owns.
+ports:
+  @node scripts/lib/slot.mjs
+
 # Release this worktree's devices (add --shutdown to also power them off).
 # Also stops this worktree's qa-server so nothing is left orphaned.
 qa-release *flags:
@@ -324,8 +329,7 @@ emu-logs:
 cdp-forward:
   #!/usr/bin/env bash
   set -euo pipefail
-  SLOT=$(( $(printf "%d" "0x$(echo -n "$(git rev-parse --show-toplevel)" | md5sum | cut -c1-8)") % 50 ))
-  PORT="${CDP_PORT:-$((9330 + SLOT))}"
+  PORT="${CDP_PORT:-$(node scripts/lib/slot.mjs cdp)}"
   PID=$(adb shell pidof com.futo.notes.dev | tr -d '\r')
   [ -n "$PID" ] || { echo "com.futo.notes.dev is not running — launch the app first." >&2; exit 1; }
   SOCKET=$(adb shell 'cat /proc/net/unix' | grep -o "webview_devtools_remote_${PID}" | head -1)
