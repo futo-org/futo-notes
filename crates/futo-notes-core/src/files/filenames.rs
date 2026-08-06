@@ -58,6 +58,31 @@ fn forbidden_title_character(character: char) -> bool {
     ) || character.is_control()
 }
 
+// ECMAScript TrimString whitespace, kept explicit because Rust's
+// `char::is_whitespace` additionally treats U+0085 as whitespace while
+// JavaScript correctly reports that control character as forbidden.
+fn title_trim_character(character: char) -> bool {
+    matches!(
+        character,
+        '\u{0009}'
+            ..='\u{000D}'
+                | '\u{0020}'
+                | '\u{00A0}'
+                | '\u{1680}'
+                | '\u{2000}'..='\u{200A}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\u{FEFF}'
+    )
+}
+
+fn trim_title_whitespace(title: &str) -> &str {
+    title.trim_matches(title_trim_character)
+}
+
 pub(super) fn forbidden_path_character(character: char) -> bool {
     matches!(character, '<' | '>' | ':' | '"' | '|' | '?' | '*') || character.is_control()
 }
@@ -72,7 +97,14 @@ pub fn sanitize_title(title: &str) -> String {
         .chars()
         .filter(|character| !forbidden_title_character(*character))
         .collect::<String>();
-    let stripped = filtered.trim().trim_matches('.').trim();
+    let mut stripped = trim_title_whitespace(&filtered);
+    loop {
+        let settled = trim_title_whitespace(stripped.trim_matches('.'));
+        if settled.len() == stripped.len() {
+            break;
+        }
+        stripped = settled;
+    }
     if stripped.is_empty() {
         return FALLBACK_TITLE.to_owned();
     }
@@ -86,7 +118,7 @@ pub fn sanitize_title(title: &str) -> String {
 }
 
 pub fn validate_title(title: &str) -> Vec<FilenameIssue> {
-    if title.trim().is_empty() {
+    if trim_title_whitespace(title).is_empty() {
         return vec![FilenameIssue {
             kind: FilenameIssueKind::Empty,
             message: "Title cannot be empty".to_owned(),
@@ -212,10 +244,8 @@ pub(super) mod property_tests {
 
     use super::*;
 
-    /// Titles whose outer dots hide inner dots, so stripping the outer pair and
-    /// trimming the spaces leaves exactly `"."` or `".."`: a dot, spaces, one or
-    /// two inner dots, spaces, a dot. Its own arm because random dot-and-space
-    /// soup reaches this shape too rarely to demonstrate the gap it exposes.
+    /// Titles whose outer dots and spaces can expose another directory-reference
+    /// shaped layer. Its own arm keeps the fixed-point behavior under pressure.
     pub fn directory_reference_title() -> impl Strategy<Value = String> {
         (1usize..3, 1usize..3, 1usize..3).prop_map(|(lead, inner, trail)| {
             format!(
@@ -227,9 +257,8 @@ pub(super) mod property_tests {
         })
     }
 
-    /// Titles ending in N repetitions of `". "` followed by a dot. Each
-    /// `sanitize_title` pass peels exactly one group, so these need N passes to
-    /// reach a fixed point.
+    /// Titles ending in repeated `". "` groups, which must all settle in one
+    /// sanitizer call.
     pub fn trailing_dot_space_title() -> impl Strategy<Value = String> {
         (1usize..6).prop_map(|groups| format!("a{}.", ". ".repeat(groups)))
     }
@@ -283,49 +312,18 @@ pub(super) mod property_tests {
             prop_assert_eq!(sanitize_title(&title), sanitize_title(&title));
         }
 
-        /// FAILS TODAY — kept as the honest statement of the invariant, and the
-        /// root cause of the two path-safety gaps recorded in `paths.rs`.
-        /// Counterexamples: `sanitize_title(". .. .")` is `".."` and
-        /// `sanitize_title(". . .")` is `"."` — a filename that names the parent
-        /// or the current directory rather than a note.
-        ///
-        /// Root cause: `trim().trim_matches('.').trim()` strips the outer dots and
-        /// then trims the spaces they were hiding, exposing dots the pass order
-        /// never revisits. The `FALLBACK_TITLE` guard only fires when the result is
-        /// empty, and `"."` is not empty.
-        ///
-        /// Nothing escapes the vault — `ensure_safe_note_id` and
-        /// `classify_incoming_sync_path` both screen `sanitize_title`'s output —
-        /// but the title rule alone does not guarantee a usable filename.
-        ///
-        /// Closing it here is a coordinated rule change:
-        /// `packages/editor/src/filename.ts` has the same passes and
-        /// `tests/conformance/filename.json` locks the two together, so the fix
-        /// touches both sides plus regenerated fixtures (AGENTS.md M7).
+        /// Sanitized titles are handed directly to the path layer, so dot-space
+        /// inputs must settle to the fallback instead of `"."` or `".."`.
         #[test]
-        #[ignore = "known gap: dot-and-space titles sanitize to \".\" or \"..\""]
         fn sanitized_titles_are_never_a_directory_reference(title in arbitrary_title()) {
             let sanitized = sanitize_title(&title);
             prop_assert_ne!(sanitized.as_str(), ".", "sanitize_title({:?})", title);
             prop_assert_ne!(sanitized.as_str(), "..", "sanitize_title({:?})", title);
         }
 
-        /// FAILS TODAY — kept as the honest statement of the invariant, which the
-        /// example-based `sanitize_is_idempotent` above already claims.
-        /// Counterexample: `sanitize_title("a. .")` is `"a."`, and
-        /// `sanitize_title("a.")` is `"a"`.
-        ///
-        /// Root cause: `trim().trim_matches('.').trim()` is a fixed three-pass
-        /// strip, so each application peels exactly one trailing ". " group —
-        /// `"a. . . . . ."` needs six applications to reach `"a"`. That makes
-        /// `classify_incoming_sync_path` heal an incoming name over several sync
-        /// rounds, renaming the note each round (see
-        /// `paths::property_tests::healing_an_incoming_path_settles_in_one_round`).
-        /// `packages/editor/src/filename.ts` has the same three-pass shape, so TS
-        /// and Rust agree and the conformance lock holds; closing this is a
-        /// coordinated rule change plus regenerated fixtures (AGENTS.md M7).
+        /// Sync healing reuses the sanitizer, so applying it again must never
+        /// rename a title for a second time.
         #[test]
-        #[ignore = "known gap: a trailing '. ' group needs one sanitize pass per group"]
         fn sanitize_title_is_idempotent(title in arbitrary_title()) {
             let once = sanitize_title(&title);
             prop_assert_eq!(sanitize_title(&once), once);

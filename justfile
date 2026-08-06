@@ -408,12 +408,19 @@ test-ui:
 test-desktop-smoke:
   node tests/desktop-smoke.mjs
 
+# Compare a broad deterministic title corpus through the synchronous TypeScript
+# editor rule and the canonical Rust model in one batched process crossing.
+title-conformance-differential:
+  node --experimental-strip-types tests/conformance/title-rules-differential.mjs
+
 test-rust:
   cargo test -p futo-notes-model --test conformance
+  node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
 test-rust-full:
   mkdir -p dist
   cargo test --workspace
+  node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
 # ── Remote (Linux) test execution ──
 # Everything that does NOT need macOS/Xcode/WKWebView runs on a Linux box over
@@ -583,13 +590,6 @@ sync-contract-check:
 check-drift:
   node scripts/drift-check.mjs
 
-# Fail if any of the 4 checked-in debt counts (scripts/debt-ratchet.json)
-# increased, or if one decreased without the file being updated to match
-# (architecture-hardening.md R2 — the ratchet only turns one way). Also fails
-# if a "ceilings" metric exceeds its fixed cap.
-check-debt-ratchet:
-  node scripts/debt-ratchet.mjs
-
 # Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents) teaches
 # OS-level input into this app (AppleScript UI scripting, click injection), a
 # process-name/PID lookup against it, or a relative `find -newermt` safety check.
@@ -622,7 +622,8 @@ check-agent-docs:
 # violations; this is the standing red-proof they lacked. `--include-cargo`
 # adds the Rust dependency-boundary proof (the portable set runs in CI, whose
 # image has no cargo). Rationale + limitations: scripts/gate-redproofs.mjs
-# (documented there, not in AGENTS.md — that file is at its ratchet ceiling).
+# (documented there rather than in AGENTS.md, which is for rules agents must
+# follow, not rationale for the tooling that checks them).
 gate-redproofs *args:
   node scripts/gate-redproofs.mjs --include-cargo {{args}}
 

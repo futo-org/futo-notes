@@ -1,5 +1,5 @@
 {
-  "_generated": "tests/conformance/generate.mjs",
+  "_source": "Hand-reviewed behavioral goldens. Change expected values only with the corresponding docs/spec behavior change; TypeScript and Rust must both match.",
   "description": "Wikilink resolution / display-suffix / rewrite rules (wikilinks.ts).",
   "groups": [
     {

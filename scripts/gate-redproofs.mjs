@@ -42,8 +42,9 @@
 // contain, and a `fix:` line telling the next person what to do when the proof
 // goes red. A proof without a marker assertion is not a proof.
 //
-// Note for editors: AGENTS.md sits AT its debt-ratchet line ceiling, so this
-// harness is documented here and in the justfile recipe, not there.
+// Note for editors: this harness is documented here and in the justfile
+// recipe rather than in AGENTS.md, to keep the root manual to rules agents
+// must follow rather than rationale for the tooling that checks them.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -61,7 +62,6 @@ const GATES = {
   'command-reachability': ['node', ['scripts/check-command-reachability.mjs']],
   'platform-discipline': ['node', ['scripts/check-platform-discipline.mjs']],
   'drift-check': ['node', ['scripts/drift-check.mjs']],
-  'debt-ratchet': ['node', ['scripts/debt-ratchet.mjs']],
   'agent-docs': ['node', ['scripts/check-agent-docs.mjs']],
   'qa-input-safety': ['node', ['scripts/check-qa-input-safety.mjs']],
   'spec-gaps': ['node', ['scripts/spec-gaps.mjs', '--check']],
@@ -269,72 +269,6 @@ const PROOFS = [
       }),
     expect: ["registered copy 'src/redproof-sentinel-missing-copy.ts' does not exist"],
     fix: 'scripts/drift-check.mjs stopped validating that registered copies exist — a moved file would silently drop out of the watchlist (54d1cc41).',
-  },
-  {
-    gate: 'debt-ratchet',
-    id: 'count-increased',
-    seeded:
-      'created crates/futo-notes-model/src/redproof_sentinel.rs with one #[ignore = "known gap: …"] test',
-    claim: 'a counted debt pattern that grows must fail',
-    inject: (wt) =>
-      seed.write(
-        wt,
-        'crates/futo-notes-model/src/redproof_sentinel.rs',
-        '// Seeded by scripts/gate-redproofs.mjs inside a throwaway git worktree.\n' +
-          '#[ignore = "known gap: gate red-proof sentinel"]\n' +
-          '#[test]\nfn redproof_sentinel() {}\n',
-      ),
-    expect: (wt) => {
-      const base = seed.readJson(wt, 'scripts/debt-ratchet.json').counts.ignoredPropertyTests;
-      return [`'ignoredPropertyTests' increased from ${base} to ${base + 1}`];
-    },
-    absent: ["'tauriImportsOutsideShims' increased", "'invokeCallsOutsideShims' increased"],
-    fix: 'scripts/debt-ratchet.mjs counted the new occurrence as zero — check countIgnoredPropertyTests()/walk(). A ratchet that misses new debt is a ratchet in name only (54d1cc41).',
-  },
-  {
-    gate: 'debt-ratchet',
-    id: 'count-decreased-without-recording',
-    seeded: 'raised the checked-in ignoredPropertyTests baseline above the real count',
-    claim: 'a count that DROPS below its baseline must fail until the baseline is lowered too',
-    expect: (wt) => {
-      const base = seed.readJson(wt, 'scripts/debt-ratchet.json').counts.ignoredPropertyTests;
-      return [`'ignoredPropertyTests' decreased from ${base + 7} to ${base}`];
-    },
-    inject: (wt) =>
-      seed.json(wt, 'scripts/debt-ratchet.json', (data) => {
-        data.counts.ignoredPropertyTests += 7;
-      }),
-    fix: 'the decrease branch of scripts/debt-ratchet.mjs stopped firing. Without it the ratchet is slack: a later change can climb back to the old baseline unnoticed.',
-  },
-  {
-    gate: 'debt-ratchet',
-    id: 'retired-counter-resurrected',
-    seeded:
-      'added a counter to scripts/debt-ratchet.json that the script does not compute (the rebase-carryover shape)',
-    claim: 'a baseline key the script no longer computes must fail, not be silently ignored',
-    inject: (wt) =>
-      seed.json(wt, 'scripts/debt-ratchet.json', (data) => {
-        data.counts.redproofSentinelRetiredCounter = 1;
-      }),
-    expect: ['redproofSentinelRetiredCounter', 'this script no longer computes it'],
-    fix: 'this is the exact regression a6c6e2d5 fixed: the compare loop walks COMPUTED keys, so an unmatched JSON entry is never read. Restore the "keys in the baseline but not computed" pass in scripts/debt-ratchet.mjs.',
-  },
-  {
-    gate: 'debt-ratchet',
-    id: 'ceiling-exceeded',
-    seeded: 'appended lines to AGENTS.md until it passed its agentsMdLines ceiling',
-    claim: 'a ceilings[] metric over its fixed cap must fail',
-    expect: (wt) => {
-      const cap = seed.readJson(wt, 'scripts/debt-ratchet.json').ceilings.agentsMdLines;
-      return [`over its ceiling of ${cap}`, "'agentsMdLines' is"];
-    },
-    inject: (wt) => {
-      const cap = seed.readJson(wt, 'scripts/debt-ratchet.json').ceilings.agentsMdLines;
-      const now = (seed.read(wt, 'AGENTS.md').match(/\n/g) || []).length;
-      const extra = Math.max(1, cap - now + 3);
-      seed.append(wt, 'AGENTS.md', `${'\n<!-- redproof sentinel -->'.repeat(extra)}\n`);
-    },
-    fix: 'the ceilings pass in scripts/debt-ratchet.mjs stopped firing — the decluttered prose state can regrow unchecked.',
   },
   {
     gate: 'agent-docs',

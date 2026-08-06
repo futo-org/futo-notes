@@ -1,14 +1,13 @@
 ---
 name: burndown
-description: Reduce one recorded debt-ledger entry per run and ship it as a small reviewable MR. Use when the user says "burndown", "burn down some debt", "pay down debt", "run the debt sweep", or on a schedule. Targets come only from the checked-in ledgers (debt-ratchet counts, actionable unlocked drift-registry entries, the AGENTS.md drift watchlist) — never from vibes. Also supports a read-only ranking mode ("burndown report") that proposes the next target without changing anything.
+description: Reduce one recorded debt-ledger entry per run and ship it as a small reviewable MR. Use when the user says "burndown", "burn down some debt", "pay down debt", "run the debt sweep", or on a schedule. Targets come only from checked-in drift entries, allowlists, or spec gaps — never from vibes. Also supports a read-only ranking mode ("burndown report") that proposes the next target without changing anything.
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob
 ---
 
 # Burndown
 
 One run = **one ledger entry** reduced, shipped as **one small MR**. Never a sweep, never a
-refactor tour. The point is a steady one-way ratchet: `scripts/debt-ratchet.mjs` blocks new debt;
-this skill is the mechanism that drives the existing counts toward zero.
+refactor tour. Explicit ledgers keep selection objective; their owning gates reject stale entries.
 
 ## Modes
 
@@ -19,32 +18,25 @@ this skill is the mechanism that drives the existing counts toward zero.
 
 ## Target selection (deterministic — walk this list in order, take the first actionable hit)
 
-1. **`scripts/debt-ratchet.json` counts > 0**, smallest count first (smallest = most likely to
-   reach zero in one reviewable MR — retiring a count entirely is worth more than shaving a big
-   one). Recompute-first: run `node scripts/debt-ratchet.mjs` to see the live numbers; the
-   recompute logic in that script tells you where each counted instance lives.
-   - `invokeCallsOutsideShims` / `tauriImportsOutsideShims`: move the call behind the owning shim
-     (`src/lib/platform/`, `syncServiceE2ee.ts`, or `localNoteStore.ts`) and shrink the allowlist.
-   - `ignoredPropertyTests`: each is a `#[ignore = "known gap: …"]` property whose comment names
-     the real defect. Closing one means fixing that defect, un-ignoring the test, and lowering the
-     count in the same commit — check the comment first, since some are deliberately deferred to a
-     coordinated two-sided rule change (M7).
-   - `unlockedDriftRegistryEntries`: handled by rule 2 below.
-
-   Counters come and go: one was retired in 2026-07 because capping it punished honest discovery
-   rather than reducing debt. Read the live `counts` object rather than assuming this list is
-   complete.
-2. **`scripts/drift-registry.json` entries with `lockStatus: "unlocked"`, then `"partial"`** —
+1. **`scripts/drift-registry.json` entries with `lockStatus: "unlocked"`, then `"partial"`** —
    either consolidate the duplicate copies down to one owner, or add the missing lock (a
-   conformance fixture, a generated spec, or a cross-language test that reads a shared fixture,
+   reviewed conformance fixture, a generated spec, or a cross-language differential test,
    like `validate-server-url`'s), then upgrade `lockStatus` in the same commit.
    Before considering an entry, read its `description` and `note` metadata. Skip entries whose
    metadata says the duplication is deliberately accepted, prose-only, or must not be unified or
    locked. Those entries document an intentional exception; they are not actionable debt.
-3. **The "not locked — real drift risk" list in AGENTS.md's drift watchlist** for anything not
-   already covered by rule 2.
+2. **`scripts/platform-discipline-allowlist.json` and `scripts/command-reachability-allowlist.json`
+   entries** — each allowlist is itself a ratchet aimed at zero (its `_comment` says so). Burning
+   one down means moving the direct `@tauri-apps` access behind the owning shim
+   (`src/lib/platform/`, `syncServiceE2ee.ts`, or `localNoteStore.ts`), or deleting a command that
+   has no caller, then removing the entry in the same commit — the gates fail on a stale entry, so
+   the ledger update is not optional.
+3. **Inline Gap entries indexed by `docs/spec/GAPS.md`** — only when the gap names a
+   local, behavior-preserving fix that fits the diff cap. Close the inline source note, run
+   `just spec-gaps`, and commit the regenerated index in the same change.
 
-A `--target <name>` argument (a ratchet count key or drift-registry concept) overrides the walk,
+A `--target <name>` argument (a drift-registry concept, an allowlist entry's path, or a spec-gap
+anchor) overrides the walk,
 but not the eligibility rules above. Reject `--target notes-root-triplet` with a read-only report;
 it is an intentional M3 exception, not an actionable target.
 
@@ -69,14 +61,15 @@ it is an intentional M3 exception, not an actionable target.
 
 1. Pick the target (above). State which ledger entry it is and why it won the walk.
 2. Branch from up-to-date `main`: `chore/burndown-<slug>`.
-3. Make the fix. Update the ledger in the SAME commit — decrement the ratchet count, or upgrade
-   the drift-registry `lockStatus` (both gates fail otherwise, by design).
-4. Verify: `node scripts/debt-ratchet.mjs` + `just check-drift` + the testing chain AGENTS.md
+3. Make the fix. Update the owning ledger in the SAME commit — upgrade the drift-registry
+   `lockStatus`, remove the allowlist entry, or close the inline spec gap.
+4. Verify: `just check-drift` + `just spec-gaps-check` + the testing chain AGENTS.md
    prescribes for the touched layer (at minimum `just build` for TS, `just test-rust` for model
    rules, the owning crate's tests for other Rust). A drift-registry lock added without a test
    that would actually fail on divergence is not a lock.
 5. Commit as `chore(<scope>): ...` or `refactor(<scope>): ...` with a body naming the ledger
-   entry ("burns down `invokeCallsOutsideShims` 2→0") and a verification line.
+   entry ("locks `sort-tiebreaker-modified-id`" or "removes `<path>` from the platform
+   allowlist") and a verification line.
 6. Push and open a non-draft MR. The MR body: which ledger entry, before→after ledger state,
    verification commands + results. Small enough to review in minutes — that's the contract.
 

@@ -267,15 +267,18 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   NoteEditorView.swift, NoteEditorScreen.kt; desktop NotesShell.svelte /
   noteSession.svelte.ts `handleTitleInput`
 - **The canonical title→filename sanitizer produces a name legal on EVERY
-  platform.** `sanitizeTitle` strips forbidden characters and surrounding
-  whitespace, then leading/trailing dots (Windows drops trailing dots; a
-  leading dot makes a hidden dotfile the vault scan skips), then de-reserves
-  Windows device names (`CON`→`CON_`, `CON.bak`→`CON_.bak`) — so no client mints
-  a name that a Windows peer can't hold, and the sync boundary reuses the exact
-  same function to HEAL such names on ingress. It is deterministic + idempotent.
-  Conformance-locked TS↔Rust (`sanitizeTitle` / `sanitize_title`). → packages/
-  editor `filename.ts`, futo-notes-core `files::sanitize_title`;
-  tests/conformance/filename.json
+  platform.** `sanitizeTitle` strips the visible filesystem delimiters plus the
+  full Unicode Cc control category, then repeatedly removes surrounding
+  whitespace and leading/trailing dots until the result settles (Windows drops
+  trailing dots; a leading dot makes a hidden dotfile the vault scan skips).
+  Dot-and-space-only inputs become `Untitled`; Windows device names are
+  de-reserved (`CON`→`CON_`, `CON.bak`→`CON_.bak`). No client therefore mints a
+  name a Windows peer cannot hold, and the sync boundary reuses the exact same
+  function to HEAL such names on ingress. It is deterministic + idempotent.
+  The reviewed goldens and broad differential corpus lock TS↔Rust
+  (`sanitizeTitle` / `sanitize_title`). → packages/editor `filename.ts`,
+  futo-notes-core `files::sanitize_title`;
+  tests/conformance/{filename.json,title-rules-differential.mjs}
 - **Android native**'s FAB opens a New note / New folder menu; New folder
   shows a name dialog that sanitizes via the shared rules and rejects
   case-insensitive sibling duplicates inline (verified on emulator

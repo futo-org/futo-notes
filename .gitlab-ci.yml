@@ -454,7 +454,6 @@ test:
         pnpm run lint:platform
         pnpm run check:svelte
         pnpm run format:check
-        pnpm exec tsx tests/conformance/generate.mjs --check
         # Keep portable anti-duplication gates in the first mandatory MR job.
         # Rust-only dependency boundaries live with the Rust workspace suite.
         pnpm run check:arch-gate:portable
@@ -602,6 +601,7 @@ test:rust:workspace:
     - node scripts/check-rust-dependency-boundaries.mjs
     - mkdir -p dist
     - cargo test --workspace
+    - node --experimental-strip-types tests/conformance/title-rules-differential.mjs
   # Job 189242 exhausted the default 60m on a completely cold cache while
   # still compiling dependencies. Give that first run enough wall time to
   # finish and seed the existing when:always Cargo cache; warm runs remain
@@ -623,6 +623,7 @@ test:rust:workspace:
         - rust-toolchain.toml
         - .cargo/**/*
         - crates/**/*
+        - packages/editor/src/filename.ts
         - apps/tauri/src-tauri/**/*
         - apps/tauri/Cargo.toml
         - src/features/sync/syncContract.generated.ts

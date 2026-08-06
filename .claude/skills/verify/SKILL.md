@@ -153,9 +153,8 @@ pnpm run test 2>&1 | tail -40                  # or run the matching specs only
 ### shared — note-rule conformance:
 
 ```bash
-pnpm exec tsx tests/conformance/generate.mjs --check
 pnpm run test:editor:minimal
-just test-rust
+just test-rust # reviewed goldens + batched TS↔Rust title differential
 ```
 
 ### unit-tests: `just test-unit 2>&1 | tail -30`

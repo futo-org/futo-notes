@@ -11,10 +11,18 @@
  */
 export const FORBIDDEN_TITLE_CHARS_VISIBLE = '<>:"/\\|?*';
 
-// Unicode general category Cc: C0, DEL, and C1. Exactly the set Rust's
-// `char::is_control()` rejects, so both sides of the note-rules twin strip the
-// same codepoints — C1 chars used to survive here but not in Rust.
-const CONTROL_CHARS = '\\u0000-\\u001F\\u007F-\\u009F';
+// Unicode general category Cc: C0, DEL, and C1. This is the same set Rust's
+// `char::is_control()` rejects. Exported as data so the native title-spec
+// generator derives its live input filters from the same ranges.
+export const FORBIDDEN_TITLE_CONTROL_RANGES = [
+  [0x0000, 0x001f],
+  [0x007f, 0x009f],
+] as const;
+
+const CONTROL_CHARS = FORBIDDEN_TITLE_CONTROL_RANGES.map(
+  ([start, end]) =>
+    `\\u${start.toString(16).padStart(4, '0')}-\\u${end.toString(16).padStart(4, '0')}`,
+).join('');
 // Escape the backslash in FORBIDDEN_TITLE_CHARS_VISIBLE for use inside a
 // regex character class; the other visible chars need no escaping there.
 const FORBIDDEN_PATTERN = `[${FORBIDDEN_TITLE_CHARS_VISIBLE.replace(/\\/g, '\\\\')}${CONTROL_CHARS}]`;
@@ -104,7 +112,11 @@ export interface FilenameIssue {
  */
 export function sanitizeTitle(title: string): string {
   let result = title.replace(FORBIDDEN_CHARS_RE, '').trim();
-  result = result.replace(/^\.+|\.+$/g, '').trim();
+  for (;;) {
+    const settled = result.replace(/^\.+|\.+$/g, '').trim();
+    if (settled === result) break;
+    result = settled;
+  }
   if (!result) return FALLBACK_TITLE;
   if (isWindowsReservedName(result)) {
     const dot = result.indexOf('.');

@@ -1,5 +1,5 @@
 {
-  "_generated": "tests/conformance/generate.mjs",
+  "_source": "Hand-reviewed behavioral goldens. Change expected values only with the corresponding docs/spec behavior change; TypeScript and Rust must both match.",
   "description": "Filename / title sanitization + validation rules (filename.ts).",
   "groups": [
     {
@@ -63,8 +63,12 @@
           "expected": "ab"
         },
         {
-          "input": "abc",
+          "input": "a\u0085b\u009fc",
           "expected": "abc"
+        },
+        {
+          "input": "\ufeffa\ufeff",
+          "expected": "a"
         },
         {
           "input": "  hello  ",
@@ -97,6 +101,18 @@
         {
           "input": "note .",
           "expected": "note"
+        },
+        {
+          "input": "a. .",
+          "expected": "a"
+        },
+        {
+          "input": ". .. .",
+          "expected": "Untitled"
+        },
+        {
+          "input": ". . .",
+          "expected": "Untitled"
         }
       ]
     },
@@ -167,7 +183,13 @@
           ]
         },
         {
-          "input": "ab",
+          "input": "a\u0085b",
+          "expected": [
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "\u0085\u00a0",
           "expected": [
             "forbidden_chars"
           ]

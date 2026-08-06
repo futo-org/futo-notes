@@ -246,17 +246,18 @@ mod tests {
     }
 
     #[test]
-    fn incoming_components_that_heal_into_a_traversal_are_rejected() {
+    fn incoming_dot_space_components_heal_to_the_safe_fallback() {
         use IncomingSyncPath::*;
-        // The raw component passes the `.`/`..` screen; `sanitize_title` then
-        // rewrites it INTO one. Before the healed-component check these returned
-        // Sanitize("../note.md"), Sanitize("./note.md"), Sanitize("../a/note.md").
-        for attack in [". .. ./note.md", ". . ./note.md", ".. .. ../a/note.md"] {
-            assert!(
-                matches!(classify_incoming_sync_path(attack), Reject(_)),
-                "{attack:?} was not rejected: {:?}",
-                classify_incoming_sync_path(attack)
+        for (incoming, healed) in [
+            (". .. ./note.md", "Untitled/note.md"),
+            (". . ./note.md", "Untitled/note.md"),
+            (".. .. ../a/note.md", "Untitled/a/note.md"),
+        ] {
+            assert_eq!(
+                classify_incoming_sync_path(incoming),
+                Sanitize(healed.to_owned())
             );
+            assert_eq!(classify_incoming_sync_path(healed), Accept);
         }
     }
 
@@ -478,20 +479,9 @@ mod property_tests {
             );
         }
 
-        /// FAILS TODAY — kept as the honest statement of the invariant.
-        /// Counterexample: `sanitize_title(". .. .")` is `".."`, which
-        /// `ensure_safe_note_id` rejects; `sanitize_title(". . .")` is `"."`.
-        ///
-        /// So the title rule does NOT on its own guarantee a usable single path
-        /// component; each caller of `sanitize_title` has to screen the result.
-        /// Both callers now do: `safe_note_path` fails closed through
-        /// `ensure_safe_note_id` (the note simply cannot be saved), and
-        /// `classify_incoming_sync_path` rejects a healed component that is a
-        /// directory reference. Closing this gap belongs in the title rule itself
-        /// — see `filenames::property_tests` for the root cause and why fixing it
-        /// there is a coordinated TS+Rust change.
+        /// The sanitizer's output is a ready-to-use note id, including for
+        /// adversarial dot-and-space inputs.
         #[test]
-        #[ignore = "known gap: sanitize_title can return \".\" or \"..\" for dot-and-space titles"]
         fn sanitized_titles_are_always_confined_note_ids(title in arbitrary_title()) {
             let sanitized = sanitize_title(&title);
             prop_assert!(
@@ -544,11 +534,8 @@ mod property_tests {
         }
 
         /// A `Sanitize` decision means the writer uses the name this classifier
-        /// MINTED, so the healed name carries the same containment obligation as
-        /// an accepted one. `sanitize_title` can turn a legal-looking component
-        /// into `"."` or `".."` (`". .. ."` -> `".."`), so the classifier screens
-        /// the healed component too — see
-        /// `incoming_components_that_heal_into_a_traversal_are_rejected`.
+        /// minted, so the healed name carries the same containment obligation as
+        /// an accepted one.
         #[test]
         fn healed_incoming_paths_are_traversal_free(relative in syncable_relative_path()) {
             if let IncomingSyncPath::Sanitize(healed) = classify_incoming_sync_path(&relative) {
@@ -556,25 +543,9 @@ mod property_tests {
             }
         }
 
-        /// FAILS TODAY — kept as the honest statement of the invariant.
-        /// Counterexample: `classify_incoming_sync_path("a. ..md")` heals to
-        /// `"a..md"`, which is itself `Sanitize("a.md")` rather than `Accept`.
-        ///
-        /// Root cause: `sanitize_title` is not idempotent. Its
-        /// `trim().trim_matches('.').trim()` is a fixed three-pass strip, so each
-        /// application peels exactly one trailing ". " group:
-        /// `"a. . . . . ."` -> `"a. . . . ."` -> ... -> `"a"`. A name with N such
-        /// groups therefore needs N heal rounds, and each round renames the file
-        /// again — repeated cross-client renames of one note, the churn class this
-        /// repo has been bitten by before. `packages/editor/src/filename.ts` has
-        /// the same three-pass shape, so the TS and Rust rules agree (no drift);
-        /// closing this is a coordinated rule change plus regenerated conformance
-        /// fixtures (AGENTS.md M7), not a test fix.
-        ///
-        /// The existing `filenames.rs` `sanitize_is_idempotent` test passes only
-        /// because none of its eight fixed inputs has a trailing ". " group.
+        /// Healing must settle after one classification; otherwise the same
+        /// incoming name is renamed again on each sync round.
         #[test]
-        #[ignore = "known gap: sanitize_title is not idempotent, so healing can take several rounds"]
         fn healing_an_incoming_path_settles_in_one_round(
             relative in syncable_relative_path(),
         ) {

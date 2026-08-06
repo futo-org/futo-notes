@@ -19,13 +19,11 @@ bridge-spec check uses `tsx`, while the other checks only read repository files.
 | Native bridge specs  | `packages/editor/src/bridge.ts` and generated Kotlin/Swift specs                                                           | Generated message types or bridge versions are stale; run `just bridge-spec` and commit the results                                           |
 | Tauri sync contract  | Rust records in `apps/tauri/src-tauri/src/sync/frontend_contract.rs` and generated TypeScript                              | Generated frontend types are stale; run `just sync-contract` and commit the result                                                            |
 | Drift registry       | Copies, locks, and optional scan patterns in `scripts/drift-registry.json`                                                 | A registered copy or lock disappeared, a detection pattern became stale, lock status is inconsistent, or a scan finds a new unregistered copy |
-| Debt ratchet         | Current source/spec/registry counts and `scripts/debt-ratchet.json`                                                        | Debt increased, or debt decreased without lowering the checked-in baseline in the same change                                                 |
 | QA input safety      | Instruction surfaces (README, CONTRIBUTING, every `AGENTS.md`, `docs/**`, `.claude/skills/**`, `.claude/agents/**`, `.claude/workflows/*`) and `scripts/qa-input-safety-allowlist.json` | An instruction file teaches OS-level input into this app, a process-name/PID lookup against it, or a relative `find -newermt` check; or a pinned exception went stale |
 | Gate red-proofs      | Every gate above plus the spec/contract generators, each re-run against one seeded violation in a throwaway `git worktree`  | A gate exits 0 on a seeded violation, exits non-zero without naming it, or is already red on a pristine checkout                              |
 
-The platform allowlist and debt ratchet answer different questions. The allowlist records direct
-Tauri access that is currently accepted. The ratchet still counts accepted legacy exceptions so
-their total cannot grow and cleanup cannot silently regress.
+Each gate must observe something no other gate already observes. Prefer extending the gate that
+owns a boundary over adding a second number about it.
 
 ## QA input safety, and the resolver it points at
 
@@ -64,8 +62,6 @@ makes an isolated QA vault possible in the first place.
 - When duplicated logic is genuinely required across platforms, register every copy and its
   fixture, generator, or test in `scripts/drift-registry.json`. Use `partial` or `unlocked`
   honestly when full conformance coverage does not exist.
-- When a debt count decreases, update only that count in `scripts/debt-ratchet.json` to the newly
-  reported value. An increase is a regression; do not raise the baseline to make it pass.
 
 ## The gate red-proof harness
 
@@ -105,7 +101,6 @@ just check-command-reachability
 just check-platform-discipline
 just bridge-spec-check
 just check-drift
-just check-debt-ratchet
 just check-qa-input-safety
 just gate-redproofs
 ```

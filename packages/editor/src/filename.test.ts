@@ -69,7 +69,6 @@ describe('sanitizeTitle', () => {
 
   it('strips control characters', () => {
     expect(sanitizeTitle('a\x00b\x1fc')).toBe('abc');
-    // C1 (U+0080–U+009F) is Cc too, so Rust's `is_control()` strips it.
     expect(sanitizeTitle('a\x85b\x9fc')).toBe('abc');
   });
 
@@ -79,6 +78,15 @@ describe('sanitizeTitle', () => {
 
   it('trims whitespace after sanitization', () => {
     expect(sanitizeTitle('  hello  ')).toBe('hello');
+  });
+
+  it('settles alternating dots and whitespace in one pass', () => {
+    expect(sanitizeTitle('a. .')).toBe('a');
+    expect(sanitizeTitle('. .. .')).toBe(FALLBACK_TITLE);
+    expect(sanitizeTitle('. . .')).toBe(FALLBACK_TITLE);
+
+    const sanitized = sanitizeTitle('  . a. . .  ');
+    expect(sanitizeTitle(sanitized)).toBe(sanitized);
   });
 });
 

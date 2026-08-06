@@ -5,41 +5,40 @@ export const meta = {
   whenToUse:
     'Run on every change to packages/editor/src/{filename,tags,preview,images}.ts or crates/futo-notes-model. Proves the single-source rule port has not drifted.',
   phases: [
-    { title: 'Verify', detail: 'fixtures fresh + TS + Rust conformance suites green' },
+    { title: 'Verify', detail: 'reviewed goldens + TS + Rust conformance suites green' },
     { title: 'Fuzz', detail: 'adversarial inputs diffed Rust-vs-TS, one agent per landmine' },
   ],
 };
 
 // ── Phase 1: deterministic conformance ──────────────────────────────────
 //
-// The golden fixtures in tests/conformance/*.json are generated from the TS
-// reference; both Vitest and the Rust model crate read them. This phase
-// confirms (a) the fixtures aren't stale vs the TS source and (b) both
-// language suites pass.
+// The hand-reviewed goldens in tests/conformance/*.json are the behavioral
+// contract; both Vitest and the Rust model crate read them. `just test-rust`
+// also batches a broad deterministic title corpus through both implementations,
+// so agreement is tested without making either implementation the oracle.
 phase('Verify');
 const VERIFY_SCHEMA = {
   type: 'object',
-  required: ['fixturesFresh', 'tsPass', 'rustPass', 'notes'],
+  required: ['tsPass', 'rustPass', 'notes'],
   properties: {
-    fixturesFresh: { type: 'boolean', description: 'generate.mjs --check exits 0' },
     tsPass: { type: 'boolean', description: 'pnpm run test:editor:minimal passes' },
-    rustPass: { type: 'boolean', description: 'just test-rust passes' },
+    rustPass: {
+      type: 'boolean',
+      description: 'just test-rust passes (reviewed fixtures + differential)',
+    },
     notes: { type: 'string' },
   },
 };
 const verify = await agent(
-  `From the repo root, run these three commands and report the result of each as a boolean:
-   1. \`pnpm exec tsx tests/conformance/generate.mjs --check\`  (fixturesFresh = exit 0)
-   2. \`pnpm run test:editor:minimal\`  (tsPass = all tests pass)
-   3. \`just test-rust\`  (rustPass = conformance tests pass)
+  `From the repo root, run these two commands and report the result of each as a boolean:
+   1. \`pnpm run test:editor:minimal\`  (tsPass = all tests pass)
+   2. \`just test-rust\`  (rustPass = reviewed fixtures and differential pass)
    Do NOT modify any files. Summarize failures verbatim in notes.`,
   { label: 'verify:conformance', phase: 'Verify', schema: VERIFY_SCHEMA },
 );
 
-if (verify && (!verify.fixturesFresh || !verify.tsPass || !verify.rustPass)) {
-  log(
-    `⚠ conformance FAILED — fixturesFresh=${verify.fixturesFresh} ts=${verify.tsPass} rust=${verify.rustPass}`,
-  );
+if (verify && (!verify.tsPass || !verify.rustPass)) {
+  log(`⚠ conformance FAILED — ts=${verify.tsPass} rust=${verify.rustPass}`);
   log(verify.notes || '');
   return { verify, fuzz: [], verdict: 'fail' };
 }
@@ -47,7 +46,7 @@ log('✓ deterministic conformance green; running adversarial fuzz');
 
 // ── Phase 2: adversarial fuzz (one agent per landmine) ───────────────────
 //
-// Each agent invents fresh inputs in its category, computes the TS reference
+// Each agent invents fresh inputs in its category, computes the TS implementation
 // output (via tsx against packages/editor), computes the Rust output (via a
 // throwaway `cargo test`-style call into futo-notes-model), and reports any
 // divergence. Inputs that legitimately differ by representation
@@ -107,7 +106,7 @@ const fuzz = await parallel(
       agent(
         `Adversarially fuzz the FUTO Notes rules for the "${m.key}" landmine: ${m.focus}.
        Invent ~15 fresh inputs (not already in tests/conformance/*.json). For each:
-         - Compute the TS reference output by importing from packages/editor/src
+         - Compute the TS implementation output by importing from packages/editor/src
            ({filename,tags,preview,images}.ts) and running it with \`pnpm exec tsx\`.
          - Compute the Rust output from crates/futo-notes-model (write a temporary
            #[test] or a tiny example that prints the result, run with cargo, then

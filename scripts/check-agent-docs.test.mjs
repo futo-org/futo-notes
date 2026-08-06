@@ -53,7 +53,7 @@ describe('validateRequiredVerificationChains', () => {
       {
         line: 1,
         message:
-          'shared note-rule verification chain is missing: pnpm exec tsx tests/conformance/generate.mjs --check, pnpm run test:editor:minimal, just test-rust',
+          'shared note-rule verification chain is missing: pnpm run test:editor:minimal, just test-rust',
       },
     ]);
   });

@@ -176,9 +176,6 @@ AGENTS.md + `codebase-organization.md` read.
   bindings): never hand-merge. Take either side, run the generator
   (`node scripts/spec-gaps.mjs --write`, `just toolbar-spec`, …), commit the
   regenerated output. Hand-merging a generated file is M8.
-- **Shared counters** (`scripts/debt-ratchet.json`): never keep either side's
-  number. Resolve the file, run `node scripts/debt-ratchet.mjs`, set each count
-  to what it actually reports, re-run until green.
 - **AGENTS.md / spec prose**: taking "ours" silently reverts corrections that
   landed while the branch sat. Diff main's version since the merge base and
   hand-carry each semantic change.
@@ -194,9 +191,9 @@ differ, these are the shapes to look for:
   `drift-registry.json`). Otherwise the correction is lost forever.
 - One MR **deletes a file** another MR **edits** → the edit is moot; land it
   first or close it, and say which.
-- Several MRs move the **same ratchet counter** in different directions → each
-  needs recounting after the one before it merges. An MR that *removes* the
-  counter should go **last**, so it dissolves the problem.
+- Several MRs edit the **same allowlist or drift-registry entry** → sequence
+  them and re-run the owning gate after each merge; stale entries fail by
+  design.
 
 State the order and the reason for it before merging.
 
@@ -263,12 +260,6 @@ plus `just spec-gaps-check toolbar-spec-check title-spec-check`** — the portab
 arch gate does NOT include those three, and backlog MRs churn spec gaps
 constantly. `just check` is the real gate when time allows. Hand-picking two or
 three gates is how a branch gets called green and then fails its pipeline.
-
-**The debt ratchet fails on an unlocked DECREASE as well as an increase** — a
-lower real count without a same-commit `scripts/debt-ratchet.json` update goes
-red with "nice, but lock it in". Read that file's *current* counter names before
-reasoning about it: backlog MRs add and remove counters, so any name written here
-would go stale.
 
 ## Local commands can have real side effects
 
