@@ -6,6 +6,7 @@ mod vault_migration;
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -419,10 +420,73 @@ impl LocalNoteStore {
             .unwrap_or_default()
     }
 
+    /// Atomically distinguish a missing note from an existing, possibly-empty
+    /// note with one filesystem open. Unlike `exists` followed by `read`, this
+    /// cannot observe two different filesystem states.
+    pub fn read_existing(&self, id: &str) -> Result<Option<String>, String> {
+        let path = paths::note_path(&self.root, id)?;
+        match fs::read_to_string(path) {
+            Ok(content) => Ok(Some(content)),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(io_error(error)),
+        }
+    }
+
     pub fn exists(&self, id: &str) -> bool {
         paths::note_path(&self.root, id)
             .map(|path| path.is_file())
             .unwrap_or(false)
+    }
+
+    /// Project a sync engine's reported filesystem changes into the complete
+    /// mutation native shells need for their note-list caches.
+    ///
+    /// Metadata is gathered only for affected final ids. `finish_mutation`
+    /// supplies Rust-owned positions and folders, so shells never rescan every
+    /// note or duplicate the canonical ordering rule.
+    pub fn refresh_external_changes(
+        &self,
+        updated_ids: &[String],
+        deleted_ids: &[String],
+        renamed: &[NoteRename],
+    ) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
+
+        let mut affected_ids = Vec::new();
+        let mut seen = HashSet::new();
+        for id in updated_ids
+            .iter()
+            .chain(deleted_ids)
+            .chain(renamed.iter().flat_map(|pair| [&pair.from, &pair.to]))
+        {
+            if seen.insert(id.as_str()) {
+                affected_ids.push(id);
+            }
+        }
+
+        let mut notes = Vec::new();
+        let mut removed = Vec::new();
+        for id in affected_ids {
+            match vault::metadata(&self.root, id) {
+                Some(metadata) => {
+                    self.notify(&FileChange::Changed(note_filename(id)));
+                    notes.push(metadata);
+                }
+                None => {
+                    self.notify(&FileChange::Removed(note_filename(id)));
+                    removed.push(id.clone());
+                }
+            }
+        }
+        Ok(self.finish_mutation(
+            notes,
+            MutationResult {
+                removed,
+                renamed: renamed.to_vec(),
+                ..MutationResult::default()
+            },
+        ))
     }
 
     pub fn create(
