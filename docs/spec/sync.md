@@ -1019,7 +1019,7 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   > **Gap:** Only the desktop shell opens a journal. iOS and Android run the
   > same sync crate, but `SyncSession::set_journal` is not exposed through
   > `futo-notes-ffi`, so a native shell's runs are not recorded and `just
-journal --dir` has nothing to read from a phone.
+  > journal --dir` has nothing to read from a phone.
 
 ## Polling
 

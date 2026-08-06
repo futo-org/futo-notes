@@ -33,6 +33,6 @@ flag gaps the codebase suggests have been implemented.
 ## sync.md
 
 - [sync.md:401](sync.md#L401) — The heal is not idempotent for a name ending in repeated `". "` groups — `sanitize_title` peels exactly one group per pass, so `"a. ..md"` heals to `"a..md"`, which the next cycle heals again to `"a.md"`: one rename per sync round until it settles. Closing it means changing the title rule in both `packages/editor/src/filename.ts` and `futo-notes-core` plus regenerated conformance fixtures (AGENTS.md M7); the invariant is recorded as the `#[ignore]`d `healing_an_incoming_path_settles_in_one_round` property.
-- [sync.md:1019](sync.md#L1019) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
+- [sync.md:1019](sync.md#L1019) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just journal --dir` has nothing to read from a phone.
 
 _15 gaps._
