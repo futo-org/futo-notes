@@ -1230,3 +1230,42 @@ fn claim_names_are_bounded_even_for_deep_long_paths() {
     assert!(claim.file_name().unwrap().len() < 255);
     assert!(sidecar.file_name().unwrap().len() < 255);
 }
+
+/// A remote name no portable filesystem can hold is IGNORED, not rejected
+/// (github#15 follow-up): nothing is written, no failure reaches the user, and
+/// the only trace is a journal decision. Before this change it raised a
+/// permanent `rejected` failure on every peer, on every cycle, forever — for a
+/// note the origin device never displayed in the first place.
+#[test]
+fn an_unportable_remote_name_is_ignored_without_a_failure() {
+    let root = TempRoot::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+    let ancestry = HashMap::new();
+
+    apply_remote(
+        &mut state,
+        root.path(),
+        &remote("unportable", "Recipe: braised short ribs.md", "body"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    assert!(!root.path().join("Recipe: braised short ribs.md").exists());
+    assert!(state.object_map.is_empty(), "nothing was mapped");
+    assert!(
+        summary.failures.is_empty(),
+        "the user is never told: {:?}",
+        summary.failures,
+    );
+    let journaled = summary
+        .decisions()
+        .iter()
+        .filter(|entry| entry.decision == decision::IGNORED)
+        .map(|entry| entry.filename.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(journaled, vec!["Recipe: braised short ribs.md"]);
+}

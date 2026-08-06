@@ -381,10 +381,17 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   produces but Windows cannot hold — is HEALED to the same safe name
   `sanitize_title` would mint (`CON`→`CON_`, `.env`→`env`, `note.`→`note`),
   written under that name, and NOT reported as a failure (the note is never
-  lost); (b) a name creation could never produce — traversal, a forbidden
-  character, a component past `NAME_MAX`, excess depth — is
+  lost); (b) a name that is genuinely unsafe or physically impossible —
+  traversal, a component past `NAME_MAX`, excess depth — is
   REJECTED: skipped, never written, surfaced as a permanent `rejected` failure
-  (not the retryable `download`), never cursor-capped, never aborting the cycle.
+  (not the retryable `download`), never cursor-capped, never aborting the cycle;
+  (c) a name no portable filesystem can hold — one containing `< > : " | ? *` or
+  a control character, which macOS/Linux hold happily and Windows cannot — is
+  IGNORED: skipped, never written, and deliberately NOT a failure. Such a name
+  cannot escape the vault, so refusing it is a portability decision, not a
+  safety one; the file is left strictly alone on whichever devices already hold
+  it. The only trace is a local journal decision (`ignored` /
+  `unportable_incoming_name`), never a user-facing message.
   The traversal screen runs on the HEALED component as well as the raw one, so a
   name whose heal would itself become `.` or `..` (`". .. ./note.md"` heals to
   `"../note.md"`) is rejected rather than written outside the vault. The heal is
@@ -398,7 +405,23 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   futo-notes-sync sync module; guarded by the core `incoming_*` tests and the
   `incoming_components_that_heal_into_a_traversal_are_rejected` +
   `healed_incoming_paths_are_traversal_free` properties in
-  `crates/futo-notes-core/src/files/paths.rs`
+  `crates/futo-notes-core/src/files/paths.rs`, plus
+  `an_unportable_remote_name_is_ignored_without_a_failure`
+- **A local file whose name no portable filesystem can hold is never uploaded,
+  and never mistaken for a deletion.** The same classifier screens the push
+  side, so one rule answers portability in both directions: the file is dropped
+  from the upload list and journaled (`ignored` / `unportable_local_name`), with
+  no failure and no user-facing signal. It MUST remain in the local scan
+  (`local_files`) while it is dropped, because `missing_local_files` reads "in
+  the object map, absent from the local scan" as a local delete — filtering it
+  out of the scan instead would tombstone the note on the server and every peer.
+  A copy uploaded by an older client (push never validated names) is left on the
+  server as-is and simply stops receiving updates; it is never deleted. These
+  files are also absent from the note list on every shell, because the local
+  note scan has always skipped them — the app leaves them strictly alone.
+  → futo-notes-sync `sync/push/mod.rs` `uploadable_files`; guarded by
+  `an_unportable_name_is_never_uploaded_and_is_journaled_not_failed` +
+  `an_unportable_name_is_not_mistaken_for_a_local_delete`
   > **Gap:** The heal is not idempotent for a name ending in repeated `". "`
   > groups — `sanitize_title` peels exactly one group per pass, so `"a. ..md"`
   > heals to `"a..md"`, which the next cycle heals again to `"a.md"`: one rename
