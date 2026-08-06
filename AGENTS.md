@@ -71,6 +71,18 @@ tests/, markdown-spec/, factory/   E2E + sync harness, editor fixtures, Obsidian
   UniFFI's `catch_unwind`. No `tempfile` crate — hand-roll test tempdirs like existing tests;
   env-var tests serialize on a `static Mutex`.
 
+## Papercuts (file the friction, don't eat it)
+
+Hit a dead-end tool call, a stale doc, a broken `just` recipe, a footgun config, a missing helper?
+File it before moving on — don't stop working, don't fix-and-forget:
+
+    papercuts add "<what you hit and what would have prevented it>" --tag <area>
+
+Severity: `minor` (default) annoyance · `--severity major` time sink · `--severity blocker` hard wall.
+Tool failures take `--cmd`/`--exit`/`--stderr-file` (never raw env dumps). `papercuts schema` is the
+full contract; `papercuts list --format md` is the review digest. The log is `.papercuts.jsonl` at the
+repo root — append-only, committed, `merge=union` so parallel worktrees never conflict on it.
+
 ## Named mistakes (institutional memory — cited elsewhere by number; the rule that prevents each)
 
 **Data/render safety (CRITICAL):**
