@@ -185,7 +185,7 @@ as a comment so the author has it.
 
 - **Pre-empt the three isolation-layer bugs in the agent brief** (they recur;
   tell every agent up front so they don't burn time rediscovering):
-  1. **Slot-hash collision** — `/verify`'s `md5(worktree_path)%50` collides at
+  1. **Slot-hash collision** — the `scripts/lib/slot.mjs` slot collides at
      ~5 concurrent worktrees (mr-40 ↔ mr-42 both → slot 0: same Vite 5200 +
      identifier `com.futo.notes.verify.s0`, and `driver_session` silently
      reused the *other* app). Brief agents to fall back to a **unique

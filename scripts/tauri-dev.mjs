@@ -10,17 +10,15 @@
  *   - Assigns a unique Vite port (5200–5249) derived from the worktree path
  *   - Uses a unique app identifier to avoid D-Bus single-instance conflicts
  *   - Isolates app data to {worktree}/.tauri-data/ so the real vault is untouched
- *   - Starts an isolated sync server on a unique port (3100–3149)
- *   - Pre-writes .preferences.json so the app auto-connects to the isolated server
  *   - Seeds a small test vault on first launch
  *
- * Password for the isolated server: testing123
+ * Sync is not started here — `just qa-server` runs this worktree's own server.
  */
-import { createHash } from 'crypto';
 import { execSync, spawn } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { portsFor, slotOf } from './lib/slot.mjs';
 
 const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
 
@@ -88,11 +86,8 @@ if (fakeUpdate)
     });
     child.on('exit', (code) => process.exit(code ?? 0));
   } else {
-    // Worktree: derive a stable slot from the worktree path (matches /verify skill algorithm).
-    const slot = parseInt(createHash('md5').update(repoRoot).digest('hex').slice(0, 8), 16) % 50;
-
-    const vitePort = 5200 + slot;
-    const serverPort = 3100 + slot;
+    const slot = slotOf(repoRoot);
+    const vitePort = portsFor(repoRoot).tauriVite;
     const identifier = `com.futo.notes.dev.wt${slot}`;
     const dataDir = join(repoRoot, '.tauri-data');
     const notesDir = join(dataDir, 'notes');
@@ -126,9 +121,6 @@ if (fakeUpdate)
       );
     }
 
-    // Sync server is now a separate repo (futo-notes-server).
-    // Start it with the helper: ./scripts/start-test-server.sh (password mode, default "testing123")
-    // Then connect via: window.__testSync.connect('http://127.0.0.1:3100', 'testing123')
     process.on('SIGINT', () => process.exit(0));
     process.on('SIGTERM', () => process.exit(0));
 
