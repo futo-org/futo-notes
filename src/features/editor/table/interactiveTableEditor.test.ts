@@ -83,6 +83,45 @@ function setupEditor(doc: string): EditorView {
   return view;
 }
 
+const RENUMBER_LINE_COUNT = 400;
+const READ_BOUND = RENUMBER_LINE_COUNT * 8;
+
+function setupOrderedListEditor(): EditorView {
+  return setupEditor(
+    Array.from({ length: RENUMBER_LINE_COUNT }, (_, index) => `${index + 1}. item ${index}`).join(
+      '\n',
+    ),
+  );
+}
+
+function spyOnLineReads(view: EditorView) {
+  return vi.spyOn(Object.getPrototypeOf(view.state.doc), 'line');
+}
+
+/** Report a syntax tree that stops short of the document, as a busy machine does. */
+function pinTreeLength(length: number): void {
+  syntaxTreeMock.mockImplementation((state: EditorState) => {
+    const tree = actualSyntaxTree.current!(state);
+    return new Proxy(tree, {
+      get(target, property) {
+        if (property === 'length') return Math.min(length, target.length);
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  });
+}
+
+/** The shape a renumber produces: one change per line, never adjacent. */
+function renumberEveryLine(view: EditorView): void {
+  view.dispatch({
+    changes: Array.from({ length: RENUMBER_LINE_COUNT }, (_, index) => {
+      const line = view.state.doc.line(index + 1);
+      return { from: line.to - 1, to: line.to, insert: '9' };
+    }),
+  });
+}
+
 function getTableDecorations(view: EditorView): TableDecoration[] {
   const decorations: TableDecoration[] = [];
   const cursor = view.state.field(tableEditorField).decorations.iter();
@@ -241,5 +280,33 @@ describe('interactiveTableEditor', () => {
     expect(iterateCalls.length).toBeGreaterThan(0);
     expect(iterateCalls.every(({ from, to }) => from !== undefined && to !== undefined)).toBe(true);
     expect(Math.max(...iterateCalls.map(({ from, to }) => to! - from!))).toBeLessThan(500);
+  });
+
+  it('expands blocks once for a transaction that changes every line of one block', () => {
+    // Expanding per change re-walked the whole block each time, costing
+    // changes x block length. Counting reads keeps the guard deterministic.
+    const view = setupOrderedListEditor();
+    const lineSpy = spyOnLineReads(view);
+
+    renumberEveryLine(view);
+
+    expect(lineSpy).toHaveBeenCalled();
+    // Expanding once is ~lineCount reads; once per change was ~lineCount^2.
+    expect(lineSpy.mock.calls.length).toBeLessThan(READ_BOUND);
+  });
+
+  // The parse limit is the tree's length, and CM6 parses on a time budget, so a
+  // slow machine reaches this path and a fast one does not. Pinning a short tree
+  // makes it the same test everywhere: the test above passes on an unfixed build
+  // whenever the parse happens to finish.
+  it('expands blocks once when the tree is shorter than the document', () => {
+    const view = setupOrderedListEditor();
+    pinTreeLength(Math.floor(view.state.doc.length / 4));
+    const lineSpy = spyOnLineReads(view);
+
+    renumberEveryLine(view);
+
+    expect(lineSpy).toHaveBeenCalled();
+    expect(lineSpy.mock.calls.length).toBeLessThan(READ_BOUND);
   });
 });
