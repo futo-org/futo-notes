@@ -246,6 +246,7 @@
     flushSave: session.flushSave,
     getEditorView: () => editor?.getView() ?? null,
     focusEditor: () => editor?.focus(),
+    isEditorFocused: () => editor?.hasFocus() ?? false,
     getState: () => ({
       originalId: session.originalId,
       title: session.title,

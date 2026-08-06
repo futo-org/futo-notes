@@ -249,20 +249,12 @@ export class TauriTestClient {
     return this._executeRead(`window.__notesShellTest.getState()`, 'getOpenNoteState');
   }
 
-  // Focus the editor through CodeMirror's DOM surface. Its update listener
-  // reports the focus transition to the note session.
+  // Focus through the debug-only shell hook so headless window-manager focus
+  // cannot make the precondition timing-dependent.
   async focusEditor() {
-    await this._executeMutation(
-      `(() => {
-        const cm = document.querySelector('.cm-content');
-        if (!(cm instanceof HTMLElement)) throw new Error('editor content not found');
-        cm.focus();
-        return true;
-      })()`,
-      'focusEditor',
-    );
+    await this._executeMutation(`window.__notesShellTest.focusEditor()`, 'focusEditor');
     await this.waitForCondition(
-      `document.querySelector('.cm-editor')?.classList.contains('cm-focused') === true`,
+      `window.__notesShellTest.isEditorFocused() === true`,
       5000,
       'editor focused',
     );
@@ -272,7 +264,7 @@ export class TauriTestClient {
   // is now unfocused. CodeMirror's updateListener fires focusChanged on the
   // blur, which drives the host's handleEditorFocusChange(false).
   async blurEditor() {
-    return this._executeMutation(
+    await this._executeMutation(
       `(() => {
         const cm = document.querySelector('.cm-content');
         if (cm instanceof HTMLElement) cm.blur();
@@ -280,6 +272,11 @@ export class TauriTestClient {
         return document.activeElement !== cm;
       })()`,
       'blurEditor',
+    );
+    await this.waitForCondition(
+      `window.__notesShellTest.isEditorFocused() === false`,
+      5000,
+      'editor blurred',
     );
   }
 
