@@ -78,6 +78,11 @@ File it before moving on — don't stop working, don't fix-and-forget:
 
     papercuts add "<what you hit and what would have prevented it>" --tag <area>
 
+**Tooling and workflow only — never product bugs.** The test: does it slow down someone *working in
+this repo*, or someone *using the app*? Only the first is a papercut. An app defect gets fixed, or
+becomes a GitHub issue; a spec divergence becomes an inline `> **Gap:**` note. Filing those here
+buries them in a log nobody triages as a bug tracker.
+
 `command not found`? Install it first — `cargo install papercuts` (MIT, builds in ~15s) — then file
 the cut, including one for whatever sent you looking. If the install itself fails, don't sink time
 into it: say so in your final report and carry on.
