@@ -62,6 +62,7 @@ struct NoteEditorView: View {
     /// rename sequencing plus focused/hidden deferral; the view only supplies
     /// state and renders the engine's disposition.
     @State private var openNoteReconciler = OpenNoteReconciler()
+    @State private var openNoteChangeBuffer = OpenNoteChangeBuffer()
     @State private var editorFocused = false
     @State private var editVersion: UInt64 = 0
     /// Mirrors the session's interaction lock so SwiftUI re-renders on it (the
@@ -311,6 +312,7 @@ struct NoteEditorView: View {
             content = disk
             savedContent = disk
             loaded = true
+            scheduleOpenNoteReconciliation(openNoteChangeBuffer.finishInitialLoad())
         }
         .onReceive(store.$notes) { _ in
             // Keep the embed's note universe (wikilink resolution/autocomplete)
@@ -320,8 +322,11 @@ struct NoteEditorView: View {
             pushNotesUniverse()
         }
         .onReceive(store.$localTreeChange) { summary in
-            guard loaded, let summary else { return }
-            scheduleOpenNoteReconciliation(OpenNoteChange(summary: summary))
+            guard let summary else { return }
+            let change = OpenNoteChange(summary: summary)
+            if let ready = openNoteChangeBuffer.receive(change, isLoaded: loaded) {
+                scheduleOpenNoteReconciliation(ready)
+            }
         }
         .onAppear {
             isVisible = true

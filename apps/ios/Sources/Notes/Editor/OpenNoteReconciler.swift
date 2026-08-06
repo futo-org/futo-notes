@@ -38,23 +38,35 @@ struct OpenNoteChange: Equatable {
     func affects(_ id: String) -> Bool {
         updatedIds.contains(id) || deletedIds.contains(id) || renamed[id] != nil
     }
+
+    func merging(_ newer: OpenNoteChange) -> OpenNoteChange {
+        OpenNoteChange(
+            updatedIds: updatedIds.union(newer.updatedIds),
+            deletedIds: deletedIds.union(newer.deletedIds),
+            renamed: renamed.merging(newer.renamed) { _, latest in latest }
+        )
+    }
 }
 
-enum OpenNoteKeepDraftReason: String, Equatable {
-    case peerDeleted
-    case diverged
-    case converged
-}
+/// Retains lossless sync intent while the editor's initial disk read is in
+/// flight. In particular, a rename cannot be replaced by a later update before
+/// the editor becomes eligible to reconcile.
+struct OpenNoteChangeBuffer {
+    private var pending: OpenNoteChange?
 
-/// The engine disposition in the vocabulary the iOS executor renders.
-/// Conversion from the exhaustive UniFFI enum contains no policy.
-enum OpenNoteRenderDisposition: Equatable {
-    case leave
-    case adopt(content: String)
-    case deferAdopt
-    case followRename(toId: String)
-    case keepDraft(base: String, reason: OpenNoteKeepDraftReason)
-    case close
+    mutating func receive(
+        _ change: OpenNoteChange,
+        isLoaded: Bool
+    ) -> OpenNoteChange? {
+        guard !isLoaded else { return change }
+        pending = pending?.merging(change) ?? change
+        return nil
+    }
+
+    mutating func finishInitialLoad() -> OpenNoteChange {
+        defer { pending = nil }
+        return pending ?? .external
+    }
 }
 
 struct OpenNoteReconcileFacts: Equatable {
@@ -74,7 +86,7 @@ struct OpenNoteReconcileEffects {
     var resumeDraftSave: @MainActor () -> Void
     var followRename: @MainActor (String) -> Void
     var adopt: @MainActor (String) -> Void
-    var keepDraft: @MainActor (String, OpenNoteKeepDraftReason) -> Void
+    var keepDraft: @MainActor (String, KeepDraftReason) -> Void
     var close: @MainActor () -> Void
 }
 
@@ -86,7 +98,7 @@ enum OpenNoteReconcileResult: Equatable {
 }
 
 typealias OpenNoteClassifier =
-    @MainActor (OpenNoteReconcileFacts) -> OpenNoteRenderDisposition
+    @MainActor (OpenNoteReconcileFacts) -> OpenNoteDisposition
 
 /// The iOS executor for the engine's open-note disposition.
 ///
@@ -153,6 +165,9 @@ final class OpenNoteReconciler {
             do {
                 disk = try await effects.readDisk(readTarget.id)
             } catch {
+                guard !Task.isCancelled else { return .stale }
+                print("open-note disk read failed for \(readTarget.id): \(error)")
+                effects.resumeDraftSave()
                 return .failed
             }
             guard !Task.isCancelled else { return .stale }
@@ -179,7 +194,7 @@ final class OpenNoteReconciler {
     }
 
     private func apply(
-        _ disposition: OpenNoteRenderDisposition,
+        _ disposition: OpenNoteDisposition,
         snapshot: OpenNoteEditorSnapshot,
         effects: OpenNoteReconcileEffects
     ) -> OpenNoteReconcileResult {
@@ -212,8 +227,8 @@ final class OpenNoteReconciler {
 
     nonisolated private static func classifyWithEngine(
         _ facts: OpenNoteReconcileFacts
-    ) -> OpenNoteRenderDisposition {
-        let disposition = classifyOpenNote(
+    ) -> OpenNoteDisposition {
+        classifyOpenNote(
             facts: OpenNoteFacts(
                 base: facts.base,
                 draft: facts.draft,
@@ -223,25 +238,5 @@ final class OpenNoteReconciler {
                 editedDuringCycle: facts.editedDuringCycle
             )
         )
-        switch disposition {
-        case .leave:
-            return .leave
-        case .adopt(let content):
-            return .adopt(content: content)
-        case .deferAdopt:
-            return .deferAdopt
-        case .followRename(let toId):
-            return .followRename(toId: toId)
-        case .keepDraft(let base, let reason):
-            let renderedReason: OpenNoteKeepDraftReason
-            switch reason {
-            case .peerDeleted: renderedReason = .peerDeleted
-            case .diverged: renderedReason = .diverged
-            case .converged: renderedReason = .converged
-            }
-            return .keepDraft(base: base, reason: renderedReason)
-        case .close:
-            return .close
-        }
     }
 }

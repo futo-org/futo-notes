@@ -64,7 +64,7 @@ struct OpenNoteReconcilerTests {
     }
 
     private func reconcile(
-        _ disposition: OpenNoteRenderDisposition,
+        _ disposition: OpenNoteDisposition,
         editor: FakeEditor,
         change: OpenNoteChange = .external
     ) async -> OpenNoteReconcileResult {
@@ -230,6 +230,39 @@ struct OpenNoteReconcilerTests {
 
         #expect(result == .failed)
         #expect(!editor.events.contains("close"))
+        #expect(editor.events == ["drain", "resume-save"])
+    }
+
+    @Test("sync intent received during initial load is replayed losslessly")
+    func initialLoadBuffersSyncIntent() {
+        var buffer = OpenNoteChangeBuffer()
+
+        #expect(
+            buffer.receive(
+                OpenNoteChange(
+                    updatedIds: ["note"],
+                    deletedIds: [],
+                    renamed: ["note": "renamed"]
+                ),
+                isLoaded: false
+            ) == nil
+        )
+        #expect(
+            buffer.receive(
+                OpenNoteChange(
+                    updatedIds: ["renamed"],
+                    deletedIds: ["other"],
+                    renamed: ["renamed": "final"]
+                ),
+                isLoaded: false
+            ) == nil
+        )
+
+        let replay = buffer.finishInitialLoad()
+        #expect(replay.updatedIds == ["note", "renamed"])
+        #expect(replay.deletedIds == ["other"])
+        #expect(replay.renamed == ["note": "renamed", "renamed": "final"])
+        #expect(buffer.finishInitialLoad() == .external)
     }
 
     @Test("a superseded reconciliation cannot apply after its read")
