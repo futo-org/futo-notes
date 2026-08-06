@@ -165,6 +165,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       case 'keepDraft':
         pendingReconcile = null;
         dependencies.session.rebaseSavedContent(disposition.base);
+        dependencies.session.resumeDraftPersistence();
         if (disposition.reason === 'peerDeleted') {
           dependencies.showToast('Open note was deleted; keeping local draft');
           result.keptDraftId = id;

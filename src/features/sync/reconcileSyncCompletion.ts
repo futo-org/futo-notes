@@ -31,6 +31,11 @@ interface SyncCompletionOptions {
   writeSuppressor: WriteSuppressor;
 }
 
+interface OpenNoteSyncResult {
+  followedRenameFromIds: Set<string>;
+  keptDraftId: string | null;
+}
+
 export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
   const { dependencies, externalChanges, writeSuppressor } = options;
   let completionTail: Promise<void> = Promise.resolve();
@@ -58,9 +63,12 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     setTimeout(() => void externalChanges.runRescan(), 50);
   }
 
-  function projectBackgroundRenames(summary: SyncSummary, openId: string | null): void {
+  function projectBackgroundRenames(
+    summary: SyncSummary,
+    followedRenameFromIds: Set<string>,
+  ): void {
     for (const rename of summary.renamed) {
-      if (rename.fromId === openId) continue;
+      if (followedRenameFromIds.has(rename.fromId)) continue;
       const slash = rename.toId.lastIndexOf('/');
       const title =
         getNoteById(rename.toId)?.title ??
@@ -72,15 +80,19 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
   async function reconcileOpenNote(
     summary: SyncSummary,
     syncStartEditVersion: number,
-  ): Promise<string | null> {
+  ): Promise<OpenNoteSyncResult> {
     const openId = dependencies.session.originalId;
-    if (!openId) return null;
+    const syncResult: OpenNoteSyncResult = {
+      followedRenameFromIds: new Set(),
+      keptDraftId: null,
+    };
+    if (!openId) return syncResult;
     const rename = summary.renamed.find((pair) => pair.fromId === openId);
     const isAffected =
       rename !== undefined ||
       summary.deletedIds.includes(openId) ||
       summary.updatedIds.includes(openId);
-    if (!isAffected) return null;
+    if (!isAffected) return syncResult;
 
     // A flush can park and synchronously ask the external-change coordinator
     // to adopt the peer version. Settle it before entering that coordinator's
@@ -88,24 +100,27 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     // behind the operation that is awaiting the flush.
     if (dependencies.session.savePending) {
       await dependencies.session.flushSave();
-      if (dependencies.session.originalId !== openId) return null;
+      if (dependencies.session.originalId !== openId) return syncResult;
     }
 
-    const result = await externalChanges.reconcileOpenNote(openId, {
-      editedDuringCycle: dependencies.session.editVersion !== syncStartEditVersion,
-      renamedTo: rename?.toId ?? null,
-    });
-    if (
-      result.followedRenameTo &&
-      (summary.deletedIds.includes(result.followedRenameTo) ||
-        summary.updatedIds.includes(result.followedRenameTo))
-    ) {
-      const targetResult = await externalChanges.reconcileOpenNote(result.followedRenameTo, {
+    let currentId = openId;
+    const seenIds = new Set<string>();
+    // A cycle can contribute at most one fresh source per reported rename,
+    // followed by one final target classification.
+    const maxPasses = summary.renamed.length + 1;
+    for (let pass = 0; pass < maxPasses && !seenIds.has(currentId); pass += 1) {
+      seenIds.add(currentId);
+      const currentRename = summary.renamed.find((pair) => pair.fromId === currentId);
+      const result = await externalChanges.reconcileOpenNote(currentId, {
         editedDuringCycle: dependencies.session.editVersion !== syncStartEditVersion,
+        renamedTo: currentRename?.toId ?? null,
       });
-      return targetResult.keptDraftId;
+      syncResult.keptDraftId = result.keptDraftId;
+      if (!result.followedRenameTo) return syncResult;
+      syncResult.followedRenameFromIds.add(currentId);
+      currentId = result.followedRenameTo;
     }
-    return result.keptDraftId;
+    return syncResult;
   }
 
   async function reconcileSyncCompletion(
@@ -125,11 +140,10 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
 
     recordSyncedFiles(summary);
     reindexPeerChanges(summary);
-    const openId = dependencies.session.originalId;
-    const keptDeletedDraftId = await reconcileOpenNote(summary, syncStartEditVersion);
-    projectBackgroundRenames(summary, openId);
+    const openNoteResult = await reconcileOpenNote(summary, syncStartEditVersion);
+    projectBackgroundRenames(summary, openNoteResult.followedRenameFromIds);
 
-    const pruneCandidates = summary.deletedIds.filter((id) => id !== keptDeletedDraftId);
+    const pruneCandidates = summary.deletedIds.filter((id) => id !== openNoteResult.keptDraftId);
     const pruneExistence = await Promise.all(
       pruneCandidates.map((id) => noteExists(id).catch(() => true)),
     );

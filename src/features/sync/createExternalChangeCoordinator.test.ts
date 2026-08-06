@@ -93,6 +93,7 @@ function makeSession(overrides: Partial<SessionState> = {}) {
       return state.composing;
     },
     debouncedSave: vi.fn(),
+    resumeDraftPersistence: vi.fn(),
     flushSave: vi.fn(async () => {}),
     awaitSaveIdle: vi.fn(async () => {}),
     runWithSaveLock: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
@@ -202,6 +203,7 @@ describe('engine-owned open-note disposition', () => {
       expect(bundle.followRename).toHaveBeenCalledExactlyOnceWith('active', 'renamed');
     } else if (kind === 'keepDraft') {
       expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('peer');
+      expect(bundle.session.resumeDraftPersistence).toHaveBeenCalledOnce();
     } else if (kind === 'close') {
       expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
     }
@@ -220,6 +222,7 @@ describe('engine-owned open-note disposition', () => {
 
     expect(result.keptDraftId).toBe('active');
     expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('base');
+    expect(bundle.session.resumeDraftPersistence).toHaveBeenCalledOnce();
     expect(bundle.showToast).toHaveBeenCalledExactlyOnceWith(
       'Open note was deleted; keeping local draft',
     );

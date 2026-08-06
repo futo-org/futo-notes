@@ -137,6 +137,7 @@ function makeSession(overrides: Partial<SessionState> = {}) {
       return state.lastEditTime;
     },
     flushSave: vi.fn(async () => {}),
+    resumeDraftPersistence: vi.fn(),
     awaitSaveIdle,
     applyExternalContent,
     rebaseSavedContent,
@@ -365,6 +366,7 @@ describe('peer projections', () => {
       'Old (conflict deadbeef)',
       'Old (conflict deadbeef)',
     );
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledTimes(2);
     // The follow rebinds the session; the relocated draft is not adopted over.
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
     expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith(['Gone']);
@@ -496,6 +498,47 @@ describe('peer projections', () => {
   });
 });
 
+describe('rename disposition races', () => {
+  it('bounds a reported rename cycle to one pass per note id', async () => {
+    openNoteMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'followRename', toId: 'New' })
+      .mockResolvedValueOnce({ kind: 'followRename', toId: 'Old' });
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
+
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      renamed: [
+        { fromId: 'Old', toId: 'New' },
+        { fromId: 'New', toId: 'Old' },
+      ],
+    });
+
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledTimes(2);
+    expect(bundle.state.id).toBe('Old');
+  });
+
+  it('retargets a renamed tab without rebinding a session that switched during classification', async () => {
+    const verdict = controlledPromise<{
+      kind: 'followRename';
+      toId: string;
+    }>();
+    openNoteMocks.classifyOpenNote.mockReturnValueOnce(verdict.promise);
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
+
+    const reconciliation = bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      renamed: [{ fromId: 'Old', toId: 'New' }],
+    });
+    await yieldMicrotasks();
+    bundle.state.id = 'Other';
+    verdict.resolve({ kind: 'followRename', toId: 'New' });
+    await reconciliation;
+
+    expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
+    expect(bundle.onRename).toHaveBeenCalledExactlyOnceWith('Old', 'New', 'New');
+  });
+});
+
 // eslint-disable-next-line max-lines-per-function -- One editor reconciliation matrix shares the manager/session harness.
 describe('editor reconciliation', () => {
   it('rebases a draft saved during sync so the next flush persists it over pulled content', async () => {
@@ -526,7 +569,8 @@ describe('editor reconciliation', () => {
     expect(live.session.savedContent).toBe('# Remote update');
     expect(live.session.dirty).toBe(true);
 
-    await live.session.flushSave();
+    expect(live.session.savePending).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(updateNote).toHaveBeenCalledExactlyOnceWith(
       'During sync',
