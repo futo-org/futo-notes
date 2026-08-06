@@ -21,6 +21,23 @@ const CODEMIRROR_CORE = [
   '@lezer/markdown',
 ];
 
+const IGNORED_WATCH_DIRS = [
+  '.claude/worktrees',
+  'target',
+  'dist',
+  '.tauri-data',
+  'build',
+  'playwright-report',
+  'factory/captures',
+  'apps/android/app/build',
+  'apps/android/build',
+  'apps/android/app/src/main/assets/editor.html',
+  'apps/ios/.build',
+  'apps/ios/.build-device',
+  'apps/ios/.build-device-release',
+  'apps/ios/Resources/editor.html',
+].map((dir) => path.resolve(__dirname, dir).split(path.sep).join('/'));
+
 export default defineConfig({
   plugins: [tailwindcss(), svelte()],
   root: '.',
@@ -77,6 +94,15 @@ export default defineConfig({
     // while every consumer still points at the original.
     port: webPort(),
     strictPort: true,
+    watch: {
+      // Vite does not read .gitignore. A predicate, not globs: these paths are
+      // absolute and unescaped glob metacharacters in a checkout path silently
+      // match nothing.
+      ignored: (file) => {
+        const p = file.split(path.sep).join('/');
+        return IGNORED_WATCH_DIRS.some((dir) => p === dir || p.startsWith(`${dir}/`));
+      },
+    },
     // Dev only. The Tauri WebKitGTK webview heuristically disk-caches module
     // responses across app restarts. After a dev-server restart the cached
     // parent-component JS executes without a server hit and imports its
