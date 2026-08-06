@@ -661,6 +661,19 @@ EditorWebView.swift, EditorWebView.kt
   through parsed text stays viewport-bounded. → LiveMarkdownPlugin.ts,
   buildLiveMarkdownDecorations.ts, viewportScanRanges.ts,
   tests/typing-perf.spec.ts
+- Per-keystroke work does not scale with the number of links on screen times the
+  vault. Rendering a wikilink needs the whole note-id list twice — once to resolve
+  the target, once for the shortest unique display suffix — so both go through one
+  index (`getWikilinkIndex`), never per link; `[[` completion shares it. In the
+  desktop app a 300-line note with a wikilink per line types at 2.5 ms/keystroke
+  against an 8,000-note vault, against 41 ms when each link scanned the list
+  itself. The index is rebuilt whole whenever the note list changes, which a save
+  mid-typing does, so the keystroke after an autosave pays one pass over the whole
+  vault — tens of ms at 8,000 ids and over 100 ms at 50,000 in a Node
+  microbenchmark of the build alone, never measured in a shipped engine, so treat
+  those as a floor: a very large vault pays a real hitch there, and profiling it
+  against these numbers will mislead. → wikilinks.ts, notes.svelte.ts,
+  live-preview/wikilinkDecorations.test.ts
 - One large insertion (a paste) costs time proportional to the pasted size, not its
   square — in FUTO Notes' own paste work; a paste landing in one giant markdown leaf
   is still quadratic upstream, per the Gap below. The worst shape for our own work

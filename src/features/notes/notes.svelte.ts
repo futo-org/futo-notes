@@ -10,6 +10,7 @@ import {
 import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from '$features/sync/autoSyncV2';
 import { disconnectE2ee, stopLiveSync } from '$features/sync/syncServiceE2ee';
 import { setFolderSnapshot } from '$features/folders/emptyFolders.svelte';
+import { buildWikilinkIndex, type WikilinkIndex } from '$shared/note/wikilinks';
 
 /** How startup init settled: 'failed' means the cache is empty because
  * bootstrap failed, not because the vault is empty — awaiters must not treat
@@ -143,6 +144,26 @@ export function noteTitleFromId(id: string): string {
  * projection holds no comparator (ADR-0001). */
 export function getAllNotes(): NotePreview[] {
   return notesCache;
+}
+
+let cachedWikilinkIndex: { notes: NotePreview[]; size: number; index: WikilinkIndex } | null = null;
+
+/**
+ * The wikilink lookup index for the current note list. Callers on the typing path
+ * (link decorations, `[[` completion) must use this rather than passing the id list
+ * to `resolveWikilink` / `shortestUniqueSuffix` per link — those scan the whole
+ * vault per call. Every write in this module replaces `notesCache` except
+ * `_injectTestNote`, which changes its length, so identity plus length detects both;
+ * an id edited in place through the array `getAllNotes` hands out would not be seen.
+ */
+export function getWikilinkIndex(): WikilinkIndex {
+  const cached = cachedWikilinkIndex;
+  if (cached && cached.notes === notesCache && cached.size === notesCache.length) {
+    return cached.index;
+  }
+  const index = buildWikilinkIndex(notesCache.map((note) => note.id));
+  cachedWikilinkIndex = { notes: notesCache, size: notesCache.length, index };
+  return index;
 }
 
 export function getNoteById(id: string): NotePreview | undefined {
