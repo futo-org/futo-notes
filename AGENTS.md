@@ -176,8 +176,11 @@ until the user can open the app and see the result; don't hand off steps you can
 
 **Stop and ask first:** (1) anything under `keys/`, signing keys, or the updater trust boundary;
 (2) weakening a CRITICAL guard (dev bundle id, `fake-notes` root, push-first sync, `release:gate.needs`,
-the dep-guard, hash/crypto in `hash.rs`); (3) destructive ops on real data (the user's
-`~/Documents/futo-notes`, the prod server, `git push --force`, dropping DBs you didn't create);
+the dep-guard, hash/crypto in `hash.rs`); (3) destructive ops on real data or expensive local state
+(the user's `~/Documents/futo-notes`, the prod server, `git push --force`, dropping DBs you didn't
+create, recursive deletes outside your scratchpad — gitignored ≠ disposable, `target/` is a 31GB
+rebuild; cleanup removes only paths the script itself created, never a computed ancestor —
+`rmSync(rel.split('/')[0])` ate a worktree's `target/` and a tracked `factory/`);
 (4) publishing (Play/TestFlight/F-Droid uploads, tagging a release, posting to Zulip); (5) changing
 behavior the spec records — surface the conflict; (6) cross-cutting protocol changes (sync payload,
 `BRIDGE_VERSION`, `AppState` schema).
