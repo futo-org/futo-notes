@@ -25,14 +25,14 @@ acceptance gate.
 
 ## Ownership map
 
-- `server.rs` owns authentication and the real HTTP protocol.
+- `server/` owns authentication and the real HTTP protocol.
 - `checkpoint.rs` owns the live object map, both cursors, legacy import, and
   disconnect ancestry.
 - `session/` owns connection lifecycle, the shared cycle mutex, live-task
   lifecycle, debounce/backoff policy, and SSE framing.
 - `sync/mod.rs` owns only the push-first cycle sequence.
-- `sync/push.rs` and `sync/pull.rs` own their respective operations.
-- `sync/conflict_resolution.rs`, `sync/collision_resolution.rs`, and
+- `sync/push/` and `sync/pull/` own their respective operations.
+- `sync/conflict_resolution/`, `sync/collision_resolution.rs`, and
   `sync/tombstones.rs` own the three data-preservation policies that should be
   independently discoverable during review.
 - `sync/vault.rs`, `sync/encrypted_note.rs`, `sync/object_map.rs`, and
@@ -83,7 +83,7 @@ application API used by Tauri and UniFFI.
 No tests were deleted or declared obsolete in this rewrite. All 43 fast tests
 from the original branch were moved intact under their new owner or the
 cross-module `sync/behavior_tests.rs` suite. The three tests added on main while
-the branch was behind now live with their operation in `sync/push.rs`: two guard
+the branch was behind now live with their operation in `sync/push/`: two guard
 the oversized-note skip/retry state machine and one guards the pull cursor
 across the push-before-pull crash window. The complete plain-English
 disposition ledger for the 171 tests removed by the earlier behavioral rewrite

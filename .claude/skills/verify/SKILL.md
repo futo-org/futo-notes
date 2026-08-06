@@ -49,23 +49,26 @@ MRs) without collisions, because every shared resource is keyed on the
   stay "free" — no other session will ever target your slot's resources.
 
 Shell variables don't persist between Bash tool calls — **re-compute these at
-the start of any block that needs them** (Linux and modern macOS both ship
-`md5sum`):
+the start of any block that needs them**. `scripts/lib/slot.mjs` owns the
+derivation (stock macOS has no `md5sum`, so don't hand-roll it in shell);
+`just ports` prints the whole map:
 
 ```bash
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
-SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
-VITE_PORT=$(( 5200 + SLOT ))
-WEB_VITE_PORT=$(( 5250 + SLOT ))
+eval "$(node "$WORKTREE_ROOT/scripts/lib/slot.mjs" env)"   # SLOT, VITE_PORT, WEB_VITE_PORT, SYNC_PORT, CDP_PORT
 TAURI_LOG="/tmp/tauri-verify-${SLOT}.log"
 PID_FILE="/tmp/tauri-verify-${SLOT}.pid"
 echo "Worktree: $WORKTREE_ROOT → Vite port $VITE_PORT, web port $WEB_VITE_PORT (slot $SLOT)"
 ```
 
+`vite.config.ts` and `playwright.config.ts` derive the web port from the same
+module, so a plain `pnpm run dev` or `playwright test` already lands on
+`$WEB_VITE_PORT` with no flags. `$FUTO_DEV_PORT` pins it for a one-off run.
+
 | Resource | Range / name | How |
 |---|---|---|
-| Tauri Vite (per worktree) | 5200–5249 | computed above (avoids 5173/5180–5182) |
-| Web Vite (per worktree) | 5250–5299 | computed above |
+| Tauri Vite (per worktree) | 5200–5249 | `just ports` (avoids 5173/5180–5182) |
+| Web Vite (per worktree) | 5250–5299 | `just ports`; config-derived, no flags needed |
 | MCP bridge (desktop) | 9223–9322 | plugin auto-scans; discover after launch |
 | Android CDP forward | 9330–9379 | `just cdp-forward` prints `export CDP_PORT=…` |
 | Sync server | 3100–3149 + own Postgres DB | `just qa-server` (see sync section) |

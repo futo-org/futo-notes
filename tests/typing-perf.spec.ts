@@ -16,6 +16,9 @@ test('typing latency in a large note is viewport-bounded, not O(document)', asyn
 
   await openNewNote(page);
 
+  // Never page.keyboard here: CDP's Input.insertText is quadratic in document
+  // length on a contenteditable (~10s vs ~30ms for a real paste), so it
+  // measures the harness, not the editor.
   const timings = await page.evaluate(() => {
     interface NotesShellTestHook {
       replaceEditorContent: (content: string) => string;

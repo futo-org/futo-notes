@@ -109,10 +109,66 @@ this file states the behaviors a human cares about.
 
 - **Tapping in the editor places the cursor at the tapped character** — not the
   start/end of the line or document. → MarkdownEditor.svelte
+- **A tap past the end of a line's text lands at the end of the tapped VISUAL
+  row.** A wrapped line is one markdown line across several rows, and its
+  `line.to` is the end of the LAST row: snapping there dropped the caret a row
+  below the tap, right after the engine had placed it correctly. On the row that
+  carries the line's end the answer IS `line.to`, because hidden trailing markers
+  (a wikilink's `]]`) stop the rendered row short of the source it stands for.
+  → interactions/caretInteractions.ts `rowEndAt`, tests/editor-ux.spec.ts,
+  tests/wikilinks.spec.ts
+- **A resolved caret carries its row.** A wrap point is ONE position the caret can
+  be drawn in two places — the end of a row or the start of the next — and only
+  the association distinguishes them; the tap's own y picks. Every path that
+  places a caret from a pointer dispatches that association rather than a bare
+  offset, or the caret appears one row below an otherwise correct tap. This bit
+  a tap on an UNFOCUSED editor long after the focused path was right, and again
+  the blank space beside a wrapped row, because each resolves through a different
+  handler — the rule holds only where every one of them applies it.
+  → interactions/caretRow.ts `cursorOnTappedRow`, interactions/caretInteractions.ts,
+  interactions/blankSpaceCaret.ts, iosTapFocus.ts, MarkdownEditor.svelte `setCaret`,
+  interactions/caretInteractions.test.ts
+- **Tapping the blank space around a note reaches into it.** The note's tappable
+  surface is the text plus two line-heights to either side and below it, and
+  upward it takes in the whole tag bar — the bar's slack is part of the surface,
+  while its pills, buttons and input keep their own taps. The title row is
+  outside. → NoteWorkspace.svelte `handleBlankSpaceMouseDown`,
+  interactions/blankSpaceCaret.ts `resolveBlankSpaceCaret`, tests/editor-ux.spec.ts
+- Inside that surface the caret goes to the **nearest position in the text**:
+  left of a line → its start, right of it → its end, and below the last line →
+  whatever the same tap would have hit ON that line, so the column under the
+  pointer picks the character. A tap above the text reaches the first VISIBLE
+  line, never a hidden header tag block — the caret would reveal its markup.
+- Past the surface the directions differ. **Below** the note is still the note:
+  the tap lands at its end. **Out to either side** is a tap away from it: the
+  caret stays where it was. The side edge is one straight line at every height,
+  so the surface is a rectangle rather than an L.
+- **Reaching also hands the editor focus; tapping off takes it away.** Inside the
+  surface the caret moves AND the editor focuses, so the note is ready to type
+  into — being able to type is the whole point of reaching. Outside it the editor
+  gives up focus and the caret stays put, so the note reads as deselected rather
+  than half-selected. → tests/editor-ux.spec.ts
+- Only a **primary (left) press** reaches. Any other button leaves the caret where
+  it is, so a right-press in the blank space opens the platform menu without
+  dragging the cursor along first. A modified tap (Shift/Alt/Cmd/Ctrl) is likewise
+  a selection gesture, left to the platform, and a note that is nothing but a
+  hidden tag block has no reachable position at all — a tap in it must not land in
+  the markup. → NoteWorkspace.svelte `handleBlankSpaceMouseDown`
+  > **Gap:** the native shells have no reach rules of their own. Their blank space
+  > below the text is INSIDE the contenteditable (editor.html's `.cm-content
+  > { min-height: 100% }`), so the engine resolves those taps: there is no
+  > two-line boundary and no click-off zone, at any distance. The reach rules
+  > above are desktop/web only. _(native shells)_
 - The first tap that opens the editor resolves the tapped CM line on `touchend`,
   focuses with `preventScroll`, then sets the selection — it must NOT use the
   native contenteditable tap-focus path, which scroll-jumps the whole app during
   keyboard presentation. → docs/learnings/ios-keyboard-editor-jump.md _(iOS)_
+  > **Gap:** a first tap that resolves to NO CM line — the blank space below the
+  > text, which on the native shells is inside the contenteditable — has no
+  > position to set, so `iosTapFocus` declines and that native tap-focus path runs
+  > after all. Certain from the gating (`getLineHitAtPoint` finds no `.cm-line`,
+  > so `resolveTapPositionAt` answers null); whether the scroll-jump actually
+  > follows is NOT verified on device. Predates the reach work. _(iOS)_
 - **Tapping an UNFOCUSED editor places the caret at the tap AND raises the
   keyboard** — on refocus, WebKit and Blink restore the selection saved at
   blur (e.g. the header the cursor was on when the keyboard was dismissed,
@@ -122,8 +178,13 @@ this file states the behaviors a human cares about.
   a JS focus — and re-places the caret on click
   (`mobileTapCaretCorrection`, which also fixes Android Chrome dropping to
   position 0 on empty/widget lines — that fallback bites even while focused,
-  so Android corrects ALL single taps; iOS focused taps are left to WebKit's
-  native placement). The correction is anchored on the host-asserted
+  so Android corrects every single tap that lands ON a line; iOS focused taps
+  are left to WebKit's native placement). A tap that lands on NO line — the
+  blank space below the text — has no answer to correct to, and the engine's
+  own placement stands: answering "end of the document" there discarded the
+  column the engine had resolved from the same tap, and the caret then walked
+  between the two answers on alternate taps. The correction is anchored on the
+  host-asserted
   `nativeShell` prop, never a UA-sniffed flag alone — pinned-false flags
   silently disabled tap paths in the native embeds twice. On a WRAPPED line
   the tap resolves within the tapped visual row (the tap's own y, clamped

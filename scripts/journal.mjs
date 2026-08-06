@@ -13,7 +13,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { slotOf } from './lib/slot.mjs';
 
 const USAGE = `Usage: just journal [command] [options]
 
@@ -67,8 +67,7 @@ function repoRoot() {
 function devWorktreeIdentifier() {
   const root = repoRoot();
   if (!root) return null;
-  const slot = parseInt(createHash('md5').update(root).digest('hex').slice(0, 8), 16) % 50;
-  return `com.futo.notes.dev.wt${slot}`;
+  return `com.futo.notes.dev.wt${slotOf(root)}`;
 }
 
 function isDirectory(path) {

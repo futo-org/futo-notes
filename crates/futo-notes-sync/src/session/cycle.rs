@@ -307,6 +307,7 @@ mod tests {
             collection_id: "collection".into(),
             vault_key: [3; 32],
             object_map: HashMap::new(),
+            pending_creates: HashMap::new(),
             max_version: 0,
             pull_cursor: 0,
             oversize_skip: HashMap::new(),
@@ -329,9 +330,9 @@ mod tests {
         let saves = AtomicUsize::new(0);
         let fail_push_checkpoint = move |root: &Path, state: &ConnectedState| {
             if saves.fetch_add(1, Ordering::Relaxed) == 0 {
-                Err("injected push checkpoint failure".into())
-            } else {
                 checkpoint::save(root, state)
+            } else {
+                Err("injected push checkpoint failure".into())
             }
         };
 
@@ -469,8 +470,14 @@ mod tests {
         let gate = Arc::new(Mutex::new(()));
         let no_progress = |_: crate::sync::SyncProgress| {};
         let no_pre_write = |_: &str| {};
-        let fail_checkpoint =
-            |_: &Path, _: &ConnectedState| Err("injected checkpoint failure".into());
+        let saves = AtomicUsize::new(0);
+        let fail_checkpoint = move |root: &Path, state: &ConnectedState| {
+            if saves.fetch_add(1, Ordering::Relaxed) == 0 {
+                checkpoint::save(root, state)
+            } else {
+                Err("injected checkpoint failure".into())
+            }
+        };
 
         run_with_checkpoint(
             &state,

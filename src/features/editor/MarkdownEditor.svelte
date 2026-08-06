@@ -1,6 +1,11 @@
 <script lang="ts">
   import { EditorView } from '@codemirror/view';
-  import { EditorState, Transaction } from '@codemirror/state';
+  import {
+    EditorSelection,
+    EditorState,
+    Transaction,
+    type SelectionRange,
+  } from '@codemirror/state';
   import { onMount } from 'svelte';
   import { preloadImages, liveMarkdownRefresh } from './liveMarkdownTransform';
   import { getImageWebPath } from '$features/images/imageFiles';
@@ -229,6 +234,11 @@
     view.dispatch({
       selection: { anchor: clampedFrom, head: clampedTo },
     });
+  }
+
+  export function setCaret(at: SelectionRange): void {
+    if (!view) return;
+    view.dispatch({ selection: EditorSelection.create([at]) });
   }
 </script>
 

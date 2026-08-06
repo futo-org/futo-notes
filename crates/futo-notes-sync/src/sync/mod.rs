@@ -1,7 +1,9 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use crate::checkpoint::{self, ConnectedState};
 
+mod chunking;
 mod collision_resolution;
 mod conflict_resolution;
 mod encrypted_note;
@@ -9,10 +11,15 @@ mod object_map;
 mod outcome;
 mod pull;
 mod push;
+#[cfg(test)]
+mod test_support;
 mod tombstones;
+mod transfer;
+mod transfer_retry;
 mod vault;
 mod vault_fs;
 
+use crate::journal::{elapsed_ms, PhaseTimings, SyncRunJournal};
 use outcome::combine;
 pub(super) use outcome::SyncPhase;
 pub(crate) use outcome::{decision, ReconcileDecision};
@@ -22,9 +29,6 @@ pub use outcome::{
 };
 pub(crate) use pull::pull;
 pub(crate) use push::push;
-
-use crate::journal::{elapsed_ms, PhaseTimings, SyncRunJournal};
-
 pub(crate) type SaveCheckpoint = dyn Fn(&Path, &ConnectedState) -> Result<(), String> + Send + Sync;
 
 pub(crate) struct CycleFailure {
@@ -65,10 +69,6 @@ pub(crate) async fn cycle_with_checkpoint(
 ) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
     let cycle_started = std::time::Instant::now();
     let mut phases = PhaseTimings::default();
-
-    // A failed cycle is journaled too — it is the run someone will come looking
-    // for — but its per-file decisions do not survive `CycleFailure`, so the
-    // record carries the error, the phases that did run, and both watermarks.
     let abandon = |kind: SyncErrorKind, reached: &ConnectedState, phases: PhaseTimings| {
         run_journal.record(
             state,
@@ -85,7 +85,7 @@ pub(crate) async fn cycle_with_checkpoint(
         }
     };
 
-    let (bootstrap, ready) = if state.object_map.is_empty() && state.max_version == 0 {
+    let (bootstrap, ready) = if needs_bootstrap(state) {
         let started = std::time::Instant::now();
         let bootstrapped =
             pull::pull_with_checkpoint(state, root, 0, progress, pre_write, save_checkpoint).await;
@@ -97,7 +97,6 @@ pub(crate) async fn cycle_with_checkpoint(
     } else {
         (SyncSummary::default(), state.clone())
     };
-
     let pull_since = ready.pull_cursor;
     let started = std::time::Instant::now();
     let pushed =
@@ -111,14 +110,16 @@ pub(crate) async fn cycle_with_checkpoint(
         }) => return Err(abandon(kind, &reached, phases)),
     };
 
+    let protected_paths = dirty_mapped_paths(&after_push, root);
     let started = std::time::Instant::now();
-    let pulled = pull::pull_with_checkpoint(
+    let pulled = pull::pull_with_checkpoint_protected(
         &after_push,
         root,
         pull_since,
         progress,
         pre_write,
         save_checkpoint,
+        &protected_paths,
     )
     .await;
     phases.pull_ms = elapsed_ms(started);
@@ -131,6 +132,22 @@ pub(crate) async fn cycle_with_checkpoint(
     let summary = combine(bootstrap, combine(pushed, pulled));
     run_journal.record(state, &after_pull, phases, Ok(&summary));
     Ok((summary, after_pull))
+}
+
+fn dirty_mapped_paths(state: &ConnectedState, root: &Path) -> HashSet<String> {
+    state
+        .object_map
+        .iter()
+        .filter_map(|(name, entry)| {
+            let expected = entry.hash.as_deref()?;
+            let current = vault::content_hash(root, name);
+            (current.as_deref() != Some(expected)).then(|| name.clone())
+        })
+        .collect()
+}
+
+fn needs_bootstrap(state: &ConnectedState) -> bool {
+    state.object_map.is_empty() && state.pending_creates.is_empty() && state.max_version == 0
 }
 
 #[cfg(test)]
