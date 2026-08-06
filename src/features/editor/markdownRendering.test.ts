@@ -4,7 +4,7 @@ import { EditorView, drawSelection, keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { ensureSyntaxTree, Language } from '@codemirror/language';
-import { languages } from '@codemirror/language-data';
+import { codeFenceLanguages } from './codeFenceLanguages';
 import { liveMarkdownTransform } from './liveMarkdownTransform';
 import {
   createMarkdownLanguageSupport,
@@ -55,8 +55,8 @@ describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
   beforeAll(async () => {
     // Nested parsers normally load after EditorView construction. Load Ruby up
     // front so this test observes parser output, not async reconfiguration timing.
-    const ruby = languages.find((language) => language.alias.includes('ruby'));
-    if (!ruby) throw new Error('CodeMirror language data does not include Ruby');
+    const ruby = codeFenceLanguages.find((language) => language.alias.includes('ruby'));
+    if (!ruby) throw new Error('the curated fence-language set does not include Ruby');
     await ruby.load();
   });
 
