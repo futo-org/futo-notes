@@ -69,6 +69,9 @@ the editor — "a change that syncs wrong is worse than one that renders wrong"
 - One leg per (platform × surface-group). Keep the `/mr-qa` groups (A =
   editor+app, B = list+nav+tabs, C = search+settings+settings-visual+sync) so
   ledger ids stay comparable across runs; drop groups the scope doesn't touch.
+- Apply the **editor dedup** (SKILL.md Step 2): full `editor` sweep on the
+  desktop leg only; mobile editor legs get a `focus` of the shell-integration
+  delta + platform-tagged stories.
 - Provision only as many worktrees/devices as the scope needs — a
   single-surface, single-platform scope is one leg in one worktree, no fan-out
   worth the Workflow overhead (just spawn one `app-qa` directly and skip

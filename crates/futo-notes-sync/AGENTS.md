@@ -1,7 +1,7 @@
-# crates/futo-notes-sync — sync engine
+# AGENTS.md — Sync Engine
 
-Read root `AGENTS.md` and `docs/spec/sync.md`. This crate owns session state, push/pull, conflicts,
-checkpoints, and the SSE live loop.
+Root `AGENTS.md` and `docs/spec/sync.md` apply. This crate owns connection/session state,
+push/pull planning, conflicts, checkpoints, and the SSE live loop.
 
 ## CRITICAL invariant
 
@@ -12,16 +12,16 @@ shells project it rather than reconstructing the protocol.
 ## Verification
 
 - Any change: `cargo test -p futo-notes-sync`.
-- Protocol/engine change: add and register a scenario in `tests/cross-platform-sync.mjs`, then run
-  `just test-cross-platform`.
-- Server-contract change: use an isolated server, never `:3005` or production:
+- Protocol/engine change: add a scenario to `tests/cross-platform-sync.mjs`, register it in
+  `scenarios`, then run `just test-cross-platform`.
+- Server-contract change: use an isolated server, never the `:3005` demo server:
 
   ```bash
   FUTO_TEST_SERVER=http://127.0.0.1:3055 cargo test -p futo-notes-sync \
     --test server_integration -- --ignored --test-threads=1
   ```
 
-- SSE changes also run ignored `sse_live` tests there.
+- SSE changes also run the ignored `sse_live` test against that isolated server.
 - Crypto, merge, conflict, or tombstone work uses `/sync-adversarial` and merits `/slow-review`.
 
 Update `docs/spec/sync.md` with behavior and name the guarding test/scenario.
