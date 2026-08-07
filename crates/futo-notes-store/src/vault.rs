@@ -7,7 +7,7 @@ use futo_notes_model::{make_preview, make_rich_preview, note_tags, split_id};
 use rayon::prelude::*;
 use walkdir::{DirEntry, WalkDir};
 
-use crate::{NoteMetadata, Snapshot, VaultFile};
+use crate::{ListingSnapshot, NoteListingMetadata, NoteMetadata, Snapshot, VaultFile};
 
 /// THE note-list sort rule (modified desc, id asc). Canonical for every shell:
 /// snapshots are emitted in this order and mutations carry each upserted note's
@@ -26,6 +26,33 @@ pub(crate) fn snapshot(root: &Path) -> Snapshot {
         note_list_order((left.modified_ms, &left.id), (right.modified_ms, &right.id))
     });
     Snapshot {
+        notes,
+        folders: folders.into_iter().collect(),
+    }
+}
+
+pub(crate) fn listing(root: &Path) -> ListingSnapshot {
+    let (paths, folders) = walk(root);
+    let mut notes = paths
+        .into_iter()
+        .filter_map(|(id, path)| {
+            let metadata = fs::metadata(path).ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            let (folder, title) = split_id(&id);
+            Some(NoteListingMetadata {
+                id,
+                title,
+                folder,
+                modified_ms: file_mtime_ms(&metadata),
+            })
+        })
+        .collect::<Vec<_>>();
+    notes.sort_by(|left, right| {
+        note_list_order((left.modified_ms, &left.id), (right.modified_ms, &right.id))
+    });
+    ListingSnapshot {
         notes,
         folders: folders.into_iter().collect(),
     }

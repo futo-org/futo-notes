@@ -304,6 +304,30 @@ fn bootstrap_seeds_only_a_truly_empty_vault() {
 }
 
 #[test]
+fn startup_listing_preserves_engine_order_without_mutating_an_empty_vault() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    assert!(store.startup_listing().notes.is_empty());
+    assert!(!store.exists(WELCOME_NOTE_ID));
+
+    store.write("Older", "#old\nbody", Some(10)).unwrap();
+    store.write("Folder/Newer", "#new\nbody", Some(20)).unwrap();
+    let listing = store.startup_listing();
+
+    assert_eq!(
+        listing
+            .notes
+            .iter()
+            .map(|note| note.id.as_str())
+            .collect::<Vec<_>>(),
+        ["Folder/Newer", "Older"]
+    );
+    assert_eq!(listing.notes[0].title, "Newer");
+    assert_eq!(listing.notes[0].folder, "Folder");
+    assert!(listing.folders.contains(&"Folder".to_owned()));
+}
+
+#[test]
 fn snapshot_preserves_nested_markdown_layout_and_ignores_hidden_entries() {
     let root = TestRoot::new();
     let store = store(&root);

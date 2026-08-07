@@ -35,7 +35,7 @@ vi.mock('$features/system/theme', () => ({
 import { createAppBootstrap } from './createAppBootstrap.svelte';
 
 describe('application first-render contract', () => {
-  it('marks the shell initialized before any background I/O resolves', () => {
+  it('marks the shell initialized before any background I/O resolves', async () => {
     const bootstrap = createAppBootstrap({
       initializeCrashReporting: () => new Promise<void>(() => undefined),
       installDevelopmentHooks: vi.fn(),
@@ -44,6 +44,7 @@ describe('application first-render contract', () => {
     const stop = bootstrap.start();
 
     expect(bootstrap.initialized).toBe(true);
+    await Promise.resolve();
     expect(dependencies.getPlatformFS).toHaveBeenCalledOnce();
     expect(dependencies.loadPreferences).toHaveBeenCalledOnce();
     expect(dependencies.initNotes).toHaveBeenCalledOnce();

@@ -1,4 +1,5 @@
 import { getPlatformFS } from '$lib/platform';
+import { recordPerfEvent } from '$shared/perf/perfEvents';
 import { getCachedPreferences, loadPreferences } from '$shared/state/appState';
 import { initNotes } from '$features/notes/notes.svelte';
 import { initSyncPassword } from '$features/sync/syncServiceE2ee';
@@ -38,20 +39,33 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
       void applyThemePreference(getCachedPreferences().appearance.theme, systemTheme);
     applyCurrentTheme();
     disposeThemeWatch = watchSystemThemeTauri(applyCurrentTheme);
-    void loadPreferences()
-      .then((prefs) => applyThemePreference(prefs.appearance.theme))
-      .catch((error) => console.warn('Failed to load preferences:', error));
 
-    void getPlatformFS().catch((error) => console.warn('Platform FS unavailable:', error));
-    void deps
-      .initializeCrashReporting()
-      .catch((error) => console.warn('Crash reporting init failed:', error));
-    void updateChecker.start().catch((error) => console.warn('Update checker failed:', error));
-    void initSyncPassword().catch((error) => console.warn('Sync password init failed:', error));
-
-    void initNotes()
-      .then(() => deps.installDevelopmentHooks())
+    void initNotes((label) => {
+      const elapsed = performance.now();
+      recordPerfEvent(`startup:${label}`, elapsed);
+      if (label === 'initNotes: listing projected') {
+        recordPerfEvent('startup:notes-loaded', elapsed);
+      }
+    })
+      .then(() => {
+        return deps.installDevelopmentHooks();
+      })
       .catch((error) => console.warn('Notes init failed:', error));
+
+    // Let the latency-sensitive notes invoke enter Tauri's queue first. These
+    // independent services still begin in the same event-loop turn and never
+    // depend on notes succeeding.
+    queueMicrotask(() => {
+      void loadPreferences()
+        .then((prefs) => applyThemePreference(prefs.appearance.theme))
+        .catch((error) => console.warn('Failed to load preferences:', error));
+      void getPlatformFS().catch((error) => console.warn('Platform FS unavailable:', error));
+      void deps
+        .initializeCrashReporting()
+        .catch((error) => console.warn('Crash reporting init failed:', error));
+      void updateChecker.start().catch((error) => console.warn('Update checker failed:', error));
+      void initSyncPassword().catch((error) => console.warn('Sync password init failed:', error));
+    });
 
     return () => {
       disposeThemeWatch();

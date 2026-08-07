@@ -71,7 +71,8 @@ function projectAsCallerWould(result: { unappliedMutation: LocalNoteMutation | n
 
 function fakeStore(overrides: Partial<LocalNoteStore> = {}): LocalNoteStore {
   return {
-    bootstrap: vi.fn(),
+    startupListing: vi.fn(async () => ({ notes: [], folders: [] })),
+    bootstrap: vi.fn(async () => bootstrapResult()),
     snapshot: vi.fn(),
     inventory: vi.fn(),
     read: vi.fn(),
@@ -296,6 +297,13 @@ function bootstrapResult(notes: LocalNoteMetadata[] = []) {
   return { snapshot: { notes, folders: [] }, seeded: 0, migrated: 0, warnings: [] };
 }
 
+function listingResult(notes: LocalNoteMetadata[] = []) {
+  return {
+    notes: notes.map(({ id, title, folder, modifiedMs }) => [id, title, folder, modifiedMs]),
+    folders: [],
+  };
+}
+
 // A4: the engine-owned readiness wait is bounded and a rejection cannot poison
 // later searches.
 describe('the recorded save identity change', () => {
@@ -371,7 +379,7 @@ describe('notes readiness settles on bootstrap failure (#33)', () => {
     const { notes, ln } = await freshModules();
     ln._setLocalNoteStoreForTest(
       fakeStore({
-        bootstrap: vi.fn(async () => {
+        startupListing: vi.fn(async () => {
           throw new Error('vault scan failed');
         }),
       }),
@@ -380,6 +388,63 @@ describe('notes readiness settles on bootstrap failure (#33)', () => {
     await expect(notes.initNotes()).rejects.toThrow('vault scan failed');
 
     // Before the fix this hung forever (the promise never settled).
+    await expect(notes.whenNotesReady()).resolves.toBe('failed');
+  });
+
+  it('publishes the ordered listing without waiting for content hydration', async () => {
+    const { notes, ln } = await freshModules();
+    const hydration = new Promise<never>(() => {});
+    ln._setLocalNoteStoreForTest(
+      fakeStore({
+        startupListing: vi.fn(async () => listingResult([metadata('Fast')])),
+        bootstrap: vi.fn(() => hydration),
+      }),
+    );
+
+    await notes.initNotes();
+
+    expect(notes.getAllNotes().map((note) => note.id)).toEqual(['Fast']);
+  });
+
+  it('re-reads hydration rather than overwriting a mutation that landed in flight', async () => {
+    const { notes, ln } = await freshModules();
+    let resolveHydration!: (result: ReturnType<typeof bootstrapResult>) => void;
+    const hydration = new Promise<ReturnType<typeof bootstrapResult>>((resolve) => {
+      resolveHydration = resolve;
+    });
+    const snapshot = vi.fn(async () => ({
+      notes: [metadata('New'), metadata('Existing')],
+      folders: [],
+    }));
+    ln._setLocalNoteStoreForTest(
+      fakeStore({
+        startupListing: vi.fn(async () => listingResult([metadata('Existing')])),
+        bootstrap: vi.fn(() => hydration),
+        snapshot,
+      }),
+    );
+    await notes.initNotes();
+    notes._applyLocalMutation(mutation({ upserted: [upsert('New')] }));
+
+    resolveHydration(bootstrapResult([metadata('Existing')]));
+    await expect(notes.whenNotesReady()).resolves.toBe('ready');
+
+    expect(snapshot).toHaveBeenCalledOnce();
+    expect(notes.getAllNotes().map((note) => note.id)).toEqual(['New', 'Existing']);
+  });
+
+  it('settles readiness as failed when authoritative hydration rejects', async () => {
+    const { notes, ln } = await freshModules();
+    ln._setLocalNoteStoreForTest(
+      fakeStore({
+        bootstrap: vi.fn(async () => {
+          throw new Error('recovery failed');
+        }),
+      }),
+    );
+
+    await notes.initNotes();
+
     await expect(notes.whenNotesReady()).resolves.toBe('failed');
   });
 });

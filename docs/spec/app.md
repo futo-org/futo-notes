@@ -21,6 +21,13 @@ Behaviors and constraints that hold across every surface and platform.
   the failure is logged (#33). → `initNotes` /
   `whenNotesReady` in src/features/notes/notes.svelte.ts,
   createAppBootstrap.svelte.ts
+- Desktop cold start overlaps a read-only, content-free note listing with
+  webview startup, then publishes the engine-ordered ids, titles, folders, and
+  mtimes before hydrating previews/tags and starting search. Crash recovery,
+  legacy migration, empty-vault seeding, and notes readiness remain gated on
+  the authoritative full Rust bootstrap; the fast listing never mutates the
+  vault or becomes authoritative for tab hydration. → `LocalNoteStore::startup_listing`,
+  `local_notes_startup_listing`, `prefetchLocalNoteListing`, `initNotes`
 
 ## Notes & files
 

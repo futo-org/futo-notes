@@ -114,8 +114,9 @@ fn scan_parked_entries(dir: &Path) -> Option<ParkedEntries> {
     let mut sidecars = Vec::new();
     for entry in entries.flatten() {
         // Do not follow directory symlinks; a vault-local loop would overflow bootstrap recovery.
-        let real_dir = fs::symlink_metadata(entry.path())
-            .map(|meta| meta.file_type().is_dir())
+        let real_dir = entry
+            .file_type()
+            .map(|file_type| file_type.is_dir())
             .unwrap_or(false);
         if real_dir {
             subdirs.push(entry.path());

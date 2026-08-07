@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use futo_notes_store::{
-    BeforeWrite, BootstrapResult, FileChange, FlushDraftResult, LocalNoteStore, MutationResult,
-    SearchHit, SearchStatus, Snapshot, VaultFile,
+    BeforeWrite, BootstrapResult, FileChange, FlushDraftResult, ListingSnapshot, LocalNoteStore,
+    MutationResult, SearchHit, SearchStatus, Snapshot, VaultFile,
 };
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::application_state::AppState;
@@ -37,6 +38,7 @@ struct ActiveStore {
 #[derive(Default)]
 pub(crate) struct NoteStoreState {
     active: Mutex<Option<ActiveStore>>,
+    startup_listing: Mutex<Option<(PathBuf, ListingSnapshot)>>,
 }
 
 impl NoteStoreState {
@@ -73,6 +75,24 @@ impl NoteStoreState {
             }
         }
     }
+
+    fn cache_startup_listing(&self, root: PathBuf, listing: ListingSnapshot) {
+        if let Ok(mut cached) = self.startup_listing.lock() {
+            *cached = Some((root, listing));
+        }
+    }
+
+    fn take_startup_listing(&self, root: &std::path::Path) -> Option<ListingSnapshot> {
+        let mut cached = self.startup_listing.lock().ok()?;
+        if cached
+            .as_ref()
+            .is_some_and(|(cached_root, _)| cached_root == root)
+        {
+            cached.take().map(|(_, listing)| listing)
+        } else {
+            None
+        }
+    }
 }
 
 pub(crate) fn store(app: &AppHandle, state: &AppState) -> Result<Arc<LocalNoteStore>, String> {
@@ -96,17 +116,15 @@ fn search_observer(app: &AppHandle) -> Arc<dyn Fn(&SearchStatus) + Send + Sync> 
     })
 }
 
-fn start_search(app: &AppHandle, store: &LocalNoteStore) -> Result<(), String> {
-    store.start_search(search_index_dir(app)?, search_observer(app))
-}
-
 pub(crate) fn init_on_startup(app: &AppHandle) {
     let app = app.clone();
-    let _ = crate::background_tasks::spawn("futo-local-notes-init", move || {
+    let _ = crate::background_tasks::spawn("futo-local-notes-listing", move || {
         let state: State<'_, AppState> = app.state();
-        match store(&app, &state).and_then(|store| start_search(&app, &store)) {
-            Ok(()) => {}
-            Err(error) => eprintln!("[local-notes] search startup failed: {error}"),
+        if let Ok(store) = store(&app, &state) {
+            let root = store.root().to_owned();
+            state
+                .notes
+                .cache_startup_listing(root, store.startup_listing());
         }
     });
 }
@@ -126,6 +144,42 @@ pub async fn local_notes_bootstrap(
     let index_dir = search_index_dir(&app)?;
     let observer = search_observer(&app);
     blocking(move || store.bootstrap_with_search(index_dir, observer)).await
+}
+
+fn local_notes_startup_listing_impl(store: &LocalNoteStore) -> DesktopListingSnapshot {
+    DesktopListingSnapshot::from(store.startup_listing())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopListingSnapshot {
+    notes: Vec<(String, String, String, i64)>,
+    folders: Vec<String>,
+}
+
+impl From<futo_notes_store::ListingSnapshot> for DesktopListingSnapshot {
+    fn from(snapshot: futo_notes_store::ListingSnapshot) -> Self {
+        Self {
+            notes: snapshot
+                .notes
+                .into_iter()
+                .map(|note| (note.id, note.title, note.folder, note.modified_ms))
+                .collect(),
+            folders: snapshot.folders,
+        }
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn local_notes_startup_listing(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<DesktopListingSnapshot, String> {
+    let store = store(&app, &state)?;
+    if let Some(listing) = state.notes.take_startup_listing(store.root()) {
+        return Ok(DesktopListingSnapshot::from(listing));
+    }
+    blocking(move || Ok(local_notes_startup_listing_impl(&store))).await
 }
 
 #[tauri::command]
@@ -358,6 +412,43 @@ mod tests {
         );
         assert_eq!(store.read("note"), "draft");
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_listing_impl_returns_the_ordered_content_free_projection() {
+        let root = temp_root();
+        let store = LocalNoteStore::new(root.clone());
+        store.write("Older", "large body #tag", Some(10)).unwrap();
+        store.write("Folder/Newer", "other body", Some(20)).unwrap();
+
+        let result = local_notes_startup_listing_impl(&store);
+
+        assert_eq!(
+            result
+                .notes
+                .iter()
+                .map(|note| note.0.as_str())
+                .collect::<Vec<_>>(),
+            ["Folder/Newer", "Older"]
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_listing_cache_is_root_scoped_and_consumed_once() {
+        let root = temp_root();
+        let other = temp_root();
+        let store = LocalNoteStore::new(root.clone());
+        store.write("Note", "body", None).unwrap();
+        let state = NoteStoreState::default();
+        state.cache_startup_listing(root.clone(), store.startup_listing());
+
+        assert!(state.take_startup_listing(&other).is_none());
+        assert_eq!(state.take_startup_listing(&root).unwrap().notes.len(), 1);
+        assert!(state.take_startup_listing(&root).is_none());
+
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(other).unwrap();
     }
 
     #[test]
