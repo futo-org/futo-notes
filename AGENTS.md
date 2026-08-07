@@ -73,24 +73,9 @@ tests/, markdown-spec/, factory/   E2E + sync harness, editor fixtures, Obsidian
 
 ## Papercuts (file the friction, don't eat it)
 
-Hit a dead-end tool call, a stale doc, a broken `just` recipe, a footgun config, a missing helper?
-File it before moving on — don't stop working, don't fix-and-forget:
-
-    papercuts add "<what you hit and what would have prevented it>" --tag <area>
-
-**Tooling and workflow only — never product bugs.** The test: does it slow down someone *working in
-this repo*, or someone *using the app*? Only the first is a papercut. An app defect gets fixed, or
-becomes a GitHub issue; a spec divergence becomes an inline `> **Gap:**` note. Filing those here
-buries them in a log nobody triages as a bug tracker.
-
-`command not found`? Install it first — `cargo install papercuts` (MIT, builds in ~15s) — then file
-the cut, including one for whatever sent you looking. If the install itself fails, don't sink time
-into it: say so in your final report and carry on.
-
-Severity: `minor` (default) annoyance · `--severity major` time sink · `--severity blocker` hard wall.
-Tool failures take `--cmd`/`--exit`/`--stderr-file` (never raw env dumps). `papercuts schema` is the
-full contract; `papercuts list --format md` is the review digest. The log is `.papercuts.jsonl` at the
-repo root — append-only, committed, `merge=union` so parallel worktrees never conflict on it.
+Repo-tooling/workflow friction—not product bugs or spec gaps—goes in the committed papercuts log.
+File it without stopping the task; never attach raw environment dumps. Full procedure:
+`docs/agents/papercuts.md`.
 
 ## Named mistakes (institutional memory — cited elsewhere by number; the rule that prevents each)
 
@@ -148,20 +133,13 @@ a localdev-signed artifact — that asymmetry is the design, not a bug).
 Every logic change ships a test; a bug fix's regression test fails before the fix and passes after.
 Run `just build` first — it truncates `tsc`/`vite build` under `pipefail`; never hand-pipe them
 through `head`/`tail` yourself (swallows the exit code). Then per layer, reporting commands + results:
-- **Note rule** (filename/tag/image/preview/wikilink) → canonical TS + Rust,
-  `pnpm exec tsx tests/conformance/generate.mjs`, then `pnpm run test:editor:minimal` + `just test-rust`.
+- Note/editor rules → `packages/editor/AGENTS.md` (canonical TS + Rust + fixtures + both consumers).
 - UI/Svelte → `just build` + the targeted Playwright spec. Editor (CM6) → `just test-markdown-spec` +
-  a `markdown-spec/` YAML case. Rust/Tauri command → `_impl` unit test + `just test-rust[-full]`,
-  registration + watcher rules per `apps/tauri/AGENTS.md`, dep-guard intact (portable crates must not
-  pull `tantivy`/`ort` — CI `test:rust:dep-guard`). Sync → `cargo test -p futo-notes-sync` + a
-  `tests/cross-platform-sync.mjs` scenario, push-first untouched (dirty local edits PUT before any
-  pull writes disk); a server-contract change also runs the F-series against an **isolated** server
-  (`FUTO_TEST_SERVER=http://127.0.0.1:3055 cargo test -p futo-notes-sync --test server_integration
-  -- --ignored --test-threads=1`) — never the :3005 demo server or elitedesk. Native →
-  `just build-ios-native` / `just build-android-native` (+ `just test-android-native`, storage/vault
-  paths also `just test-android-storage`) + device QA.
-- Full suite list: the `@justfile` (`just check` = pre-merge umbrella, `just prepush` = maximal gate).
-  A new CI test job goes in `release:gate.needs` the same commit (M14).
+  a `markdown-spec/` YAML case.
+- Rust/Tauri → nearest crate plus `apps/tauri/AGENTS.md`; keep dep-guard intact.
+- Sync → `crates/futo-notes-sync/AGENTS.md`; native → the app's nested manual + device QA.
+- The `@justfile` owns the full suite (`just check` pre-merge, `just prepush` maximal). New CI test
+  jobs enter `release:gate.needs` in the same commit (M14).
 
 ## Committing
 
@@ -173,12 +151,9 @@ land on main; migrations and perf land as small per-concern commits. Releases: `
 
 ## Driving the apps
 
-Web/desktop: `agent-browser`; Tauri debug builds ship the MCP bridge. Native has no bridge — iOS via
-`xcrun simctl` + `axe` (a11y tree via `node scripts/describe-ios-ui.mjs`, never a raw dump), Android
-via `just android-drive` + CDP (`just cdp-forward`); prefer its `state` hook to a UI read (M21).
-Sync hooks in debug builds: `window.__testSync` (surface: `src/features/sync/testSync.ts`). Parallel
-isolation: `just qa-claim` / `qa-status` / `qa-release` / `qa-server`; logs: `just emu-logs` /
-`just sim-logs`. Full playbooks: `/verify`.
+Full playbooks: `/verify`. Desktop debug has an MCP bridge; native does not. Use `just android-drive`
+or iOS `axe`, prefer debug state/sync hooks to synthetic UI reads (M21), and claim isolated devices
+with `just qa-claim`. WebView2 requires `scripts/win-vm/`.
 
 ## Spec is the source of truth
 
