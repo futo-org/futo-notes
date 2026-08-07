@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { EditorState } from '@codemirror/state';
-import { buildSetContentTransaction, readDocContent } from './editorContentSync';
+import { history, undo } from '@codemirror/commands';
+import {
+  buildSetContentTransaction,
+  readDocContent,
+  EXTERNAL_CONTENT_OPTS,
+} from './editorContentSync';
 
 describe('readDocContent', () => {
   it('reads the live document', () => {
@@ -97,5 +102,29 @@ describe('buildSetContentTransaction', () => {
     expect(result).not.toBeNull();
     const next = state.update(result!.spec).state;
     expect(next.doc.toString()).toBe(nextText);
+  });
+});
+
+describe('EXTERNAL_CONTENT_OPTS', () => {
+  function undoOn(state: EditorState): EditorState {
+    let next = state;
+    undo({ state, dispatch: (tr) => (next = tr.state) });
+    return next;
+  }
+
+  it('leaves text that arrived from outside beyond undo reach', () => {
+    let state = EditorState.create({ doc: 'local', extensions: [history()] });
+    state = state.update({
+      changes: { from: 5, insert: ' edit' },
+      userEvent: 'input.type',
+    }).state;
+    expect(state.doc.toString()).toBe('local edit');
+
+    const adopt = buildSetContentTransaction(state, 'peer version', EXTERNAL_CONTENT_OPTS);
+    state = state.update(adopt!.spec).state;
+
+    // Undo takes back the local keystroke, never the adopt: reviving the superseded
+    // local text is what the autosave would then push back over the peer's.
+    expect(undoOn(state).doc.toString()).toBe('peer version');
   });
 });

@@ -161,6 +161,10 @@ function makeTitleDeps() {
     setEditorContent: vi.fn((text: string) => {
       titleEditorContent = text;
     }),
+    openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+      titleEditorContent = text;
+    }),
+    forgetEditorNote: vi.fn(),
     focusEditor: vi.fn(),
     isEditorFocused: () => false,
     isComposing: () => false,
@@ -370,6 +374,10 @@ describe('stale save completion after an external close', () => {
       setEditorContent: vi.fn((text: string) => {
         editorContent = text;
       }),
+      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+        editorContent = text;
+      }),
+      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,
@@ -455,6 +463,10 @@ describe('stale first-save completion after navigation', () => {
       setEditorContent: vi.fn((text: string) => {
         editorContent = text;
       }),
+      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+        editorContent = text;
+      }),
+      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,
@@ -497,6 +509,8 @@ describe('loadNote focus routing', () => {
     return {
       getEditorContent: () => '',
       setEditorContent: vi.fn(),
+      openEditorNote: vi.fn(),
+      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,
@@ -541,7 +555,7 @@ describe('loadNote focus routing', () => {
     const session = createNoteSession(deps);
     await session.loadNote('missing note');
     expect(createNote).not.toHaveBeenCalled();
-    expect(deps.setEditorContent).toHaveBeenCalledWith('');
+    expect(deps.openEditorNote).toHaveBeenCalledWith('missing note', '');
     expect(session.originalId).toBe('missing note');
     expect(deps.focusEditor).not.toHaveBeenCalled();
   });
@@ -591,8 +605,20 @@ describe('loadNote focus routing', () => {
     expect(session.content).toBe('');
     expect(session.originalId).toBeNull();
     expect(session.loading).toBe(false);
-    expect(deps.setEditorContent).not.toHaveBeenCalledWith('late content');
+    expect(deps.openEditorNote).not.toHaveBeenCalledWith(expect.anything(), 'late content');
     expect(deps.navigate).toHaveBeenLastCalledWith('/');
+  });
+
+  it('discards the undo history of a note that went away, and releases the editor', async () => {
+    const deps = makeDeps('doomed');
+    const session = createNoteSession(deps);
+    await session.loadNote('doomed');
+    deps.openEditorNote.mockClear();
+
+    session.cancelAndClear();
+
+    expect(deps.forgetEditorNote).toHaveBeenCalledWith('doomed');
+    expect(deps.openEditorNote).toHaveBeenCalledWith(null, '');
   });
 });
 
@@ -605,6 +631,10 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
       setEditorContent: vi.fn((text: string) => {
         editorDoc = text.replace(/\r\n?/g, '\n');
       }),
+      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+        editorDoc = text.replace(/\r\n?/g, '\n');
+      }),
+      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,

@@ -21,7 +21,10 @@ export {
 
 export interface NoteSessionDeps {
   getEditorContent: () => string | undefined;
-  setEditorContent: (text: string, opts?: { preserveSelection?: boolean }) => void;
+  setEditorContent: (text: string) => void;
+  /** Points the editor at a note; a `null` id is an unsaved new note. */
+  openEditorNote: (noteId: string | null, text: string) => void;
+  forgetEditorNote: (noteId: string) => void;
   focusEditor: () => void;
   isEditorFocused: () => boolean;
   isComposing: () => boolean;
@@ -191,7 +194,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     flushSave: saveQueue.flush,
     getNotes: deps.getNotes,
     getEditorContent: deps.getEditorContent,
-    setEditorContent: (value) => deps.setEditorContent(value),
+    openNote: (noteId, value) => deps.openEditorNote(noteId, value),
     getNoteBody: deps.getNoteBody,
     focusEditor: deps.focusEditor,
     autoResizeTitle: titleController.autoResizeTextarea,
@@ -238,7 +241,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     savedContent = freshContent;
     suppressSaveOnChange = true;
     try {
-      deps.setEditorContent(freshContent, { preserveSelection: true });
+      deps.setEditorContent(freshContent);
     } finally {
       suppressSaveOnChange = false;
     }
@@ -268,7 +271,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     savedTitle = id;
     content = body;
     savedContent = body;
-    deps.setEditorContent(body);
+    deps.openEditorNote(id, body);
     deps.setPrevNoteId(id);
     titleController.clearWarning();
     deps.navigate(`/note/${encodeURIComponent(id)}`);
@@ -278,6 +281,8 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     noteLoader.cancel();
     saveQueue.cancelPending();
     titleController.clearWarning();
+    if (originalId) deps.forgetEditorNote(originalId);
+    deps.openEditorNote(null, '');
     resetSessionState();
     deps.navigate('/');
   }
