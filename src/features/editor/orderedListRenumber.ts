@@ -1,10 +1,8 @@
-import { Annotation, EditorSelection } from '@codemirror/state';
+import { EditorSelection, EditorState } from '@codemirror/state';
 import type { Text } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
 
 const ORDERED_LINE_RE = /^(\s*)(\d+)\.\s/;
 const BLANK_LINE_RE = /\n[ \t]*\n/;
-const renumberAnnotation = Annotation.define<true>();
 
 export interface RenumberEdit {
   from: number;
@@ -140,36 +138,39 @@ function mapPositionThroughEdits(position: number, edits: readonly RenumberEdit[
   return position + delta;
 }
 
-export const orderedListRenumber = EditorView.updateListener.of((update) => {
-  if (!update.docChanged) return;
-  if (update.transactions.some((transaction) => transaction.annotation(renumberAnnotation))) return;
+// A filter, not an update listener: the renumber must join the transaction that
+// triggered it, and undo/redo dispatch with `filter: false` so they never re-run it.
+export const orderedListRenumber = EditorState.transactionFilter.of((transaction) => {
+  if (!transaction.docChanged) return transaction;
 
   const affectedLines = new Set<number>();
-  const newDocument = update.state.doc;
-  for (const transaction of update.transactions) {
-    transaction.changes.iterChanges((_fromA, _toA, fromB, toB) => {
-      const startLine = newDocument.lineAt(fromB).number;
-      const endLine = newDocument.lineAt(toB).number;
-      for (let line = startLine; line <= endLine; line += 1) affectedLines.add(line);
-      if (startLine > 1) affectedLines.add(startLine - 1);
-    });
-  }
+  const newDocument = transaction.newDoc;
+  transaction.changes.iterChanges((_fromA, _toA, fromB, toB) => {
+    const startLine = newDocument.lineAt(fromB).number;
+    const endLine = newDocument.lineAt(toB).number;
+    for (let line = startLine; line <= endLine; line += 1) affectedLines.add(line);
+    if (startLine > 1) affectedLines.add(startLine - 1);
+  });
 
   const edits = computeOrderedRenumberChanges(newDocument, affectedLines);
-  if (edits.length === 0) return;
-  const selection = update.state.selection;
-  update.view.dispatch({
-    changes: coalesceRenumberEdits(newDocument, edits),
-    selection: EditorSelection.create(
-      selection.ranges.map((range) =>
-        EditorSelection.range(
-          mapPositionThroughEdits(range.anchor, edits),
-          mapPositionThroughEdits(range.head, edits),
+  if (edits.length === 0) return transaction;
+  const selection = transaction.newSelection;
+  // `sequential` resolves the changes against the post-transaction document; the
+  // selection resolves against the final document, hence the explicit mapping.
+  return [
+    transaction,
+    {
+      changes: coalesceRenumberEdits(newDocument, edits),
+      sequential: true,
+      selection: EditorSelection.create(
+        selection.ranges.map((range) =>
+          EditorSelection.range(
+            mapPositionThroughEdits(range.anchor, edits),
+            mapPositionThroughEdits(range.head, edits),
+          ),
         ),
+        selection.mainIndex,
       ),
-      selection.mainIndex,
-    ),
-    annotations: renumberAnnotation.of(true),
-    userEvent: 'input.renumber',
-  });
+    },
+  ];
 });
