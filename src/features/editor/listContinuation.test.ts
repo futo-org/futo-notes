@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
-import { Text } from '@codemirror/state';
+import { ChangeSet, Text } from '@codemirror/state';
 import { markdown } from '@codemirror/lang-markdown';
 import {
+  coalesceRenumberEdits,
   computeOrderedRenumberChanges,
   listContinuationKeymap,
   orderedListRenumber,
@@ -151,9 +152,152 @@ describe('computeOrderedRenumberChanges', () => {
     const changes = computeOrderedRenumberChanges(Text.of(doc.split('\n')), [2]);
     expect(changes).toEqual([]);
   });
+
+  it('renumbers a whole pasted list, including across indent and non-list boundaries', () => {
+    // Every line affected is what a paste looks like; mixed indents exercise reuse.
+    const doc = '9. a\n9. b\n   9. inner\n   9. inner2\n9. c\nplain\n4. d\n4. e';
+    const allLines = Array.from({ length: 8 }, (_, index) => index + 1);
+    const changes = computeOrderedRenumberChanges(Text.of(doc.split('\n')), allLines);
+    expect(applyChanges(doc, changes)).toBe(
+      '9. a\n10. b\n   9. inner\n   10. inner2\n9. c\nplain\n4. d\n5. e',
+    );
+  });
+
+  // Counting reads keeps the bound deterministic instead of racing a wall clock.
+  function countLineReads(doc: Text): { doc: Text; reads: () => number } {
+    let reads = 0;
+    const countingDoc = new Proxy(doc, {
+      get(target, property) {
+        if (property === 'line') {
+          return (lineNumber: number) => {
+            reads += 1;
+            return target.line(lineNumber);
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as Text;
+    return { doc: countingDoc, reads: () => reads };
+  }
+
+  const ITEM_COUNT = 2000;
+
+  function orderedListDoc(): Text {
+    return Text.of(Array.from({ length: ITEM_COUNT }, (_, index) => `${index + 1}. item`));
+  }
+
+  // Both spacings were quadratic (~2M reads); every-other-line stayed quadratic
+  // even after a fix that only reused the immediately preceding line.
+  it.each([
+    ['every line', (index: number) => index + 1, ITEM_COUNT],
+    ['every other line', (index: number) => index * 2 + 1, ITEM_COUNT / 2],
+  ])('reads a bounded number of lines when one edit affects %s', (_label, lineAt, count) => {
+    const counted = countLineReads(orderedListDoc());
+    const affectedLines = Array.from({ length: count }, (_unused, index) => lineAt(index));
+
+    expect(computeOrderedRenumberChanges(counted.doc, affectedLines)).toEqual([]);
+    // Do not fix a failure here by raising the multiplier.
+    expect(counted.reads()).toBeLessThan(ITEM_COUNT * 10);
+    // A rewrite using doc.lineAt/doc.iter would read zero and pass vacuously.
+    expect(counted.reads()).toBeGreaterThan(count);
+  });
+});
+
+describe('coalesceRenumberEdits', () => {
+  it.each([
+    [['9. a', '9. b', '9. c', '9. d'], 1, '9. a\n10. b\n11. c\n12. d'],
+    [['9. a', '9. b', '', '9. c', '9. d'], 2, '9. a\n10. b\n\n9. c\n10. d'],
+    [['1. a', '3. b'], 1, '1. a\n2. b'],
+  ])('merges within a block and splits on a blank line (%#)', (lines, changeCount, expected) => {
+    const doc = Text.of(lines);
+    const edits = computeOrderedRenumberChanges(
+      doc,
+      lines.map((_line, index) => index + 1),
+    );
+    const coalesced = coalesceRenumberEdits(doc, edits);
+    const applyTo = (changes: readonly { from: number; to: number; insert: string }[]) =>
+      ChangeSet.of([...changes], doc.length)
+        .apply(doc)
+        .toString();
+
+    expect(coalesced).toHaveLength(changeCount);
+    expect(applyTo(coalesced)).toBe(applyTo(edits));
+    expect(applyTo(coalesced)).toBe(expected);
+  });
 });
 
 describe('orderedListRenumber extension', () => {
+  it('dispatches the renumber as one change per block, not one per item', () => {
+    // No engine this suite runs charges per change range, so assert the property
+    // directly rather than a duration.
+    const itemCount = 500;
+    const renumberRangeCounts: number[] = [];
+    const view = new EditorView({
+      doc: Array.from({ length: itemCount }, () => '1. item').join('\n'),
+      extensions: [
+        markdown(),
+        orderedListRenumber,
+        EditorView.updateListener.of((update) => {
+          for (const transaction of update.transactions) {
+            if (!transaction.isUserEvent('input.renumber')) continue;
+            let rangeCount = 0;
+            transaction.changes.iterChanges(() => {
+              rangeCount += 1;
+            });
+            renumberRangeCounts.push(rangeCount);
+          }
+        }),
+      ],
+      parent: document.body,
+    });
+    views.push(view);
+
+    view.dispatch({ changes: { from: view.state.doc.line(1).to, insert: '!' } });
+
+    // Proves the list really renumbered, so the count below is not vacuous.
+    expect(view.state.doc.line(itemCount).text).toBe(`${itemCount}. item`);
+    expect(renumberRangeCounts).toEqual([1]);
+  });
+
+  it('keeps the caret on the same character when renumbering widens numbers', () => {
+    // The caret sits strictly inside the merged span (between the first and last
+    // rewritten number), which is where CodeMirror would collapse it to an edge.
+    const view = new EditorView({
+      doc: '9. a\n9. bbb\n9. c',
+      extensions: [markdown(), orderedListRenumber],
+      parent: document.body,
+    });
+    views.push(view);
+    const caret = view.state.doc.line(2).from + 4; // the middle 'b'
+    view.dispatch({ selection: { anchor: caret } });
+
+    // Edit line 1 so the block renumbers without touching the caret's line.
+    view.dispatch({ changes: { from: view.state.doc.line(1).to, insert: 'Z' } });
+
+    expect(view.state.doc.toString()).toBe('9. aZ\n10. bbb\n11. c');
+    const head = view.state.selection.main.head;
+    expect(view.state.doc.sliceString(head - 1, head + 2)).toBe('bbb');
+  });
+
+  it('parks a caret between the digits of a rewritten number after the new digits', () => {
+    // The one position that deliberately differs from CodeMirror's own mapping.
+    const view = new EditorView({
+      doc: '10. a\n10. b\n10. c',
+      extensions: [markdown(), orderedListRenumber],
+      parent: document.body,
+    });
+    views.push(view);
+    const betweenDigits = view.state.doc.line(2).from + 1; // between '1' and '0'
+    view.dispatch({ selection: { anchor: betweenDigits } });
+
+    view.dispatch({ changes: { from: view.state.doc.line(1).to, insert: '!' } });
+
+    expect(view.state.doc.toString()).toBe('10. a!\n11. b\n12. c');
+    const head = view.state.selection.main.head;
+    expect(view.state.doc.sliceString(head - 2, head + 1)).toBe('11.');
+  });
+
   it('fixes numbering after a delete of a middle line', () => {
     const view = new EditorView({
       doc: '1. thing\n2. thing2\n3. thing3\n4. thing4',

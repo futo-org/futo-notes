@@ -66,8 +66,7 @@ this file states the behaviors a human cares about.
 - The editor needs a System WebView engine of **Chromium 80 or newer**: the
   bundle targets ES2020, an `editor.html` `String.prototype.replaceAll` shim
   covers Chromium 80–84 (Svelte 5's runtime would otherwise throw), and the
-  editor uses `textContent = ''` rather than `Element.replaceChildren` (Chromium
-  86) in its own DOM code so tables and the slash menu work down to the floor
+  editor uses `textContent = ''` rather than `Element.replaceChildren` (Chromium 86) in its own DOM code so tables and the slash menu work down to the floor
   too. _(Android)_ → editor.html, slashMenuRenderer.ts, tableEditorWidget.ts,
   vite.editor.config.ts
 - Whether an engine is supported is decided by **capability, never by a version
@@ -156,7 +155,7 @@ this file states the behaviors a human cares about.
   the markup. → NoteWorkspace.svelte `handleBlankSpaceMouseDown`
   > **Gap:** the native shells have no reach rules of their own. Their blank space
   > below the text is INSIDE the contenteditable (editor.html's `.cm-content
-  > { min-height: 100% }`), so the engine resolves those taps: there is no
+{ min-height: 100% }`), so the engine resolves those taps: there is no
   > two-line boundary and no click-off zone, at any distance. The reach rules
   > above are desktop/web only. _(native shells)_
 - The first tap that opens the editor resolves the tapped CM line on `touchend`,
@@ -254,7 +253,7 @@ this file states the behaviors a human cares about.
   `onload` handler so CM6 recomputes its height map once the image resolves —
   otherwise the image renders cut off at the placeholder height on first load
   until an unrelated transaction (e.g. tapping it) forces a re-layout.
-  *(iOS/Android native)* → live-preview/images.ts
+  _(iOS/Android native)_ → live-preview/images.ts
 - Image widgets also re-measure on every width change, and reserve their
   footprint as a `min-height` floor rather than a pinned `height`. An image is
   width-constrained (`max-width: 100%`), so a wider editor makes it taller, and
@@ -662,11 +661,56 @@ EditorWebView.swift, EditorWebView.kt
   through parsed text stays viewport-bounded. → LiveMarkdownPlugin.ts,
   buildLiveMarkdownDecorations.ts, viewportScanRanges.ts,
   tests/typing-perf.spec.ts
+- Per-keystroke work does not scale with the number of links on screen times the
+  vault. Rendering a wikilink needs the whole note-id list twice — once to resolve
+  the target, once for the shortest unique display suffix — so both go through one
+  index (`getWikilinkIndex`), never per link; `[[` completion shares it. In the
+  desktop app a 300-line note with a wikilink per line types at 2.5 ms/keystroke
+  against an 8,000-note vault, against 41 ms when each link scanned the list
+  itself. The index is rebuilt whole whenever the note list changes, which a save
+  mid-typing does, so the keystroke after an autosave pays one pass over the whole
+  vault — tens of ms at 8,000 ids and over 100 ms at 50,000 in a Node
+  microbenchmark of the build alone, never measured in a shipped engine, so treat
+  those as a floor: a very large vault pays a real hitch there, and profiling it
+  against these numbers will mislead. → wikilinks.ts, notes.svelte.ts,
+  live-preview/wikilinkDecorations.test.ts
+- One large insertion (a paste) costs time proportional to the pasted size, not its
+  square — in FUTO Notes' own paste work; a paste landing in one giant markdown leaf
+  is still quadratic upstream, per the Gap below. The worst shape for our own work
+  is a pasted numbered list whose numbers are all wrong (a list of `1.` items),
+  because renumbering it is one edit per item; three paths
+  scaled with that count and are all bounded now — block-start resolution walks in
+  ascending line order and stops where the previous walk landed; table block
+  expansion skips a change already inside the last expanded block, testing that
+  against the parse ceiling it clamps to rather than raw offsets, because the ceiling
+  is the tree's length and CM6 parses on a time budget — past an unfinished parse
+  every change expands to the one block ending at the ceiling, so raw offsets place
+  them all outside it and restore the per-change walk on exactly the slow machines
+  that can least afford it; and the renumber
+  dispatches one change per list block rather than per item, which is ~1.7x faster
+  on desktop at 5,000 items (79 ms → 46 ms; the caret is mapped explicitly so
+  merging cannot collapse it to a span edge). In the desktop app a
+  16,000-item list paste measures ~150 ms, 8,000 items went from 4,466 ms to
+  ~100 ms, and cost no longer varies with how many numbers are wrong. Chromium —
+  the only engine the Playwright suite runs — is flat to 16,000 items (2026-08-05).
+  `tests/paste-perf.spec.ts` compares the same paste at 1,250 and 5,000 items and
+  bounds the RATIO (~1.1x after, 14.6x before) rather than a duration, because a
+  busy machine inflates both sizes alike but only a quadratic inflates the ratio;
+  the sharp guards are bounds on line reads and on change-range count in
+  `listContinuation.test.ts` and `table/interactiveTableEditor.test.ts`. A read-count
+  bound is only machine-independent if the tree it runs against is pinned: the
+  table guard pins a deliberately short tree, because measuring the fully-parsed
+  path alone passes on a fast machine whether the ceiling is handled or not.
+  Measure a paste with a real paste event: CDP `Input.insertText`
+  (`page.keyboard.insertText`) splits a multi-line insertion into quadratically many
+  browser editing operations and is quadratic even against a bare `contenteditable`
+  carrying no application code, so it measures the harness, not the editor (M21).
+  → orderedListRenumber.ts, table/interactiveTableEditor.ts, tests/paste-perf.spec.ts
 - Interactive table decoration updates are incremental: syntax discovery scans
   only changed/affected parsed blocks, while offset refresh work is bounded by
   the number of known tables. → table/interactiveTableEditor.ts,
   table/interactiveTableEditor.test.ts
-  > **Gap:** a note whose text forms one giant markdown *leaf* — tens of KB
+  > **Gap:** a note whose text forms one giant markdown _leaf_ — tens of KB
   > with no blank line, e.g. a 3000-line contiguous blockquote, one huge
   > paragraph, or a single ~500 KB line — still types at ~30–50 ms/keystroke
   > (grows with leaf size; ~240 ms at 1.2 MB). Root cause is upstream:
@@ -678,7 +722,20 @@ EditorWebView.swift, EditorWebView.kt
   > fix: a lezer block-parser extension splitting leaves every ~32 KB
   > (VS Code-style bounded tokenization). Repro: open a note that is one giant
   > contiguous block (e.g. a 3000-line blockquote with no blank lines) in
-  > `just tauri-dev` and type.
+  > `just tauri-dev` and type. The same upstream stack is also quadratic on a
+  > single large **paste** into one block, because `cx.parts` — the inline
+  > delimiter stack `LinkEnd` and `resolveMarkers` rescan per delimiter — is
+  > reset per block and so grows with the paste. It scales with delimiters, not
+  > lines, so quote the density: 16,000 lines with no blank line between them,
+  > pasted into Chromium, cost ~1.3 s at **two** wikilinks per line
+  > (`see [[a i]] and [[b i]]`) but only ~357 ms at one, against ~37 ms for the
+  > identical text with a blank line after each line — so 37x at two links,
+  > 9x at one. `[`-dense text is worse still (~2.1 s for three bracket pairs a
+  > line); inline links ~262 ms, `**`/`~~` emphasis ~84 ms, plain prose ~55 ms.
+  > A CPU profile attributes 628 ms of 790 ms self time to `LinkEnd`. Footnotes
+  > and reference links share the cause; lists, tasks, tables, images, fenced
+  > code, blockquotes, and one 857 KB newline-free line are all flat.
+  > FUTO Notes' own paste work is proportional (see the paste bullet above).
 
 ## Saving & rename
 
