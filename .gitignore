@@ -39,9 +39,6 @@ release.keystore
 # prod pubkey is baked in). See keys/README.md. Like a shared debug keystore.
 !keys/localdev-updater.key
 
-# papercuts CLI log — local only
-.papercuts.jsonl
-
 # Debug
 npm-debug.*
 yarn-debug.*
