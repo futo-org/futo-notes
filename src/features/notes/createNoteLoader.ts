@@ -1,5 +1,6 @@
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename } from '$lib/rules';
+import { markNoteSwitch } from '$shared/perf/noteSwitchTimeline';
 import type { NotePreview } from '$shared/types/note';
 
 import { getNoteById, readNote } from './notes.svelte';
@@ -58,6 +59,7 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
   async function load(id: string | null): Promise<void> {
     const version = ++loadVersion;
     await options.flushSave();
+    markNoteSwitch('saveFlushed');
     if (version !== loadVersion) return;
 
     options.patchState({ loading: true });
@@ -81,7 +83,9 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
     }
 
     try {
+      markNoteSwitch('readStarted');
       const loadedContent = await readNote(id);
+      markNoteSwitch('noteRead');
       if (version !== loadVersion) return;
       const slash = id.lastIndexOf('/');
       const fallbackTitle = slash === -1 ? id : id.slice(slash + 1);
@@ -93,6 +97,7 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
         savedTitle: title,
       });
       options.setEditorContent(loadedContent);
+      markNoteSwitch('contentApplied');
       const editorContent = options.getEditorContent();
       if (editorContent !== undefined && editorContent !== loadedContent) {
         options.patchState({ content: editorContent, savedContent: editorContent });
@@ -111,6 +116,7 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
       return;
     }
     options.patchState({ loading: false });
+    markNoteSwitch('loadReturned');
   }
 
   function cancel(): void {
