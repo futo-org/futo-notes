@@ -183,6 +183,25 @@ describe('FolderTreeView virtualization', () => {
     expect(rowCount()).toBeLessThan(300);
   });
 
+  it('mounts the destination slice inside the scroll event before WebKit can paint a gap', () => {
+    const items = Array.from({ length: 300 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
+    mountWithViewport(items, VIEWPORT_PX);
+
+    const scroller = target.querySelector('.folder-tree-scroll') as HTMLElement;
+    let firstIdDuringScroll: string | null = null;
+    // Registered after the component's own handler, so it observes the DOM as
+    // it stands when the scroll event finishes dispatching — i.e. what WebKit
+    // could paint next.
+    scroller.addEventListener('scroll', () => {
+      firstIdDuringScroll = target.querySelector('.note-row')?.getAttribute('data-note-id') ?? null;
+    });
+
+    scroller.scrollTop = 150 * ROW_PITCH;
+    scroller.dispatchEvent(new Event('scroll'));
+
+    expect(firstIdDuringScroll).toBe('note-142');
+  });
+
   // WebKit scrolls the container on its own thread and can paint an offset
   // before the main thread is told about it. 8 rows of overscan cover ~390px
   // while a measured fling moves 1,000-5,500px per scroll notification, so the
