@@ -146,6 +146,65 @@ platform, or a decision only the user can make. Hand fixable ones to
 `fixer` if the user asked for fixes; otherwise leave the finding on the MR
 as a comment so the author has it.
 
+## Record a video of every defect you report
+
+**If a defect can be shown on screen, record it and attach the clip to the MR
+comment.** A 20-second clip settles in one watch what a paragraph of prose
+argues about, and — more importantly — building it forces you to reduce the
+bug to a scripted, deterministic sequence. That step alone catches
+misdiagnoses: a 2026-08-06 pass called an undo failure a regression on the
+strength of two hand-driven Tauri instances, and only recording the *control*
+side by side revealed both branches behaved identically and the bug was
+pre-existing. Record the control, not just the failure.
+
+**Always film the comparison, never the failure alone.** One pane on the MR
+branch, one on `main`, same script, same keystrokes, started from the same
+clean state. A clip of the branch misbehaving proves nothing on its own — the
+reader cannot tell a regression from long-standing behaviour, and neither can
+you.
+
+How, by surface:
+
+- **Desktop / web** — Playwright records natively. In a scratch spec (write it
+  under the session scratchpad and copy it into the worktree's `tests/`, run
+  it, then delete it — never commit a QA repro):
+  `test.use({ video: { mode: 'on', size: { width: 900, height: 620 } } })`.
+  Reach the editor with `page.goto('/#/note/new')` and read state through
+  `window.__notesShellTest.getState()`. Prefer real `page.keyboard` input over
+  programmatic `view.dispatch(...)`: a dispatch bypasses the very input plumbing
+  a user exercises, and it silently builds a different undo history.
+- **Android** — `adb shell screenrecord /sdcard/repro.mp4` (Ctrl-C or
+  `--time-limit`), then `adb pull`. Remember M21: an unfocused emulator throttles
+  Compose frames, so bring its window to the front first or the clip shows stale UI.
+- **iOS simulator** — `xcrun simctl io <udid> recordVideo repro.mp4`.
+- **Anything the WebView can't see** (native GTK dialogs, real drag-and-drop,
+  OS chrome) — a full-desktop recorder, and check the display isn't locked first.
+- **No recorder available** — capture an ordered burst of screenshots and
+  `ffmpeg` them into a clip. Say in the comment that it's a reconstruction.
+
+Caption the clip so it stands alone: which branch each pane is, the step being
+performed, and the observed state at each step. Overlay a fixed banner in the
+page rather than relying on the reader to infer it. Note that `libx264` is
+often absent on these boxes — `-c:v libopenh264` works, and GitLab renders an
+`.mp4` inline.
+
+Attach it by uploading to the project, then embedding the returned markdown in
+the note body:
+
+```bash
+curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" --form "file=@repro.mp4" \
+  "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/uploads" | jq -r .markdown
+```
+
+Brief your app-qa agents to do this too — the leg that found the bug is the one
+holding the running app, so it is far cheaper for it to film the repro than for
+the orchestrator to rebuild the state later.
+
+**If you retract a finding, retract it loudly.** Post the correction as a new
+comment with the evidence that overturned it, and edit the original note to
+open with a retraction banner pointing at it. A wrong NO SHIP left standing
+costs the author more than the bug would have.
+
 ## Learnings from practice (added 2026-07-08, 7-MR run on a Linux host)
 
 - **Check host capability before choosing a topology.** The pool/topology
