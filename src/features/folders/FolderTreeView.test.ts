@@ -100,6 +100,99 @@ describe('FolderTreeView per-folder empty state', () => {
   });
 });
 
+// A note switch dirties layout, and WebKit then lays out every mounted row —
+// ~125 ms of a ~148 ms Ctrl+Tab at 2,533 rows, which CSS containment does not
+// avoid. Only mounting the visible window removes that work, so the row count
+// is the thing worth locking. → docs/perf/tab-switch-baseline.md
+describe('FolderTreeView virtualization', () => {
+  let target: HTMLDivElement;
+  let app: ReturnType<typeof mount> | null = null;
+  let clientHeight: ReturnType<typeof vi.spyOn> | null = null;
+
+  // jsdom does no layout, so the component can only see a viewport if we give
+  // it one. Rows keep offsetTop 0, so the component falls back to its declared
+  // row pitch — which is what makes the expected window size predictable here.
+  const VIEWPORT_PX = 400;
+  const ROW_PITCH = 49;
+  const OVERSCAN = 8;
+
+  function rowCount(): number {
+    return target.querySelectorAll('.note-row, .folder-row, .folder-empty-row').length;
+  }
+
+  function mountWithViewport(items: NotePreview[], viewport: number | null) {
+    if (viewport !== null) {
+      clientHeight = vi
+        .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+        .mockImplementation(function (this: HTMLElement) {
+          return this.classList.contains('folder-tree-scroll') ? viewport : 0;
+        });
+    }
+    app = mount(FolderTreeView, { target, props: { items } });
+    flushSync();
+  }
+
+  beforeEach(() => {
+    target = document.createElement('div');
+    document.body.appendChild(target);
+  });
+
+  afterEach(() => {
+    if (app) {
+      unmount(app);
+      app = null;
+    }
+    clientHeight?.mockRestore();
+    clientHeight = null;
+    target.remove();
+  });
+
+  it('mounts only the visible window, not every row', () => {
+    const items = Array.from({ length: 300 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
+    mountWithViewport(items, VIEWPORT_PX);
+
+    const expected = Math.ceil(VIEWPORT_PX / ROW_PITCH) + OVERSCAN;
+    expect(rowCount()).toBeLessThanOrEqual(expected);
+    expect(rowCount()).toBeGreaterThan(0);
+    // The pre-virtualization component mounted all 300.
+    expect(rowCount()).toBeLessThan(300);
+  });
+
+  it('keeps the scrollable height of the full list via spacers', () => {
+    const items = Array.from({ length: 300 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
+    mountWithViewport(items, VIEWPORT_PX);
+
+    const spacers = Array.from(target.querySelectorAll<HTMLElement>('.tree-spacer'));
+    const spacerPx = spacers.reduce((sum, el) => sum + parseInt(el.style.height || '0', 10), 0);
+    expect(spacerPx + rowCount() * ROW_PITCH).toBe(300 * ROW_PITCH);
+  });
+
+  it('renders a different slice after scrolling', () => {
+    const items = Array.from({ length: 300 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
+    mountWithViewport(items, VIEWPORT_PX);
+    const firstBefore = target.querySelector('.note-row')?.getAttribute('data-note-id');
+
+    const scroller = target.querySelector('.folder-tree-scroll') as HTMLElement;
+    scroller.scrollTop = 150 * ROW_PITCH;
+    scroller.dispatchEvent(new Event('scroll'));
+    flushSync();
+
+    const firstAfter = target.querySelector('.note-row')?.getAttribute('data-note-id');
+    expect(firstAfter).not.toBe(firstBefore);
+    expect(firstAfter).toBe('note-142'); // 150 - OVERSCAN
+    expect(rowCount()).toBeLessThan(300);
+  });
+
+  it('renders every row when no viewport height is measurable', () => {
+    // jsdom's default (clientHeight 0) stands in for the frame before the
+    // ResizeObserver first reports: guessing a window there would hide rows a
+    // caller expects to be present.
+    const items = Array.from({ length: 60 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
+    mountWithViewport(items, null);
+    expect(rowCount()).toBe(60);
+  });
+});
+
 describe('FolderTreeView drag image is WebKitGTK-only', () => {
   let target: HTMLDivElement;
   let app: ReturnType<typeof mount> | null = null;
