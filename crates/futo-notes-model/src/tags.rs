@@ -28,18 +28,13 @@ fn tag_line_regex() -> &'static Regex {
     })
 }
 
-/// Matches a run of N backticks, the minimal non-backtick span, then the same
-/// run of N backticks (backreference → fancy-regex). Inline code.
-fn inline_code_regex() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(`+)([^`]*?)\1").expect("inline-code regex must compile"))
-}
-
 /// A fence line: ≤3 leading spaces, then a run of ``` or ~~~, then the rest of
 /// the line. `(?m)` so `^`/`$` are line-anchored.
 fn fence_line_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(?m)^( {0,3})(`{3,}|~{3,})(.*)$").expect("fence regex must compile"))
+    RE.get_or_init(|| {
+        Regex::new(r"(?m)^( {0,3})(`{3,}|~{3,})(.*)$").expect("fence regex must compile")
+    })
 }
 
 /// Raw `TAG_REGEX` capture-group-1 values (tag names without `#`) in document
@@ -131,8 +126,7 @@ fn tag_right_boundary_ok(s: &str, j: usize) -> bool {
     match s[j..].chars().next() {
         None => true, // end-of-string ($)
         Some(c) => {
-            c.is_whitespace()
-                || matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')' | '}' | ']')
+            c.is_whitespace() || matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')' | '}' | ']')
         }
     }
 }
@@ -238,7 +232,8 @@ fn strip_code_regions_full(content: &str) -> String {
     for f in &fence_lines {
         if let Some(open) = open_fences.last() {
             // Closing fence: same char, at least as long, rest blank.
-            if f.marker_char == open.marker_char && f.marker_len >= open.marker_len && f.rest_blank {
+            if f.marker_char == open.marker_char && f.marker_len >= open.marker_len && f.rest_blank
+            {
                 regions.push((open.pos, f.end_of_line));
                 open_fences.pop();
                 continue;
@@ -267,20 +262,66 @@ fn strip_code_regions_full(content: &str) -> String {
     // `buf` only had non-newline bytes overwritten by spaces within
     // char-aligned ranges, so it is still valid UTF-8.
     let pass1 = String::from_utf8(buf).expect("strip pass1 stays valid UTF-8");
-
     // ── Pass 2: inline code (backtick runs) ──
-    let re = inline_code_regex();
-    let mut result = String::with_capacity(pass1.len());
+    strip_inline_code_regions(pass1)
+}
+
+/// Blank the same non-overlapping matches as ``(`+)([^`]*?)\1`` in linear
+/// time. Running that backreference through fancy-regex's backtracking VM is
+/// pathologically slow on large prose buffers, even after the fenced-code pass
+/// has removed every backtick.
+fn strip_inline_code_regions(content: String) -> String {
+    let bytes = content.as_bytes();
+    let mut matches = Vec::new();
+    let mut cursor = 0usize;
+
+    while let Some(relative_start) = bytes[cursor..].iter().position(|&b| b == b'`') {
+        let start = cursor + relative_start;
+        let opener_end = backtick_run_end(&bytes, start);
+        let opener_len = opener_end - start;
+        let next_start = bytes[opener_end..]
+            .iter()
+            .position(|&b| b == b'`')
+            .map(|offset| opener_end + offset);
+
+        let match_end = next_start.and_then(|closing_start| {
+            let closing_len = backtick_run_end(&bytes, closing_start) - closing_start;
+            (closing_len >= opener_len).then_some(closing_start + opener_len)
+        });
+
+        if let Some(end) = match_end {
+            matches.push((start, end));
+            cursor = end;
+        } else if opener_len >= 2 {
+            // With no sufficiently long later closer, the regex backtracks
+            // within this run and matches the largest equal adjacent pair.
+            let end = start + 2 * (opener_len / 2);
+            matches.push((start, end));
+            cursor = end;
+        } else {
+            cursor = opener_end;
+        }
+    }
+
+    let mut result = String::with_capacity(content.len());
     let mut last = 0usize;
-    for m in re.find_iter(&pass1).flatten() {
-        result.push_str(&pass1[last..m.start()]);
-        for c in pass1[m.start()..m.end()].chars() {
+    for (start, end) in matches {
+        result.push_str(&content[last..start]);
+        for c in content[start..end].chars() {
             result.push(if c == '\n' { '\n' } else { ' ' });
         }
-        last = m.end();
+        last = end;
     }
-    result.push_str(&pass1[last..]);
+    result.push_str(&content[last..]);
     result
+}
+
+fn backtick_run_end(bytes: &[u8], start: usize) -> usize {
+    let mut end = start;
+    while end < bytes.len() && bytes[end] == b'`' {
+        end += 1;
+    }
+    end
 }
 
 /// Extract all unique tags from note content, excluding tags inside code
@@ -491,5 +532,63 @@ mod tag_scan_tests {
             "tag extraction on a ~1 MB note must be fast (was {elapsed:?}); \
              a regression here means catastrophic backtracking is back"
         );
+    }
+
+    // Regression for the second catastrophic-backtracking path: stripping
+    // inline code from a large mixed-markdown note. The obstacle-course
+    // monster contains thousands of backtick runs; the backreference-based
+    // fancy-regex implementation never returned once the note reached ~1 MB.
+    #[test]
+    fn large_backtick_note_extracts_fast_and_correct() {
+        let prose = "Ordinary prose with enough varied words and #outside content \
+            to model a real long note rather than a blank buffer.\n\n"
+            .repeat(20_000);
+        let big = format!("{prose}```rust\nlet hidden = \"#inside\";\n```\n");
+        assert!(big.len() > 1_000_000);
+
+        let t = Instant::now();
+        let tags = extract_tags(&big);
+        let elapsed = t.elapsed();
+
+        assert_eq!(tags, vec!["#outside"]);
+        assert!(
+            elapsed.as_secs() < 3,
+            "code-region stripping on a ~1 MB backtick note must be fast \
+             (was {elapsed:?})"
+        );
+    }
+
+    #[test]
+    fn linear_inline_scan_matches_backreference_regex() {
+        let old = Regex::new(r"(`+)([^`]*?)\1").unwrap();
+        let alphabet = ['`', 'a', '\n', 'é'];
+
+        for len in 0usize..=8 {
+            let cases = alphabet.len().pow(len as u32);
+            for mut encoded in 0..cases {
+                let mut input = String::with_capacity(len);
+                for _ in 0..len {
+                    input.push(alphabet[encoded % alphabet.len()]);
+                    encoded /= alphabet.len();
+                }
+
+                let mut expected = String::with_capacity(input.len());
+                let mut last = 0usize;
+                for matched in old.find_iter(&input).flatten() {
+                    expected.push_str(&input[last..matched.start()]);
+                    for c in input[matched.start()..matched.end()].chars() {
+                        expected.push(if c == '\n' { '\n' } else { ' ' });
+                    }
+                    last = matched.end();
+                }
+                expected.push_str(&input[last..]);
+
+                assert_eq!(
+                    strip_inline_code_regions(input.clone()),
+                    expected,
+                    "input={input:?}"
+                );
+            }
+        }
     }
 }
