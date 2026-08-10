@@ -87,6 +87,18 @@ export function classifyExecPath(execPath, { worktreeRoots, selfRoot }) {
       detail: 'could not read the process executable path — refusing rather than guessing',
     };
   }
+  // Backstop for the false-ACCEPT direction: a relative path is interpreted
+  // against whatever cwd asks the question, so `./target/debug/futo-notes-tauri`
+  // from ANOTHER worktree resolves inside THIS one and passes every check below.
+  // Callers resolve relative paths against the process's own cwd; if one still
+  // arrives here, refuse.
+  if (!path.isAbsolute(execPath)) {
+    return {
+      ok: false,
+      code: 'exec-path-not-absolute',
+      detail: `${execPath} is not an absolute path, so it cannot identify a process — resolved against a different cwd it would name a different binary entirely.`,
+    };
+  }
 
   if (execPath.includes('.app/Contents/MacOS/') || execPath.startsWith('/Applications/')) {
     return {
@@ -259,8 +271,30 @@ function repoRoot() {
   return top || path.resolve(HERE, '..');
 }
 
+// The working directory the process itself was started in — the only correct
+// base for a relative argv[0]. Resolving one against OUR cwd is how a sibling
+// worktree's instance got reported as this worktree's own (see execPathOf).
+function cwdOf(pid) {
+  if (process.platform === 'linux') {
+    try {
+      return fs.realpathSync(`/proc/${pid}/cwd`);
+    } catch {
+      return null;
+    }
+  }
+  const line = run('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'])
+    .split('\n')
+    .filter((entry) => entry.startsWith('n'))
+    .pop();
+  return line ? line.slice(1) : null;
+}
+
 // argv[0] is what `pgrep -f` matched on, so it is also what a name-based lookup
-// would have believed. We resolve it to a real path instead.
+// would have believed. We resolve it to an ABSOLUTE real path instead, or return
+// null so the caller refuses — a path we cannot resolve proves nothing, and
+// letting a relative one through silently reinterprets another process's path in
+// our own directory (observed: mr-208's `./target/debug/futo-notes-tauri` was
+// reported as this worktree's instance and VERIFIED).
 function execPathOf(pid) {
   if (process.platform === 'linux') {
     try {
@@ -269,17 +303,29 @@ function execPathOf(pid) {
       /* fall through to ps */
     }
   }
+  // macOS `ps -o comm=` is the full executable path (spaces intact) — prefer it.
+  // Otherwise fall back to argv[0], which may be relative and is resolved below;
+  // a truncated Linux `comm` is the last resort and will fail to resolve, which
+  // is the correct outcome (refusal) rather than a guess.
   const comm = run('ps', ['-p', String(pid), '-o', 'comm=']).trim();
-  const candidate = comm.startsWith('/')
-    ? comm
-    : run('ps', ['-p', String(pid), '-ww', '-o', 'args='])
-        .trim()
-        .split(/\s+/)[0];
+  const argv0 = run('ps', ['-p', String(pid), '-ww', '-o', 'args='])
+    .trim()
+    .split(/\s+/)[0];
+  const candidate = path.isAbsolute(comm) ? comm : argv0 || comm;
   if (!candidate) return null;
+
+  const absolute = path.isAbsolute(candidate)
+    ? candidate
+    : (() => {
+        const base = cwdOf(pid);
+        return base ? path.resolve(base, candidate) : null;
+      })();
+  if (!absolute) return null;
+
   try {
-    return fs.realpathSync(candidate);
+    return fs.realpathSync(absolute);
   } catch {
-    return candidate;
+    return absolute;
   }
 }
 

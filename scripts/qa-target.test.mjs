@@ -77,6 +77,17 @@ describe('classifyExecPath', () => {
     expect(classifyExecPath(null, CONTEXT).code).toBe('exec-path-unknown');
   });
 
+  it('REFUSES a relative exec path — the false-ACCEPT this tool must never make', () => {
+    // Observed live: mr-208 launched its instance as
+    // `./target/debug/futo-notes-tauri`, and resolving that against the
+    // RESOLVER's cwd made a sibling worktree's process verify as this
+    // worktree's own. A wrong "REFUSED" costs a minute; a wrong "verified" is
+    // how the incident happened.
+    const verdict = classifyExecPath('./target/debug/futo-notes-tauri', CONTEXT);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.code).toBe('exec-path-not-absolute');
+  });
+
   it("accepts this worktree's debug build", () => {
     const verdict = classifyExecPath(`${SELF}/target/debug/futo-notes-tauri`, CONTEXT);
     expect(verdict.ok).toBe(true);
