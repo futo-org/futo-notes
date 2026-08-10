@@ -14,7 +14,8 @@ shells project it rather than reconstructing the protocol.
 - Any change: `cargo test -p futo-notes-sync`.
 - Protocol/engine change: add a scenario to `tests/cross-platform-sync.mjs`, register it in
   `scenarios`, then run `just test-cross-platform`.
-- Server-contract change: use an isolated server, never the `:3005` demo server:
+- Server-contract change: use an isolated server — never the `:3005` demo server, never elitedesk,
+  never production:
 
   ```bash
   FUTO_TEST_SERVER=http://127.0.0.1:3055 cargo test -p futo-notes-sync \

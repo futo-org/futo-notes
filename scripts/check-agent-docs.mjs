@@ -23,6 +23,15 @@
 //     reference sits on a shell continuation line, where inserting a
 //     comment line would break the `\`-joined command.
 //     <!-- check-agent-docs: ignore-next-block -->
+//
+// It ALSO validates the skill directory itself: a tracked symlink under
+// .claude/skills/ must point at tracked content. MR !207 committed 22 symlinks
+// into the gitignored `.agents/skills/`; they resolved in the one checkout that
+// had `.agents/` populated and dangled in every fresh clone and every
+// `git worktree add` — where parallel QA legs and CI run. The reference checks
+// above could never see it, because readdir() reports a symlink as neither file
+// nor directory, so the whole subtree was skipped. Local, GITIGNORED links (what
+// `just skills-link` creates) are fine and invisible to this check.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -295,6 +304,45 @@ export function validateRequiredVerificationChains(file, text) {
 }
 
 // ---------------------------------------------------------------------------
+// Skill-directory shape
+// ---------------------------------------------------------------------------
+
+// A skill directory that git carries must resolve from git's contents alone.
+// `isTracked`/`pathExists` are injected so this is unit-testable and so the
+// gate can be reasoned about without a repo.
+export function validateSkillLinks(entries, { isTracked, resolveLink, targetIsTracked }) {
+  const violations = [];
+
+  for (const entry of entries) {
+    if (!entry.isSymlink) continue;
+    if (!isTracked(entry.rel)) continue; // a local, gitignored link — fine
+
+    const target = resolveLink(entry.rel);
+    if (target === null) {
+      violations.push({
+        line: 1,
+        message:
+          `${entry.rel} — tracked symlink whose target does not exist. ` +
+          `A committed skill link must resolve in a fresh clone; this one does not.`,
+      });
+      continue;
+    }
+    if (!targetIsTracked(target)) {
+      violations.push({
+        line: 1,
+        message:
+          `${entry.rel} → ${target} — tracked symlink into untracked/gitignored content. ` +
+          `It resolves only in a checkout that happens to have that path, and dangles in ` +
+          `every fresh clone and git worktree. Commit the skill for real, or drop the link ` +
+          `and create it locally with \`just skills-link\` (which keeps it gitignored).`,
+      });
+    }
+  }
+
+  return violations;
+}
+
+// ---------------------------------------------------------------------------
 // Instruction-surface discovery
 // ---------------------------------------------------------------------------
 
@@ -402,6 +450,38 @@ function makePathExists(fromDir) {
   };
 }
 
+// Entries directly under .claude/skills/, with the one bit readdir() gives us
+// that the rest of this file throws away: whether each is a symlink.
+function listSkillEntries() {
+  const skillsDir = path.join(ROOT, '.claude', 'skills');
+  if (!fs.existsSync(skillsDir)) return [];
+  return fs.readdirSync(skillsDir, { withFileTypes: true }).map((entry) => ({
+    rel: `.claude/skills/${entry.name}`,
+    isSymlink: entry.isSymbolicLink(),
+  }));
+}
+
+function isTrackedByGit(repoRelativePath) {
+  const result = spawnSync('git', ['ls-files', '--error-unmatch', '--', repoRelativePath], {
+    cwd: ROOT,
+    stdio: 'ignore',
+  });
+  return result.status === 0;
+}
+
+// The resolved target as a repo-relative path, or null when it does not exist.
+// A target outside the repo can never be tracked, so it is returned as-is and
+// fails the tracked check with its real path in the message.
+function resolveSkillLink(repoRelativePath) {
+  const abs = path.join(ROOT, repoRelativePath);
+  if (!fs.existsSync(abs)) {
+    return null;
+  }
+  const real = fs.realpathSync(abs);
+  const rel = path.relative(ROOT, real);
+  return rel.startsWith('..') ? real : rel.replaceAll(path.sep, '/');
+}
+
 function main() {
   const files = collectInstructionFiles(ROOT);
   const justRecipes = parseJustRecipes(fs.readFileSync(path.join(ROOT, 'justfile'), 'utf8'));
@@ -424,6 +504,15 @@ function main() {
     }
   }
 
+  const skillEntries = listSkillEntries();
+  for (const violation of validateSkillLinks(skillEntries, {
+    isTracked: isTrackedByGit,
+    resolveLink: resolveSkillLink,
+    targetIsTracked: isTrackedByGit,
+  })) {
+    allViolations.push({ file: '.claude/skills', ...violation });
+  }
+
   if (allViolations.length > 0) {
     console.error('Agent-docs self-validation gate FAILED:\n');
     for (const violation of allViolations) {
@@ -437,7 +526,8 @@ function main() {
 
   console.log(
     `Agent-docs gate OK — ${files.length} instruction file(s), ${totalRefs} reference(s) checked ` +
-      `(just/pnpm run/paths), 0 broken.`,
+      `(just/pnpm run/paths), ${skillEntries.length} skill entr(ies) checked for tracked ` +
+      `dangling links, 0 broken.`,
   );
 }
 

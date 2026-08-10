@@ -8,11 +8,14 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
 ## Ownership and traps
 
 - Rust remains canonical for filename, tag, preview, wikilink, and image rules. Hot-path TS mirrors
-  live here except wikilinks (`src/shared/note/wikilinks.ts`) and stay locked by conformance fixtures.
+  live here except wikilinks (`src/shared/note/wikilinks.ts`) and stay locked by the fixtures in
+  `tests/conformance/`.
 - `src/bridge.ts` owns bridge messages and `BRIDGE_VERSION`. A new message requires both native
   hosts (`EditorWebView.swift` and `EditorWebView.kt`); ask before a version bump.
 - `src/toolbar.ts` owns toolbar items; execution belongs in shared `TOOLBAR_EXEC`, never a shell.
-- Never edit generated native specs or `editor.html`; edit these sources and regenerate.
+- Never edit generated native specs, or the **bundled** editor output; edit the source and
+  regenerate. The repo-root `editor.html` is the hand-written source — the native copies
+  (`apps/*/…/editor.html`) are generated from it by `vite build --config vite.editor.config.ts`.
 
 ## Rule-change chain
 

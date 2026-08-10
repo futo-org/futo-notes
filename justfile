@@ -547,6 +547,18 @@ gate-redproofs *args:
 arch-gate:
   pnpm run check:arch-gate
 
+# Link this checkout's third-party skills (mattpocock/skills — /tdd, /research,
+# /wayfinder, …) from the gitignored .agents/skills/ into .claude/skills/, where
+# Claude Code discovers them. skills-lock.json is the registry of which ones we
+# use; an external installer populates .agents/skills/ per machine, and nothing
+# in this repo fetches them — so this recipe links only what is already present
+# and REPORTS the rest instead of leaving a dangling link behind. The links are
+# gitignored on purpose: MR !207 committed 22 of them, and because .agents/ is
+# gitignored they dangled in every fresh clone and every git worktree. Run it
+# once per checkout; it is idempotent.
+skills-link:
+  @node scripts/skills-link.mjs
+
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
 clean:

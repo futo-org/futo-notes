@@ -19,7 +19,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 
 ## Key Constraints
 
-- **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CodeMirror overrides inside layered CSS.
+- **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CodeMirror overrides inside layered CSS (`src/styles/editor-ux.css` is imported unlayered on purpose).
 - **Svelte 5 reactivity**: Use `$state()` runes, not stores. Read `scrollParent` and `onchange` lazily inside callbacks (not in `$effect` body) to avoid tracking them as dependencies — prevents editor destruction/recreation.
 - **Editor responsiveness is sacred.** Never let background operations (sync, search indexing, save) block or delay typing.
 - **Image preloading**: Editor preloads image dimensions for CM6 widget sizing. Images served via Tauri asset protocol (`asset://`).
