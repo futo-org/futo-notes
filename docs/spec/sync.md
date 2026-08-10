@@ -711,6 +711,21 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   "follows a reported collision-placement rename before pruning deletions" in
   src/features/sync/syncManager.test.ts and the cross-platform scenario
   "collision placement follows open note" in tests/cross-platform-sync.mjs)
+- **Following a reported rename is one atomic retarget of route AND editor**
+  _(desktop)_. A single helper moves the tab/route and — while the session is
+  still bound to the old id — the open editor's id and title, whether the
+  retarget comes from the classifier's `FollowRename` verdict or from sync
+  completion projecting a rename the classifier never answered for (a failed or
+  unavailable `e2ee_classify_open_note`; the browser dev/test lane has no engine
+  to ask at all). Projecting the tab alone left the URL and tab on the new title
+  while the title input kept the old one. Applying a reported rename without a
+  verdict cannot disagree with the engine: a reported rename outranks every
+  other fact and always yields `FollowRename`. →
+  src/features/sync/syncManager.svelte.ts `applyReportedRename` (guarded by
+  "moves route and title together when the open note cannot be classified" in
+  src/features/sync/syncManager.test.ts + tests/remote-rename.spec.ts; the
+  engine side by "a reported rename outranks …" in
+  `every_reachable_fact_combination_has_one_verdict`)
 - **Every shell family is handed the same cycle report.** The desktop IPC
   contract and the UniFFI contract both project the engine summary losslessly —
   the four counters plus `updatedIds`, `deletedIds`, `peerUpdatedIds`,

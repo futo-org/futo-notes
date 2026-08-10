@@ -16,6 +16,10 @@ type ExternalChangeCoordinator = Pick<
 interface SyncCompletionDependencies {
   session: NoteSession;
   showToast: (message: string) => void;
+  /** Applies one engine-reported rename completely — tab/route AND the open
+   * session while it is still bound to `fromId` (syncManager
+   * `applyReportedRename`). Retargeting only the route is what left the URL on
+   * the new title with the old one still in the title input. */
   onRename: (fromId: string, toId: string, title: string) => void;
   pruneTabsForDeletedIds: (goneIds: string[]) => void;
 }
@@ -63,10 +67,12 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     setTimeout(() => void externalChanges.runRescan(), 50);
   }
 
-  function projectBackgroundRenames(
-    summary: SyncSummary,
-    followedRenameFromIds: Set<string>,
-  ): void {
+  // Every reported rename the open-note executor did not already follow —
+  // renames of other notes, and the open note's own rename when its
+  // classification never produced an applicable verdict (it failed, or the
+  // engine could not be asked at all). Applying them completely is what keeps
+  // route and title agreeing on which note is open.
+  function projectReportedRenames(summary: SyncSummary, followedRenameFromIds: Set<string>): void {
     for (const rename of summary.renamed) {
       if (followedRenameFromIds.has(rename.fromId)) continue;
       const slash = rename.toId.lastIndexOf('/');
@@ -141,7 +147,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     recordSyncedFiles(summary);
     reindexPeerChanges(summary);
     const openNoteResult = await reconcileOpenNote(summary, syncStartEditVersion);
-    projectBackgroundRenames(summary, openNoteResult.followedRenameFromIds);
+    projectReportedRenames(summary, openNoteResult.followedRenameFromIds);
 
     const pruneCandidates = summary.deletedIds.filter((id) => id !== openNoteResult.keptDraftId);
     const pruneExistence = await Promise.all(

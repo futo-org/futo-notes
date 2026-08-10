@@ -87,14 +87,26 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     notifySavedV2();
   };
 
+  // The one way an engine-reported rename reaches the UI, whichever path
+  // applies it: the executor's FollowRename verdict or sync completion's
+  // background projection. Tab/route and open session move together, so they
+  // can never disagree about which note is open — projecting only the tab
+  // retargeted the route to the new title while the title input kept the old
+  // one whenever the open note's classification could not answer (job 215292).
+  // Applying a reported rename without a verdict is not a shell decision: a
+  // reported rename outranks every other fact in the classifier and always
+  // yields FollowRename (futo-notes-sync open_note.rs).
+  function applyReportedRename(fromId: string, toId: string, title: string): void {
+    deps.onRename(fromId, toId, title);
+    if (deps.session.originalId === fromId) {
+      deps.session.applyRemoteRename(toId, title);
+    }
+  }
+
   const externalChanges = createExternalChangeCoordinator({
     followRename: (fromId, toId) => {
       const slash = toId.lastIndexOf('/');
-      const title = slash === -1 ? toId : toId.slice(slash + 1);
-      deps.onRename(fromId, toId, title);
-      if (deps.session.originalId === fromId) {
-        deps.session.applyRemoteRename(toId, title);
-      }
+      applyReportedRename(fromId, toId, slash === -1 ? toId : toId.slice(slash + 1));
     },
     session: deps.session,
     notifySaved,
@@ -115,7 +127,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   }
 
   const handleSyncComplete = createSyncCompletionReconciler({
-    dependencies: deps,
+    dependencies: { ...deps, onRename: applyReportedRename },
     externalChanges,
     writeSuppressor,
     raiseSyncError: (message) => raiseSyncError(message),

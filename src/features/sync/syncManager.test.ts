@@ -517,6 +517,29 @@ describe('rename disposition races', () => {
     expect(bundle.state.id).toBe('Old');
   });
 
+  // The browser/Playwright lane has no classifier to invoke at all, and a real
+  // desktop IPC failure looks the same from here. Retargeting the route without
+  // the session left the URL/tab on the new title while the title input kept
+  // the old one (job 215292: `TypeError: Cannot read properties of undefined
+  // (reading 'invoke')` swallowed into NO_RECONCILIATION).
+  it('moves route and title together when the open note cannot be classified', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    openNoteMocks.classifyOpenNote.mockRejectedValueOnce(
+      new TypeError("Cannot read properties of undefined (reading 'invoke')"),
+    );
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
+
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      renamed: [{ fromId: 'Old', toId: 'New' }],
+    });
+
+    expect(bundle.onRename).toHaveBeenCalledExactlyOnceWith('Old', 'New', 'New');
+    expect(bundle.applyRemoteRename).toHaveBeenCalledExactlyOnceWith('New', 'New');
+    expect(bundle.state.id).toBe('New');
+    warn.mockRestore();
+  });
+
   it('retargets a renamed tab without rebinding a session that switched during classification', async () => {
     const verdict = controlledPromise<{
       kind: 'followRename';
