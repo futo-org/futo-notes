@@ -1130,8 +1130,19 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   caret parked mid-document, a peer edit appeared in the open editor and the
   selection/caret held on both platforms. Neither shell invokes that bridge
   while the editor is focused: each remembers `DeferAdopt`, then re-reads and
-  classifies current disk content on blur. → packages/editor bridge v2;
-  iOS `EditorWebView` / `OpenNoteReconciler`; Android
+  classifies current disk content on blur. The blur edge every host settles on
+  is ONE reported fact — the embed's `focus` bridge message, from
+  `editorHasDomFocus` — and it means "CodeMirror holds the caret", not merely
+  "some node inside the editor is still `document.activeElement`". The lenient
+  reading was iOS-only from the start (WKWebView reports a blurred document
+  while its contenteditable really is focused); on Android that same shape IS
+  the blur — dismissing the IME with Back, or tapping the native inline title,
+  blurs the page while `activeElement` lags behind — so reporting it as focus
+  meant the shell never saw a blur edge and the deferral was stranded
+  indefinitely on superseded peer content (device-verified on
+  emulator 2026-08-10). A deferral therefore always has an edge to settle on.
+  → packages/editor bridge v2; `editorDomFocus.ts` (guarded by
+  editorDomFocus.test.ts); iOS `EditorWebView` / `OpenNoteReconciler`; Android
   `EditorSession.settleDeferredAdoption` / `NoteEditorScreen.kt`
 - A **dirty draft against a real remote change** is never replaced. Each
   executor renders the engine's `KeepDraft`: it cancels/drains the pending

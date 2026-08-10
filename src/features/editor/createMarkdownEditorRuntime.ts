@@ -7,6 +7,7 @@ import { openExternalUrl } from '$lib/platform/openExternalUrl';
 
 import { markdownEditorLanguageExtensions } from './codeMirrorMarkdown';
 import { cursorMotionKeymap } from './cursorMotion';
+import { editorHasDomFocus } from './editorDomFocus';
 import { EditorCaretInteractions } from './interactions/caretInteractions';
 import { EditorLinkInteractions } from './interactions/linkInteractions';
 import { EditorScrollAnchoring } from './interactions/scrollAnchoring';
@@ -32,9 +33,8 @@ interface CreateMarkdownEditorRuntimeOptions {
   openWikilink: (title: string, event: MouseEvent) => void;
 }
 
-function editorHasDomFocus(view: EditorView): boolean {
-  const activeElement = document.activeElement;
-  return view.hasFocus || activeElement === view.contentDOM || view.dom.contains(activeElement);
+function hostSeesFocus(view: EditorView): boolean {
+  return editorHasDomFocus(view, isIOS);
 }
 
 export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntimeOptions) {
@@ -129,7 +129,7 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
       }
     }),
     EditorView.updateListener.of((update) => {
-      if (update.focusChanged) options.getOnFocusChange()?.(editorHasDomFocus(update.view));
+      if (update.focusChanged) options.getOnFocusChange()?.(hostSeesFocus(update.view));
     }),
     EditorView.updateListener.of(
       (() => {
@@ -152,5 +152,11 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
     scrollAnchoring.destroy();
   }
 
-  return { extensions, linkInteractions, scrollAnchoring, destroy, editorHasDomFocus };
+  return {
+    extensions,
+    linkInteractions,
+    scrollAnchoring,
+    destroy,
+    editorHasDomFocus: hostSeesFocus,
+  };
 }
