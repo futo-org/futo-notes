@@ -98,6 +98,15 @@ describe('classifyDataDir', () => {
   it('accepts a per-worktree data dir', () => {
     expect(classifyDataDir(`${SELF}/.tauri-data`, CONTEXT).ok).toBe(true);
   });
+
+  it('reports an unreadable environment as its own reason, not as "unset"', () => {
+    // Saying "this process has no FUTO_NOTES_DATA_DIR" when we merely could not
+    // read its environment is the same class of false statement as the
+    // -newermt all-clear that started this.
+    const verdict = classifyDataDir(null, { ...CONTEXT, envReadable: false });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.code).toBe('env-unreadable');
+  });
 });
 
 describe('classifyVault', () => {

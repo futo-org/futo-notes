@@ -147,7 +147,18 @@ export function classifyExecPath(execPath, { worktreeRoots, selfRoot }) {
  * unreadable or unset data dir means we cannot prove which vault the instance
  * writes to, so it is not a QA target.
  */
-export function classifyDataDir(dataDir, { worktreeRoots }) {
+export function classifyDataDir(dataDir, { worktreeRoots, envReadable = true }) {
+  // Reported separately from "unset": claiming a process has no
+  // FUTO_NOTES_DATA_DIR when we simply could not read its environment would be
+  // the same class of false statement as the -newermt all-clear.
+  if (!envReadable) {
+    return {
+      ok: false,
+      code: 'env-unreadable',
+      detail:
+        'the process environment could not be read, so its vault cannot be proved isolated. This normally means the process belongs to another user — which also means it is not yours to drive. (macOS reads it via `ps -E`, Linux via /proc/<pid>/environ.)',
+    };
+  }
   if (!dataDir) {
     return {
       ok: false,
@@ -207,7 +218,10 @@ export function verifyTarget(candidate, context) {
   // Only meaningful for one of our own builds; a foreign executable is already
   // refused above and its env tells us nothing.
   if (exec.ok) {
-    const dataDir = classifyDataDir(candidate.dataDir, context);
+    const dataDir = classifyDataDir(candidate.dataDir, {
+      ...context,
+      envReadable: candidate.envReadable ?? true,
+    });
     if (!dataDir.ok) refusals.push(dataDir);
   }
 
