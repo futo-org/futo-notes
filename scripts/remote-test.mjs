@@ -66,6 +66,19 @@ export const DEFAULT_SOURCE_REPO = '$HOME/Developer/futo-notes';
 // that is cheaper than auditing every consumer.
 export const REMOTE_CARGO_TARGET_DIR = null;
 
+// Gradle 8.14.3 (apps/android/gradle/wrapper) cannot run on Java 25, and
+// Fedora's default JDK is 25 — gradle fails with a bare "What went wrong:
+// 25.0.4", which names neither Java nor the version constraint. The app targets
+// jvmTarget 17 and Gradle 8.14 fully supports 21, so pick a 21 (or 17) JDK
+// rather than whatever `java` resolves to. Override with $FUTO_REMOTE_JAVA_HOME.
+export const GRADLE_JDK_CANDIDATES = [
+  '/usr/lib/jvm/java-21-openjdk',
+  '/usr/lib/jvm/temurin-21-jdk',
+  '/usr/lib/jvm/java-21-temurin-jdk',
+  '/usr/lib/jvm/java-17-openjdk',
+  '/usr/lib/jvm/temurin-17-jdk',
+];
+
 // Distinguishable from any suite's own failure: the run never started.
 export const EXIT_REFUSED = 2;
 export const EXIT_LOCKED = 75; // EX_TEMPFAIL
@@ -236,6 +249,15 @@ export function remoteEnvPreamble({ ndkVersion }) {
     'export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"',
     'export ANDROID_SDK_ROOT="$ANDROID_HOME"',
     `export ANDROID_NDK_HOME="\${FUTO_REMOTE_NDK:-$ANDROID_HOME/ndk/${ndkVersion}}"`,
+    // See GRADLE_JDK_CANDIDATES: Fedora's default JDK 25 is too new for the
+    // pinned Gradle, so prefer an explicitly supported one when it exists.
+    `for candidate in "\${FUTO_REMOTE_JAVA_HOME:-}" ${GRADLE_JDK_CANDIDATES.map((p) => `"${p}"`).join(' ')}; do`,
+    '  if [ -n "$candidate" ] && [ -x "$candidate/bin/javac" ]; then',
+    '    export JAVA_HOME="$candidate"',
+    '    export PATH="$JAVA_HOME/bin:$PATH"',
+    '    break',
+    '  fi',
+    'done',
     // See REMOTE_CARGO_TARGET_DIR: an inherited one must not leak in either.
     'unset CARGO_TARGET_DIR',
     // Deliberately NOT setting CI: `cargo tauri build` maps its `--ci` flag to
@@ -365,6 +387,7 @@ mkdir -p dist
 
 echo "==> node $(node --version) | pnpm $(pnpm --version) | cargo $(cargo --version | cut -d' ' -f2) | $(nproc) cores"
 echo "==> ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+echo "==> JAVA_HOME=\${JAVA_HOME:-<unset: gradle will use whatever java is on PATH>}"
 echo "==> cargo target: $REMOTE_DIR/target (repo-local, warm across runs)"
 echo
 echo "───────────────────── just ${recipe} ─────────────────────"
@@ -404,7 +427,14 @@ have just        'just'         'just --version'
 have git         'git'          'git --version'
 have bun         'bun (sync server)' 'bun --version'
 have rsync       'rsync'        'rsync --version'
-have java        'java (gradle)' 'java -version'
+if [ -n "\${JAVA_HOME:-}" ]; then
+  emit 'gradle JDK' ok "$("$JAVA_HOME/bin/java" -version 2>&1 | head -1) — $JAVA_HOME"
+elif command -v java >/dev/null 2>&1; then
+  # Gradle 8.14 cannot run on Java 25+, and its error names neither.
+  emit 'gradle JDK' warn "only $(java -version 2>&1 | head -1) on PATH; the pinned Gradle needs 17 or 21"
+else
+  emit 'gradle JDK' missing 'no JDK at all'
+fi
 have adb         'adb'          'adb --version'
 have ffmpeg      'ffmpeg'       'ffmpeg -version'
 have docker      'docker'       'docker --version'
@@ -498,7 +528,7 @@ emit 'cargo target cache' ok "${remoteDir}/target ($(du -sh "${remoteDir}/target
 const SUDO_HINTS = {
   '/dev/kvm': 'sudo usermod -aG kvm $USER   # then log out and back in',
   'webkit2gtk-4.1': 'sudo dnf install -y webkit2gtk4.1-devel libsoup3-devel',
-  'java (gradle)': 'sudo dnf install -y java-21-openjdk-devel',
+  'gradle JDK': 'sudo dnf install -y java-21-openjdk-devel   # Gradle 8.14 cannot run on Java 25',
   adb: 'sudo dnf install -y android-tools',
   ffmpeg: 'sudo dnf install -y ffmpeg',
   docker: 'sudo dnf install -y docker && sudo systemctl enable --now docker',

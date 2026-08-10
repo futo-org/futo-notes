@@ -11,6 +11,7 @@ import {
   EXIT_LOCKED,
   EXIT_MOVED,
   EXIT_REFUSED,
+  GRADLE_JDK_CANDIDATES,
   REFUSED,
   REMOTE_CARGO_TARGET_DIR,
   RSYNC_EXCLUDES,
@@ -181,6 +182,22 @@ describe('remote environment', () => {
     for (const recipe of ['test-cross-platform', 'prepush', 'test-rust-full', 'check']) {
       expect(runScript({ recipe })).not.toMatch(/export CARGO_TARGET_DIR/);
     }
+  });
+
+  it('pins a Gradle-supported JDK, because Fedora defaults to one Gradle rejects', () => {
+    // Gradle 8.14.3 cannot run on Java 25 and says so only as
+    // "What went wrong: 25.0.4" — naming neither Java nor the constraint. The
+    // Rust .so and bindings built fine; only gradle died.
+    const preamble = remoteEnvPreamble({ ndkVersion: '28.2.13676358' });
+    expect(preamble).toContain('export JAVA_HOME="$candidate"');
+    expect(preamble).toContain(
+      '$FUTO_REMOTE_JAVA_HOME'.replace('$', '${FUTO_REMOTE_JAVA_HOME:-}').slice(0, 0) +
+        '${FUTO_REMOTE_JAVA_HOME:-}',
+    );
+    for (const jdk of GRADLE_JDK_CANDIDATES) expect(preamble).toContain(jdk);
+    // 21 before 17, and never a bare `java` from PATH.
+    expect(GRADLE_JDK_CANDIDATES[0]).toContain('21');
+    expect(GRADLE_JDK_CANDIDATES.some((p) => p.includes('25'))).toBe(false);
   });
 
   it('never exports CI', () => {
