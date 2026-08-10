@@ -24,7 +24,7 @@ interface CreateNoteLoaderOptions {
   navigate: (path: string) => void;
   patchState: (patch: NoteLoadPatch) => void;
   resetState: () => void;
-  setEditorContent: (content: string) => void;
+  openNote: (noteId: string | null, content: string) => void;
 }
 
 function getNextUntitledTitle(notes: NotePreview[]): string {
@@ -47,7 +47,7 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
       savedTitle: title,
       loading: false,
     });
-    options.setEditorContent('');
+    options.openNote(null, '');
     requestAnimationFrame(() => {
       if (version !== loadVersion) return;
       options.autoResizeTitle();
@@ -66,6 +66,7 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
     if (noteBody) noteBody.scrollTop = 0;
 
     if (!id) {
+      options.openNote(null, '');
       options.resetState();
       return;
     }
@@ -92,7 +93,7 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
         savedContent: loadedContent,
         savedTitle: title,
       });
-      options.setEditorContent(loadedContent);
+      options.openNote(id, loadedContent);
       const editorContent = options.getEditorContent();
       if (editorContent !== undefined && editorContent !== loadedContent) {
         options.patchState({ content: editorContent, savedContent: editorContent });
@@ -106,6 +107,7 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
       // wikilink opens through the success path and is created on first save.
       // A rejection is a genuine backend read failure; never turn it into an
       // eager create that could resurrect a note deleted during sync.
+      options.openNote(null, '');
       options.resetState();
       options.navigate('/');
       return;

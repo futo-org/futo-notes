@@ -176,9 +176,15 @@ function makeLiveNoteSession(id: string, body: string) {
   const setEditorContent = vi.fn((content: string) => {
     editorContent = content;
   });
+  const forgetEditorNote = vi.fn();
+  const openEditorNote = vi.fn((_noteId: string | null, content: string) => {
+    editorContent = content;
+  });
   const deps = {
     getEditorContent: () => editorContent,
     setEditorContent,
+    openEditorNote,
+    forgetEditorNote,
     focusEditor: vi.fn(),
     isEditorFocused: () => false,
     isComposing: () => false,
