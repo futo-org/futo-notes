@@ -163,9 +163,10 @@ export const CAVEATED = [
   ],
   [
     /^(test-cross-platform|prepush)$/,
-    'uses the box-global Postgres and a fixed server port counter (from 4000) with no ' +
-      'per-worktree isolation, so two simultaneous runs would collide. The remote worktree lock ' +
-      'prevents that as long as everyone goes through remote-test.',
+    'derives its ports and its Postgres database from the worktree slot, so two DIFFERENT ' +
+      'worktrees can run it at once — but two runs in the same remote worktree are the same ' +
+      'slot, and the second now aborts on the busy port instead of adopting the first server. ' +
+      'The remote worktree lock is what stops that happening at all.',
   ],
 ];
 

@@ -152,14 +152,15 @@ Three defences, in order of how much they can actually promise:
    asked for, and both modes re-read `HEAD` after the suite finishes and exit `76` if it moved. This
    is the defence that covers what the lock cannot: anyone bypassing `remote-test` entirely. It
    converts silent corruption into a loud, specific error.
-3. **Serialisation as isolation.** `test:cross-platform` has no per-worktree isolation of its own —
-   box-global Postgres, fixed server-port counter from 4000 (a known papercut). On a dedicated box
-   that is fine _because_ the lock makes runs serial, and better than the alternative: a
-   per-invocation worktree would need its own `node_modules` (a ~40s `pnpm install` and a real disk
-   cost per sha) while _still_ sharing the box's one Postgres and port range, so it would trade the
-   contention this tool already detects for contention it could not see. If concurrency demand ever
-   justifies it, the honest version is per-slot worktrees plus per-slot databases and ports, i.e.
-   what `just qa-claim` already does for devices — not a bare `git worktree` per sha.
+3. **Serialisation on top of isolation.** `test:cross-platform` now derives its port band and its
+   Postgres database from the worktree slot (`xplatSyncBand` in `scripts/lib/slot.mjs`), so two
+   different worktrees on one box no longer collide. That does not retire the lock: two runs in the
+   SAME remote worktree hash to the same slot, so they want the same ports and the same database.
+   What changed is the failure mode — the second run now aborts on the busy port naming the holder,
+   instead of adopting the first run's server and TRUNCATE-ing its sessions mid-scenario (which
+   surfaced as a bogus `HTTP 401: session expired`). The lock keeps that from arising at all, and it
+   is still cheaper than a per-invocation worktree, which would need its own `node_modules` (a ~40s
+   `pnpm install` and real disk per sha).
 
 Bookkeeping (the `pnpm install` stamp) lives in `~/.cache/futo-remote-test/`, never inside the
 checkout, so it cannot dirty the tree or confuse a `git status` check.

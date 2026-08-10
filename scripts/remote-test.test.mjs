@@ -145,8 +145,8 @@ describe('portable suites', () => {
     expect(classify('prepush').caveats.join(' ')).toMatch(/NOT a licence to skip the Mac/);
   });
 
-  it('warns that cross-platform sync shares one box-global Postgres', () => {
-    expect(classify('test-cross-platform').caveats.join(' ')).toMatch(/per-worktree isolation/);
+  it('warns that two cross-platform sync runs in one remote worktree share a slot', () => {
+    expect(classify('test-cross-platform').caveats.join(' ')).toMatch(/same remote worktree/);
   });
 
   it('every caveated name is a real recipe', () => {
