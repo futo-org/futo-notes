@@ -1988,8 +1988,7 @@ function ensureDesktopDebugBinary() {
   // If dist/ lacks __testSync, the last `cargo tauri build` (or any
   // `npm run build`) produced a hooks-free bundle. Rebuild — the Rust
   // codegen embeds whatever dist/ currently contains.
-  const distJs = findDistIndexJs();
-  if (!distJs || !fileContains(distJs, '__testSync')) {
+  if (!distHasTestHooks()) {
     console.log('dist/ was built without VITE_INCLUDE_TEST_HOOKS — rebuilding desktop binary…');
     rebuildDesktopBinary();
     return;
@@ -2032,12 +2031,18 @@ function rebuildDesktopBinary() {
   );
 }
 
-function findDistIndexJs() {
+// Scan every emitted chunk, not `index-*.js`[0]: a build emits a dozen
+// `index-<hash>.js` chunks and only ONE carries __testSync, so reading the
+// alphabetically-first one almost always concluded "built without test hooks"
+// and charged the run a `cargo clean -p` plus a full relink it did not need
+// (papercut pc_b1be12680b61). vite empties dist/ per build, so nothing here can
+// be a leftover from an older hooks-enabled bundle.
+function distHasTestHooks() {
   const assetsDir = join(REPO_ROOT, 'dist', 'assets');
-  if (!existsSync(assetsDir)) return null;
-  const files = readdirSync(assetsDir).filter((n) => /^index-.*\.js$/.test(n));
-  if (files.length === 0) return null;
-  return join(assetsDir, files[0]);
+  if (!existsSync(assetsDir)) return false;
+  return readdirSync(assetsDir)
+    .filter((name) => name.endsWith('.js'))
+    .some((name) => fileContains(join(assetsDir, name), '__testSync'));
 }
 
 function fileContains(path, needle) {
