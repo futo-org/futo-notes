@@ -11,6 +11,22 @@ const SCRIPT_EXECUTION_TIMEOUT = 'Script execution timeout';
 const MAIN_WINDOW_NOT_FOUND = "Window 'main' not found";
 const EXECUTE_JS_RETRY_ATTEMPTS = 3;
 
+// Typing a title the way a user does: focus the field, then fire `input` so the
+// app's title handler runs (which arms the 10s title-save debounce). Shared so
+// setTitle() and composeNoteAndSyncNow() drive the exact same page-side path.
+function titleInputExpression(title) {
+  return `(() => {
+      const input = document.querySelector('.title-input');
+      if (!(input instanceof HTMLTextAreaElement)) {
+        throw new Error('title input not found');
+      }
+      input.focus();
+      input.value = ${JSON.stringify(title)};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return input.value;
+    })()`;
+}
+
 export async function waitForTestHooks(
   ws,
   name,
@@ -188,6 +204,22 @@ export class TauriTestClient {
     await this._executeMutation(`window.location.hash = '#/note/new'`, 'openNewNote');
     await this.waitForRoute('/note/new');
     await this.waitForEditorReady();
+    // The route flip only STARTS the new-note load: the loader flushes any
+    // pending save first, then seeds the fresh Untitled session. Returning
+    // before that lands leaves the PREVIOUS note's title/originalId observable,
+    // so a caller that types immediately edits (and can save) the wrong note.
+    await this.waitForNewNoteSession();
+  }
+
+  async waitForNewNoteSession(timeoutMs = 10_000) {
+    return this.waitForCondition(
+      `(() => {
+      const state = window.__notesShellTest?.getState?.();
+      return Boolean(state && state.originalId === null && /^Untitled/.test(state.title));
+    })()`,
+      timeoutMs,
+      'fresh new-note session',
+    );
   }
 
   async openNote(id) {
@@ -199,25 +231,42 @@ export class TauriTestClient {
   }
 
   async setTitle(title) {
-    return this._executeMutation(
-      `(() => {
-      const input = document.querySelector('.title-input');
-      if (!(input instanceof HTMLTextAreaElement)) {
-        throw new Error('title input not found');
-      }
-      input.focus();
-      input.value = ${JSON.stringify(title)};
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      return input.value;
-    })()`,
-      'setTitle',
-    );
+    return this._executeMutation(titleInputExpression(title), 'setTitle');
   }
 
   async typeInEditor(text) {
     return this._executeMutation(
       `window.__notesShellTest.typeInEditor(${JSON.stringify(text)})`,
       'typeInEditor',
+    );
+  }
+
+  // Compose a brand-new note in the editor and request a manual sync in the SAME
+  // page task: type the body (arming the 500ms body debounce), then the title
+  // (which replaces it with the 10s title debounce), then call syncNow().
+  //
+  // Nothing can save in between — JS is single-threaded, so no debounce timer,
+  // blur flush or watcher callback runs until the syncNow() await yields. The
+  // returned `preSync` snapshot is therefore EVIDENCE that the note was still
+  // unsaved when the sync was requested, not a poll racing a millisecond-wide
+  // window over the bridge. Only the sync's own flush can have persisted it.
+  async composeNoteAndSyncNow(title, body, { timeoutMs = 180_000 } = {}) {
+    return this._executeMutation(
+      `(async () => {
+      window.__notesShellTest.typeInEditor(${JSON.stringify(body)});
+      ${titleInputExpression(title)};
+      const before = window.__notesShellTest.getState();
+      const preSync = {
+        originalId: before.originalId,
+        savePending: before.savePending,
+        editorContent: before.editorContent,
+        title: before.title,
+      };
+      const result = await window.__testSync.syncNow();
+      return { preSync, summary: result.summary };
+    })()`,
+      'composeNoteAndSyncNow',
+      { timeoutMs },
     );
   }
 

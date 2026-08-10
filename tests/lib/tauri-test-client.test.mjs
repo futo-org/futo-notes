@@ -44,10 +44,11 @@ class FakeWs extends EventEmitter {
 }
 
 class EvaluatingWs extends EventEmitter {
-  constructor(window, timeoutCommandNumbers = []) {
+  constructor(window, timeoutCommandNumbers = [], extraGlobals = {}) {
     super();
     this.window = window;
     this.timeoutCommandNumbers = new Set(timeoutCommandNumbers);
+    this.extraGlobals = extraGlobals;
     this.sent = [];
   }
 
@@ -56,7 +57,9 @@ class EvaluatingWs extends EventEmitter {
     const { id, args } = JSON.parse(raw);
     const commandNumber = this.sent.length;
 
-    Promise.resolve(runInNewContext(args.script, { window: this.window })).then(
+    Promise.resolve(
+      runInNewContext(args.script, { window: this.window, ...this.extraGlobals }),
+    ).then(
       (result) => {
         const response = this.timeoutCommandNumbers.has(commandNumber)
           ? { id, success: false, error: 'Script execution timeout' }
@@ -75,6 +78,74 @@ class EvaluatingWs extends EventEmitter {
 
 function createClient(ws) {
   return new TauriTestClient({ name: 'client-a', platform: 'desktop', ws });
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+class FakeTextArea {
+  constructor(onInput) {
+    this.value = '';
+    this.focused = false;
+    this.onInput = onInput;
+  }
+
+  focus() {
+    this.focused = true;
+  }
+
+  dispatchEvent() {
+    this.onInput(this.value);
+    return true;
+  }
+}
+
+class FakeEvent {
+  constructor(type, init = {}) {
+    this.type = type;
+    this.bubbles = Boolean(init.bubbles);
+  }
+}
+
+/**
+ * A page double for the new-note editor: records the order of the page-side
+ * calls the client makes, and models the two app behaviors the scenarios rely
+ * on — a title input arms a pending save, and a sync persists the note.
+ */
+function createNewNotePage() {
+  const events = [];
+  const state = { originalId: null, title: 'Untitled', savePending: false, editorContent: '' };
+  const titleInput = new FakeTextArea((value) => {
+    events.push(`title:${value}`);
+    state.title = value;
+    state.savePending = true;
+  });
+  const window = {
+    location: { hash: '#/note/new' },
+    __notesShellTest: {
+      typeInEditor(text) {
+        events.push(`type:${text}`);
+        state.editorContent = text;
+        return text;
+      },
+      getState: () => ({ ...state }),
+    },
+    __testSync: {
+      async syncNow() {
+        events.push('syncNow');
+        // The sync's own flush persists the note. It must NOT be visible in the
+        // pre-sync snapshot — that was captured before this ran.
+        state.originalId = 'typed note';
+        state.savePending = false;
+        return { summary: { uploaded: 1 } };
+      },
+    },
+  };
+  const globals = {
+    document: { querySelector: (selector) => (selector === '.title-input' ? titleInput : {}) },
+    HTMLTextAreaElement: FakeTextArea,
+    Event: FakeEvent,
+  };
+  return { window, globals, events, state, titleInput };
 }
 
 describe('waitForTestHooks', () => {
@@ -182,5 +253,59 @@ describe('TauriTestClient bridge retries', () => {
       'failed after 3 bridge timeout attempts',
     );
     expect(ws.sent).toHaveLength(4);
+  });
+});
+
+describe('TauriTestClient editor flows', () => {
+  it('opens a new note only once the fresh new-note session is live', async () => {
+    // The route flip starts the load; the session still shows the previous note
+    // until the loader has flushed and seeded. Returning early lets a caller
+    // type a title into — and save — the wrong note.
+    const state = {
+      originalId: 'previous note',
+      title: 'previous note',
+      savePending: false,
+      editorContent: '# previous',
+    };
+    const window = {
+      location: { hash: '#/' },
+      __notesShellTest: { getState: () => ({ ...state }) },
+    };
+    const ws = new EvaluatingWs(window, [], { document: { querySelector: () => ({}) } });
+    const client = createClient(ws);
+
+    let settled = false;
+    const opening = client.openNewNote().then(() => {
+      settled = true;
+    });
+
+    await sleep(300);
+    expect(window.location.hash).toBe('#/note/new');
+    expect(settled).toBe(false);
+
+    state.originalId = null;
+    state.title = 'Untitled';
+    await opening;
+    expect(settled).toBe(true);
+  });
+
+  it('snapshots the unsaved note state in the same page task as syncNow', async () => {
+    const page = createNewNotePage();
+    const ws = new EvaluatingWs(page.window, [], page.globals);
+    const client = createClient(ws);
+
+    const result = await client.composeNoteAndSyncNow('typed note', '# body');
+
+    // One page task, in this order — nothing can save between the arming and the
+    // sync request, so the snapshot is evidence and not a race.
+    expect(page.events).toEqual(['type:# body', 'title:typed note', 'syncNow']);
+    expect(result.preSync).toEqual({
+      originalId: null,
+      savePending: true,
+      editorContent: '# body',
+      title: 'typed note',
+    });
+    expect(result.summary.uploaded).toBe(1);
+    expect(page.titleInput.focused).toBe(true);
   });
 });
