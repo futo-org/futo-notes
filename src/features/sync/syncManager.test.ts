@@ -1087,3 +1087,80 @@ describe('peer deletion safety', () => {
     expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith(['OtherGone']);
   });
 });
+
+// The open note's fate belongs to the engine verdict alone: a projection that
+// runs beside the executor (rename projection, deleted-tab pruning) must never
+// move or close the session behind it.
+describe('open-note fate stays with the engine verdict', () => {
+  // The disp-05 interleaving, sequenced instead of raced: the body autosave
+  // lands between a cycle's push and its pull, so the pull finds the local file
+  // diverged from the deleted version, parks it into a conflict copy and reports
+  // that relocation (futo-notes-sync `tombstone_park_of_diverged_content_reports_rename_intent`).
+  // The facts the engine gets are then the Close row — disk gone, draft equal to
+  // the just-saved base — so only the reported rename keeps the editor open, now
+  // on the copy that actually holds the user's text.
+  it('follows a tombstone park onto the conflict copy holding the saved draft', async () => {
+    const parkedId = 'Parked (conflict 019fdd01)';
+    openNoteMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'followRename', toId: parkedId })
+      .mockResolvedValueOnce({ kind: 'leave' });
+    const live = makeLiveNoteSession('Parked', 'peer text');
+    const onRename = vi.fn();
+    const pruneTabsForDeletedIds = vi.fn();
+    const toasts: string[] = [];
+    const manager = createSyncManager({
+      session: live.session,
+      showToast: (message) => toasts.push(message),
+      onRename,
+      pruneTabsForDeletedIds,
+    });
+
+    live.editContent('my draft');
+    await live.session.flushSave();
+    expect(live.session.dirty).toBe(false);
+
+    await manager.handleSyncComplete({
+      ...emptySummary,
+      conflicts: 1,
+      deleted: 1,
+      updatedIds: [parkedId],
+      peerUpdatedIds: [parkedId],
+      renamed: [{ fromId: 'Parked', toId: parkedId }],
+    });
+
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        id: 'Parked',
+        base: 'my draft',
+        draft: 'my draft',
+        renamedTo: parkedId,
+      }),
+    );
+    expect(live.session.originalId).toBe(parkedId);
+    expect(live.session.title).toBe(parkedId);
+    expect(live.getEditorContent()).toBe('my draft');
+    expect(onRename).toHaveBeenCalledExactlyOnceWith('Parked', parkedId, parkedId);
+    expect(pruneTabsForDeletedIds).not.toHaveBeenCalled();
+    expect(toasts).toEqual([]);
+  });
+
+  // Sibling of the reported-rename split: a background projection must never
+  // decide the open note's fate. The engine said leave it open; if the file
+  // disappears before the existence probe, pruning its tab would clear the
+  // session and route home behind that verdict.
+  it('never prunes the tab of a note the engine left open', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'leave' });
+    vi.mocked(noteExists).mockResolvedValue(false);
+    const bundle = makeManager(makeSession({ id: 'StillOpen', content: 'OLD' }));
+
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      deletedIds: ['StillOpen', 'BackgroundGone'],
+      peerDeletedIds: ['StillOpen', 'BackgroundGone'],
+    });
+
+    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
+    expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledExactlyOnceWith(['BackgroundGone']);
+  });
+});

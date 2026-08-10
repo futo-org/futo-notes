@@ -688,6 +688,27 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   collide and no 409 fires) is detected via the response's `deleted` flag and
   the edit is re-POSTed as a fresh live object — never mapped to the tombstone
   where the puller's own pull would delete it. → futo-notes-sync sync module
+- **A tombstone park is a reported relocation, so the open editor follows it.**
+  When a peer's tombstone arrives and the local file has diverged from the
+  deleted version (the body autosave landed after this cycle's push phase, so
+  push-first had nothing to send), the pull parks the local content in a
+  `name (conflict <oid8>)` copy and reports the move in `SyncSummary.renamed`
+  alongside the deletion — which ghost-stripping then removes from
+  `deletedIds`/`peerDeletedIds`, because the note moved rather than vanished.
+  Reporting only the deletion stranded the shell: a draft that had just reached
+  disk is `draft == base`, so the open note classified as a peer delete with
+  nothing to preserve (`Close`) and the editor closed with its buffer discarded
+  while the text sat in the copy (disp-05, ~25% of runs). Following the rename
+  is also the only F4-safe answer — the editor never stays bound to the deleted
+  id, whose next save would resurrect it fleet-wide. Like every other reported
+  relocation the follow is silent — the retitled editor is the only signal that
+  the peer's delete landed and the local text became a copy. → futo-notes-sync
+  `sync/tombstones.rs` `park_divergent_claim` (guarded by
+  `tombstone_park_of_diverged_content_reports_rename_intent`,
+  `tombstone_of_unchanged_content_reports_no_rename`, and
+  `a_reported_rename_is_always_followed` in `open_note.rs`); desktop guarded by
+  "follows a tombstone park onto the conflict copy holding the saved draft" in
+  src/features/sync/syncManager.test.ts
 - Pull-side filename collisions between byte-identical objects adopt silently
   (smallest object id stays canonical; the identical loser mints NO
   `(conflict <oid8>)` copy and its map entry is dropped without tombstoning
@@ -1212,7 +1233,13 @@ journal --dir` has nothing to read from a phone.
   Desktop gathers disk and classifies in one Tauri round trip, then
   createExternalChangeCoordinator applies every verdict after one compound
   identity/edit-version/draft/title re-validation; sync completion and watcher
-  events both delegate to that executor.
+  events both delegate to that executor. **No background projection may overrule
+  that verdict for the open note**: completion's deleted-tab pruning skips the id
+  the session is still bound to (a `close` has already unbound it), so a file
+  that vanishes between the classification and the existence probe cannot prune
+  the live tab and route home behind the engine's back. → reconcileSyncCompletion
+  (guarded by "never prunes the tab of a note the engine left open" in
+  src/features/sync/syncManager.test.ts)
   > **Gap:** iOS and Android still run their own decision paths rather than
   > rendering the UniFFI verb. Until their adoptions land, the native in-place
   > focused adopt above still stands; adopting the verb changes it to a deferred

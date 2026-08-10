@@ -1088,6 +1088,78 @@ fn tombstone_deletes_unchanged_content_and_parks_a_divergent_edit() {
     assert_eq!(edited_summary.conflicts, 1);
 }
 
+/// A tombstone park moves the local content to a conflict copy, so it is a
+/// relocation and must report rename intent like every other relocation — the
+/// shell has no other way to follow its open editor to the copy. Reporting only
+/// the deletion closed the editor of a user whose draft had already reached disk
+/// (the autosave landed between this cycle's push and pull, so the classifier
+/// saw a peer delete with nothing left to preserve) while the draft sat in the
+/// copy: the disp-05 KeepDraft flake, journal decision `tombstone_parked` /
+/// `local_content_diverged_from_the_deleted_version`.
+#[test]
+fn tombstone_park_of_diverged_content_reports_rename_intent() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("edited.md"), "local draft").unwrap();
+    let mut state = connected();
+    state.object_map.insert(
+        "edited.md".into(),
+        entry("edited-object", Some(&hash_sha256("old base"))),
+    );
+    let mut summary = SyncSummary::default();
+
+    apply_tombstone(
+        &mut state,
+        root.path(),
+        &object("edited-object", 6, true),
+        &HashMap::new(),
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    let copy = collision_conflict_filename("edited.md", "edited-object");
+    assert_eq!(summary.renamed.len(), 1, "the park must report one rename");
+    assert_eq!(summary.renamed[0].from_id, note_id("edited.md"));
+    assert_eq!(summary.renamed[0].to_id, note_id(&copy));
+
+    // The "delete at the old name" is this relocation's byproduct, so
+    // ghost-stripping removes it: the open tab moved, it was not deleted.
+    let combined = combine(summary, SyncSummary::default());
+    assert!(!combined.deleted_ids.contains(&note_id("edited.md")));
+    assert!(!combined.peer_deleted_ids.contains(&note_id("edited.md")));
+    assert!(combined.updated_ids.contains(&note_id(&copy)));
+}
+
+/// A tombstone whose local content still matches the deleted version is a plain
+/// deletion — nothing relocated, so nothing to follow, and the clean open
+/// editor must still be told the note is gone (never left on a deleted id, F4).
+#[test]
+fn tombstone_of_unchanged_content_reports_no_rename() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("same.md"), "original").unwrap();
+    let mut state = connected();
+    state.object_map.insert(
+        "same.md".into(),
+        entry("same-object", Some(&hash_sha256("original"))),
+    );
+    let mut summary = SyncSummary::default();
+
+    apply_tombstone(
+        &mut state,
+        root.path(),
+        &object("same-object", 5, true),
+        &HashMap::new(),
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    assert!(summary.renamed.is_empty());
+    let combined = combine(summary, SyncSummary::default());
+    assert!(combined.deleted_ids.contains(&note_id("same.md")));
+    assert!(combined.peer_deleted_ids.contains(&note_id("same.md")));
+}
+
 #[test]
 fn tombstone_without_identity_or_ancestry_cannot_delete_an_unrelated_file() {
     let root = TempRoot::new();

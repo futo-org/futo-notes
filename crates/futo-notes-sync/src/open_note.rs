@@ -310,6 +310,42 @@ mod tests {
         }
     }
 
+    /// A reported relocation is followed whatever else is true. This is what
+    /// makes engine-side rename reporting load-bearing: every relocation the
+    /// engine performs reports rename intent, and an UNREPORTED one is the only
+    /// way an open editor can be stranded on an id whose content moved. The
+    /// tombstone park used to be unreported, so a peer delete of a note whose
+    /// draft had just reached disk classified as `Close` (no disk, draft ==
+    /// base) and threw the buffer away.
+    #[test]
+    fn a_reported_rename_is_always_followed() {
+        let to_id = "Note (conflict 019fdd01)";
+        for disk in [None, Some("peer"), Some("base"), Some("mine")] {
+            for draft in ["base", "mine"] {
+                for editor_focused in [false, true] {
+                    for edited_during_cycle in [false, true] {
+                        let disposition = classify_open_note(OpenNoteFacts {
+                            draft: draft.to_owned(),
+                            disk: disk.map(str::to_owned),
+                            renamed_to: Some(to_id.to_owned()),
+                            editor_focused,
+                            edited_during_cycle,
+                            ..facts()
+                        });
+                        assert_eq!(
+                            disposition,
+                            OpenNoteDisposition::FollowRename {
+                                to_id: to_id.to_owned()
+                            },
+                            "reported rename not followed: disk={disk:?} draft={draft} \
+                             focused={editor_focused} edited_during_cycle={edited_during_cycle}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// The classifier never adopts over unsaved work, whatever else is true.
     /// This is the persist-or-park promise at the open-note seam: the draft is
     /// written, recreated, or parked — never replaced.
