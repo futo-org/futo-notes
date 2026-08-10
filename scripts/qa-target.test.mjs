@@ -164,6 +164,24 @@ describe('verifyTarget', () => {
     expect(result).toMatchObject({ verdict: 'verified', refusals: [], warnings: [] });
   });
 
+  it('refuses a correct-looking worktree instance whose vault points at the real one', () => {
+    // The recorded harness failure: a reused .tauri-data carried a stale
+    // notes-dir-override.json, and a persisted explicit override beats
+    // FUTO_NOTES_DATA_DIR. Exec path and data dir both look right, so the vault
+    // check is the only layer that can catch it.
+    const result = verifyTarget(
+      {
+        pid: 1234,
+        execPath: `${SELF}/target/debug/futo-notes-tauri`,
+        dataDir: `${SELF}/.tauri-data`,
+        notesDir: `${HOME}/Documents/futo-notes`,
+      },
+      CONTEXT,
+    );
+    expect(result.verdict).toBe('REFUSED');
+    expect(result.refusals.map((refusal) => refusal.code)).toEqual(['production-vault']);
+  });
+
   it('refuses a worktree debug build whose data dir was never isolated', () => {
     const result = verifyTarget(
       {

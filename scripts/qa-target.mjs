@@ -495,6 +495,9 @@ function main(argv) {
   return 2;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+// `process.argv[1]` is undefined under `node -e`/`node --eval`, where
+// pathToFileURL() throws — and this module is meant to be imported (tests, ad-hoc
+// classification checks), not only run.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(main(process.argv.slice(2)));
 }
