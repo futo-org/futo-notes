@@ -4,7 +4,7 @@ use futo_notes_ffi::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
     sanitize_title, split_id, validate_title, ConditionalWrite, CreateOutcome, FlushDisposition,
     FlushDraftResult, FlushOutcome, NoteBootstrap, NoteError, NoteIdParts, NoteMetadata,
-    NoteMutation, NoteSnapshot, NoteStore, SearchHit, TitleIssue,
+    NoteMutation, NoteSnapshot, NoteStore, RenamePair, SearchHit, TitleIssue,
 };
 
 mod support;
@@ -205,6 +205,77 @@ fn note_store_projects_complete_workflow_results() {
     assert!(after_reset.notes.is_empty());
     assert!(after_reset.folders.is_empty());
     assert!(notes_root.is_dir(), "reset must preserve the vault root");
+}
+
+#[test]
+fn note_store_reads_existing_notes_without_collapsing_empty_and_missing() {
+    let temp = TempTree::new();
+    let notes_root = temp.path("vault");
+    fs::create_dir_all(&notes_root).unwrap();
+    fs::write(notes_root.join("Empty.md"), "").unwrap();
+    let store = NoteStore::new(path_string(&notes_root));
+
+    assert_eq!(store.read_if_exists("Empty".to_owned()).unwrap(), Some(String::new()));
+    assert_eq!(store.read_if_exists("Missing".to_owned()).unwrap(), None);
+    assert!(matches!(
+        store.read_if_exists("../outside".to_owned()),
+        Err(NoteError::Io(_))
+    ));
+}
+
+#[test]
+fn note_store_projects_reported_external_changes_as_one_mutation() {
+    let temp = TempTree::new();
+    let notes_root = temp.path("vault");
+    fs::create_dir_all(&notes_root).unwrap();
+    fs::write(notes_root.join("old.md"), "old body").unwrap();
+    let store = NoteStore::new(path_string(&notes_root));
+    let before = store.scan();
+
+    fs::rename(notes_root.join("old.md"), notes_root.join("new.md")).unwrap();
+    fs::write(notes_root.join("created.md"), "# Fresh").unwrap();
+    let mutation = store
+        .refresh_external_changes(
+            vec!["created".to_owned()],
+            Vec::new(),
+            vec![RenamePair {
+                from_id: "old".to_owned(),
+                to_id: "new".to_owned(),
+            }],
+        )
+        .unwrap();
+
+    assert_eq!(mutation.removed, ["old"]);
+    assert_eq!(
+        mutation
+            .upserted
+            .iter()
+            .map(|entry| entry.note.id.as_str())
+            .collect::<Vec<_>>(),
+        ["created", "new"]
+    );
+    let mut projected = before
+        .notes
+        .into_iter()
+        .filter(|note| !mutation.removed.contains(&note.id))
+        .map(|note| note.id)
+        .collect::<Vec<_>>();
+    for entry in mutation.upserted {
+        projected.retain(|id| id != &entry.note.id);
+        projected.insert(
+            (entry.position as usize).min(projected.len()),
+            entry.note.id,
+        );
+    }
+    assert_eq!(
+        projected,
+        store
+            .scan()
+            .notes
+            .into_iter()
+            .map(|note| note.id)
+            .collect::<Vec<_>>()
+    );
 }
 
 // ADR-0001: the raw save primitives (conditional write, create-if-absent,
