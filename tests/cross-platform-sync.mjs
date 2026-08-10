@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { startDesktopTauriInstance } from './lib/tauri-instance.mjs';
 import { startServer } from './lib/sync-test-server.mjs';
 import { sleep } from './lib/mcp-client.mjs';
+import { xplatSyncBand } from '../scripts/lib/slot.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -45,7 +46,14 @@ const { values: args } = parseArgs({
 // ── Test harness ────────────────────────────────────────────────
 
 const results = [];
-let serverPortCounter = 4000;
+// Slot-derived, like every other port in this repo (`node scripts/lib/slot.mjs`).
+// It used to be a hardcoded 4000, so every worktree started allocating at the
+// same port and the second run adopted the first's server + database.
+const PORT_BAND = xplatSyncBand(REPO_ROOT);
+// Two ports per scenario: the server, plus the delay proxy that
+// sync-test-server.mjs parks next to it for syncDelayMs scenarios.
+const PORTS_PER_SCENARIO = 2;
+let serverPortCounter = PORT_BAND.base;
 const suiteStartedAt = Date.now();
 const timings = {
   bootstrapMs: 0,
@@ -54,6 +62,21 @@ const timings = {
   clientResetMs: 0,
   scenarioMs: 0,
 };
+
+/** Next port pair inside this worktree's band; never the next worktree's. */
+function allocateServerPort() {
+  const port = serverPortCounter;
+  serverPortCounter += PORTS_PER_SCENARIO;
+  if (port + PORTS_PER_SCENARIO - 1 > PORT_BAND.end) {
+    throw new Error(
+      `Out of ports: slot ${PORT_BAND.slot}'s band is ${PORT_BAND.base}-${PORT_BAND.end}, ` +
+        `which fits ${Math.floor((PORT_BAND.end - PORT_BAND.base + 1) / PORTS_PER_SCENARIO)} ` +
+        `scenarios. Walking past it would land on another worktree's ports — widen ` +
+        `XPLAT_SYNC_BAND.stride in scripts/lib/slot.mjs instead.`,
+    );
+  }
+  return port;
+}
 
 function assert(condition, message) {
   if (!condition) throw new Error(`Assertion failed: ${message}`);
@@ -1965,8 +1988,7 @@ function ensureDesktopDebugBinary() {
   // If dist/ lacks __testSync, the last `cargo tauri build` (or any
   // `npm run build`) produced a hooks-free bundle. Rebuild — the Rust
   // codegen embeds whatever dist/ currently contains.
-  const distJs = findDistIndexJs();
-  if (!distJs || !fileContains(distJs, '__testSync')) {
+  if (!distHasTestHooks()) {
     console.log('dist/ was built without VITE_INCLUDE_TEST_HOOKS — rebuilding desktop binary…');
     rebuildDesktopBinary();
     return;
@@ -2009,12 +2031,18 @@ function rebuildDesktopBinary() {
   );
 }
 
-function findDistIndexJs() {
+// Scan every emitted chunk, not `index-*.js`[0]: a build emits a dozen
+// `index-<hash>.js` chunks and only ONE carries __testSync, so reading the
+// alphabetically-first one almost always concluded "built without test hooks"
+// and charged the run a `cargo clean -p` plus a full relink it did not need
+// (papercut pc_b1be12680b61). vite empties dist/ per build, so nothing here can
+// be a leftover from an older hooks-enabled bundle.
+function distHasTestHooks() {
   const assetsDir = join(REPO_ROOT, 'dist', 'assets');
-  if (!existsSync(assetsDir)) return null;
-  const files = readdirSync(assetsDir).filter((n) => /^index-.*\.js$/.test(n));
-  if (files.length === 0) return null;
-  return join(assetsDir, files[0]);
+  if (!existsSync(assetsDir)) return false;
+  return readdirSync(assetsDir)
+    .filter((name) => name.endsWith('.js'))
+    .some((name) => fileContains(join(assetsDir, name), '__testSync'));
 }
 
 function fileContains(path, needle) {
@@ -2032,22 +2060,12 @@ function runOrThrow(cmd, argv, opts) {
   }
 }
 
-function killStalePreviewAndClients() {
-  // A vite preview left behind by an interrupted previous run will keep port
-  // 5181 busy; a leftover debug binary will hold an MCP port. Clear them so
-  // the harness boots cleanly every time.
-  const lsofOut = spawnSync('lsof', ['-ti', 'tcp:5181'], { encoding: 'utf8' });
-  const pids = (lsofOut.stdout || '')
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  for (const pid of pids) {
-    try {
-      process.kill(Number(pid), 'SIGTERM');
-    } catch {
-      /* already gone */
-    }
-  }
+function killStaleClients() {
+  // A leftover debug binary from an interrupted run holds an MCP port; clear it
+  // so the harness boots cleanly every time. It used to also SIGTERM whatever
+  // held port 5181 (a vite preview this harness no longer starts) — a
+  // machine-wide kill of an unidentified stranger, which is another worktree's
+  // process as easily as our own.
   // Only kill debug binaries spawned with the multi-instance flag — that's
   // how the harness launches them, so this won't touch a user's open app.
   const ps = spawnSync('pgrep', ['-af', 'futo-notes-tauri'], { encoding: 'utf8' });
@@ -2084,7 +2102,7 @@ async function main() {
 
   // Bootstrap artifacts and clean up stale state from a prior run.
   const bootstrapStartedAt = Date.now();
-  killStalePreviewAndClients();
+  killStaleClients();
   ensureDesktopDebugBinary();
   timings.bootstrapMs = Date.now() - bootstrapStartedAt;
 
@@ -2136,7 +2154,7 @@ async function main() {
 
   // ── Run scenarios ─────────────────────────────────────────────
   for (const scenario of toRun) {
-    const port = serverPortCounter++;
+    const port = allocateServerPort();
     const serverSetupStartedAt = Date.now();
     const server = await startServer(port, REPO_ROOT, scenario.serverOptions ?? {});
     const serverSetupMs = Date.now() - serverSetupStartedAt;

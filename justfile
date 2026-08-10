@@ -443,8 +443,9 @@ remote-rust *flags:
   node scripts/remote-test.mjs {{flags}} test-rust-full
 
 # Sync state and files are engine-independent; rendering is not (see the doc).
-# This suite has no per-worktree port/database isolation, so the remote worktree
-# lock is what keeps two runs from colliding.
+# Ports and the Postgres database are slot-derived, so different worktrees don't
+# collide; two runs in the SAME remote worktree share a slot, which the worktree
+# lock prevents (and the harness now refuses loudly instead of adopting).
 # Cross-platform E2EE sync against the box's own Postgres + server checkout.
 remote-sync *flags:
   node scripts/remote-test.mjs {{flags}} test-cross-platform
