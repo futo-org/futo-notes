@@ -15,6 +15,7 @@ import {
   RSYNC_EXCLUDES,
   buildDoctorScript,
   buildRunScript,
+  cargoTargetDirFor,
   classifyRecipe,
   ndkVersionFromGradle,
   parseCliArgs,
@@ -164,6 +165,21 @@ describe('remote environment', () => {
     expect(preamble).toContain(`export CARGO_TARGET_DIR="${REMOTE_CARGO_TARGET_DIR}"`);
   });
 
+  it('gives the suites whose harness reads <repoRoot>/target a repo-local target dir', () => {
+    // tests/lib/tauri-instance.mjs resolves the debug binary as
+    // <repoRoot>/target/debug/futo-notes-tauri, so a relocated
+    // CARGO_TARGET_DIR made `just remote-sync` die with ENOENT after a
+    // successful 52-second build.
+    expect(cargoTargetDirFor('test-cross-platform', '$HOME/ci/futo-main')).toBe(
+      '$HOME/ci/futo-main/target',
+    );
+    expect(cargoTargetDirFor('prepush', '$HOME/ci/futo-main')).toBe('$HOME/ci/futo-main/target');
+    expect(cargoTargetDirFor('test-rust-full', '$HOME/ci/futo-main')).toBe(REMOTE_CARGO_TARGET_DIR);
+    expect(runScript({ recipe: 'test-cross-platform' })).toContain(
+      'export CARGO_TARGET_DIR="$HOME/ci/futo-main/target"',
+    );
+  });
+
   it('never exports CI', () => {
     // An empty CI makes `cargo tauri build` refuse to start ('a value is
     // required for --ci'), which broke `just remote-sync`; a truthy CI would
@@ -204,6 +220,14 @@ describe('run script', () => {
     expect(script).toContain('mkdir "$LOCK_DIR"');
     expect(script).toContain(`exit ${EXIT_LOCKED}`);
     expect(script).toContain(`trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM HUP`);
+  });
+
+  it('shows a blocked run WHO holds the lock', () => {
+    const script = runScript();
+    expect(script).toContain('if [ -f "$LOCK_DIR/holder" ]; then');
+    // `2>/dev/null >&2` points fd1 at /dev/null (redirections apply left to
+    // right) and silently ate the holder details the first time round.
+    expect(script).not.toMatch(/2>\/dev\/null\s+>&2/);
   });
 
   it('only breaks the lock when explicitly asked', () => {

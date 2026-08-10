@@ -53,6 +53,21 @@ export const DEFAULT_SOURCE_REPO = '$HOME/Developer/futo-notes';
 // difference between a 4-minute and a 25-minute `cargo test --workspace`.
 export const REMOTE_CARGO_TARGET_DIR = '$HOME/.cache/futo-target-ci';
 
+// ...except for suites whose harness resolves the built binary as
+// `<repoRoot>/target/debug/futo-notes-tauri` and therefore cannot see a
+// relocated CARGO_TARGET_DIR (tests/lib/tauri-instance.mjs and
+// tests/cross-platform-sync.mjs, whose pgrep cleanup ALSO only kills binaries
+// under this repo's own target/ — a deliberate guard, not an accident). For
+// those, point the target dir at the repo-local path instead of teaching the
+// shared harness a new env var from here. Filed as a papercut.
+export const REPO_LOCAL_TARGET_RECIPES = ['test-cross-platform', 'prepush'];
+
+export function cargoTargetDirFor(recipe, remoteDir) {
+  return REPO_LOCAL_TARGET_RECIPES.includes(recipe)
+    ? `${remoteDir}/target`
+    : REMOTE_CARGO_TARGET_DIR;
+}
+
 // Distinguishable from any suite's own failure: the run never started.
 export const EXIT_REFUSED = 2;
 export const EXIT_LOCKED = 75; // EX_TEMPFAIL
@@ -209,7 +224,7 @@ export function ndkVersionFromGradle(gradleText) {
  * reads none of the box's profile — node lives in nvm and is simply absent from
  * PATH without this.
  */
-export function remoteEnvPreamble({ ndkVersion }) {
+export function remoteEnvPreamble({ ndkVersion, cargoTargetDir = REMOTE_CARGO_TARGET_DIR }) {
   return [
     'export NVM_DIR="$HOME/.nvm"',
     // shellcheck-style guard: a missing nvm must fail loudly at `node`, not here.
@@ -218,7 +233,7 @@ export function remoteEnvPreamble({ ndkVersion }) {
     'export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"',
     'export ANDROID_SDK_ROOT="$ANDROID_HOME"',
     `export ANDROID_NDK_HOME="\${FUTO_REMOTE_NDK:-$ANDROID_HOME/ndk/${ndkVersion}}"`,
-    `export CARGO_TARGET_DIR="${REMOTE_CARGO_TARGET_DIR}"`,
+    `export CARGO_TARGET_DIR="${cargoTargetDir}"`,
     // Deliberately NOT setting CI: `cargo tauri build` maps its `--ci` flag to
     // $CI, and an EMPTY CI makes clap reject the run ("a value is required for
     // '--ci'"). This broke `just remote-sync` before it was caught. vitest also
@@ -250,7 +265,7 @@ export function buildRunScript({
   const justArgs = [recipe, ...recipeArgs].map(shQuote).join(' ');
   return `
 set -uo pipefail
-${remoteEnvPreamble({ ndkVersion })}
+${remoteEnvPreamble({ ndkVersion, cargoTargetDir: cargoTargetDirFor(recipe, remoteDir) })}
 
 REMOTE_DIR="${remoteDir}"
 SOURCE_REPO="${sourceRepo}"
@@ -260,7 +275,14 @@ ${forceLock ? 'rm -rf "$LOCK_DIR"' : ''}
 mkdir -p "$(dirname "$LOCK_DIR")"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   echo "remote-test: the remote worktree is already in use:" >&2
-  sed 's/^/    /' "$LOCK_DIR/holder" 2>/dev/null >&2 || echo "    (no holder file)" >&2
+  # Redirections apply left to right, so silencing stderr BEFORE aiming stdout
+  # at it points fd1 into the void and swallows the holder — the one thing a
+  # blocked user needs. Test it, don't remember it.
+  if [ -f "$LOCK_DIR/holder" ]; then
+    sed 's/^/    /' "$LOCK_DIR/holder" >&2
+  else
+    echo "    (lock dir exists but has no holder file — probably stale)" >&2
+  fi
   echo "  Wait for it, or break the lock with --force-lock if you know it is stale." >&2
   exit ${EXIT_LOCKED}
 fi
@@ -759,7 +781,9 @@ function main() {
   });
 
   const status = run.status ?? 1;
-  const outcome = status === 0 ? 'PASS' : 'FAIL';
+  // A lock rejection is not a suite result — calling it FAIL would read as
+  // "the tests failed" when they never ran.
+  const outcome = status === 0 ? 'PASS' : status === EXIT_LOCKED ? 'BLOCKED' : 'FAIL';
   console.log(
     `\n[remote-test] ${outcome} — just ${verdict.recipe} on ${target} at ${label} (${opts.mode} mode), exit ${status}`,
   );
