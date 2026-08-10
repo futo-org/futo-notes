@@ -402,6 +402,60 @@ test-rust-full:
   mkdir -p dist
   cargo test --workspace
 
+# ── Remote (Linux) test execution ──
+# Everything that does NOT need macOS/Xcode/WKWebView runs on a Linux box over
+# Tailscale (default: jfedora, 32 cores / 125 GB / KVM), so the Mac stays free
+# for the iOS and desktop work only it can do. scripts/remote-test.mjs REFUSES
+# macOS-only recipes by name (including via their justfile aliases) rather than
+# trusting a doc to be read, propagates the remote exit status verbatim (M11),
+# and prints the transfer mode + sha every run so a stale remote checkout can't
+# pass for your local work. Flags go BEFORE the recipe; `--rsync` sends the
+# dirty working tree instead of a pushed sha, `--wait` queues behind a run in
+# progress. Runs are serialised by a lock on the remote worktree and the sha is
+# re-checked afterwards: exit 75 = BLOCKED, 76 = the checkout moved mid-run so
+# the result is VOID. The remote worktree is the RUNNER'S OWN working area —
+# never cd into it and run suites by hand, that bypasses the lock and
+# manufactures failures that look exactly like real ones. What a Linux run can
+# and cannot prove (the WebKitGTK/WKWebView boundary), plus why setup dominates
+# the short suites (~25s setup around ~3s of tests): docs/remote-testing.md.
+
+# Prints the exact commands a human with sudo must run; start here when adding
+# a second Linux box.
+# Report what is present/missing on the remote (node, cargo, NDK, KVM, Postgres…).
+remote-doctor *flags:
+  node scripts/remote-test.mjs --doctor {{flags}}
+
+# Run any portable recipe remotely: `just remote test-full`, `just remote --rsync test-unit`.
+remote *args:
+  node scripts/remote-test.mjs {{args}}
+
+# Equivalent to a Mac `just check` — tsc, eslint, prettier, svelte-check,
+# vitest (jsdom), vite build, arch gates, Rust conformance — none of which
+# touch a real web engine, so this carries no WebKit caveat.
+# The pre-merge umbrella, remotely.
+remote-check *flags:
+  node scripts/remote-test.mjs {{flags}} check
+
+# The box's 32 cores also make futo-notes-search's CI-only "keyword index never
+# became ready" contention flake vanish.
+# The full Rust workspace, remotely.
+remote-rust *flags:
+  node scripts/remote-test.mjs {{flags}} test-rust-full
+
+# Sync state and files are engine-independent; rendering is not (see the doc).
+# This suite has no per-worktree port/database isolation, so the remote worktree
+# lock is what keeps two runs from colliding.
+# Cross-platform E2EE sync against the box's own Postgres + server checkout.
+remote-sync *flags:
+  node scripts/remote-test.mjs {{flags}} test-cross-platform
+
+# Device/instrumentation legs still need an emulator booted ON the box; KVM
+# there makes those far faster than the Mac's emulation once wired up.
+# Android Rust .so + Kotlin bindings + assembleDebug, then the JVM unit tests.
+remote-android *flags:
+  node scripts/remote-test.mjs {{flags}} build-android-native
+  node scripts/remote-test.mjs {{flags}} test-android-native
+
 # Factory: compare our editor to Obsidian's, scenario by scenario.
 # See factory/AGENTS.md.
 factory-judge *args:
