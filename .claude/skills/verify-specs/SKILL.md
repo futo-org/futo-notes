@@ -1,6 +1,6 @@
 ---
 name: verify-specs
-description: Run the behavioral spec in docs/spec/ against the real apps — a parallel, story-driven QA sweep across desktop, iOS, and Android plus cross-client sync. Use when the user says "verify specs", "spec pass", or "/verify-specs [scope]". A bare run does the full spec; a scope phrase ("since the last tagged release", "just the editor") narrows to the surfaces/platforms the diff touched.
+description: Run the behavioral spec in docs/spec/ against the real apps — a parallel, story-driven QA sweep across desktop, iOS, and Android plus cross-client sync. Use when the user says "verify specs", "run the specs", "spec pass", "QA the specs", "check the app against the spec", or "/verify-specs [scope]". A bare run does the full spec (all surfaces × all platforms + sync mesh); a scope phrase ("since the last tagged release", "just the editor") narrows to the surfaces/platforms the diff touched. Fans out Sonnet low-effort app-qa legs, escalates FAILs to high effort, and is built to survive session-limit deaths without losing work.
 ---
 
 # Verify Specs — parallel spec QA that resumes after a session death
@@ -161,10 +161,12 @@ Workflow({
 })
 ```
 
-The workflow runs each leg as an `app-qa` agent at **Sonnet effort=low** (the
-sweep); the moment a leg's sweep returns any FAIL it spawns a **Sonnet
-effort=high** app-qa to independently refute those FAILs — pipelined, so
-verification overlaps other legs' sweeps.
+The workflow (`workflow.js` next to this file) runs each leg as an `app-qa`
+agent at **Sonnet effort=low** (the sweep); the moment a leg's sweep returns any
+FAIL it spawns a **Sonnet effort=high** app-qa to independently refute those
+FAILs — pipelined, so verification overlaps other legs' sweeps. The
+`agentType`/`model`/`effort` are set per-call inside `workflow.js` because the
+Agent tool has no per-call effort override.
 
 **Capture the `runId`** the Workflow tool returns immediately, and append it to
 `run.json`. It is your resume handle.

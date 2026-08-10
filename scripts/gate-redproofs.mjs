@@ -371,6 +371,26 @@ const PROOFS = [
     fix: 'extractPathCandidate()/makePathExists() in scripts/check-agent-docs.mjs got loose enough to resolve anything — check the fallback chain (gitignore, skill-relative, prefix) for an over-broad match.',
   },
   {
+    gate: 'agent-docs',
+    id: 'tracked-dangling-skill-link',
+    seeded:
+      'committed .claude/skills/redproof-sentinel-skill as a symlink into the gitignored .agents/',
+    claim:
+      'a TRACKED symlink under .claude/skills/ pointing at untracked content must fail — it ' +
+      'dangles in every fresh clone and git worktree (MR !207 shipped 22 of them)',
+    inject: (wt) => {
+      const link = path.join(wt, '.claude/skills/redproof-sentinel-skill');
+      fs.symlinkSync('../../.agents/skills/redproof-sentinel-skill', link);
+      // `git add` is what makes this the real violation: an untracked local link
+      // is legitimate (that is what `just skills-link` creates), so the proof has
+      // to stage it or it is testing the wrong thing.
+      gitOrThrow(['add', '--force', '.claude/skills/redproof-sentinel-skill'], wt);
+    },
+    expect: ['.claude/skills/redproof-sentinel-skill', 'fresh clone'],
+    absent: ['no such justfile recipe'],
+    fix: 'validateSkillLinks()/listSkillEntries() in scripts/check-agent-docs.mjs stopped stat-ing skill symlinks — a committed link into a gitignored directory loads in exactly one checkout and is dead everywhere else.',
+  },
+  {
     gate: 'qa-input-safety',
     id: 'os-input-technique-in-an-instruction-file',
     seeded: "added the incident's own AppleScript keystroke recipe to README.md",
@@ -718,6 +738,11 @@ function destroyWorktree({ dir, wt }) {
 const IGNORED_IN_PROOF_WORKTREE = new Set(['node_modules']);
 
 function revert(wt) {
+  // Unstage first: a proof whose violation only exists once git TRACKS the path
+  // (a committed symlink, say) has to `git add` it, and neither `checkout` nor
+  // `clean` touches the index — the staged entry would survive into the next
+  // proof and trip the cleanliness assertion below.
+  gitOrThrow(['reset', '-q'], wt);
   gitOrThrow(['checkout', '--', '.'], wt);
   gitOrThrow(['clean', '-fdq', '-e', 'node_modules'], wt);
   const leftover = gitOrThrow(['status', '--porcelain'], wt)

@@ -2,6 +2,8 @@
 
 Issues and PRDs for this repo live as GitLab issues on `gitlab.futo.org/futo-notes/futo-notes`. Use the [`glab`](https://gitlab.com/gitlab-org/cli) CLI for all operations.
 
+This file is also the repo-side adapter for the third-party skills that talk about "the issue tracker" (see CONTRIBUTING.md → "Third-party skills"); the conventions below stand on their own whether or not those skills are installed.
+
 ## Conventions
 
 - **Create an issue**: `glab issue create --title "..." --description "..."`. Use a heredoc for multi-line descriptions. Pass `--description -` to open an editor.
@@ -36,7 +38,7 @@ Run `glab issue view <number> --comments`.
 
 ## Wayfinding operations
 
-Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
+Used by `/wayfinder`, one of the optional third-party skills — it only loads once `just skills-link` has linked it, so treat this section as inert unless it did. The **map** is a single issue with **child** issues as tickets.
 
 - **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body. `glab issue create --label wayfinder:map`. (On GitLab tiers with native epics, an epic may hold the map instead; a labelled issue works everywhere.)
 - **Child ticket**: an issue carrying `Part of #<map>` at the top of its description and labels `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.

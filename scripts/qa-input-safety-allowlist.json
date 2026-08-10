@@ -14,6 +14,35 @@
         "line": "- **OS-level input** (AppleScript UI scripting, `cliclick`, `xdotool`) is",
         "reason": "the desktop QA playbook's prohibition — this is where the banned technique used to be recommended, so the ban must be explicit here."
       }
+    ],
+    ".claude/skills/mr-qa/SKILL.md": [
+      {
+        "rule": "system-events-ui-scripting",
+        "line": "`appIdentifier`.** Never `osascript`/System Events keystrokes, never",
+        "reason": "the mr-qa skill's hard rule #1 — names the banned techniques in order to forbid them."
+      },
+      {
+        "rule": "cliclick",
+        "line": "`cliclick`, never any other OS-level input — and never brief an agent to",
+        "reason": "same hard rule, continuation line."
+      },
+      {
+        "rule": "unix-id-process-lookup",
+        "line": "process name `futo-notes-tauri`, so a lookup by process name or unix id",
+        "reason": "same hard rule: explains why a name/unix-id lookup cannot identify an instance."
+      }
+    ],
+    ".claude/skills/mr-qa/references/evidence.md": [
+      {
+        "rule": "system-events-ui-scripting",
+        "line": "`appIdentifier`), `simctl`, `adb`. Never `osascript`/System Events keystrokes",
+        "reason": "sanctioned-driver list for defect evidence — names the banned techniques to forbid them."
+      },
+      {
+        "rule": "cliclick",
+        "line": "and never `cliclick`: the process-name lookup they need cannot distinguish a QA",
+        "reason": "same list, continuation line."
+      }
     ]
   }
 }
