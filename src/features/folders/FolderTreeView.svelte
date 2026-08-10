@@ -71,6 +71,27 @@
   // only the visible window is the only thing that removes the work.
   // → docs/perf/tab-switch-baseline.md
   const OVERSCAN_ROWS = 8;
+  // WebKit scrolls this container on its own thread, so it can paint a new
+  // scroll offset before the main thread is told about it. Measured on a
+  // 3,207-note vault, a wheel fling moves 1,000-5,500px between consecutive
+  // scroll notifications, while 8 rows of overscan cover only ~390px — so the
+  // painted viewport lands entirely on the spacer and the sidebar goes blank
+  // and label-less for several frames. Flushing the projection synchronously
+  // does NOT help (the paint already happened); the window has to be wide
+  // enough to cover where the scroll is going. So lead the window by however
+  // far the last notification jumped, and let it collapse back to the cheap
+  // window once scrolling settles, so a note switch never pays for it.
+  // → docs/perf/tab-switch-baseline.md
+  const SCROLL_SETTLE_MS = 120;
+  // Peak-hold decay: a fling decelerates, so shrink the lead gradually instead
+  // of tracking each smaller delta straight down and re-exposing the spacer.
+  const LEAD_DECAY_ROWS = 4;
+  // A scrollbar-thumb drag can jump the whole list at once, and leading by that
+  // much would mount every row — exactly the cost virtualization exists to
+  // avoid. Cap the lead at more than the largest fling jump measured (~5,500px
+  // ≈ 112 rows); a single teleport frame can still miss, but a sustained fling
+  // cannot.
+  const MAX_LEAD_ROWS = 128;
   // Used until a real pitch can be measured. Rows are 48px tall with 1px
   // collapsed vertical margins; measureRowPitch() corrects any CSS drift.
   const FALLBACK_ROW_PITCH = 49;
@@ -79,6 +100,10 @@
   let scrollTop = $state(0);
   let viewportHeight = $state(0);
   let rowPitch = $state(FALLBACK_ROW_PITCH);
+  // Rows to mount beyond the viewport in the direction of travel, and its sign.
+  let scrollLeadRows = $state(0);
+  let scrollLeadDown = $state(true);
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
 
   function keyOf(node: FlatNode): string {
     if (node.type === 'folder') return `f:${node.path}`;
@@ -94,8 +119,13 @@
     if (viewportHeight <= 0) return { start: 0, end: total, padTop: 0, padBottom: 0 };
 
     const pitch = rowPitch > 0 ? rowPitch : FALLBACK_ROW_PITCH;
-    let start = Math.max(0, Math.floor(scrollTop / pitch) - OVERSCAN_ROWS);
-    let end = Math.min(total, Math.ceil((scrollTop + viewportHeight) / pitch) + OVERSCAN_ROWS);
+    const leadUp = scrollLeadDown ? 0 : scrollLeadRows;
+    const leadDown = scrollLeadDown ? scrollLeadRows : 0;
+    let start = Math.max(0, Math.floor(scrollTop / pitch) - OVERSCAN_ROWS - leadUp);
+    let end = Math.min(
+      total,
+      Math.ceil((scrollTop + viewportHeight) / pitch) + OVERSCAN_ROWS + leadDown,
+    );
 
     // An inline folder rename must stay mounted even if the user scrolls away,
     // or the input unmounts mid-edit and silently drops what they typed. The
@@ -121,7 +151,24 @@
   const visible = $derived(flat.slice(window_.start, window_.end));
 
   function handleScroll(): void {
-    if (scroller) scrollTop = scroller.scrollTop;
+    if (!scroller) return;
+    const next = scroller.scrollTop;
+    const pitch = rowPitch > 0 ? rowPitch : FALLBACK_ROW_PITCH;
+    const jumpedRows = Math.ceil(Math.abs(next - scrollTop) / pitch);
+    // A fling's first notification is small, so the jump alone under-predicts
+    // where the next painted frame lands; cover at least one viewport ahead
+    // for as long as the list is moving at all.
+    const viewportRows = Math.ceil(viewportHeight / pitch);
+    if (next !== scrollTop) scrollLeadDown = next > scrollTop;
+    scrollLeadRows = Math.min(
+      MAX_LEAD_ROWS,
+      Math.max(jumpedRows, viewportRows, scrollLeadRows - LEAD_DECAY_ROWS),
+    );
+    scrollTop = next;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      scrollLeadRows = 0;
+    }, SCROLL_SETTLE_MS);
   }
 
   // Two adjacent mounted rows give the real pitch including collapsed margins,
@@ -173,7 +220,10 @@
     onselect?.(id, event);
   }
 
-  onDestroy(drag.destroy);
+  onDestroy(() => {
+    clearTimeout(settleTimer);
+    drag.destroy();
+  });
 </script>
 
 <!-- The scroll container is the root drop target during a drag. The

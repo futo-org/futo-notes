@@ -183,6 +183,67 @@ describe('FolderTreeView virtualization', () => {
     expect(rowCount()).toBeLessThan(300);
   });
 
+  // WebKit scrolls the container on its own thread and can paint an offset
+  // before the main thread is told about it. 8 rows of overscan cover ~390px
+  // while a measured fling moves 1,000-5,500px per scroll notification, so the
+  // painted viewport lands on the spacer and the sidebar goes blank. The window
+  // therefore has to lead the scroll. Ground truth for these numbers (native
+  // window captures, not rAF sampling): docs/perf/tab-switch-baseline.md.
+  it('leads the mounted window past the viewport in the direction of travel', () => {
+    const items = Array.from({ length: 600 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
+    mountWithViewport(items, VIEWPORT_PX);
+
+    const scroller = target.querySelector('.folder-tree-scroll') as HTMLElement;
+    scroller.scrollTop = 150 * ROW_PITCH; // a 150-row jump, as a fling produces
+    scroller.dispatchEvent(new Event('scroll'));
+    flushSync();
+
+    // The last row the viewport itself shows is ~159; without a lead the window
+    // ended 8 rows later, so a frame painted further down had nothing to show.
+    expect(target.querySelector('[data-note-id="note-250"]')).toBeTruthy();
+    // Still bounded: the lead is capped, so a jump can never mount everything.
+    expect(rowCount()).toBeLessThanOrEqual(Math.ceil(VIEWPORT_PX / ROW_PITCH) + 2 * OVERSCAN + 128);
+  });
+
+  it('leads upward when the scroll travels up', () => {
+    const items = Array.from({ length: 600 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
+    mountWithViewport(items, VIEWPORT_PX);
+    const scroller = target.querySelector('.folder-tree-scroll') as HTMLElement;
+    scroller.scrollTop = 300 * ROW_PITCH;
+    scroller.dispatchEvent(new Event('scroll'));
+    flushSync();
+
+    scroller.scrollTop = 150 * ROW_PITCH;
+    scroller.dispatchEvent(new Event('scroll'));
+    flushSync();
+
+    expect(target.querySelector('[data-note-id="note-050"]')).toBeTruthy();
+    expect(rowCount()).toBeLessThanOrEqual(Math.ceil(VIEWPORT_PX / ROW_PITCH) + 2 * OVERSCAN + 128);
+  });
+
+  it('collapses back to the cheap window once scrolling settles', () => {
+    vi.useFakeTimers();
+    try {
+      const items = Array.from({ length: 600 }, (_, i) =>
+        note(`note-${String(i).padStart(3, '0')}`),
+      );
+      mountWithViewport(items, VIEWPORT_PX);
+      const scroller = target.querySelector('.folder-tree-scroll') as HTMLElement;
+      scroller.scrollTop = 150 * ROW_PITCH;
+      scroller.dispatchEvent(new Event('scroll'));
+      flushSync();
+      expect(rowCount()).toBeGreaterThan(Math.ceil(VIEWPORT_PX / ROW_PITCH) + 2 * OVERSCAN);
+
+      // A note switch must not pay for the fling's extra rows: that is the whole
+      // point of virtualizing the tree.
+      vi.advanceTimersByTime(200);
+      flushSync();
+      expect(rowCount()).toBeLessThanOrEqual(Math.ceil(VIEWPORT_PX / ROW_PITCH) + 2 * OVERSCAN);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('renders every row when no viewport height is measurable', () => {
     // jsdom's default (clientHeight 0) stands in for the frame before the
     // ResizeObserver first reports: guessing a window there would hide rows a

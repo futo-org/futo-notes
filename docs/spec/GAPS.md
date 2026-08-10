@@ -27,6 +27,7 @@ flag gaps the codebase suggests have been implemented.
 
 - [list.md:51](list.md#L51) — _(Android)_ A **sync live pull** that creates or re-ranks a note while the list is composed at the top still relies on LazyListState key anchoring, so the remotely-changed row can land above the viewport until the user drags. Same anchoring class as the local-edit invisibility bug fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem` on the FAB path and a pop-time re-pin in `AppNavigator.goBack()`); the `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt `reloadAsync`, AppNavigation.kt `AppNavigator.goBack`
 - [list.md:81](list.md#L81) — Tauri desktop sidebar note rows show the **title only** — no body preview at all. The single-line, markdown-opaque `make_preview` snippet appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar rows. The rich multi-line preview is native-only (iOS + Android) for now.
+- [list.md:308](list.md#L308) — a single isolated frame can still paint the spacer when the scroll jumps further than the virtual window's lead — measured 5 lone frames in ~1,300 native window captures, never two in a row. → docs/perf/tab-switch-baseline.md
 
 ## nav.md
 
@@ -40,4 +41,4 @@ flag gaps the codebase suggests have been implemented.
 - [sync.md:1192](sync.md#L1192) — Android leaves the open editor bound to the deleted id (its snapshotFlow adopt early-returns on the missing note); the peer-delete close/keep + banner is not yet ported there. The verdict it needs now exists as one engine verb (`classify_open_note`, reachable over UniFFI); what remains is the Compose side that renders it.
 - [sync.md:1218](sync.md#L1218) — No shell renders the verb yet — desktop, iOS and Android each still run their own copy of the decision (two of them on desktop, with different toast wording). The verb and both projections landed first so the adoptions can be reviewed one surface at a time; desktop's is staged in scripts/command-reachability-allowlist.json with its reason. Until then the native in-place focused adopt above still stands; adopting the verb changes it to a deferred adopt on blur.
 
-_20 gaps._
+_21 gaps._
