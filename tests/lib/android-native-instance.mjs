@@ -370,6 +370,9 @@ class AndroidNativeSyncClient {
     );
   }
 
+  /** Blur needs no hook: `EditorHost.blur()` — the toolbar's dismiss chevron —
+   *  is exactly this `FutoEditor.blur()` eval and nothing else, so the DOM half
+   *  IS the app's whole path here (contrast focusOpenEditor). */
   async blurOpenEditor() {
     await this.#evaluateInEditor(
       `(() => {
