@@ -134,15 +134,26 @@ async function createNoteViaEditor(client, title, content) {
   await client.typeInEditor(content);
 }
 
-async function waitForToastMessage(client, expectedMessage, timeoutMs = 10_000) {
+/**
+ * Wait for the open-note session itself to satisfy [predicate].
+ *
+ * Never on toast copy. This used to wait for the exact string 'Note was deleted
+ * during sync'; the app's wording was later shortened to 'Note was deleted' and
+ * the scenario then failed for the one reason it was not testing, while the
+ * behavior it WAS testing (the session closing) had worked all along — which is
+ * why a cross-platform test must not assert user-facing strings (AGENTS.md M15).
+ */
+async function waitForOpenNoteState(client, description, predicate, timeoutMs = 10_000) {
   const start = Date.now();
+  let state;
   while (Date.now() - start < timeoutMs) {
-    const state = await client.getOpenNoteState();
-    if (state.toastMessage === expectedMessage) return state;
+    state = await client.getOpenNoteState();
+    if (predicate(state)) return state;
     await sleep(100);
   }
   throw new Error(
-    `${client.name}: toast did not become ${JSON.stringify(expectedMessage)} after ${timeoutMs}ms`,
+    `${client.name}: open note did not ${description} after ${timeoutMs}ms ` +
+      `(state=${JSON.stringify(state)})`,
   );
 }
 
@@ -843,8 +854,12 @@ async function peerDeleteOfOpenNoteClosesEditor(a, b, server) {
     `B should pull the delete; deletedIds=${JSON.stringify(bResult.summary.deletedIds)}`,
   );
 
-  const closed = await waitForToastMessage(b, 'Note was deleted during sync');
-  assertEqual(closed.originalId, null, 'peer-deleted open note should no longer be the open note');
+  // The outcome is the session closing, not the wording it closes with.
+  const closed = await waitForOpenNoteState(
+    b,
+    'close after the peer delete',
+    (state) => state.originalId === null,
+  );
   assert(
     closed.hash !== `#/note/${encodeURIComponent('peer deletes me')}`,
     `route should leave the deleted note; hash=${closed.hash}`,
