@@ -91,14 +91,24 @@ async function waitForEditorContent(client, expectedContent, timeoutMs = 10_000)
   );
 }
 
-async function waitForSavePending(client, expected, timeoutMs = 5_000) {
+/**
+ * Wait until the open note has no save pending — the settled, durable state.
+ *
+ * Deliberately one-directional: polling for savePending === TRUE races the app,
+ * because a debounce window (500ms body / a blur flush's in-flight save) can
+ * open and close between two bridge round trips. A scenario that needs to
+ * observe an UNSAVED note must control the ordering instead of racing for it
+ * (see client.composeNoteAndSyncNow), and one that just needs the edit on disk
+ * should flushSave() and wait here.
+ */
+async function waitForSaveIdle(client, timeoutMs = 5_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const state = await client.getOpenNoteState();
-    if (state.savePending === expected) return state;
+    if (state.savePending === false) return state;
     await sleep(50);
   }
-  throw new Error(`${client.name}: savePending did not become ${expected} after ${timeoutMs}ms`);
+  throw new Error(`${client.name}: savePending did not become false after ${timeoutMs}ms`);
 }
 
 async function waitForToastMessage(client, expectedMessage, timeoutMs = 10_000) {
@@ -169,24 +179,35 @@ async function editorRoundtripThroughRealSync(a, b, server) {
   const noteId = 'editor roundtrip';
   const body = '# Written in CodeMirror\nThis note should sync through the real save pipeline.';
 
-  // A creates a new note through the actual editor path and syncs before the debounce fires.
+  // A creates a new note through the actual editor path, with the note still
+  // living ONLY in the editor buffer when the sync is requested: body + title +
+  // syncNow() all happen in one page task, so no debounce or blur flush can
+  // persist it first (the harness owns the ordering instead of racing it).
   await a.openNewNote();
-  await a.setTitle(noteId);
-  // Assert unsaved-ness here, while only the 10s title debounce is armed. Typing next
-  // steals focus from the title input, and that blur FLUSHES the pending save (~60ms),
-  // while the body-debounce timer it leaves behind keeps savePending true for another
-  // ~450ms — a poll landing in that window sees a saved note still marked pending.
-  const pendingState = await waitForSavePending(a, true);
+  const composed = await a.composeNoteAndSyncNow(noteId, body);
+  // Captured synchronously at the instant syncNow() was called, so these are
+  // evidence rather than a poll that lands wherever it lands.
   assertEqual(
-    pendingState.originalId,
+    composed.preSync.originalId,
     null,
-    'new note should still be unsaved before manual sync flush',
+    'new note should still be unsaved when the manual sync is requested',
   );
-  await a.typeInEditor(body);
-  const aResult = await a.syncNow();
-  assert(aResult.summary.uploaded === 1, `A uploaded=${aResult.summary.uploaded}, expected 1`);
+  assertEqual(
+    composed.preSync.savePending,
+    true,
+    'the debounced editor save should still be pending when the manual sync is requested',
+  );
+  assertEqual(
+    composed.preSync.editorContent,
+    body,
+    'the body should exist only in the editor buffer when the manual sync is requested',
+  );
+  // Nothing but the sync's own flushPendingSave can have written the note, so an
+  // upload here IS the proof that a manual sync flushes the pending editor save
+  // before pushing. Drop that flush and this assertion fails.
+  assert(composed.summary.uploaded === 1, `A uploaded=${composed.summary.uploaded}, expected 1`);
 
-  const postSyncState = await waitForSavePending(a, false);
+  const postSyncState = await waitForSaveIdle(a);
   assertEqual(
     postSyncState.originalId,
     noteId,
@@ -573,7 +594,7 @@ async function activeNoteReload(a, b, server) {
   );
   // The remote content reload triggers a change event in the editor which starts
   // the save debounce.  Wait for it to settle before asserting no pending save.
-  const settled = await waitForSavePending(b, false);
+  const settled = await waitForSaveIdle(b);
   assertEqual(settled.savePending, false, 'remote reload should not leave a local save pending');
 }
 
@@ -601,11 +622,11 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   await waitForEditorContent(b, '# Base');
   await b.setTitle('taken sync title');
   // Title edits use a deliberate 10s debounce (TITLE_SAVE_DEBOUNCE_MS) so a
-  // rename round-trip never fires mid-typing — longer than waitForSavePending's
+  // rename round-trip never fires mid-typing — longer than waitForSaveIdle's
   // 5s budget. Flush so the (duplicate-title-blocked) save settles now, exactly
   // as this scenario already does before its final savePending check below.
   await b.flushSave();
-  await waitForSavePending(b, false);
+  await waitForSaveIdle(b);
 
   await a.writeNote('during sync', '# Remote update');
   await a.syncNow();
@@ -613,8 +634,13 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   await b.startSync();
   await sleep(200);
   await b.typeInEditor('\nLocal draft typed during sync');
-  await waitForSavePending(b, true);
-  await waitForSavePending(b, false);
+  // Settle the typed draft the same way the app does on blur/navigation, then
+  // wait for idle. Polling for savePending === true first (the old shape) races
+  // the app: the blur flush that typing triggers can open and close the pending
+  // window between two bridge round trips, and the wait then fails on a scenario
+  // that is working correctly.
+  await b.flushSave();
+  await waitForSaveIdle(b);
   const draftDuringSync = (await b.getOpenNoteState()).editorContent;
 
   const bResult = await b.awaitStartedSync();
@@ -637,7 +663,7 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
 
   await b.setTitle('during sync');
   await b.flushSave();
-  await waitForSavePending(b, false);
+  await waitForSaveIdle(b);
   await b.syncNow();
   await a.syncNow();
   const aContent = await a.readNote('during sync');
@@ -701,7 +727,7 @@ async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _server) {
 
   await a.setTitle('taken title');
   await a.typeInEditor('\nLocal draft');
-  await waitForSavePending(a, false);
+  await waitForSaveIdle(a);
   await sleep(1200);
 
   await externalWriteNote(a, 'watch dirty', '# Changed on disk');
@@ -813,7 +839,7 @@ async function peerDeleteOfOpenNoteClosesEditor(a, b, server) {
   await waitForEditorContent(b, '# Doomed content');
   // A read-only open can start a save debounce; let it settle so the note is
   // NOT dirty (a dirty draft would take the keep-local-draft branch instead).
-  await waitForSavePending(b, false);
+  await waitForSaveIdle(b);
 
   // A deletes and pushes the tombstone.
   await a.deleteNote('peer deletes me');
@@ -1026,7 +1052,7 @@ async function tombstoneDoesNotBlockNewNote(a, b, server) {
   // Type content so the note has substance, then sync
   await a.typeInEditor('# Fresh note');
   await a.flushSave();
-  await waitForSavePending(a, false);
+  await waitForSaveIdle(a);
   const syncResult = await a.syncNow();
 
   // The sync must NOT delete the note we just created
