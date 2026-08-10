@@ -439,6 +439,45 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
 - Pressing Enter in a list item continues the list (inherits nesting, auto
   numbers ordered items, renumbers on edit); Backspace at item start dedents;
   Backspace in an empty item deletes it. → listContinuation.ts
+- Undoing an edit that renumbered a list reverses the edit and the renumbering
+  together, as one step. → orderedListRenumber.ts, listContinuation.test.ts
+- Renumbering follows an edit, so merely opening a note leaves its numbering exactly as
+  written — a hand-numbered `1. / 1. / 1.` list stays that way until you type in it.
+  → orderedListRenumber.ts
+
+  > **Gap:** on the **native** shells (iOS/Android) the note text arrives as an edit, so
+  > opening a lazily-numbered note renumbers it on screen straight away. Nothing is
+  > posted back to the host, so the file on disk keeps its own numbering until the next
+  > real keystroke, when the renumbered text is saved. _(native shells)_ →
+  > editor-embed/createFutoEditorApi.ts `applyContent`
+- Undo only ever reverses edits made in the note on screen — never text from another
+  note — and opening a note is not itself something undo can reverse.
+  → noteHistory.ts, tests/undo-history.spec.ts
+- Each note keeps its own undo and redo while the app is running: leave a note, come
+  back, and its undo still works, however quickly you switch. Only the notes visited
+  most recently keep theirs; older ones, and every note after a restart, start empty.
+  → noteHistory.ts, tests/undo-history.spec.ts
+
+  > **Gap:** on the **native** shells (iOS/Android), leaving a note and returning to it
+  > starts its undo empty, because the shells do not tell the editor which note they
+  > are handing it. On **Android** only, opening a note that holds exactly the text
+  > already on screen sends the editor nothing at all, so the previous note's undo
+  > survives into it — one undo there can paste the other note's text in, and it is
+  > then saved. Two empty notes in a row is the case users hit; iOS re-pushes on every
+  > open, so it is unaffected. _(native shells)_ →
+  > editor-embed/createFutoEditorApi.ts `setContent`, EditorWebView.kt
+  > `lastPushedContent`
+
+- A note that was edited elsewhere while you were away comes back without its undo
+  history rather than with one that would restore text from before the change.
+  → noteHistory.ts
+- A change that arrives from outside the editor — a sync adopt, a host content push —
+  is not something undo can reverse. Undo takes back your own keystrokes and stops at
+  the incoming text, so it can never revive the version the change superseded and hand
+  it to the autosave. → editorContentSync.ts `EXTERNAL_CONTENT_OPTS`,
+  editorContentSync.test.ts
+- Deleting a note discards its undo history. Renaming or moving a note keeps it, and
+  renaming any other note leaves the open note's undo alone. → noteHistory.ts
 - A desktop single-line selection raises a floating Bold, Italic, Strikethrough, Code, and Link
   toolbar; Link wraps the selection into a `[text](url)` scaffold with the caret in the URL slot
   and opens no dialog (shared `toggleLink` behavior, the same as the native toolbar). It hides for

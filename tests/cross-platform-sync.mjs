@@ -101,12 +101,6 @@ async function waitForSavePending(client, expected, timeoutMs = 5_000) {
   throw new Error(`${client.name}: savePending did not become ${expected} after ${timeoutMs}ms`);
 }
 
-async function createNoteViaEditor(client, title, content) {
-  await client.openNewNote();
-  await client.setTitle(title);
-  await client.typeInEditor(content);
-}
-
 async function waitForToastMessage(client, expectedMessage, timeoutMs = 10_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -176,13 +170,19 @@ async function editorRoundtripThroughRealSync(a, b, server) {
   const body = '# Written in CodeMirror\nThis note should sync through the real save pipeline.';
 
   // A creates a new note through the actual editor path and syncs before the debounce fires.
-  await createNoteViaEditor(a, noteId, body);
+  await a.openNewNote();
+  await a.setTitle(noteId);
+  // Assert unsaved-ness here, while only the 10s title debounce is armed. Typing next
+  // steals focus from the title input, and that blur FLUSHES the pending save (~60ms),
+  // while the body-debounce timer it leaves behind keeps savePending true for another
+  // ~450ms — a poll landing in that window sees a saved note still marked pending.
   const pendingState = await waitForSavePending(a, true);
   assertEqual(
     pendingState.originalId,
     null,
     'new note should still be unsaved before manual sync flush',
   );
+  await a.typeInEditor(body);
   const aResult = await a.syncNow();
   assert(aResult.summary.uploaded === 1, `A uploaded=${aResult.summary.uploaded}, expected 1`);
 

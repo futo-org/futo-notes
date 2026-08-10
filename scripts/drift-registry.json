@@ -144,7 +144,7 @@
       "concept": "notes-root-triplet",
       "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
       "lockStatus": "unlocked",
-      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md 'Named mistakes' non-goals \u2014 do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. CORRECTION to AGENTS.md 'Drift watchlist': the Android copy is NOT in NotesStore.kt (that class only takes a resolved `notesRoot: File`) \u2014 the actual dev/prod guard lives in storage/NotesStorage.kt's `deviceFolderName`, and Android's split works differently (a distinct DEVICE-mode folder name, 'FUTO Notes Dev' vs 'FUTO Notes', since its APP/INTERNAL modes already isolate via the `.dev` applicationId on package-scoped paths) rather than the desktop/iOS 'fake-notes' vs 'futo-notes' directory-name split.",
+      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md 'Named mistakes' non-goals \u2014 do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. The Android guard lives in storage/NotesStorage.kt's `deviceFolderName`, and its split works differently: DEVICE mode uses 'FUTO Notes Dev' vs 'FUTO Notes', while APP/INTERNAL modes already isolate through the `.dev` applicationId on package-scoped paths.",
       "copies": [
         {
           "location": "apps/tauri/src-tauri/src/vault_location.rs",

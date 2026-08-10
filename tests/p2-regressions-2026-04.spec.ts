@@ -120,4 +120,24 @@ test.describe('ordered list auto-renumber on delete', () => {
     const state = await readState(page);
     expect(state.doc).toBe('1. outer\n  1. inner\n  2. inner three\n2. outer two');
   });
+
+  test('undo reverts the delete and its renumber in one step', async ({ page }) => {
+    const original = '1. thing\n2. thing2\n3. thing3\n4. thing4';
+    await setupEditor(page, original);
+
+    // A real keystroke, so the renumber rides on a genuine history event.
+    await page.evaluate(() => {
+      const view = (window as any).__cmGetView?.();
+      const line2 = view.state.doc.line(2);
+      view.focus();
+      view.dispatch({ selection: { anchor: line2.from, head: line2.to + 1 } });
+    });
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(200);
+    expect((await readState(page)).doc).toBe('1. thing\n2. thing3\n3. thing4');
+
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.waitForTimeout(200);
+    expect((await readState(page)).doc).toBe(original);
+  });
 });
