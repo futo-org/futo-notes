@@ -49,24 +49,22 @@ export const DEFAULT_USER = 'justin';
 // out from under them otherwise.
 export const DEFAULT_REMOTE_DIR = '$HOME/ci/futo-main';
 export const DEFAULT_SOURCE_REPO = '$HOME/Developer/futo-notes';
-// One shared cargo target dir: the box has 537 GB free and a warm target is the
-// difference between a 4-minute and a 25-minute `cargo test --workspace`.
-export const REMOTE_CARGO_TARGET_DIR = '$HOME/.cache/futo-target-ci';
-
-// ...except for suites whose harness resolves the built binary as
-// `<repoRoot>/target/debug/futo-notes-tauri` and therefore cannot see a
-// relocated CARGO_TARGET_DIR (tests/lib/tauri-instance.mjs and
-// tests/cross-platform-sync.mjs, whose pgrep cleanup ALSO only kills binaries
-// under this repo's own target/ — a deliberate guard, not an accident). For
-// those, point the target dir at the repo-local path instead of teaching the
-// shared harness a new env var from here. Filed as a papercut.
-export const REPO_LOCAL_TARGET_RECIPES = ['test-cross-platform', 'prepush'];
-
-export function cargoTargetDirFor(recipe, remoteDir) {
-  return REPO_LOCAL_TARGET_RECIPES.includes(recipe)
-    ? `${remoteDir}/target`
-    : REMOTE_CARGO_TARGET_DIR;
-}
+// CARGO_TARGET_DIR is deliberately NOT exported. The remote worktree's own
+// `target/` is already a persistent warm cache (git mode never touches it and
+// --rsync excludes it), so relocating it buys nothing — and cost real breakage
+// twice:
+//   1. tests/lib/tauri-instance.mjs resolves the built binary as
+//      <repoRoot>/target/debug/futo-notes-tauri, and cross-platform-sync.mjs's
+//      pgrep cleanup only kills binaries under it (a deliberate guard). A
+//      relocated target dir made `just remote-sync` die with ENOENT AFTER an
+//      84-second build.
+//   2. scripts/ci-cargo-cache-freshness.mjs reads $CARGO_TARGET_DIR, so its
+//      unit tests inherited ours, inspected a directory that did not exist,
+//      concluded "no restored cache", and exited 0 where they assert 1 — five
+//      failures in `just remote-check` that do not reproduce on the Mac.
+// Anything in this repo may reasonably assume the repo-local target/; honouring
+// that is cheaper than auditing every consumer.
+export const REMOTE_CARGO_TARGET_DIR = null;
 
 // Distinguishable from any suite's own failure: the run never started.
 export const EXIT_REFUSED = 2;
@@ -226,7 +224,7 @@ export function ndkVersionFromGradle(gradleText) {
  * reads none of the box's profile — node lives in nvm and is simply absent from
  * PATH without this.
  */
-export function remoteEnvPreamble({ ndkVersion, cargoTargetDir = REMOTE_CARGO_TARGET_DIR }) {
+export function remoteEnvPreamble({ ndkVersion }) {
   return [
     'export NVM_DIR="$HOME/.nvm"',
     // shellcheck-style guard: a missing nvm must fail loudly at `node`, not here.
@@ -238,7 +236,8 @@ export function remoteEnvPreamble({ ndkVersion, cargoTargetDir = REMOTE_CARGO_TA
     'export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"',
     'export ANDROID_SDK_ROOT="$ANDROID_HOME"',
     `export ANDROID_NDK_HOME="\${FUTO_REMOTE_NDK:-$ANDROID_HOME/ndk/${ndkVersion}}"`,
-    `export CARGO_TARGET_DIR="${cargoTargetDir}"`,
+    // See REMOTE_CARGO_TARGET_DIR: an inherited one must not leak in either.
+    'unset CARGO_TARGET_DIR',
     // Deliberately NOT setting CI: `cargo tauri build` maps its `--ci` flag to
     // $CI, and an EMPTY CI makes clap reject the run ("a value is required for
     // '--ci'"). This broke `just remote-sync` before it was caught. vitest also
@@ -271,7 +270,7 @@ export function buildRunScript({
   const justArgs = [recipe, ...recipeArgs].map(shQuote).join(' ');
   return `
 set -uo pipefail
-${remoteEnvPreamble({ ndkVersion, cargoTargetDir: cargoTargetDirFor(recipe, remoteDir) })}
+${remoteEnvPreamble({ ndkVersion })}
 
 REMOTE_DIR="${remoteDir}"
 SOURCE_REPO="${sourceRepo}"
@@ -366,7 +365,7 @@ mkdir -p dist
 
 echo "==> node $(node --version) | pnpm $(pnpm --version) | cargo $(cargo --version | cut -d' ' -f2) | $(nproc) cores"
 echo "==> ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
-echo "==> CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
+echo "==> cargo target: $REMOTE_DIR/target (repo-local, warm across runs)"
 echo
 echo "───────────────────── just ${recipe} ─────────────────────"
 set +e
@@ -491,7 +490,7 @@ else
 fi
 
 emit 'capacity' ok "$(nproc) cores, $(free -g | awk '/^Mem:/{print $2}') GB RAM, $(df -h "$HOME" | awk 'NR==2{print $4}') free on \\$HOME"
-emit 'cargo target cache' ok "$CARGO_TARGET_DIR ($(du -sh "$CARGO_TARGET_DIR" 2>/dev/null | cut -f1 || echo absent))"
+emit 'cargo target cache' ok "${remoteDir}/target ($(du -sh "${remoteDir}/target" 2>/dev/null | cut -f1 || echo 'absent — first cargo run will be cold'))"
 `;
 }
 

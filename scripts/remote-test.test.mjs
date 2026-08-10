@@ -16,7 +16,6 @@ import {
   RSYNC_EXCLUDES,
   buildDoctorScript,
   buildRunScript,
-  cargoTargetDirFor,
   classifyRecipe,
   ndkVersionFromGradle,
   parseCliArgs,
@@ -166,22 +165,22 @@ describe('remote environment', () => {
     // The sync test server shells out to `bun`, which lives in ~/.bun/bin and
     // is absent from a non-interactive PATH — the suite died there once.
     expect(preamble).toContain('$HOME/.bun/bin');
-    expect(preamble).toContain(`export CARGO_TARGET_DIR="${REMOTE_CARGO_TARGET_DIR}"`);
   });
 
-  it('gives the suites whose harness reads <repoRoot>/target a repo-local target dir', () => {
-    // tests/lib/tauri-instance.mjs resolves the debug binary as
-    // <repoRoot>/target/debug/futo-notes-tauri, so a relocated
-    // CARGO_TARGET_DIR made `just remote-sync` die with ENOENT after a
-    // successful 52-second build.
-    expect(cargoTargetDirFor('test-cross-platform', '$HOME/ci/futo-main')).toBe(
-      '$HOME/ci/futo-main/target',
-    );
-    expect(cargoTargetDirFor('prepush', '$HOME/ci/futo-main')).toBe('$HOME/ci/futo-main/target');
-    expect(cargoTargetDirFor('test-rust-full', '$HOME/ci/futo-main')).toBe(REMOTE_CARGO_TARGET_DIR);
-    expect(runScript({ recipe: 'test-cross-platform' })).toContain(
-      'export CARGO_TARGET_DIR="$HOME/ci/futo-main/target"',
-    );
+  it('never relocates the cargo target dir, and clears an inherited one', () => {
+    // Two suites in this repo assume the repo-local target/ and BOTH broke on a
+    // relocated CARGO_TARGET_DIR: tests/lib/tauri-instance.mjs resolves the
+    // debug binary as <repoRoot>/target/debug (ENOENT after an 84s build), and
+    // scripts/ci-cargo-cache-freshness.mjs inspected a directory that did not
+    // exist, so its tests saw exit 0 where they assert 1 — five `remote-check`
+    // failures that do not reproduce on the Mac.
+    const preamble = remoteEnvPreamble({ ndkVersion: '28.2.13676358' });
+    expect(preamble).toContain('unset CARGO_TARGET_DIR');
+    expect(preamble).not.toMatch(/export CARGO_TARGET_DIR/);
+    expect(REMOTE_CARGO_TARGET_DIR).toBeNull();
+    for (const recipe of ['test-cross-platform', 'prepush', 'test-rust-full', 'check']) {
+      expect(runScript({ recipe })).not.toMatch(/export CARGO_TARGET_DIR/);
+    }
   });
 
   it('never exports CI', () => {

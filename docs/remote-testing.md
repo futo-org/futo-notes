@@ -19,13 +19,13 @@ scripts/remote-test.mjs --help` prints the full flag list.
 
 ## The default box
 
-|              |                                                                                                       |
-| ------------ | ----------------------------------------------------------------------------------------------------- |
-| host         | `jfedora` (Tailscale MagicDNS), falling back to `100.90.52.106` if DNS does not answer                |
-| user         | `justin`                                                                                              |
-| capacity     | Fedora 44, x86_64, 32 cores, 125 GB RAM, KVM available                                                |
-| CI worktree  | `~/ci/futo-main` — a detached `git worktree` of `~/Developer/futo-notes`, never that checkout itself  |
-| cargo target | `~/.cache/futo-target-ci`, shared across runs so a warm workspace test is minutes not tens of minutes |
+|              |                                                                                                                   |
+| ------------ | ----------------------------------------------------------------------------------------------------------------- |
+| host         | `jfedora` (Tailscale MagicDNS), falling back to `100.90.52.106` if DNS does not answer                            |
+| user         | `justin`                                                                                                          |
+| capacity     | Fedora 44, x86_64, 32 cores, 125 GB RAM, KVM available                                                            |
+| CI worktree  | `~/ci/futo-main` — a detached `git worktree` of `~/Developer/futo-notes`, never that checkout itself              |
+| cargo target | `~/ci/futo-main/target` — repo-local and warm across runs; `CARGO_TARGET_DIR` is deliberately NOT set (see below) |
 
 Override with `$FUTO_REMOTE_HOST` / `$FUTO_REMOTE_USER` (or `--host` / `--user`), and
 `$FUTO_REMOTE_DIR` / `$FUTO_REMOTE_REPO` for the paths. `just remote-doctor` on a fresh box tells
@@ -34,22 +34,26 @@ is cheap to add.
 
 Every invocation re-establishes the environment, because `ssh host cmd` gets a non-interactive shell
 that reads no profile: nvm is sourced (node is otherwise **absent from `PATH`**), `~/.local/bin` and
-`~/.cargo/bin` are prepended, `ANDROID_NDK_HOME` is pinned, `CARGO_TARGET_DIR` is set, and a
-repo-root `dist/` is created (M20 — `cargo build` needs it to exist).
+`~/.cargo/bin` are prepended (plus `~/.bun/bin` — the E2EE sync test server is a bun project),
+`ANDROID_NDK_HOME` is pinned, and a repo-root `dist/` is created (M20 — `cargo build` needs it to
+exist).
 
-Two environment details are load-bearing and were both learned the hard way:
+Two environment variables are deliberately **cleared**, and both lessons cost a debugging cycle:
 
-- **`CI` is explicitly unset.** `cargo tauri build` maps its `--ci` flag to `$CI`, so an _empty_
-  `CI` makes clap reject the build outright; a truthy one would also cap vitest to 4 workers and
-  waste 28 of the box's 32 cores.
-- **`CARGO_TARGET_DIR` is per-suite.** It normally points at the shared warm cache, but
-  `test-cross-platform` (and `prepush`, which contains it) get `<worktree>/target` instead:
-  `tests/lib/tauri-instance.mjs` resolves the debug binary as `<repoRoot>/target/debug/…`, and
-  `tests/cross-platform-sync.mjs`'s `pgrep` cleanup deliberately only kills binaries under this
-  repo's own `target/`. Relocating the target dir made the suite die with `ENOENT` _after_ a
-  successful 52-second build. `REPO_LOCAL_TARGET_RECIPES` in `scripts/remote-test.mjs` is that
-  exception list; teaching the shared harness to honour `CARGO_TARGET_DIR` would remove the need
-  for it.
+- **`CI`.** `cargo tauri build` maps its `--ci` flag to `$CI`, so an _empty_ `CI` makes clap reject
+  the build outright ("a value is required for `--ci`"); a truthy one would cap vitest to 4 workers
+  and waste 28 of the box's 32 cores.
+- **`CARGO_TARGET_DIR`.** Relocating it to a shared cache directory broke two suites that reasonably
+  assume the repo-local `target/`, in two different ways:
+  `tests/lib/tauri-instance.mjs` resolves the debug binary as `<repoRoot>/target/debug/…` (and
+  `cross-platform-sync.mjs`'s `pgrep` cleanup only kills binaries under it — a deliberate guard), so
+  `remote-sync` died with `ENOENT` _after_ an 84-second build; and
+  `scripts/ci-cargo-cache-freshness.mjs` reads `$CARGO_TARGET_DIR`, so its unit tests inherited ours,
+  inspected a directory that did not exist, concluded "no restored cache" and exited 0 where they
+  assert 1 — five `remote-check` failures that do not reproduce on the Mac.
+  The remote worktree's own `target/` is already a persistent warm cache: git mode never touches it
+  and `--rsync` excludes it. Honouring what the repo assumes is cheaper than auditing every consumer
+  of that variable.
 
 `ANDROID_NDK_HOME` is pinned to the `ndkVersion` in `apps/android/app/build.gradle.kts`, read from
 the checkout rather than defaulting to "newest installed". A mismatch between the NDK AGP uses and
