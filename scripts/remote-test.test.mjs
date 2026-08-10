@@ -162,6 +162,9 @@ describe('remote environment', () => {
     expect(preamble).toContain('nvm.sh');
     expect(preamble).toContain('$HOME/.local/bin');
     expect(preamble).toContain('$HOME/.cargo/bin');
+    // The sync test server shells out to `bun`, which lives in ~/.bun/bin and
+    // is absent from a non-interactive PATH — the suite died there once.
+    expect(preamble).toContain('$HOME/.bun/bin');
     expect(preamble).toContain(`export CARGO_TARGET_DIR="${REMOTE_CARGO_TARGET_DIR}"`);
   });
 

@@ -229,7 +229,10 @@ export function remoteEnvPreamble({ ndkVersion, cargoTargetDir = REMOTE_CARGO_TA
     'export NVM_DIR="$HOME/.nvm"',
     // shellcheck-style guard: a missing nvm must fail loudly at `node`, not here.
     '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null',
-    'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"',
+    // .bun/bin is here because the E2EE sync test server is a bun project —
+    // tests/lib/sync-test-server.mjs shells out to `bun src/index.ts hash`, and
+    // without it the cross-platform suite dies AFTER booting both clients.
+    'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"',
     'export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"',
     'export ANDROID_SDK_ROOT="$ANDROID_HOME"',
     `export ANDROID_NDK_HOME="\${FUTO_REMOTE_NDK:-$ANDROID_HOME/ndk/${ndkVersion}}"`,
@@ -348,6 +351,7 @@ have cargo       'cargo'        'cargo --version'
 have rustup      'rustup'       'rustup --version'
 have just        'just'         'just --version'
 have git         'git'          'git --version'
+have bun         'bun (sync server)' 'bun --version'
 have rsync       'rsync'        'rsync --version'
 have java        'java (gradle)' 'java -version'
 have adb         'adb'          'adb --version'
@@ -451,6 +455,7 @@ const SUDO_HINTS = {
     "docker start futo-notes-postgres  # or recreate it per futo-notes-server's README",
   'playwright browsers':
     'pnpm exec playwright install chromium webkit   # NOT --with-deps: that needs root',
+  'bun (sync server)': 'curl -fsSL https://bun.sh/install | bash   # the sync test server is bun',
 };
 
 // ---------------------------------------------------------------------------
