@@ -522,6 +522,22 @@ check-drift:
 check-debt-ratchet:
   node scripts/debt-ratchet.mjs
 
+# Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents) teaches
+# OS-level input into this app (AppleScript UI scripting, click injection), a
+# process-name/PID lookup against it, or a relative `find -newermt` safety check.
+# 2026-08-10: a QA agent drove the INSTALLED release app on the user's real vault
+# that way. Rationale + the allowlist contract: scripts/check-qa-input-safety.mjs.
+check-qa-input-safety:
+  node scripts/check-qa-input-safety.mjs
+
+# Resolve a desktop QA target safely: the ONLY sanctioned way to turn a port or
+# PID into something you may drive. Verifies the executable is a debug build
+# inside THIS worktree (plus its data dir and vault) and exits 3 on anything
+# else — emphatically an installed application bundle.
+#   just qa-target list | pid <pid> | port <port> | kill
+qa-target *args:
+  @node scripts/qa-target.mjs {{args}}
+
 # Fail on a broken `just <recipe>`/`pnpm run <script>`/repo-path reference inside
 # an instruction surface (README/AGENTS.md/skill SKILL.md+references/workflows) —
 # agents follow these files literally, so a stale command or path sends them down
@@ -546,6 +562,18 @@ gate-redproofs *args:
 # package.json owns the membership because the pinned CI image does not include just.
 arch-gate:
   pnpm run check:arch-gate
+
+# Link this checkout's third-party skills (mattpocock/skills — /tdd, /research,
+# /wayfinder, …) from the gitignored .agents/skills/ into .claude/skills/, where
+# Claude Code discovers them. skills-lock.json is the registry of which ones we
+# use; an external installer populates .agents/skills/ per machine, and nothing
+# in this repo fetches them — so this recipe links only what is already present
+# and REPORTS the rest instead of leaving a dangling link behind. The links are
+# gitignored on purpose: MR !207 committed 22 of them, and because .agents/ is
+# gitignored they dangled in every fresh clone and every git worktree. Run it
+# once per checkout; it is idempotent.
+skills-link:
+  @node scripts/skills-link.mjs
 
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).

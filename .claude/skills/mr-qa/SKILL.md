@@ -235,8 +235,12 @@ Both were learned by damaging the user's real data. Brief every leg on both.
    wherever the state is readable from the page. When a check genuinely needs
    real input plumbing (M21: DOM `click()` doesn't fire Svelte 5 handlers), use
    the bridge's `driver_session` or Playwright `page.keyboard` against the same
-   code — not the OS. *(This paragraph is the prohibition itself; a gate
-   scanning instruction surfaces for these tool names should allowlist it.)*
+   code — not the OS. To turn a port or PID into something you may drive at all,
+   use the one sanctioned resolver, `node scripts/qa-target.mjs list|pid|port`:
+   it vets the executable's real path against this repo's worktree list plus the
+   instance's data dir and vault, and exits 3 on anything else. *(This paragraph
+   is the prohibition itself; `scripts/check-qa-input-safety.mjs` enforces it and
+   pins these lines in `scripts/qa-input-safety-allowlist.json`.)*
 2. **Never write into a shared vault.** A leg generates its test vault inside
    its own worktree, under that worktree's `FUTO_NOTES_DATA_DIR`. Never the
    user's real notes directory (M3), and never the machine-global dev
