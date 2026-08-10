@@ -78,6 +78,34 @@ playwright-report/
 .claude/settings.local.json
 .claude/projects/
 
+# Third-party skills from mattpocock/skills, recorded in skills-lock.json and
+# installed into the gitignored .agents/ by an external installer. `just
+# skills-link` symlinks them in per checkout; the links MUST stay untracked —
+# a committed symlink into .agents/ dangles in every fresh clone and worktree,
+# which is exactly how 22 of them shipped broken (MR !207).
+.claude/skills/ask-matt
+.claude/skills/code-review
+.claude/skills/codebase-design
+.claude/skills/diagnosing-bugs
+.claude/skills/domain-modeling
+.claude/skills/grill-me
+.claude/skills/grill-with-docs
+.claude/skills/grilling
+.claude/skills/handoff
+.claude/skills/implement
+.claude/skills/improve-codebase-architecture
+.claude/skills/prototype
+.claude/skills/research
+.claude/skills/resolving-merge-conflicts
+.claude/skills/setup-matt-pocock-skills
+.claude/skills/tdd
+.claude/skills/teach
+.claude/skills/to-spec
+.claude/skills/to-tickets
+.claude/skills/triage
+.claude/skills/wayfinder
+.claude/skills/writing-great-skills
+
 # Local data (SQLite DB + notes)
 data/
 .tauri-data/
@@ -132,8 +160,8 @@ __pycache__/
 # VC++ redistributable, fetched at Windows build time by ci/win-build.ps1
 apps/tauri/src-tauri/redist/
 
-# Agent-tooling skill mirror (synced into the worktree by session tooling)
-.agents/
+# Agent-tooling skill mirror (installed per machine; see `just skills-link`).
+# Already ignored above under "Codex" — kept here so the reason is findable.
 .pnpm-store/
 
 # Scratch verification scripts

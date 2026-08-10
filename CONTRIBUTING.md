@@ -50,6 +50,24 @@ This repo ships shared Claude Code config under `.claude/`:
 - **Shared settings** (`.claude/settings.json`) — a small project permission
   allowlist. Personal overrides go in `.claude/settings.local.json` (gitignored).
 
+### Third-party skills (optional)
+
+`skills-lock.json` records the generic engineering skills we borrow from
+`mattpocock/skills` (`/tdd`, `/research`, `/code-review`, `/wayfinder`, …). They
+are **not vendored here** — an external installer populates the gitignored
+`.agents/skills/`, and then `just skills-link` links them into `.claude/skills/`
+for that checkout. Run it once per clone or worktree; skills it cannot find are
+reported rather than linked.
+
+Never commit those links: `.agents/` is gitignored, so a committed symlink into
+it works only in the checkout that happens to have `.agents/` populated and
+dangles in every fresh clone and `git worktree add`. `just check-agent-docs`
+fails on one. The repo-side adapters these skills read — how they should consume
+our domain docs, our issue tracker, and our triage labels — live in
+`docs/agents/domain.md`, `docs/agents/issue-tracker.md`, and
+`docs/agents/triage-labels.md`, and only apply when the matching skill is
+installed.
+
 ### MCP servers
 
 To drive/debug the running app from Claude Code, copy the example config:
@@ -59,7 +77,7 @@ cp .mcp.json.example .mcp.json   # .mcp.json is gitignored
 ```
 
 This wires up the Tauri MCP bridge (`@hypothesi/tauri-mcp-server`). See
-AGENTS.md §9.
+AGENTS.md §9; the driving playbook is the `/verify` skill's `references/desktop.md`.
 
 ## 5. Sync server (for sync tests only)
 
