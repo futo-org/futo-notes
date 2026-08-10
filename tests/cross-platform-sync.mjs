@@ -648,6 +648,96 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   );
 }
 
+async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
+  // The data-safety promise at the open-note seam, across two real clients: a
+  // dirty local draft meets a peer edit to the same note, and the draft is kept
+  // — never replaced by the pulled bytes — then reaches disk once it can be
+  // persisted (as its own write, a merge, or a conflict copy).
+  //
+  // QA (2026-08-07, sy-04) read a typed line vanishing on iOS as this path
+  // failing. It was not: the line had already been saved and pushed, and the
+  // peer's own whole-file write superseded it before any client reconciled.
+  // This scenario is the standing proof, at the layer both shells share.
+  //
+  // The draft is held dirty the way externalWatcherProtectsDirtyDraftThenSettles
+  // does it — a duplicate title blocks the save — rather than by keeping the
+  // editor focused: CodeMirror's hasFocus() also requires document.hasFocus(),
+  // so a background window's focus is not something a scenario can rely on
+  // (see activeNoteReload). The focused defer -> blur edge is covered
+  // deterministically by createExternalChangeCoordinator.test.ts and the iOS
+  // OpenNoteReconciler suite.
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  // Own the pull ordering explicitly (mirrors activeNoteReload): a background
+  // cycle waking on A's push would race B's owned syncNow, and the open-note
+  // reconcile only runs for the cycle whose summary names the note.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+
+  await a.writeNote('sync taken title', '# Blocking title');
+  await a.writeNote('sync dirty draft', '# Base');
+  await a.syncNow();
+  await b.syncNow();
+  await waitForNoteInSidebar(b, 'sync taken title');
+
+  await b.openNote('sync dirty draft');
+  await waitForEditorContent(b, '# Base');
+
+  // Hold the draft dirty: the duplicate title blocks the save, so the typed
+  // line is still unpersisted when the peer edit arrives.
+  await b.setTitle('sync taken title');
+  await b.flushSave();
+  await waitForSavePending(b, false);
+  await b.typeInEditor('\nLocal draft');
+  const typed = (await b.getOpenNoteState()).editorContent;
+  assert(typed.includes('Local draft'), `B should hold the typed draft, got: ${typed}`);
+
+  await a.writeNote('sync dirty draft', '# Base\nPeer edit');
+  await a.syncNow();
+  const pulled = await b.syncNow();
+  assertEqual(
+    pulled.summary.downloaded,
+    1,
+    `B downloaded=${pulled.summary.downloaded}, expected 1`,
+  );
+
+  // Unsaved work is never replaced: the pulled bytes did not reach the buffer.
+  const kept = await b.getOpenNoteState();
+  assert(
+    kept.editorContent.includes('Local draft'),
+    `the dirty draft must survive the peer edit, got: ${kept.editorContent}`,
+  );
+
+  // Restore a valid title so the kept draft can finally be persisted, and
+  // require it to land on disk.
+  //
+  // What the peer's bytes do at that moment is deliberately NOT asserted here.
+  // KeepDraft rebases the baseline onto the pulled disk content, which makes the
+  // next flush_draft a fast-forward over it rather than the park the rebase was
+  // meant to enable, so the peer edit does not survive on desktop/iOS today
+  // (Android parks a conflict copy instead — docs/spec/sync.md, the KeepDraft
+  // paragraph). Pinning that here would bless it; it is being escalated with the
+  // MR rather than frozen into a scenario.
+  await b.setTitle('sync dirty draft');
+  await b.flushSave();
+  await waitForSavePending(b, false);
+
+  const settled = await b.getOpenNoteState();
+  assert(
+    settled.editorContent.includes('Local draft'),
+    `the settle must not discard the draft, got: ${settled.editorContent}`,
+  );
+  const files = (await b.listNotes()).map((file) => file.filename || file.name || file);
+  const bodies = [];
+  for (const file of files.filter((name) => String(name).endsWith('.md'))) {
+    bodies.push(await b.readNote(String(file).replace(/\.md$/, '')));
+  }
+  assert(
+    bodies.some((body) => body.includes('Local draft')),
+    `the local draft must reach disk once it can be persisted, vault: ${JSON.stringify(bodies)}`,
+  );
+}
+
 async function externalWatcherReloadsCleanNote(a, _b, _server) {
   await a.openNewNote();
   await a.setTitle('watch clean');
@@ -1786,6 +1876,11 @@ const scenarios = [
     fn: externalWatcherProtectsDirtyDraftThenSettles,
     matrices: ['desktop-desktop'],
     skipOnCi: true,
+  },
+  {
+    name: 'dirty draft survives a peer edit then settles',
+    fn: dirtyDraftSurvivesAPeerEditThenSettles,
+    matrices: ['desktop-desktop'],
   },
   { name: 'delete vs edit', fn: deleteVsEdit, matrices: ['desktop-desktop'] },
   {

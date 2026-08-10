@@ -170,6 +170,83 @@ struct OpenNoteReconcilerTests {
         #expect(Array(editor.events.suffix(2)) == ["read:note", "adopt:newer peer"])
     }
 
+    // MARK: - Against the real engine verdict
+
+    /// The blur settle end to end, with the ENGINE deciding: a peer edit lands
+    /// while the editor is focused and clean, the user types before blurring,
+    /// and the settle pass must keep what was typed. The other tests inject a
+    /// verdict, which cannot catch a shell that hands the classifier stale
+    /// facts — the buffer as it was at defer time — so this one asks Rust.
+    ///
+    /// QA read a line vanishing here on 2026-08-07 (sy-04). The line was
+    /// overwritten by a peer's own whole-file write, not by this path, and this
+    /// test is what makes the difference provable rather than argued.
+    @Test("a blur settle keeps work typed since the deferral")
+    func engineSettlesBlurWithoutDiscardingTypedWork() async {
+        let editor = FakeEditor()
+        editor.snapshot.isFocused = true
+        editor.disk = "peer"
+        let reconciler = OpenNoteReconciler()
+
+        let deferred = await reconciler.reconcile(change: .external, effects: editor.effects())
+        #expect(deferred == .deferred)
+        #expect(reconciler.shouldReconcileAfterFocusChange(isFocused: false))
+        #expect(!editor.events.contains("adopt:peer"))
+
+        // Typed between the deferral and the blur: the draft lives only in the
+        // buffer, and the settle pass snapshots its edit epoch AFTER that
+        // typing, so `draft != base` is the only thing protecting it.
+        editor.snapshot.draft = "base typed"
+        editor.snapshot.editVersion += 1
+        editor.snapshot.isFocused = false
+
+        let settled = await reconciler.reconcile(change: .external, effects: editor.effects())
+
+        #expect(settled == .applied)
+        #expect(editor.events.last == "keep:peer:diverged")
+        #expect(editor.snapshot.draft == "base typed")
+        #expect(editor.snapshot.base == "peer")
+        #expect(!editor.events.contains { $0.hasPrefix("adopt:") })
+    }
+
+    /// The same sequence with nothing typed: the deferral was only ever about
+    /// timing, so the peer's bytes arrive in the buffer on blur.
+    @Test("a blur settle adopts the peer content when the draft stayed clean")
+    func engineSettlesBlurWithAdoptWhenClean() async {
+        let editor = FakeEditor()
+        editor.snapshot.isFocused = true
+        editor.disk = "peer"
+        let reconciler = OpenNoteReconciler()
+
+        let deferred = await reconciler.reconcile(change: .external, effects: editor.effects())
+        #expect(deferred == .deferred)
+
+        editor.snapshot.isFocused = false
+        let settled = await reconciler.reconcile(change: .external, effects: editor.effects())
+
+        #expect(settled == .applied)
+        #expect(editor.events.last == "adopt:peer")
+        #expect(editor.snapshot.draft == "peer")
+    }
+
+    /// Persist-or-park at the open-note seam, decided by the engine: a peer
+    /// delete may not close a session holding unsaved work — the draft stays
+    /// open for the flush verb's Recreated arm.
+    @Test("a peer delete under a dirty draft keeps the draft instead of closing")
+    func engineKeepsDraftOverPeerDelete() async {
+        let editor = FakeEditor()
+        editor.snapshot.draft = "mine"
+        editor.disk = nil
+        let reconciler = OpenNoteReconciler()
+
+        let result = await reconciler.reconcile(change: .external, effects: editor.effects())
+
+        #expect(result == .applied)
+        #expect(editor.events.last == "keep:base:peerDeleted")
+        #expect(!editor.events.contains("close"))
+        #expect(editor.snapshot.draft == "mine")
+    }
+
     @Test("rename is followed before the target is classified")
     func followsRenameBeforeDelete() async {
         let editor = FakeEditor()
