@@ -55,6 +55,12 @@ Two environment variables are deliberately **cleared**, and both lessons cost a 
   and `--rsync` excludes it. Honouring what the repo assumes is cheaper than auditing every consumer
   of that variable.
 
+And one is pinned rather than cleared: **`JAVA_HOME`**. Fedora's default JDK is 25, which the pinned
+Gradle 8.14.3 cannot run on — and it says so only as `What went wrong: 25.0.4`, naming neither Java
+nor the constraint, _after_ the Rust `.so` and Kotlin bindings have built fine. `remote-test` picks
+the first installed JDK 21 (then 17) from `GRADLE_JDK_CANDIDATES`; override with
+`$FUTO_REMOTE_JAVA_HOME`, and `just remote-doctor` reports the selection.
+
 `ANDROID_NDK_HOME` is pinned to the `ndkVersion` in `apps/android/app/build.gradle.kts`, read from
 the checkout rather than defaulting to "newest installed". A mismatch between the NDK AGP uses and
 the one `cargo-ndk` builds the Rust `.so` with breaks NDK resolution and makes AGP _silently_ skip
