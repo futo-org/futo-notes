@@ -249,27 +249,29 @@ export class TauriTestClient {
     return this._executeRead(`window.__notesShellTest.getState()`, 'getOpenNoteState');
   }
 
-  // Drive the shell's public focus-change seam through its debug-only hook.
-  // CodeMirror focus wiring has separate component coverage; this keeps the
-  // cross-process disposition scenario independent of the host window manager.
+  // Drive the shell's focus-change seam through its debug-only hook with a
+  // SYNTHETIC focus signal. Real OS focus is not available here: CM6's `hasFocus`
+  // consults `document.hasFocus()`, and a mesh runs two desktop windows at once,
+  // of which at most one can hold focus — so the flag is the only way both
+  // clients can play the focused role in a scenario. What the scenario then
+  // asserts is real: `session.editorFocused` reads this flag, and the deferral,
+  // blur-settle, and adopt decisions downstream of it are production code.
+  //
+  // Not asserted afterwards, deliberately: `setEditorFocused` is awaited and sets
+  // the flag as its first statement, so a poll for `isEditorFocused()` could only
+  // ever pass — and it did, by reading back the write, which is why the hook now
+  // reports REAL editor focus instead. Real click-focus → `onfocuschange` →
+  // `handleEditorFocusChange` is covered where a browser can actually focus a
+  // window (tests/editor-focus-signal.spec.ts); the Android leg exercises the
+  // whole chain with genuine device focus (focusOpenEditor).
   async focusEditor() {
     await this._executeMutation(`window.__notesShellTest.setEditorFocused(true)`, 'focusEditor');
-    await this.waitForCondition(
-      `window.__notesShellTest.isEditorFocused() === true`,
-      5000,
-      'editor focused',
-    );
   }
 
   // Drive the matching blur seam so deferred adoption settles before the
   // scenario reads the editor again.
   async blurEditor() {
     await this._executeMutation(`window.__notesShellTest.setEditorFocused(false)`, 'blurEditor');
-    await this.waitForCondition(
-      `window.__notesShellTest.isEditorFocused() === false`,
-      5000,
-      'editor blurred',
-    );
   }
 
   // The MCP bridge hard-caps every execute_js call at 5s. Reads can retry
