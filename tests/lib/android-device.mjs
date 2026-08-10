@@ -12,7 +12,17 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import net from 'node:net';
 
+import {
+  createTokenSource,
+  describeHookFailure,
+  formatBroadcastExtras,
+  parseHookAck,
+  TEST_HOOK_TAG,
+} from './android/testHooks.mjs';
+
 const POLL_INTERVAL_MS = 500;
+/** A hook body returns promptly — it starts work, it does not finish it. */
+const HOOK_ACK_TIMEOUT_MS = 10_000;
 
 export const DEBUG_PACKAGE = 'com.futo.notes.dev';
 const MAIN_ACTIVITY = `${DEBUG_PACKAGE}/com.futo.notes.MainActivity`;
@@ -53,6 +63,7 @@ export class AndroidDevice {
   constructor(serial) {
     this.serial = serial;
     this.forwardedPorts = [];
+    this.nextHookToken = createTokenSource();
   }
 
   get isEmulator() {
@@ -98,6 +109,36 @@ export class AndroidDevice {
       await sleep(POLL_INTERVAL_MS);
     }
     throw new Error(`timed out after ${timeoutMs}ms waiting for ${description}`);
+  }
+
+  // ── Debug-build hooks ─────────────────────────────────────────
+
+  /**
+   * Run one of the debug build's named hooks (`MainActivity.testHooks`) and wait
+   * for the app's own ack. Returns the fields the hook reported, or null when it
+   * reports none.
+   *
+   * `am broadcast` exits 0 whether or not anything received the intent, so the
+   * ack is the only evidence the hook ran — a release build, or a hook name that
+   * does not exist, therefore fails HERE naming the reason instead of timing out
+   * later on whatever it was supposed to change. The protocol itself lives in
+   * `tests/lib/android/testHooks.mjs`, shared with the storage harness.
+   */
+  async callHook(name, extras = {}, { timeoutMs = HOOK_ACK_TIMEOUT_MS } = {}) {
+    const token = this.nextHookToken();
+    const args = formatBroadcastExtras({ hook: name, token, ...extras });
+    this.shell(`am broadcast ${args}`, { allowFailure: true });
+    const ack = await this.waitFor(`the app to acknowledge the "${name}" hook`, timeoutMs, () =>
+      parseHookAck(
+        this.adb(['logcat', '-d', '-b', 'main', '-s', `${TEST_HOOK_TAG}:I`], {
+          allowFailure: true,
+        }),
+        token,
+      ),
+    );
+    const failure = describeHookFailure(name, ack);
+    if (failure) throw new Error(failure);
+    return ack.detail ? JSON.parse(ack.detail) : null;
   }
 
   // ── Screen reading and tapping ────────────────────────────────

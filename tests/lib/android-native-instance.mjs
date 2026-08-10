@@ -5,8 +5,10 @@
  * shared Rust core (futo-notes-ffi) with the editor in a WebView. It has no MCP
  * bridge and no `window.__testSync` — those are Tauri-desktop only — so this
  * client drives the REAL app the way a user does: Settings → Sync for the
- * session, the note list for navigation, and the editor WebView over CDP for
- * content. That is the point: the Rust sync engine is already covered by the
+ * session, the note list for navigation, the editor WebView over CDP for
+ * content, and the debug build's named hooks (MainActivity.testHooks) where a
+ * step needs the app's own entry point rather than the DOM's (focusOpenEditor).
+ * That is the point: the Rust sync engine is already covered by the
  * desktop legs, and what this exercises is the Android shell glue (FFI session
  * wiring, the live loop across an offline window, the editor's save-and-push
  * chain, and list refresh on a live pull).
@@ -343,16 +345,27 @@ class AndroidNativeSyncClient {
     );
   }
 
+  /**
+   * Focus the editor the way a user's tap does, through the app's own focus
+   * entry point (`EditorWebView.focusEditor`, via the debug `focus-editor` hook).
+   *
+   * Evaluating `window.FutoEditor.focus()` over CDP is only the DOM half, and it
+   * can never succeed: Chromium withholds the focus event while the document
+   * itself is unfocused, so `.cm-focused` stays unset and `document.hasFocus()`
+   * stays false however long the wait is (measured on a foregrounded, accelerated
+   * emulator — this was a missing step, not a slow one). The app's path also does
+   * `webView.requestFocus()`, which is what lets the focus land; both halves have
+   * to run, so the harness calls the app instead of half-reimplementing it.
+   */
   async focusOpenEditor() {
-    await this.#evaluateInEditor(
-      `(() => {
-        window.FutoEditor.focus();
-        return true;
-      })()`,
-    );
+    await this.device.callHook('focus-editor');
     await this.device.waitFor(`${this.name}'s editor to gain focus`, UI_TIMEOUT_MS, () =>
+      // Both halves are asserted: `cm-focused` is CM6's own record of the focus
+      // event, and `document.hasFocus()` is the native focus the DOM-only path
+      // could not get. Either one alone would pass for a half-focused editor.
       this.#evaluateInEditor(
-        `document.querySelector('.cm-editor')?.classList.contains('cm-focused') === true`,
+        `document.querySelector('.cm-editor')?.classList.contains('cm-focused') === true &&
+         document.hasFocus() === true`,
       ),
     );
   }

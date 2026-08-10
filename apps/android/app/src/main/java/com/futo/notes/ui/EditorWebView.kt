@@ -682,12 +682,23 @@ class EditorHost private constructor(appContext: Context) {
         eval("window.FutoEditor && window.FutoEditor.setImageBaseUrl(${JSONObject.quote(base)});")
     }
 
-    private fun focusEditor() {
+    /**
+     * Focus the editor the way the app itself does — BOTH halves, in this order.
+     * The quick-capture open ([attach] with `autoFocus`) is the UI caller; the
+     * debug `focus-editor` hook (MainActivity.testHooks) is the automation one,
+     * so a harness cannot get a weaker focus than a user does.
+     */
+    internal fun focusEditor() {
         // CM6 DOM focus alone does NOT bind Android's IME to the WebView, so a
         // programmatic open (the FAB quick-capture path, where autoFocus routes
         // here instead of a native field) sets the cursor but never raises the
         // soft keyboard — the user has to tap the body to type. Give the WebView
         // native focus, then show the IME. [list.md — quick capture]
+        //
+        // Chromium also WITHHOLDS the DOM focus event while the document itself
+        // is unfocused, so the JS half alone leaves `.cm-focused` unset and
+        // `document.hasFocus()` false however long you wait — measured, not
+        // assumed. The native half below is what lets the pending focus land.
         eval("window.FutoEditor && window.FutoEditor.focus();")
         webView.post {
             webView.requestFocus()
