@@ -152,6 +152,14 @@ pass re-examines every FAIL from a clean state. Over-investigating now defeats
 the point of the two-tier design. Passes and Blocked verdicts still need real
 evidence (a spinner screenshot proves nothing).
 
+**Evidence policy — assert, don't screenshot:** for PASS and BLOCKED verdicts,
+prefer a disk/log/DOM assertion wherever the behavior is verifiable that way —
+flush-and-read the note file, a logcat/os_log line, a CDP or MCP-bridge eval —
+and cite that as the evidence. Take screenshots only for FAIL candidates and
+for stories on the \`settings-visual\` surface (or any story whose spec line is
+inherently visual). Assertions are cheaper AND stronger: screenshots lie on an
+unfocused emulator (AGENTS.md M21); a file read never does.
+
 **Durability — this is the safety net against a session-limit death:** append
 each story's verdict row to the ledger the MOMENT you decide it:
   ${leg.ledger}
