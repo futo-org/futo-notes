@@ -751,8 +751,8 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   > ("Note was deleted during sync") and strands the Android editor on the old
   > id. Scoping the list refresh additionally needs a per-id metadata verb; the
   > engine exposes only whole-vault `scan()` today.
-- **A rename never hides a real update OR deletion of its target.** Summary
-  ghost-stripping removes only the rename's from-side from
+- **A relocation the ENGINE performs never hides a real update OR deletion of
+  its target.** Summary ghost-stripping removes only the rename's from-side from
   `deletedIds`/`peerDeletedIds` (the "delete at the old name" byproduct every
   relocation records); nothing is recorded against the target side, so an id
   recorded there — an update OR a deletion — is always a real, subsequent
@@ -765,9 +765,27 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   close/keep-draft flow instead of leaving the editor bound to a nonexistent
   note. Consequently a relocation records its byproduct against the SOURCE id
   only — the "delete at the old name" plus the rename pair — never a synthetic
-  update against the target. → futo-notes-sync `sync/outcome.rs`
-  `remove_rename_ghost_ids` + `sync/collision_resolution.rs`
-  `move_collision_loser` (guarded by
+  update against the target. This holds for the relocations the engine performs
+  itself — collision placements, mapping relocations, merge-target moves, and
+  paired same-basename local moves — because those keep the note's OBJECT
+  identity across the move (`mapped_name`), so a same-cycle change to the target
+  side still has an object to be reported against. **An `mv` performed outside
+  the app is a different case and is NOT covered.** Pairing there is by CONTENT
+  identity: `derive_renames` pairs an object-map removal with an addition of the
+  same hash (and `detect_local_renames` claims a push-side rename only on same
+  hash AND same basename, i.e. a folder move), so a pure external `mv` does pair
+  and the open editor follows it in place, while an external `mv` PLUS a content
+  change in the same cycle pairs with nothing — there is no surviving identity to
+  pair by, the engine honestly reports a delete at the old id and a create at the
+  new one, and the open editor runs the deleted-during-sync close/keep-draft
+  flow. Verified on device 2026-08-10: pure `mv` → `renamed=["A->A2"]` and the
+  editor followed in place; `mv` + content change → `renamed=[]`,
+  `deletedIds=["B"]` and the editor closed. That is correct engine behavior, not
+  a divergence — it has been filed as a bug twice. → futo-notes-sync
+  `sync/outcome.rs` `remove_rename_ghost_ids` + `derive_renames`,
+  `sync/push/local_changes.rs` `detect_local_renames`,
+  `sync/pull/apply_remote.rs` `relocate_existing_mapping`, and
+  `sync/collision_resolution.rs` `move_collision_loser` (guarded by
   `same_cycle_update_of_a_collision_relocated_note_survives_ghost_stripping`
   and
   `same_cycle_tombstone_of_a_collision_relocated_note_survives_ghost_stripping`
@@ -1113,8 +1131,12 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   because it is dirty or was edited during the running cycle, sync completion
   leaves the editor untouched but re-bases its saved-content baseline to the
   pulled disk content. The draft is therefore honestly dirty again, and the
-  next ordinary `flush_draft` persists it against that pulled base; if disk
-  already equals the editor, the same rebase silently makes the session clean.
+  next ordinary `flush_draft` persists it against that pulled base — which is
+  the data-loss path recorded in the Gap under "One engine verb decides what
+  happens to the open note" below, because persisting against the pulled base
+  overwrites the peer's bytes instead of parking them as a conflict copy; if
+  disk already equals the editor, the same rebase silently makes the session
+  clean.
   Rust live cycles advance their edit epoch only when a completion event
   arrives (synchronously, after that completion snapshots the previous epoch),
   never from an in-cycle start or connect signal: such signals reach the
@@ -1203,9 +1225,13 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   dispositions proved). Two invariants live in the classifier rather than in
   each shell: unsaved work is never replaced (persist-or-park at the open-note
   seam — a peer-deleted note with a draft stays open for the flush verb's
-  Recreated arm), and a verdict that leaves the buffer alone always rebases the
-  baseline onto what is actually on disk, so the next flush is an honest
-  three-way decision instead of a clobber (F2). **A focused editor is never
+  Recreated arm), and a verdict that leaves the buffer alone rebases the
+  baseline onto what is actually on disk (F2). For `Converged` the rebase is the
+  whole story — the baseline was merely stale and disk already holds the draft.
+  For `Diverged` it is the opposite of a safeguard: parking is exactly what
+  `flush_draft` does when `current != base`, so handing it the pulled bytes as
+  the base puts the next flush on its `current == base` fast-forward arm and
+  turns the park INTO a clobber (the Gap below). **A focused editor is never
   interrupted on any surface**: the verdict is `DeferAdopt` and the content is
   applied on the next blur, whether or not that host's adopt could have
   preserved the caret. Host adopt capability is deliberately NOT an input — one
@@ -1215,6 +1241,29 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   `a_dirty_draft_is_never_replaced` and
   `keeping_a_draft_always_rebases_onto_what_is_actually_on_disk`), projected by
   `e2ee_classify_open_note` (desktop) and `classify_open_note` (UniFFI)
+  > **Gap (data loss):** For `Diverged`, `KeepDraft` rebases the baseline onto
+  > the pulled disk content, which makes the next `flush_draft` a FAST-FORWARD
+  > over the peer's bytes rather than the park its doc comment promises: the
+  > flush writes when `current == base`, and the rebase has just made those
+  > equal, so `park_conflict_draft` is unreachable. Desktop runs the same rebase
+  > today in its own copy of the decision (`reconcileSyncCompletion.ts`, the
+  > dirty-or-edited-during-sync branch → `rebaseSavedContent`), so a peer edit
+  > arriving while a desktop draft is dirty is DESTROYED — overwritten by the
+  > draft with NO conflict copy anywhere in the vault. Reproduced between two
+  > real desktop clients 2026-08-10 (a scenario asserting both texts survive
+  > failed on "the peer edit must survive the settle of the local draft").
+  > Android's own copy is correct — it hands `flush_draft` the PRE-pull base, so
+  > the park arm runs and the copy is minted; iOS's copy is written the same way
+  > (`adoptExternalChange`) and reads correct, but was not re-driven on a device
+  > after the desktop loss was found. Desktop's watcher/external-change path
+  > also parks correctly, for the same reason. Left unfixed deliberately: moving
+  > the rebase off the `Diverged` arm changes behavior the lines above record
+  > for all three shells, in the area #82 is already sequencing, so it is
+  > waiting on a sequencing decision. → issue #89;
+  > futo-notes-sync `open_note.rs` (`KeepDraftReason::Diverged`),
+  > futo-notes-store `flush_draft` (`current == base` vs
+  > `park_conflict_draft`), `src/features/sync/reconcileSyncCompletion.ts`
+
   > **Gap:** No shell renders the verb yet — desktop, iOS and Android each
   > still run their own copy of the decision (two of them on desktop, with
   > different toast wording). The verb and both projections landed first so the
