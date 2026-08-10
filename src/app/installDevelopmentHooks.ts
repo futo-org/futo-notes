@@ -8,8 +8,10 @@ import {
 } from '$features/notes/notes.svelte';
 import { installTestSync } from '$features/sync/testSync';
 
+import { testHooksEnabled } from './testHooksEnabled';
+
 export async function installDevelopmentHooks(): Promise<void> {
-  if (!(import.meta.env.DEV || import.meta.env.VITE_INCLUDE_TEST_HOOKS === 'true')) return;
+  if (!testHooksEnabled()) return;
 
   const notes = await getLocalNoteStore();
   Object.assign(window, {

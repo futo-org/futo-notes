@@ -2,6 +2,8 @@ import type { EditorView } from '@codemirror/view';
 
 import type { SyncSummary } from '$features/sync/syncServiceE2ee';
 
+import { testHooksEnabled } from './testHooksEnabled';
+
 interface NotesShellTestState {
   originalId: string | null;
   title: string;
@@ -42,7 +44,15 @@ interface NotesShellTestHook {
 
 type TestHookWindow = typeof window & { __notesShellTest?: NotesShellTestHook };
 
+/**
+ * Expose the shell's seams on `window.__notesShellTest` for the E2E and
+ * cross-platform harnesses — in a dev or opted-in build only. Gated for the same
+ * reason as `installDevelopmentHooks`, and more urgently: `setEditorFocused`
+ * calls production sync code, so in a shipped build this would be a reachable
+ * behavior override, not just an observation point.
+ */
 export function installNotesShellTestHook(options: NotesShellTestHookOptions): () => void {
+  if (!testHooksEnabled()) return () => {};
   const testWindow = window as TestHookWindow;
   testWindow.__notesShellTest = {
     handleSyncComplete: options.handleSyncComplete,
