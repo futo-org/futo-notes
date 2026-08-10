@@ -402,6 +402,50 @@ test-rust-full:
   mkdir -p dist
   cargo test --workspace
 
+# ── Remote (Linux) test execution ──
+# Everything that does NOT need macOS/Xcode/WKWebView runs on a Linux box over
+# Tailscale (default: jfedora, 32 cores / 125 GB / KVM), so the Mac stays free
+# for the iOS and desktop work only it can do. scripts/remote-test.mjs REFUSES
+# macOS-only recipes by name (including via their justfile aliases) rather than
+# trusting a doc to be read, propagates the remote exit status verbatim (M11),
+# and prints the transfer mode + sha every run so a stale remote checkout can't
+# pass for your local work. Flags go BEFORE the recipe; `--rsync` sends the
+# dirty working tree instead of a pushed sha. What a Linux run can and cannot
+# prove (the WebKitGTK/WKWebView boundary): docs/remote-testing.md.
+
+# What is present/missing on the remote, plus the exact commands a human with
+# sudo must run. Start here when adding a second Linux box.
+remote-doctor *flags:
+  node scripts/remote-test.mjs --doctor {{flags}}
+
+# Any portable recipe: `just remote test-full`, `just remote --rsync test-unit`.
+remote *args:
+  node scripts/remote-test.mjs {{args}}
+
+# The pre-merge umbrella. Equivalent to a Mac `just check`: tsc, eslint,
+# prettier, svelte-check, vitest (jsdom), vite build, arch gates, Rust
+# conformance — none of which touch a real web engine.
+remote-check *flags:
+  node scripts/remote-test.mjs {{flags}} check
+
+# Full Rust workspace. The box's 32 cores also make futo-notes-search's
+# CI-only "keyword index never became ready" contention flake vanish.
+remote-rust *flags:
+  node scripts/remote-test.mjs {{flags}} test-rust-full
+
+# Cross-platform E2EE sync against the box's own Postgres + server checkout.
+# Sync state and files are engine-independent; rendering is not (see the doc).
+# The remote worktree lock serialises runs — this suite has no per-worktree
+# port/database isolation, so two at once would collide.
+remote-sync *flags:
+  node scripts/remote-test.mjs {{flags}} test-cross-platform
+
+# Android Rust .so + Kotlin bindings + assembleDebug, then the JVM unit tests.
+# Device/instrumentation legs still need an emulator booted ON the box.
+remote-android *flags:
+  node scripts/remote-test.mjs {{flags}} build-android-native
+  node scripts/remote-test.mjs {{flags}} test-android-native
+
 # Factory: compare our editor to Obsidian's, scenario by scenario.
 # See factory/AGENTS.md.
 factory-judge *args:

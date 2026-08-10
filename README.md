@@ -27,3 +27,11 @@ New here? See [CONTRIBUTING.md](./CONTRIBUTING.md) for machine setup, then
 Run the focused repository architecture checks with `just arch-gate`. See
 [Architecture gates](./docs/architecture-gates.md) for what each check enforces and how to fix a
 failure.
+
+## Testing on Linux over Tailscale
+
+Suites that do not need macOS run on a Linux box (`just remote-check`, `just remote-rust`,
+`just remote-sync`, `just remote-android`, `just remote-doctor`), keeping the Mac free for Xcode and
+the WKWebView desktop app. macOS-only recipes are refused by name. Desktop FUTO Notes runs on
+WebKitGTK there and WKWebView on macOS, so paint, compositing and timing are **not** covered by a
+remote run — see [Remote testing](./docs/remote-testing.md) for the exact boundary.
