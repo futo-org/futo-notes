@@ -22,6 +22,14 @@ isolation rules below are what make that safe.
   `pnpm install`). Claim devices only via `just qa-claim`; export the printed
   `SIM` / `ANDROID_SERIAL` in **every** Bash block that touches a device.
   Never drive a device `just qa-status` shows as owned by another worktree.
+- **Never send OS-level input, never resolve the app by name (M24)**: the
+  user's installed release app runs on this machine on their real vault. Real
+  keystrokes/clicks go to whatever the window server thinks is FOCUSED — not to
+  the process you picked — and every build shares the binary name, so a
+  name/PID match cannot tell release from QA build. On 2026-08-10 that
+  combination sent a real Cmd+Z into the production app. Resolve desktop
+  targets only with `node scripts/qa-target.mjs` (exit 3 = stop) and drive the
+  webview bridge. If the bridge can't do it, the story is BLOCKED.
 - **The spec is the oracle**: `docs/spec/<surface>.md` defines expected
   behavior across all platforms. You verify the app against the spec — not
   against your own taste, and not against the other platform's behavior

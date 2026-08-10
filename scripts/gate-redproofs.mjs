@@ -63,6 +63,7 @@ const GATES = {
   'drift-check': ['node', ['scripts/drift-check.mjs']],
   'debt-ratchet': ['node', ['scripts/debt-ratchet.mjs']],
   'agent-docs': ['node', ['scripts/check-agent-docs.mjs']],
+  'qa-input-safety': ['node', ['scripts/check-qa-input-safety.mjs']],
   'spec-gaps': ['node', ['scripts/spec-gaps.mjs', '--check']],
   'toolbar-spec': ['node_modules/.bin/tsx', ['scripts/gen-toolbar-spec.ts', '--check']],
   'title-spec': ['node_modules/.bin/tsx', ['scripts/gen-title-spec.ts', '--check']],
@@ -368,6 +369,80 @@ const PROOFS = [
     expect: ['README.md', 'src/redproof-sentinel-missing-path.ts — path does not exist'],
     absent: ['no such justfile recipe'],
     fix: 'extractPathCandidate()/makePathExists() in scripts/check-agent-docs.mjs got loose enough to resolve anything — check the fallback chain (gitignore, skill-relative, prefix) for an over-broad match.',
+  },
+  {
+    gate: 'qa-input-safety',
+    id: 'os-input-technique-in-an-instruction-file',
+    seeded: "added the incident's own AppleScript keystroke recipe to README.md",
+    claim:
+      "an instruction surface teaching OS-level input into this app must fail — that recipe put real Cmd+Z into the user's production vault",
+    inject: (wt) =>
+      seed.append(
+        wt,
+        'README.md',
+        '\nSeeded: `osascript -e \'tell application "System Events" to tell (first application ' +
+          'process whose unix id is 4321) to keystroke "z" using {command down}\'`.\n',
+      ),
+    expect: [
+      'README.md',
+      'system-events-ui-scripting',
+      'unix-id-process-lookup',
+      'applescript-keystroke',
+    ],
+    absent: ['stale entry'],
+    fix: 'the RULES table in scripts/check-qa-input-safety.mjs no longer matches the recorded incident shape, or collectInstructionFiles() stopped scanning README.md. Agents follow these files literally — this exact recipe is how a QA agent reached /Applications/FUTO Notes.app on the real vault (M24).',
+  },
+  {
+    gate: 'qa-input-safety',
+    id: 'process-name-lookup-against-the-app',
+    seeded: 'added a `pgrep -f "futo-notes-tauri"` lookup to README.md',
+    claim: 'a name/PID lookup against a binary name every build shares must fail',
+    inject: (wt) =>
+      seed.append(wt, 'README.md', '\nSeeded: `PID=$(pgrep -f "futo-notes-tauri" | tail -1)`.\n'),
+    expect: ['README.md', 'app-process-name-lookup', 'qa-target.mjs'],
+    absent: ['system-events-ui-scripting'],
+    fix: 'the app-process-name-lookup rule stopped firing. Without it an instruction file can again teach a lookup that cannot distinguish the installed release app from a QA build.',
+  },
+  {
+    gate: 'qa-input-safety',
+    id: 'new-occurrence-in-an-allowlisted-file',
+    seeded: 'added a fresh `cliclick` line to AGENTS.md, which has a pinned cliclick exception',
+    claim:
+      'the allowlist pins EXACT lines, so a new occurrence in an allowlisted file is still a violation',
+    inject: (wt) => seed.append(wt, 'AGENTS.md', '\nSeeded: `cliclick c:400,300` on the app.\n'),
+    expect: ['AGENTS.md', 'cliclick', 'cliclick c:400,300'],
+    absent: ['stale entry'],
+    fix: 'applyAllowlist() in scripts/check-qa-input-safety.mjs went from pinning exact lines to whitelisting whole files — which would let the banned technique back into the very files that document the ban.',
+  },
+  {
+    gate: 'qa-input-safety',
+    id: 'stale-allowlist-entry',
+    seeded: 'pinned a line to scripts/qa-input-safety-allowlist.json that appears nowhere',
+    claim: 'a pinned exception that no longer exists must fail, so the allowlist cannot rot',
+    inject: (wt) =>
+      seed.json(wt, 'scripts/qa-input-safety-allowlist.json', (data) => {
+        data.allowed['README.md'] = [
+          { rule: 'cliclick', line: 'redproof-sentinel-cliclick-line', reason: 'seeded' },
+        ];
+      }),
+    expect: ['stale entry for README.md', 'redproof-sentinel-cliclick-line'],
+    fix: 'the stale-entry pass of applyAllowlist() stopped firing — an allowlist that never expires quietly grows permission for techniques nobody re-reviewed.',
+  },
+  {
+    gate: 'qa-input-safety',
+    id: 'relative-newermt-safety-check',
+    seeded: 'added a `find … -newermt "-24 hours"` vault check to README.md',
+    claim:
+      'a relative -newermt check must fail: on BSD/macOS it matches nothing silently, so it reports an all-clear it never performed',
+    inject: (wt) =>
+      seed.append(
+        wt,
+        'README.md',
+        '\nSeeded: `find ~/Documents/futo-notes -newermt "-24 hours"`.\n',
+      ),
+    expect: ['README.md', 'relative-newermt', 'touch -t'],
+    absent: ['cliclick'],
+    fix: "the relative-newermt rule stopped firing. This is the check that produced the incident's false all-clear on the user's vault — a safety check that cannot fail is worse than none.",
   },
   {
     gate: 'spec-gaps',

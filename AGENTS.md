@@ -130,6 +130,10 @@ These are observed failures, not generic advice.
 - **M23 — Updater signing order.** The detached `.sig` must be the LAST touch on artifact bytes —
   after patching/notarization/Authenticode. Read updater docs and `keys/README.md`; localdev
   signatures must never verify in production.
+- **M24 — QA input hit the production app.** OS-level input (AppleScript UI scripting, `cliclick`)
+  goes to the FOCUSED window, and every build shares the binary name — so a name/PID lookup sent
+  real keystrokes into the user's live vault. Resolve any desktop QA target ONLY through
+  `scripts/qa-target.mjs`, and drive the webview bridge, never the window server.
 
 ## 7. Quality bar per deliverable
 

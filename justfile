@@ -522,6 +522,22 @@ check-drift:
 check-debt-ratchet:
   node scripts/debt-ratchet.mjs
 
+# Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents) teaches
+# OS-level input into this app (AppleScript UI scripting, click injection), a
+# process-name/PID lookup against it, or a relative `find -newermt` safety check.
+# 2026-08-10: a QA agent drove the INSTALLED release app on the user's real vault
+# that way. Rationale + the allowlist contract: scripts/check-qa-input-safety.mjs.
+check-qa-input-safety:
+  node scripts/check-qa-input-safety.mjs
+
+# Resolve a desktop QA target safely: the ONLY sanctioned way to turn a port or
+# PID into something you may drive. Verifies the executable is a debug build
+# inside THIS worktree (plus its data dir and vault) and exits 3 on anything
+# else — emphatically an installed application bundle.
+#   just qa-target list | pid <pid> | port <port> | kill
+qa-target *args:
+  @node scripts/qa-target.mjs {{args}}
+
 # Fail on a broken `just <recipe>`/`pnpm run <script>`/repo-path reference inside
 # an instruction surface (README/AGENTS.md/skill SKILL.md+references/workflows) —
 # agents follow these files literally, so a stale command or path sends them down
