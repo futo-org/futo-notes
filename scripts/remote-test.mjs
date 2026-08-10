@@ -219,8 +219,11 @@ export function remoteEnvPreamble({ ndkVersion }) {
     'export ANDROID_SDK_ROOT="$ANDROID_HOME"',
     `export ANDROID_NDK_HOME="\${FUTO_REMOTE_NDK:-$ANDROID_HOME/ndk/${ndkVersion}}"`,
     `export CARGO_TARGET_DIR="${REMOTE_CARGO_TARGET_DIR}"`,
-    // CI-shaped: no interactive prompts, no colour surprises in captured logs.
-    'export CI=""',
+    // Deliberately NOT setting CI: `cargo tauri build` maps its `--ci` flag to
+    // $CI, and an EMPTY CI makes clap reject the run ("a value is required for
+    // '--ci'"). This broke `just remote-sync` before it was caught. vitest also
+    // caps workers under CI, which would throw away the box's 32 cores.
+    'unset CI',
   ].join('\n');
 }
 

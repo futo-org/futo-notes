@@ -164,6 +164,15 @@ describe('remote environment', () => {
     expect(preamble).toContain(`export CARGO_TARGET_DIR="${REMOTE_CARGO_TARGET_DIR}"`);
   });
 
+  it('never exports CI', () => {
+    // An empty CI makes `cargo tauri build` refuse to start ('a value is
+    // required for --ci'), which broke `just remote-sync`; a truthy CI would
+    // cap vitest to 4 workers and waste the box's 32 cores.
+    const preamble = remoteEnvPreamble({ ndkVersion: '28.2.13676358' });
+    expect(preamble).toContain('unset CI');
+    expect(preamble).not.toMatch(/export CI=/);
+  });
+
   it('pins ANDROID_NDK_HOME to the NDK gradle is pinned to, not "newest installed"', () => {
     // build.gradle.kts: a mismatch between ndkVersion and the NDK cargo-ndk
     // uses breaks NDK resolution and silently skips stripping.
