@@ -370,6 +370,16 @@ class AndroidNativeSyncClient {
     );
   }
 
+  /** Does the editor REALLY hold focus right now — CM6's own class plus the
+   *  native focus behind it? Lets a scenario distinguish "the shell reported a
+   *  blur" from "the editor was blurred". */
+  async isOpenEditorFocused() {
+    return this.#evaluateInEditor(
+      `document.querySelector('.cm-editor')?.classList.contains('cm-focused') === true &&
+       document.hasFocus() === true`,
+    );
+  }
+
   /** Blur needs no hook: `EditorHost.blur()` — the toolbar's dismiss chevron —
    *  is exactly this `FutoEditor.blur()` eval and nothing else, so the DOM half
    *  IS the app's whole path here (contrast focusOpenEditor). */
@@ -395,6 +405,15 @@ class AndroidNativeSyncClient {
 
   openNoteDispositionCursor() {
     return this.#openNoteDispositionLogs().length;
+  }
+
+  /** Every disposition the shell has rendered since `cursor`, newest last —
+   *  what lets a scenario assert a settle happened EXACTLY once rather than
+   *  merely at least once. `disposition` filters by kind when given. */
+  openNoteDispositionsSince(cursor, disposition = null) {
+    const lines = this.#openNoteDispositionLogs().slice(cursor);
+    if (!disposition) return lines;
+    return lines.filter((line) => line.includes(`disposition=${disposition} `));
   }
 
   /** Wait for the debug build's observation-only signal that the Android shell

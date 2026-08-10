@@ -128,14 +128,28 @@ export class AndroidDevice {
     const token = this.nextHookToken();
     const args = formatBroadcastExtras({ hook: name, token, ...extras });
     this.shell(`am broadcast ${args}`, { allowFailure: true });
-    const ack = await this.waitFor(`the app to acknowledge the "${name}" hook`, timeoutMs, () =>
-      parseHookAck(
-        this.adb(['logcat', '-d', '-b', 'main', '-s', `${TEST_HOOK_TAG}:I`], {
-          allowFailure: true,
-        }),
-        token,
-      ),
-    );
+    let ack;
+    try {
+      ack = await this.waitFor(`the app to acknowledge the "${name}" hook`, timeoutMs, () =>
+        parseHookAck(
+          this.adb(['logcat', '-d', '-b', 'main', '-s', `${TEST_HOOK_TAG}:I`], {
+            allowFailure: true,
+          }),
+          token,
+        ),
+      );
+    } catch (error) {
+      // Say WHY nothing answered. An unreached broadcast otherwise reads as a
+      // hung app, and the two real causes have different fixes.
+      const alive = this.shell(`pidof ${DEBUG_PACKAGE}`, { allowFailure: true }).trim();
+      throw new Error(
+        `${error.message} — ${
+          alive
+            ? `${DEBUG_PACKAGE} is running but registered no hook: is this a DEBUG build?`
+            : `${DEBUG_PACKAGE} is not running`
+        }`,
+      );
+    }
     const failure = describeHookFailure(name, ack);
     if (failure) throw new Error(failure);
     return ack.detail ? JSON.parse(ack.detail) : null;
