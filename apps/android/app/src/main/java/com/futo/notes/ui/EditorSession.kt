@@ -280,15 +280,28 @@ internal class EditorSession(
      * Settle the one deferred clean adoption after body-editor blur. Deferred
      * state lives here rather than in Compose so a later unrelated sync cannot
      * accidentally adopt it, and a rename/navigation drops it by identity.
+     *
+     * The deferral is read INSIDE the lock. The blur edge is not synchronised
+     * with the cycle that produces the deferral — a reconciliation suspends on
+     * its disk read while holding this lock, and the user can blur in that
+     * window — so reading it first made such a settle pass see "nothing
+     * deferred" and return, stranding the peer's content: there is no second
+     * blur edge to retry on. Taking the lock first IS waiting for that cycle,
+     * after which the fresh deferral is visible.
      */
-    suspend fun settleDeferredAdoption(effects: OpenNoteEffects): OpenNoteDisposition? {
-        val deferredId = deferredAdoptionId ?: return null
-        if (effects.currentNoteId() != deferredId) {
-            deferredAdoptionId = null
-            return null
+    suspend fun settleDeferredAdoption(effects: OpenNoteEffects): OpenNoteDisposition? =
+        runWork {
+            val deferredId = deferredAdoptionId
+            when {
+                deferredId == null -> null
+                effects.currentNoteId() != deferredId -> {
+                    deferredAdoptionId = null
+                    null
+                }
+
+                else -> reconcilePass(deferredId, effects)
+            }
         }
-        return runWork { reconcilePass(deferredId, effects) }
-    }
 
     private suspend fun reconcilePass(
         expectedId: String,

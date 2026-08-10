@@ -824,11 +824,12 @@ fun NoteEditorScreen(
             // Native markdown toolbar [editor.md]: rendered from the generated
             // ToolbarSpec.kt manifest, docked above the soft keyboard by this
             // Column's imePadding. Gated on focus AND the IME actually being
-            // up — the WebView can report a stale focus without the keyboard
-            // (DOM focus parks on cm-content while the view itself is
-            // unfocused), and the bar should track the keyboard exactly like
-            // iOS's inputAccessoryView. Exec items dispatch into the SHARED
-            // markdownToolbar.ts commands — no editing logic in Kotlin.
+            // up: the bar is docked to the keyboard, so it tracks the keyboard
+            // exactly like iOS's inputAccessoryView rather than tracking focus
+            // alone (the two can legitimately differ — a hardware keyboard, or
+            // the frame in which the IME is still animating). Exec items dispatch
+            // into the SHARED markdownToolbar.ts commands — no editing logic in
+            // Kotlin.
             if (host.editorFocused && WindowInsets.isImeVisible) {
                 EditorToolbar(
                     onListLine = host.onListLine,
