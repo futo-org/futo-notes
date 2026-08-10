@@ -47,6 +47,11 @@ MRs) without collisions, because every shared resource is keyed on the
 - The worktree path hashes to a **slot**; the slot derives ports, the pooled
   device, and the sync server + its database. Nothing needs a registry to
   stay "free" — no other session will ever target your slot's resources.
+- **The one thing NOT keyed on the worktree** is the user's installed release
+  app: same binary name as every dev build, running on their real vault, and
+  reachable by any OS-level input you send (which goes to the focused window,
+  not to a process). Resolve desktop targets only via
+  `node scripts/qa-target.mjs` — see `references/desktop.md` and M24.
 
 Shell variables don't persist between Bash tool calls — **re-compute these at
 the start of any block that needs them**. `scripts/lib/slot.mjs` owns the
