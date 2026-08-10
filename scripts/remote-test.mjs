@@ -71,6 +71,8 @@ export function cargoTargetDirFor(recipe, remoteDir) {
 // Distinguishable from any suite's own failure: the run never started.
 export const EXIT_REFUSED = 2;
 export const EXIT_LOCKED = 75; // EX_TEMPFAIL
+// The remote checkout moved mid-run: the result is void, not a test failure.
+export const EXIT_MOVED = 76;
 
 // ---------------------------------------------------------------------------
 // Policy: what may and may not run on a Linux box
@@ -262,6 +264,7 @@ export function buildRunScript({
   recipeArgs = [],
   holder,
   forceLock,
+  waitSeconds = 0,
   ndkVersion,
 }) {
   const lockDir = `${remoteDir}.lock`;
@@ -273,11 +276,9 @@ ${remoteEnvPreamble({ ndkVersion, cargoTargetDir: cargoTargetDirFor(recipe, remo
 REMOTE_DIR="${remoteDir}"
 SOURCE_REPO="${sourceRepo}"
 LOCK_DIR="${lockDir}"
+WAIT_SECS=${waitSeconds}
 
-${forceLock ? 'rm -rf "$LOCK_DIR"' : ''}
-mkdir -p "$(dirname "$LOCK_DIR")"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  echo "remote-test: the remote worktree is already in use:" >&2
+show_holder() {
   # Redirections apply left to right, so silencing stderr BEFORE aiming stdout
   # at it points fd1 into the void and swallows the holder — the one thing a
   # blocked user needs. Test it, don't remember it.
@@ -286,9 +287,30 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   else
     echo "    (lock dir exists but has no holder file — probably stale)" >&2
   fi
-  echo "  Wait for it, or break the lock with --force-lock if you know it is stale." >&2
-  exit ${EXIT_LOCKED}
-fi
+}
+
+${forceLock ? 'rm -rf "$LOCK_DIR"' : ''}
+mkdir -p "$(dirname "$LOCK_DIR")"
+# mkdir is the atomic primitive (no flock dependency, works over plain ssh).
+DEADLINE=$(( $(date +%s) + WAIT_SECS ))
+ANNOUNCED=0
+while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+  if [ "$ANNOUNCED" -eq 0 ]; then
+    echo "remote-test: the remote worktree is already in use:" >&2
+    show_holder
+    ANNOUNCED=1
+  fi
+  if [ "$WAIT_SECS" -eq 0 ] || [ "$(date +%s)" -ge "$DEADLINE" ]; then
+    if [ "$WAIT_SECS" -eq 0 ]; then
+      echo "  Re-run with --wait to queue behind it, or --force-lock if it is stale." >&2
+    else
+      echo "  Still locked after ${'$'}{WAIT_SECS}s — giving up." >&2
+    fi
+    exit ${EXIT_LOCKED}
+  fi
+  echo "  waiting for it to finish (up to ${'$'}{WAIT_SECS}s)..." >&2
+  sleep 10
+done
 printf '%s\\n' ${shQuote(holder)} > "$LOCK_DIR/holder"
 trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM HUP
 
@@ -308,15 +330,36 @@ git -c advice.detachedHead=false checkout --force --detach ${shQuote(sha)}`
     : `echo "==> rsync mode: using the tree rsync just pushed (local HEAD ${sha})"`
 }
 
+# The lock only binds users who go through remote-test. A human (or an agent)
+# who cd's into the worktree and checks out something else corrupts the run in a
+# way that looks EXACTLY like a real test failure — it happened: a concurrent
+# main-health check reported 5 phantom failures and two "Cannot find module"
+# suites purely because HEAD moved underneath it. So pin HEAD now and re-check
+# it after, turning that class of corruption into an explicit error.
+HEAD_BEFORE="$(git rev-parse HEAD)"
+${
+  mode === 'git'
+    ? `if [ "$HEAD_BEFORE" != ${shQuote(sha)} ]; then
+  echo "remote-test: FATAL — checkout landed on $HEAD_BEFORE, not the requested ${sha}." >&2
+  exit ${EXIT_MOVED}
+fi`
+    : ''
+}
+
 # pnpm install only when the lockfile actually moved: it is 40s that most runs
-# do not need, and skipping it silently would be worse than paying it.
+# do not need, and skipping it silently would be worse than paying it. The stamp
+# lives OUTSIDE the checkout so it can never dirty the tree or confuse a
+# \`git status\` check.
+STAMP_DIR="$HOME/.cache/futo-remote-test"
+mkdir -p "$STAMP_DIR"
+STAMP="$STAMP_DIR/pnpm-lock-$(basename "$REMOTE_DIR")"
 LOCK_HASH="$(sha256sum pnpm-lock.yaml | cut -d' ' -f1)"
-STAMP=".remote-test-pnpm-lock-hash"
 if [ ! -d node_modules ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$LOCK_HASH" ]; then
   echo "==> pnpm install (lockfile changed or node_modules missing)"
   pnpm install
   printf '%s\\n' "$LOCK_HASH" > "$STAMP"
 fi
+rm -f .remote-test-pnpm-lock-hash  # legacy in-tree stamp; do not leave it lying around
 
 # M20: cargo needs a repo-root dist/ to exist.
 mkdir -p dist
@@ -331,6 +374,15 @@ just ${justArgs}
 STATUS=$?
 set -e
 echo "───────────────────── just ${recipe} exited $STATUS ─────────────────────"
+
+HEAD_AFTER="$(git rev-parse HEAD)"
+if [ "$HEAD_BEFORE" != "$HEAD_AFTER" ]; then
+  echo "remote-test: FATAL — $REMOTE_DIR moved from $HEAD_BEFORE to $HEAD_AFTER DURING the run." >&2
+  echo "  Something outside remote-test checked this worktree out mid-suite, so the result above" >&2
+  echo "  is VOID — do not read it as a pass or a failure." >&2
+  echo "  $REMOTE_DIR is the runner's own working area; drive it only through remote-test." >&2
+  exit ${EXIT_MOVED}
+fi
 exit $STATUS
 `;
 }
@@ -516,6 +568,7 @@ export function parseCliArgs(argv) {
     remoteDir: process.env.FUTO_REMOTE_DIR || DEFAULT_REMOTE_DIR,
     sourceRepo: process.env.FUTO_REMOTE_REPO || DEFAULT_SOURCE_REPO,
     forceLock: false,
+    waitSeconds: 0,
     help: false,
     recipe: null,
     recipeArgs: [],
@@ -540,6 +593,9 @@ export function parseCliArgs(argv) {
       case '--force-lock':
         opts.forceLock = true;
         break;
+      case '--wait':
+        opts.waitSeconds = 1800;
+        break;
       case '--host':
         opts.host = argv[++i];
         break;
@@ -553,11 +609,37 @@ export function parseCliArgs(argv) {
       case '--help':
         opts.help = true;
         break;
-      default:
+      default: {
+        // --wait=600 / --host=box, alongside the space-separated forms.
+        const eq = arg.indexOf('=');
+        if (eq > 0) {
+          const [flag, value] = [arg.slice(0, eq), arg.slice(eq + 1)];
+          if (flag === '--wait') {
+            const seconds = Number(value);
+            if (!Number.isInteger(seconds) || seconds < 0) {
+              throw new Error(`--wait takes a whole number of seconds, got '${value}'`);
+            }
+            opts.waitSeconds = seconds;
+            break;
+          }
+          if (flag === '--host') {
+            opts.host = value;
+            break;
+          }
+          if (flag === '--user') {
+            opts.user = value;
+            break;
+          }
+          if (flag === '--dir') {
+            opts.remoteDir = value;
+            break;
+          }
+        }
         throw new Error(
           `unknown option '${arg}'. Options must come BEFORE the recipe name; ` +
             `everything after it is passed to \`just\`.`,
         );
+      }
     }
   }
   if (i < argv.length) {
@@ -578,10 +660,15 @@ Options (must precede the recipe name):
   --host H           default $FUTO_REMOTE_HOST or '${DEFAULT_HOST}' (falls back to ${FALLBACK_HOSTS[0]})
   --user U           default $FUTO_REMOTE_USER or '${DEFAULT_USER}'
   --dir PATH         remote worktree, default $FUTO_REMOTE_DIR or '${DEFAULT_REMOTE_DIR}'
+  --wait[=SECONDS]   queue behind a run in progress instead of failing (default 1800s)
   --force-lock       break a stale remote worktree lock
 
 Exit status is the remote command's own. ${EXIT_REFUSED} = refused before running,
-${EXIT_LOCKED} = the remote worktree was locked by another run.
+${EXIT_LOCKED} = the remote worktree was locked by another run, ${EXIT_MOVED} = the remote
+checkout moved mid-run, so the result is void rather than a real failure.
+
+The remote worktree is the runner's OWN working area. Do not cd into it and run
+suites by hand: that bypasses the lock and produces phantom failures.
 
 The justfile wrappers (\`just remote-check\`, \`just remote-rust\`, \`just remote-sync\`,
 \`just remote-android\`, \`just remote-doctor\`, \`just remote <recipe>\`) are the
@@ -775,6 +862,7 @@ function main() {
     recipeArgs: opts.recipeArgs,
     holder,
     forceLock: opts.forceLock,
+    waitSeconds: opts.waitSeconds,
     ndkVersion,
   });
 
@@ -786,12 +874,25 @@ function main() {
   });
 
   const status = run.status ?? 1;
-  // A lock rejection is not a suite result — calling it FAIL would read as
-  // "the tests failed" when they never ran.
-  const outcome = status === 0 ? 'PASS' : status === EXIT_LOCKED ? 'BLOCKED' : 'FAIL';
+  // Neither a lock rejection nor a moved checkout is a suite result — calling
+  // either FAIL would read as "the tests failed" when they never ran, or ran
+  // against a tree that changed underneath them.
+  const outcome =
+    status === 0
+      ? 'PASS'
+      : status === EXIT_LOCKED
+        ? 'BLOCKED'
+        : status === EXIT_MOVED
+          ? 'VOID'
+          : 'FAIL';
   console.log(
     `\n[remote-test] ${outcome} — just ${verdict.recipe} on ${target} at ${label} (${opts.mode} mode), exit ${status}`,
   );
+  if (status === EXIT_MOVED) {
+    console.log(
+      '[remote-test] the remote checkout changed mid-run: the result above proves nothing. Re-run.',
+    );
+  }
   if (run.signal) console.log(`[remote-test] ssh terminated by signal ${run.signal}`);
   if (status === 0 && verdict.caveats.length > 0) {
     console.log('[remote-test] green here does NOT cover the caveats printed above.');

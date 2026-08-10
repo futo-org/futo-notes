@@ -113,18 +113,46 @@ this tool invites is trusting a stale remote checkout.
 `node_modules` is absent) — 40 seconds most runs do not need, and skipping it _silently_ would be
 worse than paying it.
 
-## Exit status and the lock
+## Exit status, the lock, and phantom failures
 
-The remote status is propagated verbatim and never piped (**M11** — no silent green). Two codes mean
-the suite never ran: **2** refused, **75** the remote worktree was locked.
+The remote status is propagated verbatim and never piped (**M11** — no silent green). Three codes
+mean the run produced no verdict at all:
 
-Runs take an exclusive lock on the remote worktree (`~/ci/futo-main.lock`, released by a shell trap
-on `EXIT INT TERM HUP`). Two people targeting the same box would otherwise `git checkout` under each
-other, and `test:cross-platform` has no per-worktree isolation at all — it uses the box-global
-Postgres and a fixed server-port counter starting at 4000 (a known papercut). On a dedicated box
-that lack of isolation is fine _because_ the lock makes runs serial. A blocked run reports who holds
-the lock, from which machine and worktree, since when, and for which recipe; `--force-lock` breaks it
-deliberately. Anyone who bypasses `remote-test` and ssh's in by hand bypasses the lock too.
+| exit | meaning                                                                               |
+| ---- | ------------------------------------------------------------------------------------- |
+| `2`  | refused before any network call (macOS-only recipe, unknown recipe, unpushed sha)     |
+| `75` | the remote worktree was locked by another run — `BLOCKED`, not `FAIL`                 |
+| `76` | the remote checkout **moved mid-run** — `VOID`; the suite output above proves nothing |
+
+**`~/ci/futo-main` is the runner's own working area. Do not `cd` into it and run suites by hand.**
+This is not tidiness. Two users of one checkout corrupt _both_ runs, and the corruption is
+indistinguishable from a real regression: a concurrent main-health check on that worktree reported
+five phantom test failures and two `Cannot find module` suites for files that exist at one sha and
+not the other, and very nearly got reported as a broken `main`. A test runner that manufactures
+false red is worse than no runner.
+
+Three defences, in order of how much they can actually promise:
+
+1. **An exclusive lock** around checkout-plus-run — `mkdir` on `~/ci/futo-main.lock` as the atomic
+   primitive (no `flock` dependency, works over plain ssh), released by a shell trap on
+   `EXIT INT TERM HUP`. A blocked run names who holds it, from which machine and worktree, since
+   when, and for which recipe. Default is fail fast; `--wait[=SECONDS]` queues behind the holder;
+   `--force-lock` breaks a lock you know is stale. Silently proceeding is not an option.
+2. **Sha verification before and after the run.** Git mode asserts the checkout landed on the sha it
+   asked for, and both modes re-read `HEAD` after the suite finishes and exit `76` if it moved. This
+   is the defence that covers what the lock cannot: anyone bypassing `remote-test` entirely. It
+   converts silent corruption into a loud, specific error.
+3. **Serialisation as isolation.** `test:cross-platform` has no per-worktree isolation of its own —
+   box-global Postgres, fixed server-port counter from 4000 (a known papercut). On a dedicated box
+   that is fine _because_ the lock makes runs serial, and better than the alternative: a
+   per-invocation worktree would need its own `node_modules` (a ~40s `pnpm install` and a real disk
+   cost per sha) while _still_ sharing the box's one Postgres and port range, so it would trade the
+   contention this tool already detects for contention it could not see. If concurrency demand ever
+   justifies it, the honest version is per-slot worktrees plus per-slot databases and ports, i.e.
+   what `just qa-claim` already does for devices — not a bare `git worktree` per sha.
+
+Bookkeeping (the `pnpm install` stamp) lives in `~/.cache/futo-remote-test/`, never inside the
+checkout, so it cannot dirty the tree or confuse a `git status` check.
 
 ## Android
 
@@ -138,6 +166,15 @@ because the QA tooling assumes a _local_ `adb`: `just qa-claim`, `just android-d
 machine-global. Wiring that up (an adb server reachable over the tailnet, or running the drive
 scripts on the box) is the natural follow-up, and the payoff is large. Until then, keep device QA on
 the Mac and use the box for build + unit legs.
+
+## Reading the timings
+
+Setup dominates the short suites. `pnpm run test:full` on the box is roughly **3 seconds of test
+time inside ~25 seconds of environment setup** (ssh, `git fetch`, the vitest/jsdom boot). A run that
+looks stalled for twenty seconds is almost certainly setting up, not hung — check the streamed
+`==>` lines before concluding anything. The measured end-to-end numbers so far, for calibration:
+`test-rust` ~10s, `test-unit` ~30s, `test-cross-platform` 199s for 32/32 scenarios (of which 148s is
+scenarios and 51s is the single `large sync` case).
 
 ## Known gaps
 

@@ -9,6 +9,7 @@ import {
   DEFAULT_HOST,
   DEFAULT_USER,
   EXIT_LOCKED,
+  EXIT_MOVED,
   EXIT_REFUSED,
   REFUSED,
   REMOTE_CARGO_TARGET_DIR,
@@ -231,6 +232,41 @@ describe('run script', () => {
     // `2>/dev/null >&2` points fd1 at /dev/null (redirections apply left to
     // right) and silently ate the holder details the first time round.
     expect(script).not.toMatch(/2>\/dev\/null\s+>&2/);
+  });
+
+  it('fails a run whose checkout moved underneath it, instead of reporting the suite result', () => {
+    // A concurrent main-health check that cd'd into the worktree by hand
+    // produced 5 phantom test failures and two "Cannot find module" suites,
+    // because HEAD moved mid-run. The lock cannot bind someone who bypasses
+    // remote-test, so the sha is verified before AND after.
+    const script = runScript();
+    expect(script).toContain('HEAD_BEFORE="$(git rev-parse HEAD)"');
+    expect(script).toContain('HEAD_AFTER="$(git rev-parse HEAD)"');
+    expect(script).toContain('if [ "$HEAD_BEFORE" != "$HEAD_AFTER" ]; then');
+    expect(script).toContain(`exit ${EXIT_MOVED}`);
+    // ...and the void exit must not be confusable with the suite's own status.
+    expect(EXIT_MOVED).not.toBe(EXIT_LOCKED);
+    expect(EXIT_MOVED).not.toBe(EXIT_REFUSED);
+  });
+
+  it('git mode also verifies the checkout landed on the sha it asked for', () => {
+    const script = runScript({ mode: 'git', sha: 'deadbeef1' });
+    expect(script).toContain(`if [ "$HEAD_BEFORE" != 'deadbeef1' ]; then`);
+  });
+
+  it('keeps its pnpm stamp outside the checkout so it cannot dirty the tree', () => {
+    const script = runScript();
+    expect(script).toContain('STAMP_DIR="$HOME/.cache/futo-remote-test"');
+    expect(script).not.toMatch(/STAMP="\.remote-test/);
+    // and cleans up the old in-tree stamp it used to leave behind
+    expect(script).toContain('rm -f .remote-test-pnpm-lock-hash');
+  });
+
+  it('fails fast by default and queues only when asked', () => {
+    expect(runScript()).toContain('WAIT_SECS=0');
+    expect(runScript({ waitSeconds: 600 })).toContain('WAIT_SECS=600');
+    // The wait is a bounded loop around the atomic mkdir, not a sleep-then-hope.
+    expect(runScript({ waitSeconds: 600 })).toContain('while ! mkdir "$LOCK_DIR"');
   });
 
   it('only breaks the lock when explicitly asked', () => {
