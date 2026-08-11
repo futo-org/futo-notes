@@ -45,10 +45,11 @@ struct FutoNotesApp: App {
                 // cold-launch auto-reconnect from the stored password so live
                 // sync resumes after a force-quit without re-entering it.
                 .task {
-                    // A live pull rewrote the vault: reload the list AND rescan
-                    // the search index (remote edits bypass the per-mutation
-                    // notify* calls).
-                    sync.onLivePull = { store.liveDataChanged() }
+                    // Project exactly the ids a completed cycle changed, then
+                    // hand the same lossless summary to the open editor.
+                    sync.onLocalTreeChanged = { summary in
+                        store.localTreeChanged(summary)
+                    }
                     // Auto-push local edits: every NotesStore mutation signals
                     // the live loop, which debounces and pushes to peers (no-op
                     // when not connected). Mirrors Android's MainActivity wiring.

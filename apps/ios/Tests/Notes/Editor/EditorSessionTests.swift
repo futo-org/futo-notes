@@ -91,6 +91,34 @@ struct EditorSessionTests {
         )
     }
 
+    @Test("cancel-and-drain waits for an admitted save to settle")
+    func cancelAndDrainWaitsForSave() async {
+        let session = EditorSession()
+        let recorder = Recorder()
+        let started = Signal()
+        let release = Signal()
+
+        session.schedule(.save) {
+            started.set()
+            await release.wait()
+            recorder.append("save settled")
+            return true
+        }
+        await started.wait()
+
+        let drain = Task { @MainActor in
+            await session.cancelAndDrain(.save)
+            recorder.append("drain returned")
+        }
+        await Task.yield()
+        #expect(recorder.events.isEmpty)
+
+        release.set()
+        await drain.value
+
+        #expect(recorder.events == ["save settled", "drain returned"])
+    }
+
     @Test("delete latches the session closed before it suspends")
     func deleteLatchesSynchronously() async {
         let session = EditorSession()

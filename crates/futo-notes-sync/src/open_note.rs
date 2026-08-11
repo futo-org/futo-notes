@@ -505,4 +505,63 @@ mod tests {
             }
         }
     }
+
+    /// The blur settle is a SEQUENCE of two verdicts, and the second one is
+    /// where a lost keystroke would show up: the shell remembers `DeferAdopt`,
+    /// the user keeps typing, and the shell re-gathers on blur. Whatever was
+    /// typed in between must survive that second pass — a deferral exists so
+    /// the draft outlives it, never so a stale adopt can land later.
+    ///
+    /// Re-gathering is what makes this true: a shell that settled a deferral
+    /// by applying the content it remembered at defer time would replace the
+    /// buffer here, and this asserts over every draft the user could have
+    /// typed rather than one example.
+    #[test]
+    fn settling_a_deferred_adopt_never_discards_work_typed_since_the_deferral() {
+        let alphabet = ["base", "peer", "typed", ""];
+        for base in alphabet {
+            for disk_at_defer in alphabet {
+                let deferral = classify_open_note(OpenNoteFacts {
+                    base: base.to_owned(),
+                    draft: base.to_owned(),
+                    disk: Some(disk_at_defer.to_owned()),
+                    renamed_to: None,
+                    editor_focused: true,
+                    edited_during_cycle: false,
+                });
+                if deferral != OpenNoteDisposition::DeferAdopt {
+                    continue;
+                }
+
+                for typed in alphabet {
+                    if typed == base {
+                        continue;
+                    }
+                    for disk_at_blur in [disk_at_defer, "later peer"] {
+                        // `edited_during_cycle` is false in the case that
+                        // matters most: a shell snapshots its edit epoch when
+                        // the settle pass STARTS, so typing done between the
+                        // deferral and the blur is invisible to that flag and
+                        // only `draft != base` can protect it.
+                        for edited_during_cycle in [false, true] {
+                            let settled = classify_open_note(OpenNoteFacts {
+                                base: base.to_owned(),
+                                draft: typed.to_owned(),
+                                disk: Some(disk_at_blur.to_owned()),
+                                renamed_to: None,
+                                editor_focused: false,
+                                edited_during_cycle,
+                            });
+                            assert!(
+                                !matches!(settled, OpenNoteDisposition::Adopt { .. }),
+                                "settling the deferral adopted over work typed since it: \
+                                 base={base:?} typed={typed:?} disk={disk_at_blur:?} \
+                                 edited_during_cycle={edited_during_cycle} -> {settled:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

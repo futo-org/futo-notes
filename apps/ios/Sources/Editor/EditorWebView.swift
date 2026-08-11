@@ -129,6 +129,9 @@ struct EditorWebView: UIViewRepresentable {
     var autoFocus: Bool = false
     /// Called when the web page posts a content change.
     let onChange: (String) -> Void
+    /// Reports the embed's authoritative body-focus state. Open-note
+    /// reconciliation owns the defer-until-blur duty at this one seam.
+    var onFocusChange: (Bool) -> Void = { _ in }
     /// Called once when the editor signals 'ready'.
     var onReady: (() -> Void)? = nil
     /// Called when the user taps a RESOLVED wikilink (bridge 'openNote');
@@ -143,7 +146,8 @@ struct EditorWebView: UIViewRepresentable {
         let coord = context.coordinator
         coord.sync(
             content: content, theme: theme, autoFocus: autoFocus,
-            onChange: onChange, onReady: onReady, onOpenNote: onOpenNote)
+            onChange: onChange, onFocusChange: onFocusChange,
+            onReady: onReady, onOpenNote: onOpenNote)
         let container = EditorContainerView()
         container.backgroundColor = .clear
         coord.container = container
@@ -159,7 +163,8 @@ struct EditorWebView: UIViewRepresentable {
         let coord = context.coordinator
         coord.sync(
             content: content, theme: theme, autoFocus: autoFocus,
-            onChange: onChange, onReady: onReady, onOpenNote: onOpenNote)
+            onChange: onChange, onFocusChange: onFocusChange,
+            onReady: onReady, onOpenNote: onOpenNote)
         // Only the VISIBLE editor drives the shared WebView. Gating on `window`
         // stops an off-screen editor (covered by a pushed one) from stealing the
         // WebView or pushing its content over the visible note — e.g. when a
@@ -193,18 +198,22 @@ struct EditorWebView: UIViewRepresentable {
         private var theme = "light"
         private var autoFocus = false
         private var onChange: (String) -> Void = { _ in }
+        private var onFocusChange: (Bool) -> Void = { _ in }
         private var onReady: (() -> Void)?
         private var onOpenNote: ((String) -> Void)?
 
         func sync(
             content: String, theme: String, autoFocus: Bool,
-            onChange: @escaping (String) -> Void, onReady: (() -> Void)?,
+            onChange: @escaping (String) -> Void,
+            onFocusChange: @escaping (Bool) -> Void,
+            onReady: (() -> Void)?,
             onOpenNote: ((String) -> Void)?
         ) {
             self.content = content
             self.theme = theme
             self.autoFocus = autoFocus
             self.onChange = onChange
+            self.onFocusChange = onFocusChange
             self.onReady = onReady
             self.onOpenNote = onOpenNote
         }
@@ -230,6 +239,7 @@ struct EditorWebView: UIViewRepresentable {
             token = host.attach(
                 autoFocus: didInitialAdopt ? false : autoFocus,
                 onChange: onChange,
+                onFocusChange: onFocusChange,
                 onReady: didInitialAdopt ? nil : onReady,
                 onOpenNote: onOpenNote)
             didInitialAdopt = true
@@ -268,6 +278,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     nonisolated static let contentPaddingInlinePx = 14
 
     private var onChange: (String) -> Void = { _ in }
+    private var onFocusChange: (Bool) -> Void = { _ in }
     private var onReady: (() -> Void)? = nil
     private var onOpenNote: ((String) -> Void)? = nil
     private var autoFocus = false
@@ -389,10 +400,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func attach(
         autoFocus: Bool,
         onChange: @escaping (String) -> Void,
+        onFocusChange: @escaping (Bool) -> Void,
         onReady: (() -> Void)?,
         onOpenNote: ((String) -> Void)? = nil
     ) -> Int {
         self.onChange = onChange
+        self.onFocusChange = onFocusChange
         self.onReady = onReady
         self.onOpenNote = onOpenNote
         self.autoFocus = autoFocus
@@ -419,6 +432,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         guard nextGeneration != generation else { return }
         generation = nextGeneration
         onChange = { _ in }
+        onFocusChange = { _ in }
         onReady = nil
         onOpenNote = nil
         autoFocus = false
@@ -587,9 +601,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 onChange(content)
             }
         case .focus:
+            let focused = (body["focused"] as? Bool) == true
+            onFocusChange(focused)
             // The private WKContentView exists once focused; re-apply the
             // accessory override here in case it appeared late.
-            if (body["focused"] as? Bool) == true {
+            if focused {
                 webView.futo_overrideInputAccessoryView(toolbarAccessory)
             }
         case .cursorContext:

@@ -229,6 +229,16 @@ final class EditorSession {
         work[kind]?.cancel()
     }
 
+    /// Cancel and await one workflow before another owner gathers facts that
+    /// must describe settled disk. Open-note reconciliation uses this for the
+    /// debounced draft flush: cancelling without the drain would let its FFI
+    /// mutation land after the reconciler's disk read.
+    func cancelAndDrain(_ kind: EditorWork) async {
+        let pending = work[kind]
+        pending?.cancel()
+        _ = await pending?.value
+    }
+
     /// The fifth way a note ends: it was deleted underneath us. A peer delete
     /// adopted by live sync leaves nothing to drain and nothing to commit — the
     /// file is already gone — so the session only has to make sure no pending

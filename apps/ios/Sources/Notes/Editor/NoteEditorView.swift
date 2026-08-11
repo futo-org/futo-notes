@@ -58,6 +58,13 @@ struct NoteEditorView: View {
     /// exit drains them in, and the latches. See `EditorSession` for the drain
     /// table; this view supplies the effects and holds the note state.
     @State private var session = EditorSession()
+    /// ONE executor for sync/external changes to this open editor. It owns
+    /// rename sequencing plus focused/hidden deferral; the view only supplies
+    /// state and renders the engine's disposition.
+    @State private var openNoteReconciler = OpenNoteReconciler()
+    @State private var openNoteChangeBuffer = OpenNoteChangeBuffer()
+    @State private var editorFocused = false
+    @State private var editVersion: UInt64 = 0
     /// Mirrors the session's interaction lock so SwiftUI re-renders on it (the
     /// session itself stays free of UI-framework dependencies).
     @State private var interactionLocked = false
@@ -175,6 +182,7 @@ struct NoteEditorView: View {
                     case .apply:
                         break
                     }
+                    editVersion &+= 1
                     content = newContent
                     // Publish the derived draft SYNCHRONOUSLY here, not only via the
                     // async `.onChange(of: draftInputs)` below. The scenePhase
@@ -189,6 +197,14 @@ struct NoteEditorView: View {
                     // F8 jetsam guard.
                     publishDraft()
                     scheduleSave(newContent)
+                },
+                onFocusChange: { focused in
+                    editorFocused = focused
+                    if openNoteReconciler.shouldReconcileAfterFocusChange(
+                        isFocused: focused
+                    ) {
+                        scheduleOpenNoteReconciliation(.external)
+                    }
                 },
                 onOpenNote: { id in
                     openLinkedNote(id)
@@ -296,6 +312,7 @@ struct NoteEditorView: View {
             content = disk
             savedContent = disk
             loaded = true
+            scheduleOpenNoteReconciliation(openNoteChangeBuffer.finishInitialLoad())
         }
         .onReceive(store.$notes) { _ in
             // Keep the embed's note universe (wikilink resolution/autocomplete)
@@ -303,12 +320,13 @@ struct NoteEditorView: View {
             // EditorHost on the JSON string. The initial subscription publish
             // covers the first push; EditorHost re-pushes on a fresh 'ready'.
             pushNotesUniverse()
-            // Live-sync refresh for the OPEN note. A live pull rewrites the file
-            // and reloads the store; without this, the open editor keeps showing
-            // (and on exit, SAVES BACK) a stale base — silently clobbering the
-            // remote edit. See adoptExternalChange for the clean/dirty rules.
-            guard loaded else { return }
-            scheduleExternalAdoption()
+        }
+        .onReceive(store.$localTreeChange) { summary in
+            guard let summary else { return }
+            let change = OpenNoteChange(summary: summary)
+            if let ready = openNoteChangeBuffer.receive(change, isLoaded: loaded) {
+                scheduleOpenNoteReconciliation(ready)
+            }
         }
         .onAppear {
             isVisible = true
@@ -321,15 +339,10 @@ struct NoteEditorView: View {
             // re-claims because onDisappear released the previous token.
             if draftToken == 0 { draftToken = store.claimDraftOwnership() }
             publishDraft()
-            // Re-check the note on RE-appearance (returning from a wikilink cover).
-            // A peer may have deleted or changed it while this editor was buried;
-            // `.onReceive($notes)` does NOT re-fire for it on a plain Back (no store
-            // change), so without this a buried peer-deleted note stays bound to a
-            // dead id and the next keystroke's UNCONDITIONAL debounced save
-            // resurrects it fleet-wide (H2). adoptExternalChange applies the same
-            // close/keep/adopt decision as a live pull. Gated on `loaded` so it
-            // never runs before the initial read (a fresh open is already current).
-            if loaded { scheduleExternalAdoption() }
+            // Re-gather after a buried editor becomes visible. This settles any
+            // hidden or focused deferral against current disk rather than
+            // applying a stale content snapshot.
+            if loaded { scheduleOpenNoteReconciliation(.external) }
         }
         // Keep the register's derivation current: any change to loaded/noteId/
         // savedContent/content re-publishes this editor's draft (or clears it the
@@ -404,17 +417,23 @@ struct NoteEditorView: View {
         session.schedule(.save) {
             try? await Task.sleep(nanoseconds: 400_000_000)  // 0.4s debounce
             guard session.isActive else { return false }
-            // Re-read `noteId` at FIRE time (not schedule time) so a save that
-            // lands after a rename writes to the renamed note, not the stale id.
-            // This is the second half of the ghost-note fix (F7); the first half
-            // is the flush+cancel in commitRename. Mirrors Android's
-            // NoteEditorScreen.kt re-read at the debounce fire.
-            let outcome = await store.write(noteId, content: newContent)
-            savedContent = confirmedSavedContent(
-                previousSavedContent: savedContent,
-                writtenContent: newContent,
-                outcome: outcome
-            )
+            // Re-read identity and base at FIRE time. A sync disposition may
+            // have followed a rename or rebased the draft while this debounce
+            // waited; the engine's flush verb, never a raw write, resolves that
+            // three-way state without clobbering the peer version.
+            let savedId = noteId
+            let base = savedContent
+            guard
+                let disposition = await store.flushDraft(
+                    PendingDraft(id: savedId, base: base, content: newContent))
+            else { return false }
+            guard session.isActive, noteId == savedId else { return false }
+            savedContent = newContent
+            if case .parkedConflict(let parkedId) = disposition {
+                noteId = parkedId
+                titleField = splitId(id: parkedId).title
+                store.showTransient("Conflicting edits saved to a copy")
+            }
             return true
         }
     }
@@ -551,132 +570,60 @@ struct NoteEditorView: View {
             modified: Date(), preview: "", richPreview: "", tags: [])
     }
 
-    /// Adopt an on-disk change of the OPEN note (live pull / external rewrite).
-    /// Clean draft → adopt through the selection-preserving applyExternalContent
-    /// path (sync.md: a remote update must not reset the caret). Dirty draft →
-    /// the draft is parked as a "<title> (conflict YYYY-MM-DD)" copy and the
-    /// disk content adopted, so neither side is silently lost.
-    private func adoptExternalChange() async {
-        guard !session.isClosing else { return }
-        // Snapshot the id: a debounced rename/move can change `noteId` DURING the
-        // awaits below. Acting on the stale id would (a) treat a rename's
-        // "old id no longer exists" as a peer delete and pop the renamed editor
-        // with a spurious banner, or (b) park/adopt against the wrong note (N3).
-        // After every suspension, bail if the editor has since re-keyed.
-        let id = noteId
-        guard await store.exists(id) else {
-            // A rename moved the old id away (exists false) — that is NOT a peer
-            // delete. Only treat it as one if we're still on the same note.
-            if noteId == id { handleOpenNoteDeleted() }
-            return
-        }
-        guard noteId == id else { return }
-        let disk = await store.read(id)
-        guard noteId == id else { return }
-        // Branch on the CURRENT draft state — the user may have typed while the
-        // read was in flight (we're back on the main actor here).
-        if content == savedContent {
-            // Clean draft: adopt silently, caret/scroll preserved.
-            guard disk != savedContent else { return }
-            // Only push into the shared WebView when visible; a stacked-but-
-            // hidden editor updates its in-memory state and re-pushes on Back.
-            if isVisible { EditorHost.shared.applyExternal(content: disk) }
-            content = disk
-            savedContent = disk
-        } else if disk == savedContent {
-            // Disk unchanged (reload was about some other note) — draft wins.
-        } else if disk == content {
-            // Draft and remote converged on the same text — nothing to park.
-            // savedContent = disk makes the derivation null this note's draft.
-            savedContent = disk
-        } else {
-            // True three-way conflict: cancel the pending save (it would clobber
-            // the remote edit — store.write is unconditional), then route the
-            // draft through the engine's ONE flush verb, so the live-pull path
-            // and the leave/background flush share the park semantics and the
-            // conflict-copy naming by construction.
-            session.cancel(.save)
-            // Snapshot the draft BEFORE the suspending flush: a keystroke landing
-            // during the await (main-actor reentrancy — the PKT-12 F1 hazard
-            // applyRename/scheduleSave avoid) must stay dirty, not be marked
-            // saved and lost on pop/jetsam. The engine persists exactly this
-            // snapshot; assigning `flushed` (not the live `content`) leaves any
-            // newer keystroke dirty for the next flush.
-            let flushed = content
-            guard !session.isClosing else { return }
-            let disposition = await store.flushDraft(
-                PendingDraft(id: id, base: savedContent, content: flushed))
-            guard !session.isClosing else { return }
-            guard noteId == id else { return }
-            switch adoptFlushOutcome(for: disposition) {
-            case .keepDraft:
-                // wrote / recreated / converged: the flushed draft is on disk at
-                // the original id (converged = an in-flight autosave landed it
-                // first). Keep the draft in the editor — do NOT adopt the stale
-                // pre-flush `disk` snapshot, which is gone from disk; adopting it
-                // clean would let the next keystroke's unconditional autosave
-                // destroy the just-persisted draft with no copy (F3).
-                savedContent = flushed
-            case .reloadDisk:
-                // Parked as a conflict copy. The engine decided that outcome
-                // from a serialized re-check, so the pre-flush `disk` snapshot
-                // is no longer authoritative. Re-read before adopting.
-                guard content == flushed else {
-                    // A newer keystroke landed during the flush. Re-evaluate it
-                    // against current disk instead of replacing it or letting
-                    // its unconditional autosave clobber the peer version.
-                    await adoptExternalChange()
-                    return
+    /// Supply the reconciler with live editor state and the synchronous effects
+    /// that render Rust's exhaustive disposition. No conflict policy lives in
+    /// this view.
+    private func openNoteEffects() -> OpenNoteReconcileEffects {
+        OpenNoteReconcileEffects(
+            snapshot: {
+                guard loaded, !session.isClosing else { return nil }
+                return OpenNoteEditorSnapshot(
+                    id: noteId,
+                    base: savedContent,
+                    draft: content,
+                    isFocused: editorFocused,
+                    isVisible: isVisible,
+                    editVersion: editVersion
+                )
+            },
+            cancelAndDrainSave: {
+                await session.cancelAndDrain(.save)
+            },
+            readDisk: { id in
+                try await store.readIfExists(id)
+            },
+            resumeDraftSave: {
+                if content != savedContent { scheduleSave(content) }
+            },
+            followRename: { toId in
+                noteId = toId
+                titleField = splitId(id: toId).title
+            },
+            adopt: { disk in
+                EditorHost.shared.applyExternal(content: disk)
+                content = disk
+                savedContent = disk
+            },
+            keepDraft: { base, reason in
+                savedContent = base
+                switch reason {
+                case .peerDeleted:
+                    store.showTransient(
+                        "Open note was deleted during sync; keeping local draft")
+                case .diverged:
+                    store.showTransient("Keeping your local edits")
+                case .converged:
+                    break
                 }
-                let refreshedDisk = await store.read(id)
-                guard noteId == id else { return }
-                guard content == flushed else {
-                    await adoptExternalChange()
-                    return
-                }
-                if isVisible { EditorHost.shared.applyExternal(content: refreshedDisk) }
-                content = refreshedDisk
-                savedContent = refreshedDisk
-            case .retryLater:
-                // Flush failed (I/O): leave the draft dirty so the next signal
-                // (autosave, background flush, re-adopt) retries.
-                return
+                if content != savedContent { scheduleSave(content) }
+            },
+            close: {
+                session.closeForExternalDelete()
+                savedContent = content
+                store.showTransient("Note was deleted during sync")
+                if !navPath.isEmpty { navPath.removeLast() }
             }
-        }
-    }
-
-    /// A peer deleted the currently-open note (a live pull removed the file and
-    /// the store reloaded). Matches desktop F4 semantics (sync.md):
-    ///   * clean draft → close the editor and tell the user ("Note was deleted
-    ///     during sync"); nothing is written, so the delete stands fleet-wide;
-    ///   * dirty draft → keep the editor open (edit-wins re-create-with-edits):
-    ///     the pending body edit is preserved and the debounced save re-creates
-    ///     the note, with a "keeping local draft" banner.
-    /// Only the VISIBLE editor acts — a buried editor in a wikilink stack must not
-    /// pop the top of the stack. A buried editor re-evaluates via the `.onAppear`
-    /// re-adopt when the user navigates back to it (H2), so a peer-deleted buried
-    /// note is closed/kept on return rather than staying bound to a dead id where
-    /// the next keystroke's unconditional autosave would resurrect it. The
-    /// background/leave flush honors the same edit-wins promise through the
-    /// engine's flush verb (a dirty draft of a deleted note is Recreated at the
-    /// original id; a clean editor never flushes).
-    private func handleOpenNoteDeleted() {
-        guard isVisible, !session.isClosing else { return }
-        if content == savedContent {
-            // Clean: neutralize any pending write so nothing resurrects the note,
-            // mark the draft clean (register + onDisappear flush become no-ops),
-            // then close and inform. The closed latch guards a concurrent adopt
-            // (the onAppear re-check and an `.onReceive` fire can both land) from
-            // popping the stack twice.
-            session.closeForExternalDelete()
-            savedContent = content
-            store.showTransient("Note was deleted during sync")
-            if !navPath.isEmpty { navPath.removeLast() }
-        } else {
-            // Dirty: keep the draft — the debounced save re-creates the note with
-            // the local edits (edit-wins). Inform once per delete event.
-            store.showTransient("Open note was deleted during sync; keeping local draft")
-        }
+        )
     }
 
     /// Push the note universe ([{id,title,modifiedMs,tags}] JSON) into the
@@ -899,13 +846,20 @@ struct NoteEditorView: View {
         )
     }
 
-    /// Coalesce live-reload signals without abandoning an older in-flight
-    /// engine flush. The latest task represents the whole predecessor chain,
-    /// which lets local delete await every adoption before deleting last.
-    private func scheduleExternalAdoption() {
+    /// Coalesce external-change signals into the editor session's adoption
+    /// workflow. A stale pass retries with fresh facts; every individual pass
+    /// still performs exactly one post-read identity/visibility validation.
+    private func scheduleOpenNoteReconciliation(_ change: OpenNoteChange) {
         guard !session.isClosing else { return }
+        let effects = openNoteEffects()
         session.schedule(.adopt) {
-            await adoptExternalChange()
+            for _ in 0..<3 {
+                let result = await openNoteReconciler.reconcile(
+                    change: change,
+                    effects: effects
+                )
+                if result != .stale { break }
+            }
             return true
         }
     }

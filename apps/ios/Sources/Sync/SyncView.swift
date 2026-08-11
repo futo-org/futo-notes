@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Sync settings + actions sheet. Server URL + password, connect/sync/disconnect,
-/// and live status. After a sync, reloads the note store to surface pulled notes.
+/// and live status. `SyncManager` owns post-cycle projection for every trigger.
 struct SyncView: View {
     @EnvironmentObject private var sync: SyncManager
     @EnvironmentObject private var store: NotesStore
@@ -67,7 +67,6 @@ struct SyncView: View {
                                 await sync.connectAndSync(
                                     notesRoot: store.notesRoot.path, password: password)
                             }
-                            store.reload()
                         }
                     } label: {
                         Label(
