@@ -10,7 +10,7 @@ Pick the highest-fidelity black-box suites that exercise the scope from outside:
 | Scope layer | Black-box suites (the contract) | Fast layer |
 |---|---|---|
 | Sync crate (`futo-notes-sync`) | real-server `server_integration` + `sse_live` (isolated server, `--ignored`), `tests/cross-platform-sync.mjs` (30 scenarios, 2 real Tauri instances) | crate unit tests |
-| Note domain (`futo-notes-model` / `-core`) | reviewed conformance fixtures (`just test-rust`, `pnpm run test:editor:minimal`) plus the batched title-rule differential — TS↔Rust locked | crate unit tests |
+| Note domain (`futo-notes-model` / `-core`) | reviewed conformance fixtures (`just test-rust`, `pnpm run test:editor:minimal`) plus the batched every-family rule differential — TS↔Rust locked | crate unit tests |
 | Desktop TS/Svelte (`src/lib`, components) | Playwright (`just test-e2e` smoke, targeted specs), cross-platform harness when sync-adjacent | Vitest with `vi.mock('$lib/platform')` |
 | Editor behavior (CM6) | `just test-markdown-spec` (YAML corpus), factory judge vs Obsidian | `src/lib/*.test.ts` |
 | Tauri commands | e2e + desktop smoke (`just test-desktop-smoke`) | `_impl` unit tests in-file |
