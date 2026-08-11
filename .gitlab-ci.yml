@@ -623,7 +623,15 @@ test:rust:workspace:
         - rust-toolchain.toml
         - .cargo/**/*
         - crates/**/*
+        # Every TypeScript copy the note-rule differential runs against Rust
+        # (tests/conformance/title-rules-differential.mjs). Listing only
+        # filename.ts left a tags/preview/image/wikilink drift able to merge
+        # without this job ever running.
         - packages/editor/src/filename.ts
+        - packages/editor/src/tags.ts
+        - packages/editor/src/preview.ts
+        - packages/editor/src/images.ts
+        - src/shared/note/wikilinks.ts
         - apps/tauri/src-tauri/**/*
         - apps/tauri/Cargo.toml
         - src/features/sync/syncContract.generated.ts
