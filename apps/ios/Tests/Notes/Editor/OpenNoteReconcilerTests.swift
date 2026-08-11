@@ -203,9 +203,12 @@ struct OpenNoteReconcilerTests {
         let settled = await reconciler.reconcile(change: .external, effects: editor.effects())
 
         #expect(settled == .applied)
-        #expect(editor.events.last == "keep:peer:diverged")
+        // The kept baseline is the PRE-pull base, not the peer's bytes: that is
+        // what leaves the next flush a `current != base` three-way it can park
+        // as a conflict copy instead of a fast-forward over the peer (#89).
+        #expect(editor.events.last == "keep:base:diverged")
         #expect(editor.snapshot.draft == "base typed")
-        #expect(editor.snapshot.base == "peer")
+        #expect(editor.snapshot.base == "base")
         #expect(!editor.events.contains { $0.hasPrefix("adopt:") })
     }
 
