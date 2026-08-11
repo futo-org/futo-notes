@@ -1241,19 +1241,28 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   interrupted on any surface**: the verdict is `DeferAdopt` and the content is
   applied on the next blur, whether or not that host's adopt could have
   preserved the caret. Host adopt capability is deliberately NOT an input — one
-  answer for all three shells, so a caret never moves under a typist. Every copy
-  of the decision keeps that baseline: the verb, desktop's own sync-completion
-  and watcher paths, iOS `adoptExternalChange`, and Android — all four hand
-  `flush_draft` the pre-pull base, so all four park (#89, closed 2026-08-11; the
-  loss had been reproduced between two real desktop clients on 2026-08-10 and is
-  now pinned by the cross-platform scenario "dirty draft survives a peer edit
-  then settles").
+  answer for all three shells, so a caret never moves under a typist.
+  `KeepDraft.base` does two jobs with ONE value, because every shell assigns it
+  to the same saved-content baseline it later hands `flush_draft` as the
+  expected-previous: it decides whether the editor reads as dirty AND what the
+  next write is conditioned on. A shell therefore never needs a second value and
+  must not synthesise one — assign `base` to the baseline, pass that same
+  baseline to the flush verb (desktop `updateNote({ base })`, iOS/Android
+  `PendingDraft(base:)`), and let the returned disposition rebind the editor when
+  it parks. A shell whose debounced save writes UNCONDITIONALLY instead destroys
+  the peer's bytes whatever the verdict said, which is why the native autosave
+  routes through the flush verb. Every copy of the decision keeps that baseline
+  today: the verb, desktop's own sync-completion and watcher paths, iOS
+  `adoptExternalChange`, and Android — all four hand `flush_draft` the pre-pull
+  base, so all four park (#89, closed 2026-08-11; the loss had been reproduced
+  between two real desktop clients on 2026-08-10 and is now pinned by the
+  cross-platform scenario "dirty draft survives a peer edit then settles").
   → futo-notes-sync `open_note.rs` (guarded by
   `every_reachable_fact_combination_has_one_verdict`,
   `a_dirty_draft_is_never_replaced`,
   `a_converged_draft_rebases_onto_what_is_actually_on_disk`,
   `a_diverged_draft_keeps_the_baseline_that_makes_the_next_flush_park` and
-  `no_kept_draft_is_baselined_on_disk_content_it_disagrees_with`), the
+  `no_reachable_fact_combination_can_discard_unsaved_work`), the
   verdict→flush composition guarded end to end on a real vault by futo-notes-ffi
   `tests/open_note_flush.rs`, projected by `e2ee_classify_open_note` (desktop)
   and `classify_open_note` (UniFFI); desktop's own copy guarded by

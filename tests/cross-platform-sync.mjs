@@ -2109,7 +2109,54 @@ function ensureDesktopDebugBinary() {
       'Desktop binary was rebuilt outside the harness (likely `cargo tauri dev`) — rebuilding with harness config…',
     );
     rebuildDesktopBinary();
+    return;
   }
+  // Staleness: none of the checks above look at the SOURCE, so a second run in
+  // the same checkout happily reported a verdict for the previous run's binary.
+  // That cost a #89 fix a false red (fix applied, mesh re-run, identical
+  // failures, `bootstrap 19ms`) and would just as easily hand out a false green
+  // — the M11 failure class, one build behind. Rebuild whenever anything the
+  // binary embeds is newer than the binary itself.
+  const newestSource = newestSourceMtime();
+  if (newestSource > statSync(binPath).mtimeMs) {
+    console.log('Sources are newer than the desktop binary — rebuilding so the run tests them…');
+    rebuildDesktopBinary();
+  }
+}
+
+// Newest mtime across everything baked into the harness binary: the webview app
+// and editor package (through dist/), the Rust workspace, and the desktop
+// shell's own sources and configuration. Build outputs and dependencies are
+// skipped — they are derived, and walking them would dominate the cost.
+function newestSourceMtime() {
+  const SKIP = new Set(['node_modules', 'target', 'dist', '.git', 'build', '.build']);
+  let newest = 0;
+  const visit = (path) => {
+    const stat = statSync(path, { throwIfNoEntry: false });
+    if (!stat) return;
+    if (stat.isDirectory()) {
+      for (const entry of readdirSync(path)) {
+        if (!SKIP.has(entry)) visit(join(path, entry));
+      }
+      return;
+    }
+    if (stat.mtimeMs > newest) newest = stat.mtimeMs;
+  };
+  for (const rel of [
+    'src',
+    'packages',
+    'crates',
+    'apps/tauri',
+    'index.html',
+    'editor.html',
+    'package.json',
+    'vite.config.ts',
+    'Cargo.toml',
+    'Cargo.lock',
+  ]) {
+    visit(join(REPO_ROOT, rel));
+  }
+  return newest;
 }
 
 function rebuildDesktopBinary() {

@@ -71,6 +71,14 @@ pub enum OpenNoteDisposition {
     /// pass classifies against the new id.
     FollowRename { to_id: String },
     /// Leave the buffer alone and set the baseline to `base`.
+    ///
+    /// `base` does two jobs with one value, because every shell assigns it to
+    /// its `savedContent`: it tracks whether the editor is dirty, AND it is the
+    /// expected-previous the next `flush_draft` is conditioned on (desktop
+    /// `updateNote({ base })`, iOS/Android `PendingDraft(base:)`). So it must
+    /// always be bytes the editor actually holds — never the peer's, however
+    /// current those are on disk. [`KeepDraftReason`] says which value each arm
+    /// carries and what breaks when it is the wrong one (#89).
     KeepDraft {
         base: String,
         reason: KeepDraftReason,
@@ -387,19 +395,32 @@ mod tests {
         }
     }
 
-    /// The #89 invariant as a property, over every combination of three texts:
-    /// no kept draft is ever baselined on disk content it disagrees with. That
-    /// single equality is what the flush verb reads as "nothing changed
-    /// underneath me", so producing it while the buffer holds something else is
-    /// how a verdict that promises to preserve a draft ends up overwriting a
-    /// peer instead. Covers the arms individually asserted above plus every
-    /// baseline/draft/disk shape that reaches them.
+    /// Every combination of the facts, not just the tabulated rows: for any
+    /// base/draft/disk over a small alphabet, and every focus / edited-during-
+    /// cycle flag, the two promises the classifier owns hold.
+    ///
+    /// 1. Unsaved work is never replaced (persist-or-park at the open-note
+    ///    seam). A verdict may keep, park or recreate a draft; nothing may
+    ///    overwrite the buffer or close the session while the buffer holds text
+    ///    the base does not.
+    /// 2. A kept draft's baseline is always a value the editor ACTUALLY holds —
+    ///    disk when the draft already equals disk (`Converged`, where a stale
+    ///    baseline would leave the session falsely dirty and was what let a
+    ///    later save clobber a peer's merged-in edit, F2), and otherwise the
+    ///    base it opened or last saved. Every shell assigns this straight to its
+    ///    `savedContent`, which is also the expected-previous its next
+    ///    `flush_draft` is conditioned on, so the two are the same value by
+    ///    construction: claiming the editor last saved the peer's bytes is what
+    ///    turned the park into a fast-forward and destroyed them (#89).
+    ///
+    /// The tabulated test above says what each row answers; this says what no
+    /// row is allowed to answer, which is what survives someone adding a case.
     #[test]
-    fn no_kept_draft_is_baselined_on_disk_content_it_disagrees_with() {
-        let texts = ["a", "b", "c"];
-        for base in texts {
-            for draft in texts {
-                for disk in [None, Some("a"), Some("b"), Some("c")] {
+    fn no_reachable_fact_combination_can_discard_unsaved_work() {
+        let alphabet = ["base", "peer", "mine", ""];
+        for base in alphabet {
+            for draft in alphabet {
+                for disk in [None, Some("base"), Some("peer"), Some("mine"), Some("")] {
                     for editor_focused in [false, true] {
                         for edited_during_cycle in [false, true] {
                             let given = OpenNoteFacts {
@@ -411,19 +432,37 @@ mod tests {
                                 edited_during_cycle,
                             };
                             let disposition = classify_open_note(given.clone());
-                            let (OpenNoteDisposition::KeepDraft { base: kept, .. }, Some(disk)) =
-                                (&disposition, disk)
-                            else {
-                                continue;
-                            };
-                            if draft == disk {
-                                continue;
+
+                            if draft != base {
+                                assert!(
+                                    !matches!(
+                                        disposition,
+                                        OpenNoteDisposition::Adopt { .. }
+                                            | OpenNoteDisposition::Close
+                                    ),
+                                    "unsaved work was discarded: {given:?} -> {disposition:?}"
+                                );
                             }
-                            assert_ne!(
-                                kept, disk,
-                                "a kept draft was baselined on disk it disagrees with, \
-                                 which the next flush writes through: {given:?} -> {disposition:?}"
-                            );
+
+                            if let (
+                                OpenNoteDisposition::KeepDraft {
+                                    base: kept, reason, ..
+                                },
+                                Some(disk),
+                            ) = (&disposition, disk)
+                            {
+                                let expected = match reason {
+                                    KeepDraftReason::Converged => disk,
+                                    KeepDraftReason::Diverged | KeepDraftReason::PeerDeleted => {
+                                        base
+                                    }
+                                };
+                                assert_eq!(
+                                    kept, expected,
+                                    "a kept draft's baseline must be bytes the editor holds, \
+                                     which its next flush can be conditioned on: {given:?}"
+                                );
+                            }
                         }
                     }
                 }
