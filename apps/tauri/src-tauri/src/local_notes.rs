@@ -75,7 +75,7 @@ impl NoteStoreState {
     }
 }
 
-fn store(app: &AppHandle, state: &AppState) -> Result<Arc<LocalNoteStore>, String> {
+pub(crate) fn store(app: &AppHandle, state: &AppState) -> Result<Arc<LocalNoteStore>, String> {
     state.notes.get(app, state.watcher.suppression())
 }
 

@@ -3,16 +3,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NoteSession } from '$features/notes/noteSession.svelte';
 import { createWriteSuppressor } from '$lib/platform/writeSuppression';
+import type { OpenNoteDispositionOutput, OpenNoteRequestInput } from './syncContract.generated';
 
 const noteMocks = vi.hoisted(() => ({
-  getNoteById: vi.fn(),
   handleExternalFileChange: vi.fn(async () => {}),
-  readNote: vi.fn(async () => ''),
   refreshNotesFromStorage: vi.fn(async () => {}),
+}));
+const syncMocks = vi.hoisted(() => ({
+  classifyOpenNote: vi.fn<(facts: OpenNoteRequestInput) => Promise<OpenNoteDispositionOutput>>(),
 }));
 
 vi.mock('$features/notes/notes.svelte', () => noteMocks);
 vi.mock('$lib/platform', () => ({ hasFileSystem: true }));
+vi.mock('./syncServiceE2ee', () => ({
+  classifyOpenNote: syncMocks.classifyOpenNote,
+}));
 
 import { createExternalChangeCoordinator } from './createExternalChangeCoordinator';
 
@@ -33,10 +38,10 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     composing: false,
     dirty: false,
     editVersion: 0,
-    editorContent: 'local content',
+    editorContent: 'base',
     editorFocused: false,
     originalId: 'active',
-    savedContent: 'local content',
+    savedContent: 'base',
     savePending: false,
     title: 'active',
     ...overrides,
@@ -45,6 +50,13 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     state.editorContent = content;
     state.savedContent = content;
   });
+  const rebaseSavedContent = vi.fn((content: string) => {
+    state.savedContent = content;
+  });
+  const applyRemoteRename = vi.fn((id: string, title: string) => {
+    state.originalId = id;
+    state.title = title;
+  });
   const cancelAndClear = vi.fn(() => {
     state.originalId = null;
   });
@@ -52,7 +64,7 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     get title() {
       return state.title;
     },
-    content: 'local content',
+    content: 'base',
     get originalId() {
       return state.originalId;
     },
@@ -81,6 +93,7 @@ function makeSession(overrides: Partial<SessionState> = {}) {
       return state.composing;
     },
     debouncedSave: vi.fn(),
+    resumeDraftPersistence: vi.fn(),
     flushSave: vi.fn(async () => {}),
     awaitSaveIdle: vi.fn(async () => {}),
     runWithSaveLock: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
@@ -92,648 +105,310 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     seedOpenNote: vi.fn(),
     cancelAndClear,
     applyExternalContent,
-    applyRemoteRename: vi.fn(),
+    rebaseSavedContent,
+    applyRemoteRename,
   } satisfies NoteSession;
-  return { applyExternalContent, cancelAndClear, session, state };
+  return {
+    applyExternalContent,
+    applyRemoteRename,
+    cancelAndClear,
+    rebaseSavedContent,
+    session,
+    state,
+  };
 }
 
-function makeCoordinator(session: NoteSession, writeSuppressor = createWriteSuppressor()) {
+function makeCoordinator(sessionBundle = makeSession(), writeSuppressor = createWriteSuppressor()) {
   const notifySaved = vi.fn();
   const showToast = vi.fn();
+  const followRename = vi.fn((fromId: string, toId: string) => {
+    if (sessionBundle.state.originalId === fromId) {
+      sessionBundle.state.originalId = toId;
+    }
+  });
   const coordinator = createExternalChangeCoordinator({
-    session,
+    followRename,
+    session: sessionBundle.session,
     notifySaved,
     showToast,
     writeSuppressor,
   });
-  return { coordinator, notifySaved, showToast };
+  return {
+    coordinator,
+    followRename,
+    notifySaved,
+    showToast,
+    ...sessionBundle,
+  };
 }
 
 function controlledPromise<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, reject, resolve };
 }
 
-describe('active-note write suppression', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    noteMocks.getNoteById.mockReturnValue({ id: 'active', title: 'active' });
-    noteMocks.readNote.mockResolvedValue('');
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+  syncMocks.classifyOpenNote.mockResolvedValue({ kind: 'leave' });
+});
 
-  it('adopts an external edit to the open note inside the sync-write suppression window', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('external content');
-    const writeSuppressor = createWriteSuppressor();
-    writeSuppressor.recordSyncWrite('active.md');
-    const bundle = makeSession({ savedContent: 'saved content' });
-    const { coordinator } = makeCoordinator(bundle.session, writeSuppressor);
+describe('engine-owned open-note disposition', () => {
+  it('sends one complete editor snapshot and no frontend disk value', async () => {
+    const bundle = makeCoordinator(
+      makeSession({
+        editorContent: 'draft',
+        editorFocused: true,
+        savedContent: 'base',
+      }),
+    );
 
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-
-    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content');
-    coordinator.stop();
-  });
-
-  it('drops a sync-write echo by content comparison inside the suppression window', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('saved content');
-    const writeSuppressor = createWriteSuppressor();
-    writeSuppressor.recordSyncWrite('active.md');
-    const bundle = makeSession({
-      editorContent: 'saved content',
-      savedContent: 'saved content',
+    await bundle.coordinator.reconcileOpenNote('active', {
+      editedDuringCycle: true,
+      renamedTo: 'renamed',
     });
-    const { coordinator } = makeCoordinator(bundle.session, writeSuppressor);
 
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-
-    expect(noteMocks.readNote).toHaveBeenCalledWith('active');
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    coordinator.stop();
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith({
+      id: 'active',
+      base: 'base',
+      draft: 'draft',
+      renamedTo: 'renamed',
+      editorFocused: true,
+      editedDuringCycle: true,
+    });
+    bundle.coordinator.stop();
   });
 
-  it('keeps suppressing non-active files inside the sync-write window', async () => {
-    const writeSuppressor = createWriteSuppressor();
-    writeSuppressor.recordSyncWrite('background.md');
-    const bundle = makeSession();
-    const { coordinator, notifySaved } = makeCoordinator(bundle.session, writeSuppressor);
+  it.each([
+    [{ kind: 'leave' } as const, 'leave'],
+    [{ kind: 'adopt', content: 'peer' } as const, 'adopt'],
+    [{ kind: 'deferAdopt' } as const, 'deferAdopt'],
+    [{ kind: 'followRename', toId: 'renamed' } as const, 'followRename'],
+    [{ kind: 'keepDraft', base: 'peer', reason: 'diverged' } as const, 'keepDraft'],
+    [{ kind: 'close' } as const, 'close'],
+  ])('applies the %s verdict through the one executor', async (disposition, kind) => {
+    syncMocks.classifyOpenNote.mockResolvedValueOnce(disposition);
+    const bundle = makeCoordinator();
 
-    await coordinator.handleFileChange({ type: 'change', filename: 'background.md' });
+    const result = await bundle.coordinator.reconcileOpenNote('active');
 
-    expect(noteMocks.readNote).not.toHaveBeenCalled();
-    expect(noteMocks.handleExternalFileChange).not.toHaveBeenCalled();
-    expect(notifySaved).not.toHaveBeenCalled();
-    coordinator.stop();
+    expect(result.disposition).toBe(kind);
+    if (kind === 'adopt') {
+      expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('peer');
+    } else if (kind === 'followRename') {
+      expect(bundle.followRename).toHaveBeenCalledExactlyOnceWith('active', 'renamed');
+    } else if (kind === 'keepDraft') {
+      expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('peer');
+      expect(bundle.session.resumeDraftPersistence).toHaveBeenCalledOnce();
+    } else if (kind === 'close') {
+      expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
+    }
+    bundle.coordinator.stop();
+  });
+
+  it('uses one desktop wording for a peer-deleted draft and rebases it', async () => {
+    syncMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'base',
+      reason: 'peerDeleted',
+    });
+    const bundle = makeCoordinator(makeSession({ editorContent: 'draft' }));
+
+    const result = await bundle.coordinator.reconcileOpenNote('active');
+
+    expect(result.keptDraftId).toBe('active');
+    expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('base');
+    expect(bundle.session.resumeDraftPersistence).toHaveBeenCalledOnce();
+    expect(bundle.showToast).toHaveBeenCalledExactlyOnceWith(
+      'Open note was deleted; keeping local draft',
+    );
+    bundle.coordinator.stop();
+  });
+
+  it('defers a focused adopt and reclassifies on blur', async () => {
+    syncMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'deferAdopt' })
+      .mockResolvedValueOnce({ kind: 'adopt', content: 'latest' });
+    const bundle = makeCoordinator(makeSession({ editorFocused: true }));
+
+    await bundle.coordinator.reconcileOpenNote('active');
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+
+    bundle.state.editorFocused = false;
+    await bundle.coordinator.handleEditorFocusChange(false);
+
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledTimes(2);
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('latest');
+    bundle.coordinator.stop();
+  });
+
+  it('classifies the exact parked snapshot as preserved, but protects a later edit', async () => {
+    const parked = { content: 'parked draft', title: 'active' };
+    const first = makeCoordinator(
+      makeSession({ editorContent: parked.content, savedContent: 'old base' }),
+    );
+    await first.coordinator.reconcileOpenNote('active', { parkedDraft: parked });
+    expect(syncMocks.classifyOpenNote).toHaveBeenLastCalledWith(
+      expect.objectContaining({ base: parked.content, draft: parked.content }),
+    );
+    first.coordinator.stop();
+
+    const second = makeCoordinator(
+      makeSession({ editorContent: 'later edit', savedContent: 'old base' }),
+    );
+    await second.coordinator.reconcileOpenNote('active', { parkedDraft: parked });
+    expect(syncMocks.classifyOpenNote).toHaveBeenLastCalledWith(
+      expect.objectContaining({ base: 'old base', draft: 'later edit' }),
+    );
+    second.coordinator.stop();
   });
 });
 
-// eslint-disable-next-line max-lines-per-function -- One coordinator matrix shares the same session and watcher harness.
-describe('createExternalChangeCoordinator', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    noteMocks.getNoteById.mockReturnValue({ id: 'active', title: 'active' });
-    noteMocks.readNote.mockResolvedValue('');
+describe('single stale-snapshot revalidation', () => {
+  it.each([
+    ['identity', (state: SessionState) => (state.originalId = 'other')],
+    ['edit version', (state: SessionState) => (state.editVersion += 1)],
+    ['draft', (state: SessionState) => (state.editorContent = 'new edit')],
+    ['title', (state: SessionState) => (state.title = 'new title')],
+    ['focus', (state: SessionState) => (state.editorFocused = true)],
+  ])('does not apply an adopt after the %s changes during classification', async (_, mutate) => {
+    const verdict = controlledPromise<OpenNoteDispositionOutput>();
+    syncMocks.classifyOpenNote.mockReturnValueOnce(verdict.promise);
+    const bundle = makeCoordinator();
+
+    const reconciliation = bundle.coordinator.reconcileOpenNote('active');
+    await Promise.resolve();
+    mutate(bundle.state);
+    verdict.resolve({ kind: 'adopt', content: 'peer' });
+
+    await expect(reconciliation).resolves.toMatchObject({ stale: true });
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    bundle.coordinator.stop();
   });
 
-  it('drops a self-write echo that matches the saved baseline', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('saved content');
-    const bundle = makeSession({
-      editorContent: 'newer editor content',
-      savedContent: 'saved content',
-    });
-    const { coordinator, notifySaved, showToast } = makeCoordinator(bundle.session);
+  it('serializes overlapping classifications so the later verdict wins', async () => {
+    const first = controlledPromise<OpenNoteDispositionOutput>();
+    syncMocks.classifyOpenNote
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ kind: 'adopt', content: 'later' });
+    const bundle = makeCoordinator();
 
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    const earlier = bundle.coordinator.reconcileOpenNote('active');
+    const later = bundle.coordinator.reconcileOpenNote('active');
+    await Promise.resolve();
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledTimes(1);
+    first.resolve({ kind: 'adopt', content: 'earlier' });
+    await Promise.all([earlier, later]);
+
+    expect(bundle.applyExternalContent.mock.calls).toEqual([['earlier'], ['later']]);
+    bundle.coordinator.stop();
+  });
+
+  it('does not apply a verdict after the coordinator stops', async () => {
+    const verdict = controlledPromise<OpenNoteDispositionOutput>();
+    syncMocks.classifyOpenNote.mockReturnValueOnce(verdict.promise);
+    const bundle = makeCoordinator();
+
+    const reconciliation = bundle.coordinator.reconcileOpenNote('active');
+    await Promise.resolve();
+    bundle.coordinator.stop();
+    verdict.resolve({ kind: 'adopt', content: 'peer' });
+    await reconciliation;
 
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(showToast).not.toHaveBeenCalled();
-    expect(noteMocks.handleExternalFileChange).toHaveBeenCalledWith('active.md');
-    expect(notifySaved).toHaveBeenCalledOnce();
-    coordinator.stop();
   });
 
-  it('adopts differing disk content after the forced flush settles the dirty session', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('external content');
-    const bundle = makeSession({ dirty: true, editorFocused: true });
-    vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
-      bundle.state.dirty = false;
-    });
-    const { coordinator, showToast } = makeCoordinator(bundle.session);
+  it('retains a failed classification for the next blur', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    syncMocks.classifyOpenNote
+      .mockRejectedValueOnce(new Error('read failed'))
+      .mockResolvedValueOnce({ kind: 'adopt', content: 'peer' });
+    const bundle = makeCoordinator(makeSession({ editorFocused: true }));
 
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    await bundle.coordinator.reconcileOpenNote('active');
+    bundle.state.editorFocused = false;
+    await bundle.coordinator.handleEditorFocusChange(false);
 
-    expect(bundle.applyExternalContent).toHaveBeenCalledWith('external content');
-    expect(showToast).not.toHaveBeenCalled();
-    coordinator.stop();
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('peer');
+    warn.mockRestore();
+    bundle.coordinator.stop();
   });
+});
 
-  it('does not adopt a slow read after the user switches notes', async () => {
-    const read = controlledPromise<string>();
-    noteMocks.readNote.mockReturnValueOnce(read.promise);
-    const bundle = makeSession();
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    const handling = coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    bundle.state.originalId = 'other';
-    read.resolve('active external content');
-    await handling;
-
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    coordinator.stop();
-  });
-
-  it('retains a deferred adopt when a save becomes pending during the read and settles it', async () => {
-    noteMocks.readNote.mockResolvedValue('external content');
-    const read = controlledPromise<string>();
-    noteMocks.readNote.mockReturnValueOnce(read.promise);
-    const bundle = makeSession();
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    const handling = coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    bundle.state.savePending = true;
-    read.resolve('external content');
-    await handling;
-
-    expect(bundle.session.flushSave).toHaveBeenCalledOnce();
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-
-    // The save settles; the scheduled settle pass re-drives the adopt with no
-    // further focus or composition event.
-    vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
-      bundle.state.savePending = false;
-    });
-    await vi.waitFor(() =>
-      expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content'),
-    );
-    coordinator.stop();
-  });
-
-  it('settles a dirty-deferred adopt without a focus edge once the draft unblocks', async () => {
-    noteMocks.readNote.mockResolvedValue('external content');
-    const bundle = makeSession({
-      dirty: true,
-      editorContent: 'local draft',
-      savedContent: 'base',
-    });
-    const { coordinator } = makeCoordinator(bundle.session);
-    vi.mocked(bundle.session.flushSave)
-      .mockImplementationOnce(async () => {})
-      .mockImplementationOnce(async () => {
-        bundle.state.dirty = false;
-        bundle.state.savedContent = 'local draft';
-      });
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-
-    await vi.waitFor(() =>
-      expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content'),
-    );
-    coordinator.stop();
-  });
-
-  it('settles a composition deferral even when compositionend outruns the composing flag', async () => {
-    noteMocks.readNote.mockResolvedValue('external content');
-    const bundle = makeSession({ composing: true });
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-
-    // compositionend fires while the editor still reports composing; the flag
-    // clears a beat later and the retained deferral must still settle.
-    await coordinator.handleCompositionEnd();
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    bundle.state.composing = false;
-
-    await vi.waitFor(() =>
-      expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content'),
-    );
-    coordinator.stop();
-  });
-
-  it('does not adopt when the coordinator stops during the reconcile disk read', async () => {
-    const read = controlledPromise<string>();
-    noteMocks.readNote.mockReturnValueOnce(read.promise);
-    const bundle = makeSession();
-    const { coordinator, showToast } = makeCoordinator(bundle.session);
-
-    const handling = coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    coordinator.stop();
-    read.resolve('external content');
-    await handling;
-
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
-    expect(showToast).not.toHaveBeenCalled();
-  });
-
-  it('does not reconcile a settle that was mid-flush when the coordinator stopped', async () => {
-    noteMocks.readNote.mockResolvedValue('external content');
-    const flush = controlledPromise<void>();
-    const bundle = makeSession({
-      dirty: true,
-      editorContent: 'local draft',
-      savedContent: 'base',
-    });
-    const { coordinator } = makeCoordinator(bundle.session);
-    vi.mocked(bundle.session.flushSave)
-      .mockImplementationOnce(async () => {})
-      .mockImplementationOnce(async () => {
-        await flush.promise;
-        bundle.state.dirty = false;
-      });
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    await vi.waitFor(() => expect(bundle.session.flushSave).toHaveBeenCalledTimes(2));
-
-    coordinator.stop();
-    flush.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    coordinator.stop();
-  });
-
-  it('reconciles an active change after the in-flight save settles', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('external content');
+describe('save, composition, and watcher ordering', () => {
+  it('settles a pending save before gathering facts', async () => {
     const save = controlledPromise<void>();
-    const bundle = makeSession({
-      savedContent: 'original base',
-      savePending: true,
-    });
+    const bundle = makeCoordinator(makeSession({ savePending: true }));
     vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
       await save.promise;
       bundle.state.savePending = false;
       bundle.state.savedContent = 'saved draft';
+      bundle.state.editorContent = 'saved draft';
     });
-    const { coordinator } = makeCoordinator(bundle.session);
 
-    const handling = coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    const reconciliation = bundle.coordinator.reconcileOpenNote('active');
     await Promise.resolve();
-    expect(noteMocks.readNote).not.toHaveBeenCalled();
-
+    expect(syncMocks.classifyOpenNote).not.toHaveBeenCalled();
     save.resolve();
-    await handling;
-
-    expect(noteMocks.readNote).toHaveBeenCalledExactlyOnceWith('active');
-    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content');
-    coordinator.stop();
-  });
-
-  it('flushes a timer-scheduled dirty draft before adopting external content', async () => {
-    noteMocks.readNote.mockResolvedValue('external content');
-    const flush = controlledPromise<void>();
-    const bundle = makeSession({
-      dirty: true,
-      editorContent: 'local draft',
-      savedContent: 'original base',
-      savePending: true,
-    });
-    const { coordinator } = makeCoordinator(bundle.session);
-    let parkedDraft: string | null = null;
-    vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
-      await flush.promise;
-      parkedDraft = bundle.state.editorContent;
-      await coordinator.reconcileOpenNote('active', {
-        parkedDraft: { content: parkedDraft ?? '', title: 'active' },
-      });
-      bundle.state.savePending = false;
-      bundle.state.dirty = false;
-    });
-
-    const handling = coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    await Promise.resolve();
-    const readStartedBeforeFlushSettled = noteMocks.readNote.mock.calls.length > 0;
-    const appliedBeforeFlushSettled = bundle.applyExternalContent.mock.calls.length > 0;
-    const editorContentBeforeFlushSettled = bundle.state.editorContent;
-
-    flush.resolve();
-    await handling;
-
-    expect(bundle.session.flushSave).toHaveBeenCalledOnce();
-    expect(readStartedBeforeFlushSettled).toBe(false);
-    expect(appliedBeforeFlushSettled).toBe(false);
-    expect(editorContentBeforeFlushSettled).toBe('local draft');
-    expect(parkedDraft).toBe('local draft');
-    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('external content');
-    coordinator.stop();
-  });
-
-  it('keeps a timer-scheduled draft when the forced flush leaves it dirty', async () => {
-    noteMocks.readNote.mockResolvedValue('external content');
-    const bundle = makeSession({
-      dirty: true,
-      editorContent: 'blocked local draft',
-      savedContent: 'original base',
-      savePending: true,
-    });
-    vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
-      bundle.state.savePending = false;
-    });
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-
-    expect(bundle.session.flushSave).toHaveBeenCalledOnce();
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.state.editorContent).toBe('blocked local draft');
-    coordinator.stop();
-  });
-
-  it('keeps a dirty draft when a forced retry fails without a pending save', async () => {
-    noteMocks.readNote.mockResolvedValue('external content');
-    const bundle = makeSession({
-      dirty: true,
-      editorContent: 'only local draft',
-      savedContent: 'old base',
-      savePending: false,
-    });
-    vi.mocked(bundle.session.flushSave).mockResolvedValueOnce();
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-
-    expect(bundle.session.flushSave).toHaveBeenCalledOnce();
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.state.editorContent).toBe('only local draft');
-    expect(noteMocks.handleExternalFileChange).toHaveBeenCalledWith('active.md');
-
-    bundle.state.dirty = false;
-    await coordinator.handleEditorFocusChange(false);
-    expect(bundle.applyExternalContent).toHaveBeenCalledWith('external content');
-    coordinator.stop();
-  });
-
-  it('adopts the diverged disk note after a completed flush parks the draft', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('peer content');
-    const bundle = makeSession({
-      editorContent: 'my parked draft',
-      savedContent: 'original base',
-      savePending: true,
-    });
-    const { coordinator, showToast } = makeCoordinator(bundle.session);
-
-    await coordinator.reconcileOpenNote('active', {
-      parkedDraft: { content: 'my parked draft', title: 'active' },
-    });
-
-    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('peer content');
-    expect(showToast).not.toHaveBeenCalled();
-    coordinator.stop();
-  });
-
-  it('does not replace an edit made during the guarded post-park disk read', async () => {
-    const read = controlledPromise<string>();
-    noteMocks.readNote.mockReturnValueOnce(read.promise);
-    const bundle = makeSession({
-      dirty: true,
-      editorContent: 'parked snapshot',
-      savedContent: 'old base',
-      savePending: true,
-    });
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    const reconciliation = coordinator.reconcileOpenNote('active', {
-      parkedDraft: { content: 'parked snapshot', title: 'active' },
-    });
-    await Promise.resolve();
-    expect(noteMocks.readNote).toHaveBeenCalledOnce();
-    bundle.state.editVersion += 1;
-    bundle.state.editorContent = 'new edit after park';
-    read.resolve('peer content');
     await reconciliation;
 
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.state.editorContent).toBe('new edit after park');
-    coordinator.stop();
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledWith(
+      expect.objectContaining({ base: 'saved draft', draft: 'saved draft' }),
+    );
+    bundle.coordinator.stop();
   });
 
-  it('does not replace an edit made after parking but before reconciliation starts', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('peer content');
-    const bundle = makeSession({
-      dirty: true,
-      editorContent: 'new edit after park',
-      savedContent: 'old base',
-      savePending: true,
-    });
-    const { coordinator } = makeCoordinator(bundle.session);
+  it('defers a composing watcher change until composition ends', async () => {
+    syncMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'adopt', content: 'peer' });
+    const bundle = makeCoordinator(
+      makeSession({ composing: true, editorFocused: true, savePending: true }),
+    );
 
-    await coordinator.reconcileOpenNote('active', {
-      parkedDraft: { content: 'parked snapshot', title: 'active' },
-    });
-
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.state.editorContent).toBe('new edit after park');
-    coordinator.stop();
-  });
-
-  it('does not replace a live editor change that has not advanced the edit version', async () => {
-    const read = controlledPromise<string>();
-    noteMocks.readNote.mockReturnValueOnce(read.promise);
-    const bundle = makeSession({
-      dirty: true,
-      editorContent: 'parked snapshot',
-      savedContent: 'old base',
-      savePending: true,
-    });
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    const reconciliation = coordinator.reconcileOpenNote('active', {
-      parkedDraft: { content: 'parked snapshot', title: 'active' },
-    });
-    await Promise.resolve();
-    bundle.state.editorContent = 'unreported live editor change';
-    read.resolve('peer content');
-    await reconciliation;
-
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.state.editorContent).toBe('unreported live editor change');
-    coordinator.stop();
-  });
-
-  it('does not replace a title edit made after the draft was parked', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('peer content');
-    const bundle = makeSession({
-      dirty: true,
-      editorContent: 'parked snapshot',
-      savedContent: 'old base',
-      savePending: true,
-      title: 'new title after park',
-    });
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    await coordinator.reconcileOpenNote('active', {
-      parkedDraft: { content: 'parked snapshot', title: 'active' },
-    });
-
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.state.title).toBe('new title after park');
-    coordinator.stop();
-  });
-
-  it('adopts disk content matching the editor and advances the saved baseline', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('local content').mockResolvedValueOnce('old baseline');
-    const bundle = makeSession({
-      editorContent: 'local content',
-      savedContent: 'old baseline',
-    });
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-
-    expect(bundle.applyExternalContent.mock.calls).toEqual([['local content'], ['old baseline']]);
-    coordinator.stop();
-  });
-
-  it('defers flush and adoption during composition, then reconciles on composition end', async () => {
-    noteMocks.readNote
-      .mockResolvedValueOnce('external content')
-      .mockResolvedValueOnce('external content');
-    const bundle = makeSession({ composing: true, dirty: true, editorFocused: true });
-    vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
-      bundle.state.dirty = false;
-    });
-    const { coordinator, showToast } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    expect(bundle.session.flushSave).not.toHaveBeenCalled();
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    await bundle.coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    expect(syncMocks.classifyOpenNote).not.toHaveBeenCalled();
     expect(noteMocks.handleExternalFileChange).toHaveBeenCalledWith('active.md');
 
     bundle.state.composing = false;
-    await coordinator.handleCompositionEnd();
+    bundle.state.editorFocused = false;
+    bundle.state.savePending = false;
+    await bundle.coordinator.handleCompositionEnd();
 
-    expect(bundle.applyExternalContent).toHaveBeenCalledWith('external content');
-    expect(showToast).not.toHaveBeenCalled();
-    coordinator.stop();
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('peer');
+    bundle.coordinator.stop();
   });
 
-  it('serializes watcher and blur reconciles so the latest disk content wins', async () => {
-    const olderRead = controlledPromise<string>();
-    const latestRead = controlledPromise<string>();
-    noteMocks.readNote
-      .mockReturnValueOnce(olderRead.promise)
-      .mockReturnValueOnce(latestRead.promise);
-    const bundle = makeSession();
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    coordinator.deferAdopt('active');
-    const watcherReconcile = coordinator.handleFileChange({
-      type: 'change',
-      filename: 'active.md',
+  it('routes an external unlink through the engine instead of closing locally', async () => {
+    syncMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'base',
+      reason: 'peerDeleted',
     });
-    const blurReconcile = coordinator.handleEditorFocusChange(false);
+    const bundle = makeCoordinator(makeSession({ editorContent: 'draft' }));
 
-    latestRead.resolve('latest disk content');
-    olderRead.resolve('older disk content');
-    await Promise.all([watcherReconcile, blurReconcile]);
+    await bundle.coordinator.handleFileChange({ type: 'unlink', filename: 'active.md' });
 
-    expect(noteMocks.readNote).toHaveBeenCalledTimes(2);
-    expect(bundle.applyExternalContent.mock.calls).toEqual([
-      ['older disk content'],
-      ['latest disk content'],
-    ]);
-    expect(bundle.state.editorContent).toBe('latest disk content');
-    coordinator.stop();
-  });
-
-  it('closes the session when a change event reads empty content for a missing note', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('');
-    noteMocks.getNoteById.mockReturnValueOnce(null);
-    const bundle = makeSession();
-    const { coordinator, notifySaved, showToast } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
-    expect(showToast).toHaveBeenCalledExactlyOnceWith('Note was deleted externally');
-    expect(notifySaved).toHaveBeenCalledOnce();
-    coordinator.stop();
-  });
-
-  it('adopts empty content when the note still exists', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('');
-    const bundle = makeSession({
-      editorContent: 'existing content',
-      savedContent: 'existing content',
-    });
-    const { coordinator, notifySaved, showToast } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-
-    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('');
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledOnce();
     expect(bundle.cancelAndClear).not.toHaveBeenCalled();
-    expect(showToast).not.toHaveBeenCalled();
-    expect(notifySaved).toHaveBeenCalledOnce();
-    coordinator.stop();
+    expect(bundle.rebaseSavedContent).toHaveBeenCalledWith('base');
+    bundle.coordinator.stop();
   });
 
-  it('re-reads a recreated note after an empty snapshot refresh', async () => {
-    let diskContent = '';
-    noteMocks.readNote.mockImplementation(async () => diskContent);
-    noteMocks.handleExternalFileChange.mockImplementationOnce(async () => {
-      diskContent = 'draft content';
-    });
-    const bundle = makeSession({
-      editorContent: 'draft content',
-      savedContent: 'draft content',
-    });
-    const { coordinator } = makeCoordinator(bundle.session);
+  it('keeps suppressing non-active sync writes while active changes still classify', async () => {
+    const suppressor = createWriteSuppressor();
+    suppressor.recordSyncWrite('background.md');
+    suppressor.recordSyncWrite('active.md');
+    const bundle = makeCoordinator(makeSession(), suppressor);
 
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    await bundle.coordinator.handleFileChange({ type: 'change', filename: 'background.md' });
+    expect(noteMocks.handleExternalFileChange).not.toHaveBeenCalled();
 
-    expect(bundle.applyExternalContent).not.toHaveBeenCalledWith('');
-    expect(bundle.state.editorContent).toBe('draft content');
-    expect(bundle.state.savedContent).toBe('draft content');
-    coordinator.stop();
-  });
-
-  it('closes an open note deleted externally and shows the deletion toast', async () => {
-    const bundle = makeSession({ dirty: true });
-    const { coordinator, showToast } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'unlink', filename: 'active.md' });
-
-    expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
-    expect(showToast).toHaveBeenCalledExactlyOnceWith('Note was deleted externally');
-    coordinator.stop();
-  });
-
-  it('reconciles an active note after its direct read fails', async () => {
-    noteMocks.readNote.mockRejectedValueOnce(new Error('transient read failure'));
-    const bundle = makeSession();
-    const { coordinator, notifySaved } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-
-    expect(noteMocks.readNote).toHaveBeenCalledWith('active');
+    await bundle.coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledOnce();
     expect(noteMocks.handleExternalFileChange).toHaveBeenCalledWith('active.md');
-    expect(notifySaved).toHaveBeenCalledOnce();
-    coordinator.stop();
-  });
-});
-
-describe('deferred adopt identity', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    noteMocks.getNoteById.mockReturnValue({ id: 'active', title: 'active' });
-    noteMocks.readNote.mockResolvedValue('');
-  });
-
-  it('drops a deferred adopt after the session switches to another note', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('stale active content');
-    const bundle = makeSession({ composing: true, editorFocused: true });
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    bundle.state.originalId = 'other';
-    bundle.state.composing = false;
-    bundle.state.editorFocused = false;
-    await coordinator.handleEditorFocusChange(false);
-
-    expect(noteMocks.readNote).not.toHaveBeenCalled();
-    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    coordinator.stop();
-  });
-
-  it('re-reads current disk content when a deferred note is reopened before blur', async () => {
-    noteMocks.readNote.mockResolvedValueOnce('current disk content');
-    const bundle = makeSession({ composing: true, editorFocused: true });
-    const { coordinator } = makeCoordinator(bundle.session);
-
-    await coordinator.handleFileChange({ type: 'change', filename: 'active.md' });
-    bundle.state.originalId = 'other';
-    bundle.state.originalId = 'active';
-    bundle.state.composing = false;
-    bundle.state.editorFocused = false;
-    await coordinator.handleEditorFocusChange(false);
-
-    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('current disk content');
-    coordinator.stop();
+    bundle.coordinator.stop();
   });
 });

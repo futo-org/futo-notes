@@ -40,14 +40,13 @@ export type KeepDraftReasonOutput = "peerDeleted" | "diverged" | "converged";
 export type OpenNoteDispositionOutput = { kind: "leave" } | { kind: "adopt"; content: string } | { kind: "deferAdopt" } | { kind: "followRename"; toId: string } | { kind: "keepDraft"; base: string; reason: KeepDraftReasonOutput } | { kind: "close" };
 
 /**
- *  The facts the frontend gathers before asking the engine what happens to the
- *  open note. Field-for-field the engine's `OpenNoteFacts`; see that type for
- *  what each one means.
+ *  The editor facts supplied by the frontend. The adapter gathers the
+ *  authoritative disk value before asking the engine for a verdict.
  */
-export type OpenNoteFactsInput = {
+export type OpenNoteRequestInput = {
+	id: string,
 	base: string,
 	draft: string,
-	disk: string | null,
 	renamedTo: string | null,
 	editorFocused: boolean,
 	editedDuringCycle: boolean,

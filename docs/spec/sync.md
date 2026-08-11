@@ -34,12 +34,12 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   password" or an unreachable host even when the input looks correct. → iOS
   `SecureField` + `.textInputAutocapitalization(.never)`/`.autocorrectionDisabled()`
   on the URL field (SyncView.swift); Android `KeyboardOptions(keyboardType =
-  Password/Uri, autoCorrectEnabled = false, capitalization = None)`
+Password/Uri, autoCorrectEnabled = false, capitalization = None)`
   (SyncScreen.kt); desktop `type="password"` + `autocapitalize="off"`
   (SettingsScreen.svelte).
 - **A server URL without an `http://` or `https://` scheme is rejected before
-  any network call**, with the actionable message *"Add http:// or https:// to
-  the start of the server URL."* (surrounding whitespace is trimmed). This turns
+  any network call**, with the actionable message _"Add http:// or https:// to
+  the start of the server URL."_ (surrounding whitespace is trimmed). This turns
   the most common setup mistake into a clear instruction instead of an opaque
   transport error. All three shells pre-validate identically: Android
   `SyncManager.validateServerUrl`, iOS `SyncManager.validateServerURL` (guards
@@ -65,15 +65,15 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 - **The link is only shown in the not-connected state.** Once sync is set up
   (connected to a server), the link is hidden — the Sync screen then shows the
   locked server URL, "Sync now" / "Disconnect", and status instead. →
-  SyncView.swift *(iOS)*, SyncScreen.kt *(Android)*
+  SyncView.swift _(iOS)_, SyncScreen.kt _(Android)_
 - Errors surface inline; a progress indicator shows while a sync is busy.
 - A sync that finishes successfully reports just **"Sync complete"** — the
   status never shows uploaded/downloaded/deleted/conflict counts (spec
   decision 2026-06-10; the native shells previously showed
   `Synced — ↑a ↓b ✕c ⚠d`, and Tauri desktop previously showed `Synced: N
-  uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
-  SyncManager.kt / SyncManager.swift `describe`, syncManager.svelte.ts *(desktop)*
-  - **Exemption:** the "no counts" rule covers *success* reporting only. A
+uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
+  SyncManager.kt / SyncManager.swift `describe`, syncManager.svelte.ts _(desktop)_
+  - **Exemption:** the "no counts" rule covers _success_ reporting only. A
     **failure** count/status (e.g. "3 changes couldn't reach the server (HTTP
     500)") is a distinct, actionable signal and IS surfaced — see the
     per-item failure bullet below.
@@ -141,8 +141,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   syncManager.svelte.ts
   (`handleSyncComplete`)
 - **A failed blob download never advances the cursor past the object.** The
-  `max_version` persisted by a pull (including the bootstrap pull from cursor
-  0) is capped below the lowest failed `change_seq`, so the next cycle re-lists
+  `max_version` persisted by a pull (including the bootstrap pull from cursor 0) is capped below the lowest failed `change_seq`, so the next cycle re-lists
   and retries the failed object — re-listing already-landed objects is
   idempotent (the object-map version check in `first_pass` skips them).
   Without the cap, an object whose blob failed to download or decrypt was
@@ -457,7 +456,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   instead of resetting it — a note edited offline before the port lands as a
   clean update to its existing object (same object_id, PUT at the next
   version) rather than a conflict copy or a re-POSTed duplicate. Importing
-  then connecting to a *different* collection still resets, and an older
+  then connecting to a _different_ collection still resets, and an older
   pre-port file that predates `e2eeCollectionId` carries no tag and resets as
   UNKNOWN provenance (the bootstrap pull from cursor 0 then hash-dedups). →
   futo-notes-sync `checkpoint.rs`
@@ -498,6 +497,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   survivor — no data loss for anything a device still holds. → futo-notes-sync
   `SyncSession` (terminal live error on collection-gone); syncServiceE2ee
   `{ensureConnected,syncE2eeAuto}`; SyncManager.{swift,kt} `healSession`
+
 - Moving the whole vault folder to a new location (e.g. the Android Device/App
   storage switch → [app.md](app.md) "Vault location") is transparent to sync:
   the object map is keyed by **relative** filename (not absolute path) and the
@@ -646,7 +646,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   plaintext: it runs the session password-less. There is no proactive prompt on
   the next launch — the connection metadata still marks sync as configured, so
   the Settings sync section keeps the password field available for the user to
-  re-enter it on demand. A failed keyring *delete* on disconnect/forget/Full
+  re-enter it on demand. A failed keyring _delete_ on disconnect/forget/Full
   reset surfaces a toast and sets a non-secret `pendingKeyringDeletion` marker
   in `.app-state.json` that the next launch retries. The tradeoff is shared and
   deliberate:
@@ -659,8 +659,8 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   On web (non-Tauri, not a shipping sync surface) there is no OS keyring, so the
   password is held in memory only and is deliberately not persisted across a
   page reload.
-  → Keychain.swift *(iOS)*, SecureStore.kt *(Android)*,
-  sync/password_store.rs + syncServiceE2ee.ts *(desktop)*
+  → Keychain.swift _(iOS)_, SecureStore.kt _(Android)_,
+  sync/password_store.rs + syncServiceE2ee.ts _(desktop)_
 - **An expired server bearer session reauthenticates transparently from the
   securely saved password without resetting sync state.** Server bearer tokens
   have a fixed seven-day lifetime that authenticated activity does not extend;
@@ -711,6 +711,27 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   collide and no 409 fires) is detected via the response's `deleted` flag and
   the edit is re-POSTed as a fresh live object — never mapped to the tombstone
   where the puller's own pull would delete it. → futo-notes-sync sync module
+- **A tombstone park is a reported relocation, so the open editor follows it.**
+  When a peer's tombstone arrives and the local file has diverged from the
+  deleted version (the body autosave landed after this cycle's push phase, so
+  push-first had nothing to send), the pull parks the local content in a
+  `name (conflict <oid8>)` copy and reports the move in `SyncSummary.renamed`
+  alongside the deletion — which ghost-stripping then removes from
+  `deletedIds`/`peerDeletedIds`, because the note moved rather than vanished.
+  Reporting only the deletion stranded the shell: a draft that had just reached
+  disk is `draft == base`, so the open note classified as a peer delete with
+  nothing to preserve (`Close`) and the editor closed with its buffer discarded
+  while the text sat in the copy (disp-05, ~25% of runs). Following the rename
+  is also the only F4-safe answer — the editor never stays bound to the deleted
+  id, whose next save would resurrect it fleet-wide. Like every other reported
+  relocation the follow is silent — the retitled editor is the only signal that
+  the peer's delete landed and the local text became a copy. → futo-notes-sync
+  `sync/tombstones.rs` `park_divergent_claim` (guarded by
+  `tombstone_park_of_diverged_content_reports_rename_intent`,
+  `tombstone_of_unchanged_content_reports_no_rename`, and
+  `a_reported_rename_is_always_followed` in `open_note.rs`); desktop guarded by
+  "follows a tombstone park onto the conflict copy holding the saved draft" in
+  src/features/sync/syncManager.test.ts
 - Pull-side filename collisions between byte-identical objects adopt silently
   (smallest object id stays canonical; the identical loser mints NO
   `(conflict <oid8>)` copy and its map entry is dropped without tombstoning
@@ -734,6 +755,21 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   "follows a reported collision-placement rename before pruning deletions" in
   src/features/sync/syncManager.test.ts and the cross-platform scenario
   "collision placement follows open note" in tests/cross-platform-sync.mjs)
+- **Following a reported rename is one atomic retarget of route AND editor**
+  _(desktop)_. A single helper moves the tab/route and — while the session is
+  still bound to the old id — the open editor's id and title, whether the
+  retarget comes from the classifier's `FollowRename` verdict or from sync
+  completion projecting a rename the classifier never answered for (a failed or
+  unavailable `e2ee_classify_open_note`; the browser dev/test lane has no engine
+  to ask at all). Projecting the tab alone left the URL and tab on the new title
+  while the title input kept the old one. Applying a reported rename without a
+  verdict cannot disagree with the engine: a reported rename outranks every
+  other fact and always yields `FollowRename`. →
+  src/features/sync/syncManager.svelte.ts `applyReportedRename` (guarded by
+  "moves route and title together when the open note cannot be classified" in
+  src/features/sync/syncManager.test.ts + tests/remote-rename.spec.ts; the
+  engine side by "a reported rename outranks …" in
+  `every_reachable_fact_combination_has_one_verdict`)
 - **Every shell family is handed the same cycle report.** The desktop IPC
   contract and the UniFFI contract both project the engine summary losslessly —
   the four counters plus `updatedIds`, `deletedIds`, `peerUpdatedIds`,
@@ -920,7 +956,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   globally-unique inputs that every union member carries — so resolution is
   idempotent (editing the winner can't flip it), convergent (every client mints
   the identical loser name and the fleet lands on `{canonical, name (conflict
-  <oid8>)}`), and safe even when the rival is already on disk / in the map and
+<oid8>)}`), and safe even when the rival is already on disk / in the map and
   is NOT in the current incremental batch (F4 same-name; F5 NFC-vs-NFD). →
   futo-notes-sync sync module, futo-notes-core
   `files::collision_key` and
@@ -931,7 +967,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   unseen remote.** When a local file diverges from a server object on a fresh
   empty map (no common ancestor ⇒ no safe 3-way merge), the remote is adopted on
   the canonical name and the local edits are parked in a deterministic `name
-  (conflict <remote-oid8>).md` copy that the next push uploads as its own new
+(conflict <remote-oid8>).md` copy that the next push uploads as its own new
   object — instead of recording a divergence entry that the next push pushed
   over the never-reconciled remote (F6). → futo-notes-sync `sync/mod.rs`
   (`pull::pull_with_checkpoint(state, root, 0, ...)`) +
@@ -977,7 +1013,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   case** from an existing file instead of failing. On case-insensitive
   filesystems (default APFS on macOS/iOS, NTFS) `fs::rename` returns EEXIST for
   a case-variant destination; before the fix one colliding note aborted the
-  *entire* sync apply mid-download. The recovery PARKS the colliding entry as
+  _entire_ sync apply mid-download. The recovery PARKS the colliding entry as
   a hidden `.sf-bak-…` file (restored if the retry fails, deleted on success)
   rather than deleting it first — a crash mid-recovery leaves the old bytes
   recoverable on disk instead of losing them. → futo-notes-core
@@ -1005,7 +1041,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   content-identical rewrite on the Mac left `Markdown demo` sorted minutes
   newer than on Android/iOS.) → futo-notes-sync sync module
 
-- **Closed (2026-06-05):** reconciliation of two *distinct* notes whose
+- **Closed (2026-06-05):** reconciliation of two _distinct_ notes whose
   filenames collide only by case (`welcome.md` vs `Welcome.md`) or by Unicode
   normalization (NFC vs NFD) on a case/normalization-insensitive FS no longer
   double-tombstones or loses a note. The original failure (observed 2026-06-04,
@@ -1013,7 +1049,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   **both** objects, deleting the note from every client) is replaced by the
   deterministic conflict-copy policy above: winner = smallest `object_id` keeps
   the canonical name, every other colliding object is materialized at `name
-  (conflict <oid8>).md`. The collision detector ranks the union of the current
+(conflict <oid8>).md`. The collision detector ranks the union of the current
   pull batch, the persisted object_map, and on-disk files, so the rival being
   already-present (not in the incremental batch) is handled — the exact
   double-tombstone path is gone. → futo-notes-sync sync module; F4/F5
@@ -1022,7 +1058,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 ## Instance journal
 
 - **Every sync cycle writes one `sync_run` record to the instance journal
-  *(desktop)*.** The record names why the cycle ran (`manual`, `live_catch_up`,
+  _(desktop)_.** The record names why the cycle ran (`manual`, `live_catch_up`,
   `local_change`, `remote_change`, `safety_poll`), how long each phase took
   (bootstrap / push / pull / total), what it moved (pushed, pulled, deleted,
   conflicts, local writes, failures, renames, oversize skips, tombstones), the
@@ -1053,7 +1089,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   > **Gap:** Only the desktop shell opens a journal. iOS and Android run the
   > same sync crate, but `SyncSession::set_journal` is not exposed through
   > `futo-notes-ffi`, so a native shell's runs are not recorded and `just
-  > journal --dir` has nothing to read from a phone.
+journal --dir` has nothing to read from a phone.
 
 ## Polling
 
@@ -1065,7 +1101,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   `session/`
 
 - **External filesystem changes to the open note mirror disk, IDE-style
-  *(desktop)*.** A watcher `change` whose disk content differs from the
+  _(desktop)_.** A watcher `change` whose disk content differs from the
   session's last-saved baseline is adopted immediately when the session is
   clean; a dirty draft is protected first and the adoption is deferred until
   the draft settles (blur, composition end, or one scheduled settle pass when
@@ -1111,11 +1147,11 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   "external watcher protects dirty draft then settles")
 - A remote edit to the **currently-open note** is adopted into the open editor
   when the local draft is clean (`content == savedContent`); a dirty draft
-  still wins and is never overwritten *(iOS/Android)*. Without this, the open editor kept
+  still wins and is never overwritten _(iOS/Android)_. Without this, the open editor kept
   showing a stale base and — worse — SAVED IT BACK on exit, silently
   clobbering the remote edit (observed 2026-06-04). → NoteEditorView.swift
   (`onReceive(store.$notes)`), NoteEditorScreen.kt (`snapshotFlow
-  { store.notes }`)
+{ store.notes }`)
 - The desktop adopt works for **every consecutive** remote edit, not just the
   first. The adopt's own programmatic `setEditorContent` echoes back through
   the editor's rAF-coalesced `onchange` one frame later — after the
@@ -1146,18 +1182,18 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   newer than the next cycle's true start — edits between live cycles, and all
   edits made while offline, are over-protected (the draft wins and is pushed)
   rather than ever under-protected. Live and JS-driven epochs are tracked
-  separately and snapshotted when each completion arrives. Completion handlers are serialized, and each completion flushes a
-  pending or in-flight save before reading disk and re-evaluating session
-  identity and draft state;
+  separately and snapshotted when each completion arrives. Completion handlers
+  are serialized, and each completion flushes a pending or in-flight save
+  before the desktop adapter reads disk and returns the engine disposition;
   a parked save can therefore finish its guarded disk adoption before the
   completion chooses whether to adopt or rebase. Once a focused-editor
   adopt is deferred, blur re-reads current disk content through
   `reconcileOpenNote` and applies it silently if the same note is still open
   and it differs from the saved baseline; content already matching the editor
   is still applied as a zero-diff baseline advance. → noteSession
-  `isEditorChangeEcho`, syncManager `handleSyncComplete` (guarded by "flushes
-  a draft created while deferred before adopting sync content on blur"
-  in syncManager.test.ts)
+  `isEditorChangeEcho`, createExternalChangeCoordinator
+  `reconcileOpenNote` (guarded by the engine-verdict, stale-snapshot, and
+  defer-on-blur cases in createExternalChangeCoordinator.test.ts)
 
 - The native clean-adopt **preserves the caret/selection and scroll**: the
   shells push remote content through the embed's `applyExternalContent`
@@ -1194,14 +1230,14 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   the remote). → futo-notes-store `flush_draft` (iOS);
   NoteEditorScreen.kt / NoteEditorView.swift `adoptExternalChange`
 - A peer **deleting the currently-open note** closes the open session (route →
-  home, "Note was deleted during sync" toast) instead of adopting its content;
-  an unsaved local draft is kept open with an "Open note was deleted during
-  sync; keeping local draft" toast rather than closed *(desktop, iOS)*. On
-  desktop the path branches on `summary.deletedIds` — `read_note` returns `""`
-  for a missing file on Tauri, so reading a deleted id yields `""`, and the old
-  adopt-`""` path blanked the editor while the session stayed bound to the
-  deleted id, so the next keystroke re-created the file and undid the delete
-  fleet-wide (F4). iOS branches on the note no longer existing on disk after a
+  home, deletion toast) instead of adopting its content; an unsaved local draft
+  is kept open with a deletion/draft-kept toast rather than closed _(desktop,
+  iOS)_. On desktop the one Tauri classification command reads an
+  `Option<String>` directly from the local note store, so an empty file is an
+  adoptable `Some("")` while a missing file is `None`; this prevents the old
+  adopt-`""` path from blanking the editor while leaving it bound to a deleted
+  id, whose next keystroke re-created the file and undid the delete fleet-wide
+  (F4). iOS branches on the note no longer existing on disk after a
   live pull (`store.exists` false in `adoptExternalChange`), acts only for the
   visible editor (a buried wikilink editor must not pop the stack top), and
   relies on the engine's flush verb (`flush_draft` — a clean editor never
@@ -1209,9 +1245,11 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   The dirty-keep path is edit-wins: the debounced save re-creates the note
   with the local edits, and a leave/background flush of the kept draft
   converges on the same home via the verb's Recreated arm.
-  → syncManager `handleSyncComplete` (guarded by "peer delete of open
-  note closes editor" in tests/cross-platform-sync.mjs + the F4 seam tests in
-  src/features/sync/syncManager.test.ts); iOS NoteEditorView `handleOpenNoteDeleted`.
+  → `e2ee_classify_open_note` +
+  createExternalChangeCoordinator `reconcileOpenNote` (guarded by "peer delete
+  of open note closes editor" in tests/cross-platform-sync.mjs + the executor
+  cases in createExternalChangeCoordinator.test.ts); iOS NoteEditorView
+  `handleOpenNoteDeleted`.
   > **Gap:** Android leaves the open editor bound to the deleted id (its
   > snapshotFlow adopt early-returns on the missing note); the peer-delete
   > close/keep + banner is not yet ported there. The verdict it needs now
@@ -1251,28 +1289,39 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   `PendingDraft(base:)`), and let the returned disposition rebind the editor when
   it parks. A shell whose debounced save writes UNCONDITIONALLY instead destroys
   the peer's bytes whatever the verdict said, which is why the native autosave
-  routes through the flush verb. Every copy of the decision keeps that baseline
-  today: the verb, desktop's own sync-completion and watcher paths, iOS
-  `adoptExternalChange`, and Android — all four hand `flush_draft` the pre-pull
-  base, so all four park (#89, closed 2026-08-11; the loss had been reproduced
-  between two real desktop clients on 2026-08-10 and is now pinned by the
-  cross-platform scenario "dirty draft survives a peer edit then settles").
+  routes through the flush verb. Every surface keeps that baseline today: the
+  verb, desktop's single executor (which renders the verb rather than holding a
+  copy of the decision — its sync-completion and watcher paths both delegate to
+  it), iOS `adoptExternalChange`, and Android — all of them hand `flush_draft`
+  the pre-pull base, so all of them park (#89, closed 2026-08-11; the loss had
+  been reproduced between two real desktop clients on 2026-08-10 and is now
+  pinned by the cross-platform scenario "dirty draft survives a peer edit then
+  settles").
   → futo-notes-sync `open_note.rs` (guarded by
   `every_reachable_fact_combination_has_one_verdict`,
-  `a_dirty_draft_is_never_replaced`,
+  `a_dirty_draft_is_never_replaced`, `a_reported_rename_is_always_followed`,
   `a_converged_draft_rebases_onto_what_is_actually_on_disk`,
   `a_diverged_draft_keeps_the_baseline_that_makes_the_next_flush_park` and
   `no_reachable_fact_combination_can_discard_unsaved_work`), the
   verdict→flush composition guarded end to end on a real vault by futo-notes-ffi
   `tests/open_note_flush.rs`, projected by `e2ee_classify_open_note` (desktop)
-  and `classify_open_note` (UniFFI); desktop's own copy guarded by
-  reconcileSyncCompletion.ts + syncManager.test.ts and the cross-platform
-  scenario "dirty draft survives a peer edit then settles"
-
-  > **Gap:** No shell renders the verb yet — desktop, iOS and Android each
-  > still run their own copy of the decision (two of them on desktop, with
-  > different toast wording). The verb and both projections landed first so the
-  > adoptions can be reviewed one surface at a time; desktop's is staged in
-  > scripts/command-reachability-allowlist.json with its reason. Until then the
-  > native in-place focused adopt above still stands; adopting the verb changes
-  > it to a deferred adopt on blur.
+  and `classify_open_note` (UniFFI).
+  Desktop gathers disk and classifies in one Tauri round trip, then
+  createExternalChangeCoordinator applies every verdict after one compound
+  identity/edit-version/draft/title re-validation; sync completion and watcher
+  events both delegate to that executor, so desktop holds no copy of the
+  decision to keep in step — the baseline it hands the flush is the verdict's
+  `base`, assigned verbatim (guarded by the executor cases in
+  createExternalChangeCoordinator.test.ts, the editor-reconciliation matrix in
+  syncManager.test.ts, and the cross-platform scenario "dirty draft survives a
+  peer edit then settles"). **No background projection may overrule
+  that verdict for the open note**: completion's deleted-tab pruning skips the id
+  the session is still bound to (a `close` has already unbound it), so a file
+  that vanishes between the classification and the existence probe cannot prune
+  the live tab and route home behind the engine's back. → reconcileSyncCompletion
+  (guarded by "never prunes the tab of a note the engine left open" in
+  src/features/sync/syncManager.test.ts)
+  > **Gap:** iOS and Android still run their own decision paths rather than
+  > rendering the UniFFI verb. Until their adoptions land, the native in-place
+  > focused adopt above still stands; adopting the verb changes it to a deferred
+  > adopt on blur.

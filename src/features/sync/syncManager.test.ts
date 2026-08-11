@@ -5,6 +5,9 @@ let autoSyncCallbacks: import('./autoSyncV2').AutoSyncCallbacks | null = null;
 const tauriEventMocks = vi.hoisted(() => ({
   listeners: new Map<string, (event: { payload: unknown }) => void>(),
 }));
+const openNoteMocks = vi.hoisted(() => ({
+  classifyOpenNote: vi.fn(),
+}));
 vi.mock('./autoSyncV2', () => ({
   startAutoSyncV2: (callbacks: import('./autoSyncV2').AutoSyncCallbacks) => {
     autoSyncCallbacks = callbacks;
@@ -18,6 +21,9 @@ vi.mock('@tauri-apps/api/event', () => ({
     return () => tauriEventMocks.listeners.delete(event);
   }),
 }));
+vi.mock('./syncServiceE2ee', () => ({
+  classifyOpenNote: openNoteMocks.classifyOpenNote,
+}));
 vi.mock('$lib/platform', () => ({ hasFileSystem: true, isTauri: true }));
 vi.mock('$shared/state/appState', () => ({ updateAppState: vi.fn(async () => {}) }));
 const rescanLocalNotes = vi.hoisted(() => vi.fn(async () => {}));
@@ -26,7 +32,6 @@ vi.mock('$lib/localNoteStore', () => ({
 }));
 vi.mock('$features/notes/notes.svelte', () => ({
   updateNote: vi.fn(async (id: string) => ({ id, mtime: 0, disposition: 'wrote' })),
-  readNote: vi.fn(async () => ''),
   noteExists: vi.fn(async () => false),
   getNoteById: vi.fn(() => undefined),
   handleExternalFileChange: vi.fn(async () => {}),
@@ -34,12 +39,7 @@ vi.mock('$features/notes/notes.svelte', () => ({
 }));
 
 import { updateAppState } from '$shared/state/appState';
-import {
-  noteExists,
-  readNote,
-  refreshNotesFromStorage,
-  updateNote,
-} from '$features/notes/notes.svelte';
+import { noteExists, refreshNotesFromStorage, updateNote } from '$features/notes/notes.svelte';
 import {
   createNoteSession,
   type NoteSession,
@@ -137,6 +137,7 @@ function makeSession(overrides: Partial<SessionState> = {}) {
       return state.lastEditTime;
     },
     flushSave: vi.fn(async () => {}),
+    resumeDraftPersistence: vi.fn(),
     awaitSaveIdle,
     applyExternalContent,
     rebaseSavedContent,
@@ -227,8 +228,6 @@ async function yieldMicrotasks(): Promise<void> {
 beforeEach(() => {
   autoSyncCallbacks = null;
   tauriEventMocks.listeners.clear();
-  vi.mocked(readNote).mockReset();
-  vi.mocked(readNote).mockResolvedValue('FRESH');
   vi.mocked(noteExists).mockReset();
   vi.mocked(noteExists).mockResolvedValue(false);
   vi.mocked(refreshNotesFromStorage).mockClear();
@@ -240,6 +239,8 @@ beforeEach(() => {
   }));
   rescanLocalNotes.mockClear();
   vi.mocked(updateAppState).mockClear();
+  openNoteMocks.classifyOpenNote.mockReset();
+  openNoteMocks.classifyOpenNote.mockResolvedValue({ kind: 'leave' });
   vi.useFakeTimers();
 });
 
@@ -348,6 +349,10 @@ describe('peer projections', () => {
   // futo-notes-sync); this only guards the tab-follow wiring for a
   // reported rename.
   it('follows a reported collision-placement rename before pruning deletions', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'followRename',
+      toId: 'Old (conflict deadbeef)',
+    });
     vi.mocked(noteExists).mockImplementation(async (id) => id !== 'Gone');
     const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
     await bundle.manager.handleSyncComplete({
@@ -367,6 +372,7 @@ describe('peer projections', () => {
       'Old (conflict deadbeef)',
       'Old (conflict deadbeef)',
     );
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledTimes(2);
     // The follow rebinds the session; the relocated draft is not adopted over.
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
     expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith(['Gone']);
@@ -376,6 +382,10 @@ describe('peer projections', () => {
   });
 
   it('waits for an in-flight save to commit before rebinding a remote rename', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'followRename',
+      toId: 'New',
+    });
     const sessionBundle = makeSession({
       id: 'Old',
       content: 'draft',
@@ -390,7 +400,7 @@ describe('peer projections', () => {
         resolve();
       };
     });
-    sessionBundle.awaitSaveIdle.mockReturnValueOnce(saveIdle);
+    vi.mocked(sessionBundle.session.flushSave).mockReturnValueOnce(saveIdle);
     const bundle = makeManager(sessionBundle);
 
     const reconciliation = bundle.manager.handleSyncComplete({
@@ -410,9 +420,13 @@ describe('peer projections', () => {
   });
 
   it('does not rebind a remote rename after the session switches notes', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'followRename',
+      toId: 'New',
+    });
     const sessionBundle = makeSession({ id: 'Old', savePending: true });
     let releaseSave!: () => void;
-    sessionBundle.awaitSaveIdle.mockReturnValueOnce(
+    vi.mocked(sessionBundle.session.flushSave).mockReturnValueOnce(
       new Promise<void>((resolve) => {
         releaseSave = resolve;
       }),
@@ -438,6 +452,12 @@ describe('peer projections', () => {
   // sync flow closes it instead of leaving the editor bound to a nonexistent
   // note whose next save would resurrect the tombstoned object.
   it('closes the open note when a followed rename target was tombstoned in the same cycle', async () => {
+    openNoteMocks.classifyOpenNote
+      .mockResolvedValueOnce({
+        kind: 'followRename',
+        toId: 'Old (conflict deadbeef)',
+      })
+      .mockResolvedValueOnce({ kind: 'close' });
     const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
@@ -452,7 +472,7 @@ describe('peer projections', () => {
       'Old (conflict deadbeef)',
     );
     expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
-    expect(bundle.toasts).toContain('Note was deleted during sync');
+    expect(bundle.toasts).toContain('Note was deleted');
     expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith(['Old (conflict deadbeef)']);
   });
 
@@ -463,6 +483,12 @@ describe('peer projections', () => {
   // is adopted — without it the editor keeps the stale relocated draft and the
   // next save overwrites the peer edit on every client.
   it('reloads a followed rename target that also received a real update in the same cycle', async () => {
+    openNoteMocks.classifyOpenNote
+      .mockResolvedValueOnce({
+        kind: 'followRename',
+        toId: 'Old (conflict deadbeef)',
+      })
+      .mockResolvedValueOnce({ kind: 'adopt', content: 'FRESH' });
     const bundle = makeManager(makeSession({ id: 'Old', content: 'stale' }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
@@ -478,9 +504,82 @@ describe('peer projections', () => {
   });
 });
 
+describe('rename disposition races', () => {
+  it('bounds a reported rename cycle to one pass per note id', async () => {
+    openNoteMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'followRename', toId: 'New' })
+      .mockResolvedValueOnce({ kind: 'followRename', toId: 'Old' });
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
+
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      renamed: [
+        { fromId: 'Old', toId: 'New' },
+        { fromId: 'New', toId: 'Old' },
+      ],
+    });
+
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledTimes(2);
+    expect(bundle.state.id).toBe('Old');
+  });
+
+  // The browser/Playwright lane has no classifier to invoke at all, and a real
+  // desktop IPC failure looks the same from here. Retargeting the route without
+  // the session left the URL/tab on the new title while the title input kept
+  // the old one (job 215292: `TypeError: Cannot read properties of undefined
+  // (reading 'invoke')` swallowed into NO_RECONCILIATION).
+  it('moves route and title together when the open note cannot be classified', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    openNoteMocks.classifyOpenNote.mockRejectedValueOnce(
+      new TypeError("Cannot read properties of undefined (reading 'invoke')"),
+    );
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
+
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      renamed: [{ fromId: 'Old', toId: 'New' }],
+    });
+
+    expect(bundle.onRename).toHaveBeenCalledExactlyOnceWith('Old', 'New', 'New');
+    expect(bundle.applyRemoteRename).toHaveBeenCalledExactlyOnceWith('New', 'New');
+    expect(bundle.state.id).toBe('New');
+    warn.mockRestore();
+  });
+
+  it('retargets a renamed tab without rebinding a session that switched during classification', async () => {
+    const verdict = controlledPromise<{
+      kind: 'followRename';
+      toId: string;
+    }>();
+    openNoteMocks.classifyOpenNote.mockReturnValueOnce(verdict.promise);
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
+
+    const reconciliation = bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      renamed: [{ fromId: 'Old', toId: 'New' }],
+    });
+    await yieldMicrotasks();
+    bundle.state.id = 'Other';
+    verdict.resolve({ kind: 'followRename', toId: 'New' });
+    await reconciliation;
+
+    expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
+    expect(bundle.onRename).toHaveBeenCalledExactlyOnceWith('Old', 'New', 'New');
+  });
+});
+
 // eslint-disable-next-line max-lines-per-function -- One editor reconciliation matrix shares the manager/session harness.
 describe('editor reconciliation', () => {
   it('keeps the pre-pull baseline for a draft saved during sync, so no later flush writes it over the pull', async () => {
+    // The engine's verdict for a protected draft, post-#89: KeepDraft{Diverged}
+    // hands back the PRE-pull base — the bytes this editor last saved — never
+    // the pulled ones. Desktop assigns it verbatim (the coordinator's keepDraft
+    // arm), so this stub is the engine's answer, not a shell decision.
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'local draft',
+      reason: 'diverged',
+    });
     const live = makeLiveNoteSession('During sync', 'base');
     const manager = createSyncManager({
       session: live.session,
@@ -497,7 +596,6 @@ describe('editor reconciliation', () => {
     expect(live.session.editVersion).toBe(1);
 
     vi.mocked(updateNote).mockClear();
-    vi.mocked(readNote).mockResolvedValue('# Remote update');
     await manager.handleSyncComplete({ ...emptySummary, updatedIds: ['During sync'] });
 
     // The buffer is protected, and the baseline still describes what this
@@ -507,7 +605,10 @@ describe('editor reconciliation', () => {
     expect(live.getEditorContent()).toBe('local draft');
     expect(live.session.savedContent).toBe('local draft');
 
-    await live.session.flushSave();
+    // `resumeDraftPersistence` runs on every kept draft, but this baseline
+    // leaves nothing unsaved, so the queue schedules no write at all.
+    expect(live.session.savePending).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
 
     // Nothing left to persist: this editor's bytes are already the ones it
     // wrote, so it never asks the engine to put them over the pulled content.
@@ -516,6 +617,13 @@ describe('editor reconciliation', () => {
   });
 
   it('hands a dirty draft its pre-pull base after a pull, the value that makes the engine park', async () => {
+    // Desktop reads disk inside the verb now, so the pre-pull base arrives as
+    // the verdict's `base` rather than being computed here.
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'base',
+      reason: 'diverged',
+    });
     const bundle = makeManager(
       makeSession({
         id: 'Peer edit',
@@ -524,21 +632,26 @@ describe('editor reconciliation', () => {
         dirty: true,
       }),
     );
-    vi.mocked(readNote).mockResolvedValue('peer content');
 
     await bundle.manager.handleSyncComplete({ ...emptySummary, updatedIds: ['Peer edit'] });
 
     // Persist-or-park at the open-note seam: the draft is neither replaced nor
     // re-baselined onto the peer's bytes. `flush_draft` parks exactly when
     // `current != base`, so the pre-pull base is what preserves BOTH texts —
-    // the peer's on disk, the draft as a conflict copy (#89).
+    // the peer's on disk, the draft as a conflict copy (#89). The executor
+    // assigns the verdict's base verbatim, which here is the base the session
+    // already held.
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.rebaseSavedContent).not.toHaveBeenCalled();
+    expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('base');
     expect(bundle.state.savedContent).toBe('base');
     expect(bundle.state.content).toBe('local draft');
   });
 
   it('adopts a live pull when no edits landed since the previous live completion', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'adopt',
+      content: 'peer content',
+    });
     const live = makeLiveNoteSession('Live pull', 'old content');
     live.editContent('already synced content');
     await live.session.flushSave();
@@ -559,7 +672,6 @@ describe('editor reconciliation', () => {
     liveSynced!({ payload: { ...emptySummary } });
     await yieldMicrotasks();
 
-    vi.mocked(readNote).mockResolvedValue('peer content');
     liveSynced!({ payload: { ...emptySummary, updatedIds: ['Live pull'] } });
     await yieldMicrotasks();
 
@@ -570,6 +682,11 @@ describe('editor reconciliation', () => {
   });
 
   it('protects an edit that raced the live cycle start against the pulled content', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'draft in the race window',
+      reason: 'diverged',
+    });
     const live = makeLiveNoteSession('Race window', 'old content');
     const manager = createSyncManager({
       session: live.session,
@@ -586,7 +703,6 @@ describe('editor reconciliation', () => {
     await live.session.flushSave();
     expect(live.session.dirty).toBe(false);
 
-    vi.mocked(readNote).mockResolvedValue('# Remote update');
     tauriEventMocks.listeners.get('sync:live-synced')!({
       payload: { ...emptySummary, updatedIds: ['Race window'] },
     });
@@ -611,15 +727,20 @@ describe('editor reconciliation', () => {
     const liveSynced = tauriEventMocks.listeners.get('sync:live-synced')!;
 
     // Completion 1 stalls on its disk read while the user edits and saves.
-    const read = controlledPromise<string>();
-    vi.mocked(readNote).mockReturnValueOnce(read.promise);
+    const verdict = controlledPromise<{
+      kind: 'keepDraft';
+      base: string;
+      reason: 'diverged';
+    }>();
+    openNoteMocks.classifyOpenNote.mockReturnValueOnce(verdict.promise);
     liveSynced({ payload: { ...emptySummary, updatedIds: ['Queued arrival'] } });
     live.editContent('draft during processing');
     await live.session.flushSave();
-    read.resolve('remote 1');
+    verdict.resolve({ kind: 'keepDraft', base: 'draft during processing', reason: 'diverged' });
     await yieldMicrotasks();
-    // The draft that landed mid-processing keeps its own baseline; 'remote 1'
-    // never becomes the base a later flush would fast-forward over (#89).
+    // The draft that landed mid-processing keeps its own baseline; completion
+    // 1's pulled bytes never become the base a later flush would fast-forward
+    // over (#89).
     expect(live.getEditorContent()).toBe('draft during processing');
     expect(live.session.savedContent).toBe('draft during processing');
     expect(live.session.dirty).toBe(false);
@@ -627,8 +748,12 @@ describe('editor reconciliation', () => {
     // Completion 2's epoch was captured at completion 1's ARRIVAL — before the
     // edit — so the pulled content must be protected against, not adopted. An
     // epoch captured after completion 1's processing would misclassify the
-    // edit as pre-cycle and adopt 'remote 2' over the draft.
-    vi.mocked(readNote).mockResolvedValue('remote 2');
+    // edit as pre-cycle and adopt completion 2's pulled bytes over the draft.
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'draft during processing',
+      reason: 'diverged',
+    });
     liveSynced({ payload: { ...emptySummary, updatedIds: ['Queued arrival'] } });
     await yieldMicrotasks();
 
@@ -638,6 +763,11 @@ describe('editor reconciliation', () => {
   });
 
   it('does not advance the live epoch on connect, protecting offline edits', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'edited while offline',
+      reason: 'diverged',
+    });
     const live = makeLiveNoteSession('Offline edit', 'old content');
     const manager = createSyncManager({
       session: live.session,
@@ -655,7 +785,6 @@ describe('editor reconciliation', () => {
     // the first pull adopt over it.
     manager.handleLiveState({ live: true, status: 'connected' });
 
-    vi.mocked(readNote).mockResolvedValue('peer content');
     tauriEventMocks.listeners.get('sync:live-synced')!({
       payload: { ...emptySummary, updatedIds: ['Offline edit'] },
     });
@@ -670,10 +799,14 @@ describe('editor reconciliation', () => {
   });
 
   it('keeps the live epoch independent of a JS cycle capture', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'old content',
+      reason: 'diverged',
+    });
     const bundle = makeManager(
       makeSession({ id: 'Epoch overlap', content: 'old content', editVersion: 1 }),
     );
-    vi.mocked(readNote).mockResolvedValue('peer content');
     const cleanup = bundle.manager.start();
 
     // The JS cycle captures its own epoch at the current edit version; the
@@ -685,13 +818,18 @@ describe('editor reconciliation', () => {
     });
 
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    // Neither adopted nor re-baselined: the pulled bytes are not this editor's
-    // to claim as its last save (#89).
-    expect(bundle.rebaseSavedContent).not.toHaveBeenCalled();
+    // Not adopted, and the baseline the executor assigns is the one the session
+    // already held: the pulled bytes are not this editor's to claim as its last
+    // save (#89).
+    expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('old content');
+    expect(bundle.state.savedContent).toBe('old content');
     cleanup();
   });
 
   it('settles an in-flight parked save before deciding how to reconcile pulled content', async () => {
+    openNoteMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'adopt', content: 'peer content' })
+      .mockResolvedValueOnce({ kind: 'leave' });
     const save = controlledPromise<void>();
     const bundle = makeManager(
       makeSession({
@@ -711,7 +849,6 @@ describe('editor reconciliation', () => {
       bundle.state.savePending = false;
       bundle.state.dirty = false;
     });
-    vi.mocked(readNote).mockResolvedValue('peer content');
 
     const reconciliation = bundle.manager.handleSyncComplete({
       ...emptySummary,
@@ -720,7 +857,7 @@ describe('editor reconciliation', () => {
     await yieldMicrotasks();
 
     expect(bundle.session.flushSave).toHaveBeenCalledOnce();
-    expect(readNote).not.toHaveBeenCalled();
+    expect(openNoteMocks.classifyOpenNote).not.toHaveBeenCalled();
     expect(bundle.rebaseSavedContent).not.toHaveBeenCalled();
 
     save.resolve();
@@ -732,10 +869,10 @@ describe('editor reconciliation', () => {
   });
 
   it('serializes overlapping completions so the later cycle content wins', async () => {
-    const firstRead = controlledPromise<string>();
-    vi.mocked(readNote)
-      .mockReturnValueOnce(firstRead.promise)
-      .mockResolvedValueOnce('later cycle content');
+    const firstVerdict = controlledPromise<{ kind: 'adopt'; content: string }>();
+    openNoteMocks.classifyOpenNote
+      .mockReturnValueOnce(firstVerdict.promise)
+      .mockResolvedValueOnce({ kind: 'adopt', content: 'later cycle content' });
     const bundle = makeManager(makeSession({ id: 'Overlap', content: 'base' }));
 
     const first = bundle.manager.handleSyncComplete({
@@ -748,8 +885,8 @@ describe('editor reconciliation', () => {
     });
     await yieldMicrotasks();
 
-    expect(readNote).toHaveBeenCalledTimes(1);
-    firstRead.resolve('earlier cycle content');
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledTimes(1);
+    firstVerdict.resolve({ kind: 'adopt', content: 'earlier cycle content' });
     await Promise.all([first, second]);
 
     expect(bundle.applyExternalContent.mock.calls).toEqual([
@@ -760,6 +897,11 @@ describe('editor reconciliation', () => {
   });
 
   it('silently rebases when pulled content already matches the editor', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'converged content',
+      reason: 'converged',
+    });
     const live = makeLiveNoteSession('Converged', 'old base');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.mocked(updateNote).mockRejectedValueOnce(new Error('write failed'));
@@ -769,7 +911,6 @@ describe('editor reconciliation', () => {
     expect(live.session.savedContent).toBe('old base');
     expect(live.session.dirty).toBe(true);
 
-    vi.mocked(readNote).mockResolvedValue('converged content');
     const manager = createSyncManager({
       session: live.session,
       showToast: vi.fn(),
@@ -786,6 +927,10 @@ describe('editor reconciliation', () => {
   });
 
   it('defers a watcher adopt during composition until the editor blurs', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'adopt',
+      content: 'FRESH',
+    });
     const bundle = makeManager(
       makeSession({ id: 'WatcherFocus', content: 'OLD', focused: true, composing: true }),
     );
@@ -798,6 +943,9 @@ describe('editor reconciliation', () => {
   });
 
   it('adopts watcher and sync content immediately when the editor is not focused', async () => {
+    openNoteMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'adopt', content: 'FRESH' })
+      .mockResolvedValueOnce({ kind: 'adopt', content: 'FRESH' });
     const watcher = makeManager(makeSession({ id: 'WatcherBlur', content: 'OLD' }));
     await watcher.manager.handleFileChange({ type: 'change', filename: 'WatcherBlur.md' });
     expect(watcher.applyExternalContent).toHaveBeenCalledWith('FRESH');
@@ -808,6 +956,9 @@ describe('editor reconciliation', () => {
   });
 
   it('flushes a draft created while deferred before adopting sync content on blur', async () => {
+    openNoteMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'deferAdopt' })
+      .mockResolvedValueOnce({ kind: 'adopt', content: 'FRESH' });
     const bundle = makeManager(makeSession({ id: 'DirtyLater', content: 'OLD', focused: true }));
     await bundle.manager.handleSyncComplete({ ...emptySummary, updatedIds: ['DirtyLater'] });
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
@@ -826,9 +977,9 @@ describe('editor reconciliation', () => {
   });
 
   it('re-reads a sync-deferred adopt on blur while the sync-write suppressor is active', async () => {
-    vi.mocked(readNote)
-      .mockResolvedValueOnce('sync completion snapshot')
-      .mockResolvedValueOnce('current disk content');
+    openNoteMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'deferAdopt' })
+      .mockResolvedValueOnce({ kind: 'adopt', content: 'current disk content' });
     const bundle = makeManager(
       makeSession({ id: 'SuppressedSyncAdopt', content: 'OLD', focused: true }),
     );
@@ -842,14 +993,14 @@ describe('editor reconciliation', () => {
     bundle.state.focused = false;
     await bundle.manager.handleEditorFocusChange(false);
 
-    expect(readNote).toHaveBeenCalledTimes(2);
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledTimes(2);
     expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('current disk content');
   });
 });
 
 describe('peer deletion safety', () => {
   it('closes a clean deleted open note instead of adopting an empty string', async () => {
-    vi.mocked(readNote).mockResolvedValue('');
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'close' });
     const bundle = makeManager(makeSession({ id: 'Doomed', content: 'OLD' }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
@@ -858,10 +1009,15 @@ describe('peer deletion safety', () => {
     });
     expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.toasts).toContain('Note was deleted during sync');
+    expect(bundle.toasts).toContain('Note was deleted');
   });
 
   it('keeps an unsaved draft and excludes it from tab pruning', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'base',
+      reason: 'peerDeleted',
+    });
     const bundle = makeManager(makeSession({ id: 'DirtyDoomed', content: 'LOCAL', dirty: true }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
@@ -873,8 +1029,11 @@ describe('peer deletion safety', () => {
   });
 
   it('adopts a deleted-then-recreated note when it still exists on disk', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'adopt',
+      content: '# recreated',
+    });
     vi.mocked(noteExists).mockResolvedValue(true);
-    vi.mocked(readNote).mockResolvedValue('# recreated');
     const bundle = makeManager(makeSession({ id: 'Recreated', content: 'OLD' }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
@@ -888,6 +1047,7 @@ describe('peer deletion safety', () => {
   });
 
   it('closes and prunes an id in both lists when the file is gone', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'close' });
     const bundle = makeManager(makeSession({ id: 'Contested', content: 'MY PUSH' }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
@@ -913,7 +1073,9 @@ describe('peer deletion safety', () => {
     expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith(['Gone']);
   });
 
-  it('fails closed for the open note but skips pruning when existence probes reject', async () => {
+  it('keeps the open note and skips pruning when classification and probes reject', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    openNoteMocks.classifyOpenNote.mockRejectedValueOnce(new Error('vault unavailable'));
     vi.mocked(noteExists).mockRejectedValue(new Error('vault unavailable'));
     const bundle = makeManager(makeSession({ id: 'ProbeError', content: 'OLD' }));
     await expect(
@@ -923,13 +1085,13 @@ describe('peer deletion safety', () => {
         peerDeletedIds: ['ProbeError'],
       }),
     ).resolves.toBeUndefined();
-    expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
+    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
     expect(bundle.pruneTabsForDeletedIds).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
-  it('re-verifies an empty read so a TOCTOU unlink closes instead of resurrecting', async () => {
-    vi.mocked(noteExists).mockResolvedValueOnce(true).mockResolvedValue(false);
-    vi.mocked(readNote).mockResolvedValue('');
+  it('applies the authoritative close verdict without a frontend read/exists race', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'close' });
     const bundle = makeManager(makeSession({ id: 'Vanisher', content: 'OLD' }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
@@ -942,8 +1104,8 @@ describe('peer deletion safety', () => {
   });
 
   it('still adopts a legitimately empty recreated note', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'adopt', content: '' });
     vi.mocked(noteExists).mockResolvedValue(true);
-    vi.mocked(readNote).mockResolvedValue('');
     const bundle = makeManager(makeSession({ id: 'EmptyRecreated', content: 'OLD' }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
@@ -958,9 +1120,9 @@ describe('peer deletion safety', () => {
   it('still prunes other deleted tabs when the active note switches during a read', async () => {
     const bundle = makeManager(makeSession({ id: 'Active', content: 'OLD' }));
     vi.mocked(noteExists).mockImplementation(async (id) => id !== 'OtherGone');
-    vi.mocked(readNote).mockImplementation(async () => {
+    openNoteMocks.classifyOpenNote.mockImplementationOnce(async () => {
       bundle.state.id = 'Elsewhere';
-      return '# fresh';
+      return { kind: 'adopt', content: '# fresh' };
     });
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
@@ -970,5 +1132,82 @@ describe('peer deletion safety', () => {
       peerDeletedIds: ['Active', 'OtherGone'],
     });
     expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith(['OtherGone']);
+  });
+});
+
+// The open note's fate belongs to the engine verdict alone: a projection that
+// runs beside the executor (rename projection, deleted-tab pruning) must never
+// move or close the session behind it.
+describe('open-note fate stays with the engine verdict', () => {
+  // The disp-05 interleaving, sequenced instead of raced: the body autosave
+  // lands between a cycle's push and its pull, so the pull finds the local file
+  // diverged from the deleted version, parks it into a conflict copy and reports
+  // that relocation (futo-notes-sync `tombstone_park_of_diverged_content_reports_rename_intent`).
+  // The facts the engine gets are then the Close row — disk gone, draft equal to
+  // the just-saved base — so only the reported rename keeps the editor open, now
+  // on the copy that actually holds the user's text.
+  it('follows a tombstone park onto the conflict copy holding the saved draft', async () => {
+    const parkedId = 'Parked (conflict 019fdd01)';
+    openNoteMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'followRename', toId: parkedId })
+      .mockResolvedValueOnce({ kind: 'leave' });
+    const live = makeLiveNoteSession('Parked', 'peer text');
+    const onRename = vi.fn();
+    const pruneTabsForDeletedIds = vi.fn();
+    const toasts: string[] = [];
+    const manager = createSyncManager({
+      session: live.session,
+      showToast: (message) => toasts.push(message),
+      onRename,
+      pruneTabsForDeletedIds,
+    });
+
+    live.editContent('my draft');
+    await live.session.flushSave();
+    expect(live.session.dirty).toBe(false);
+
+    await manager.handleSyncComplete({
+      ...emptySummary,
+      conflicts: 1,
+      deleted: 1,
+      updatedIds: [parkedId],
+      peerUpdatedIds: [parkedId],
+      renamed: [{ fromId: 'Parked', toId: parkedId }],
+    });
+
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        id: 'Parked',
+        base: 'my draft',
+        draft: 'my draft',
+        renamedTo: parkedId,
+      }),
+    );
+    expect(live.session.originalId).toBe(parkedId);
+    expect(live.session.title).toBe(parkedId);
+    expect(live.getEditorContent()).toBe('my draft');
+    expect(onRename).toHaveBeenCalledExactlyOnceWith('Parked', parkedId, parkedId);
+    expect(pruneTabsForDeletedIds).not.toHaveBeenCalled();
+    expect(toasts).toEqual([]);
+  });
+
+  // Sibling of the reported-rename split: a background projection must never
+  // decide the open note's fate. The engine said leave it open; if the file
+  // disappears before the existence probe, pruning its tab would clear the
+  // session and route home behind that verdict.
+  it('never prunes the tab of a note the engine left open', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'leave' });
+    vi.mocked(noteExists).mockResolvedValue(false);
+    const bundle = makeManager(makeSession({ id: 'StillOpen', content: 'OLD' }));
+
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      deletedIds: ['StillOpen', 'BackgroundGone'],
+      peerDeletedIds: ['StillOpen', 'BackgroundGone'],
+    });
+
+    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
+    expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledExactlyOnceWith(['BackgroundGone']);
   });
 });

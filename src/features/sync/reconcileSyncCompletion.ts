@@ -1,9 +1,4 @@
-import {
-  getNoteById,
-  noteExists,
-  readNote,
-  refreshNotesFromStorage,
-} from '$features/notes/notes.svelte';
+import { getNoteById, noteExists } from '$features/notes/notes.svelte';
 import type { NoteSession } from '$features/notes/noteSession.svelte';
 import { getLocalNoteStore } from '$lib/localNoteStore';
 import { updateAppState } from '$shared/state/appState';
@@ -15,12 +10,16 @@ import type { WriteSuppressor } from '$lib/platform/writeSuppression';
 
 type ExternalChangeCoordinator = Pick<
   ReturnType<typeof createExternalChangeCoordinator>,
-  'deferAdopt' | 'runRescan'
+  'reconcileOpenNote' | 'runRescan'
 >;
 
 interface SyncCompletionDependencies {
   session: NoteSession;
   showToast: (message: string) => void;
+  /** Applies one engine-reported rename completely — tab/route AND the open
+   * session while it is still bound to `fromId` (syncManager
+   * `applyReportedRename`). Retargeting only the route is what left the URL on
+   * the new title with the old one still in the title input. */
   onRename: (fromId: string, toId: string, title: string) => void;
   pruneTabsForDeletedIds: (goneIds: string[]) => void;
 }
@@ -36,21 +35,14 @@ interface SyncCompletionOptions {
   writeSuppressor: WriteSuppressor;
 }
 
-// eslint-disable-next-line max-lines-per-function -- One reconciler serializes the complete ordered sync-outcome transaction.
+interface OpenNoteSyncResult {
+  followedRenameFromIds: Set<string>;
+  keptDraftId: string | null;
+}
+
 export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
   const { dependencies, externalChanges, writeSuppressor } = options;
   let completionTail: Promise<void> = Promise.resolve();
-
-  async function applyRename(fromId: string, toId: string): Promise<void> {
-    const slash = toId.lastIndexOf('/');
-    const newTitle = getNoteById(toId)?.title ?? (slash === -1 ? toId : toId.slice(slash + 1));
-    dependencies.onRename(fromId, toId, newTitle);
-    if (dependencies.session.originalId === fromId) {
-      await dependencies.session.awaitSaveIdle();
-      if (dependencies.session.originalId !== fromId) return;
-      dependencies.session.applyRemoteRename(toId, newTitle);
-    }
-  }
 
   function recordSyncedFiles(summary: SyncSummary): void {
     for (const id of summary.updatedIds) writeSuppressor.recordSyncWrite(`${id}.md`);
@@ -75,107 +67,66 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     setTimeout(() => void externalChanges.runRescan(), 50);
   }
 
-  // The sync engine reports rename intent for every relocation it performs
-  // (including collision placements), so reported renames are applied
-  // verbatim — the open tab/editor follows through applyRename with no
-  // shell-side rename inference.
-  async function reconcileRenames(summary: SyncSummary): Promise<void> {
+  // Every reported rename the open-note executor did not already follow —
+  // renames of other notes, and the open note's own rename when its
+  // classification never produced an applicable verdict (it failed, or the
+  // engine could not be asked at all). Applying them completely is what keeps
+  // route and title agreeing on which note is open.
+  function projectReportedRenames(summary: SyncSummary, followedRenameFromIds: Set<string>): void {
     for (const rename of summary.renamed) {
-      await applyRename(rename.fromId, rename.toId);
+      if (followedRenameFromIds.has(rename.fromId)) continue;
+      const slash = rename.toId.lastIndexOf('/');
+      const title =
+        getNoteById(rename.toId)?.title ??
+        (slash === -1 ? rename.toId : rename.toId.slice(slash + 1));
+      dependencies.onRename(rename.fromId, rename.toId, title);
     }
   }
 
   async function reconcileOpenNote(
     summary: SyncSummary,
     syncStartEditVersion: number,
-  ): Promise<string | null> {
+  ): Promise<OpenNoteSyncResult> {
     const openId = dependencies.session.originalId;
-    const openDeleted = !!openId && summary.deletedIds.includes(openId);
-    const openUpdated = !!openId && summary.updatedIds.includes(openId);
-    if (!openId || !(openDeleted || openUpdated)) return null;
+    const syncResult: OpenNoteSyncResult = {
+      followedRenameFromIds: new Set(),
+      keptDraftId: null,
+    };
+    if (!openId) return syncResult;
+    const rename = summary.renamed.find((pair) => pair.fromId === openId);
+    const isAffected =
+      rename !== undefined ||
+      summary.deletedIds.includes(openId) ||
+      summary.updatedIds.includes(openId);
+    if (!isAffected) return syncResult;
 
+    // A flush can park and synchronously ask the external-change coordinator
+    // to adopt the peer version. Settle it before entering that coordinator's
+    // own serial queue, or the nested post-park reconciliation deadlocks
+    // behind the operation that is awaiting the flush.
     if (dependencies.session.savePending) {
       await dependencies.session.flushSave();
-      if (dependencies.session.originalId !== openId) return null;
+      if (dependencies.session.originalId !== openId) return syncResult;
     }
 
-    let keptDraftId: string | null = null;
-    const closeOrKeepDeletedOpenNote = async (): Promise<void> => {
-      if (dependencies.session.dirty) {
-        keptDraftId = openId;
-        dependencies.showToast('Open note was deleted during sync; keeping local draft');
-        await refreshNotesFromStorage();
-      } else {
-        dependencies.session.cancelAndClear();
-        dependencies.showToast('Note was deleted during sync');
-      }
-    };
-
-    let openNoteGone = false;
-    if (openDeleted) {
-      try {
-        openNoteGone = !(await noteExists(openId));
-      } catch {
-        openNoteGone = true;
-      }
+    let currentId = openId;
+    const seenIds = new Set<string>();
+    // A cycle can contribute at most one fresh source per reported rename,
+    // followed by one final target classification.
+    const maxPasses = summary.renamed.length + 1;
+    for (let pass = 0; pass < maxPasses && !seenIds.has(currentId); pass += 1) {
+      seenIds.add(currentId);
+      const currentRename = summary.renamed.find((pair) => pair.fromId === currentId);
+      const result = await externalChanges.reconcileOpenNote(currentId, {
+        editedDuringCycle: dependencies.session.editVersion !== syncStartEditVersion,
+        renamedTo: currentRename?.toId ?? null,
+      });
+      syncResult.keptDraftId = result.keptDraftId;
+      if (!result.followedRenameTo) return syncResult;
+      syncResult.followedRenameFromIds.add(currentId);
+      currentId = result.followedRenameTo;
     }
-    if (dependencies.session.originalId !== openId) return keptDraftId;
-    if (openNoteGone) {
-      await closeOrKeepDeletedOpenNote();
-      return keptDraftId;
-    }
-
-    try {
-      const freshContent = await readNote(openId);
-      let vanished = false;
-      if (openDeleted && freshContent === '') {
-        try {
-          vanished = !(await noteExists(openId));
-        } catch {
-          vanished = true;
-        }
-      }
-      if (dependencies.session.originalId !== openId) return keptDraftId;
-      if (vanished) {
-        await closeOrKeepDeletedOpenNote();
-        return keptDraftId;
-      }
-      const editorContent = dependencies.session.editorContent;
-      if (freshContent === editorContent) {
-        if (freshContent !== dependencies.session.savedContent) {
-          dependencies.session.rebaseSavedContent(freshContent);
-        }
-      } else {
-        // Disk moved to something the editor does not hold. A draft that must
-        // not be replaced — unsaved work, or a keystroke that landed while the
-        // cycle ran — keeps BOTH its buffer and its baseline, and the adopt is
-        // deferred until the draft is durable.
-        //
-        // Never rebase onto the pulled bytes here: `savedContent` is the base
-        // the next save hands `flush_draft`, which parks exactly when
-        // `current != base`. Making it equal disk puts that flush on its
-        // `current == base` fast-forward arm, so the draft overwrote the peer's
-        // edit with no conflict copy anywhere in the vault (#89). Keeping the
-        // pre-pull base parks the draft instead, and the park's own reconcile
-        // adopts the peer bytes — the order iOS and Android already use, and
-        // the one the engine's open-note verdict prescribes (KeepDraft
-        // {Diverged} hands back the pre-pull base).
-        const editedDuringSync = dependencies.session.editVersion !== syncStartEditVersion;
-        const draftIsProtected =
-          editedDuringSync || dependencies.session.dirty || dependencies.session.editorFocused;
-        if (draftIsProtected) {
-          externalChanges.deferAdopt(openId);
-        } else {
-          dependencies.session.applyExternalContent(freshContent);
-        }
-      }
-      const meta = getNoteById(openId);
-      if (meta) dependencies.session.applyRemoteRename(openId, meta.title);
-    } catch {
-      if (dependencies.session.originalId !== openId) return keptDraftId;
-      dependencies.showToast('Open note changed during sync; keeping local draft');
-    }
-    return keptDraftId;
+    return syncResult;
   }
 
   async function reconcileSyncCompletion(
@@ -195,10 +146,19 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
 
     recordSyncedFiles(summary);
     reindexPeerChanges(summary);
-    await reconcileRenames(summary);
-    const keptDeletedDraftId = await reconcileOpenNote(summary, syncStartEditVersion);
+    const openNoteResult = await reconcileOpenNote(summary, syncStartEditVersion);
+    projectReportedRenames(summary, openNoteResult.followedRenameFromIds);
 
-    const pruneCandidates = summary.deletedIds.filter((id) => id !== keptDeletedDraftId);
+    // What happens to the OPEN note is the engine's verdict, never a background
+    // prune: a note the executor was told to leave open (Leave/KeepDraft, or a
+    // rename it followed) whose file then vanished before this existence probe
+    // ran would otherwise have its live tab pruned, which clears the session and
+    // routes home behind the verdict's back. A `close` verdict has already
+    // unbound the session, so the id is still pruned then.
+    const stillOpenId = dependencies.session.originalId;
+    const pruneCandidates = summary.deletedIds.filter(
+      (id) => id !== openNoteResult.keptDraftId && id !== stillOpenId,
+    );
     const pruneExistence = await Promise.all(
       pruneCandidates.map((id) => noteExists(id).catch(() => true)),
     );

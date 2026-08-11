@@ -4,7 +4,7 @@ use tauri::{AppHandle, State};
 
 use super::frontend_contract::{
     E2eeConnectInput, E2eeConnectOutput, E2eeResumeInput, E2eeStatusOutput,
-    OpenNoteDispositionOutput, OpenNoteFactsInput, SyncSummary,
+    OpenNoteDispositionOutput, OpenNoteRequestInput, SyncSummary,
 };
 use crate::application_state::AppState;
 
@@ -86,11 +86,87 @@ pub async fn e2ee_note_changed(state: State<'_, AppState>) -> Result<(), String>
     Ok(())
 }
 
-/// THE open-note verb (CONTEXT.md: open-note disposition). The frontend gathers
-/// the facts — one disk read plus its own editor state — and the engine returns
-/// the single verdict it renders. Pure: no vault, no session, no I/O, so it is
-/// safe on the sync-completion path and the watcher path alike.
+fn classify_open_note_impl(
+    store: &futo_notes_store::LocalNoteStore,
+    facts: OpenNoteRequestInput,
+) -> Result<OpenNoteDispositionOutput, String> {
+    let disk = store.read_existing(&facts.id)?;
+    Ok(futo_notes_sync::classify_open_note(facts.with_disk(disk)).into())
+}
+
+/// THE desktop open-note verb (CONTEXT.md: open-note disposition). It gathers
+/// authoritative disk content and classifies it in one frontend round trip.
 #[tauri::command]
-pub fn e2ee_classify_open_note(facts: OpenNoteFactsInput) -> OpenNoteDispositionOutput {
-    futo_notes_sync::classify_open_note(facts.into()).into()
+pub async fn e2ee_classify_open_note(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    facts: OpenNoteRequestInput,
+) -> Result<OpenNoteDispositionOutput, String> {
+    let store = crate::local_notes::store(&app, &state)?;
+    crate::background_tasks::blocking(move || classify_open_note_impl(&store, facts)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct TestRoot(PathBuf);
+
+    impl TestRoot {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "futo-open-note-command-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn facts(id: &str) -> OpenNoteRequestInput {
+        OpenNoteRequestInput {
+            id: id.to_owned(),
+            base: "base".to_owned(),
+            draft: "base".to_owned(),
+            renamed_to: None,
+            editor_focused: false,
+            edited_during_cycle: false,
+        }
+    }
+
+    #[test]
+    fn open_note_command_gathers_missing_empty_and_present_disk_states() {
+        let root = TestRoot::new();
+        fs::write(root.0.join("Empty.md"), "").unwrap();
+        fs::write(root.0.join("Changed.md"), "peer").unwrap();
+        let store = futo_notes_store::LocalNoteStore::new(root.0.clone());
+
+        assert_eq!(
+            classify_open_note_impl(&store, facts("Missing")).unwrap(),
+            OpenNoteDispositionOutput::Close
+        );
+        assert_eq!(
+            classify_open_note_impl(&store, facts("Empty")).unwrap(),
+            OpenNoteDispositionOutput::Adopt {
+                content: String::new()
+            }
+        );
+        assert_eq!(
+            classify_open_note_impl(&store, facts("Changed")).unwrap(),
+            OpenNoteDispositionOutput::Adopt {
+                content: "peer".to_owned()
+            }
+        );
+    }
 }

@@ -134,15 +134,23 @@ async function waitForSaveIdle(client, timeoutMs = 5_000) {
   throw new Error(`${client.name}: savePending did not become false after ${timeoutMs}ms`);
 }
 
-async function waitForToastMessage(client, expectedMessage, timeoutMs = 10_000) {
+/** Wait for a toast. Prefer a RegExp over an exact string: user-facing wording
+ * is not a cross-platform contract (M15), and an exact match turned a
+ * deliberate desktop rewording ("Note was deleted during sync" → "Note was
+ * deleted") into a red scenario that looked like a broken close path. */
+async function waitForToastMessage(client, expected, timeoutMs = 10_000) {
+  const matches = (message) =>
+    expected instanceof RegExp ? expected.test(message ?? '') : message === expected;
   const start = Date.now();
+  let last;
   while (Date.now() - start < timeoutMs) {
     const state = await client.getOpenNoteState();
-    if (state.toastMessage === expectedMessage) return state;
+    if (matches(state.toastMessage)) return state;
+    last = state.toastMessage;
     await sleep(100);
   }
   throw new Error(
-    `${client.name}: toast did not become ${JSON.stringify(expectedMessage)} after ${timeoutMs}ms`,
+    `${client.name}: toast did not match ${expected} after ${timeoutMs}ms (last: ${JSON.stringify(last)})`,
   );
 }
 
@@ -971,7 +979,7 @@ async function peerDeleteOfOpenNoteClosesEditor(a, b, server) {
     `B should pull the delete; deletedIds=${JSON.stringify(bResult.summary.deletedIds)}`,
   );
 
-  const closed = await waitForToastMessage(b, 'Note was deleted during sync');
+  const closed = await waitForToastMessage(b, /deleted/i);
   assertEqual(closed.originalId, null, 'peer-deleted open note should no longer be the open note');
   assert(
     closed.hash !== `#/note/${encodeURIComponent('peer deletes me')}`,

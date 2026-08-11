@@ -62,6 +62,7 @@ export interface NoteSession {
   readonly editorFocused: boolean;
   readonly composing: boolean;
   debouncedSave: (content?: string) => void;
+  resumeDraftPersistence: () => void;
   flushSave: () => Promise<void>;
   awaitSaveIdle: () => Promise<void>;
   runWithSaveLock: <T>(operation: () => Promise<T>) => Promise<T>;
@@ -331,6 +332,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       return deps.isComposing();
     },
     debouncedSave,
+    resumeDraftPersistence: saveQueue.resume,
     flushSave: saveQueue.flush,
     awaitSaveIdle: saveQueue.awaitSaveIdle,
     runWithSaveLock,

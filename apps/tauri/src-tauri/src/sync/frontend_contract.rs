@@ -111,30 +111,29 @@ pub(crate) struct RenamePair {
     pub(crate) to_id: String,
 }
 
-/// The facts the frontend gathers before asking the engine what happens to the
-/// open note. Field-for-field the engine's `OpenNoteFacts`; see that type for
-/// what each one means.
+/// The editor facts supplied by the frontend. The adapter gathers the
+/// authoritative disk value before asking the engine for a verdict.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct OpenNoteFactsInput {
+pub(crate) struct OpenNoteRequestInput {
+    pub(crate) id: String,
     pub(crate) base: String,
     pub(crate) draft: String,
-    pub(crate) disk: Option<String>,
     pub(crate) renamed_to: Option<String>,
     pub(crate) editor_focused: bool,
     pub(crate) edited_during_cycle: bool,
 }
 
-impl From<OpenNoteFactsInput> for futo_notes_sync::OpenNoteFacts {
-    fn from(input: OpenNoteFactsInput) -> Self {
-        Self {
-            base: input.base,
-            draft: input.draft,
-            disk: input.disk,
-            renamed_to: input.renamed_to,
-            editor_focused: input.editor_focused,
-            edited_during_cycle: input.edited_during_cycle,
+impl OpenNoteRequestInput {
+    pub(crate) fn with_disk(self, disk: Option<String>) -> futo_notes_sync::OpenNoteFacts {
+        futo_notes_sync::OpenNoteFacts {
+            base: self.base,
+            draft: self.draft,
+            disk,
+            renamed_to: self.renamed_to,
+            editor_focused: self.editor_focused,
+            edited_during_cycle: self.edited_during_cycle,
         }
     }
 }
@@ -252,7 +251,7 @@ mod tests {
             .register::<E2eeResumeInput>()
             .register::<E2eeStatusOutput>()
             .register::<SyncSummary>()
-            .register::<OpenNoteFactsInput>()
+            .register::<OpenNoteRequestInput>()
             .register::<OpenNoteDispositionOutput>();
 
         Typescript::default()
@@ -471,13 +470,14 @@ mod tests {
     /// a silently-dropped `renamedTo` or `editedDuringCycle` would flip the
     /// verdict rather than fail loudly.
     #[test]
-    fn open_note_facts_deserialize_from_the_camel_case_wire_shape() {
-        let input: OpenNoteFactsInput = serde_json::from_str(
-            r#"{"base":"b","draft":"d","disk":null,"renamedTo":"Note (2)",
+    fn open_note_request_deserializes_from_the_camel_case_wire_shape() {
+        let input: OpenNoteRequestInput = serde_json::from_str(
+            r#"{"id":"Note","base":"b","draft":"d","renamedTo":"Note (2)",
                 "editorFocused":true,"editedDuringCycle":true}"#,
         )
         .unwrap();
-        let facts = futo_notes_sync::OpenNoteFacts::from(input);
+        assert_eq!(input.id, "Note");
+        let facts = input.with_disk(None);
         assert_eq!(facts.base, "b");
         assert_eq!(facts.draft, "d");
         assert_eq!(facts.disk, None);
