@@ -151,23 +151,23 @@ const PROBES = [
     hint: 'Android now has quarantine vocabulary in the editor session/screen — the #80 dropped-keystroke divergence may be closed.',
   },
   {
-    // issue #89 — KeepDraft{Diverged} rebases the baseline onto the pulled disk
-    // content, so the next flush_draft takes its `current == base` fast-forward
-    // arm and overwrites the peer's bytes instead of parking a conflict copy.
-    // The fix is on the classifier's Diverged arm: it has to stop handing
-    // `disk` back as the base. Watching the classifier only — desktop's live
-    // copy of the same rebase (reconcileSyncCompletion.ts) shares
-    // `rebaseSavedContent` with the legitimate Converged case, so there is no
-    // grep signal there that closure would flip without false positives.
+    // issue #89 — the engine verb's half is fixed (the Diverged arm keeps the
+    // pre-pull base, so `flush_draft` parks), but desktop still runs its own
+    // copy of the decision and still rebases the open editor's baseline onto
+    // the pulled bytes, which is the clobber. `rebaseSavedContent` is shared
+    // with the legitimate Converged case, so the signal is specifically its
+    // call inside the dirty-or-edited-during-sync branch.
     // Match on markdown-free prose (see the wikilink probe above: `**bold**`
     // markers inside a gap have broken a `match` regex before).
-    match: /rebases the baseline onto\s+the pulled disk content/,
+    match: /dirty-or-edited-during-sync branch/,
     closed: () => {
-      const classifier = read('crates/futo-notes-sync/src/open_note.rs');
-      if (classifier === '') return false;
-      return !/base: disk,\s*reason: KeepDraftReason::Diverged/.test(classifier);
+      const reconciler = read('src/features/sync/reconcileSyncCompletion.ts');
+      if (reconciler === '') return false;
+      return !/editedDuringSync \|\| dependencies\.session\.dirty\)[\s\S]{0,200}?rebaseSavedContent/.test(
+        reconciler,
+      );
     },
-    hint: "the classifier's Diverged arm no longer rebases onto disk — the data-loss gap may be closed; re-run the two-client peer-edit scenario before removing it.",
+    hint: 'desktop\'s dirty-draft branch no longer rebases onto the pulled content — the data-loss gap may be closed; re-run the two-client peer-edit scenario (and correct "edit during sync keeps local draft") before removing it.',
   },
 ];
 

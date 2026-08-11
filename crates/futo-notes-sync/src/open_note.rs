@@ -47,9 +47,10 @@ pub enum KeepDraftReason {
     /// A peer deleted the note. The draft wins: the next flush recreates it at
     /// the original id (the flush verb's Recreated arm).
     PeerDeleted,
-    /// Disk moved to something neither the base nor the draft. Rebasing makes
-    /// the draft honestly dirty against what is actually on disk, so the next
-    /// flush is a true three-way decision the engine can park.
+    /// Disk moved to something neither the base nor the draft. The baseline
+    /// stays where it was, which is what leaves the next flush a true
+    /// three-way decision the engine can park (#89: handing back the pulled
+    /// bytes instead made it a fast-forward that overwrote the peer).
     Diverged,
     /// The draft and disk already agree; only the baseline was stale. Nothing
     /// to tell the user.
@@ -129,8 +130,16 @@ pub fn classify_open_note(facts: OpenNoteFacts) -> OpenNoteDisposition {
     }
 
     if draft_is_protected {
+        // Persist-or-park, and the baseline is what decides which. `flush_draft`
+        // parks precisely when `current != base`, so keeping the PRE-pull base
+        // is what parks this draft as a conflict copy and leaves the peer's
+        // bytes on disk. Rebasing onto `disk` here — the one value that makes
+        // `current == base` true — turned that park into a fast-forward write
+        // and destroyed the peer's edit with no copy anywhere (#89). The
+        // Converged arm above rebases for the opposite reason: there the draft
+        // is already on disk, so only a stale baseline is left to repair (F2).
         return OpenNoteDisposition::KeepDraft {
-            base: disk,
+            base: facts.base,
             reason: KeepDraftReason::Diverged,
         };
     }
@@ -273,7 +282,7 @@ mod tests {
                     disk: Some("peer".to_owned()),
                     ..facts()
                 },
-                keep_draft("peer", KeepDraftReason::Diverged),
+                keep_draft("base", KeepDraftReason::Diverged),
             ),
             (
                 "dirty draft, peer edit, focused",
@@ -283,7 +292,7 @@ mod tests {
                     editor_focused: true,
                     ..facts()
                 },
-                keep_draft("peer", KeepDraftReason::Diverged),
+                keep_draft("base", KeepDraftReason::Diverged),
             ),
             (
                 "draft and disk converged on the same text",
@@ -301,7 +310,7 @@ mod tests {
                     edited_during_cycle: true,
                     ..facts()
                 },
-                keep_draft("peer", KeepDraftReason::Diverged),
+                keep_draft("base", KeepDraftReason::Diverged),
             ),
         ];
 
@@ -338,16 +347,87 @@ mod tests {
         }
     }
 
-    /// Rebasing is what makes the next flush honest, so a verdict that leaves
-    /// the buffer alone must never leave the baseline describing content that
-    /// is no longer on disk (F2).
+    /// A converged draft rebases onto disk, because there the baseline was
+    /// merely stale: disk already holds the draft, and leaving the baseline
+    /// describing older content is what let a later save clobber a peer's
+    /// merged-in edit (F2).
     #[test]
-    fn keeping_a_draft_always_rebases_onto_what_is_actually_on_disk() {
+    fn a_converged_draft_rebases_onto_what_is_actually_on_disk() {
         let disposition = classify_open_note(OpenNoteFacts {
-            draft: "mine".to_owned(),
-            disk: Some("peer".to_owned()),
+            draft: "same".to_owned(),
+            disk: Some("same".to_owned()),
             ..facts()
         });
-        assert_eq!(disposition, keep_draft("peer", KeepDraftReason::Diverged));
+        assert_eq!(disposition, keep_draft("same", KeepDraftReason::Converged));
+    }
+
+    /// A diverged draft does the OPPOSITE, and issue #89 was the cost of
+    /// reading the two as one rule: the baseline it keeps is the one it had.
+    /// `flush_draft` parks exactly when `current != base`, so the pre-pull base
+    /// is what makes the next flush park the draft as a conflict copy and leave
+    /// the peer's bytes alone. Handing back `disk` put that flush on its
+    /// `current == base` fast-forward arm and destroyed the peer's edit.
+    #[test]
+    fn a_diverged_draft_keeps_the_baseline_that_makes_the_next_flush_park() {
+        for edited_during_cycle in [false, true] {
+            for editor_focused in [false, true] {
+                let disposition = classify_open_note(OpenNoteFacts {
+                    draft: "mine".to_owned(),
+                    disk: Some("peer".to_owned()),
+                    editor_focused,
+                    edited_during_cycle,
+                    ..facts()
+                });
+                assert_eq!(
+                    disposition,
+                    keep_draft("base", KeepDraftReason::Diverged),
+                    "focused={editor_focused} edited_during_cycle={edited_during_cycle}"
+                );
+            }
+        }
+    }
+
+    /// The #89 invariant as a property, over every combination of three texts:
+    /// no kept draft is ever baselined on disk content it disagrees with. That
+    /// single equality is what the flush verb reads as "nothing changed
+    /// underneath me", so producing it while the buffer holds something else is
+    /// how a verdict that promises to preserve a draft ends up overwriting a
+    /// peer instead. Covers the arms individually asserted above plus every
+    /// baseline/draft/disk shape that reaches them.
+    #[test]
+    fn no_kept_draft_is_baselined_on_disk_content_it_disagrees_with() {
+        let texts = ["a", "b", "c"];
+        for base in texts {
+            for draft in texts {
+                for disk in [None, Some("a"), Some("b"), Some("c")] {
+                    for editor_focused in [false, true] {
+                        for edited_during_cycle in [false, true] {
+                            let given = OpenNoteFacts {
+                                base: base.to_owned(),
+                                draft: draft.to_owned(),
+                                disk: disk.map(str::to_owned),
+                                renamed_to: None,
+                                editor_focused,
+                                edited_during_cycle,
+                            };
+                            let disposition = classify_open_note(given.clone());
+                            let (OpenNoteDisposition::KeepDraft { base: kept, .. }, Some(disk)) =
+                                (&disposition, disk)
+                            else {
+                                continue;
+                            };
+                            if draft == disk {
+                                continue;
+                            }
+                            assert_ne!(
+                                kept, disk,
+                                "a kept draft was baselined on disk it disagrees with, \
+                                 which the next flush writes through: {given:?} -> {disposition:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
