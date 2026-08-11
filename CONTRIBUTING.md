@@ -13,8 +13,8 @@ machine ready.
   in the [`justfile`](./justfile). Run `just` with no args to list recipes.
 - Desktop (Linux): the usual Tauri/WebKitGTK system deps.
 - Mobile (optional): Xcode + an iOS simulator for iOS; Android SDK + NDK +
-  `cargo install cargo-ndk` for Android. See AGENTS.md → "Platform Build" and
-  the `ANDROID_*` vars in `.env.example`.
+  `cargo install cargo-ndk` for Android. See AGENTS.md §2, the nested mobile
+  `AGENTS.md` files, and the `ANDROID_*` vars in `.env.example`.
 
 ## 2. First build
 
@@ -24,9 +24,10 @@ just tauri-dev    # run the desktop app (Wayland-first, port 5180)
 just check        # lint + tests + build sanity — run this before pushing
 ```
 
-> Dev/debug builds use the `com.futo.notes.dev` bundle id and a separate notes
-> root (`~/Documents/fake-notes`), so they never touch a production install.
-> Don't weaken that guard — see AGENTS.md → "Key Constraints".
+> Dev/debug builds isolate their notes from production. Desktop/iOS use
+> `com.futo.notes.dev` and `fake-notes`; Android isolates package storage by
+> application ID and uses a separate public device folder. Don't weaken those
+> guards — see AGENTS.md M3.
 
 ## 3. Environment variables
 
@@ -49,6 +50,24 @@ This repo ships shared Claude Code config under `.claude/`:
 - **Shared settings** (`.claude/settings.json`) — a small project permission
   allowlist. Personal overrides go in `.claude/settings.local.json` (gitignored).
 
+### Third-party skills (optional)
+
+`skills-lock.json` records the generic engineering skills we borrow from
+`mattpocock/skills` (`/tdd`, `/research`, `/code-review`, `/wayfinder`, …). They
+are **not vendored here** — an external installer populates the gitignored
+`.agents/skills/`, and then `just skills-link` links them into `.claude/skills/`
+for that checkout. Run it once per clone or worktree; skills it cannot find are
+reported rather than linked.
+
+Never commit those links: `.agents/` is gitignored, so a committed symlink into
+it works only in the checkout that happens to have `.agents/` populated and
+dangles in every fresh clone and `git worktree add`. `just check-agent-docs`
+fails on one. The repo-side adapters these skills read — how they should consume
+our domain docs, our issue tracker, and our triage labels — live in
+`docs/agents/domain.md`, `docs/agents/issue-tracker.md`, and
+`docs/agents/triage-labels.md`, and only apply when the matching skill is
+installed.
+
 ### MCP servers
 
 To drive/debug the running app from Claude Code, copy the example config:
@@ -57,8 +76,8 @@ To drive/debug the running app from Claude Code, copy the example config:
 cp .mcp.json.example .mcp.json   # .mcp.json is gitignored
 ```
 
-This wires up the Tauri MCP bridge (`@hypothesi/tauri-mcp-server`). The driving
-playbook lives in the `/verify` skill's `references/desktop.md`.
+This wires up the Tauri MCP bridge (`@hypothesi/tauri-mcp-server`). See
+AGENTS.md §9; the driving playbook is the `/verify` skill's `references/desktop.md`.
 
 ## 5. Sync server (for sync tests only)
 

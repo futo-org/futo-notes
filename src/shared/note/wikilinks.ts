@@ -69,6 +69,60 @@ export function resolveWikilink(target: string, allIds: Iterable<string>): strin
   return matches === 1 ? onlyMatch : null;
 }
 
+/** Answers the two lookups above without rescanning the note list per call. */
+export interface WikilinkIndex {
+  resolve(target: string): string | null;
+  displaySuffix(id: string): string;
+}
+
+/**
+ * One pass over the note ids, keying every path suffix to the ids that end with
+ * it, so a caller resolving many links pays the vault once instead of once per
+ * link. A repeated id counts twice for `resolve` (which treats two matches as
+ * ambiguous) but once for `displaySuffix` (which excludes the id itself, both
+ * copies of it) — the two rules disagree there, so each gets its own tally.
+ */
+export function buildWikilinkIndex(allIds: Iterable<string>): WikilinkIndex {
+  const ids = new Set<string>();
+  const bySuffix = new Map<string, { id: string; matches: number; owners: number }>();
+
+  for (const id of allIds) {
+    const firstSeen = !ids.has(id);
+    ids.add(id);
+    const parts = components(id);
+    for (let index = parts.length - 1; index >= 0; index--) {
+      const suffix = parts.slice(index).join('/');
+      const entry = bySuffix.get(suffix);
+      if (!entry) {
+        bySuffix.set(suffix, { id, matches: 1, owners: 1 });
+        continue;
+      }
+      entry.matches += 1;
+      if (firstSeen) entry.owners += 1;
+    }
+  }
+
+  return {
+    resolve(target) {
+      if (target === '') return null;
+      if (ids.has(target)) return target;
+      const entry = bySuffix.get(target);
+      return entry?.matches === 1 ? entry.id : null;
+    },
+    displaySuffix(id) {
+      // An owner count of 1 means only an indexed id carries the suffix; for an
+      // id the index never saw, that 1 is somebody else and proves nothing.
+      if (!ids.has(id)) return shortestUniqueSuffix(id, ids);
+      const parts = components(id);
+      for (let index = parts.length - 1; index >= 0; index--) {
+        const suffix = parts.slice(index).join('/');
+        if (bySuffix.get(suffix)?.owners === 1) return suffix;
+      }
+      return id;
+    },
+  };
+}
+
 export interface WikilinkOccurrence {
   start: number;
   end: number;

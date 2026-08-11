@@ -273,6 +273,34 @@ test('a host-initiated setContent posts no change', async ({ page }) => {
   expect(await messagesOfType(page, 'change')).toHaveLength(0);
 });
 
+test('the note the boot config carries is not something undo can erase', async ({ page }) => {
+  await initialize(page, hostConfig({ content: 'the note body' }));
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+  await page.keyboard.press('ControlOrMeta+z');
+  await flushFrames(page);
+
+  expect(await getContent(page)).toBe('the note body');
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+});
+
+test('a host note switch clears undo even when the next note has identical text', async ({
+  page,
+}) => {
+  await hostSetContent(page, 'draft');
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+  await page.keyboard.press('End');
+  await page.keyboard.type(' X');
+  await flushFrames(page);
+  expect(await getContent(page)).toBe('draft X');
+
+  await hostSetContent(page, 'draft X');
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+  await page.keyboard.press('ControlOrMeta+z');
+  await flushFrames(page);
+
+  expect(await getContent(page)).toBe('draft X');
+});
+
 test('a real keystroke posts exactly one change with the new content', async ({ page }) => {
   await hostSetContent(page, 'Hello world');
   await clearMessages(page);

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SelectionRange } from '@codemirror/state';
   import type { EditorView } from '@codemirror/view';
+  import type { SetEditorContentOptions } from '$features/editor/editorContentSync';
 
   import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
   import NoteTagBar from '$features/editor/NoteTagBar.svelte';
@@ -14,7 +15,10 @@
 
   // The subset of the (frozen) editor's imperative API the shell drives.
   export interface EditorApi {
-    setContent: (text: string, options?: { preserveSelection?: boolean }) => void;
+    setContent: (text: string, options?: SetEditorContentOptions) => void;
+    openNote: (noteId: string | null, text: string) => void;
+    retargetOpenNote: (fromId: string | null, toId: string) => void;
+    forgetNoteHistory: (noteIds: readonly string[]) => void;
     focus: () => void;
     blur: () => void;
     getContent: () => string | undefined;
@@ -101,6 +105,7 @@
       placeholder="Untitled"
       oninput={session.handleTitleInput}
       onkeydown={session.handleTitleKeydown}
+      onblur={session.handleTitleBlur}
       onfocus={session.handleTitleFocus}
       onpointerdown={session.handleTitlePointerDown}></textarea>
     {#if session.titleWarning}

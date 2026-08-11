@@ -615,6 +615,73 @@ fn rename_inference_requires_a_unique_hash_on_both_sides() {
     assert!(derive_renames(&ambiguous_before, &ambiguous_after).is_empty());
 }
 
+/// The rename an open editor has to follow while its content ALSO moved: one
+/// server object surfaces under a new name carrying newer bytes (a peer moved
+/// the note in one cycle and edited it in the next, and this client pulls both
+/// at once). Object identity is what pairs it — `mapped_name` finds the local
+/// name currently mapped to the incoming object id — so the pair survives the
+/// content change that makes the hash heuristic useless, and the shell follows
+/// the rename and then reloads the peer's bytes instead of closing the editor
+/// on a note it reads as deleted.
+#[test]
+fn a_pulled_object_that_changed_name_and_content_together_is_reported_as_a_rename() {
+    let root = TempRoot::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+
+    std::fs::write(root.path().join("old.md"), "v1").unwrap();
+    state
+        .object_map
+        .insert("old.md".into(), entry("obj-1", Some(&hash_sha256("v1"))));
+
+    let mut moved_and_edited = remote("obj-1", "new.md", "v2 peer edit");
+    moved_and_edited.object.version = 2;
+    moved_and_edited.object.change_seq = 2;
+    moved_and_edited.object.blob_key = Some("blob-obj-1-v2".into());
+    apply_remote(
+        &mut state,
+        root.path(),
+        &moved_and_edited,
+        &HashMap::new(),
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    assert_eq!(summary.renamed.len(), 1);
+    assert_eq!(summary.renamed[0].from_id, "old");
+    assert_eq!(summary.renamed[0].to_id, "new");
+    assert_eq!(read_content(root.path(), "new.md").unwrap(), "v2 peer edit");
+    assert!(!root.path().join("old.md").exists());
+
+    // The shell must see the rename plus a real update of the TARGET, and no
+    // deletion of the id it is following away from (the from-side ghost).
+    let combined = combine(summary, SyncSummary::default());
+    assert!(combined.updated_ids.contains(&"new".to_owned()));
+    assert!(!combined.deleted_ids.contains(&"old".to_owned()));
+    assert!(!combined.peer_deleted_ids.contains(&"old".to_owned()));
+}
+
+/// The boundary of that promise, so nobody re-files it as a shell bug: when a
+/// peer renames a note OUTSIDE the app (a plain `mv`) and edits it in the same
+/// breath, its push has no identity to preserve — the pushing client's
+/// rename detection needs an unchanged hash, so it uploads a NEW object and
+/// tombstones the old one. The pulling client therefore sees two unrelated
+/// objects, and no derivation can honestly pair them: an open editor on the
+/// old id is looking at a note that really was deleted, and closing it is the
+/// report rendered faithfully, not a lost rename.
+#[test]
+fn an_external_rename_that_also_edited_the_file_arrives_as_delete_plus_create() {
+    let before = HashMap::from([("old.md".into(), entry("obj-old", Some(&hash_sha256("v1"))))]);
+    let after = HashMap::from([(
+        "new.md".into(),
+        entry("obj-new", Some(&hash_sha256("v2 peer edit"))),
+    )]);
+
+    assert!(derive_renames(&before, &after).is_empty());
+}
+
 #[test]
 fn cursor_never_advances_past_the_first_failed_change() {
     assert_eq!(cap_cursor(20, None), 20);
@@ -1022,21 +1089,23 @@ fn tombstone_claim_waits_for_a_flush_owned_vault_span() {
         let result = claim_local(&claim_root, "note.md", "object", &no_pre);
         finished_tx.send(result).unwrap();
     });
-    started_rx
-        .recv_timeout(Duration::from_secs(1))
-        .expect("tombstone claim started");
+    started_rx.recv().expect("tombstone claim started");
     assert!(
         finished_rx.recv_timeout(Duration::from_millis(75)).is_err(),
         "tombstone rename must wait while flush owns the vault span"
     );
 
     drop(flush_guard);
+    // Join, not a wall-clock budget: once the guard is dropped the claim has to
+    // win the same PROCESS-WIDE guard against every other test in this binary,
+    // so a deadline here would measure queue depth instead of the claim (the
+    // store-side twin of this test failed exactly that way in job 217730).
+    claim.join().unwrap();
     finished_rx
-        .recv_timeout(Duration::from_secs(1))
+        .try_recv()
         .expect("tombstone claim proceeds after flush")
         .unwrap()
         .expect("note was claimed");
-    claim.join().unwrap();
 }
 
 #[test]
@@ -1086,6 +1155,78 @@ fn tombstone_deletes_unchanged_content_and_parks_a_divergent_edit() {
         "local edit"
     );
     assert_eq!(edited_summary.conflicts, 1);
+}
+
+/// A tombstone park moves the local content to a conflict copy, so it is a
+/// relocation and must report rename intent like every other relocation — the
+/// shell has no other way to follow its open editor to the copy. Reporting only
+/// the deletion closed the editor of a user whose draft had already reached disk
+/// (the autosave landed between this cycle's push and pull, so the classifier
+/// saw a peer delete with nothing left to preserve) while the draft sat in the
+/// copy: the disp-05 KeepDraft flake, journal decision `tombstone_parked` /
+/// `local_content_diverged_from_the_deleted_version`.
+#[test]
+fn tombstone_park_of_diverged_content_reports_rename_intent() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("edited.md"), "local draft").unwrap();
+    let mut state = connected();
+    state.object_map.insert(
+        "edited.md".into(),
+        entry("edited-object", Some(&hash_sha256("old base"))),
+    );
+    let mut summary = SyncSummary::default();
+
+    apply_tombstone(
+        &mut state,
+        root.path(),
+        &object("edited-object", 6, true),
+        &HashMap::new(),
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    let copy = collision_conflict_filename("edited.md", "edited-object");
+    assert_eq!(summary.renamed.len(), 1, "the park must report one rename");
+    assert_eq!(summary.renamed[0].from_id, note_id("edited.md"));
+    assert_eq!(summary.renamed[0].to_id, note_id(&copy));
+
+    // The "delete at the old name" is this relocation's byproduct, so
+    // ghost-stripping removes it: the open tab moved, it was not deleted.
+    let combined = combine(summary, SyncSummary::default());
+    assert!(!combined.deleted_ids.contains(&note_id("edited.md")));
+    assert!(!combined.peer_deleted_ids.contains(&note_id("edited.md")));
+    assert!(combined.updated_ids.contains(&note_id(&copy)));
+}
+
+/// A tombstone whose local content still matches the deleted version is a plain
+/// deletion — nothing relocated, so nothing to follow, and the clean open
+/// editor must still be told the note is gone (never left on a deleted id, F4).
+#[test]
+fn tombstone_of_unchanged_content_reports_no_rename() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("same.md"), "original").unwrap();
+    let mut state = connected();
+    state.object_map.insert(
+        "same.md".into(),
+        entry("same-object", Some(&hash_sha256("original"))),
+    );
+    let mut summary = SyncSummary::default();
+
+    apply_tombstone(
+        &mut state,
+        root.path(),
+        &object("same-object", 5, true),
+        &HashMap::new(),
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    assert!(summary.renamed.is_empty());
+    let combined = combine(summary, SyncSummary::default());
+    assert!(combined.deleted_ids.contains(&note_id("same.md")));
+    assert!(combined.peer_deleted_ids.contains(&note_id("same.md")));
 }
 
 #[test]
@@ -1229,4 +1370,43 @@ fn claim_names_are_bounded_even_for_deep_long_paths() {
     let (claim, sidecar) = claim_paths(root.path(), &name, "object");
     assert!(claim.file_name().unwrap().len() < 255);
     assert!(sidecar.file_name().unwrap().len() < 255);
+}
+
+/// A remote name no portable filesystem can hold is IGNORED, not rejected
+/// (github#15 follow-up): nothing is written, no failure reaches the user, and
+/// the only trace is a journal decision. Before this change it raised a
+/// permanent `rejected` failure on every peer, on every cycle, forever — for a
+/// note the origin device never displayed in the first place.
+#[test]
+fn an_unportable_remote_name_is_ignored_without_a_failure() {
+    let root = TempRoot::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+    let ancestry = HashMap::new();
+
+    apply_remote(
+        &mut state,
+        root.path(),
+        &remote("unportable", "Recipe: braised short ribs.md", "body"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    assert!(!root.path().join("Recipe: braised short ribs.md").exists());
+    assert!(state.object_map.is_empty(), "nothing was mapped");
+    assert!(
+        summary.failures.is_empty(),
+        "the user is never told: {:?}",
+        summary.failures,
+    );
+    let journaled = summary
+        .decisions()
+        .iter()
+        .filter(|entry| entry.decision == decision::IGNORED)
+        .map(|entry| entry.filename.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(journaled, vec!["Recipe: braised short ribs.md"]);
 }

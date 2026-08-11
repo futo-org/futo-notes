@@ -150,6 +150,25 @@ const PROBES = [
       ),
     hint: 'Android now has quarantine vocabulary in the editor session/screen — the #80 dropped-keystroke divergence may be closed.',
   },
+  {
+    // issue #89 — KeepDraft{Diverged} rebases the baseline onto the pulled disk
+    // content, so the next flush_draft takes its `current == base` fast-forward
+    // arm and overwrites the peer's bytes instead of parking a conflict copy.
+    // The fix is on the classifier's Diverged arm: it has to stop handing
+    // `disk` back as the base. Watching the classifier only — desktop's live
+    // copy of the same rebase (reconcileSyncCompletion.ts) shares
+    // `rebaseSavedContent` with the legitimate Converged case, so there is no
+    // grep signal there that closure would flip without false positives.
+    // Match on markdown-free prose (see the wikilink probe above: `**bold**`
+    // markers inside a gap have broken a `match` regex before).
+    match: /rebases the baseline onto\s+the pulled disk content/,
+    closed: () => {
+      const classifier = read('crates/futo-notes-sync/src/open_note.rs');
+      if (classifier === '') return false;
+      return !/base: disk,\s*reason: KeepDraftReason::Diverged/.test(classifier);
+    },
+    hint: "the classifier's Diverged arm no longer rebases onto disk — the data-loss gap may be closed; re-run the two-client peer-edit scenario before removing it.",
+  },
 ];
 
 // ── render ─────────────────────────────────────────────────────────────────

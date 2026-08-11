@@ -37,6 +37,8 @@ TypeScript handles reactive note projection state, preferences, and sync coordin
 - **Path safety**: pushed DOWN into the crates — `futo_notes_core::files::safe_note_path` and `futo-notes-model`'s folder primitives. Desktop code resolves the vault only through `vault_location.rs`; compatibility commands may not hand-build paths. TypeScript has `pathSafety.ts` for paths it forms before a command call.
 - **Filesystem watcher**: `filesystem_watcher.rs` watches the vault for external edits and emits `fs:change`. The store's `BeforeWrite` projection registers every affected path before the first filesystem syscall. Suppression is one-shot, so it cannot hide a later external edit inside the five-second expiry window.
 - **Platform configs**: `#[cfg(target_os = "...")]` and `#[cfg(debug_assertions)]` for platform/build-specific behavior.
+- **Tempdirs in tests are hand-rolled** — `temp_dir().join(format!(...))` + an `AtomicU32` counter + the pid. There is no `tempfile` crate in this workspace. Env-var tests serialize on a `static Mutex`.
+- **Commands are projections**: the `local_notes_*` surface projects the one `LocalNoteStore` in `AppState`. Do not recreate filesystem or search workflow logic in an adapter.
 
 ## Dev Ports
 
@@ -84,6 +86,12 @@ just test-rust       # Rust unit tests (creates dist/ first)
 | Desktop adapter logic (`apps/tauri/src-tauri/src`) | `cargo test -p futo-notes-tauri --lib` + `just test-rust-full` |
 | New `#[tauri::command]` | Add unit test for `_impl` function, then `just test-rust` |
 | Tauri config / capabilities | `just tauri-dev` → manual smoke test |
+
+A new `#[tauri::command]` is not done until it is registered in `application.rs`'s
+`generate_handler!` surface **and** added to the matching TypeScript shim — a command registered
+but never called (or invoked under a name that isn't registered) fails
+`just check-command-reachability`. Mutations must register watcher suppression before writing.
+Dep-guard: portable crates must not pull `tantivy`/`ort` (CI `test:rust:dep-guard`).
 
 ## Constraints
 

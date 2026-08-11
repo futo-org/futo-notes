@@ -1043,18 +1043,63 @@ fn flush_draft_writes_when_the_note_still_holds_the_base() {
     assert_eq!(store.read("note"), "draft text");
 }
 
+// `vault_mutation_guard` is ONE process-wide mutex, so every test in this
+// binary queues on it. That makes a wall-clock budget for *reaching* the
+// guarded span a measurement of queue depth rather than of `flush_draft`: on a
+// loaded CI runner each guarded span costs a real fsync, and this test's flush
+// thread waited seconds behind ~78 unrelated vaults (job 217730, "flush reached
+// the guarded check/write span: Timeout"). So the arrival is observed from
+// INSIDE the span, on the flush thread itself, and the only remaining deadline
+// is the negative one — which contention can only make more likely to hold.
 #[test]
 fn flush_draft_serializes_its_check_and_write_against_sync_mutations() {
     let root = TestRoot::new();
     let store = Arc::new(store(&root));
     store.write("note", "base text", None).unwrap();
 
-    let (inside_tx, inside_rx) = mpsc::channel();
-    let (release_tx, release_rx) = mpsc::channel();
-    let release_rx = Mutex::new(release_rx);
+    // Parked until the flush hook releases it, so the simulated sync writer can
+    // never take the vault guard BEFORE the flush owns its span.
+    let sync_path = root.0.join("note.md");
+    let (start_tx, start_rx) = mpsc::channel();
+    let (attempting_tx, attempting_rx) = mpsc::channel();
+    let (acquired_tx, acquired_rx) = mpsc::channel();
+    let sync_write = std::thread::spawn(move || {
+        start_rx.recv().unwrap();
+        attempting_tx.send(()).unwrap();
+        let _guard = futo_notes_core::files::vault_mutation_guard().unwrap();
+        acquired_tx.send(()).unwrap();
+        futo_notes_core::files::write_atomic_text(&sync_path, "peer text").unwrap();
+    });
+
+    // The receivers are shared rather than moved into the hook: the writer
+    // signals `acquired` AFTER the span ends, so a receiver dropped when the
+    // hook returns would turn that send into a panic.
+    let attempting_rx = Arc::new(Mutex::new(attempting_rx));
+    let acquired_rx = Arc::new(Mutex::new(acquired_rx));
+
+    // `None` = the flush never reached the span; `Some(blocked)` = it did, and
+    // whether the writer stayed out. The hook only RECORDS: a panic here would
+    // unwind while holding the process-wide guard and poison it for every
+    // remaining test in the binary.
+    let observed = Arc::new(Mutex::new(None));
+    let recorder = observed.clone();
+    let attempting = attempting_rx.clone();
+    let acquired = acquired_rx.clone();
+    let start = Mutex::new(Some(start_tx));
     store.set_flush_window_hook(Box::new(move |_| {
-        inside_tx.send(()).unwrap();
-        release_rx.lock().unwrap().recv().unwrap();
+        let Some(start_tx) = start.lock().unwrap().take() else {
+            return;
+        };
+        if start_tx.send(()).is_err() || attempting.lock().unwrap().recv().is_err() {
+            return;
+        }
+        *recorder.lock().unwrap() = Some(
+            acquired
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_millis(75))
+                .is_err(),
+        );
     }));
 
     let flushing_store = store.clone();
@@ -1063,33 +1108,14 @@ fn flush_draft_serializes_its_check_and_write_against_sync_mutations() {
             .flush_draft("note", "base text", "draft text")
             .unwrap()
     });
-    inside_rx
-        .recv_timeout(Duration::from_secs(1))
-        .expect("flush reached the guarded check/write span");
+    let result = flush.join().unwrap();
 
-    let sync_path = root.0.join("note.md");
-    let (attempting_tx, attempting_rx) = mpsc::channel();
-    let (acquired_tx, acquired_rx) = mpsc::channel();
-    let sync_write = std::thread::spawn(move || {
-        attempting_tx.send(()).unwrap();
-        let _guard = futo_notes_core::files::vault_mutation_guard().unwrap();
-        acquired_tx.send(()).unwrap();
-        futo_notes_core::files::write_atomic_text(&sync_path, "peer text").unwrap();
-    });
-    attempting_rx
-        .recv_timeout(Duration::from_secs(1))
-        .expect("simulated sync writer started");
-    assert!(
-        acquired_rx.recv_timeout(Duration::from_millis(75)).is_err(),
+    assert_eq!(result.disposition, FlushDisposition::Wrote);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        Some(true),
         "sync must block while flush owns the check/write span"
     );
-
-    release_tx.send(()).unwrap();
-    let result = flush.join().unwrap();
-    assert_eq!(result.disposition, FlushDisposition::Wrote);
-    acquired_rx
-        .recv_timeout(Duration::from_secs(1))
-        .expect("sync proceeds after the flush span");
     sync_write.join().unwrap();
     assert_eq!(
         store.read("note"),

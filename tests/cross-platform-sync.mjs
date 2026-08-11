@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { startDesktopTauriInstance } from './lib/tauri-instance.mjs';
 import { startServer } from './lib/sync-test-server.mjs';
 import { sleep } from './lib/mcp-client.mjs';
+import { xplatSyncBand } from '../scripts/lib/slot.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -45,7 +46,14 @@ const { values: args } = parseArgs({
 // ── Test harness ────────────────────────────────────────────────
 
 const results = [];
-let serverPortCounter = 4000;
+// Slot-derived, like every other port in this repo (`node scripts/lib/slot.mjs`).
+// It used to be a hardcoded 4000, so every worktree started allocating at the
+// same port and the second run adopted the first's server + database.
+const PORT_BAND = xplatSyncBand(REPO_ROOT);
+// Two ports per scenario: the server, plus the delay proxy that
+// sync-test-server.mjs parks next to it for syncDelayMs scenarios.
+const PORTS_PER_SCENARIO = 2;
+let serverPortCounter = PORT_BAND.base;
 const suiteStartedAt = Date.now();
 const timings = {
   bootstrapMs: 0,
@@ -54,6 +62,21 @@ const timings = {
   clientResetMs: 0,
   scenarioMs: 0,
 };
+
+/** Next port pair inside this worktree's band; never the next worktree's. */
+function allocateServerPort() {
+  const port = serverPortCounter;
+  serverPortCounter += PORTS_PER_SCENARIO;
+  if (port + PORTS_PER_SCENARIO - 1 > PORT_BAND.end) {
+    throw new Error(
+      `Out of ports: slot ${PORT_BAND.slot}'s band is ${PORT_BAND.base}-${PORT_BAND.end}, ` +
+        `which fits ${Math.floor((PORT_BAND.end - PORT_BAND.base + 1) / PORTS_PER_SCENARIO)} ` +
+        `scenarios. Walking past it would land on another worktree's ports — widen ` +
+        `XPLAT_SYNC_BAND.stride in scripts/lib/slot.mjs instead.`,
+    );
+  }
+  return port;
+}
 
 function assert(condition, message) {
   if (!condition) throw new Error(`Assertion failed: ${message}`);
@@ -91,31 +114,43 @@ async function waitForEditorContent(client, expectedContent, timeoutMs = 10_000)
   );
 }
 
-async function waitForSavePending(client, expected, timeoutMs = 5_000) {
+/**
+ * Wait until the open note has no save pending — the settled, durable state.
+ *
+ * Deliberately one-directional: polling for savePending === TRUE races the app,
+ * because a debounce window (500ms body / a blur flush's in-flight save) can
+ * open and close between two bridge round trips. A scenario that needs to
+ * observe an UNSAVED note must control the ordering instead of racing for it
+ * (see client.composeNoteAndSyncNow), and one that just needs the edit on disk
+ * should flushSave() and wait here.
+ */
+async function waitForSaveIdle(client, timeoutMs = 5_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const state = await client.getOpenNoteState();
-    if (state.savePending === expected) return state;
+    if (state.savePending === false) return state;
     await sleep(50);
   }
-  throw new Error(`${client.name}: savePending did not become ${expected} after ${timeoutMs}ms`);
+  throw new Error(`${client.name}: savePending did not become false after ${timeoutMs}ms`);
 }
 
-async function createNoteViaEditor(client, title, content) {
-  await client.openNewNote();
-  await client.setTitle(title);
-  await client.typeInEditor(content);
-}
-
-async function waitForToastMessage(client, expectedMessage, timeoutMs = 10_000) {
+/** Wait for a toast. Prefer a RegExp over an exact string: user-facing wording
+ * is not a cross-platform contract (M15), and an exact match turned a
+ * deliberate desktop rewording ("Note was deleted during sync" → "Note was
+ * deleted") into a red scenario that looked like a broken close path. */
+async function waitForToastMessage(client, expected, timeoutMs = 10_000) {
+  const matches = (message) =>
+    expected instanceof RegExp ? expected.test(message ?? '') : message === expected;
   const start = Date.now();
+  let last;
   while (Date.now() - start < timeoutMs) {
     const state = await client.getOpenNoteState();
-    if (state.toastMessage === expectedMessage) return state;
+    if (matches(state.toastMessage)) return state;
+    last = state.toastMessage;
     await sleep(100);
   }
   throw new Error(
-    `${client.name}: toast did not become ${JSON.stringify(expectedMessage)} after ${timeoutMs}ms`,
+    `${client.name}: toast did not match ${expected} after ${timeoutMs}ms (last: ${JSON.stringify(last)})`,
   );
 }
 
@@ -175,18 +210,35 @@ async function editorRoundtripThroughRealSync(a, b, server) {
   const noteId = 'editor roundtrip';
   const body = '# Written in CodeMirror\nThis note should sync through the real save pipeline.';
 
-  // A creates a new note through the actual editor path and syncs before the debounce fires.
-  await createNoteViaEditor(a, noteId, body);
-  const pendingState = await waitForSavePending(a, true);
+  // A creates a new note through the actual editor path, with the note still
+  // living ONLY in the editor buffer when the sync is requested: body + title +
+  // syncNow() all happen in one page task, so no debounce or blur flush can
+  // persist it first (the harness owns the ordering instead of racing it).
+  await a.openNewNote();
+  const composed = await a.composeNoteAndSyncNow(noteId, body);
+  // Captured synchronously at the instant syncNow() was called, so these are
+  // evidence rather than a poll that lands wherever it lands.
   assertEqual(
-    pendingState.originalId,
+    composed.preSync.originalId,
     null,
-    'new note should still be unsaved before manual sync flush',
+    'new note should still be unsaved when the manual sync is requested',
   );
-  const aResult = await a.syncNow();
-  assert(aResult.summary.uploaded === 1, `A uploaded=${aResult.summary.uploaded}, expected 1`);
+  assertEqual(
+    composed.preSync.savePending,
+    true,
+    'the debounced editor save should still be pending when the manual sync is requested',
+  );
+  assertEqual(
+    composed.preSync.editorContent,
+    body,
+    'the body should exist only in the editor buffer when the manual sync is requested',
+  );
+  // Nothing but the sync's own flushPendingSave can have written the note, so an
+  // upload here IS the proof that a manual sync flushes the pending editor save
+  // before pushing. Drop that flush and this assertion fails.
+  assert(composed.summary.uploaded === 1, `A uploaded=${composed.summary.uploaded}, expected 1`);
 
-  const postSyncState = await waitForSavePending(a, false);
+  const postSyncState = await waitForSaveIdle(a);
   assertEqual(
     postSyncState.originalId,
     noteId,
@@ -573,7 +625,7 @@ async function activeNoteReload(a, b, server) {
   );
   // The remote content reload triggers a change event in the editor which starts
   // the save debounce.  Wait for it to settle before asserting no pending save.
-  const settled = await waitForSavePending(b, false);
+  const settled = await waitForSaveIdle(b);
   assertEqual(settled.savePending, false, 'remote reload should not leave a local save pending');
 }
 
@@ -601,11 +653,11 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   await waitForEditorContent(b, '# Base');
   await b.setTitle('taken sync title');
   // Title edits use a deliberate 10s debounce (TITLE_SAVE_DEBOUNCE_MS) so a
-  // rename round-trip never fires mid-typing — longer than waitForSavePending's
+  // rename round-trip never fires mid-typing — longer than waitForSaveIdle's
   // 5s budget. Flush so the (duplicate-title-blocked) save settles now, exactly
   // as this scenario already does before its final savePending check below.
   await b.flushSave();
-  await waitForSavePending(b, false);
+  await waitForSaveIdle(b);
 
   await a.writeNote('during sync', '# Remote update');
   await a.syncNow();
@@ -613,8 +665,13 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   await b.startSync();
   await sleep(200);
   await b.typeInEditor('\nLocal draft typed during sync');
-  await waitForSavePending(b, true);
-  await waitForSavePending(b, false);
+  // Settle the typed draft the same way the app does on blur/navigation, then
+  // wait for idle. Polling for savePending === true first (the old shape) races
+  // the app: the blur flush that typing triggers can open and close the pending
+  // window between two bridge round trips, and the wait then fails on a scenario
+  // that is working correctly.
+  await b.flushSave();
+  await waitForSaveIdle(b);
   const draftDuringSync = (await b.getOpenNoteState()).editorContent;
 
   const bResult = await b.awaitStartedSync();
@@ -637,7 +694,7 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
 
   await b.setTitle('during sync');
   await b.flushSave();
-  await waitForSavePending(b, false);
+  await waitForSaveIdle(b);
   await b.syncNow();
   await a.syncNow();
   const aContent = await a.readNote('during sync');
@@ -645,6 +702,96 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
     aContent,
     draftDuringSync,
     'local draft should still be persistable after being protected from sync clobbering',
+  );
+}
+
+async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
+  // The data-safety promise at the open-note seam, across two real clients: a
+  // dirty local draft meets a peer edit to the same note, and the draft is kept
+  // — never replaced by the pulled bytes — then reaches disk once it can be
+  // persisted (as its own write, a merge, or a conflict copy).
+  //
+  // QA (2026-08-07, sy-04) read a typed line vanishing on iOS as this path
+  // failing. It was not: the line had already been saved and pushed, and the
+  // peer's own whole-file write superseded it before any client reconciled.
+  // This scenario is the standing proof, at the layer both shells share.
+  //
+  // The draft is held dirty the way externalWatcherProtectsDirtyDraftThenSettles
+  // does it — a duplicate title blocks the save — rather than by keeping the
+  // editor focused: CodeMirror's hasFocus() also requires document.hasFocus(),
+  // so a background window's focus is not something a scenario can rely on
+  // (see activeNoteReload). The focused defer -> blur edge is covered
+  // deterministically by createExternalChangeCoordinator.test.ts and the iOS
+  // OpenNoteReconciler suite.
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  // Own the pull ordering explicitly (mirrors activeNoteReload): a background
+  // cycle waking on A's push would race B's owned syncNow, and the open-note
+  // reconcile only runs for the cycle whose summary names the note.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+
+  await a.writeNote('sync taken title', '# Blocking title');
+  await a.writeNote('sync dirty draft', '# Base');
+  await a.syncNow();
+  await b.syncNow();
+  await waitForNoteInSidebar(b, 'sync taken title');
+
+  await b.openNote('sync dirty draft');
+  await waitForEditorContent(b, '# Base');
+
+  // Hold the draft dirty: the duplicate title blocks the save, so the typed
+  // line is still unpersisted when the peer edit arrives.
+  await b.setTitle('sync taken title');
+  await b.flushSave();
+  await waitForSavePending(b, false);
+  await b.typeInEditor('\nLocal draft');
+  const typed = (await b.getOpenNoteState()).editorContent;
+  assert(typed.includes('Local draft'), `B should hold the typed draft, got: ${typed}`);
+
+  await a.writeNote('sync dirty draft', '# Base\nPeer edit');
+  await a.syncNow();
+  const pulled = await b.syncNow();
+  assertEqual(
+    pulled.summary.downloaded,
+    1,
+    `B downloaded=${pulled.summary.downloaded}, expected 1`,
+  );
+
+  // Unsaved work is never replaced: the pulled bytes did not reach the buffer.
+  const kept = await b.getOpenNoteState();
+  assert(
+    kept.editorContent.includes('Local draft'),
+    `the dirty draft must survive the peer edit, got: ${kept.editorContent}`,
+  );
+
+  // Restore a valid title so the kept draft can finally be persisted, and
+  // require it to land on disk.
+  //
+  // What the peer's bytes do at that moment is deliberately NOT asserted here.
+  // KeepDraft rebases the baseline onto the pulled disk content, which makes the
+  // next flush_draft a fast-forward over it rather than the park the rebase was
+  // meant to enable, so the peer edit does not survive on desktop/iOS today
+  // (Android parks a conflict copy instead — docs/spec/sync.md, the KeepDraft
+  // paragraph). Pinning that here would bless it; it is being escalated with the
+  // MR rather than frozen into a scenario.
+  await b.setTitle('sync dirty draft');
+  await b.flushSave();
+  await waitForSavePending(b, false);
+
+  const settled = await b.getOpenNoteState();
+  assert(
+    settled.editorContent.includes('Local draft'),
+    `the settle must not discard the draft, got: ${settled.editorContent}`,
+  );
+  const files = (await b.listNotes()).map((file) => file.filename || file.name || file);
+  const bodies = [];
+  for (const file of files.filter((name) => String(name).endsWith('.md'))) {
+    bodies.push(await b.readNote(String(file).replace(/\.md$/, '')));
+  }
+  assert(
+    bodies.some((body) => body.includes('Local draft')),
+    `the local draft must reach disk once it can be persisted, vault: ${JSON.stringify(bodies)}`,
   );
 }
 
@@ -701,7 +848,7 @@ async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _server) {
 
   await a.setTitle('taken title');
   await a.typeInEditor('\nLocal draft');
-  await waitForSavePending(a, false);
+  await waitForSaveIdle(a);
   await sleep(1200);
 
   await externalWriteNote(a, 'watch dirty', '# Changed on disk');
@@ -813,7 +960,7 @@ async function peerDeleteOfOpenNoteClosesEditor(a, b, server) {
   await waitForEditorContent(b, '# Doomed content');
   // A read-only open can start a save debounce; let it settle so the note is
   // NOT dirty (a dirty draft would take the keep-local-draft branch instead).
-  await waitForSavePending(b, false);
+  await waitForSaveIdle(b);
 
   // A deletes and pushes the tombstone.
   await a.deleteNote('peer deletes me');
@@ -826,7 +973,7 @@ async function peerDeleteOfOpenNoteClosesEditor(a, b, server) {
     `B should pull the delete; deletedIds=${JSON.stringify(bResult.summary.deletedIds)}`,
   );
 
-  const closed = await waitForToastMessage(b, 'Note was deleted during sync');
+  const closed = await waitForToastMessage(b, /deleted/i);
   assertEqual(closed.originalId, null, 'peer-deleted open note should no longer be the open note');
   assert(
     closed.hash !== `#/note/${encodeURIComponent('peer deletes me')}`,
@@ -1026,7 +1173,7 @@ async function tombstoneDoesNotBlockNewNote(a, b, server) {
   // Type content so the note has substance, then sync
   await a.typeInEditor('# Fresh note');
   await a.flushSave();
-  await waitForSavePending(a, false);
+  await waitForSaveIdle(a);
   const syncResult = await a.syncNow();
 
   // The sync must NOT delete the note we just created
@@ -1514,6 +1661,65 @@ async function emptyFolderDoesNotSync(a, b, server) {
   );
 }
 
+async function unportableNameNeverSyncsAndIsLeftAlone(a, b, server) {
+  // "A file whose name no portable filesystem can hold is left strictly alone:
+  //  it never syncs, it never breaks the cycle, and it is never touched on disk."
+  //
+  // The name has to be planted externally because the app itself cannot mint
+  // one — sanitizeTitle strips `:` — which is exactly how these files arrive in
+  // real vaults: an Obsidian folder, a git clone, a Syncthing share, or a file
+  // made on macOS/Linux where `:` is a legal filename character.
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+
+  const unportable = 'Recipe: braised short ribs';
+  await a.externalWriteNote(unportable, '# Braised short ribs\n\n3 hours at 160C.');
+  await a.writeNote('portable control', '# Control note');
+
+  await a.syncNow();
+  const bFirstCycle = await b.syncNow();
+
+  // The discriminating assertion: before this change A uploaded the file and B
+  // raised a PERMANENT `rejected` failure for it on every cycle, forever. The
+  // rest of this scenario passes either way — the absence of a failure is what
+  // proves the fix.
+  const bFailures = bFirstCycle?.summary?.failures ?? [];
+  assert(
+    bFailures.length === 0,
+    `B must record no sync failure for an unportable name, got ${JSON.stringify(bFailures)}`,
+  );
+
+  // The control note proves the cycle ran and was not aborted by its neighbour.
+  assert(
+    await b.noteExists('portable control'),
+    'B should have the control note — the unportable name must not break the cycle',
+  );
+  assert(
+    !(await b.noteExists(unportable)),
+    'B must not receive a note whose name no portable filesystem can hold',
+  );
+  assert(
+    !existsSync(join(b.notesDir, `${unportable}.md`)),
+    'B must not have the unportable file on disk either',
+  );
+
+  // And it survives on A, untouched, across repeated cycles — the push side
+  // skips it without ever treating it as a local delete.
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    await a.syncNow();
+    await b.syncNow();
+  }
+  const stillThere = join(a.notesDir, `${unportable}.md`);
+  assert(
+    existsSync(stillThere),
+    `A must still hold ${unportable}.md — it is never renamed or removed`,
+  );
+  assert(
+    readFileSync(stillThere, 'utf8').includes('3 hours at 160C'),
+    'the unportable file is left byte-for-byte alone',
+  );
+}
+
 // A real (tiny) PNG. Non-UTF-8 bytes — exactly the kind of content that the
 // old `.md`-only, read_to_string sync pipeline could never carry. We assert
 // the bytes survive byte-for-byte across the E2EE round-trip.
@@ -1769,6 +1975,11 @@ const scenarios = [
     matrices: ['desktop-desktop'],
   },
   { name: 'empty folder does not sync', fn: emptyFolderDoesNotSync, matrices: ['desktop-desktop'] },
+  {
+    name: 'unportable name never syncs and is left alone',
+    fn: unportableNameNeverSyncsAndIsLeftAlone,
+    matrices: ['desktop-desktop'],
+  },
   // TODO(justin): both external-watcher scenarios race under Docker/xvfb.
   // They swap which one hits the inotify delay run-to-run; one or the other
   // times out at 30s roughly half the time. Locally they pass in <2s, so
@@ -1786,6 +1997,11 @@ const scenarios = [
     fn: externalWatcherProtectsDirtyDraftThenSettles,
     matrices: ['desktop-desktop'],
     skipOnCi: true,
+  },
+  {
+    name: 'dirty draft survives a peer edit then settles',
+    fn: dirtyDraftSurvivesAPeerEditThenSettles,
+    matrices: ['desktop-desktop'],
   },
   { name: 'delete vs edit', fn: deleteVsEdit, matrices: ['desktop-desktop'] },
   {
@@ -1875,8 +2091,7 @@ function ensureDesktopDebugBinary() {
   // If dist/ lacks __testSync, the last `cargo tauri build` (or any
   // `npm run build`) produced a hooks-free bundle. Rebuild — the Rust
   // codegen embeds whatever dist/ currently contains.
-  const distJs = findDistIndexJs();
-  if (!distJs || !fileContains(distJs, '__testSync')) {
+  if (!distHasTestHooks()) {
     console.log('dist/ was built without VITE_INCLUDE_TEST_HOOKS — rebuilding desktop binary…');
     rebuildDesktopBinary();
     return;
@@ -1919,12 +2134,18 @@ function rebuildDesktopBinary() {
   );
 }
 
-function findDistIndexJs() {
+// Scan every emitted chunk, not `index-*.js`[0]: a build emits a dozen
+// `index-<hash>.js` chunks and only ONE carries __testSync, so reading the
+// alphabetically-first one almost always concluded "built without test hooks"
+// and charged the run a `cargo clean -p` plus a full relink it did not need
+// (papercut pc_b1be12680b61). vite empties dist/ per build, so nothing here can
+// be a leftover from an older hooks-enabled bundle.
+function distHasTestHooks() {
   const assetsDir = join(REPO_ROOT, 'dist', 'assets');
-  if (!existsSync(assetsDir)) return null;
-  const files = readdirSync(assetsDir).filter((n) => /^index-.*\.js$/.test(n));
-  if (files.length === 0) return null;
-  return join(assetsDir, files[0]);
+  if (!existsSync(assetsDir)) return false;
+  return readdirSync(assetsDir)
+    .filter((name) => name.endsWith('.js'))
+    .some((name) => fileContains(join(assetsDir, name), '__testSync'));
 }
 
 function fileContains(path, needle) {
@@ -1942,22 +2163,12 @@ function runOrThrow(cmd, argv, opts) {
   }
 }
 
-function killStalePreviewAndClients() {
-  // A vite preview left behind by an interrupted previous run will keep port
-  // 5181 busy; a leftover debug binary will hold an MCP port. Clear them so
-  // the harness boots cleanly every time.
-  const lsofOut = spawnSync('lsof', ['-ti', 'tcp:5181'], { encoding: 'utf8' });
-  const pids = (lsofOut.stdout || '')
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  for (const pid of pids) {
-    try {
-      process.kill(Number(pid), 'SIGTERM');
-    } catch {
-      /* already gone */
-    }
-  }
+function killStaleClients() {
+  // A leftover debug binary from an interrupted run holds an MCP port; clear it
+  // so the harness boots cleanly every time. It used to also SIGTERM whatever
+  // held port 5181 (a vite preview this harness no longer starts) — a
+  // machine-wide kill of an unidentified stranger, which is another worktree's
+  // process as easily as our own.
   // Only kill debug binaries spawned with the multi-instance flag — that's
   // how the harness launches them, so this won't touch a user's open app.
   const ps = spawnSync('pgrep', ['-af', 'futo-notes-tauri'], { encoding: 'utf8' });
@@ -1994,7 +2205,7 @@ async function main() {
 
   // Bootstrap artifacts and clean up stale state from a prior run.
   const bootstrapStartedAt = Date.now();
-  killStalePreviewAndClients();
+  killStaleClients();
   ensureDesktopDebugBinary();
   timings.bootstrapMs = Date.now() - bootstrapStartedAt;
 
@@ -2046,7 +2257,7 @@ async function main() {
 
   // ── Run scenarios ─────────────────────────────────────────────
   for (const scenario of toRun) {
-    const port = serverPortCounter++;
+    const port = allocateServerPort();
     const serverSetupStartedAt = Date.now();
     const server = await startServer(port, REPO_ROOT, scenario.serverOptions ?? {});
     const serverSetupMs = Date.now() - serverSetupStartedAt;

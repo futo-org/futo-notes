@@ -246,6 +246,44 @@ describe('engine-owned open-note disposition', () => {
     bundle.coordinator.stop();
   });
 
+  it('never adopts over work typed after the deferral, and re-gathers when it settles', async () => {
+    // The failure this guards: a deferral that remembers CONTENT instead of
+    // intent. The peer's bytes are captured while the editor is clean, the user
+    // then types, and blur applies the remembered adopt over the new draft.
+    // Nothing may reach the buffer until the draft is settled, and the pass
+    // that finally settles must classify the draft as it is THEN.
+    syncMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'deferAdopt' })
+      .mockResolvedValueOnce({ kind: 'leave' });
+    const bundle = makeCoordinator(makeSession({ editorFocused: true }));
+
+    await bundle.coordinator.reconcileOpenNote('active');
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+
+    // The user types before blurring: the draft is dirty and its save has not
+    // landed, so the deferral has to wait rather than resolve against it.
+    bundle.state.editorContent = 'base typed';
+    bundle.state.editVersion += 1;
+    bundle.state.dirty = true;
+    bundle.state.editorFocused = false;
+    await bundle.coordinator.handleEditorFocusChange(false);
+
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledOnce();
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+
+    // The engine persists or parks that draft (here: persisted), and the next
+    // edge settles the retained deferral against the draft as it is now.
+    bundle.state.dirty = false;
+    bundle.state.savedContent = 'base typed';
+    await bundle.coordinator.handleEditorFocusChange(false);
+
+    expect(syncMocks.classifyOpenNote).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'active', base: 'base typed', draft: 'base typed' }),
+    );
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    bundle.coordinator.stop();
+  });
+
   it('classifies the exact parked snapshot as preserved, but protects a later edit', async () => {
     const parked = { content: 'parked draft', title: 'active' };
     const first = makeCoordinator(

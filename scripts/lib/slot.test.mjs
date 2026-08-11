@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { ENV_NAMES, PORT_BASES, envLines, portsFor, slotOf, webPort } from './slot.mjs';
+import {
+  ENV_NAMES,
+  PORT_BASES,
+  XPLAT_SYNC_BAND,
+  envLines,
+  portsFor,
+  slotOf,
+  webPort,
+  xplatSyncBand,
+} from './slot.mjs';
 
 const CLI = fileURLToPath(new URL('./slot.mjs', import.meta.url));
 const runCli = (...args) => execFileSync('node', [CLI, ...args], { encoding: 'utf8' }).trim();
@@ -71,6 +80,48 @@ describe('portsFor', () => {
     const a = portsFor(ROOTS[0]).web;
     const b = portsFor(ROOTS[1]).web;
     expect(a).not.toBe(b);
+  });
+});
+
+// A band, not a single port: the cross-platform sync harness allocates one
+// server (plus a delay proxy) per scenario. It used to start every worktree at a
+// hardcoded 4000, which is how two runs came to share one server and database.
+describe('xplatSyncBand', () => {
+  const ALL = Array.from({ length: 50 }, (_, slot) => ({
+    base: XPLAT_SYNC_BAND.base + slot * XPLAT_SYNC_BAND.stride,
+    end: XPLAT_SYNC_BAND.base + slot * XPLAT_SYNC_BAND.stride + XPLAT_SYNC_BAND.stride - 1,
+  }));
+
+  it('derives the band from the slot', () => {
+    for (const root of ROOTS) {
+      const slot = slotOf(root);
+      expect(xplatSyncBand(root)).toEqual({ slot, ...ALL[slot] });
+    }
+  });
+
+  it('gives two worktrees disjoint bands', () => {
+    const a = xplatSyncBand(ROOTS[0]);
+    const b = xplatSyncBand(ROOTS[1]);
+    expect(a.base).not.toBe(b.base);
+    expect(a.end < b.base || b.end < a.base).toBe(true);
+  });
+
+  it('fits every scenario twice over, so a run cannot walk into the next band', () => {
+    // Two ports per scenario (server + delay proxy) against ~20 scenarios.
+    expect(XPLAT_SYNC_BAND.stride / 2).toBeGreaterThanOrEqual(40);
+  });
+
+  it('stays out of the ephemeral range, where an outbound connection could squat it', () => {
+    // Linux's default ephemeral range starts at 32768, macOS's at 49152.
+    expect(Math.max(...ALL.map((b) => b.end))).toBeLessThan(32768);
+    expect(Math.min(...ALL.map((b) => b.base))).toBeGreaterThan(1024);
+  });
+
+  it('never overlaps a PORT_BASES range', () => {
+    const singles = Object.values(PORT_BASES).flatMap((base) =>
+      Array.from({ length: 50 }, (_, slot) => base + slot),
+    );
+    expect(singles.filter((port) => ALL.some((b) => port >= b.base && port <= b.end))).toEqual([]);
   });
 });
 

@@ -2,9 +2,9 @@ import { syntaxTree } from '@codemirror/language';
 import type { Text } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 
-import { getAllNotes } from '$features/notes/notes.svelte';
+import { getWikilinkIndex } from '$features/notes/notes.svelte';
 
-import { resolveWikilink, shortestUniqueSuffix, WIKILINK_RE } from '$shared/note/wikilinks';
+import { WIKILINK_RE } from '$shared/note/wikilinks';
 import type { PendingDecoration } from './decorationTypes';
 import { isCodeNode } from './markdownNodes';
 import { selectionTouchesRange } from './selectionReveal';
@@ -41,7 +41,7 @@ export function addWikilinkDecorations(
   const doc = view.state.doc;
   const tree = syntaxTree(view.state);
   const regex = new RegExp(WIKILINK_RE.source, 'g');
-  const allNoteIds = getAllNotes().map((note) => note.id);
+  const wikilinks = getWikilinkIndex();
 
   forEachLineInRanges(doc, scanRanges, (line) => {
     regex.lastIndex = 0;
@@ -62,8 +62,8 @@ export function addWikilinkDecorations(
       });
       if (isInCode) continue;
 
-      const resolvedId = resolveWikilink(title, allNoteIds);
-      const displayText = resolvedId ? shortestUniqueSuffix(resolvedId, allNoteIds) : title;
+      const resolvedId = wikilinks.resolve(title);
+      const displayText = resolvedId ? wikilinks.displaySuffix(resolvedId) : title;
       const isBroken = resolvedId === null;
       if (!reveal) {
         decorations.push({ from, to: from + 2, value: { replace: true } });

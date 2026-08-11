@@ -1,14 +1,20 @@
 use std::path::Path;
 
+use futo_notes_core::files::{
+    classify_incoming_sync_path, IncomingSyncPath, IGNORE_UNPORTABLE_NAME,
+};
+
 use crate::checkpoint::{self, ConnectedState};
 use crate::server::Http;
 use crate::session::connect::client;
 
+use super::outcome::decision;
 use super::outcome::{append_derived_renames, record_checkpoint_failure};
 use super::tombstones::recover_stale_claims;
-use super::vault::local_files;
+use super::vault::{local_files, LocalFile};
 use super::{
-    CycleFailure, PreWrite, Progress, SaveCheckpoint, SyncErrorKind, SyncProgress, SyncSummary,
+    CycleFailure, PreWrite, Progress, SaveCheckpoint, SyncErrorKind, SyncPhase, SyncProgress,
+    SyncSummary,
 };
 
 mod delete_local;
@@ -22,6 +28,7 @@ use local_changes::{detect_local_renames, missing_local_files};
 
 pub(in crate::sync) mod reason {
     pub(in crate::sync) const NOT_ON_SERVER: &str = "not_on_server";
+    pub(in crate::sync) const UNPORTABLE_NAME: &str = "unportable_local_name";
     pub(in crate::sync) const REMOTE_OBJECT_DELETED: &str = "remote_object_was_deleted";
     pub(in crate::sync) const LOCAL_CONTENT_CHANGED: &str = "local_content_changed";
     pub(in crate::sync) const SERVER_REJECTED_413: &str = "server_rejected_413";
@@ -33,6 +40,33 @@ pub(in crate::sync) mod reason {
     pub(in crate::sync) const READ_ERROR: &str = "read_error";
     pub(in crate::sync) const UPLOAD_ERROR: &str = "upload_error";
     pub(in crate::sync) const DELETE_ERROR: &str = "delete_error";
+}
+
+/// Drop the local files whose names no portable filesystem can hold, journaling
+/// each one. Deliberately NOT a failure and never surfaced: the file stays on
+/// disk untouched and simply does not take part in sync.
+///
+/// The portability question is asked with the same classifier the pull side
+/// uses, so one rule answers it for both directions.
+fn uploadable_files(files: Vec<LocalFile>, summary: &mut SyncSummary) -> Vec<LocalFile> {
+    files
+        .into_iter()
+        .filter(|file| {
+            let unportable = matches!(
+                classify_incoming_sync_path(&file.name),
+                IncomingSyncPath::Ignore(why) if why == IGNORE_UNPORTABLE_NAME
+            );
+            if unportable {
+                summary.decide(
+                    SyncPhase::Push,
+                    &file.name,
+                    decision::IGNORED,
+                    reason::UNPORTABLE_NAME,
+                );
+            }
+            !unportable
+        })
+        .collect()
 }
 
 pub(in crate::sync) fn status_detail(status: Option<u16>) -> String {
@@ -93,10 +127,18 @@ pub(crate) async fn push_with_checkpoint(
         })?;
     files.sort_by_key(|file| file.size);
 
+    // A name no portable filesystem can hold is never uploaded — but it MUST
+    // stay in `files` above, because `missing_local_files` reads "in the object
+    // map, absent from the local scan" as a local delete. Dropping it from the
+    // scan would tombstone the note on the server and every peer. So the skip
+    // happens here, on the upload list alone, after missing- and rename-
+    // detection have already seen the file.
+    let uploadable = uploadable_files(files, &mut summary);
+
     progress(SyncProgress {
         phase: "pushing",
         current: 0,
-        total: files.len() + missing.len(),
+        total: uploadable.len() + missing.len(),
     });
     upload_local_files(UploadFiles {
         context: PushContext {
@@ -107,11 +149,11 @@ pub(crate) async fn push_with_checkpoint(
             pre_write,
             save_checkpoint,
         },
-        files: &files,
+        files: &uploadable,
         blocked_pending: &blocked_pending,
         renamed_files: &renamed_files,
         progress,
-        progress_total: files.len() + missing.len(),
+        progress_total: uploadable.len() + missing.len(),
     })
     .await
     .map_err(|kind| CycleFailure {

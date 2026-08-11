@@ -18,7 +18,7 @@ use super::object_map::mapped_name;
 use super::outcome::note_id;
 use super::vault::{conflict_date, local_files};
 use super::vault_fs;
-use super::{decision, PreWrite, SyncPhase, SyncSummary};
+use super::{decision, PreWrite, RenamePair, SyncPhase, SyncSummary};
 
 const CLAIM_PREFIX: &str = ".sf-tomb-";
 const CLAIM_SIDECAR_SUFFIX: &str = ".path";
@@ -219,6 +219,19 @@ fn park_divergent_claim(
     summary.local_writes_applied += 1;
     summary.updated_ids.push(note_id(&copy));
     summary.peer_updated_ids.push(note_id(&copy));
+    // Parking IS a relocation of a locally-mapped note, so it reports rename
+    // intent like every other relocation (collision placements, mapping moves,
+    // merge-target moves). Without it the deletion recorded below was the only
+    // thing a shell saw: an open editor whose draft had already reached disk
+    // classified as "the peer deleted this and there is nothing to preserve"
+    // (disk gone, draft == saved base) and CLOSED, discarding the buffer while
+    // the content sat in this copy. Following the rename also keeps the delete
+    // honest — the editor never stays bound to the deleted id, whose next save
+    // would resurrect it fleet-wide (F4).
+    summary.renamed.push(RenamePair {
+        from_id: note_id(name),
+        to_id: note_id(&copy),
+    });
     summary.decide_with(
         SyncPhase::Pull,
         name,

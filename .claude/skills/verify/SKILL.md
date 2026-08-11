@@ -47,6 +47,11 @@ MRs) without collisions, because every shared resource is keyed on the
 - The worktree path hashes to a **slot**; the slot derives ports, the pooled
   device, and the sync server + its database. Nothing needs a registry to
   stay "free" — no other session will ever target your slot's resources.
+- **The one thing NOT keyed on the worktree** is the user's installed release
+  app: same binary name as every dev build, running on their real vault, and
+  reachable by any OS-level input you send (which goes to the focused window,
+  not to a process). Resolve desktop targets only via
+  `node scripts/qa-target.mjs` — see `references/desktop.md` and M24.
 
 Shell variables don't persist between Bash tool calls — **re-compute these at
 the start of any block that needs them**. `scripts/lib/slot.mjs` owns the
@@ -72,6 +77,7 @@ module, so a plain `pnpm run dev` or `playwright test` already lands on
 | MCP bridge (desktop) | 9223–9322 | plugin auto-scans; discover after launch |
 | Android CDP forward | 9330–9379 | `just cdp-forward` prints `export CDP_PORT=…` |
 | Sync server | 3100–3149 + own Postgres DB | `just qa-server` (see sync section) |
+| Cross-platform sync harness | 21000–25999, a band of 100 per worktree, + own Postgres DB (`futo_notes_xplat_s<slot>`) | `pnpm run test:cross-platform`; it allocates from its own band and refuses a port someone else holds rather than adopting it |
 | iOS simulator / Android AVD | pool `futo-qa-0..6` per platform | `just qa-claim` prints `export SIM=…` / `export ANDROID_SERIAL=…` |
 | Windows qemu VM | singleton | one session at a time |
 
