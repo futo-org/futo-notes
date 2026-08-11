@@ -98,7 +98,9 @@ The corpora aim at where two languages actually part company, not at happy paths
 whitespace-ish code points, case-folding traps (final sigma, `ß`, dotted/dotless I,
 Kelvin sign, ligatures), astral and combining sequences, the C0/DEL/C1 range, fence
 nesting and unclosed fences, CRLF, length and depth boundaries (199/200/201,
-99/100/101, 9/10/11 path components), slash runs, and ambiguous wikilink universes.
+99/100/101, 9/10/11 path components), slash runs, and eight different wikilink id universes (total leaf collision, a
+suffix chain, duplicates, degenerate ids, deep paths, unicode-only, empty) asked
+about every id plus every path suffix AND prefix of it.
 
 ### Guards against a silent pass
 
@@ -190,7 +192,7 @@ Its two jobs are now split, and both are stronger:
 
 - _Holding the corpora honest_ → the goldens are hand-reviewed and edited directly;
   no generator can quietly rewrite an expectation to match a regression.
-- _Proving TypeScript and Rust agree_ → this differential, over ~22,500 adversarial
+- _Proving TypeScript and Rust agree_ → this differential, over ~22,800 adversarial
   probes across 21 ops instead of a few hundred curated ones. It found a real
   divergence the generator's corpus could not reach.
 

@@ -704,52 +704,76 @@ const WIKI_IDS = [
   'Case/notes',
 ];
 
+// Resolution and suffix shortening are both functions of the WHOLE id universe,
+// so one universe probes exactly one shape of ambiguity. These are the shapes
+// that matter: total collision at every suffix length, a chain where each id is a
+// suffix of the next, duplicates, degenerate ids, deep paths, unicode-only.
+const WIKI_UNIVERSES = [
+  WIKI_IDS,
+  // Every leaf collides; disambiguation has to climb.
+  ['a/x', 'b/x', 'c/b/x', 'd/c/b/x', 'x'],
+  // Suffix chain: 'x' is a suffix of 'b/x' is a suffix of 'a/b/x'.
+  ['x', 'b/x', 'a/b/x'],
+  // Duplicates, which the suffix rule must exclude when comparing against self.
+  ['dup/x', 'dup/x', 'other/x'],
+  // Degenerate ids: empty components, leading/trailing slashes, a bare slash.
+  ['', '/', '//', 'a//b', '/leading', 'trailing/', 'a'],
+  // Deep, and unicode-only with NFC/NFD twins.
+  ['Deep/a/b/c/d/e/f/leaf', 'a/b/c/d/e/f/leaf', 'leaf'],
+  ['café', 'cafe\u0301', 'x/café', 'x/cafe\u0301'],
+  [],
+];
+
+// Targets every universe is asked about, whether or not they appear in it.
+const WIKI_ADVERSARIAL_TARGETS = [
+  '',
+  '/',
+  '//',
+  '/pasta',
+  'pasta/',
+  'a//b',
+  'missing',
+  'Nope/pasta',
+  'Specs/folder-support|alias',
+  `${PARTY} party`,
+  'café résumé',
+  'cafe\u0301 re\u0301sume\u0301',
+  'NOTES',
+  'notes ',
+  ' notes',
+  'Deep/a/b/c/leaf/extra',
+  'b/c/leaf',
+  'leaf',
+  'x',
+  'x'.repeat(300),
+];
+
+/** Every id, every path suffix AND prefix of it, plus the adversarial targets. */
 function wikilinkTargetCorpus() {
-  const targets = [...WIKI_IDS];
-  for (const id of WIKI_IDS) {
-    const parts = id.split('/');
-    for (let index = 0; index < parts.length; index += 1) {
-      targets.push(parts.slice(index).join('/'));
+  const cases = [];
+  for (const allIds of WIKI_UNIVERSES) {
+    const targets = [...allIds, ...WIKI_ADVERSARIAL_TARGETS];
+    for (const id of allIds) {
+      const parts = id.split('/');
+      // Suffixes must resolve when unique; prefixes must never resolve by
+      // accident. Probing both pins the direction of the tail match.
+      for (let index = 0; index < parts.length; index += 1) {
+        targets.push(parts.slice(index).join('/'));
+        targets.push(parts.slice(0, index + 1).join('/'));
+      }
     }
+    for (const target of unique(targets)) cases.push({ target, allIds });
   }
-  targets.push(
-    '',
-    '/',
-    '//',
-    '/pasta',
-    'pasta/',
-    'a//b',
-    'missing',
-    'Nope/pasta',
-    'Specs/folder-support|alias',
-    `${PARTY} party`,
-    'café résumé',
-    'cafe\u0301 re\u0301sume\u0301',
-    'NOTES',
-    'notes ',
-    ' notes',
-    'Deep/a/b/c/leaf/extra',
-    'b/c/leaf',
-    'x'.repeat(300),
-  );
-  return unique(targets).map((target) => ({ target, allIds: WIKI_IDS }));
+  return cases;
 }
 
+/** Shortest unique suffix for every id in every universe, plus outsiders. */
 function suffixCorpus() {
-  const cases = WIKI_IDS.map((targetId) => ({ targetId, allIds: WIKI_IDS }));
-  for (const targetId of ['Brand/new note', '', '/', 'a//b', 'Case/NOTES', 'leaf']) {
-    cases.push({ targetId, allIds: WIKI_IDS });
+  const outsiders = ['Brand/new note', '', '/', 'a//b', 'Case/NOTES', 'leaf', 'x', 'a/x'];
+  const cases = [];
+  for (const allIds of WIKI_UNIVERSES) {
+    for (const targetId of unique([...allIds, ...outsiders])) cases.push({ targetId, allIds });
   }
-  // Small universes that isolate the collision arithmetic.
-  cases.push(
-    { targetId: 'a/x', allIds: ['a/x', 'b/a/x'] },
-    { targetId: 'dup/x', allIds: ['dup/x', 'dup/x'] },
-    { targetId: 'x', allIds: [] },
-    { targetId: 'x', allIds: ['x'] },
-    { targetId: 'a/b/c', allIds: ['a/b/c', 'z/b/c', 'q/z/b/c'] },
-    { targetId: '/leading', allIds: ['/leading', 'leading'] },
-    { targetId: 'trailing/', allIds: ['trailing/', 'trailing'] },
-  );
   return cases;
 }
 
