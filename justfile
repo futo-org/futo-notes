@@ -380,6 +380,13 @@ test-e2e:
 test-e2e-full:
   pnpm run test:e2e:full
 
+# EXACTLY what CI's test:e2e:rest job runs — everything except the P0 crash/IME
+# spec, two workers. Named as a recipe so it can be reproduced verbatim locally
+# and remotely (`just remote test-e2e-rest`), which is how the mr-203
+# remote-rename failure was pinned to a stale stack base rather than a flake.
+test-e2e-rest:
+  pnpm run test:e2e:rest
+
 test-cross-platform:
   pnpm run test:cross-platform
 
