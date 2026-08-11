@@ -202,14 +202,14 @@ conventions (one behavior per line, platform tags, `→ path` authority refs);
 
 Resolve from spec → fixtures → canonical Rust → `git log` + `docs/learnings/` → nearest manual. Find
 the existing pattern; do not invent one. **Act without asking** on reversible in-repo work: fixes,
-tests, refactors within a layer, running suites, dev builds/installs, and spec edits that record
-verified behavior.
+tests, refactors within a layer, running suites, dev builds/installs, spec edits that record
+verified behavior, and force-pushing a feature branch (`--force-with-lease`, never bare `--force`).
 
 **Stop and ask first — exact list:**
 1. Anything under `keys/`, signing keys, or the updater trust boundary (M23).
 2. Weakening a CRITICAL guard: dev/prod data, push-first, release gate, dep guard, hash/crypto.
 3. Real-data destruction or expensive local state: the user's `~/Documents/futo-notes`, the prod
-   server, `git push --force`, deleting tags, dropping DBs you did not create, or a recursive delete
+   server, force-pushing `main`, deleting tags, dropping DBs you did not create, or a recursive delete
    outside your scratchpad — gitignored ≠ disposable, and `target/` is a 31GB rebuild. Cleanup
    removes only paths the script itself created, never a computed ancestor: `rmSync(rel.split('/')[0])`
    ate a worktree's `target/` and a tracked `factory/`.
