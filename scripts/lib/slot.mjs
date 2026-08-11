@@ -15,9 +15,24 @@ export const PORT_BASES = {
   cdp: 9330,
 };
 
+// The cross-platform sync harness is the one consumer that needs a RANGE, not a
+// single port: it boots a fresh server per scenario (plus a delay proxy for
+// some), so `base + slot` would hand scenario 2 the neighbouring slot's port.
+// Each worktree gets a disjoint BAND instead. 21000 + 50 * 100 keeps the whole
+// span clear of PORT_BASES above and below Linux's default ephemeral range
+// (32768+), so no random outbound connection can ever be squatting a band port.
+export const XPLAT_SYNC_BAND = { base: 21000, stride: 100 };
+
 export function slotOf(root) {
   const hex = createHash('md5').update(root).digest('hex').slice(0, 8);
   return parseInt(hex, 16) % SLOTS;
+}
+
+/** The port band tests/cross-platform-sync.mjs may allocate from. */
+export function xplatSyncBand(root) {
+  const slot = slotOf(root ?? worktreeRoot());
+  const base = XPLAT_SYNC_BAND.base + slot * XPLAT_SYNC_BAND.stride;
+  return { slot, base, end: base + XPLAT_SYNC_BAND.stride - 1 };
 }
 
 export function portsFor(root) {

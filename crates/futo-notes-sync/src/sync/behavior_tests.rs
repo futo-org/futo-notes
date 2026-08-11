@@ -1022,21 +1022,23 @@ fn tombstone_claim_waits_for_a_flush_owned_vault_span() {
         let result = claim_local(&claim_root, "note.md", "object", &no_pre);
         finished_tx.send(result).unwrap();
     });
-    started_rx
-        .recv_timeout(Duration::from_secs(1))
-        .expect("tombstone claim started");
+    started_rx.recv().expect("tombstone claim started");
     assert!(
         finished_rx.recv_timeout(Duration::from_millis(75)).is_err(),
         "tombstone rename must wait while flush owns the vault span"
     );
 
     drop(flush_guard);
+    // Join, not a wall-clock budget: once the guard is dropped the claim has to
+    // win the same PROCESS-WIDE guard against every other test in this binary,
+    // so a deadline here would measure queue depth instead of the claim (the
+    // store-side twin of this test failed exactly that way in job 217730).
+    claim.join().unwrap();
     finished_rx
-        .recv_timeout(Duration::from_secs(1))
+        .try_recv()
         .expect("tombstone claim proceeds after flush")
         .unwrap()
         .expect("note was claimed");
-    claim.join().unwrap();
 }
 
 #[test]
@@ -1301,4 +1303,43 @@ fn claim_names_are_bounded_even_for_deep_long_paths() {
     let (claim, sidecar) = claim_paths(root.path(), &name, "object");
     assert!(claim.file_name().unwrap().len() < 255);
     assert!(sidecar.file_name().unwrap().len() < 255);
+}
+
+/// A remote name no portable filesystem can hold is IGNORED, not rejected
+/// (github#15 follow-up): nothing is written, no failure reaches the user, and
+/// the only trace is a journal decision. Before this change it raised a
+/// permanent `rejected` failure on every peer, on every cycle, forever — for a
+/// note the origin device never displayed in the first place.
+#[test]
+fn an_unportable_remote_name_is_ignored_without_a_failure() {
+    let root = TempRoot::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+    let ancestry = HashMap::new();
+
+    apply_remote(
+        &mut state,
+        root.path(),
+        &remote("unportable", "Recipe: braised short ribs.md", "body"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    assert!(!root.path().join("Recipe: braised short ribs.md").exists());
+    assert!(state.object_map.is_empty(), "nothing was mapped");
+    assert!(
+        summary.failures.is_empty(),
+        "the user is never told: {:?}",
+        summary.failures,
+    );
+    let journaled = summary
+        .decisions()
+        .iter()
+        .filter(|entry| entry.decision == decision::IGNORED)
+        .map(|entry| entry.filename.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(journaled, vec!["Recipe: braised short ribs.md"]);
 }

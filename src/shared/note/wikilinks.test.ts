@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildWikilinkIndex,
   shortestUniqueSuffix,
   resolveWikilink,
   findWikilinks,
   rewriteWikilinks,
   noteIdLeaf,
 } from './wikilinks';
+import conformance from '@/tests/conformance/wikilinks.json';
 
 describe('noteIdLeaf', () => {
   it('returns leaf component', () => {
@@ -75,6 +77,101 @@ describe('resolveWikilink', () => {
 
   it('returns null for empty string', () => {
     expect(resolveWikilink('', ['foo'])).toBeNull();
+  });
+});
+
+describe('buildWikilinkIndex', () => {
+  // The index is an accelerator for two rules ported bit-for-bit to Rust, so it
+  // is held to their answers rather than to expectations written here.
+  const groups = conformance.groups as Array<{
+    op: string;
+    cases: Array<{ input: Record<string, string | string[]> }>;
+  }>;
+
+  it('answers every resolveWikilink conformance case identically', () => {
+    const cases = groups.find((group) => group.op === 'resolveWikilink')!.cases;
+    expect(cases.length).toBeGreaterThan(0);
+    for (const { input } of cases) {
+      const allIds = input.allIds as string[];
+      const target = input.target as string;
+      expect(buildWikilinkIndex(allIds).resolve(target)).toEqual(resolveWikilink(target, allIds));
+    }
+  });
+
+  it('answers every shortestUniqueSuffix conformance case identically', () => {
+    const cases = groups.find((group) => group.op === 'shortestUniqueSuffix')!.cases;
+    expect(cases.length).toBeGreaterThan(0);
+    for (const { input } of cases) {
+      const allIds = input.allIds as string[];
+      const targetId = input.targetId as string;
+      expect(buildWikilinkIndex(allIds).displaySuffix(targetId)).toBe(
+        shortestUniqueSuffix(targetId, allIds),
+      );
+    }
+  });
+
+  it('agrees with both rules across a vault of colliding paths', () => {
+    const ids = [
+      'grocery',
+      'A/grocery',
+      'B/grocery',
+      'A/B/grocery',
+      'x/A/B/grocery',
+      'Specs/folder',
+      'x/Specs/folder',
+      'lone',
+      'Deep/a/b/c/leaf',
+    ];
+    const index = buildWikilinkIndex(ids);
+    const targets = [...ids, '', 'absent', 'b/c/leaf', 'c/leaf', 'folder', 'B/grocery'];
+    for (const target of targets) {
+      expect(index.resolve(target)).toEqual(resolveWikilink(target, ids));
+    }
+    for (const id of ids) {
+      expect(index.displaySuffix(id)).toBe(shortestUniqueSuffix(id, ids));
+    }
+  });
+
+  it('agrees with both rules when the vault lists the same id twice', () => {
+    const ids = ['dup/x', 'dup/x', 'b/a/y', 'b/a/y', 'lone'];
+    const index = buildWikilinkIndex(ids);
+    for (const target of ['x', 'a/y', 'dup/x', 'lone', 'y']) {
+      expect(index.resolve(target)).toEqual(resolveWikilink(target, ids));
+    }
+    for (const id of ids) {
+      expect(index.displaySuffix(id)).toBe(shortestUniqueSuffix(id, ids));
+    }
+  });
+
+  it('falls back to the unindexed rule for an id the vault does not hold', () => {
+    const ids = ['A/grocery', 'B/grocery'];
+    expect(buildWikilinkIndex(ids).displaySuffix('C/grocery')).toBe(
+      shortestUniqueSuffix('C/grocery', ids),
+    );
+  });
+
+  it('reads the note list once to build and never again to look up', () => {
+    const ids = Array.from({ length: 500 }, (_, i) => `folder${i % 20}/note ${i}`);
+    let reads = 0;
+    const counted = {
+      *[Symbol.iterator]() {
+        for (const id of ids) {
+          reads += 1;
+          yield id;
+        }
+      },
+    };
+
+    const index = buildWikilinkIndex(counted);
+    expect(reads).toBe(ids.length);
+
+    reads = 0;
+    for (const id of ids) {
+      index.resolve(id);
+      index.resolve(`note ${id}`);
+      index.displaySuffix(id);
+    }
+    expect(reads).toBe(0);
   });
 });
 

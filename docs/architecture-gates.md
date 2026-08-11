@@ -20,11 +20,41 @@ bridge-spec check uses `tsx`, while the other checks only read repository files.
 | Tauri sync contract  | Rust records in `apps/tauri/src-tauri/src/sync/frontend_contract.rs` and generated TypeScript                              | Generated frontend types are stale; run `just sync-contract` and commit the result                                                            |
 | Drift registry       | Copies, locks, and optional scan patterns in `scripts/drift-registry.json`                                                 | A registered copy or lock disappeared, a detection pattern became stale, lock status is inconsistent, or a scan finds a new unregistered copy |
 | Debt ratchet         | Current source/spec/registry counts and `scripts/debt-ratchet.json`                                                        | Debt increased, or debt decreased without lowering the checked-in baseline in the same change                                                 |
+| QA input safety      | Instruction surfaces (README, CONTRIBUTING, every `AGENTS.md`, `docs/**`, `.claude/skills/**`, `.claude/agents/**`, `.claude/workflows/*`) and `scripts/qa-input-safety-allowlist.json` | An instruction file teaches OS-level input into this app, a process-name/PID lookup against it, or a relative `find -newermt` check; or a pinned exception went stale |
 | Gate red-proofs      | Every gate above plus the spec/contract generators, each re-run against one seeded violation in a throwaway `git worktree`  | A gate exits 0 on a seeded violation, exits non-zero without naming it, or is already red on a pristine checkout                              |
 
 The platform allowlist and debt ratchet answer different questions. The allowlist records direct
 Tauri access that is currently accepted. The ratchet still counts accepted legacy exceptions so
 their total cannot grow and cleanup cannot silently regress.
+
+## QA input safety, and the resolver it points at
+
+On 2026-08-10 a QA agent drove the desktop app with real OS keystrokes after
+resolving a PID by process name. Every build ships the same binary name — the
+installed release app's executable is literally
+`/Applications/FUTO Notes.app/Contents/MacOS/futo-notes-tauri` — and several run
+at once during parallel QA, so the lookup resolved to the user's production app
+on their real, sync-connected vault. The keystrokes went there.
+
+Two mechanisms, doing different jobs:
+
+- `scripts/qa-target.mjs` is the **only** sanctioned way to turn a port or PID
+  into a drivable desktop target. It classifies by the executable's real path
+  against this repo's worktree list, plus the instance's own data dir and vault,
+  and fails closed: exit 3 for an installed bundle, a system package, a release
+  profile build, a sibling worktree's instance, or an instance whose vault it
+  cannot prove is isolated. It deliberately offers no way to send OS input.
+- `scripts/check-qa-input-safety.mjs` keeps the technique from being taught
+  again. Its allowlist pins **exact lines**, so prose that names a banned
+  technique in order to forbid it stays legal while a fresh occurrence — even in
+  the same file — fails, and a pinned line that disappears fails as stale.
+
+What is enforced versus merely written down: an unsafe *resolution* is
+impossible through the resolver, and an unsafe *instruction* is impossible to
+land in a scanned surface. An agent that improvises OS input from its own memory
+is still only discouraged — nothing inside this repo can revoke a shell's access
+to the window server. Related runtime guard: M3's dev/prod split, which is what
+makes an isolated QA vault possible in the first place.
 
 ## Fixing failures
 
@@ -76,6 +106,7 @@ just check-platform-discipline
 just bridge-spec-check
 just check-drift
 just check-debt-ratchet
+just check-qa-input-safety
 just gate-redproofs
 ```
 

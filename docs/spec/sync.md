@@ -380,10 +380,17 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   produces but Windows cannot hold — is HEALED to the same safe name
   `sanitize_title` would mint (`CON`→`CON_`, `.env`→`env`, `note.`→`note`),
   written under that name, and NOT reported as a failure (the note is never
-  lost); (b) a name creation could never produce — traversal, a forbidden
-  character, a component past `NAME_MAX`, excess depth — is
+  lost); (b) a name that is genuinely unsafe or physically impossible —
+  traversal, a component past `NAME_MAX`, excess depth — is
   REJECTED: skipped, never written, surfaced as a permanent `rejected` failure
-  (not the retryable `download`), never cursor-capped, never aborting the cycle.
+  (not the retryable `download`), never cursor-capped, never aborting the cycle;
+  (c) a name no portable filesystem can hold — one containing `< > : " | ? *` or
+  a control character, which macOS/Linux hold happily and Windows cannot — is
+  IGNORED: skipped, never written, and deliberately NOT a failure. Such a name
+  cannot escape the vault, so refusing it is a portability decision, not a
+  safety one; the file is left strictly alone on whichever devices already hold
+  it. The only trace is a local journal decision (`ignored` /
+  `unportable_incoming_name`), never a user-facing message.
   The traversal screen runs on the HEALED component as well as the raw one, so a
   name whose heal would itself become `.` or `..` (`". .. ./note.md"` heals to
   `"../note.md"`) is rejected rather than written outside the vault. The heal is
@@ -397,7 +404,23 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   futo-notes-sync sync module; guarded by the core `incoming_*` tests and the
   `incoming_components_that_heal_into_a_traversal_are_rejected` +
   `healed_incoming_paths_are_traversal_free` properties in
-  `crates/futo-notes-core/src/files/paths.rs`
+  `crates/futo-notes-core/src/files/paths.rs`, plus
+  `an_unportable_remote_name_is_ignored_without_a_failure`
+- **A local file whose name no portable filesystem can hold is never uploaded,
+  and never mistaken for a deletion.** The same classifier screens the push
+  side, so one rule answers portability in both directions: the file is dropped
+  from the upload list and journaled (`ignored` / `unportable_local_name`), with
+  no failure and no user-facing signal. It MUST remain in the local scan
+  (`local_files`) while it is dropped, because `missing_local_files` reads "in
+  the object map, absent from the local scan" as a local delete — filtering it
+  out of the scan instead would tombstone the note on the server and every peer.
+  A copy uploaded by an older client (push never validated names) is left on the
+  server as-is and simply stops receiving updates; it is never deleted. These
+  files are also absent from the note list on every shell, because the local
+  note scan has always skipped them — the app leaves them strictly alone.
+  → futo-notes-sync `sync/push/mod.rs` `uploadable_files`; guarded by
+  `an_unportable_name_is_never_uploaded_and_is_journaled_not_failed` +
+  `an_unportable_name_is_not_mistaken_for_a_local_delete`
   > **Gap:** The heal is not idempotent for a name ending in repeated `". "`
   > groups — `sanitize_title` peels exactly one group per pass, so `"a. ..md"`
   > heals to `"a..md"`, which the next cycle heals again to `"a.md"`: one rename
@@ -764,8 +787,8 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   > ("Note was deleted during sync") and strands the Android editor on the old
   > id. Scoping the list refresh additionally needs a per-id metadata verb; the
   > engine exposes only whole-vault `scan()` today.
-- **A rename never hides a real update OR deletion of its target.** Summary
-  ghost-stripping removes only the rename's from-side from
+- **A relocation the ENGINE performs never hides a real update OR deletion of
+  its target.** Summary ghost-stripping removes only the rename's from-side from
   `deletedIds`/`peerDeletedIds` (the "delete at the old name" byproduct every
   relocation records); nothing is recorded against the target side, so an id
   recorded there — an update OR a deletion — is always a real, subsequent
@@ -778,9 +801,27 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   close/keep-draft flow instead of leaving the editor bound to a nonexistent
   note. Consequently a relocation records its byproduct against the SOURCE id
   only — the "delete at the old name" plus the rename pair — never a synthetic
-  update against the target. → futo-notes-sync `sync/outcome.rs`
-  `remove_rename_ghost_ids` + `sync/collision_resolution.rs`
-  `move_collision_loser` (guarded by
+  update against the target. This holds for the relocations the engine performs
+  itself — collision placements, mapping relocations, merge-target moves, and
+  paired same-basename local moves — because those keep the note's OBJECT
+  identity across the move (`mapped_name`), so a same-cycle change to the target
+  side still has an object to be reported against. **An `mv` performed outside
+  the app is a different case and is NOT covered.** Pairing there is by CONTENT
+  identity: `derive_renames` pairs an object-map removal with an addition of the
+  same hash (and `detect_local_renames` claims a push-side rename only on same
+  hash AND same basename, i.e. a folder move), so a pure external `mv` does pair
+  and the open editor follows it in place, while an external `mv` PLUS a content
+  change in the same cycle pairs with nothing — there is no surviving identity to
+  pair by, the engine honestly reports a delete at the old id and a create at the
+  new one, and the open editor runs the deleted-during-sync close/keep-draft
+  flow. Verified on device 2026-08-10: pure `mv` → `renamed=["A->A2"]` and the
+  editor followed in place; `mv` + content change → `renamed=[]`,
+  `deletedIds=["B"]` and the editor closed. That is correct engine behavior, not
+  a divergence — it has been filed as a bug twice. → futo-notes-sync
+  `sync/outcome.rs` `remove_rename_ghost_ids` + `derive_renames`,
+  `sync/push/local_changes.rs` `detect_local_renames`,
+  `sync/pull/apply_remote.rs` `relocate_existing_mapping`, and
+  `sync/collision_resolution.rs` `move_collision_loser` (guarded by
   `same_cycle_update_of_a_collision_relocated_note_survives_ghost_stripping`
   and
   `same_cycle_tombstone_of_a_collision_relocated_note_survives_ghost_stripping`
@@ -1126,8 +1167,12 @@ journal --dir` has nothing to read from a phone.
   because it is dirty or was edited during the running cycle, sync completion
   leaves the editor untouched but re-bases its saved-content baseline to the
   pulled disk content. The draft is therefore honestly dirty again, and the
-  next ordinary `flush_draft` persists it against that pulled base; if disk
-  already equals the editor, the same rebase silently makes the session clean.
+  next ordinary `flush_draft` persists it against that pulled base — which is
+  the data-loss path recorded in the Gap under "One engine verb decides what
+  happens to the open note" below, because persisting against the pulled base
+  overwrites the peer's bytes instead of parking them as a conflict copy; if
+  disk already equals the editor, the same rebase silently makes the session
+  clean.
   Rust live cycles advance their edit epoch only when a completion event
   arrives (synchronously, after that completion snapshots the previous epoch),
   never from an in-cycle start or connect signal: such signals reach the
@@ -1218,9 +1263,13 @@ journal --dir` has nothing to read from a phone.
   dispositions proved). Two invariants live in the classifier rather than in
   each shell: unsaved work is never replaced (persist-or-park at the open-note
   seam — a peer-deleted note with a draft stays open for the flush verb's
-  Recreated arm), and a verdict that leaves the buffer alone always rebases the
-  baseline onto what is actually on disk, so the next flush is an honest
-  three-way decision instead of a clobber (F2). **A focused editor is never
+  Recreated arm), and a verdict that leaves the buffer alone rebases the
+  baseline onto what is actually on disk (F2). For `Converged` the rebase is the
+  whole story — the baseline was merely stale and disk already holds the draft.
+  For `Diverged` it is the opposite of a safeguard: parking is exactly what
+  `flush_draft` does when `current != base`, so handing it the pulled bytes as
+  the base puts the next flush on its `current == base` fast-forward arm and
+  turns the park INTO a clobber (the Gap below). **A focused editor is never
   interrupted on any surface**: the verdict is `DeferAdopt` and the content is
   applied on the next blur, whether or not that host's adopt could have
   preserved the caret. Host adopt capability is deliberately NOT an input — one
@@ -1244,3 +1293,26 @@ journal --dir` has nothing to read from a phone.
   > rendering the UniFFI verb. Until their adoptions land, the native in-place
   > focused adopt above still stands; adopting the verb changes it to a deferred
   > adopt on blur.
+
+  > **Gap (data loss):** For `Diverged`, `KeepDraft` rebases the baseline onto
+  > the pulled disk content, which makes the next `flush_draft` a FAST-FORWARD
+  > over the peer's bytes rather than the park its doc comment promises: the
+  > flush writes when `current == base`, and the rebase has just made those
+  > equal, so `park_conflict_draft` is unreachable. Desktop runs the same rebase
+  > today in its own copy of the decision (`createExternalChangeCoordinator.ts`,
+  > the `keepDraft` verdict arm → `rebaseSavedContent`), so a peer edit
+  > arriving while a desktop draft is dirty is DESTROYED — overwritten by the
+  > draft with NO conflict copy anywhere in the vault. Reproduced between two
+  > real desktop clients 2026-08-10 (a scenario asserting both texts survive
+  > failed on "the peer edit must survive the settle of the local draft").
+  > Android's own copy is correct — it hands `flush_draft` the PRE-pull base, so
+  > the park arm runs and the copy is minted; iOS's copy is written the same way
+  > (`adoptExternalChange`) and reads correct, but was not re-driven on a device
+  > after the desktop loss was found. Desktop's watcher/external-change path
+  > also parks correctly, for the same reason. Left unfixed deliberately: moving
+  > the rebase off the `Diverged` arm changes behavior the lines above record
+  > for all three shells, in the area #82 is already sequencing, so it is
+  > waiting on a sequencing decision. → issue #89;
+  > futo-notes-sync `open_note.rs` (`KeepDraftReason::Diverged`),
+  > futo-notes-store `flush_draft` (`current == base` vs
+  > `park_conflict_draft`), `src/features/sync/createExternalChangeCoordinator.ts`

@@ -1,9 +1,11 @@
 import { FORBIDDEN_CHARS_RE, validateTitle } from '$lib/rules';
+import { runWhenPointerIdle } from '$shared/dom/pointerGesture';
 
 interface NoteTitleControllerOptions {
   setTitle: (title: string) => void;
   hasDuplicateTitle: (title: string) => boolean;
   scheduleSave: () => void;
+  flushSave: () => void;
   focusEditor: () => void;
   getTextarea: () => HTMLTextAreaElement | undefined;
 }
@@ -73,6 +75,10 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
     options.focusEditor();
   }
 
+  function handleBlur(): void {
+    runWhenPointerIdle(options.flushSave);
+  }
+
   function selectAll(input: HTMLTextAreaElement): void {
     input.setSelectionRange(0, input.value.length);
     requestAnimationFrame(() => input.setSelectionRange(0, input.value.length));
@@ -100,6 +106,7 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
     autoResizeTextarea,
     handleInput,
     handleKeydown,
+    handleBlur,
     handleFocus,
     handlePointerDown,
   };

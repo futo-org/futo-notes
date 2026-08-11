@@ -1,4 +1,5 @@
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
+import { beginNoteSwitch, endNoteSwitch, markNoteSwitch } from '$shared/perf/noteSwitchTimeline';
 
 export interface TabNoteTransitionDeps {
   loadNote: (id: string | null) => Promise<void>;
@@ -21,6 +22,7 @@ export function createTabNoteTransition(deps: TabNoteTransitionDeps) {
   ): Promise<void> {
     if (previousTabId === nextTabId && loadedNoteId === nextNoteId) return;
     const version = ++transitionVersion;
+    beginNoteSwitch(nextNoteId);
 
     if (previousTabId && previousTabId !== nextTabId) {
       const body = deps.getNoteBody();
@@ -38,9 +40,13 @@ export function createTabNoteTransition(deps: TabNoteTransitionDeps) {
           if (version !== transitionVersion || tabsStore.activeTabId !== nextTabId) return;
           const body = deps.getNoteBody();
           if (body) body.scrollTop = savedScroll;
+          markNoteSwitch('scrollRestored');
+          endNoteSwitch();
         });
       });
+      return;
     }
+    endNoteSwitch();
   }
 
   return {
