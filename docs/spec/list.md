@@ -303,6 +303,12 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - The sidebar files tree stays responsive on large vaults (target: 10,000
   notes) — scrolling, expanding/collapsing, and drag & drop remain usable.
   The implementation is not required to virtualize rows. → FolderTreeView.svelte
+- Scrolling the files tree never shows an empty sidebar: however fast the list is
+  flung, every painted frame shows rows. _(Tauri)_ → FolderTreeView.svelte
+  > **Gap:** a single isolated frame can still paint the spacer when the scroll
+  > jumps further than the virtual window's lead — measured 5 lone frames in
+  > ~1,300 native window captures, never two in a row.
+  > → docs/perf/tab-switch-baseline.md
 - Every folder-tree note, folder, and empty-state row spans the remaining
   sidebar width after its nesting indent, so hover, selection, context-menu,
   and drag/drop hit zones stay full-width at every depth. → folderTree.css

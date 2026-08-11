@@ -206,6 +206,40 @@ A plain `import('@codemirror/commands')` resolves to a *different* module
 instance whose `historyField` is not the app's, which is why depth reads come
 back 0 and undo appears to do nothing. Same trick for any dep the app loaded.
 
+### Frame-dependent measurements need a VISIBLE window
+
+WebKit suspends `requestAnimationFrame` while the window is occluded, so any
+probe that awaits a frame (`scripts/perf/tab-switch-probe.js`, anything measuring
+paint) hangs rather than fails — budget a wall-clock timeout around every frame
+wait of your own. `document.visibilityState` is the check;
+`document.hasFocus()` can be `true` while the page is `hidden`.
+
+The webview cannot raise itself: `getCurrentWindow().setFocus()` is denied
+(`core:window:allow-set-focus`). Launch a second copy of the same debug binary
+instead — `tauri-plugin-single-instance`'s handler calls `window.set_focus()`
+from Rust, which no capability gates, and the second process exits immediately:
+
+```bash
+FUTO_NOTES_DATA_DIR="$WORKTREE_ROOT/.tauri-data" \
+  "$WORKTREE_ROOT/target/debug/futo-notes-tauri" >/dev/null 2>&1
+```
+
+Parallel sessions steal focus back within seconds, so arm the measurement on
+`visibilitychange` (or re-run that command in a 1s loop for the run's duration)
+and record `visibilityState` in the result so a stolen-focus run is discardable
+rather than silently wrong.
+
+### What the DOM says is not what the screen shows
+
+For scroll/animation defects, in-page sampling can be structurally blind:
+`getBoundingClientRect` reports geometry against the **main thread's** scroll
+offset, while WebKit scrolls this container on its own thread — so a rAF probe
+can report "rows cover the viewport" for a frame that painted empty. The bridge's
+`capture_native_screenshot` returns the real window surface in ~19 ms (fast
+enough to catch a 5-frame event); decode with `pngjs` (already a dev dependency)
+and score the region. Worked example + numbers:
+`docs/perf/tab-switch-baseline.md`.
+
 ### Cleanup (this worktree only)
 
 `driver_session` action `stop`, then:
