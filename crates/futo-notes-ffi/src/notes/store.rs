@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 use futo_notes_store as store;
 
+use crate::RenamePair;
+
 use super::{
     FlushDraftResult, NoteBootstrap, NoteError, NoteMutation, NoteSnapshot, SearchHit,
     VaultDestinationInspection, VaultMigrationFinalization, VaultMigrationOutcome,
@@ -38,8 +40,31 @@ impl NoteStore {
         self.inner.read(&id)
     }
 
+    pub fn read_if_exists(&self, id: String) -> Result<Option<String>, NoteError> {
+        self.inner.read_existing(&id).map_err(NoteError::Io)
+    }
+
     pub fn exists(&self, id: String) -> bool {
         self.inner.exists(&id)
+    }
+
+    pub fn refresh_external_changes(
+        &self,
+        updated_ids: Vec<String>,
+        deleted_ids: Vec<String>,
+        renamed: Vec<RenamePair>,
+    ) -> Result<NoteMutation, NoteError> {
+        let renamed = renamed
+            .into_iter()
+            .map(|pair| store::NoteRename {
+                from: pair.from_id,
+                to: pair.to_id,
+            })
+            .collect::<Vec<_>>();
+        self.inner
+            .refresh_external_changes(&updated_ids, &deleted_ids, &renamed)
+            .map(Into::into)
+            .map_err(NoteError::Io)
     }
 
     pub fn write(&self, id: String, content: String) -> Result<NoteMutation, NoteError> {

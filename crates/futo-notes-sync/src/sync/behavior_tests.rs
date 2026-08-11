@@ -1022,21 +1022,23 @@ fn tombstone_claim_waits_for_a_flush_owned_vault_span() {
         let result = claim_local(&claim_root, "note.md", "object", &no_pre);
         finished_tx.send(result).unwrap();
     });
-    started_rx
-        .recv_timeout(Duration::from_secs(1))
-        .expect("tombstone claim started");
+    started_rx.recv().expect("tombstone claim started");
     assert!(
         finished_rx.recv_timeout(Duration::from_millis(75)).is_err(),
         "tombstone rename must wait while flush owns the vault span"
     );
 
     drop(flush_guard);
+    // Join, not a wall-clock budget: once the guard is dropped the claim has to
+    // win the same PROCESS-WIDE guard against every other test in this binary,
+    // so a deadline here would measure queue depth instead of the claim (the
+    // store-side twin of this test failed exactly that way in job 217730).
+    claim.join().unwrap();
     finished_rx
-        .recv_timeout(Duration::from_secs(1))
+        .try_recv()
         .expect("tombstone claim proceeds after flush")
         .unwrap()
         .expect("note was claimed");
-    claim.join().unwrap();
 }
 
 #[test]

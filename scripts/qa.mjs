@@ -28,6 +28,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PG_BASE, pgQuery } from './lib/pg.mjs';
 import { portsFor, slotOf } from './lib/slot.mjs';
 
 const POOL = 7; // devices per platform; bump if you routinely run more worktrees
@@ -76,7 +77,6 @@ const AVD_PROFILE_KEYS = [
   'skin.name',
   'skin.path',
 ];
-const PG_BASE = process.env.FUTO_NOTES_QA_PG || 'postgres://futo_notes:futo_notes@localhost:5433';
 
 const info = (msg) => process.stderr.write(msg + '\n');
 const die = (msg) => {
@@ -482,17 +482,6 @@ function serverRepo() {
       `futo-notes-server not found at ${repo} — set FUTO_NOTES_E2EE_SERVER_REPO to your checkout`,
     );
   return repo;
-}
-
-// Run a tiny pg script with bun from the server repo (its node_modules has
-// `pg`), so we don't require psql on the host.
-function pgQuery(repo, url, sql) {
-  const script = `const {default:pg}=await import('pg');const c=new pg.Client(process.env.QA_PG_URL);await c.connect();try{await c.query(process.env.QA_PG_SQL)}finally{await c.end()}`;
-  return spawnSync('bun', ['-e', script], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...process.env, QA_PG_URL: url, QA_PG_SQL: sql },
-  });
 }
 
 async function cmdServerStart() {
