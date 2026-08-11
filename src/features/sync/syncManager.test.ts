@@ -570,10 +570,14 @@ describe('rename disposition races', () => {
 
 // eslint-disable-next-line max-lines-per-function -- One editor reconciliation matrix shares the manager/session harness.
 describe('editor reconciliation', () => {
-  it('rebases a draft saved during sync so the next flush persists it over pulled content', async () => {
+  it('keeps the pre-pull baseline for a draft saved during sync, so no later flush writes it over the pull', async () => {
+    // The engine's verdict for a protected draft, post-#89: KeepDraft{Diverged}
+    // hands back the PRE-pull base — the bytes this editor last saved — never
+    // the pulled ones. Desktop assigns it verbatim (the coordinator's keepDraft
+    // arm), so this stub is the engine's answer, not a shell decision.
     openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
       kind: 'keepDraft',
-      base: '# Remote update',
+      base: 'local draft',
       reason: 'diverged',
     });
     const live = makeLiveNoteSession('During sync', 'base');
@@ -594,22 +598,53 @@ describe('editor reconciliation', () => {
     vi.mocked(updateNote).mockClear();
     await manager.handleSyncComplete({ ...emptySummary, updatedIds: ['During sync'] });
 
+    // The buffer is protected, and the baseline still describes what this
+    // editor actually last saved — never the pulled bytes. `savedContent` is
+    // the base the next save hands `flush_draft`, and making it equal disk is
+    // what turned that flush's park into a fast-forward over the peer (#89).
     expect(live.getEditorContent()).toBe('local draft');
-    expect(live.session.savedContent).toBe('# Remote update');
-    expect(live.session.dirty).toBe(true);
+    expect(live.session.savedContent).toBe('local draft');
 
-    expect(live.session.savePending).toBe(true);
+    // `resumeDraftPersistence` runs on every kept draft, but this baseline
+    // leaves nothing unsaved, so the queue schedules no write at all.
+    expect(live.session.savePending).toBe(false);
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(updateNote).toHaveBeenCalledExactlyOnceWith(
-      'During sync',
-      'During sync',
-      'local draft',
-      { originalId: 'During sync', base: '# Remote update' },
-    );
-    expect(live.session.savedContent).toBe('local draft');
-    expect(live.session.dirty).toBe(false);
+    // Nothing left to persist: this editor's bytes are already the ones it
+    // wrote, so it never asks the engine to put them over the pulled content.
+    expect(updateNote).not.toHaveBeenCalled();
     cleanup();
+  });
+
+  it('hands a dirty draft its pre-pull base after a pull, the value that makes the engine park', async () => {
+    // Desktop reads disk inside the verb now, so the pre-pull base arrives as
+    // the verdict's `base` rather than being computed here.
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'keepDraft',
+      base: 'base',
+      reason: 'diverged',
+    });
+    const bundle = makeManager(
+      makeSession({
+        id: 'Peer edit',
+        content: 'local draft',
+        savedContent: 'base',
+        dirty: true,
+      }),
+    );
+
+    await bundle.manager.handleSyncComplete({ ...emptySummary, updatedIds: ['Peer edit'] });
+
+    // Persist-or-park at the open-note seam: the draft is neither replaced nor
+    // re-baselined onto the peer's bytes. `flush_draft` parks exactly when
+    // `current != base`, so the pre-pull base is what preserves BOTH texts —
+    // the peer's on disk, the draft as a conflict copy (#89). The executor
+    // assigns the verdict's base verbatim, which here is the base the session
+    // already held.
+    expect(bundle.applyExternalContent).not.toHaveBeenCalled();
+    expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('base');
+    expect(bundle.state.savedContent).toBe('base');
+    expect(bundle.state.content).toBe('local draft');
   });
 
   it('adopts a live pull when no edits landed since the previous live completion', async () => {
@@ -649,7 +684,7 @@ describe('editor reconciliation', () => {
   it('protects an edit that raced the live cycle start against the pulled content', async () => {
     openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
       kind: 'keepDraft',
-      base: '# Remote update',
+      base: 'draft in the race window',
       reason: 'diverged',
     });
     const live = makeLiveNoteSession('Race window', 'old content');
@@ -674,8 +709,9 @@ describe('editor reconciliation', () => {
     await yieldMicrotasks();
 
     expect(live.getEditorContent()).toBe('draft in the race window');
-    expect(live.session.savedContent).toBe('# Remote update');
-    expect(live.session.dirty).toBe(true);
+    // Protected means untouched on both counts: the pulled bytes reach neither
+    // the buffer nor the baseline the next flush is conditioned on (#89).
+    expect(live.session.savedContent).toBe('draft in the race window');
     cleanup();
   });
 
@@ -700,37 +736,36 @@ describe('editor reconciliation', () => {
     liveSynced({ payload: { ...emptySummary, updatedIds: ['Queued arrival'] } });
     live.editContent('draft during processing');
     await live.session.flushSave();
-    verdict.resolve({ kind: 'keepDraft', base: 'remote 1', reason: 'diverged' });
+    verdict.resolve({ kind: 'keepDraft', base: 'draft during processing', reason: 'diverged' });
     await yieldMicrotasks();
-    expect(live.session.savedContent).toBe('remote 1');
-
-    // The rebased draft persists; the session is clean again.
-    await live.session.flushSave();
-    expect(live.session.dirty).toBe(false);
+    // The draft that landed mid-processing keeps its own baseline; completion
+    // 1's pulled bytes never become the base a later flush would fast-forward
+    // over (#89).
+    expect(live.getEditorContent()).toBe('draft during processing');
     expect(live.session.savedContent).toBe('draft during processing');
+    expect(live.session.dirty).toBe(false);
 
     // Completion 2's epoch was captured at completion 1's ARRIVAL — before the
     // edit — so the pulled content must be protected against, not adopted. An
     // epoch captured after completion 1's processing would misclassify the
-    // edit as pre-cycle and adopt 'remote 2' over the draft.
+    // edit as pre-cycle and adopt completion 2's pulled bytes over the draft.
     openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
       kind: 'keepDraft',
-      base: 'remote 2',
+      base: 'draft during processing',
       reason: 'diverged',
     });
     liveSynced({ payload: { ...emptySummary, updatedIds: ['Queued arrival'] } });
     await yieldMicrotasks();
 
     expect(live.getEditorContent()).toBe('draft during processing');
-    expect(live.session.savedContent).toBe('remote 2');
-    expect(live.session.dirty).toBe(true);
+    expect(live.session.savedContent).toBe('draft during processing');
     cleanup();
   });
 
   it('does not advance the live epoch on connect, protecting offline edits', async () => {
     openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
       kind: 'keepDraft',
-      base: 'peer content',
+      base: 'edited while offline',
       reason: 'diverged',
     });
     const live = makeLiveNoteSession('Offline edit', 'old content');
@@ -756,15 +791,17 @@ describe('editor reconciliation', () => {
     await yieldMicrotasks();
 
     expect(live.getEditorContent()).toBe('edited while offline');
-    expect(live.session.savedContent).toBe('peer content');
-    expect(live.session.dirty).toBe(true);
+    // The offline edit's own baseline survives the pull, so a later flush is a
+    // three-way decision the engine can park rather than a fast-forward that
+    // would overwrite what the first pull brought down (#89).
+    expect(live.session.savedContent).toBe('edited while offline');
     cleanup();
   });
 
   it('keeps the live epoch independent of a JS cycle capture', async () => {
     openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
       kind: 'keepDraft',
-      base: 'peer content',
+      base: 'old content',
       reason: 'diverged',
     });
     const bundle = makeManager(
@@ -781,7 +818,11 @@ describe('editor reconciliation', () => {
     });
 
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.rebaseSavedContent).toHaveBeenCalledWith('peer content');
+    // Not adopted, and the baseline the executor assigns is the one the session
+    // already held: the pulled bytes are not this editor's to claim as its last
+    // save (#89).
+    expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('old content');
+    expect(bundle.state.savedContent).toBe('old content');
     cleanup();
   });
 

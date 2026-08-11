@@ -692,6 +692,10 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
     'route should stay on the edited note during sync',
   );
 
+  // Settle the protected draft: restoring a valid title unblocks the save, and
+  // the draft parks against the pulled base rather than fast-forwarding over it
+  // (#89). Both texts then reach the peer — the pulled update at the note's own
+  // id, the draft as a conflict copy.
   await b.setTitle('during sync');
   await b.flushSave();
   await waitForSaveIdle(b);
@@ -700,34 +704,40 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   const aContent = await a.readNote('during sync');
   assertEqual(
     aContent,
+    '# Remote update',
+    'the pulled remote update must survive the protected draft settling',
+  );
+  const aFiles = (await a.listNotes()).map((f) => f.filename || f.name || f);
+  const conflictCopy = aFiles.find((name) => String(name).includes('conflict'));
+  assert(conflictCopy, `the protected draft must reach the peer as a conflict copy: ${aFiles}`);
+  assertEqual(
+    await a.readNote(String(conflictCopy).replace(/\.md$/, '')),
     draftDuringSync,
-    'local draft should still be persistable after being protected from sync clobbering',
+    'the conflict copy must hold the draft that was protected during sync',
   );
 }
 
 async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
-  // The data-safety promise at the open-note seam, across two real clients: a
-  // dirty local draft meets a peer edit to the same note, and the draft is kept
-  // — never replaced by the pulled bytes — then reaches disk once it can be
-  // persisted (as its own write, a merge, or a conflict copy).
-  //
-  // QA (2026-08-07, sy-04) read a typed line vanishing on iOS as this path
-  // failing. It was not: the line had already been saved and pushed, and the
-  // peer's own whole-file write superseded it before any client reconciled.
-  // This scenario is the standing proof, at the layer both shells share.
+  // Issue #89 across two real clients, and the assertion no committed scenario
+  // made: when a peer edit meets a DIRTY local draft, BOTH texts survive — the
+  // peer's at the note's own id, the draft as a conflict copy. `flush_draft`
+  // parks exactly when the draft's base no longer matches disk, so the baseline
+  // the open-note reconcile leaves behind is what decides park vs clobber.
+  // Rebasing it onto the pulled bytes puts the next flush on its `current ==
+  // base` fast-forward arm and the peer's edit is destroyed with no copy
+  // anywhere in the vault.
   //
   // The draft is held dirty the way externalWatcherProtectsDirtyDraftThenSettles
   // does it — a duplicate title blocks the save — rather than by keeping the
   // editor focused: CodeMirror's hasFocus() also requires document.hasFocus(),
-  // so a background window's focus is not something a scenario can rely on
-  // (see activeNoteReload). The focused defer -> blur edge is covered
-  // deterministically by createExternalChangeCoordinator.test.ts and the iOS
-  // OpenNoteReconciler suite.
+  // so a background window's focus is not something a scenario can rely on.
+  // This is the sync-pull twin of that watcher scenario, which asserts the same
+  // park for an external disk write.
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
-  // Own the pull ordering explicitly (mirrors activeNoteReload): a background
-  // cycle waking on A's push would race B's owned syncNow, and the open-note
-  // reconcile only runs for the cycle whose summary names the note.
+  // Own the pull ordering explicitly: a background cycle waking on A's push
+  // would race B's owned syncNow, and the open-note reconcile only runs for the
+  // cycle whose summary names the note.
   await a.pauseAutoSync();
   await b.pauseAutoSync();
 
@@ -740,11 +750,11 @@ async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
   await b.openNote('sync dirty draft');
   await waitForEditorContent(b, '# Base');
 
-  // Hold the draft dirty: the duplicate title blocks the save, so the typed
-  // line is still unpersisted when the peer edit arrives.
+  // Hold the draft unsaveable: the duplicate title blocks every save attempt,
+  // so the typed line is still unpersisted when the peer edit arrives.
   await b.setTitle('sync taken title');
   await b.flushSave();
-  await waitForSavePending(b, false);
+  await waitForSaveIdle(b);
   await b.typeInEditor('\nLocal draft');
   const typed = (await b.getOpenNoteState()).editorContent;
   assert(typed.includes('Local draft'), `B should hold the typed draft, got: ${typed}`);
@@ -765,33 +775,29 @@ async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
     `the dirty draft must survive the peer edit, got: ${kept.editorContent}`,
   );
 
-  // Restore a valid title so the kept draft can finally be persisted, and
-  // require it to land on disk.
-  //
-  // What the peer's bytes do at that moment is deliberately NOT asserted here.
-  // KeepDraft rebases the baseline onto the pulled disk content, which makes the
-  // next flush_draft a fast-forward over it rather than the park the rebase was
-  // meant to enable, so the peer edit does not survive on desktop/iOS today
-  // (Android parks a conflict copy instead — docs/spec/sync.md, the KeepDraft
-  // paragraph). Pinning that here would bless it; it is being escalated with the
-  // MR rather than frozen into a scenario.
+  // Restore a valid title so the kept draft can finally be persisted. The
+  // engine parks it, leaving the peer's bytes where they are.
   await b.setTitle('sync dirty draft');
   await b.flushSave();
-  await waitForSavePending(b, false);
+  await waitForSaveIdle(b);
 
   const settled = await b.getOpenNoteState();
   assert(
-    settled.editorContent.includes('Local draft'),
-    `the settle must not discard the draft, got: ${settled.editorContent}`,
+    settled.editorContent.includes('Local draft') || settled.editorContent.includes('Peer edit'),
+    `the settle must leave the editor on real content, got: ${settled.editorContent}`,
+  );
+  assertEqual(
+    await b.readNote('sync dirty draft'),
+    '# Base\nPeer edit',
+    "the peer's edit must survive the settle of the local draft",
   );
   const files = (await b.listNotes()).map((file) => file.filename || file.name || file);
-  const bodies = [];
-  for (const file of files.filter((name) => String(name).endsWith('.md'))) {
-    bodies.push(await b.readNote(String(file).replace(/\.md$/, '')));
-  }
+  const conflictCopy = files.find((name) => String(name).includes('conflict'));
+  assert(conflictCopy, `the parked draft must survive as a conflict copy, vault: ${files}`);
+  const conflictContent = await b.readNote(String(conflictCopy).replace(/\.md$/, ''));
   assert(
-    bodies.some((body) => body.includes('Local draft')),
-    `the local draft must reach disk once it can be persisted, vault: ${JSON.stringify(bodies)}`,
+    conflictContent.includes('Local draft'),
+    `the conflict copy must hold the parked draft bytes, got: ${conflictContent}`,
   );
 }
 
@@ -1917,6 +1923,11 @@ const scenarios = [
     serverOptions: { syncDelayMs: 1500 },
     matrices: ['desktop-desktop'],
   },
+  {
+    name: 'dirty draft survives a peer edit then settles',
+    fn: dirtyDraftSurvivesAPeerEditThenSettles,
+    matrices: ['desktop-desktop'],
+  },
   { name: 'concurrent edit conflict', fn: concurrentEditConflict, matrices: ['desktop-desktop'] },
   { name: 'three way merge', fn: threeWayMerge, matrices: ['desktop-desktop'] },
   { name: 'rename propagation', fn: renamePropagation, matrices: ['desktop-desktop'] },
@@ -1997,11 +2008,6 @@ const scenarios = [
     fn: externalWatcherProtectsDirtyDraftThenSettles,
     matrices: ['desktop-desktop'],
     skipOnCi: true,
-  },
-  {
-    name: 'dirty draft survives a peer edit then settles',
-    fn: dirtyDraftSurvivesAPeerEditThenSettles,
-    matrices: ['desktop-desktop'],
   },
   { name: 'delete vs edit', fn: deleteVsEdit, matrices: ['desktop-desktop'] },
   {
@@ -2111,7 +2117,54 @@ function ensureDesktopDebugBinary() {
       'Desktop binary was rebuilt outside the harness (likely `cargo tauri dev`) — rebuilding with harness config…',
     );
     rebuildDesktopBinary();
+    return;
   }
+  // Staleness: none of the checks above look at the SOURCE, so a second run in
+  // the same checkout happily reported a verdict for the previous run's binary.
+  // That cost a #89 fix a false red (fix applied, mesh re-run, identical
+  // failures, `bootstrap 19ms`) and would just as easily hand out a false green
+  // — the M11 failure class, one build behind. Rebuild whenever anything the
+  // binary embeds is newer than the binary itself.
+  const newestSource = newestSourceMtime();
+  if (newestSource > statSync(binPath).mtimeMs) {
+    console.log('Sources are newer than the desktop binary — rebuilding so the run tests them…');
+    rebuildDesktopBinary();
+  }
+}
+
+// Newest mtime across everything baked into the harness binary: the webview app
+// and editor package (through dist/), the Rust workspace, and the desktop
+// shell's own sources and configuration. Build outputs and dependencies are
+// skipped — they are derived, and walking them would dominate the cost.
+function newestSourceMtime() {
+  const SKIP = new Set(['node_modules', 'target', 'dist', '.git', 'build', '.build']);
+  let newest = 0;
+  const visit = (path) => {
+    const stat = statSync(path, { throwIfNoEntry: false });
+    if (!stat) return;
+    if (stat.isDirectory()) {
+      for (const entry of readdirSync(path)) {
+        if (!SKIP.has(entry)) visit(join(path, entry));
+      }
+      return;
+    }
+    if (stat.mtimeMs > newest) newest = stat.mtimeMs;
+  };
+  for (const rel of [
+    'src',
+    'packages',
+    'crates',
+    'apps/tauri',
+    'index.html',
+    'editor.html',
+    'package.json',
+    'vite.config.ts',
+    'Cargo.toml',
+    'Cargo.lock',
+  ]) {
+    visit(join(REPO_ROOT, rel));
+  }
+  return newest;
 }
 
 function rebuildDesktopBinary() {
