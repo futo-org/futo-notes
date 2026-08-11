@@ -2755,7 +2755,7 @@ async function main() {
 
   // Bootstrap artifacts and clean up stale state from a prior run.
   const bootstrapStartedAt = Date.now();
-  killStalePreviewAndClients();
+  killStaleClients();
   ensureDesktopDebugBinary();
   timings.bootstrapMs = Date.now() - bootstrapStartedAt;
 
