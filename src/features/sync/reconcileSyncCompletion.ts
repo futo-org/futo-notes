@@ -146,15 +146,27 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
           dependencies.session.rebaseSavedContent(freshContent);
         }
       } else {
+        // Disk moved to something the editor does not hold. A draft that must
+        // not be replaced — unsaved work, or a keystroke that landed while the
+        // cycle ran — keeps BOTH its buffer and its baseline, and the adopt is
+        // deferred until the draft is durable.
+        //
+        // Never rebase onto the pulled bytes here: `savedContent` is the base
+        // the next save hands `flush_draft`, which parks exactly when
+        // `current != base`. Making it equal disk puts that flush on its
+        // `current == base` fast-forward arm, so the draft overwrote the peer's
+        // edit with no conflict copy anywhere in the vault (#89). Keeping the
+        // pre-pull base parks the draft instead, and the park's own reconcile
+        // adopts the peer bytes — the order iOS and Android already use, and
+        // the one the engine's open-note verdict prescribes (KeepDraft
+        // {Diverged} hands back the pre-pull base).
         const editedDuringSync = dependencies.session.editVersion !== syncStartEditVersion;
-        if (editedDuringSync || dependencies.session.dirty) {
-          dependencies.session.rebaseSavedContent(freshContent);
+        const draftIsProtected =
+          editedDuringSync || dependencies.session.dirty || dependencies.session.editorFocused;
+        if (draftIsProtected) {
+          externalChanges.deferAdopt(openId);
         } else {
-          if (dependencies.session.editorFocused) {
-            externalChanges.deferAdopt(openId);
-          } else {
-            dependencies.session.applyExternalContent(freshContent);
-          }
+          dependencies.session.applyExternalContent(freshContent);
         }
       }
       const meta = getNoteById(openId);

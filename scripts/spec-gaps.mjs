@@ -88,6 +88,13 @@ function read(rel) {
 //   - "title places the cursor at the start of the prefilled Untitled" —
 //     closed by 7d3a0bff ("feat(mobile): quick-capture notes, inline
 //     tappable title, illegal-title UX").
+// Retired 2026-08-11: issue #89's "KeepDraft{Diverged} rebases the baseline
+// onto the pulled disk content" probe. The gap it watched is closed — the
+// classifier keeps the pre-pull base and desktop's own copy no longer rebases
+// — so its wording is gone from docs/spec and the probe had no gap left to
+// watch. What replaces it is not a probe but assertions: the classifier's
+// property test, futo-notes-ffi's classify -> flush_draft seam test, and the
+// cross-platform scenario "dirty draft survives a peer edit then settles".
 const PROBES = [
   {
     match: /sync live pull.*land above the viewport|reloadAsync.*no at-top re-pin/s,
@@ -149,25 +156,6 @@ const PROBES = [
         read('apps/android/app/src/main/java/com/futo/notes/ui/NoteEditorScreen.kt'),
       ),
     hint: 'Android now has quarantine vocabulary in the editor session/screen — the #80 dropped-keystroke divergence may be closed.',
-  },
-  {
-    // issue #89 — the engine verb's half is fixed (the Diverged arm keeps the
-    // pre-pull base, so `flush_draft` parks), but desktop still runs its own
-    // copy of the decision and still rebases the open editor's baseline onto
-    // the pulled bytes, which is the clobber. `rebaseSavedContent` is shared
-    // with the legitimate Converged case, so the signal is specifically its
-    // call inside the dirty-or-edited-during-sync branch.
-    // Match on markdown-free prose (see the wikilink probe above: `**bold**`
-    // markers inside a gap have broken a `match` regex before).
-    match: /dirty-or-edited-during-sync branch/,
-    closed: () => {
-      const reconciler = read('src/features/sync/reconcileSyncCompletion.ts');
-      if (reconciler === '') return false;
-      return !/editedDuringSync \|\| dependencies\.session\.dirty\)[\s\S]{0,200}?rebaseSavedContent/.test(
-        reconciler,
-      );
-    },
-    hint: 'desktop\'s dirty-draft branch no longer rebases onto the pulled content — the data-loss gap may be closed; re-run the two-client peer-edit scenario (and correct "edit during sync keeps local draft") before removing it.',
   },
 ];
 
