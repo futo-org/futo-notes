@@ -8,8 +8,8 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
 ## Ownership and traps
 
 - Rust remains canonical for filename, tag, preview, wikilink, and image rules. Hot-path TS mirrors
-  live here except wikilinks (`src/shared/note/wikilinks.ts`) and stay locked by the fixtures in
-  `tests/conformance/`.
+  live here except wikilinks (`src/shared/note/wikilinks.ts`) and stay locked by the hand-reviewed
+  goldens in `tests/conformance/`.
 - `src/bridge.ts` owns bridge messages and `BRIDGE_VERSION`. A new message requires both native
   hosts (`EditorWebView.swift` and `EditorWebView.kt`); ask before a version bump.
 - `src/toolbar.ts` owns toolbar items; execution belongs in shared `TOOLBAR_EXEC`, never a shell.
@@ -19,11 +19,18 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
 
 ## Rule-change chain
 
-1. Add the new input to the relevant group in `tests/conformance/generate.mjs`.
-2. Change both this package and canonical Rust (`futo-notes-model` / `futo-notes-core`).
-3. Run `pnpm exec tsx tests/conformance/generate.mjs`.
-4. Run `pnpm run test:editor:minimal` and `just test-rust`.
-5. Search Swift/Kotlin for un-fixtured sibling copies.
+The `tests/conformance/*.json` cases are hand-reviewed behavioral goldens, not output dumped from
+either implementation. Nothing regenerates them — write the expectation you intend, then make both
+languages satisfy it.
+
+1. Add the case, with the outcome the spec says it should have, to the relevant
+   `tests/conformance/*.json` golden.
+2. Change both this package and canonical Rust (`futo-notes-model` / `futo-notes-core`) until each
+   satisfies that independent expectation.
+3. Run `pnpm run test:editor:minimal` and `just test-rust` — the goldens on both sides, plus the
+   batched TS↔Rust title-rule differential (`tests/conformance/title-rules-differential.mjs`),
+   which asks both implementations the same broad corpus and fails on any divergence.
+4. Search Swift/Kotlin for un-fixtured sibling copies.
 
 Bridge/toolbar changes also run `just bridge-spec` / `just toolbar-spec` and the matching package
 tests. Finish with `just check-drift`; it rejects unregistered copies and stale projections.
