@@ -182,8 +182,10 @@ fn the_open_note_verb_projects_every_disposition() {
             disk: Some("peer".to_owned()),
             ..facts()
         }),
+        // The pre-pull base, not the pulled disk content: that is what makes
+        // the shell's next flush park instead of fast-forwarding (#89).
         OpenNoteDisposition::KeepDraft { base, reason: KeepDraftReason::Diverged }
-            if base == "peer"
+            if base == "base"
     ));
     assert!(matches!(
         classify_open_note(OpenNoteFacts {
