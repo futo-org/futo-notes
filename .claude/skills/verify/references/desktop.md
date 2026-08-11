@@ -6,6 +6,39 @@ use Tauri. Both need the Instance Setup variables from SKILL.md (`$SLOT`,
 `$VITE_PORT`, `$WEB_VITE_PORT`, `$TAURI_LOG`, `$PID_FILE`) — re-compute them
 in every Bash block.
 
+## CRITICAL — never send OS-level input, never resolve the app by name (M24)
+
+The user's installed release app runs on this machine, on their real vault
+(`~/Documents/futo-notes`, live E2EE sync). Two habits reach it by accident:
+
+- **OS-level input** (AppleScript UI scripting, `cliclick`, `xdotool`) is
+  delivered to whatever the window server thinks is FOCUSED. It is not
+  addressed to the process you picked, so no care in picking one makes it safe.
+  On 2026-08-10 a QA agent sent real Cmd+Z keystrokes this way; they landed in
+  the production app. Drive the **webview bridge** below instead — it can only
+  reach the instance you connected to. If the bridge cannot do it, the story is
+  BLOCKED, not "worth one keystroke".
+- **Name/PID lookup.** Every build ships the same binary name, release included
+  (`/Applications/FUTO Notes.app/Contents/MacOS/futo-notes-tauri` really is that
+  name), and parallel worktrees add more. The only sanctioned resolver is:
+
+```bash
+node scripts/qa-target.mjs list          # every instance, classified
+node scripts/qa-target.mjs port 9231     # verify whoever listens there → exit 3 if unsafe
+node scripts/qa-target.mjs pid 4321      # verify one PID
+node scripts/qa-target.mjs kill          # stop THIS worktree's instances only
+```
+
+It verifies the real executable path against this repo's worktree list plus the
+instance's own data dir and vault, and refuses everything else — emphatically
+an installed bundle. Exit 3 means *stop*, not "try harder". `scripts/check-qa-input-safety.mjs`
+fails the build if either habit reappears in an instruction file.
+
+One more measurement trap from the same incident: on BSD/macOS `find -newermt`
+with a **relative** time ("-24 hours") silently matches nothing instead of
+erroring, so a vault-safety check written that way reports a false all-clear.
+Use `touch -t <absolute stamp> /tmp/ref` plus `find … -newer /tmp/ref`.
+
 ## Web (CSS/markdown-only fast path)
 
 Only for changes that work identically with platform stubs: pure CSS/Tailwind,
@@ -85,14 +118,22 @@ for i in $(seq 1 90); do
   sleep 2
 done
 
-# Fallback — find the listener by process (Linux: ss; macOS: lsof):
+# Fallback — scan the bridge port range and let the resolver vet the owner.
+# NEVER find the process by name: every build shares it, release included.
 if [ -z "$MCP_PORT" ]; then
-  TAURI_PID=$(pgrep -f "futo-notes-tauri" | tail -1)
-  MCP_PORT=$(lsof -nP -a -p "$TAURI_PID" -iTCP -sTCP:LISTEN 2>/dev/null \
-    | sed -n 's/.*:\(92[2-9][0-9]\|93[0-1][0-9]\|932[0-2]\) (LISTEN).*/\1/p' | head -1)
+  for CANDIDATE in $(seq 9223 9322); do
+    if node scripts/qa-target.mjs port "$CANDIDATE" >/dev/null 2>&1; then
+      MCP_PORT=$CANDIDATE; break
+    fi
+  done
 fi
 echo "Using MCP bridge port: $MCP_PORT"
 ```
+
+`qa-target.mjs port` exits 0 only for a debug build owned by this worktree, so
+the loop cannot settle on the release app or on a sibling worktree's instance.
+Run it once by hand (`node scripts/qa-target.mjs list`) if the loop finds
+nothing — the refusal reason tells you what is actually running.
 
 ### Interact
 
@@ -140,10 +181,64 @@ timed-out script didn't execute; for longer work, stash results on
 `window.__x` and collect them with a second call. (2) Vite module singletons
 are importable — `await import('/src/lib/foo.svelte.ts')` returns the same
 instance the app uses. (3) Killing a backgrounded `tauri dev` task can orphan
-the real `target/debug/futo-notes-tauri` binary, which keeps its bridge port
-and pushes the next launch to the next port — `pkill -f
-"target/debug/futo-notes-tauri"` and re-check with `lsof -iTCP:9223
--sTCP:LISTEN`.
+the debug binary, which keeps its bridge port and pushes the next launch to the
+next port — `node scripts/qa-target.mjs kill` (this worktree's instances only)
+and re-check with `node scripts/qa-target.mjs list`.
+
+### Reaching the app's real editor module state
+
+Some checks need the app's own CodeMirror instance — `undoDepth`, `undo()`,
+`EditorState` internals — not a fresh copy. This is the alternative to OS
+keystrokes, and it is strictly better: no input, no focus, no cross-app risk.
+
+Module identity is keyed by URL, so import the **already-loaded** dep chunk:
+
+```js
+const url = performance
+  .getEntriesByType('resource')
+  .map((entry) => entry.name)
+  .find((name) => /@codemirror_commands/.test(name));
+const commands = await import(url);           // the app's live instance
+commands.undoDepth(window.__editorView.state);
+```
+
+A plain `import('@codemirror/commands')` resolves to a *different* module
+instance whose `historyField` is not the app's, which is why depth reads come
+back 0 and undo appears to do nothing. Same trick for any dep the app loaded.
+
+### Frame-dependent measurements need a VISIBLE window
+
+WebKit suspends `requestAnimationFrame` while the window is occluded, so any
+probe that awaits a frame (`scripts/perf/tab-switch-probe.js`, anything measuring
+paint) hangs rather than fails — budget a wall-clock timeout around every frame
+wait of your own. `document.visibilityState` is the check;
+`document.hasFocus()` can be `true` while the page is `hidden`.
+
+The webview cannot raise itself: `getCurrentWindow().setFocus()` is denied
+(`core:window:allow-set-focus`). Launch a second copy of the same debug binary
+instead — `tauri-plugin-single-instance`'s handler calls `window.set_focus()`
+from Rust, which no capability gates, and the second process exits immediately:
+
+```bash
+FUTO_NOTES_DATA_DIR="$WORKTREE_ROOT/.tauri-data" \
+  "$WORKTREE_ROOT/target/debug/futo-notes-tauri" >/dev/null 2>&1
+```
+
+Parallel sessions steal focus back within seconds, so arm the measurement on
+`visibilitychange` (or re-run that command in a 1s loop for the run's duration)
+and record `visibilityState` in the result so a stolen-focus run is discardable
+rather than silently wrong.
+
+### What the DOM says is not what the screen shows
+
+For scroll/animation defects, in-page sampling can be structurally blind:
+`getBoundingClientRect` reports geometry against the **main thread's** scroll
+offset, while WebKit scrolls this container on its own thread — so a rAF probe
+can report "rows cover the viewport" for a frame that painted empty. The bridge's
+`capture_native_screenshot` returns the real window surface in ~19 ms (fast
+enough to catch a 5-frame event); decode with `pngjs` (already a dev dependency)
+and score the region. Worked example + numbers:
+`docs/perf/tab-switch-baseline.md`.
 
 ### Cleanup (this worktree only)
 

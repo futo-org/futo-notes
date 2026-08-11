@@ -32,11 +32,16 @@ against spec. Written so the **next** run is faster. Append freely.
 ## Already-running processes (careful!)
 
 - `FUTO Notes.app` (release bundle) = the **user's production app** on their REAL
-  vault (`~/Documents/futo-notes`). DO NOT drive or mutate it.
-- `target/debug/futo-notes-tauri` + `vite … --port 5180` = a **dev** Tauri
-  instance (notes → `~/Documents/fake-notes`). Safe to drive. Memory says the
-  dev build's WS/MCP bridge is on `:9223` (`execute_js`) and safely targets the
-  dev app only.
+  vault (`~/Documents/futo-notes`). DO NOT drive or mutate it. Its executable is
+  named exactly like every dev build, so **never identify an instance by name or
+  PID match** — `node scripts/qa-target.mjs list|pid|port` is the only resolver
+  that can tell them apart (M24), and it refuses anything it cannot prove safe.
+- A debug build under a worktree's `target/debug/` with a per-worktree
+  `FUTO_NOTES_DATA_DIR` is safe to drive **through its webview bridge**. Never
+  through OS-level input: keystrokes and clicks go to the focused window, which
+  during parallel QA has been the production app. Bridge ports are per-instance
+  (9223–9322), so `:9223` is not "the dev app" — vet the owner with
+  `qa-target.mjs port`.
 
 ## How to run each surface
 

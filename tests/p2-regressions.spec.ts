@@ -106,6 +106,183 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await expect(page.locator('text=Title cannot end with a dot')).toBeVisible();
   });
 
+  async function openNoteForRetitle(page: Page, id: string): Promise<void> {
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('.notes-drawer', { timeout: 10_000 });
+    await page.evaluate(async (noteId) => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote(noteId, 'body');
+    }, id);
+    await page.locator(`.note-row[data-note-id="${id}"]`).click();
+    await page.waitForSelector('.cm-content', { timeout: 10_000 });
+    await page.locator('.title-input').click();
+  }
+
+  test('pressing Enter in the title commits the rename to the sidebar', async ({ page }) => {
+    await openNoteForRetitle(page, 'Enter Note');
+    await page.locator('.title-input').fill('Enter Renamed');
+    await page.keyboard.press('Enter');
+
+    await expect(page.locator('.note-row[data-note-id="Enter Renamed"]')).toHaveText(
+      'Enter Renamed',
+    );
+    await expect(page.locator('.note-row[data-note-id="Enter Note"]')).toHaveCount(0);
+  });
+
+  test('clicking out of the title commits the rename to the sidebar', async ({ page }) => {
+    await openNoteForRetitle(page, 'Click Note');
+    await page.locator('.title-input').fill('Click Renamed');
+    await page.locator('.cm-content').click();
+
+    await expect(page.locator('.note-row[data-note-id="Click Renamed"]')).toHaveText(
+      'Click Renamed',
+    );
+    await expect(page.locator('.note-row[data-note-id="Click Note"]')).toHaveCount(0);
+  });
+
+  test('clicking off the title onto inert chrome commits the rename', async ({ page }) => {
+    await openNoteForRetitle(page, 'Inert Note');
+    await page.locator('.title-input').fill('Inert Renamed');
+
+    await page.locator('.drawer-search-area').click();
+
+    await expect(page.locator('.note-row[data-note-id="Inert Renamed"]')).toHaveCount(1);
+    await expect(page.locator('.note-row[data-note-id="Inert Note"]')).toHaveCount(0);
+  });
+
+  test('the open note never loses its selection while the rename re-sorts', async ({ page }) => {
+    await openNoteForRetitle(page, 'Alpha');
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('Beta', 'body');
+      await win.__testNotes.createNote('Gamma', 'body');
+    });
+    await page.locator('.title-input').click();
+    await page.locator('.title-input').fill('Alpha Renamed');
+
+    await page.evaluate(() => {
+      const states: Array<{ rows: number; selected: number }> = [];
+      (window as unknown as { __states: typeof states }).__states = states;
+      const record = (): void => {
+        const rows = document.querySelectorAll('.note-row');
+        states.push({
+          rows: rows.length,
+          selected: document.querySelectorAll('.note-row.selected').length,
+        });
+      };
+      new MutationObserver(record).observe(document.querySelector('.folder-tree-scroll')!, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['class', 'data-note-id'],
+      });
+      record();
+    });
+
+    await page.locator('.cm-content').click();
+    await expect(page.locator('.note-row[data-note-id="Alpha Renamed"]')).toHaveClass(/selected/);
+
+    // Rows present but none selected = the projection and the new id split renders.
+    const states = await page.evaluate(
+      () => (window as unknown as { __states: Array<{ rows: number; selected: number }> }).__states,
+    );
+    expect(states.length).toBeGreaterThan(1);
+    expect(states.filter((s) => s.rows > 0 && s.selected === 0)).toEqual([]);
+  });
+
+  test('renaming then clicking straight to another note commits and switches', async ({ page }) => {
+    await openNoteForRetitle(page, 'Switch Note');
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('Neighbour', 'other body');
+    });
+    await page.locator('.title-input').click();
+    await page.locator('.title-input').fill('Switch Renamed');
+
+    await page.locator('.note-row[data-note-id="Neighbour"]').click();
+
+    await expect(page.locator('.note-row[data-note-id="Switch Renamed"]')).toHaveCount(1);
+    await expect(page.locator('.note-row[data-note-id="Switch Note"]')).toHaveCount(0);
+    await expect(page.locator('.title-input')).toHaveValue('Neighbour');
+  });
+
+  test('a renamed note reopens on the first click after switching away', async ({ page }) => {
+    await openNoteForRetitle(page, 'Reopen Note');
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('Other', 'other body');
+    });
+    await page.locator('.title-input').click();
+    await page.locator('.title-input').fill('Reopen Renamed');
+
+    await page.locator('.note-row[data-note-id="Other"]').click();
+    await expect(page.locator('.title-input')).toHaveValue('Other');
+
+    await page.locator('.note-row[data-note-id="Reopen Renamed"]').click();
+    await expect(page.locator('.title-input')).toHaveValue('Reopen Renamed');
+    await expect(page.locator('.cm-content')).toContainText('body');
+    await expect(page.locator('.note-row[data-note-id="Reopen Renamed"]')).toHaveClass(/selected/);
+  });
+
+  test('navigating Home still commits a pending rename', async ({ page }) => {
+    await openNoteForRetitle(page, 'Home Note');
+    await page.locator('.title-input').fill('Home Renamed');
+
+    await page.locator('.brand-text').click();
+
+    await expect(page.locator('.note-row[data-note-id="Home Renamed"]')).toHaveCount(1);
+    await expect(page.locator('.note-row[data-note-id="Home Note"]')).toHaveCount(0);
+  });
+
+  test('dragging a renamed note into a folder still moves it', async ({ page }) => {
+    await openNoteForRetitle(page, 'Drag Note');
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('Work/placeholder', 'body');
+    });
+    await page.locator('.title-input').click();
+    await page.locator('.title-input').fill('Drag Renamed');
+
+    const row = await page.locator('.note-row[data-note-id="Drag Note"]').boundingBox();
+    const folder = await page.locator('[data-folder-path="Work"]').first().boundingBox();
+    if (!row || !folder) throw new Error('setup: missing note row or folder row');
+
+    // Must be pointer-driven: synthetic DragEvents fire no pointercancel.
+    await page.mouse.move(row.x + row.width / 2, row.y + row.height / 2);
+    await page.mouse.down();
+    for (let step = 1; step <= 12; step++) {
+      await page.mouse.move(
+        row.x + row.width / 2 + ((folder.x - row.x) * step) / 12,
+        row.y + row.height / 2 + ((folder.y - row.y) * step) / 12,
+      );
+      // Duration is input, not a condition wait: a real drag outlasts the deferral.
+      await page.waitForTimeout(30);
+    }
+    await page.mouse.up();
+
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          const win = window as unknown as {
+            __testNotes: { getAllNotes: () => Array<{ id: string }> };
+          };
+          return win.__testNotes.getAllNotes().map((note) => note.id);
+        }),
+      )
+      .toContain('Work/Drag Renamed');
+  });
+
   // Toggle formatting via CM6 view (toolbar is mobile-only, not available in Playwright)
   async function toggleFormatting(page: Page, fn: string): Promise<void> {
     await page.evaluate((fnName) => {

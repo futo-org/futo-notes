@@ -1,8 +1,7 @@
 import { autocompletion, startCompletion } from '@codemirror/autocomplete';
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete';
 import { EditorView } from '@codemirror/view';
-import { getAllNotes } from '$features/notes/notes.svelte';
-import { shortestUniqueSuffix } from '$shared/note/wikilinks';
+import { getAllNotes, getWikilinkIndex } from '$features/notes/notes.svelte';
 
 export function makeApply(fullPath: string) {
   return (view: EditorView, _completion: Completion, from: number, to: number) => {
@@ -21,10 +20,10 @@ function wikilinkCompletions(context: CompletionContext): CompletionResult | nul
 
   const query = match.text.slice(2); // text after [[
   const allNotes = getAllNotes();
-  const allIds = allNotes.map((n) => n.id);
+  const wikilinks = getWikilinkIndex();
 
   const buildCompletion = (id: string): Completion => {
-    const display = shortestUniqueSuffix(id, allIds);
+    const display = wikilinks.displaySuffix(id);
     return {
       label: display,
       detail: display === id ? undefined : id,

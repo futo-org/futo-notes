@@ -1,7 +1,7 @@
 // Platform discipline gate (architecture-hardening.md PKT-7 gate 2 / F29 /
 // L2-4). `lint:platform` (package.json) only greps for the strings left over
 // from the removed Electron/Capacitor shells — it does not actually enforce
-// "Tauri access goes through src/lib/platform/**" (AGENTS.md → Conventions). This gate
+// "Tauri access goes through src/lib/platform/**" (AGENTS.md §4.5). This gate
 // does: any `@tauri-apps/*` import (static `from '@tauri-apps/...'` or
 // dynamic `import('@tauri-apps/...')`) outside src/lib/platform/** must be in
 // the checked-in allowlist (scripts/platform-discipline-allowlist.json).

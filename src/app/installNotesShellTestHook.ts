@@ -1,6 +1,11 @@
 import type { EditorView } from '@codemirror/view';
 
 import type { SyncSummary } from '$features/sync/syncServiceE2ee';
+import {
+  clearNoteSwitchTimelines,
+  getNoteSwitchTimelines,
+  type NoteSwitchTimeline,
+} from '$shared/perf/noteSwitchTimeline';
 
 interface NotesShellTestState {
   originalId: string | null;
@@ -34,6 +39,8 @@ interface NotesShellTestHook {
   typeInEditor: (text: string) => string;
   replaceEditorContent: (content: string) => string;
   getState: NotesShellTestHookOptions['getState'];
+  noteSwitchTimelines: () => readonly NoteSwitchTimeline[];
+  clearNoteSwitchTimelines: () => void;
 }
 
 type TestHookWindow = typeof window & { __notesShellTest?: NotesShellTestHook };
@@ -52,6 +59,8 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
     typeInEditor: (text) => typeInEditor(options.getEditorView(), text),
     replaceEditorContent: (content) => replaceEditorContent(options.getEditorView(), content),
     getState: options.getState,
+    noteSwitchTimelines: getNoteSwitchTimelines,
+    clearNoteSwitchTimelines,
   };
   return () => {
     delete testWindow.__notesShellTest;

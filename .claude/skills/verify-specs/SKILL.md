@@ -1,6 +1,6 @@
 ---
 name: verify-specs
-description: Run the behavioral spec in docs/spec/ against the real apps — a parallel, story-driven QA sweep across desktop, iOS, and Android plus cross-client sync. Use when the user says "verify specs", "run the specs", "spec pass", "QA the specs", "check the app against the spec", or "/verify-specs [scope]". A bare run does the full spec (all surfaces × all platforms + sync mesh); "since the last tagged release" (or any scope phrase) narrows to the surfaces/platforms the diff touched. Fans out Sonnet low-effort app-qa legs, escalates FAILs to high effort, and is built to survive session-limit deaths without losing work.
+description: Run the behavioral spec in docs/spec/ against the real apps — a parallel, story-driven QA sweep across desktop, iOS, and Android plus cross-client sync. Use when the user says "verify specs", "run the specs", "spec pass", "QA the specs", "check the app against the spec", or "/verify-specs [scope]". A bare run does the full spec (all surfaces × all platforms + sync mesh); a scope phrase ("since the last tagged release", "just the editor") narrows to the surfaces/platforms the diff touched. Fans out Sonnet low-effort app-qa legs, escalates FAILs to high effort, and is built to survive session-limit deaths without losing work.
 ---
 
 # Verify Specs — parallel spec QA that resumes after a session death
@@ -55,38 +55,24 @@ echo "last tag: $LAST_TAG"
 - **Full run** (no scope phrase): all 9 surfaces, all platforms this OS
   supports (`uname -s`: Darwin → desktop+iOS+Android; Linux → desktop+Android),
   plus the sync mesh.
-- **Scoped run**: compute the diff and map it to surfaces + platforms. The
-  mapping method (spec `→ path` authority refs + a fallback table) and the
-  platform-derivation rules live in **`references/scoping.md`** — read it.
+- **Scoped run**: compute the diff (`git diff --name-only "$LAST_TAG"..HEAD`,
+  or the branch base / user-named range) and map it to surfaces + platforms
+  per **`references/scoping.md`** — read it.
 
-  ```bash
-  git diff --name-only "$LAST_TAG"..HEAD   # or the branch base / user-named range
-  ```
-
-  Report the derived scope to the user before provisioning ("v1.6.0..HEAD
-  touched editor, sync, list, app across all platforms + iOS/Android shells —
-  QA those, skip nav/tabs/settings*").
+Report the derived scope to the user before provisioning ("v1.6.0..HEAD
+touched editor, sync, list, app across all platforms + iOS/Android shells —
+QA those, skip nav/tabs/settings*").
 
 ## Step 2 — Provision (inline; this is the expensive part, done once)
 
-Follow **`/mr-qa`'s "Full spec pass — parallel legs"** and **`/verify`'s
-"Isolation model"** verbatim for the mechanics. The topology this skill targets:
-
-**Default full-run topology — 4 worktrees:**
-
-| Worktree | Devices claimed | Legs (concurrent, distinct devices) |
-|---|---|---|
-| extra-A | iOS + Android + desktop | group-A on iOS, Android, desktop |
-| extra-B | iOS + Android + desktop | group-B on iOS, Android, desktop |
-| extra-C | iOS + Android + desktop | group-C on iOS, Android, desktop |
-| main | iOS + Android + desktop + `qa-server` | sync mesh (all clients → one server) |
-
-Surface groups (same as `/mr-qa`): **A** = `editor` + `app`; **B** = `list` +
-`nav` + `tabs`; **C** = `search` + `settings` + `settings-visual` + `sync`
-(single-client). That's 9 platform legs + 1 mesh = **10 legs**.
+Follow **`/mr-qa`'s `references/full-spec.md`** and **`/verify`'s "Isolation
+model"** verbatim for the mechanics. The full-run topology (worktree/leg
+table, surface groups, RAM caps, downshift rules) lives in
+**`references/full-run.md`** — read it for a full run. Scoped runs usually
+need only 1–2 worktrees; provision to the scope (`references/scoping.md`).
 
 Provisioning order (eat every build wait HERE, before the fan-out — an agent
-that idle-waits on a cold build gets force-collected; see `/mr-qa` step 2):
+that idle-waits on a cold build gets force-collected):
 
 1. `git worktree add` the extras off the scope's commit; `pnpm install` in all
    concurrently; `just qa-clone-target <worktree>` to seed a warm `target/`.
@@ -95,31 +81,36 @@ that idle-waits on a cold build gets force-collected; see `/mr-qa` step 2):
    desktop per `/verify` `references/desktop.md` (NOT `just tauri-dev`).
    Background them; within a worktree they serialize on the cargo lock (that's
    queueing, not a hang); across worktrees they're parallel.
-4. `just qa-server` on the main worktree for the mesh (and for group-C's
-   single-client sync stories — give C its own slot server or tell C exactly
-   what already lives on the shared one; see `/mr-qa` step 6).
+4. `just qa-server` on the main worktree for the mesh (and for single-client
+   sync stories — give that leg its own slot server or tell it exactly what
+   already lives on the shared one).
 
-**RAM caps are a PROVISIONING decision, not the workflow's job.** Per-platform
-concurrency equals how many devices you claim: claim 3 Android emulators → only
-3 legs ever drive Android at once, regardless of the workflow scheduler. On
-≤32GB keep **Android ≤3 concurrent** (mr-qa's measured ceiling) and iOS ≤4.
-Downshift when the machine is small:
-- **Fewer worktrees**: 3 worktrees + mesh-as-a-second-wave (run the Workflow a
-  second time with only the mesh leg after the platform legs free their
-  devices) keeps Android at 3.
-- **Scoped runs** usually need only 1–2 worktrees — provision to the scope.
+**Per-platform concurrency equals how many devices you claim** — never hand
+the workflow more device-backed legs of one platform than you booted devices
+for; that's the one way to oversubscribe.
 
-Do NOT hand the workflow more device-backed legs of one platform than you
-booted devices for — that's the one way to oversubscribe.
+### Editor dedup — sweep the web editor once
+
+The `editor` surface is the **same embedded single-file web editor** on all
+three apps, so its rendering/decoration/interaction stories only need one full
+sweep: give it to the **desktop** leg (cheapest to drive, MCP bridge, and on
+macOS it's WKWebKit — the same engine as iOS). Mobile legs cover only what the
+native shells actually own: set each iOS/Android editor leg's **`focus`** to
+the shell-integration delta —
+
+> futoBridge round-trips, toolbar actions, keyboard/IME (insets,
+> scroll-during-IME), tap/selection/focus handoff, image insertion,
+> safe areas — plus every editor story explicitly tagged *(iOS)* / *(Android)*.
+
+This applies in both modes. It does NOT apply to `list`/`nav`/`search`/
+`settings`/`tabs` — those are native SwiftUI/Compose implementations per
+platform and must be swept on each platform they're in scope for.
 
 ### Write the durable run manifest (before launching the fan-out)
 
-```bash
-mkdir -p test-screenshots/verify-specs
-```
-
-Write `test-screenshots/verify-specs/run.json` (gitignored, so it survives a
-session death) with the leg manifest — one entry per leg:
+`mkdir -p test-screenshots/verify-specs`, then write
+`test-screenshots/verify-specs/run.json` (gitignored, so it survives a session
+death) — one entry per leg:
 
 ```jsonc
 {
@@ -130,6 +121,7 @@ session death) with the leg manifest — one entry per leg:
       "id": "A-ios", "platform": "ios", "idPrefix": "ed",
       "worktree": "/abs/path/.claude/worktrees/extra-A",
       "surfaces": ["editor", "app"],
+      "focus": "Shell-integration delta only: futoBridge, toolbar, keyboard/IME, …",
       "device": "iOS sim <udid>", "deviceEnv": "export SIM=<udid>",
       "ledger": "/abs/path/extra-A/test-screenshots/A-ios-ledger.md"
     },
@@ -138,11 +130,11 @@ session death) with the leg manifest — one entry per leg:
       "deviceEnv": "export SIM=<udid> ANDROID_SERIAL=<serial>",
       "serverUrl": "http://127.0.0.1:31NN", "password": "testing123",
       "ledger": "/abs/main/test-screenshots/mesh-ledger.md" }
-    // …one per leg…
   ]
 }
 ```
 
+`focus` is optional; when present the leg covers exactly those flows and stops.
 Ledger paths **must be absolute and inside each leg's own worktree** — that's
 where the app-qa agent runs and where a resume looks.
 
@@ -170,11 +162,11 @@ Workflow({
 ```
 
 The workflow (`workflow.js` next to this file) runs each leg as an `app-qa`
-agent at **Sonnet effort=low** (the sweep), and the moment a leg's sweep
-returns any FAIL it spawns a **Sonnet effort=high** app-qa to independently
-refute those FAILs — pipelined, so verification overlaps other legs' sweeps.
-The `agentType`/`model`/`effort` are set per-call there because the Agent tool
-has no per-call effort override.
+agent at **Sonnet effort=low** (the sweep); the moment a leg's sweep returns any
+FAIL it spawns a **Sonnet effort=high** app-qa to independently refute those
+FAILs — pipelined, so verification overlaps other legs' sweeps. The
+`agentType`/`model`/`effort` are set per-call inside `workflow.js` because the
+Agent tool has no per-call effort override.
 
 **Capture the `runId`** the Workflow tool returns immediately, and append it to
 `run.json`. It is your resume handle.
@@ -182,13 +174,12 @@ has no per-call effort override.
 ## Step 4 — Survive session limits (expect a death; minimize lost work)
 
 Session limits *will* hit mid-run (8–9 concurrent QA agents burn ~2.5M
-tokens/hour — `/mr-qa` step 5). Three layers make a death cheap:
+tokens/hour). Three layers make a death cheap:
 
 1. **Ledgers (ground truth, survive anything).** Every leg appends each
    story's verdict to its ledger the instant it's decided — the brief tells it
    to, and to *resume from* an existing ledger without re-running done stories.
-   This is finer-grained than the workflow cache: even a killed leg loses only
-   the story it was mid-way through.
+   Even a killed leg loses only the story it was mid-way through.
 2. **Workflow resume (within-session).** On resume, re-invoke
    `Workflow({ scriptPath, args, resumeFromRunId: <runId from run.json> })`
    with **identical args**. Completed legs return from cache instantly; only
@@ -238,10 +229,10 @@ its presence is the "resume me" signal.
 ## Budgets (measured 2026-07, adjust with the effort experiment)
 
 - Full spec, 3 platforms + mesh, prior high-effort topology: ~1.2–1.6M output
-  tokens, ~3.5–4h wall clock (`/mr-qa`). **This skill's bet:** Sonnet-low
-  sweeps cut per-leg time and tokens materially, targeting **≤1h** on a strong
-  machine with a warm pool — degrading gracefully (more waves) when
-  device-starved. Report actuals so the low-effort bet can be judged.
+  tokens, ~3.5–4h wall clock. **This skill's bet:** Sonnet-low sweeps + editor
+  dedup + the assertion-first evidence policy cut per-leg time and tokens
+  materially, targeting **≤1h** on a strong machine with a warm pool. Report
+  actuals so the bet can be judged.
 - Scoped runs (the common case): a few 100k tokens, well under an hour.
 - Failures cost more than passes (the high-effort verify pass). A run with many
   FAILs will run longer and hotter than a clean one.

@@ -4,7 +4,7 @@
   import { onDestroy } from 'svelte';
   import type { NotePreview } from '$shared/types/note';
   import { isFolderOpen, toggleFolderOpen } from './folderExpansion.svelte';
-  import { buildFolderTree, flattenFolderTree, type FolderNode } from './folderTree';
+  import { buildFolderTree, flattenFolderTree, type FlatNode, type FolderNode } from './folderTree';
   import { getEmptyFolders } from './emptyFolders.svelte';
   import { createFolderTreeDrag } from './createFolderTreeDrag.svelte';
   import FolderTreeEmptyRow from './FolderTreeEmptyRow.svelte';
@@ -58,6 +58,150 @@
 
   const DEPTH_INDENT_PX = 16;
 
+  // ── Virtualization ──────────────────────────────────────────────────────
+  // Only the rows near the viewport are mounted; the rest are represented by
+  // two spacer divs. Every row is the same height (folderTree.css sizes
+  // .folder-row/.note-row/.folder-empty-row identically), so a scroll offset
+  // maps to an index arithmetically and no per-row measurement is needed.
+  //
+  // This is what keeps switching notes fast on a large vault. A note switch
+  // dirties layout, and WebKit then lays out every mounted row: at 2,533 rows
+  // that measured ~125 ms of a ~148 ms Ctrl+Tab, and CSS containment does not
+  // avoid it (the rows already set `contain: layout style paint`). Rendering
+  // only the visible window is the only thing that removes the work.
+  // → docs/perf/tab-switch-baseline.md
+  const OVERSCAN_ROWS = 8;
+  // WebKit scrolls this container on its own thread, so it can paint a new
+  // scroll offset before the main thread is told about it. Measured on a
+  // 3,207-note vault, a wheel fling moves 1,000-5,500px between consecutive
+  // scroll notifications, while 8 rows of overscan cover only ~390px — so the
+  // painted viewport lands entirely on the spacer and the sidebar goes blank
+  // and label-less for several frames. Flushing the projection synchronously
+  // does NOT help (the paint already happened); the window has to be wide
+  // enough to cover where the scroll is going. So lead the window by however
+  // far the last notification jumped, and let it collapse back to the cheap
+  // window once scrolling settles, so a note switch never pays for it.
+  // → docs/perf/tab-switch-baseline.md
+  const SCROLL_SETTLE_MS = 120;
+  // Peak-hold decay: a fling decelerates, so shrink the lead gradually instead
+  // of tracking each smaller delta straight down and re-exposing the spacer.
+  const LEAD_DECAY_ROWS = 4;
+  // A scrollbar-thumb drag can jump the whole list at once, and leading by that
+  // much would mount every row — exactly the cost virtualization exists to
+  // avoid. Cap the lead at more than the largest fling jump measured (~5,500px
+  // ≈ 112 rows); a single teleport frame can still miss, but a sustained fling
+  // cannot.
+  const MAX_LEAD_ROWS = 128;
+  // Used until a real pitch can be measured. Rows are 48px tall with 1px
+  // collapsed vertical margins; measureRowPitch() corrects any CSS drift.
+  const FALLBACK_ROW_PITCH = 49;
+
+  let scroller: HTMLDivElement | undefined = $state();
+  let scrollTop = $state(0);
+  let viewportHeight = $state(0);
+  let rowPitch = $state(FALLBACK_ROW_PITCH);
+  // Rows to mount beyond the viewport in the direction of travel, and its sign.
+  let scrollLeadRows = $state(0);
+  let scrollLeadDown = $state(true);
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function keyOf(node: FlatNode): string {
+    if (node.type === 'folder') return `f:${node.path}`;
+    if (node.type === 'empty') return `e:${node.parentPath}`;
+    return `n:${node.note.id}`;
+  }
+
+  const window_ = $derived.by(() => {
+    const total = flat.length;
+    // No measured viewport (jsdom, or the frame before the ResizeObserver
+    // first reports): render everything rather than guess a window and hide
+    // rows a caller expects to be present.
+    if (viewportHeight <= 0) return { start: 0, end: total, padTop: 0, padBottom: 0 };
+
+    const pitch = rowPitch > 0 ? rowPitch : FALLBACK_ROW_PITCH;
+    const leadUp = scrollLeadDown ? 0 : scrollLeadRows;
+    const leadDown = scrollLeadDown ? scrollLeadRows : 0;
+    let start = Math.max(0, Math.floor(scrollTop / pitch) - OVERSCAN_ROWS - leadUp);
+    let end = Math.min(
+      total,
+      Math.ceil((scrollTop + viewportHeight) / pitch) + OVERSCAN_ROWS + leadDown,
+    );
+
+    // An inline folder rename must stay mounted even if the user scrolls away,
+    // or the input unmounts mid-edit and silently drops what they typed. The
+    // rename always starts on a visible row, so in practice this widens the
+    // window by nothing; the unbounded case is a user scrolling away while
+    // renaming, where correctness beats row count.
+    if (renameRequest) {
+      const pinned = flat.findIndex((node) => keyOf(node) === `f:${renameRequest.path}`);
+      if (pinned >= 0) {
+        start = Math.min(start, pinned);
+        end = Math.max(end, pinned + 1);
+      }
+    }
+
+    return {
+      start,
+      end,
+      padTop: start * pitch,
+      padBottom: Math.max(0, (total - end) * pitch),
+    };
+  });
+
+  const visible = $derived(flat.slice(window_.start, window_.end));
+
+  function handleScroll(): void {
+    if (!scroller) return;
+    const next = scroller.scrollTop;
+    const pitch = rowPitch > 0 ? rowPitch : FALLBACK_ROW_PITCH;
+    const jumpedRows = Math.ceil(Math.abs(next - scrollTop) / pitch);
+    // A fling's first notification is small, so the jump alone under-predicts
+    // where the next painted frame lands; cover at least one viewport ahead
+    // for as long as the list is moving at all.
+    const viewportRows = Math.ceil(viewportHeight / pitch);
+    if (next !== scrollTop) scrollLeadDown = next > scrollTop;
+    scrollLeadRows = Math.min(
+      MAX_LEAD_ROWS,
+      Math.max(jumpedRows, viewportRows, scrollLeadRows - LEAD_DECAY_ROWS),
+    );
+    scrollTop = next;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      scrollLeadRows = 0;
+    }, SCROLL_SETTLE_MS);
+  }
+
+  // Two adjacent mounted rows give the real pitch including collapsed margins,
+  // so a CSS height change can never silently desync the scroll math.
+  function measureRowPitch(): void {
+    if (!scroller) return;
+    const rows = scroller.querySelectorAll<HTMLElement>(
+      '.folder-row, .note-row, .folder-empty-row',
+    );
+    if (rows.length < 2) return;
+    const measured = rows[1].offsetTop - rows[0].offsetTop;
+    if (measured > 0 && measured !== rowPitch) rowPitch = measured;
+  }
+
+  $effect(() => {
+    const el = scroller;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      viewportHeight = el.clientHeight;
+      measureRowPitch();
+    });
+    observer.observe(el);
+    viewportHeight = el.clientHeight;
+    return () => observer.disconnect();
+  });
+
+  $effect(() => {
+    // Re-measure whenever the rendered set changes (row heights are uniform,
+    // but a theme or font change can alter the pitch).
+    void visible.length;
+    measureRowPitch();
+  });
+
   function handleFolderClick(node: FolderNode): void {
     toggleFolderOpen(node.path);
   }
@@ -76,7 +220,10 @@
     onselect?.(id, event);
   }
 
-  onDestroy(drag.destroy);
+  onDestroy(() => {
+    clearTimeout(settleTimer);
+    drag.destroy();
+  });
 </script>
 
 <!-- The scroll container is the root drop target during a drag. The
@@ -85,8 +232,10 @@
      equivalent applicable to this element. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+  bind:this={scroller}
   class="folder-tree-scroll"
   class:root-drop-target={drag.dropTarget === ''}
+  onscroll={handleScroll}
   ondragover={drag.handleRootDragOver}
   ondragleave={drag.handleRootDragLeave}
   ondrop={(event) => drag.handleRowDrop(event, '')}
@@ -94,7 +243,10 @@
   {#if flat.length === 0}
     <div class="empty-state">No notes yet. Tap + to create one.</div>
   {:else}
-    {#each flat as node (node.type === 'folder' ? `f:${node.path}` : node.type === 'empty' ? `e:${node.parentPath}` : `n:${node.note.id}`)}
+    {#if window_.padTop > 0}
+      <div class="tree-spacer" style:height={`${window_.padTop}px`} aria-hidden="true"></div>
+    {/if}
+    {#each visible as node (node.type === 'folder' ? `f:${node.path}` : node.type === 'empty' ? `e:${node.parentPath}` : `n:${node.note.id}`)}
       {#if node.type === 'folder'}
         <FolderTreeFolderRow
           {node}
@@ -132,5 +284,8 @@
         />
       {/if}
     {/each}
+    {#if window_.padBottom > 0}
+      <div class="tree-spacer" style:height={`${window_.padBottom}px`} aria-hidden="true"></div>
+    {/if}
   {/if}
 </div>

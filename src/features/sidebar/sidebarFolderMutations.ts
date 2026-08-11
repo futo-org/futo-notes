@@ -1,6 +1,7 @@
 import { clearDragHoverExpanded } from '$features/folders/folderExpansion.svelte';
 import { getEmptyFolders } from '$features/folders/emptyFolders.svelte';
 import { deleteFolder, moveFolder, renameOrMoveFolder } from '$features/folders/folderOperations';
+import { pickNoteForAction } from '$features/notes/noteActionTarget';
 import { deleteNote, getAllNotes, moveNote } from '$features/notes/notes.svelte';
 import { idLeaf } from '$lib/platform/pathSafety';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
@@ -89,20 +90,22 @@ export async function moveSidebarNote(
   options: SidebarMutationOptions,
 ): Promise<void> {
   try {
-    const movingActiveNote = options.getActiveNoteId() === noteId;
-    const move = async () => {
-      const fromId = movingActiveNote ? (options.getActiveNoteId() ?? noteId) : noteId;
+    const pick = pickNoteForAction(noteId);
+    // Always locked: whether this row is the open note is unanswerable until its
+    // pending rename has landed.
+    await options.runWithActiveNoteLock(async () => {
+      const fromId = pick.resolve();
+      if (!fromId) return showGlobalToast('That note is no longer available');
       const newId = target ? `${target}/${idLeaf(fromId)}` : idLeaf(fromId);
       if (newId === fromId) return;
+      const movingActiveNote = options.getActiveNoteId() === fromId;
       const result = await moveNote(fromId, newId);
       options.onNoteIdsRenamed([{ from: fromId, to: result.id }]);
       if (movingActiveNote) {
         options.onActiveNoteMoved(fromId, result.id, idLeaf(result.id));
       }
       showGlobalToast(target ? `Moved to ${target}` : 'Moved to Notes');
-    };
-    if (movingActiveNote) await options.runWithActiveNoteLock(move);
-    else await move();
+    });
   } catch (error) {
     showGlobalToast(error instanceof Error ? error.message : 'Move failed');
   }
@@ -125,16 +128,15 @@ export async function confirmDeleteSidebarNote(
   }
 
   try {
-    const deletingActiveNote = options.getActiveNoteId() === id;
-    const remove = async () => {
-      const deleteId = deletingActiveNote ? (options.getActiveNoteId() ?? id) : id;
+    const pick = pickNoteForAction(id);
+    await options.runWithActiveNoteLock(async () => {
+      const deleteId = pick.resolve();
+      if (!deleteId) return showGlobalToast('That note is no longer available');
       await deleteNote(deleteId);
-      if (deletingActiveNote) options.onActiveNoteDeleted();
+      if (options.getActiveNoteId() === deleteId) options.onActiveNoteDeleted();
       options.onNoteIdsDeleted([deleteId]);
       showGlobalToast('Note deleted');
-    };
-    if (deletingActiveNote) await options.runWithActiveNoteLock(remove);
-    else await remove();
+    });
   } catch (error) {
     showGlobalToast(error instanceof Error ? error.message : 'Delete failed');
   }

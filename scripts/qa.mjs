@@ -28,6 +28,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PG_BASE, pgQuery } from './lib/pg.mjs';
 import { portsFor, slotOf } from './lib/slot.mjs';
 
 const POOL = 7; // devices per platform; bump if you routinely run more worktrees
@@ -42,7 +43,40 @@ const EMULATOR = path.join(ANDROID_HOME, 'emulator/emulator');
 const AVDMANAGER = path.join(ANDROID_HOME, 'cmdline-tools/latest/bin/avdmanager');
 const SDKMANAGER = path.join(ANDROID_HOME, 'cmdline-tools/latest/bin/sdkmanager');
 const SIM_DEVICE_TYPE = process.env.QA_SIM_DEVICE_TYPE || 'iPhone 17 Pro';
-const PG_BASE = process.env.FUTO_NOTES_QA_PG || 'postgres://futo_notes:futo_notes@localhost:5433';
+const AVD_DIR = path.join(process.env.ANDROID_AVD_HOME || path.join(HOME, '.android/avd'));
+
+// Baseline for pool AVDs: a cheap-but-current Android phone (Moto G Play,
+// Galaxy A16 class) — 720x1600 @320dpi, i.e. 360x800dp at 20:9. 360dp is the
+// most common Android width in the wild, so it's the size layout bugs show up
+// at first. avdmanager's default when you pass no `-d` is 320x640 @160dpi,
+// which is a 2010 handset and too small to QA anything; `-d small_phone` is
+// closer but 16:9 and only 640dp tall. The rest of these keys undo the same
+// generic default's other 2010-isms (96MB RAM, no GPU, hardware nav keys) —
+// without them a 720x1600 API-36 emulator still won't be usable.
+const AVD_BASELINE = {
+  'hw.lcd.width': '720',
+  'hw.lcd.height': '1600',
+  'hw.lcd.density': '320',
+  'hw.ramSize': '2048',
+  'vm.heapSize': '256',
+  'hw.gpu.enabled': 'yes',
+  'hw.gpu.mode': 'auto',
+  'hw.keyboard': 'yes', // type with the host keyboard instead of tapping glass
+  'hw.mainKeys': 'no', // software nav, like every phone since ~2016
+  'hw.dPad': 'no',
+  'hw.trackBall': 'no',
+};
+
+// A named device profile (hw.device.name=pixel_6 + its hash) re-asserts that
+// device's screen over the keys above — Studio flags the mismatch and offers to
+// revert it. Pool AVDs are generic by design, so drop the profile and its skin.
+const AVD_PROFILE_KEYS = [
+  'hw.device.name',
+  'hw.device.manufacturer',
+  'hw.device.hash2',
+  'skin.name',
+  'skin.path',
+];
 
 const info = (msg) => process.stderr.write(msg + '\n');
 const die = (msg) => {
@@ -194,6 +228,62 @@ function installedSystemImage() {
   return candidates[0] || images[0];
 }
 
+// Force an AVD's config.ini to AVD_BASELINE. Runs on every claim, not just on
+// create, so AVDs made before the baseline existed get fixed in place rather
+// than needing a manual recreate. Screen geometry is baked into a saved
+// snapshot, so a change means the snapshots have to go and the next boot is
+// cold. Deliberately does not touch a running emulator — pulling its snapshots
+// out from under it corrupts them; it gets fixed on the next claim after
+// shutdown.
+function applyAvdBaseline(name) {
+  const dir = path.join(AVD_DIR, `${name}.avd`);
+  const cfg = path.join(dir, 'config.ini');
+  if (!fs.existsSync(cfg)) return;
+  if (runningEmus()[name]) {
+    info(`skipping baseline for ${name}: emulator is running (re-claim after shutdown)`);
+    return;
+  }
+
+  // config.ini is written as both `k = v` (avdmanager) and `k=v` (Studio).
+  // Preserve whichever the file already uses so the diff stays minimal.
+  const lines = fs.readFileSync(cfg, 'utf8').split('\n');
+  const pending = new Map(Object.entries(AVD_BASELINE));
+  let changed = false;
+  const out = [];
+  for (const line of lines) {
+    const m = line.match(/^([\w.]+)(\s*=\s*)(.*)$/);
+    if (!m) {
+      out.push(line);
+      continue;
+    }
+    if (AVD_PROFILE_KEYS.includes(m[1])) {
+      changed = true;
+      continue;
+    }
+    if (!pending.has(m[1])) {
+      out.push(line);
+      continue;
+    }
+    const want = pending.get(m[1]);
+    pending.delete(m[1]);
+    if (m[3].trim() !== want) changed = true;
+    out.push(`${m[1]}${m[2]}${want}`);
+  }
+  if (pending.size) {
+    const sep = out.some((l) => /^[\w.]+ = /.test(l)) ? ' = ' : '=';
+    for (const [k, v] of pending) out.push(`${k}${sep}${v}`);
+    changed = true;
+  }
+  if (!changed) return;
+
+  info(`applying screen baseline to ${name} (720x1600 @320dpi) — next boot is cold`);
+  fs.writeFileSync(cfg, out.filter((l, i) => l !== '' || i < out.length - 1).join('\n'));
+  fs.rmSync(path.join(dir, 'snapshots'), { recursive: true, force: true });
+  // hardware-qemu.ini is the previous boot's resolved config; stale geometry
+  // there wins over config.ini on a fastboot resume.
+  fs.rmSync(path.join(dir, 'hardware-qemu.ini'), { force: true });
+}
+
 async function ensureAvd(name) {
   if (!avdNames().includes(name)) {
     const image = installedSystemImage();
@@ -205,6 +295,7 @@ async function ensureAvd(name) {
     });
     if (res.status !== 0) die(`avdmanager create failed:\n${res.stderr || res.stdout}`);
   }
+  applyAvdBaseline(name);
   let serial = runningEmus()[name];
   if (!serial) {
     info(`booting emulator ${name} (first boot can take a couple of minutes)`);
@@ -393,17 +484,6 @@ function serverRepo() {
   return repo;
 }
 
-// Run a tiny pg script with bun from the server repo (its node_modules has
-// `pg`), so we don't require psql on the host.
-function pgQuery(repo, url, sql) {
-  const script = `const {default:pg}=await import('pg');const c=new pg.Client(process.env.QA_PG_URL);await c.connect();try{await c.query(process.env.QA_PG_SQL)}finally{await c.end()}`;
-  return spawnSync('bun', ['-e', script], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...process.env, QA_PG_URL: url, QA_PG_SQL: sql },
-  });
-}
-
 async function cmdServerStart() {
   const root = worktreeRoot();
   const slot = slotOf(root);
@@ -528,8 +608,12 @@ switch (cmd) {
   case 'server-stop':
     serverStop(worktreeRoot(), args.includes('--drop'));
     break;
+  case 'avd-baseline':
+    // Re-apply AVD_BASELINE to every pool AVD without booting anything.
+    for (let i = 0; i < POOL; i++) applyAvdBaseline(`futo-qa-${i}`);
+    break;
   default:
     die(
-      'usage: qa.mjs claim [ios|android|all] | status | release [--shutdown] | gc | server-start | server-stop [--drop]',
+      'usage: qa.mjs claim [ios|android|all] | status | release [--shutdown] | gc | server-start | server-stop [--drop] | avd-baseline',
     );
 }
