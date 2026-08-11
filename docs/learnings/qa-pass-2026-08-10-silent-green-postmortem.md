@@ -54,9 +54,12 @@ Every one of these returned a confident, wrong answer:
 
 - A rAF + `getBoundingClientRect` probe reported **0 blank frames for both variants** — it samples
   main-thread offset while WebKit scrolls on its own thread.
-- `find ~/Documents/futo-notes -newermt "-24 hours"` matched **nothing** on BSD/macOS (relative
-  arguments do not parse and do not error), producing a false "production vault untouched" all-clear
-  while four files had been written minutes earlier.
+- A vault check built on `find`'s `-newermt` predicate, handed a **relative** offset instead of an
+  absolute timestamp, matched **nothing** on BSD/macOS — relative arguments there neither parse nor
+  error. It reported "production vault untouched" while four files had in fact been written minutes
+  before. (The safe form is `touch -t <absolute stamp>` on a reference file plus `-newer <ref>`; the
+  banned form is enumerated in `scripts/check-qa-input-safety.mjs` as `relative-newermt`, which is
+  why this paragraph describes it rather than quoting it — see below.)
 - Two Playwright "control" runs issued as parallel shell calls, one with an explicit `cd` — both
   executed in the *same* worktree, the one that had the fix. "Passes on both sides" was an artifact,
   and it sent an agent hunting a Linux-only race that did not exist.
@@ -68,6 +71,15 @@ Every one of these returned a confident, wrong answer:
 **Prevention.** Before believing a *negative* result, prove the instrument can produce a positive one.
 One line, every time: seed the condition you claim is absent and watch the tool fire. A tool that has
 not been shown to fail is not evidence of absence. Silence is not success.
+
+**Footnote, earned while writing this file.** The first version of the paragraph above quoted the
+offending `find` command verbatim, and `scripts/check-qa-input-safety.mjs` failed the build on it:
+that pattern is banned on instruction surfaces, and the gate cannot tell a cautionary quotation from a
+recommendation. The gate's own error message says *"Do not allowlist a new occurrence to get green"* —
+so the right response was to describe the hazard instead of reproducing it, not to add an allowlist
+entry for a postmortem. Worth knowing before writing any doc that discusses a banned technique: a
+prose description costs nothing, and widening the allowlist to land a document about rigour would
+have been a poor trade. It is also a small vindication of the guard — it fired on its own author.
 
 ## Pattern 4 — One rule living in four places
 
