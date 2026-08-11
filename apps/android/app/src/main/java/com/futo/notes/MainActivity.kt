@@ -454,9 +454,9 @@ class MainActivity : ComponentActivity() {
 
         val s = NotesStore(root, File(filesDir, "search"))
         sync = SyncManager(SecureStore(prefs), prefs)
-        // Sync writes bypass local mutations, so reconcile the store-owned
-        // index and project one fresh snapshot.
-        sync.onLivePull = { s.liveDataChanged() }
+        // Sync writes bypass local mutations, so project the engine-reported
+        // affected rows and deliver the same summary to an open editor.
+        sync.onLocalTreeChanged = { summary -> s.localTreeChanged(summary) }
         // Auto-push local edits: every NotesStore mutation signals the live loop,
         // which debounces and pushes to peers (no-op when not connected).
         s.onLocalChange = { sync.noteChanged() }

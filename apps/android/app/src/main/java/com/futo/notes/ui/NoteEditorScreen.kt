@@ -57,11 +57,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.futo.notes.ImagePicker
-import com.futo.notes.AdoptFlushOutcome
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
 import com.futo.notes.PendingDraft
-import com.futo.notes.adoptFlushOutcome
 import com.futo.notes.confirmedSavedContent
 import com.futo.notes.derivePendingDraft
 import com.futo.notes.saveImageDataIntoVault
@@ -72,16 +70,23 @@ import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.theme.FutoTheme
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import uniffi.futo_notes_ffi.FlushDisposition
+import uniffi.futo_notes_ffi.KeepDraftReason
+import uniffi.futo_notes_ffi.OpenNoteDisposition
+import uniffi.futo_notes_ffi.OpenNoteFacts
+import uniffi.futo_notes_ffi.SyncSummary
+import uniffi.futo_notes_ffi.classifyOpenNote
 import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
@@ -94,6 +99,28 @@ import uniffi.futo_notes_ffi.validateTitle
 private val UNTITLED_PLACEHOLDER = Regex("""^Untitled(-\d+)?$""")
 
 internal fun isPlaceholderTitle(title: String): Boolean = UNTITLED_PLACEHOLDER.matches(title)
+
+private fun SyncSummary.affectsOpenNote(id: String): Boolean =
+    id in updatedIds ||
+        id in deletedIds ||
+        renamed.any { it.fromId == id || it.toId == id }
+
+internal fun editedDuringOpenNoteGather(
+    reconciliationStartVersion: Long,
+    currentEditVersion: Long,
+): Boolean = currentEditVersion != reconciliationStartVersion
+
+private fun logOpenNoteDisposition(
+    disposition: OpenNoteDisposition?,
+    focused: Boolean,
+) {
+    if (disposition != null) {
+        android.util.Log.d(
+            "FutoOpenNote",
+            "disposition=${disposition.javaClass.simpleName} focused=$focused",
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, FlowPreview::class)
 @Composable
@@ -141,6 +168,10 @@ fun NoteEditorScreen(
     var savedContent by remember(initialNoteId) { mutableStateOf("") }
     var loaded by remember(initialNoteId) { mutableStateOf(false) }
     var saveJob by remember { mutableStateOf<Job?>(null) }
+    var editVersion by remember(initialNoteId) { mutableStateOf(0L) }
+    var editorAttachment by remember(initialNoteId) {
+        mutableStateOf<EditorAttachmentToken?>(null)
+    }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
     var interactionLocked by remember(initialNoteId) { mutableStateOf(false) }
@@ -151,6 +182,137 @@ fun NoteEditorScreen(
         EditorSession(scope) { locked -> interactionLocked = locked }
     }
     val theme = if (darkTheme) "dark" else "light"
+
+    fun scheduleBodySave(snapshot: String) {
+        saveJob?.cancel()
+        saveJob = scope.launch {
+            delay(400)
+            session.runAutosave {
+                val targetId = noteId
+                val base = savedContent
+                when (
+                    val disposition = store.flushDraft(
+                        PendingDraft(targetId, base, snapshot),
+                    )
+                ) {
+                    FlushDisposition.Wrote,
+                    FlushDisposition.Converged,
+                    FlushDisposition.Recreated,
+                    -> savedContent = snapshot
+
+                    is FlushDisposition.ParkedConflict -> {
+                        noteId = disposition.parkedId
+                        titleValue = TextFieldValue(splitId(disposition.parkedId).title)
+                        savedContent = snapshot
+                        Toast.makeText(
+                            context,
+                            "Conflicting edits saved to a copy",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+
+                    null -> Toast.makeText(
+                        context,
+                        "Couldn't save note. Your changes are still pending.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    }
+
+    fun openNoteEffects(
+        summary: SyncSummary?,
+        reconciliationStartEditVersion: Long,
+    ): OpenNoteEffects =
+        object : OpenNoteEffects {
+            override fun currentNoteId(): String = noteId
+
+            override fun isCurrentEditor(): Boolean =
+                editorAttachment?.let(host::isCurrentAttachment) == true
+
+            override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
+                // The reconciliation owns the debounce now. If it was already
+                // writing, the session lock made us wait; otherwise cancel it
+                // before reading so stale-base bytes cannot follow this pass.
+                saveJob?.cancel()
+                val base = savedContent
+                val draft = content
+                val disk = store.readIfExists(noteId)
+                return OpenNoteFacts(
+                    base = base,
+                    draft = draft,
+                    disk = disk,
+                    renamedTo = summary
+                        ?.renamed
+                        ?.firstOrNull { it.fromId == noteId }
+                        ?.toId,
+                    editorFocused = host.editorFocused,
+                    editedDuringCycle = editedDuringOpenNoteGather(
+                        reconciliationStartVersion = reconciliationStartEditVersion,
+                        currentEditVersion = editVersion,
+                    ),
+                )
+            }
+
+            override fun classify(facts: OpenNoteFacts): OpenNoteDisposition =
+                classifyOpenNote(facts)
+
+            override fun resumeDraftPersistence() {
+                if (content != savedContent) scheduleBodySave(content)
+            }
+
+            override fun apply(
+                noteIdAtRead: String,
+                disposition: OpenNoteDisposition,
+            ) {
+                when (disposition) {
+                    OpenNoteDisposition.Leave,
+                    OpenNoteDisposition.DeferAdopt -> Unit
+
+                    is OpenNoteDisposition.Adopt -> {
+                        host.applyExternalContent(disposition.content)
+                        content = disposition.content
+                        savedContent = disposition.content
+                    }
+
+                    is OpenNoteDisposition.FollowRename -> {
+                        noteId = disposition.toId
+                        titleValue = TextFieldValue(splitId(disposition.toId).title)
+                    }
+
+                    is OpenNoteDisposition.KeepDraft -> {
+                        savedContent = disposition.base
+                        when (disposition.reason) {
+                            KeepDraftReason.PEER_DELETED -> Toast.makeText(
+                                context,
+                                "This note was deleted elsewhere. Your draft is still open.",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+
+                            KeepDraftReason.DIVERGED -> Toast.makeText(
+                                context,
+                                "This note changed elsewhere. Your draft is still open.",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+
+                            KeepDraftReason.CONVERGED -> Unit
+                        }
+                        if (content != savedContent) scheduleBodySave(content)
+                    }
+
+                    OpenNoteDisposition.Close -> {
+                        saveJob?.cancel()
+                        // The session is already latched closed. Mark the
+                        // buffer clean before navigation so onDispose cannot
+                        // recreate a peer-deleted note.
+                        savedContent = content
+                        Toast.makeText(context, "Note deleted elsewhere", Toast.LENGTH_SHORT).show()
+                        onBack()
+                    }
+                }
+            }
+        }
 
     fun navigateAfterSaving(navigate: () -> Unit) {
         val attachment = host.currentAttachment()
@@ -318,7 +480,7 @@ fun NoteEditorScreen(
     // outlives this composable — a composable's onDispose can't suspend. This is
     // the POP flush (navigating back isn't a background signal, so onPause won't
     // fire); the register handles the background flush.
-    DisposableEffect(noteId) {
+    DisposableEffect(initialNoteId) {
         onDispose {
             saveJob?.cancel()
             // Discard an untouched quick-capture note: opened brand-new
@@ -335,83 +497,56 @@ fun NoteEditorScreen(
         }
     }
 
-    // Live-sync refresh for the OPEN note [sync.md:239]. A live pull rewrites
-    // the file and reloads the store; without this, the open editor keeps
-    // showing (and on exit, SAVES BACK) a stale base. Clean drafts adopt the
-    // remote content in place via applyExternalContent (selection/scroll
-    // preserved, history suppressed); a dirty draft against a REAL remote
-    // change is parked as a conflict copy first — neither side's edit is lost.
+    // Render the engine's open-note disposition after the exact live-pull list
+    // mutation lands. Reported renames are followed as renames; missing and
+    // empty are distinguished by one atomic store read; focused adoption stays
+    // deferred until blur.
     LaunchedEffect(initialNoteId) {
-        // This emits when `store.notes` changes by list equality. A sync write
-        // (including a PUSH-side merge, F2) is seen because apply_delta stamps
-        // the merged file's mtime (orchestrator.rs:312-314) → NoteItem.modifiedMs
-        // differs → the list is unequal → collect fires and re-reads disk. If a
-        // future refactor stops stamping merged-write mtimes, this reload chain
-        // breaks silently for a same-length merge — keep the stamp.
-        snapshotFlow { store.notes }.collect {
-            if (!loaded || !store.exists(noteId)) return@collect
-            val disk = store.read(noteId)
-            when {
-                content == savedContent -> {
-                    if (disk != savedContent) {
-                        // Clean draft: adopt the remote content in place. Setting
-                        // content==savedContent==disk makes the derived register
-                        // null this note's draft by construction, so a background
-                        // flush can't clobber the peer's edit (PKT-1 R1).
-                        host.applyExternalContent(disk)
-                        content = disk
-                        savedContent = disk
-                    }
+        store.localTreeChanges.collect { summary ->
+            // A delivered summary starts a fresh native reconciliation epoch.
+            // Carrying the previous completion's version would misclassify an
+            // already-saved clean local edit as still in flight.
+            val reconciliationStartEditVersion = editVersion
+            try {
+                // Do not drop a cycle that lands during the initial disk read:
+                // wait for the buffer, then classify it against current disk.
+                if (!loaded && summary.affectsOpenNote(noteId)) {
+                    snapshotFlow { loaded }.first { it }
                 }
-                disk == content -> {
-                    // Our own save echoed back through the rescan — mark clean
-                    // (the register re-derives to null).
-                    savedContent = disk
+                if (summary.affectsOpenNote(noteId)) {
+                    val disposition =
+                        session.reconcileOpenNote(
+                            openNoteEffects(summary, reconciliationStartEditVersion),
+                        )
+                    logOpenNoteDisposition(disposition, host.editorFocused)
                 }
-                disk != savedContent -> {
-                    // Snapshot before each suspending engine flush. If the user
-                    // types while it runs, loop with the newer buffer rather than
-                    // replacing those keystrokes with the peer version.
-                    saveJob?.cancel()
-                    val conflictId = noteId
-                    while (noteId == conflictId) {
-                        val flushed = content
-                        val disposition = session.runWork {
-                            store.flushDraft(
-                                PendingDraft(conflictId, savedContent, flushed),
-                            )
-                        } ?: return@collect
-                        when (adoptFlushOutcome(disposition)) {
-                            AdoptFlushOutcome.KEEP_DRAFT -> {
-                                savedContent = flushed
-                                break
-                            }
-                            AdoptFlushOutcome.RELOAD_DISK -> {
-                                if (content != flushed) continue
-                                val refreshedDisk = store.read(conflictId)
-                                if (noteId != conflictId) return@collect
-                                if (content != flushed) continue
-                                host.applyExternalContent(refreshedDisk)
-                                content = refreshedDisk
-                                savedContent = refreshedDisk
-                                Toast.makeText(
-                                    context,
-                                    "Conflicting edits saved to a copy",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                                break
-                            }
-                            AdoptFlushOutcome.RETRY_LATER -> {
-                                Toast.makeText(
-                                    context,
-                                    "Couldn't preserve conflicting edits. Your draft is still open.",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                                return@collect
-                            }
-                        }
-                    }
-                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e("NoteEditor", "open-note reconciliation failed", e)
+                Toast.makeText(
+                    context,
+                    "Couldn't refresh the open note. Your draft is still open.",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    LaunchedEffect(host.editorFocused, loaded, noteId) {
+        if (loaded && !host.editorFocused && !session.isClosing) {
+            try {
+                val disposition = session.settleDeferredAdoption(
+                    openNoteEffects(
+                        summary = null,
+                        reconciliationStartEditVersion = editVersion,
+                    ),
+                )
+                logOpenNoteDisposition(disposition, host.editorFocused)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e("NoteEditor", "deferred open-note adoption failed", e)
             }
         }
     }
@@ -652,6 +787,7 @@ fun NoteEditorScreen(
                         // [editor.md:121] (allowFileAccess stays on, see EditorHost).
                         imageBaseUrl = "file://${store.rootPath}/",
                         modifier = Modifier.fillMaxSize(),
+                        onAttachmentChange = { editorAttachment = it },
                         onOpenNote = { linkedNoteId ->
                             if (linkedNoteId != noteId) {
                                 navigateAfterSaving { onOpenNote(linkedNoteId) }
@@ -677,28 +813,8 @@ fun NoteEditorScreen(
                                 // register goes clean the instant the debounced save
                                 // sets savedContent (PKT-12 R5). F8 jetsam guard.
                                 content = newContent
-                                saveJob?.cancel()
-                                saveJob = scope.launch {
-                                    delay(400)
-                                    // Re-read noteId at fire time so a save that lands
-                                    // after a rename writes to the renamed note, not the
-                                    // stale id.
-                                    val outcome = session.runWork {
-                                        store.write(noteId, newContent)
-                                    } ?: return@launch
-                                    savedContent = confirmedSavedContent(
-                                        savedContent,
-                                        newContent,
-                                        outcome,
-                                    )
-                                    if (outcome === NoteMutationOutcome.Failed) {
-                                        Toast.makeText(
-                                            context,
-                                            "Couldn't save note. Your changes are still pending.",
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                }
+                                editVersion += 1
+                                scheduleBodySave(newContent)
                             }
                         },
                     )
@@ -708,11 +824,12 @@ fun NoteEditorScreen(
             // Native markdown toolbar [editor.md]: rendered from the generated
             // ToolbarSpec.kt manifest, docked above the soft keyboard by this
             // Column's imePadding. Gated on focus AND the IME actually being
-            // up — the WebView can report a stale focus without the keyboard
-            // (DOM focus parks on cm-content while the view itself is
-            // unfocused), and the bar should track the keyboard exactly like
-            // iOS's inputAccessoryView. Exec items dispatch into the SHARED
-            // markdownToolbar.ts commands — no editing logic in Kotlin.
+            // up: the bar is docked to the keyboard, so it tracks the keyboard
+            // exactly like iOS's inputAccessoryView rather than tracking focus
+            // alone (the two can legitimately differ — a hardware keyboard, or
+            // the frame in which the IME is still animating). Exec items dispatch
+            // into the SHARED markdownToolbar.ts commands — no editing logic in
+            // Kotlin.
             if (host.editorFocused && WindowInsets.isImeVisible) {
                 EditorToolbar(
                     onListLine = host.onListLine,

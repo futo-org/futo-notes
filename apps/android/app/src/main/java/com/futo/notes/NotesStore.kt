@@ -11,6 +11,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.futo.notes.storage.NotesStorage
@@ -21,6 +23,7 @@ import uniffi.futo_notes_ffi.NoteMutation
 import uniffi.futo_notes_ffi.NoteStore
 import uniffi.futo_notes_ffi.NoteMetadata
 import uniffi.futo_notes_ffi.SearchHit
+import uniffi.futo_notes_ffi.SyncSummary
 import uniffi.futo_notes_ffi.VaultDestinationState
 import uniffi.futo_notes_ffi.VaultMigrationStatus
 import uniffi.futo_notes_ffi.VaultMigrationFinalization
@@ -102,18 +105,6 @@ internal fun derivePendingDraft(
     content: String,
 ): PendingDraft? =
     if (loaded && content != savedContent) PendingDraft(noteId, savedContent, content) else null
-
-internal enum class AdoptFlushOutcome { KEEP_DRAFT, RELOAD_DISK, RETRY_LATER }
-
-internal fun adoptFlushOutcome(disposition: FlushDisposition?): AdoptFlushOutcome =
-    when (disposition) {
-        FlushDisposition.Wrote,
-        FlushDisposition.Converged,
-        FlushDisposition.Recreated,
-        -> AdoptFlushOutcome.KEEP_DRAFT
-        is FlushDisposition.ParkedConflict -> AdoptFlushOutcome.RELOAD_DISK
-        null -> AdoptFlushOutcome.RETRY_LATER
-    }
 
 /**
  * The open editor's unsaved-draft register and its leave-foreground flush,
@@ -264,6 +255,11 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  [Dispatchers.Main.immediate] (this scope's dispatcher) so Compose state is
      *  only ever touched on the main thread — same discipline as [SyncManager]. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val _localTreeChanges = MutableSharedFlow<SyncSummary>(extraBufferCapacity = 1)
+    private var localTreeChangeTail: Job? = null
+
+    /** Completed sync cycles, emitted after their exact list mutation is applied. */
+    val localTreeChanges = _localTreeChanges.asSharedFlow()
 
     init {
         // Bootstrap, migrations, seeding, and search startup are one Rust call,
@@ -297,7 +293,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     }
 
     suspend fun read(id: String): String = withCore { core.read(id) }
-    suspend fun exists(id: String): Boolean = withCore { core.exists(id) }
+    suspend fun readIfExists(id: String): String? = withCore { core.readIfExists(id) }
 
     /** Save an editor image and consume its filename while holding the same
      * migration gate as note workflows. The consumer is part of the operation:
@@ -704,12 +700,50 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         }
     }
 
-    /** A live pull bypassed local mutations. Reconcile the same store-owned
-     *  index, then project one fresh durable snapshot. */
-    fun liveDataChanged() {
-        scope.launch {
-            withCore { core.rescan() }
-            reload()
+    /** Project exactly the files a sync cycle reported. Rust rechecks their
+     *  final filesystem state and returns canonical row positions/folders, so
+     *  this path needs neither a full vault scan nor a shell-side comparator. */
+    fun localTreeChanged(summary: SyncSummary) {
+        val previous = localTreeChangeTail
+        localTreeChangeTail = scope.launch {
+            previous?.join()
+            try {
+                val mutation = withCore {
+                    core.refreshExternalChanges(
+                        summary.updatedIds,
+                        summary.deletedIds,
+                        summary.renamed,
+                    )
+                }
+                applyMutation(mutation)
+                _localTreeChanges.emit(summary)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w(
+                    "NotesStore",
+                    "scoped local-tree projection failed; rebuilding snapshot",
+                    e,
+                )
+                try {
+                    val snapshot = withCore {
+                        core.rescan()
+                        core.scan()
+                    }
+                    applySnapshot(snapshot.notes, snapshot.folders)
+                } catch (fallback: CancellationException) {
+                    throw fallback
+                } catch (fallback: Exception) {
+                    android.util.Log.e(
+                        "NotesStore",
+                        "local-tree snapshot recovery failed",
+                        fallback,
+                    )
+                }
+                // The list recovery is best effort, but the open editor can
+                // still reconcile itself from one atomic note read.
+                _localTreeChanges.emit(summary)
+            }
         }
     }
 

@@ -602,21 +602,24 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   syncServiceE2ee.ts, syncManager.svelte.ts
 - When a sync cycle changes the local notes tree, the note list (and the open
   editor's on-disk base) refreshes automatically so the change appears without
-  any user action — on **both** platforms. iOS carries the completed
-  `SyncSummary` through `SyncManager.onLocalTreeChanged`, projects only its
-  reported ids through `NoteStore.refresh_external_changes`, then publishes the
-  same summary to the open-note reconciler; Android still reloads from its
-  zero-argument callback. → iOS `FutoNotesApp` / `NotesStore.localTreeChanged`;
-  Android `MainActivity`.
-  A live pull also reindexes the pulled changes into the search engine so
-  synced-in notes are immediately searchable (peer changes → `change`,
-  deletions → `unlink`, renames → `rename`); see [search.md](search.md).
+  any user action. Both native shells pass the complete `SyncSummary` through
+  `SyncManager.onLocalTreeChanged` to `NotesStore.localTreeChanged`, where the
+  store-owned
+  `refresh_external_changes` projects only affected rows at their canonical
+  Rust-computed positions. That verb rechecks final filesystem state, so a
+  callback racing a recreate/flush cannot delete the recreated row, and sends
+  scoped changed/removed notifications to search. If scoped projection fails,
+  a native shell falls back to search reconciliation plus a full snapshot, then
+  still delivers the summary so the open editor can reconcile from disk. →
+  iOS `FutoNotesApp` / `NotesStore.swift`; Android `MainActivity` /
+  `NotesStore.kt`;
+  futo-notes-store `refresh_external_changes`
   - The refresh fires on the core-computed `SyncSummary.localWritesApplied`, not
     only `downloaded`/`deleted` — a **push-side** clean merge (`MergedClean`)
     writes merged text to local disk while reporting `uploaded`, so gating on
     downloads/deletes alone let a stale open native editor's next autosave
     clobber the peer's merged-in edit (F2). → `SyncManager.wroteLocalChanges`
-    (iOS/Android), guarded by `SyncManagerReloadGateTest` (Android) +
+    (iOS/Android), guarded by `SyncManagerLocalTreeChangeGateTest` (Android) +
     `combine_summaries_carries_local_writes_applied` (core).
 - **Local edits auto-push on Tauri desktop AND the native shells.**
   - Desktop: a local save triggers a debounced push (`notifySavedV2` → `run_sync`),
@@ -784,15 +787,13 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   apps/tauri/src-tauri/src/sync/frontend_contract.rs and
   crates/futo-notes-ffi/src/sync/contract.rs (both guarded by
   `projection_carries_every_engine_field`)
-  iOS acts on that report directly: its callback carries the summary, its list
-  projection applies the engine's complete scoped mutation (canonical
-  positions and folders included), and its open-note executor follows reported
-  renames before reading the target. → `NoteStore.refresh_external_changes`;
+  Both native shells act on that report directly: their list projections apply
+  the engine's complete scoped mutation (canonical positions and folders
+  included), and their open-note executors follow reported renames before
+  reading the target. → `NoteStore.refresh_external_changes`;
   iOS `SyncManager.onLocalTreeChanged` / `NotesStore.localTreeChanged` /
-  `OpenNoteReconciler`
-  > **Gap:** Android's callback is still zero-argument, so it rescans the whole
-  > vault after every cycle and strands an editor on the old id after a reported
-  > rename.
+  `OpenNoteReconciler`; Android `SyncManager.kt`, `NotesStore.kt`,
+  `NoteEditorScreen.kt`
 - **A relocation the ENGINE performs never hides a real update OR deletion of
   its target.** Summary ghost-stripping removes only the rename's from-side from
   `deletedIds`/`peerDeletedIds` (the "delete at the old name" byproduct every
@@ -1155,10 +1156,10 @@ journal --dir` has nothing to read from a phone.
   when the local draft is clean (`content == savedContent`); a dirty draft
   still wins and is never overwritten _(iOS/Android)_. Without this, the open
   editor kept showing a stale base and — worse — SAVED IT BACK on exit,
-  silently clobbering the remote edit (observed 2026-06-04). iOS renders the
-  engine disposition from the completed cycle's per-id report; Android still
-  re-drives its local adoption from the note-list snapshot. →
-  iOS `OpenNoteReconciler`; Android `NoteEditorScreen.kt`
+  silently clobbering the remote edit (observed 2026-06-04). Both native shells
+  render the engine disposition from the completed cycle's per-id report. →
+  iOS `OpenNoteReconciler`; Android `EditorSession.reconcileOpenNote` +
+  `NoteEditorScreen.kt`
 - The desktop adopt works for **every consecutive** remote edit, not just the
   first. The adopt's own programmatic `setEditorContent` echoes back through
   the editor's rAF-coalesced `onchange` one frame later — after the
@@ -1209,38 +1210,40 @@ journal --dir` has nothing to read from a phone.
   instead of the full-replacement `setContent`. Works for consecutive remote
   edits. Verified cross-device (simulator ↔ emulator) 2026-06-09: with the
   caret parked mid-document, a peer edit appeared in the open editor and the
-  selection/caret held on both platforms. iOS never invokes that bridge while
-  the editor is focused: it remembers `DeferAdopt`, then re-reads and classifies
-  current disk content on blur. → packages/editor bridge v2,
-  iOS `EditorWebView` / `OpenNoteReconciler`; Android `NoteEditorScreen.kt`
-- On Android, a **dirty draft against a real remote change** (draft still
-  inside the save debounce when the pull rewrites the file) is parked: the
-  pending save is cancelled, the draft is written to a
-  `<title> (conflict YYYY-MM-DD)` copy, the remote content is adopted into
-  the editor, and a "Conflicting edits saved to a copy" toast fires. A draft
-  that already reached disk is covered by the push-first 409 machinery above
-  instead. Desktop and iOS instead render the engine's `KeepDraft`: the
-  executor leaves the buffer untouched and assigns the verdict's `base`
-  verbatim — for `Diverged` that is the PRE-pull baseline, which is what makes
-  the following flush park the draft as a conflict copy and leave the peer's
-  bytes on disk (#89); iOS then resumes the debounced save through
-  `flush_draft` rather than a raw write. `PeerDeleted` likewise keeps the
-  pre-pull baseline and the draft for the verb's Recreated arm, while
-  `Converged` is the one arm that advances the baseline onto disk. On
-  Android the local edit is captured
-  after the conflict-copy id
-  is minted and immediately before the copy is written; the copy lands on
-  DISK first and the remote is adopted last (crash-durable: a process death
-  mid-flow never loses the captured edit; a stale background flush can't
-  clobber the adopted remote because the conditional write skips on changed
-  base — PKT-12 final ordering). Verified on the emulator 2026-06-09
-  (held-dirty draft + peer edit → copy contained the draft, editor showed
-  the remote). → futo-notes-store `flush_draft`;
-  iOS `OpenNoteReconciler`; Android `NoteEditorScreen.kt`
+  selection/caret held on both platforms. Neither shell invokes that bridge
+  while the editor is focused: each remembers `DeferAdopt`, then re-reads and
+  classifies current disk content on blur. The blur edge every host settles on
+  is ONE reported fact — the embed's `focus` bridge message, from
+  `editorHasDomFocus` — and it means "CodeMirror holds the caret", not merely
+  "some node inside the editor is still `document.activeElement`". The lenient
+  reading was iOS-only from the start (WKWebView reports a blurred document
+  while its contenteditable really is focused); on Android that same shape IS
+  the blur — dismissing the IME with Back, or tapping the native inline title,
+  blurs the page while `activeElement` lags behind — so reporting it as focus
+  meant the shell never saw a blur edge and the deferral was stranded
+  indefinitely on superseded peer content (device-verified on
+  emulator 2026-08-10). A deferral therefore always has an edge to settle on.
+  → packages/editor bridge v2; `editorDomFocus.ts` (guarded by
+  editorDomFocus.test.ts); iOS `EditorWebView` / `OpenNoteReconciler`; Android
+  `EditorSession.settleDeferredAdoption` / `NoteEditorScreen.kt`
+- A **dirty draft against a real remote change** is never replaced. Each
+  executor renders the engine's `KeepDraft`: it cancels/drains the pending
+  debounce, leaves the live buffer untouched, assigns the verdict's `base`
+  verbatim as its saved baseline, and resumes persistence through the ordinary
+  `flush_draft` workflow rather than a raw write. For `Diverged` that baseline
+  is the PRE-pull one, which is what makes the following flush park the draft
+  under the engine's dated conflict name and leave the peer's bytes on disk —
+  rebasing it onto the pulled content instead made the flush a fast-forward
+  that destroyed them (#89). `PeerDeleted` likewise keeps the pre-pull baseline
+  and recreates the note at its original id, and `Converged` is the one arm
+  that advances the baseline onto disk. →
+  futo-notes-store `flush_draft`; desktop
+  `createExternalChangeCoordinator`; iOS `OpenNoteReconciler`; Android
+  `EditorSession.reconcileOpenNote` / `NoteEditorScreen.kt`
 - A peer **deleting the currently-open note** closes the open session (route →
   home, deletion toast) instead of adopting its content; an unsaved local draft
   is kept open with a deletion/draft-kept toast rather than closed _(desktop,
-  iOS)_. On desktop the one Tauri classification command reads an
+  iOS, Android)_. On desktop the one Tauri classification command reads an
   `Option<String>` directly from the local note store, so an empty file is an
   adoptable `Some("")` while a missing file is `None`; this prevents the old
   adopt-`""` path from blanking the editor while leaving it bound to a deleted
@@ -1250,19 +1253,17 @@ journal --dir` has nothing to read from a phone.
   applies `Close` only to the visible editor (a buried wikilink editor must not
   pop the stack top). A hidden editor re-gathers on return, and the queued save
   is cancelled and drained before the read so a clean note cannot be
-  resurrected after the close.
+  resurrected after the close. Android uses the same atomic distinction,
+  renders `Close` through `EditorSession` for a clean deletion, and renders
+  `KeepDraft(PeerDeleted)` for a dirty deletion; its close latch plus clean
+  baseline prevents `onDispose` from resurrecting the note.
   The dirty-keep path is edit-wins: the debounced save re-creates the note
   with the local edits, and a leave/background flush of the kept draft
   converges on the same home via the verb's Recreated arm.
   → desktop createExternalChangeCoordinator `reconcileOpenNote` (guarded by
   "peer delete of open note closes editor" in tests/cross-platform-sync.mjs +
   the executor cases in createExternalChangeCoordinator.test.ts); iOS
-  `OpenNoteReconciler`.
-  > **Gap:** Android leaves the open editor bound to the deleted id (its
-  > snapshotFlow adopt early-returns on the missing note); the peer-delete
-  > close/keep + banner is not yet ported there. The verdict it needs now
-  > exists as one engine verb (`classify_open_note`, reachable over UniFFI);
-  > what remains is the Compose side that renders it.
+  `OpenNoteReconciler`; Android `NoteEditorScreen.kt`.
 - **One engine verb decides what happens to the open note.** `Leave`, `Adopt`,
   `DeferAdopt`, `FollowRename`, `KeepDraft` (peer-deleted / diverged /
   converged) and `Close` are the whole vocabulary (CONTEXT.md: open-note
@@ -1327,7 +1328,11 @@ journal --dir` has nothing to read from a phone.
   FFI verb, performs one post-read identity/visibility validation, follows a
   reported rename before delete handling, re-gathers a deferred adopt on blur,
   and likewise assigns the verdict's `base` verbatim before resuming its flush.
-  → iOS `OpenNoteReconciler`
+  → iOS `OpenNoteReconciler`.
+  Android renders every arm through `EditorSession.reconcileOpenNote`, with one
+  identity revalidation, deferred adoption owned until blur, and the verdict's
+  `base` likewise assigned verbatim. → Android EditorSession.kt,
+  NoteEditorScreen.kt
   **No background projection may overrule that verdict for the open note**:
   desktop completion's deleted-tab pruning skips the id the session is still
   bound to (a `close` has already unbound it), so a file that vanishes between
@@ -1335,5 +1340,3 @@ journal --dir` has nothing to read from a phone.
   home behind the engine's back. → reconcileSyncCompletion (guarded by "never
   prunes the tab of a note the engine left open" in
   src/features/sync/syncManager.test.ts)
-  > **Gap:** Android still runs its shell-side decision and focused in-place
-  > adopt; its Compose executor has not yet been ported to the engine verb.

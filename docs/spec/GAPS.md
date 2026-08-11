@@ -36,9 +36,6 @@ flag gaps the codebase suggests have been implemented.
 ## sync.md
 
 - [sync.md:424](sync.md#L424) — The heal is not idempotent for a name ending in repeated `". "` groups — `sanitize_title` peels exactly one group per pass, so `"a. ..md"` heals to `"a..md"`, which the next cycle heals again to `"a.md"`: one rename per sync round until it settles. Closing it means changing the title rule in both `packages/editor/src/filename.ts` and `futo-notes-core` plus regenerated conformance fixtures (AGENTS.md M7); the invariant is recorded as the `#[ignore]`d `healing_an_incoming_path_settles_in_one_round` property.
-- [sync.md:793](sync.md#L793) — Android's callback is still zero-argument, so it rescans the whole vault after every cycle and strands an editor on the old id after a reported rename.
-- [sync.md:1095](sync.md#L1095) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
-- [sync.md:1261](sync.md#L1261) — Android leaves the open editor bound to the deleted id (its snapshotFlow adopt early-returns on the missing note); the peer-delete close/keep + banner is not yet ported there. The verdict it needs now exists as one engine verb (`classify_open_note`, reachable over UniFFI); what remains is the Compose side that renders it.
-- [sync.md:1338](sync.md#L1338) — Android still runs its shell-side decision and focused in-place adopt; its Compose executor has not yet been ported to the engine verb.
+- [sync.md:1096](sync.md#L1096) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 
-_21 gaps._
+_18 gaps._

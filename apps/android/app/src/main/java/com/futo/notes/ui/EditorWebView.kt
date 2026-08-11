@@ -62,12 +62,12 @@ internal fun isInAppEditorNavigation(scheme: String?): Boolean =
  * Instead a single [EditorHost] owns ONE WebView, pre-warmed once at app start
  * (see `MainActivity` / [EditorHost.prewarm]). Opening a note reparents that
  * already-`ready` WebView into the current composition and pushes content with
- * a single `setContent` call — no boot on the open path. Reuse is safe because
- * the nav stack never holds two editors at once (List/Search ↔ Editor only),
- * so exactly one note binds the shared WebView at a time.
+ * a single `setContent` call — no boot on the open path. Animated navigation can
+ * briefly compose an outgoing and incoming editor together; the attachment
+ * token makes only the newest binding eligible to mutate the shared WebView.
  */
 @Composable
-fun EditorWebView(
+internal fun EditorWebView(
     content: String,
     theme: String,
     autoFocus: Boolean,
@@ -75,6 +75,8 @@ fun EditorWebView(
     modifier: Modifier = Modifier,
     notesJson: String? = null,
     imageBaseUrl: String? = null,
+    /** Reports this composition's token so passive work can reject a stale owner. */
+    onAttachmentChange: (EditorAttachmentToken?) -> Unit = {},
     onOpenNote: (String) -> Unit = {},
     onPickImage: (String) -> Unit = {},
     onSaveImageData: (String, String) -> Unit = { _, _ -> },
@@ -82,14 +84,18 @@ fun EditorWebView(
 ) {
     val context = LocalContext.current
     val host = remember { EditorHost.get(context) }
+    var attachment by remember { mutableStateOf<EditorAttachmentToken?>(null) }
 
-    // Push the latest content/theme/notes/image-base on every (re)composition.
-    // All are deduped + ready-gated inside the host, so this is cheap and won't
-    // re-push our own change echoes (the editor swallows setContent echoes).
-    host.setTheme(theme)
-    host.setContent(content)
-    if (notesJson != null) host.setNotes(notesJson)
-    if (imageBaseUrl != null) host.setImageBaseUrl(imageBaseUrl)
+    // Only the composition that owns the current attachment may push into the
+    // app-lifetime WebView. AnimatedContent briefly recomposes both screens;
+    // without this gate, the outgoing screen's ordinary state push could undo
+    // the incoming screen's content even when reconciliation itself was fenced.
+    if (attachment?.let(host::isCurrentAttachment) == true) {
+        host.setTheme(theme)
+        host.setContent(content)
+        if (notesJson != null) host.setNotes(notesJson)
+        if (imageBaseUrl != null) host.setImageBaseUrl(imageBaseUrl)
+    }
 
     // Bind this note's callbacks for the lifetime of this composition. The
     // generation token guards against a future nav change attaching a new
@@ -104,7 +110,17 @@ fun EditorWebView(
             onPickImage,
             onSaveImageData,
         )
-        onDispose { host.detach(token) }
+        attachment = token
+        host.setTheme(theme)
+        host.setContent(content)
+        if (notesJson != null) host.setNotes(notesJson)
+        if (imageBaseUrl != null) host.setImageBaseUrl(imageBaseUrl)
+        onAttachmentChange(token)
+        onDispose {
+            host.detach(token)
+            attachment = null
+            onAttachmentChange(null)
+        }
     }
 
     // Re-adopt the WebView whenever the host rebuilds it (renderer-process

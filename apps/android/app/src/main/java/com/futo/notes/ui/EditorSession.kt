@@ -1,9 +1,36 @@
 package com.futo.notes.ui
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import uniffi.futo_notes_ffi.OpenNoteDisposition
+import uniffi.futo_notes_ffi.OpenNoteFacts
+
+/**
+ * The shell boundary for one open-note reconciliation pass. The session owns
+ * serialization, deferred-adoption lifetime, and identity/attachment
+ * revalidation; the screen owns gathering its live editor/disk facts and
+ * rendering the Rust engine's disposition.
+ */
+internal interface OpenNoteEffects {
+    fun currentNoteId(): String
+
+    /** This screen still owns the app-lifetime editor WebView. */
+    fun isCurrentEditor(): Boolean
+
+    suspend fun gatherFacts(noteId: String): OpenNoteFacts
+
+    fun classify(facts: OpenNoteFacts): OpenNoteDisposition
+
+    /** Re-arm a dirty draft after fact gathering cancelled its debounce. */
+    fun resumeDraftPersistence()
+
+    fun apply(noteId: String, disposition: OpenNoteDisposition)
+}
 
 /**
  * One note is open; here is every way it ends.
@@ -178,6 +205,9 @@ internal class EditorSession(
 
     private var exiting = false
 
+    /** The focused note whose clean peer update waits for blur before adoption. */
+    private var deferredAdoptionId: String? = null
+
     /**
      * True once a destructive exit has latched. One-way for this session: an
      * editor change arriving afterwards is dropped rather than buffered, and
@@ -208,6 +238,97 @@ internal class EditorSession(
      */
     suspend fun <T> runWork(block: suspend () -> T): T? =
         mutex.withLock { if (closed) null else block() }
+
+    /**
+     * An autosave admitted under the session lock is a miniature transaction:
+     * once its engine write begins, cancellation may suppress a replacement
+     * debounce but cannot discard the matching baseline/disposition update.
+     * Identity-changing work uses this same lock, so the admitted save still
+     * finishes against the identity it captured before rename/delete proceeds.
+     */
+    suspend fun <T> runAutosave(block: suspend () -> T): T? =
+        mutex.withLock {
+            if (closed) null else withContext(NonCancellable) { block() }
+        }
+
+    /**
+     * Gather facts, ask the engine once per identity, revalidate that identity
+     * once, and render its answer while serialized against every other editor
+     * workflow. A same-cycle rename target gets its next pass under this lock.
+     */
+    suspend fun reconcileOpenNote(effects: OpenNoteEffects): OpenNoteDisposition? =
+        runWork {
+            var expectedId = effects.currentNoteId()
+            val seenIds = mutableSetOf(expectedId)
+            var disposition: OpenNoteDisposition?
+            do {
+                disposition = reconcilePass(expectedId, effects)
+                val nextId = effects.currentNoteId()
+                if (
+                    disposition !is OpenNoteDisposition.FollowRename ||
+                    nextId == expectedId ||
+                    !seenIds.add(nextId)
+                ) {
+                    break
+                }
+                expectedId = nextId
+            } while (true)
+            disposition
+        }
+
+    /**
+     * Settle the one deferred clean adoption after body-editor blur. Deferred
+     * state lives here rather than in Compose so a later unrelated sync cannot
+     * accidentally adopt it, and a rename/navigation drops it by identity.
+     *
+     * The deferral is read INSIDE the lock. The blur edge is not synchronised
+     * with the cycle that produces the deferral — a reconciliation suspends on
+     * its disk read while holding this lock, and the user can blur in that
+     * window — so reading it first made such a settle pass see "nothing
+     * deferred" and return, stranding the peer's content: there is no second
+     * blur edge to retry on. Taking the lock first IS waiting for that cycle,
+     * after which the fresh deferral is visible.
+     */
+    suspend fun settleDeferredAdoption(effects: OpenNoteEffects): OpenNoteDisposition? =
+        runWork {
+            val deferredId = deferredAdoptionId
+            when {
+                deferredId == null -> null
+                effects.currentNoteId() != deferredId -> {
+                    deferredAdoptionId = null
+                    null
+                }
+
+                else -> reconcilePass(deferredId, effects)
+            }
+        }
+
+    private suspend fun reconcilePass(
+        expectedId: String,
+        effects: OpenNoteEffects,
+    ): OpenNoteDisposition? {
+        val facts =
+            try {
+                effects.gatherFacts(expectedId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                effects.resumeDraftPersistence()
+                throw e
+            }
+        // THE revalidation: the disk read above suspended, so the note may have
+        // changed identity or this outgoing cross-fade screen may have yielded
+        // the single app-lifetime WebView to the incoming editor.
+        if (effects.currentNoteId() != expectedId || !effects.isCurrentEditor()) return null
+
+        val disposition = effects.classify(facts)
+        deferredAdoptionId =
+            if (disposition === OpenNoteDisposition.DeferAdopt) expectedId else null
+        if (disposition === OpenNoteDisposition.Close) closed = true
+        if (disposition === OpenNoteDisposition.Leave) effects.resumeDraftPersistence()
+        effects.apply(expectedId, disposition)
+        return disposition
+    }
 
     /**
      * THE exit verb: admission, latches, drain, commit, effect.

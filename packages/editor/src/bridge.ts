@@ -191,7 +191,16 @@ export interface ChangeMessage {
   content: string;
 }
 
-/** Emitted when the editor gains or loses focus. */
+/**
+ * Emitted when the editor gains or loses focus.
+ *
+ * `focused` means CodeMirror holds the caret — a host may treat `false` as a
+ * real blur edge and act on it (both native shells settle a deferred open-note
+ * adoption there). It is deliberately NOT "some node inside the editor is still
+ * `document.activeElement`": an Android WebView leaves `activeElement` behind
+ * when the page blurs, so that reading never reported a blur and stranded the
+ * deferral. → `editorDomFocus.ts`, docs/spec/sync.md (open-note dispositions)
+ */
 export interface FocusMessage {
   type: 'focus';
   focused: boolean;
