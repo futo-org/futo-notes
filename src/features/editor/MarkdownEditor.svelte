@@ -3,15 +3,17 @@
   import {
     EditorSelection,
     EditorState,
-    Transaction,
+    type Extension,
     type SelectionRange,
   } from '@codemirror/state';
+  import { redoDepth, undoDepth } from '@codemirror/commands';
   import { onMount } from 'svelte';
   import { preloadImages, liveMarkdownRefresh } from './liveMarkdownTransform';
   import { getImageWebPath } from '$features/images/imageFiles';
   import {
     buildSetContentTransaction,
     readDocContent,
+    EXTERNAL_CONTENT_OPTS,
     type SetEditorContentOptions,
   } from './editorContentSync';
   import { hasFileSystem } from '$lib/platform';
@@ -20,6 +22,7 @@
   import { EditorPointerSelection } from './interactions/pointerSelection';
   import { EditorScrollAnchoring } from './interactions/scrollAnchoring';
   import { createMarkdownEditorRuntime } from './createMarkdownEditorRuntime';
+  import { createNoteHistoryStore, restoreState } from './noteHistory';
 
   interface Props {
     content?: string;
@@ -52,16 +55,14 @@
 
   let container: HTMLDivElement;
   let view: EditorView | null = $state(null);
+  let extensions: Extension | null = null;
+  let openNoteId: string | null = null;
+  const noteHistory = createNoteHistoryStore();
 
   let editorOwnsContent = false;
 
   let linkInteractions: EditorLinkInteractions | null = null;
   let scrollAnchoring: EditorScrollAnchoring | null = null;
-
-  const EXTERNAL_UPDATE_OPTS: SetEditorContentOptions = {
-    preserveSelection: true,
-    annotations: [Transaction.addToHistory.of(false)],
-  };
 
   onMount(() => {
     preloadImages(content, hasFileSystem ? getImageWebPath : undefined, () => view);
@@ -82,6 +83,7 @@
     const currentScrollAnchoring = runtime.scrollAnchoring;
     scrollAnchoring = currentScrollAnchoring;
 
+    extensions = runtime.extensions;
     const v = new EditorView({
       state: EditorState.create({
         doc: content,
@@ -133,6 +135,9 @@
       pointerSelection.destroy();
       if (linkInteractions === currentLinkInteractions) linkInteractions = null;
       if (scrollAnchoring === currentScrollAnchoring) scrollAnchoring = null;
+      noteHistory.clear();
+      extensions = null;
+      openNoteId = null;
       view?.destroy();
       view = null;
     };
@@ -145,7 +150,7 @@
       editorOwnsContent = false;
       if (view.state.doc.length === c.length) return;
     }
-    setContent(c, EXTERNAL_UPDATE_OPTS);
+    setContent(c, EXTERNAL_CONTENT_OPTS);
   });
 
   $effect(() => {
@@ -154,6 +159,48 @@
     if (!anchoring) return;
     return anchoring.connectScrollParent(sp);
   });
+
+  // Swaps the whole state rather than editing the document, so opening a note leaves no
+  // undo entry.
+  export function openNote(noteId: string | null, text: string): void {
+    const v = view;
+    const exts = extensions;
+    if (!v || !exts) return;
+    if (openNoteId) noteHistory.save(openNoteId, v.state);
+    openNoteId = noteId;
+    scrollAnchoring?.resetAnchor();
+    v.setState(restoreState(text, exts, noteId ? noteHistory.take(noteId) : undefined));
+    scrollAnchoring?.scheduleWarm();
+    if (text) {
+      const getImageFn = hasFileSystem ? getImageWebPath : undefined;
+      queueMicrotask(() => preloadImages(text, getImageFn, () => v));
+    }
+  }
+
+  export function retargetOpenNote(fromId: string | null, toId: string): void {
+    if (fromId) noteHistory.rename(fromId, toId);
+    if (openNoteId === fromId) openNoteId = toId;
+  }
+
+  export function forgetNoteHistory(noteIds: readonly string[]): void {
+    for (const id of noteIds) {
+      noteHistory.forget(id);
+      if (openNoteId === id) openNoteId = null;
+    }
+  }
+
+  // For hosts that switch notes without naming one. Two notes can hold identical text, so
+  // this rebuilds around the live doc instead of keying off a content change.
+  export function resetHistory(): void {
+    const v = view;
+    const exts = extensions;
+    if (!v || !exts) return;
+    openNoteId = null;
+    if (undoDepth(v.state) === 0 && redoDepth(v.state) === 0) return;
+    v.setState(
+      EditorState.create({ doc: v.state.doc, selection: v.state.selection, extensions: exts }),
+    );
+  }
 
   export function setContent(text: string, options: SetEditorContentOptions = {}): void {
     if (!view) return;

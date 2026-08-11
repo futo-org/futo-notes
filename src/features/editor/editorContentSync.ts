@@ -1,3 +1,4 @@
+import { Transaction } from '@codemirror/state';
 import type { Annotation, TransactionSpec } from '@codemirror/state';
 import type { EditorState, Text } from '@codemirror/state';
 
@@ -5,6 +6,14 @@ export interface SetEditorContentOptions {
   preserveSelection?: boolean;
   annotations?: Annotation<unknown>[];
 }
+
+// Text that arrived from outside the editor — a sync adopt, a host push. Undo must not
+// reach past it into the local text it replaced, or undo re-raises the superseded version
+// and the autosave that follows pushes it back over the peer's.
+export const EXTERNAL_CONTENT_OPTS: SetEditorContentOptions = {
+  preserveSelection: true,
+  annotations: [Transaction.addToHistory.of(false)],
+};
 
 // `undefined` means there is no live editor and the save must be skipped;
 // `''` is real user content. Collapsing the two once allowed a torn-down

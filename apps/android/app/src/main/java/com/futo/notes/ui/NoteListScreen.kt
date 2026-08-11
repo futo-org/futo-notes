@@ -205,9 +205,20 @@ internal fun NoteListScreen(
                                 // composable's main scope; the navigate callback runs after
                                 // it returns (resumes on Main, safe for Compose state).
                                 scope.launch {
-                                    store.createNote("Untitled", folder)?.let { id ->
-                                        if (atTop) listState.requestScrollToItem(0)
-                                        onCreate(id)
+                                    // Consume the explicit outcome: open the note only on a
+                                    // committed create, and SAY SO when it failed. A silent
+                                    // no-op here is what github#13 reports.
+                                    when (val outcome = store.createNote("Untitled", folder)) {
+                                        is NoteMutationOutcome.Committed -> {
+                                            if (atTop) listState.requestScrollToItem(0)
+                                            onCreate(outcome.value)
+                                        }
+                                        NoteMutationOutcome.Failed ->
+                                            Toast.makeText(
+                                                context,
+                                                "Couldn't create note. Try again.",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
                                     }
                                 }
                             },

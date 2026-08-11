@@ -3,7 +3,7 @@ import { sanitizeFilename, validateTitle } from '$lib/rules';
 
 import { normalizeTitleForPersistence, shouldWriteNoteToDisk } from './noteSessionChanges';
 import type { ParkedDraftSnapshot } from './noteSession.svelte';
-import { updateNote } from './notes.svelte';
+import { _applyLocalMutation, recordSaveIdentityChange, updateNote } from './notes.svelte';
 
 interface NotePersistenceState {
   originalId: string | null;
@@ -35,10 +35,12 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
   return async function saveNote(): Promise<boolean> {
     const noteId = options.getNoteId();
     const editorContent = options.getEditorContent();
-    if (!hasFileSystem || editorContent === undefined || noteId === null) return false;
+    if (!hasFileSystem || editorContent === undefined) return false;
 
     try {
       const state = options.getState();
+      // Navigating Home clears the tab's note id before this queued save runs.
+      if (noteId === null && state.originalId === null) return false;
       const newTitle = normalizeTitleForPersistence(state.title);
       const blockingTitleIssue = validateTitle(newTitle).find((issue) => issue.kind !== 'empty');
       if (blockingTitleIssue) {
@@ -74,12 +76,14 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         originalId: state.originalId ?? undefined,
         base: state.savedContent,
       });
+      if (result.unappliedMutation) _applyLocalMutation(result.unappliedMutation);
       if (result.disposition === 'parked') {
         await options.reconcileOpenNote(result.id, { content: editorContent, title: state.title });
         return false;
       }
 
       options.clearPendingFolder();
+      if (result.id !== state.originalId) recordSaveIdentityChange(state.originalId, result.id);
       options.onSaved({
         id: result.id,
         title: newTitle,

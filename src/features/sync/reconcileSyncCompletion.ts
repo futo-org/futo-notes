@@ -16,6 +16,10 @@ type ExternalChangeCoordinator = Pick<
 interface SyncCompletionDependencies {
   session: NoteSession;
   showToast: (message: string) => void;
+  /** Applies one engine-reported rename completely — tab/route AND the open
+   * session while it is still bound to `fromId` (syncManager
+   * `applyReportedRename`). Retargeting only the route is what left the URL on
+   * the new title with the old one still in the title input. */
   onRename: (fromId: string, toId: string, title: string) => void;
   pruneTabsForDeletedIds: (goneIds: string[]) => void;
 }
@@ -63,10 +67,12 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     setTimeout(() => void externalChanges.runRescan(), 50);
   }
 
-  function projectBackgroundRenames(
-    summary: SyncSummary,
-    followedRenameFromIds: Set<string>,
-  ): void {
+  // Every reported rename the open-note executor did not already follow —
+  // renames of other notes, and the open note's own rename when its
+  // classification never produced an applicable verdict (it failed, or the
+  // engine could not be asked at all). Applying them completely is what keeps
+  // route and title agreeing on which note is open.
+  function projectReportedRenames(summary: SyncSummary, followedRenameFromIds: Set<string>): void {
     for (const rename of summary.renamed) {
       if (followedRenameFromIds.has(rename.fromId)) continue;
       const slash = rename.toId.lastIndexOf('/');
@@ -141,9 +147,18 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     recordSyncedFiles(summary);
     reindexPeerChanges(summary);
     const openNoteResult = await reconcileOpenNote(summary, syncStartEditVersion);
-    projectBackgroundRenames(summary, openNoteResult.followedRenameFromIds);
+    projectReportedRenames(summary, openNoteResult.followedRenameFromIds);
 
-    const pruneCandidates = summary.deletedIds.filter((id) => id !== openNoteResult.keptDraftId);
+    // What happens to the OPEN note is the engine's verdict, never a background
+    // prune: a note the executor was told to leave open (Leave/KeepDraft, or a
+    // rename it followed) whose file then vanished before this existence probe
+    // ran would otherwise have its live tab pruned, which clears the session and
+    // routes home behind the verdict's back. A `close` verdict has already
+    // unbound the session, so the id is still pruned then.
+    const stillOpenId = dependencies.session.originalId;
+    const pruneCandidates = summary.deletedIds.filter(
+      (id) => id !== openNoteResult.keptDraftId && id !== stillOpenId,
+    );
     const pruneExistence = await Promise.all(
       pruneCandidates.map((id) => noteExists(id).catch(() => true)),
     );

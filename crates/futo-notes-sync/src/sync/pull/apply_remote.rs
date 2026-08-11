@@ -19,6 +19,7 @@ use crate::sync::{
 
 pub(super) mod reason {
     pub(super) const UNSUPPORTED_NAME: &str = "unsupported_incoming_name";
+    pub(super) const UNPORTABLE_NAME: &str = "unportable_incoming_name";
     pub(super) const BOOTSTRAP_LOCAL_DIVERGED: &str = "bootstrap_local_diverged_from_ancestor";
     pub(super) const MAPPING_MOVED: &str = "server_moved_the_mapped_name";
     pub(super) const OLD_NAME_DIVERGED: &str = "old_name_diverged_from_map";
@@ -48,7 +49,21 @@ struct ApplyContext<'a> {
 
 fn requested_path(remote: &RemoteNote, summary: &mut SyncSummary) -> Option<String> {
     match classify_incoming_sync_path(&remote.name) {
-        IncomingSyncPath::Ignore => None,
+        // Ignored: left strictly alone, never a failure. A non-note file is
+        // noise and stays silent; a name no portable filesystem can hold gets a
+        // journal line, because it is the answer to "why is that note not on
+        // this device" and the journal is the one channel the user never sees.
+        IncomingSyncPath::Ignore(why) => {
+            if why == futo_notes_core::files::IGNORE_UNPORTABLE_NAME {
+                summary.decide(
+                    SyncPhase::Pull,
+                    &remote.name,
+                    decision::IGNORED,
+                    reason::UNPORTABLE_NAME,
+                );
+            }
+            None
+        }
         IncomingSyncPath::Accept => Some(remote.name.clone()),
         IncomingSyncPath::Sanitize(name) => Some(name),
         IncomingSyncPath::Reject(_) => {

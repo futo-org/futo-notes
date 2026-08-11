@@ -4,6 +4,13 @@
   overflow-x: hidden;
   padding: 8px 8px calc(80px + env(safe-area-inset-bottom, 0));
 }
+/* Stand-in height for the rows the virtualized tree has not mounted, so the
+   scrollbar and scroll offsets match the full row count.
+   → FolderTreeView.svelte */
+.tree-spacer {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
 .empty-state {
   padding: 32px;
   text-align: center;

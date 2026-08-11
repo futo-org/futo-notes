@@ -3,7 +3,11 @@ import { EditorSelection, Prec } from '@codemirror/state';
 import type { ChangeSpec } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 
-export { computeOrderedRenumberChanges, orderedListRenumber } from './orderedListRenumber';
+export {
+  coalesceRenumberEdits,
+  computeOrderedRenumberChanges,
+  orderedListRenumber,
+} from './orderedListRenumber';
 
 const QUOTE_RE = /^((?:>\s*)+)(.*)$/;
 

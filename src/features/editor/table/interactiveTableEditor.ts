@@ -137,7 +137,7 @@ function getChangedTableScanRanges(
   transaction: Transaction,
   parseLimit: number,
 ): ChangedTableScanRanges {
-  const scanRanges: TableRange[] = [];
+  const changedRanges: TableRange[] = [];
   const touchedTableIndexes = new Set<number>();
 
   transaction.changes.iterChangedRanges((fromBefore, toBefore, fromAfter, toAfter) => {
@@ -152,14 +152,29 @@ function getChangedTableScanRanges(
       scanTo = Math.max(scanTo, mappedTable.to);
     }
 
-    const expandedRange = expandRangeToMarkdownBlocks(
-      transaction.state,
-      scanFrom,
-      scanTo,
-      parseLimit,
-    );
-    if (expandedRange) scanRanges.push(expandedRange);
+    changedRanges.push({ from: scanFrom, to: scanTo });
   });
+
+  // Expansion walks line by line out to the enclosing blank lines, so one call per
+  // change costs changes x block length. Changes arrive ascending, and one already
+  // inside the last expanded block expands to that same block — skip it. Test that
+  // containment against the parse ceiling the expansion itself clamps to: when the
+  // tree is short of the document, every change past the ceiling expands to the one
+  // block ending there, and raw offsets would place them all outside it.
+  const parseCeiling = Math.min(parseLimit, transaction.state.doc.length);
+  const scanRanges: TableRange[] = [];
+  let lastExpandedRange: TableRange | null = null;
+  for (const changedRange of mergeTableScanRanges(changedRanges)) {
+    const from = Math.min(changedRange.from, parseCeiling);
+    const to = Math.min(changedRange.to, parseCeiling);
+    if (lastExpandedRange && from >= lastExpandedRange.from && to <= lastExpandedRange.to) {
+      continue;
+    }
+    const expandedRange = expandRangeToMarkdownBlocks(transaction.state, from, to, parseLimit);
+    if (!expandedRange) continue;
+    scanRanges.push(expandedRange);
+    lastExpandedRange = expandedRange;
+  }
 
   return {
     scanRanges: mergeTableScanRanges(scanRanges),

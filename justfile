@@ -386,6 +386,13 @@ test-e2e:
 test-e2e-full:
   pnpm run test:e2e:full
 
+# EXACTLY what CI's test:e2e:rest job runs — everything except the P0 crash/IME
+# spec, two workers. Named as a recipe so it can be reproduced verbatim locally
+# and remotely (`just remote test-e2e-rest`), which is how the mr-203
+# remote-rename failure was pinned to a stale stack base rather than a flake.
+test-e2e-rest:
+  pnpm run test:e2e:rest
+
 test-cross-platform:
   pnpm run test:cross-platform
 
@@ -407,6 +414,61 @@ test-rust:
 test-rust-full:
   mkdir -p dist
   cargo test --workspace
+
+# ── Remote (Linux) test execution ──
+# Everything that does NOT need macOS/Xcode/WKWebView runs on a Linux box over
+# Tailscale (default: jfedora, 32 cores / 125 GB / KVM), so the Mac stays free
+# for the iOS and desktop work only it can do. scripts/remote-test.mjs REFUSES
+# macOS-only recipes by name (including via their justfile aliases) rather than
+# trusting a doc to be read, propagates the remote exit status verbatim (M11),
+# and prints the transfer mode + sha every run so a stale remote checkout can't
+# pass for your local work. Flags go BEFORE the recipe; `--rsync` sends the
+# dirty working tree instead of a pushed sha, `--wait` queues behind a run in
+# progress. Runs are serialised by a lock on the remote worktree and the sha is
+# re-checked afterwards: exit 75 = BLOCKED, 76 = the checkout moved mid-run so
+# the result is VOID. The remote worktree is the RUNNER'S OWN working area —
+# never cd into it and run suites by hand, that bypasses the lock and
+# manufactures failures that look exactly like real ones. What a Linux run can
+# and cannot prove (the WebKitGTK/WKWebView boundary), plus why setup dominates
+# the short suites (~25s setup around ~3s of tests): docs/remote-testing.md.
+
+# Prints the exact commands a human with sudo must run; start here when adding
+# a second Linux box.
+# Report what is present/missing on the remote (node, cargo, NDK, KVM, Postgres…).
+remote-doctor *flags:
+  node scripts/remote-test.mjs --doctor {{flags}}
+
+# Run any portable recipe remotely: `just remote test-full`, `just remote --rsync test-unit`.
+remote *args:
+  node scripts/remote-test.mjs {{args}}
+
+# Equivalent to a Mac `just check` — tsc, eslint, prettier, svelte-check,
+# vitest (jsdom), vite build, arch gates, Rust conformance — none of which
+# touch a real web engine, so this carries no WebKit caveat.
+# The pre-merge umbrella, remotely.
+remote-check *flags:
+  node scripts/remote-test.mjs {{flags}} check
+
+# The box's 32 cores also make futo-notes-search's CI-only "keyword index never
+# became ready" contention flake vanish.
+# The full Rust workspace, remotely.
+remote-rust *flags:
+  node scripts/remote-test.mjs {{flags}} test-rust-full
+
+# Sync state and files are engine-independent; rendering is not (see the doc).
+# Ports and the Postgres database are slot-derived, so different worktrees don't
+# collide; two runs in the SAME remote worktree share a slot, which the worktree
+# lock prevents (and the harness now refuses loudly instead of adopting).
+# Cross-platform E2EE sync against the box's own Postgres + server checkout.
+remote-sync *flags:
+  node scripts/remote-test.mjs {{flags}} test-cross-platform
+
+# Device/instrumentation legs still need an emulator booted ON the box; KVM
+# there makes those far faster than the Mac's emulation once wired up.
+# Android Rust .so + Kotlin bindings + assembleDebug, then the JVM unit tests.
+remote-android *flags:
+  node scripts/remote-test.mjs {{flags}} build-android-native
+  node scripts/remote-test.mjs {{flags}} test-android-native
 
 # Factory: compare our editor to Obsidian's, scenario by scenario.
 # See factory/AGENTS.md.
@@ -528,6 +590,22 @@ check-drift:
 check-debt-ratchet:
   node scripts/debt-ratchet.mjs
 
+# Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents) teaches
+# OS-level input into this app (AppleScript UI scripting, click injection), a
+# process-name/PID lookup against it, or a relative `find -newermt` safety check.
+# 2026-08-10: a QA agent drove the INSTALLED release app on the user's real vault
+# that way. Rationale + the allowlist contract: scripts/check-qa-input-safety.mjs.
+check-qa-input-safety:
+  node scripts/check-qa-input-safety.mjs
+
+# Resolve a desktop QA target safely: the ONLY sanctioned way to turn a port or
+# PID into something you may drive. Verifies the executable is a debug build
+# inside THIS worktree (plus its data dir and vault) and exits 3 on anything
+# else — emphatically an installed application bundle.
+#   just qa-target list | pid <pid> | port <port> | kill
+qa-target *args:
+  @node scripts/qa-target.mjs {{args}}
+
 # Fail on a broken `just <recipe>`/`pnpm run <script>`/repo-path reference inside
 # an instruction surface (README/AGENTS.md/skill SKILL.md+references/workflows) —
 # agents follow these files literally, so a stale command or path sends them down
@@ -552,6 +630,18 @@ gate-redproofs *args:
 # package.json owns the membership because the pinned CI image does not include just.
 arch-gate:
   pnpm run check:arch-gate
+
+# Link this checkout's third-party skills (mattpocock/skills — /tdd, /research,
+# /wayfinder, …) from the gitignored .agents/skills/ into .claude/skills/, where
+# Claude Code discovers them. skills-lock.json is the registry of which ones we
+# use; an external installer populates .agents/skills/ per machine, and nothing
+# in this repo fetches them — so this recipe links only what is already present
+# and REPORTS the rest instead of leaving a dangling link behind. The links are
+# gitignored on purpose: MR !207 committed 22 of them, and because .agents/ is
+# gitignored they dangled in every fresh clone and every git worktree. Run it
+# once per checkout; it is idempotent.
+skills-link:
+  @node scripts/skills-link.mjs
 
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).

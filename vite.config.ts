@@ -5,8 +5,8 @@ import path from 'path';
 import { webPort } from './scripts/lib/slot.mjs';
 
 // The CodeMirror packages the editor imports statically. Everything else under
-// `@codemirror`/`@lezer` is a code-fence grammar reached only via
-// `@codemirror/language-data`'s dynamic imports.
+// `@codemirror`/`@lezer` is a code-fence grammar, reached only through the
+// `import()` thunks in `src/features/editor/codeFenceLanguages.ts`.
 const CODEMIRROR_CORE = [
   '@codemirror/state',
   '@codemirror/view',
@@ -20,6 +20,23 @@ const CODEMIRROR_CORE = [
   '@lezer/lr',
   '@lezer/markdown',
 ];
+
+const IGNORED_WATCH_DIRS = [
+  '.claude/worktrees',
+  'target',
+  'dist',
+  '.tauri-data',
+  'build',
+  'playwright-report',
+  'factory/captures',
+  'apps/android/app/build',
+  'apps/android/build',
+  'apps/android/app/src/main/assets/editor.html',
+  'apps/ios/.build',
+  'apps/ios/.build-device',
+  'apps/ios/.build-device-release',
+  'apps/ios/Resources/editor.html',
+].map((dir) => path.resolve(__dirname, dir).split(path.sep).join('/'));
 
 export default defineConfig({
   plugins: [tailwindcss(), svelte()],
@@ -38,10 +55,10 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('@codemirror') || id.includes('codemirror') || id.includes('@lezer')) {
-            // Only the editor core is eager. `@codemirror/language-data`
-            // reaches all ~128 code-fence grammars through its own `import()`
-            // calls, so returning undefined lets Rollup give each one its own
-            // chunk, fetched when a fence of that language first appears.
+            // Only the editor core is eager. The fence grammars are reached
+            // solely through `import()`, so returning undefined lets Rollup
+            // give each its own chunk, fetched when a fence of that language
+            // first appears.
             //
             // Do NOT collapse those into one named chunk: `lang-markdown`
             // statically imports `lang-html` (which pulls css + javascript),
@@ -77,6 +94,15 @@ export default defineConfig({
     // while every consumer still points at the original.
     port: webPort(),
     strictPort: true,
+    watch: {
+      // Vite does not read .gitignore. A predicate, not globs: these paths are
+      // absolute and unescaped glob metacharacters in a checkout path silently
+      // match nothing.
+      ignored: (file) => {
+        const p = file.split(path.sep).join('/');
+        return IGNORED_WATCH_DIRS.some((dir) => p === dir || p.startsWith(`${dir}/`));
+      },
+    },
     // Dev only. The Tauri WebKitGTK webview heuristically disk-caches module
     // responses across app restarts. After a dev-server restart the cached
     // parent-component JS executes without a server hit and imports its

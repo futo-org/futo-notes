@@ -500,7 +500,15 @@ class NotesStore(notesRoot: File, searchIndex: File) {
             NoteMutationOutcome.Failed
         }
 
-    suspend fun createNote(title: String, folder: String = ""): String? =
+    /** Create one note and report an explicit outcome, like every other note
+     *  mutation here. It used to return `String?`, which the FAB consumed as
+     *  `?.let { open(it) }` — so ANY failure (a Rust `NoteError`, a poisoned
+     *  vault-mutation lock, storage paused for migration) left the user looking
+     *  at an unchanged list with no note, no editor, and no message. That is
+     *  exactly what github#13 reports ("nothing visible happens"), and it is
+     *  also why the report carries no evidence: only logcat knew. The failure is
+     *  now surfaced the way New Folder's already is. */
+    suspend fun createNote(title: String, folder: String = ""): NoteMutationOutcome<String> =
         try {
             runMutationTransaction {
                 val mutation = withCore { core.createNote(title, folder, "") }
@@ -508,13 +516,13 @@ class NotesStore(notesRoot: File, searchIndex: File) {
                 val createdId = mutation.finalId ?: title
                 editorDraftCoordinator.reopen(createdId)
                 signalLocalChange()
-                createdId
+                NoteMutationOutcome.Committed(createdId)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            android.util.Log.e("NotesStore", "createNote failed", e)
-            null
+            android.util.Log.e("NotesStore", "createNote failed in folder '$folder'", e)
+            NoteMutationOutcome.Failed
         }
 
     suspend fun delete(id: String): NoteMutationOutcome<Unit> {

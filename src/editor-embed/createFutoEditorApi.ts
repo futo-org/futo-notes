@@ -1,4 +1,3 @@
-import { Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
   createEditorHostBoot,
@@ -11,7 +10,10 @@ import {
 
 import { preloadImages, setLocalImageBaseUrl } from '$features/editor/liveMarkdownTransform';
 import { TOOLBAR_EXEC } from '$features/editor/markdownToolbar';
-import type { SetEditorContentOptions } from '$features/editor/editorContentSync';
+import {
+  EXTERNAL_CONTENT_OPTS,
+  type SetEditorContentOptions,
+} from '$features/editor/editorContentSync';
 import { setNotesUniverse } from '$features/notes/notes.svelte';
 import type { NotePreview } from '$shared/types/note';
 
@@ -21,6 +23,7 @@ export interface EmbeddedEditorHandle {
   getContent: () => string;
   getView: () => EditorView | null;
   refreshDecorations: () => void;
+  resetHistory: () => void;
   setContent: (text: string, options?: SetEditorContentOptions) => void;
   warmScroll: () => { grew: number; steps: number } | null;
 }
@@ -35,11 +38,6 @@ interface CreateFutoEditorApiOptions {
   markExternalChange: () => void;
   setNativeToolbar: (enabled: boolean) => void;
 }
-
-const EXTERNAL_UPDATE_OPTIONS: SetEditorContentOptions = {
-  preserveSelection: true,
-  annotations: [Transaction.addToHistory.of(false)],
-};
 
 function parseBridgeNotes(notesJson: string): NotePreview[] | null {
   let parsed: unknown;
@@ -106,11 +104,15 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
   const boot = createEditorHostBoot(effects);
 
   return {
+    // Outside `boot` because its guards skip a note holding the text already on screen —
+    // the reset has to run on every host open, not just the ones that change the document.
     initialize(configJson: string): void {
       boot.initialize(configJson);
+      editor.resetHistory();
     },
     setContent(markdown: string): void {
       boot.setContent(markdown);
+      editor.resetHistory();
     },
     getContent(): string {
       return editor.getContent();
@@ -126,7 +128,7 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     },
     applyExternalContent(markdown: string): void {
       if (markdown !== editor.getContent()) options.markExternalChange();
-      editor.setContent(markdown, EXTERNAL_UPDATE_OPTIONS);
+      editor.setContent(markdown, EXTERNAL_CONTENT_OPTS);
     },
     insertImage(filename: string): void {
       const view = editor.getView();

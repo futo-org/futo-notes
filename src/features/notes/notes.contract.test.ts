@@ -65,6 +65,10 @@ function preview(id: string): NotePreview {
   return { id, title: id, preview: '', modificationTime: 1, tags: [] };
 }
 
+function projectAsCallerWould(result: { unappliedMutation: LocalNoteMutation | null }): void {
+  if (result.unappliedMutation) _applyLocalMutation(result.unappliedMutation);
+}
+
 function fakeStore(overrides: Partial<LocalNoteStore> = {}): LocalNoteStore {
   return {
     bootstrap: vi.fn(),
@@ -135,15 +139,15 @@ describe('TypeScript local-note projection', () => {
     const save = vi.fn();
     _setLocalNoteStoreForTest(fakeStore({ flushDraft, save }));
 
-    await expect(
-      updateNote('Note', 'ignored shell title', 'latest body', {
-        originalId: 'Note',
-        base: 'saved body',
-      }),
-    ).resolves.toMatchObject({ id: 'Note', disposition });
+    const result = await updateNote('Note', 'ignored shell title', 'latest body', {
+      originalId: 'Note',
+      base: 'saved body',
+    });
 
+    expect(result).toMatchObject({ id: 'Note', disposition, unappliedMutation: committed });
     expect(flushDraft).toHaveBeenCalledWith('Note', 'saved body', 'latest body');
     expect(save).not.toHaveBeenCalled();
+    projectAsCallerWould(result);
     expect(getAllNotes().map((note) => note.id)).toEqual(['Note']);
   });
 
@@ -169,17 +173,13 @@ describe('TypeScript local-note projection', () => {
     const flushDraft = vi.fn(async () => flushResult('parkedConflict', parked, parkedId));
     _setLocalNoteStoreForTest(fakeStore({ flushDraft }));
 
-    await expect(
-      updateNote('Note', 'ignored shell title', 'my draft', {
-        originalId: 'Note',
-        base: 'saved body',
-      }),
-    ).resolves.toMatchObject({
-      id: 'Note',
-      disposition: 'parked',
-      parkedId,
+    const result = await updateNote('Note', 'ignored shell title', 'my draft', {
+      originalId: 'Note',
+      base: 'saved body',
     });
 
+    expect(result).toMatchObject({ id: 'Note', disposition: 'parked', parkedId });
+    projectAsCallerWould(result);
     expect(getAllNotes().map((note) => note.id)).toEqual(['Note', parkedId]);
   });
 
@@ -298,6 +298,27 @@ function bootstrapResult(notes: LocalNoteMetadata[] = []) {
 
 // A4: the engine-owned readiness wait is bounded and a rejection cannot poison
 // later searches.
+describe('the recorded save identity change', () => {
+  it('is dropped once the renamed-from id names a note again', async () => {
+    const { notes } = await freshModules();
+    notes.recordSaveIdentityChange('Draft', 'Draft final');
+    expect(notes.getSaveIdentityChange()).toEqual({ from: 'Draft', to: 'Draft final' });
+
+    notes._applyLocalMutation(mutation({ upserted: [upsert('Draft')] }));
+
+    expect(notes.getSaveIdentityChange()).toBeNull();
+  });
+
+  it('survives a mutation that touches other notes', async () => {
+    const { notes } = await freshModules();
+    notes.recordSaveIdentityChange('Draft', 'Draft final');
+
+    notes._applyLocalMutation(mutation({ upserted: [upsert('Unrelated')] }));
+
+    expect(notes.getSaveIdentityChange()).toEqual({ from: 'Draft', to: 'Draft final' });
+  });
+});
+
 describe('search readiness (A4)', () => {
   it('passes the configured budget to the engine wait and degrades when it reports not-ready', async () => {
     const { notes, ln } = await freshModules();
