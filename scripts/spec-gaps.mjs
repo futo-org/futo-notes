@@ -88,6 +88,13 @@ function read(rel) {
 //   - "title places the cursor at the start of the prefilled Untitled" —
 //     closed by 7d3a0bff ("feat(mobile): quick-capture notes, inline
 //     tappable title, illegal-title UX").
+// Retired 2026-08-11: issue #89's "KeepDraft{Diverged} rebases the baseline
+// onto the pulled disk content" probe. The gap it watched is closed — the
+// classifier keeps the pre-pull base and desktop's own copy no longer rebases
+// — so its wording is gone from docs/spec and the probe had no gap left to
+// watch. What replaces it is not a probe but assertions: the classifier's
+// property test, futo-notes-ffi's classify -> flush_draft seam test, and the
+// cross-platform scenario "dirty draft survives a peer edit then settles".
 const PROBES = [
   {
     match: /sync live pull.*land above the viewport|reloadAsync.*no at-top re-pin/s,
@@ -149,25 +156,6 @@ const PROBES = [
         read('apps/android/app/src/main/java/com/futo/notes/ui/NoteEditorScreen.kt'),
       ),
     hint: 'Android now has quarantine vocabulary in the editor session/screen — the #80 dropped-keystroke divergence may be closed.',
-  },
-  {
-    // issue #89 — KeepDraft{Diverged} rebases the baseline onto the pulled disk
-    // content, so the next flush_draft takes its `current == base` fast-forward
-    // arm and overwrites the peer's bytes instead of parking a conflict copy.
-    // The fix is on the classifier's Diverged arm: it has to stop handing
-    // `disk` back as the base. Watching the classifier only — desktop's live
-    // copy of the same rebase (reconcileSyncCompletion.ts) shares
-    // `rebaseSavedContent` with the legitimate Converged case, so there is no
-    // grep signal there that closure would flip without false positives.
-    // Match on markdown-free prose (see the wikilink probe above: `**bold**`
-    // markers inside a gap have broken a `match` regex before).
-    match: /rebases the baseline onto\s+the pulled disk content/,
-    closed: () => {
-      const classifier = read('crates/futo-notes-sync/src/open_note.rs');
-      if (classifier === '') return false;
-      return !/base: disk,\s*reason: KeepDraftReason::Diverged/.test(classifier);
-    },
-    hint: "the classifier's Diverged arm no longer rebases onto disk — the data-loss gap may be closed; re-run the two-client peer-edit scenario before removing it.",
   },
 ];
 

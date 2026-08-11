@@ -1164,15 +1164,16 @@ journal --dir` has nothing to read from a phone.
   the adopt gate additionally checks `hasOpenDraftChanges()` (a synchronous
   live-doc read) so a keystroke whose rAF delivery is still in flight can
   never be clobbered by the initial adopt decision. When a draft is protected
-  because it is dirty or was edited during the running cycle, sync completion
-  leaves the editor untouched but re-bases its saved-content baseline to the
-  pulled disk content. The draft is therefore honestly dirty again, and the
-  next ordinary `flush_draft` persists it against that pulled base — which is
-  the data-loss path recorded in the Gap under "One engine verb decides what
-  happens to the open note" below, because persisting against the pulled base
-  overwrites the peer's bytes instead of parking them as a conflict copy; if
-  disk already equals the editor, the same rebase silently makes the session
-  clean.
+  because it is dirty, was edited during the running cycle, or the editor is
+  focused, sync completion leaves BOTH the editor and its saved-content baseline
+  untouched and defers the adopt to the next blur. Keeping the pre-pull baseline
+  is what makes the next ordinary `flush_draft` a three-way decision the engine
+  parks: the draft becomes a conflict copy and the peer's pulled bytes stay at
+  the note's own id. Re-basing that baseline onto the pulled content instead put
+  the flush on its `current == base` fast-forward arm and destroyed the peer's
+  edit with no copy anywhere in the vault (#89, fixed 2026-08-11); the desktop
+  clean-and-unfocused case still adopts immediately, and a draft that disk
+  already equals is rebased on purpose (the `Converged` case below).
   Rust live cycles advance their edit epoch only when a completion event
   arrives (synchronously, after that completion snapshots the previous epoch),
   never from an in-cycle start or connect signal: such signals reach the
@@ -1263,26 +1264,57 @@ journal --dir` has nothing to read from a phone.
   dispositions proved). Two invariants live in the classifier rather than in
   each shell: unsaved work is never replaced (persist-or-park at the open-note
   seam — a peer-deleted note with a draft stays open for the flush verb's
-  Recreated arm), and a verdict that leaves the buffer alone rebases the
-  baseline onto what is actually on disk (F2). For `Converged` the rebase is the
-  whole story — the baseline was merely stale and disk already holds the draft.
-  For `Diverged` it is the opposite of a safeguard: parking is exactly what
-  `flush_draft` does when `current != base`, so handing it the pulled bytes as
-  the base puts the next flush on its `current == base` fast-forward arm and
-  turns the park INTO a clobber (the Gap below). **A focused editor is never
+  Recreated arm), and the baseline a kept draft is handed is whichever one makes
+  its next flush do the right thing. Those two `KeepDraft` baselines point in
+  OPPOSITE directions, and reading them as one rebase rule is what destroyed a
+  peer's edit (#89). `Converged` rebases onto disk: the draft is already there,
+  so a stale baseline is all that is left to repair, and leaving it stale is what
+  let a later save clobber a peer's merged-in edit (F2). `Diverged` keeps the
+  baseline it had: `flush_draft` parks exactly when `current != base`, so the
+  PRE-pull base is what parks the draft as a conflict copy and leaves the peer's
+  bytes on disk — handing back the pulled content instead put the next flush on
+  its `current == base` fast-forward arm and overwrote the peer with no copy
+  anywhere in the vault. A kept draft is therefore never baselined on disk
+  content it disagrees with. **A focused editor is never
   interrupted on any surface**: the verdict is `DeferAdopt` and the content is
   applied on the next blur, whether or not that host's adopt could have
   preserved the caret. Host adopt capability is deliberately NOT an input — one
   answer for all three shells, so a caret never moves under a typist.
+  `KeepDraft.base` does two jobs with ONE value, because every shell assigns it
+  to the same saved-content baseline it later hands `flush_draft` as the
+  expected-previous: it decides whether the editor reads as dirty AND what the
+  next write is conditioned on. A shell therefore never needs a second value and
+  must not synthesise one — assign `base` to the baseline, pass that same
+  baseline to the flush verb (desktop `updateNote({ base })`, iOS/Android
+  `PendingDraft(base:)`), and let the returned disposition rebind the editor when
+  it parks. A shell whose debounced save writes UNCONDITIONALLY instead destroys
+  the peer's bytes whatever the verdict said, which is why the native autosave
+  routes through the flush verb. Every surface keeps that baseline today: the
+  verb, desktop's single executor (which renders the verb rather than holding a
+  copy of the decision — its sync-completion and watcher paths both delegate to
+  it), iOS `adoptExternalChange`, and Android — all of them hand `flush_draft`
+  the pre-pull base, so all of them park (#89, closed 2026-08-11; the loss had
+  been reproduced between two real desktop clients on 2026-08-10 and is now
+  pinned by the cross-platform scenario "dirty draft survives a peer edit then
+  settles").
   → futo-notes-sync `open_note.rs` (guarded by
   `every_reachable_fact_combination_has_one_verdict`,
-  `a_dirty_draft_is_never_replaced` and
-  `keeping_a_draft_always_rebases_onto_what_is_actually_on_disk`), projected by
-  `e2ee_classify_open_note` (desktop) and `classify_open_note` (UniFFI).
+  `a_dirty_draft_is_never_replaced`, `a_reported_rename_is_always_followed`,
+  `a_converged_draft_rebases_onto_what_is_actually_on_disk`,
+  `a_diverged_draft_keeps_the_baseline_that_makes_the_next_flush_park` and
+  `no_reachable_fact_combination_can_discard_unsaved_work`), the
+  verdict→flush composition guarded end to end on a real vault by futo-notes-ffi
+  `tests/open_note_flush.rs`, projected by `e2ee_classify_open_note` (desktop)
+  and `classify_open_note` (UniFFI).
   Desktop gathers disk and classifies in one Tauri round trip, then
   createExternalChangeCoordinator applies every verdict after one compound
   identity/edit-version/draft/title re-validation; sync completion and watcher
-  events both delegate to that executor. **No background projection may overrule
+  events both delegate to that executor, so desktop holds no copy of the
+  decision to keep in step — the baseline it hands the flush is the verdict's
+  `base`, assigned verbatim (guarded by the executor cases in
+  createExternalChangeCoordinator.test.ts, the editor-reconciliation matrix in
+  syncManager.test.ts, and the cross-platform scenario "dirty draft survives a
+  peer edit then settles"). **No background projection may overrule
   that verdict for the open note**: completion's deleted-tab pruning skips the id
   the session is still bound to (a `close` has already unbound it), so a file
   that vanishes between the classification and the existence probe cannot prune
@@ -1293,26 +1325,3 @@ journal --dir` has nothing to read from a phone.
   > rendering the UniFFI verb. Until their adoptions land, the native in-place
   > focused adopt above still stands; adopting the verb changes it to a deferred
   > adopt on blur.
-
-  > **Gap (data loss):** For `Diverged`, `KeepDraft` rebases the baseline onto
-  > the pulled disk content, which makes the next `flush_draft` a FAST-FORWARD
-  > over the peer's bytes rather than the park its doc comment promises: the
-  > flush writes when `current == base`, and the rebase has just made those
-  > equal, so `park_conflict_draft` is unreachable. Desktop runs the same rebase
-  > today in its own copy of the decision (`createExternalChangeCoordinator.ts`,
-  > the `keepDraft` verdict arm → `rebaseSavedContent`), so a peer edit
-  > arriving while a desktop draft is dirty is DESTROYED — overwritten by the
-  > draft with NO conflict copy anywhere in the vault. Reproduced between two
-  > real desktop clients 2026-08-10 (a scenario asserting both texts survive
-  > failed on "the peer edit must survive the settle of the local draft").
-  > Android's own copy is correct — it hands `flush_draft` the PRE-pull base, so
-  > the park arm runs and the copy is minted; iOS's copy is written the same way
-  > (`adoptExternalChange`) and reads correct, but was not re-driven on a device
-  > after the desktop loss was found. Desktop's watcher/external-change path
-  > also parks correctly, for the same reason. Left unfixed deliberately: moving
-  > the rebase off the `Diverged` arm changes behavior the lines above record
-  > for all three shells, in the area #82 is already sequencing, so it is
-  > waiting on a sequencing decision. → issue #89;
-  > futo-notes-sync `open_note.rs` (`KeepDraftReason::Diverged`),
-  > futo-notes-store `flush_draft` (`current == base` vs
-  > `park_conflict_draft`), `src/features/sync/createExternalChangeCoordinator.ts`
