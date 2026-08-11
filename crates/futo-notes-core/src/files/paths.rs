@@ -132,9 +132,14 @@ pub fn classify_incoming_sync_path(relative: &str) -> IncomingSyncPath {
         let safe_stem = sanitize_title(stem);
         changed |= safe_stem != stem;
         let safe_component = format!("{safe_stem}{extension}");
-        // `sanitize_title` strips outer dots and then trims the spaces they hid,
-        // so a component like `". .. ."` heals to `".."`. Screening only the raw
-        // component would let the healed name walk out of the vault.
+        // Defense in depth, deliberately retained. `sanitize_title` now strips
+        // outer dots and whitespace to a fixed point, so a component like
+        // `". .. ."` sanitizes to the `Untitled` fallback and the rule can no
+        // longer mint `.` or `..` — this screen does not fire for dot-space
+        // input any more. It stays because containment must not depend on that
+        // rule staying that way: a future title-rule change that reintroduced a
+        // directory reference would otherwise silently reopen a traversal here,
+        // where the healed name is written verbatim.
         if directory_reference(&safe_component) {
             return Reject("healed component is a directory reference");
         }
