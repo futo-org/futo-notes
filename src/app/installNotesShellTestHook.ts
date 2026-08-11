@@ -7,6 +7,8 @@ import {
   type NoteSwitchTimeline,
 } from '$shared/perf/noteSwitchTimeline';
 
+import { testHooksEnabled } from './testHooksEnabled';
+
 interface NotesShellTestState {
   originalId: string | null;
   title: string;
@@ -27,6 +29,8 @@ interface NotesShellTestHookOptions {
   flushSave: () => Promise<void>;
   getEditorView: () => EditorView | null;
   focusEditor: () => void;
+  setEditorFocused: (focused: boolean) => Promise<void>;
+  isEditorFocused: () => boolean;
   getState: () => NotesShellTestState;
 }
 
@@ -37,6 +41,8 @@ interface NotesShellTestHook {
   seedOpenNote: NotesShellTestHookOptions['seedOpenNote'];
   flushSave: NotesShellTestHookOptions['flushSave'];
   typeInEditor: (text: string) => string;
+  setEditorFocused: NotesShellTestHookOptions['setEditorFocused'];
+  isEditorFocused: NotesShellTestHookOptions['isEditorFocused'];
   replaceEditorContent: (content: string) => string;
   getState: NotesShellTestHookOptions['getState'];
   noteSwitchTimelines: () => readonly NoteSwitchTimeline[];
@@ -45,7 +51,15 @@ interface NotesShellTestHook {
 
 type TestHookWindow = typeof window & { __notesShellTest?: NotesShellTestHook };
 
+/**
+ * Expose the shell's seams on `window.__notesShellTest` for the E2E and
+ * cross-platform harnesses — in a dev or opted-in build only. Gated for the same
+ * reason as `installDevelopmentHooks`, and more urgently: `setEditorFocused`
+ * calls production sync code, so in a shipped build this would be a reachable
+ * behavior override, not just an observation point.
+ */
 export function installNotesShellTestHook(options: NotesShellTestHookOptions): () => void {
+  if (!testHooksEnabled()) return () => {};
   const testWindow = window as TestHookWindow;
   testWindow.__notesShellTest = {
     handleSyncComplete: options.handleSyncComplete,
@@ -57,6 +71,8 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
     },
     flushSave: options.flushSave,
     typeInEditor: (text) => typeInEditor(options.getEditorView(), text),
+    setEditorFocused: options.setEditorFocused,
+    isEditorFocused: options.isEditorFocused,
     replaceEditorContent: (content) => replaceEditorContent(options.getEditorView(), content),
     getState: options.getState,
     noteSwitchTimelines: getNoteSwitchTimelines,

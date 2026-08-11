@@ -64,6 +64,19 @@ export async function waitForTestHooks(
   );
 }
 
+/**
+ * Point a host-loopback server URL at the address a non-host client uses to
+ * reach the host (the Android emulator's 10.0.2.2). Shared with the native
+ * Android client so both legs translate the harness server URL identically.
+ */
+export function rewriteLoopbackHost(serverUrl, host) {
+  const url = new URL(serverUrl);
+  if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
+    url.hostname = host;
+  }
+  return url.toString();
+}
+
 export class TauriTestClient {
   constructor({
     name,
@@ -95,11 +108,7 @@ export class TauriTestClient {
   }
 
   normalizeServerUrl(serverUrl) {
-    const url = new URL(serverUrl);
-    if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
-      url.hostname = this.loopbackHost;
-    }
-    return url.toString();
+    return rewriteLoopbackHost(serverUrl, this.loopbackHost);
   }
 
   async readWebview(expression, label = 'webview read') {
@@ -289,19 +298,29 @@ export class TauriTestClient {
     return this._executeRead(`window.__notesShellTest.getState()`, 'getOpenNoteState');
   }
 
-  // Blur the editor (moving DOM focus off .cm-content) and report whether it
-  // is now unfocused. CodeMirror's updateListener fires focusChanged on the
-  // blur, which drives the host's handleEditorFocusChange(false).
+  // Drive the shell's focus-change seam through its debug-only hook with a
+  // SYNTHETIC focus signal. Real OS focus is not available here: CM6's `hasFocus`
+  // consults `document.hasFocus()`, and a mesh runs two desktop windows at once,
+  // of which at most one can hold focus — so the flag is the only way both
+  // clients can play the focused role in a scenario. What the scenario then
+  // asserts is real: `session.editorFocused` reads this flag, and the deferral,
+  // blur-settle, and adopt decisions downstream of it are production code.
+  //
+  // Not asserted afterwards, deliberately: `setEditorFocused` is awaited and sets
+  // the flag as its first statement, so a poll for `isEditorFocused()` could only
+  // ever pass — and it did, by reading back the write, which is why the hook now
+  // reports REAL editor focus instead. Real click-focus → `onfocuschange` →
+  // `handleEditorFocusChange` is covered where a browser can actually focus a
+  // window (tests/editor-focus-signal.spec.ts); the Android leg exercises the
+  // whole chain with genuine device focus (focusOpenEditor).
+  async focusEditor() {
+    await this._executeMutation(`window.__notesShellTest.setEditorFocused(true)`, 'focusEditor');
+  }
+
+  // Drive the matching blur seam so deferred adoption settles before the
+  // scenario reads the editor again.
   async blurEditor() {
-    return this._executeMutation(
-      `(() => {
-        const cm = document.querySelector('.cm-content');
-        if (cm instanceof HTMLElement) cm.blur();
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-        return document.activeElement !== cm;
-      })()`,
-      'blurEditor',
-    );
+    await this._executeMutation(`window.__notesShellTest.setEditorFocused(false)`, 'blurEditor');
   }
 
   // The MCP bridge hard-caps every execute_js call at 5s. Reads can retry

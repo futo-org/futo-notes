@@ -310,7 +310,11 @@ async function ensureAvd(name) {
       const boot = (
         tryRun('adb', ['-s', serial, 'shell', 'getprop', 'sys.boot_completed']) || ''
       ).trim();
-      if (boot === '1') break;
+      // boot_completed flips before servicemanager has registered the package
+      // service, and the next thing a caller does is install the app —
+      // `adb install` then dies with "cmd: Can't find service: package".
+      const packageService = tryRun('adb', ['-s', serial, 'shell', 'service', 'check', 'package']);
+      if (boot === '1' && (packageService || '').includes('found')) break;
       await sleep(2000);
       if (i === 89) die(`emulator ${name} (${serial}) did not finish booting`);
     }

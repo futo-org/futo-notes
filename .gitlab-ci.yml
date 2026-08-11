@@ -898,6 +898,109 @@ test:cross-platform-sync:
         - crates/**/*
         - packages/editor/**/*
 
+# The native-Android leg of the same harness: one desktop Tauri client paired
+# with the REAL Compose app on the baked "ci" emulator. It covers the Android
+# shell glue the desktop pair cannot see (FFI session wiring, the live loop
+# across an offline window, editor save-and-push, list refresh on a live pull).
+#
+# Separate job rather than more scenarios in test:cross-platform-sync: the
+# emulator needs the Android image (SDK + AVD + swiftshader), it depends on
+# build:android-native's APK, and keeping it apart means a device problem can
+# never delay or redden the desktop mesh.
+test:cross-platform-sync:android:
+  # `build` rather than `test`: this repo orders test BEFORE build, and needs:
+  # may only point at the current or an earlier stage — the debug APK comes from
+  # build:android-native. It is still a blocking test job (release:gate.needs).
+  stage: build
+  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  # Both tags resolve to the office runner: dind_fast for the warm cargo cache
+  # (see build:android-native), android_kvm because the emulator wants /dev/kvm.
+  # The boot falls back to unaccelerated with a warning if it is missing.
+  tags:
+    - dind_fast
+    - android_kvm
+  # The debug APK comes from build:android-native's artifacts instead of a
+  # second 3-ABI Rust FFI + gradle build here (8-45m depending on cache).
+  # optional: true keeps pipelines that do not build the app from failing at
+  # creation; ci-android-sync-leg.sh then fails red on the missing APK.
+  needs:
+    - job: build:android-native
+      optional: true
+      artifacts: true
+  # Share the desktop suite's exclusion: both run Tauri clients on the one
+  # pinned runner, and overlapping starves timing-sensitive scenarios (M15).
+  resource_group: cross-platform-sync
+  services:
+    - name: postgres:15@sha256:8b2bad884a8156e63d942305d0c547baa41f81953c93dbfc9e6cfe6f90bb8277
+      alias: postgres
+      pull_policy: if-not-present
+  variables:
+    GIT_DEPTH: "20"
+    # Only build:android-native writes the native archive; this job reads the
+    # sync namespace for the desktop debug binary and must not evict it.
+    CARGO_CACHE_POLICY: pull
+    ANDROID_HOME: /opt/android-sdk
+    ANDROID_SDK_ROOT: /opt/android-sdk
+    JAVA_HOME: /opt/jdk-21
+    # The AVD baked into ci/android.Dockerfile.
+    ANDROID_CI_AVD: ci
+    POSTGRES_DB: futo_notes
+    POSTGRES_USER: futo_notes
+    POSTGRES_PASSWORD: futo_notes
+    FUTO_NOTES_E2EE_DATABASE_URL: postgres://futo_notes:futo_notes@postgres:5432/futo_notes
+    PGPASSWORD: futo_notes
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-sync, cache]
+  script:
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    # xvfb + WebKitGTK are baked into the Android image's desktop layer; the
+    # Mesa software-GL drivers and the psql client used by the harness server
+    # helper are not.
+    - |
+      if command -v psql >/dev/null 2>&1 && dpkg -s libgl1-mesa-dri >/dev/null 2>&1; then
+        echo "psql and Mesa DRI drivers already present in the image"
+      else
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          postgresql-client libgl1-mesa-dri
+      fi
+    - !reference [.setup-futo-notes-server, script]
+    # Boots the emulator, installs the APK, runs the harness with
+    # --android-only (no device = red, since that is this job's whole purpose).
+    - bash "$CI_PROJECT_DIR/scripts/ci-android-sync-leg.sh"
+  after_script:
+    - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - test-screenshots/sync-results.json
+    expire_in: 1 week
+  # Emulator boot (up to 6m unaccelerated) + a possibly cold desktop Tauri
+  # debug compile + ~200s of scenarios.
+  timeout: 60m
+  rules:
+    - if: $CI_COMMIT_TAG
+    # build:android-native's changes: gate lists every path below (plus its own
+    # extras), so the job producing the APK can never be absent when this one
+    # runs. Widening this list means widening that one — and neither may gain
+    # `.gitlab-ci.yml` or docs paths, which that job deliberately excludes
+    # (asserted in scripts/premerge-test-parity.test.mjs).
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &android-sync-leg-changes
+        - apps/android/**/*
+        - crates/futo-notes-ffi/**/*
+        - Cargo.lock
+        - scripts/build-rust-android.sh
+        - tests/cross-platform-sync.mjs
+        - tests/lib/**/*
+        - scripts/ci-android-emulator.sh
+        - scripts/ci-android-sync-leg.sh
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *android-sync-leg-changes
+
 test:desktop-smoke:macos:
   stage: test
   tags:
@@ -1311,6 +1414,9 @@ build:android-native:
         - Cargo.lock
       variables:
         CARGO_CACHE_POLICY: pull-push
+    # The trailing entries are this job's own triggers plus everything that can
+    # make test:cross-platform-sync:android run: that job consumes the debug APK
+    # built here, so it must never run in a pipeline where this job did not.
     - if: $CI_MERGE_REQUEST_IID
       changes: &native-android-changes
         - apps/android/**/*
@@ -1318,6 +1424,10 @@ build:android-native:
         - Cargo.lock
         - scripts/build-rust-android.sh
         - scripts/ci-android-instrumentation.sh
+        - scripts/ci-android-emulator.sh
+        - scripts/ci-android-sync-leg.sh
+        - tests/cross-platform-sync.mjs
+        - tests/lib/**/*
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-android-changes
       variables:
@@ -1737,6 +1847,7 @@ release:gate:
     - job: test:rust:macos
     - job: test:desktop-smoke:macos
     - job: test:cross-platform-sync
+    - job: test:cross-platform-sync:android
     - job: test:ios-native
     - job: build:linux-packages
       artifacts: true

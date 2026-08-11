@@ -38,6 +38,7 @@
   const SIDEBAR_VIEW_KEY = 'futo-notes:sidebarView';
 
   let editor: EditorApi | undefined = $state();
+  let testEditorFocused: boolean | null = null;
   let noteBody: HTMLElement | undefined = $state();
   let titleTextarea: HTMLTextAreaElement | undefined = $state();
   let sidebarCollapsed = $state(false);
@@ -69,7 +70,7 @@
     openEditorNote: (noteId, content) => editor?.openNote(noteId, content),
     forgetEditorNote: (noteId) => editor?.forgetNoteHistory([noteId]),
     focusEditor: () => editor?.focus(),
-    isEditorFocused: () => editor?.hasFocus() ?? false,
+    isEditorFocused: () => testEditorFocused ?? editor?.hasFocus() ?? false,
     isComposing: () => editor?.isComposing() ?? false,
     getNotes: getAllNotes,
     getNoteBody: () => noteBody,
@@ -273,6 +274,19 @@
     flushSave: session.flushSave,
     getEditorView: () => editor?.getView() ?? null,
     focusEditor: () => editor?.focus(),
+    // A SYNTHETIC focus signal, and the only one two simultaneous desktop
+    // windows can have: CM6's `hasFocus` consults `document.hasFocus()`, so at
+    // most one of a harness's clients could ever report a focused editor. It
+    // overrides what `session.editorFocused` reads and drives the real
+    // `handleEditorFocusChange`, which is why installing this hook is gated.
+    setEditorFocused: async (focused) => {
+      testEditorFocused = focused;
+      await sync.handleEditorFocusChange(focused);
+    },
+    // Deliberately NOT the override above: a caller that reads back the flag it
+    // just wrote has measured nothing. This reports the editor's REAL focus, so
+    // an assertion on it can fail (tests/editor-focus-signal.spec.ts).
+    isEditorFocused: () => editor?.hasFocus() ?? false,
     getState: () => ({
       originalId: session.originalId,
       title: session.title,

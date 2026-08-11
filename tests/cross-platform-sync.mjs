@@ -7,14 +7,24 @@
  *   editor/UI → note session save pipeline → autoSync/syncManager →
  *   Rust core → HTTP → server → and back.
  *
+ * A second leg pairs a desktop client with the REAL native Android app when a
+ * usable device is reachable, covering the Android shell glue the desktop pair
+ * cannot see (FFI wiring, live-loop lifecycle, open-note reconciliation, list
+ * refresh). With no device it prints a loud SKIP and runs the desktop-only mesh
+ * — see runAndroidLeg.
+ *
  * Usage:
  *   node tests/cross-platform-sync.mjs
  *   node tests/cross-platform-sync.mjs --scenario "five notes roundtrip"
+ *   node tests/cross-platform-sync.mjs --no-android    (desktop mesh only)
+ *   node tests/cross-platform-sync.mjs --android-only  (Android leg only; CI job)
  *
  * Requires:
  *   - Debug Tauri binary:  cd apps/tauri && cargo tauri build --debug --no-bundle
  *   - E2EE server repo:    ~/Developer/futo-notes-server (override: FUTO_NOTES_E2EE_SERVER_REPO)
  *   - Frontend built with: VITE_INCLUDE_TEST_HOOKS=true pnpm run build
+ *   - Android leg only:    a booted device/emulator with the debug app
+ *                          (just qa-claim android && just android-native)
  */
 
 import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -23,6 +33,11 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startDesktopTauriInstance } from './lib/tauri-instance.mjs';
+import {
+  HARNESS_NOTE_PREFIX,
+  findAndroidLegDevice,
+  startAndroidNativeInstance,
+} from './lib/android-native-instance.mjs';
 import { startServer } from './lib/sync-test-server.mjs';
 import { sleep } from './lib/mcp-client.mjs';
 import { xplatSyncBand } from '../scripts/lib/slot.mjs';
@@ -40,8 +55,20 @@ const { values: args } = parseArgs({
     // probes whose mechanisms are covered by cheap scenarios). Main and tag
     // pipelines, and local runs, execute everything.
     'skip-slow': { type: 'boolean', default: false },
+    // Leave the Android leg out even when a device is reachable (fast local
+    // desktop-only runs). No device at all skips it on its own, loudly.
+    'no-android': { type: 'boolean', default: false },
+    // Run ONLY the Android leg, and REQUIRE a usable device: the desktop mesh
+    // is already covered by test:cross-platform-sync, so the dedicated
+    // emulator job would be pointless work if it silently skipped (M11).
+    'android-only': { type: 'boolean', default: false },
   },
 });
+
+if (args['android-only'] && args['no-android']) {
+  console.error('--android-only and --no-android contradict each other');
+  process.exit(1);
+}
 
 // ── Test harness ────────────────────────────────────────────────
 
@@ -134,23 +161,32 @@ async function waitForSaveIdle(client, timeoutMs = 5_000) {
   throw new Error(`${client.name}: savePending did not become false after ${timeoutMs}ms`);
 }
 
-/** Wait for a toast. Prefer a RegExp over an exact string: user-facing wording
- * is not a cross-platform contract (M15), and an exact match turned a
- * deliberate desktop rewording ("Note was deleted during sync" → "Note was
- * deleted") into a red scenario that looked like a broken close path. */
-async function waitForToastMessage(client, expected, timeoutMs = 10_000) {
-  const matches = (message) =>
-    expected instanceof RegExp ? expected.test(message ?? '') : message === expected;
+async function createNoteViaEditor(client, title, content) {
+  await client.openNewNote();
+  await client.setTitle(title);
+  await client.typeInEditor(content);
+}
+
+/**
+ * Wait for the open-note session itself to satisfy [predicate].
+ *
+ * Never on toast copy. This used to wait for the exact string 'Note was deleted
+ * during sync'; the app's wording was later shortened to 'Note was deleted' and
+ * the scenario then failed for the one reason it was not testing, while the
+ * behavior it WAS testing (the session closing) had worked all along — which is
+ * why a cross-platform test must not assert user-facing strings (AGENTS.md M15).
+ */
+async function waitForOpenNoteState(client, description, predicate, timeoutMs = 10_000) {
   const start = Date.now();
-  let last;
+  let state;
   while (Date.now() - start < timeoutMs) {
-    const state = await client.getOpenNoteState();
-    if (matches(state.toastMessage)) return state;
-    last = state.toastMessage;
+    state = await client.getOpenNoteState();
+    if (predicate(state)) return state;
     await sleep(100);
   }
   throw new Error(
-    `${client.name}: toast did not match ${expected} after ${timeoutMs}ms (last: ${JSON.stringify(last)})`,
+    `${client.name}: open note did not ${description} after ${timeoutMs}ms ` +
+      `(state=${JSON.stringify(state)})`,
   );
 }
 
@@ -332,7 +368,8 @@ async function threeWayMerge(a, b, server) {
   // uncontrolled times, so the 3-way merge can run in a background cycle and
   // spawn a conflict copy that the explicit-sync assertion then sees. The merge
   // is trigger-agnostic, so the explicit syncs exercise the same merge code
-  // deterministically. Same family as activeNoteReload/editorRoundtrip.
+  // deterministically. Same family as the focused-open-note/editor-roundtrip
+  // scenarios.
   await a.pauseAutoSync();
   await b.pauseAutoSync();
 
@@ -392,7 +429,8 @@ async function renamePropagation(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
 
-  // Own the push/pull on both clients (same live-sync race as activeNoteReload).
+  // Own the push/pull on both clients (same live-sync race as the
+  // focused-open-note scenario).
   //  - B: with its SSE live loop up, A's rename push wakes it and it pulls
   //    concurrently with b.syncNow(); if the delete ('old name') and the create
   //    ('new name') land on separate B pull cycles, B sees a lone deletion of
@@ -552,7 +590,7 @@ async function collisionPlacementFollowsOpenNote(a, b, server) {
   assertEqual(await a.readNote(conflictId), '# from B', 'A conflict copy should hold B’s content');
 }
 
-async function activeNoteReload(a, b, server) {
+async function focusedOpenNoteDefersPeerEditUntilBlur(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
 
@@ -585,28 +623,7 @@ async function activeNoteReload(a, b, server) {
 
   await b.openNote('shared live');
   await waitForEditorContent(b, '# Version 1');
-
-  // Blur B's editor before the remote update lands. On desktop the editor
-  // autofocuses on mount (MarkdownEditor's one-shot mount rAF -> view.focus()),
-  // and whether hasFocus() is still true by the time B's second syncNow
-  // completes is timing/environment-sensitive: on a loaded/headless CI runner
-  // it reliably stays focused, on an idle dev box it often does not. That
-  // matters because handleSyncComplete's open-note reconcile DEFERS the adopt
-  // of a peer update while the editor is focused (never replace CM6's document
-  // under live focus — the F4/PKT-4 guard) and only reconciles the pending
-  // adopt on the next blur. The scenario never blurred, so under CI focus the
-  // adopt was deferred forever and the editor stayed on "# Version 1" (this is
-  // the "active note reload" flake: 3 CI hits, always the editor-content wait,
-  // never the downloaded===1 assert). This scenario exercises the direct-adopt
-  // path (open, unfocused note reloads on a peer update); the focused ->
-  // defer -> blur -> adopt contract is covered by syncManager.test.ts. Wait on
-  // the actual precondition (unfocused), not a longer timeout.
-  await b.blurEditor();
-  await b.waitForCondition(
-    `!(document.activeElement && document.activeElement.classList.contains('cm-content'))`,
-    5000,
-    'editor blurred',
-  );
+  await b.focusEditor();
 
   await a.writeNote('shared live', '# Version 2\nRemote update');
   await a.syncNow();
@@ -617,6 +634,14 @@ async function activeNoteReload(a, b, server) {
     1,
     `B downloaded=${bResult.summary.downloaded}, expected 1`,
   );
+  const deferredState = await b.getOpenNoteState();
+  assertEqual(
+    deferredState.editorContent,
+    '# Version 1',
+    'focused editor should defer a peer update',
+  );
+
+  await b.blurEditor();
   const state = await waitForEditorContent(b, '# Version 2\nRemote update');
   assertEqual(
     state.originalId,
@@ -955,7 +980,8 @@ async function peerDeleteOfOpenNoteClosesEditor(a, b, server) {
 
   // Pause B's background sync so B's explicit syncNow deterministically OWNS
   // the pull of A's delete — the deleted-open-note branch only fires for the
-  // cycle whose summary.deletedIds contains the note (mirrors activeNoteReload).
+  // cycle whose summary.deletedIds contains the note (mirrors the
+  // focused-open-note scenario).
   await b.pauseAutoSync();
 
   await a.writeNote('peer deletes me', '# Doomed content');
@@ -979,8 +1005,12 @@ async function peerDeleteOfOpenNoteClosesEditor(a, b, server) {
     `B should pull the delete; deletedIds=${JSON.stringify(bResult.summary.deletedIds)}`,
   );
 
-  const closed = await waitForToastMessage(b, /deleted/i);
-  assertEqual(closed.originalId, null, 'peer-deleted open note should no longer be the open note');
+  // The outcome is the session closing, not the wording it closes with.
+  const closed = await waitForOpenNoteState(
+    b,
+    'close after the peer delete',
+    (state) => state.originalId === null,
+  );
   assert(
     closed.hash !== `#/note/${encodeURIComponent('peer deletes me')}`,
     `route should leave the deleted note; hash=${closed.hash}`,
@@ -1908,6 +1938,297 @@ async function distinctSameBasenameSurvivesMoveDedup(a, b, server) {
   assert(!(await b.noteExists('W/Untitled')), 'W stays deleted');
 }
 
+// ── Android-leg scenarios ───────────────────────────────────────
+//
+// `android` is the REAL native Compose app driven through its own UI + editor
+// WebView (tests/lib/android-native-instance.mjs); `desktop` is a Tauri client.
+// The Rust sync engine is shared, so these assert only what the Android SHELL
+// owns: the FFI session, the SSE live loop across the app lifecycle, the list
+// refresh a pull must drive, and conflict copies landing in the device's vault.
+// The Android side has no behavioral test hook: checks use the device vault,
+// Compose semantics, the shipping FutoEditor bridge, and observation-only
+// debug logs.
+
+/** Registry marker for scenarios that need the native Android client. Unlike
+ *  `--matrix`, which picks ONE desktop pair, this leg is attached to the same
+ *  run whenever a device is available. */
+const ANDROID_MATRIX = 'desktop-android';
+
+const ANDROID_SHARED_NOTE = `${HARNESS_NOTE_PREFIX}shared`;
+
+async function androidReceivesDesktopNoteLive(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+
+  const body = '# from desktop\nthis must reach Android with no tap on the phone';
+  await desktop.writeNote(ANDROID_SHARED_NOTE, body);
+  await desktop.syncNow();
+
+  // The phone is never touched from here on: its Rust live loop has to pull…
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, body);
+  // …and the pull has to refresh the Compose list (SyncManager.onLivePull →
+  // NotesStore.reload), which is the glue a desktop-only mesh cannot see.
+  await android.waitForNoteInList(ANDROID_SHARED_NOTE);
+}
+
+async function desktopReceivesAndroidEditorEdit(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+
+  const base = '# shared\nbase text';
+  await desktop.writeNote(ANDROID_SHARED_NOTE, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, base);
+
+  // A real editor edit on the phone: the WebView posts the bridge `change`
+  // message, the shell debounces a write, and NotesStore's mutation hook tells
+  // Rust a local note changed so the live loop pushes it.
+  const edited = '# shared\nedited in the Android editor';
+  await android.editNoteViaEditor(ANDROID_SHARED_NOTE, edited);
+
+  await waitForDesktopNoteContent(desktop, ANDROID_SHARED_NOTE, edited);
+}
+
+async function androidDefersFocusedPeerEditUntilBlur(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+  await desktop.pauseAutoSync();
+
+  const id = `${HARNESS_NOTE_PREFIX}focused-open`;
+  const base = '# focused on Android\nbase text';
+  await desktop.writeNote(id, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(id, base);
+
+  await android.openNoteInEditor(id);
+  await android.focusOpenEditor();
+
+  const peerEdit = '# focused on Android\npeer edit';
+  const deferCursor = android.openNoteDispositionCursor();
+  await desktop.writeNote(id, peerEdit);
+  await desktop.syncNow();
+  await android.waitForOpenNoteDisposition('DeferAdopt', {
+    focused: true,
+    afterCursor: deferCursor,
+  });
+  assertEqual(android.readNote(id), peerEdit, 'Android vault should contain the peer edit');
+  assertEqual(
+    await android.readOpenEditorContent(),
+    base,
+    'focused Android editor should not immediately adopt a peer edit',
+  );
+
+  // The BLUR has to be what settles it. Two checks first, so a settle that
+  // happens without one turns into a precise failure instead of a timeout on the
+  // Adopt wait below: the editor must still really be focused, and nothing must
+  // have adopted yet. A shell that reports a blur the editor never had (the
+  // lenient-DOM-focus class of bug) trips these, and the scenario then says so.
+  assert(
+    await android.isOpenEditorFocused(),
+    'the Android editor lost real focus before the harness blurred it — the settle ' +
+      'below would not be testing the blur path',
+  );
+  assertEqual(
+    android.openNoteDispositionsSince(deferCursor, 'Adopt').length,
+    0,
+    'the deferral settled before any blur — the shell reported a blur the editor never had',
+  );
+
+  const adoptCursor = android.openNoteDispositionCursor();
+  await android.blurOpenEditor();
+  await android.waitForOpenNoteDisposition('Adopt', {
+    focused: false,
+    afterCursor: adoptCursor,
+  });
+  await android.waitForOpenEditorContent(peerEdit);
+  assertEqual(
+    android.openNoteDispositionsSince(adoptCursor, 'Adopt').length,
+    1,
+    'the deferred adopt must settle exactly once, not once per blur edge',
+  );
+
+  // …and the deferral must be CONSUMED, not left armed. A second focus/blur
+  // edge is the probe: a still-armed deferral would settle again here. Driving
+  // a real edge (rather than waiting out a window and hoping) is what makes
+  // this a condition, not a sleep.
+  const secondEdgeCursor = android.openNoteDispositionCursor();
+  await android.focusOpenEditor();
+  await android.blurOpenEditor();
+
+  // The proof that the second edge's settle pass actually RAN — and found
+  // nothing — is a fresh peer edit taken on the same pass ordering: it adopts
+  // immediately (unfocused), and it is the ONLY disposition since the probe.
+  const secondPeerEdit = '# focused on Android\nsecond peer edit';
+  await desktop.writeNote(id, secondPeerEdit);
+  await desktop.syncNow();
+  await android.waitForOpenEditorContent(secondPeerEdit);
+  assertEqual(
+    android.openNoteDispositionsSince(secondEdgeCursor, 'Adopt').length,
+    1,
+    'a settled deferral must not re-settle on the next blur',
+  );
+}
+
+// The other half of the deferral contract: a draft the user typed while a peer
+// edit sat deferred is never replaced by that peer edit. A host that stashed the
+// remote bytes at DeferAdopt and blindly applied them on blur passes the
+// scenario above and destroys the user's text here.
+//
+// Deliberately asserts CONTENT, not the verdict name: whether the engine answers
+// KeepDraft (the draft still un-flushed) or Leave (the debounced save already
+// landed, so there is nothing remote left to adopt) depends on where the save
+// debounce falls, and both answers must keep the same promise.
+//
+// BOTH texts survive, and neither is the note's id by luck: the settle keeps the
+// PRE-pull baseline, so the resumed flush finds `current != base` and parks the
+// draft as a conflict copy while the peer's bytes stay at the id (#89 — handing
+// back the pulled bytes made that flush a fast-forward that destroyed them).
+async function androidKeepsADraftTypedWhileAPeerEditIsDeferred(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+  await desktop.pauseAutoSync();
+
+  const id = `${HARNESS_NOTE_PREFIX}deferred-draft`;
+  const base = '# deferred draft\nbase text';
+  await desktop.writeNote(id, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(id, base);
+
+  await android.openNoteInEditor(id);
+  await android.focusOpenEditor();
+
+  const peerEdit = '# deferred draft\npeer edit that must not win';
+  const deferCursor = android.openNoteDispositionCursor();
+  await desktop.writeNote(id, peerEdit);
+  await desktop.syncNow();
+  await android.waitForOpenNoteDisposition('DeferAdopt', {
+    focused: true,
+    afterCursor: deferCursor,
+  });
+
+  // The user keeps typing on top of the deferral — this is the draft that must
+  // survive the blur.
+  const localDraft = '# deferred draft\ntyped on the phone after the peer edit';
+  await android.replaceOpenEditorContent(localDraft);
+  await android.blurOpenEditor();
+
+  // The phone's own text is what the phone still shows, and it reaches disk —
+  // as its own note, not by overwriting the peer.
+  assertEqual(
+    await android.readOpenEditorContent(),
+    localDraft,
+    'a draft typed while a peer edit was deferred must not be clobbered on blur',
+  );
+  const conflictId = await waitForAndroidConflictCopy(android, id, localDraft);
+  await android.waitForNoteContent(id, peerEdit);
+
+  // And it is not a phone-only survival: both texts reach the fleet, so no
+  // client is left having lost either edit.
+  await waitForDesktopNoteContent(desktop, conflictId, localDraft);
+  await waitForDesktopNoteContent(desktop, id, peerEdit);
+}
+
+async function androidFollowsPeerRenameWhileOpen(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+  await desktop.pauseAutoSync();
+
+  const oldId = `${HARNESS_NOTE_PREFIX}rename-open`;
+  const newId = `${HARNESS_NOTE_PREFIX}renamed-open`;
+  const base = '# rename while open\nbase text';
+  await desktop.writeNote(oldId, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(oldId, base);
+
+  await android.openNoteInEditor(oldId);
+  await android.focusOpenEditor();
+
+  await desktop.moveNote(oldId, newId);
+  await desktop.syncNow();
+  await android.waitForNoteMissing(oldId);
+  await android.waitForNoteContent(newId, base);
+  await android.waitForOpenEditorTitle(newId);
+  await android.waitForOpenEditorContent(base);
+
+  const editedAfterRename = '# rename while open\nedited after rename';
+  await android.replaceOpenEditorContent(editedAfterRename);
+  await android.waitForNoteContent(newId, editedAfterRename);
+  assert(!android.noteExists(oldId), 'editing after a peer rename must not resurrect old id');
+
+  await waitForDesktopNoteContent(desktop, newId, editedAfterRename);
+  assert(!(await desktop.noteExists(oldId)), 'desktop should keep the old id deleted');
+}
+
+async function androidConflictsWithDesktopEdit(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+
+  const base = '# shared\nbase text';
+  await desktop.writeNote(ANDROID_SHARED_NOTE, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, base);
+
+  // The phone goes offline for real (airplane mode). Backgrounding alone is not
+  // an offline window: an SSE pull already in flight lands after `pauseLive`, so
+  // the phone fast-forwards to the desktop's version and edits on top of it —
+  // there is no conflict left to resolve (observed).
+  await android.goOffline();
+
+  const androidText = '# shared\nedited on the phone while offline';
+  await android.editNoteViaEditor(ANDROID_SHARED_NOTE, androidText);
+
+  const desktopText = '# shared\ndesktop got there first';
+  await desktop.writeNote(ANDROID_SHARED_NOTE, desktopText);
+  await desktop.syncNow();
+
+  // Back online, the phone's live loop reconnects on its own and runs a
+  // push-first cycle: its offline edit loses the race, so it must survive as a
+  // conflict copy instead of being overwritten.
+  await android.goOnline();
+
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, desktopText);
+  const conflictId = await waitForAndroidConflictCopy(android, ANDROID_SHARED_NOTE, androidText);
+
+  // Both clients converge on the same pair of notes.
+  await waitForDesktopNoteContent(desktop, conflictId, androidText);
+  await waitForDesktopNoteContent(desktop, ANDROID_SHARED_NOTE, desktopText);
+}
+
+/** Poll the desktop client for content the phone pushed. Each iteration runs a
+ *  bounded sync rather than trusting a fixed settle window. */
+async function waitForDesktopNoteContent(client, id, expected, timeoutMs = 90_000) {
+  const start = Date.now();
+  let last = null;
+  while (Date.now() - start < timeoutMs) {
+    await client.syncNow();
+    last = await client.readNote(id).catch(() => null);
+    if (last === expected) return;
+    await sleep(1_000);
+  }
+  throw new Error(
+    `${client.name}: ${id} never became ${JSON.stringify(expected)} (last: ${JSON.stringify(last)})`,
+  );
+}
+
+/** The losing edit, preserved under some other name in the device's vault. The
+ *  assertion is that the TEXT survived — never the copy's generated filename. */
+async function waitForAndroidConflictCopy(android, id, expectedText, timeoutMs = 90_000) {
+  const start = Date.now();
+  let seen = [];
+  while (Date.now() - start < timeoutMs) {
+    seen = android
+      .listNoteFilenames()
+      .filter((name) => name.startsWith(HARNESS_NOTE_PREFIX) && name !== `${id}.md`)
+      .map((name) => name.replace(/\.md$/, ''));
+    const hit = seen.find((candidate) => android.readNote(candidate) === expectedText);
+    if (hit) return hit;
+    await sleep(1_000);
+  }
+  throw new Error(
+    `${android.name}: the losing edit was not preserved as a conflict copy (other notes: ${JSON.stringify(seen)})`,
+  );
+}
+
 // ── Scenario registry ───────────────────────────────────────────
 
 const scenarios = [
@@ -1936,7 +2257,11 @@ const scenarios = [
     fn: collisionPlacementFollowsOpenNote,
     matrices: ['desktop-desktop'],
   },
-  { name: 'active note reload', fn: activeNoteReload, matrices: ['desktop-desktop'] },
+  {
+    name: 'focused open note defers peer edit until blur',
+    fn: focusedOpenNoteDefersPeerEditUntilBlur,
+    matrices: ['desktop-desktop'],
+  },
   // Folder-support v1 scenarios — see Specs § Sync conflict resolution.
   {
     name: 'folder rename on A edit on B',
@@ -2041,6 +2366,38 @@ const scenarios = [
     name: 'distinct same basename survives move dedup',
     fn: distinctSameBasenameSurvivesMoveDedup,
     matrices: ['desktop-desktop'],
+  },
+  // Native Android leg — runs whenever a usable device is reachable, and is
+  // skipped LOUDLY otherwise (see runAndroidLeg).
+  {
+    name: 'android receives a desktop note live',
+    fn: androidReceivesDesktopNoteLive,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'desktop receives an android editor edit',
+    fn: desktopReceivesAndroidEditorEdit,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'android defers a focused peer edit until blur',
+    fn: androidDefersFocusedPeerEditUntilBlur,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'android keeps a draft typed while a peer edit is deferred',
+    fn: androidKeepsADraftTypedWhileAPeerEditIsDeferred,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'android follows a peer rename while open',
+    fn: androidFollowsPeerRenameWhileOpen,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'android conflicts with a desktop edit',
+    fn: androidConflictsWithDesktopEdit,
+    matrices: [ANDROID_MATRIX],
   },
 ];
 
@@ -2245,71 +2602,13 @@ function killStaleClients() {
   }
 }
 
-async function main() {
-  console.log('Cross-platform sync integration tests\n');
-
-  const matrix = matrixLaunchers[args.matrix];
-  if (!matrix) {
-    throw new Error(
-      `Unknown matrix "${args.matrix}". Expected one of: ${Object.keys(matrixLaunchers).join(', ')}`,
-    );
-  }
-  console.log(`Matrix: ${matrix.label}\n`);
-
-  // Bootstrap artifacts and clean up stale state from a prior run.
-  const bootstrapStartedAt = Date.now();
-  killStaleClients();
-  ensureDesktopDebugBinary();
-  timings.bootstrapMs = Date.now() - bootstrapStartedAt;
-
-  // Filter scenarios if --scenario is set
-  const selected = args.scenario
-    ? scenarios.filter((s) => s.name.toLowerCase().includes(args.scenario.toLowerCase()))
-    : scenarios;
-
-  if (selected.length === 0) {
-    console.error(`No scenarios matching "${args.scenario}"`);
-    process.exit(1);
-  }
-
-  const toRun = [];
-  for (const scenario of selected) {
-    if (!scenario.matrices.includes(args.matrix)) {
-      results.push({
-        name: scenario.name,
-        skip: true,
-        reason: `not included in matrix ${args.matrix}`,
-      });
-      console.log(`  - ${scenario.name} (skipped: not included in matrix ${args.matrix})`);
-    } else if (scenario.skipOnCi && process.env.CI) {
-      results.push({ name: scenario.name, skip: true, reason: 'skipOnCi' });
-      console.log(`  - ${scenario.name} (skipped: flaky on CI — see scenario registry TODO)`);
-    } else if (scenario.slow && args['skip-slow']) {
-      results.push({ name: scenario.name, skip: true, reason: 'slow (--skip-slow)' });
-      console.log(`  - ${scenario.name} (skipped: slow — runs on main/tag pipelines)`);
-    } else {
-      toRun.push(scenario);
-    }
-  }
-
-  if (toRun.length === 0) {
-    throw new Error(`No runnable scenarios for matrix ${args.matrix}`);
-  }
-
-  // ── Suite setup: start 2 Tauri instances (done once) ──────────
-  console.log('\nStarting Tauri instances...');
-
-  const clientStartupStartedAt = Date.now();
-  // startClients registers each client's stop in managedStops as it comes up.
-  const [clientA, clientB] = await matrix.startClients();
-  timings.clientStartupMs = Date.now() - clientStartupStartedAt;
-  console.log(`  Client A ready (${clientA.platform}, MCP port ${clientA.port ?? 'n/a'})`);
-  console.log(`  Client B ready (${clientB.platform}, MCP port ${clientB.port ?? 'n/a'})`);
-
-  console.log('');
-
-  // ── Run scenarios ─────────────────────────────────────────────
-  for (const scenario of toRun) {
+/** Run a list of scenarios against one client pair: fresh server per scenario,
+ *  both clients reset in between, one result row each. */
+async function runScenarios(list, clientA, clientB) {
+  for (const scenario of list) {
+    // main's slot-derived port band, not a bare counter: a hardcoded start had
+    // every worktree allocating the same port, so a second run adopted the
+    // first's server and database.
     const port = allocateServerPort();
     const serverSetupStartedAt = Date.now();
     const server = await startServer(port, REPO_ROOT, scenario.serverOptions ?? {});
@@ -2363,6 +2662,164 @@ async function main() {
       server.stop();
     }
   }
+}
+
+/**
+ * Attach the native Android leg when a usable device is reachable.
+ *
+ * On a developer machine with no device attached, no device is a legitimate
+ * state, so it skips — but never quietly: the banner says the mesh ran
+ * desktop-only and every skipped scenario carries its reason into the report.
+ * A device that IS available and then fails to start is a red failure, not a
+ * skip (AGENTS.md M11).
+ *
+ * Under `--android-only` the device is the entire point of the run (the
+ * dedicated CI job boots an emulator for it), so an unusable device fails red
+ * instead of skipping.
+ */
+async function runAndroidLeg(androidScenarios, desktopClient) {
+  if (androidScenarios.length === 0) return;
+
+  const device = args['no-android']
+    ? { available: false, reason: '--no-android was passed' }
+    : findAndroidLegDevice();
+
+  if (!device.available && args['android-only']) {
+    console.log('');
+    console.log(`  ✗ --android-only requires a usable device: ${device.reason}`);
+    for (const scenario of androidScenarios) {
+      results.push({
+        name: scenario.name,
+        pass: false,
+        ms: 0,
+        error: `no usable Android device: ${device.reason}`,
+      });
+    }
+    return;
+  }
+
+  if (!device.available) {
+    console.log('');
+    console.log('='.repeat(72));
+    console.log('SKIP: no Android device — running desktop-only mesh');
+    console.log(`  reason: ${device.reason}`);
+    console.log('  to include it: just qa-claim android && just android-native');
+    console.log(`  skipped: ${androidScenarios.map((s) => s.name).join(', ')}`);
+    console.log('='.repeat(72));
+    for (const scenario of androidScenarios) {
+      results.push({
+        name: scenario.name,
+        skip: true,
+        reason: `no Android device: ${device.reason}`,
+      });
+    }
+    return;
+  }
+
+  console.log(`\nStarting native Android client on ${device.serial}...`);
+  let android;
+  try {
+    const startedAt = Date.now();
+    android = await startAndroidNativeInstance('client-android', REPO_ROOT, device.serial);
+    timings.clientStartupMs += Date.now() - startedAt;
+    managedStops.push(() => android.stop());
+    console.log(`  Client Android ready (${android.platform}, vault ${android.vaultPath})\n`);
+  } catch (err) {
+    // The device was there; failing to drive it is a real failure.
+    console.log(`  ✗ native Android client failed to start: ${err.message}`);
+    for (const scenario of androidScenarios) {
+      results.push({
+        name: scenario.name,
+        pass: false,
+        ms: 0,
+        error: `android startup: ${err.message}`,
+      });
+    }
+    return;
+  }
+
+  await runScenarios(androidScenarios, desktopClient, android);
+  android.stop();
+}
+
+async function main() {
+  console.log('Cross-platform sync integration tests\n');
+
+  const matrix = matrixLaunchers[args.matrix];
+  if (!matrix) {
+    throw new Error(
+      `Unknown matrix "${args.matrix}". Expected one of: ${Object.keys(matrixLaunchers).join(', ')}`,
+    );
+  }
+  console.log(`Matrix: ${matrix.label}\n`);
+
+  // Bootstrap artifacts and clean up stale state from a prior run.
+  const bootstrapStartedAt = Date.now();
+  killStaleClients();
+  ensureDesktopDebugBinary();
+  timings.bootstrapMs = Date.now() - bootstrapStartedAt;
+
+  // Filter scenarios if --scenario is set
+  const selected = args.scenario
+    ? scenarios.filter((s) => s.name.toLowerCase().includes(args.scenario.toLowerCase()))
+    : scenarios;
+
+  if (selected.length === 0) {
+    console.error(`No scenarios matching "${args.scenario}"`);
+    process.exit(1);
+  }
+
+  const toRun = [];
+  const androidLegScenarios = [];
+  for (const scenario of selected) {
+    if (args['android-only'] && !scenario.matrices.includes(ANDROID_MATRIX)) {
+      // Not "skipped" — out of scope for this run, and reporting 31 skip rows
+      // would bury the 5 that matter. The desktop mesh has its own job.
+      continue;
+    }
+    if (scenario.matrices.includes(ANDROID_MATRIX)) {
+      // Availability is decided later, after the desktop mesh has run, so a
+      // missing or broken device can never delay or fail the desktop suite.
+      androidLegScenarios.push(scenario);
+    } else if (!scenario.matrices.includes(args.matrix)) {
+      results.push({
+        name: scenario.name,
+        skip: true,
+        reason: `not included in matrix ${args.matrix}`,
+      });
+      console.log(`  - ${scenario.name} (skipped: not included in matrix ${args.matrix})`);
+    } else if (scenario.skipOnCi && process.env.CI) {
+      results.push({ name: scenario.name, skip: true, reason: 'skipOnCi' });
+      console.log(`  - ${scenario.name} (skipped: flaky on CI — see scenario registry TODO)`);
+    } else if (scenario.slow && args['skip-slow']) {
+      results.push({ name: scenario.name, skip: true, reason: 'slow (--skip-slow)' });
+      console.log(`  - ${scenario.name} (skipped: slow — runs on main/tag pipelines)`);
+    } else {
+      toRun.push(scenario);
+    }
+  }
+
+  if (toRun.length === 0 && androidLegScenarios.length === 0) {
+    throw new Error(`No runnable scenarios for matrix ${args.matrix}`);
+  }
+
+  // ── Suite setup: start 2 Tauri instances (done once) ──────────
+  console.log('\nStarting Tauri instances...');
+
+  const clientStartupStartedAt = Date.now();
+  // startClients registers each client's stop in managedStops as it comes up.
+  const [clientA, clientB] = await matrix.startClients();
+  timings.clientStartupMs = Date.now() - clientStartupStartedAt;
+  console.log(`  Client A ready (${clientA.platform}, MCP port ${clientA.port ?? 'n/a'})`);
+  console.log(`  Client B ready (${clientB.platform}, MCP port ${clientB.port ?? 'n/a'})`);
+
+  console.log('');
+
+  await runScenarios(toRun, clientA, clientB);
+  // The Android leg pairs the phone with client A; client B is started either
+  // way because launching the pair is the matrix launcher's contract, and an
+  // idle second instance is cheaper than a second launcher shape.
+  await runAndroidLeg(androidLegScenarios, clientA);
 
   // ── Report ────────────────────────────────────────────────────
   console.log('');
@@ -2386,7 +2843,7 @@ async function main() {
     JSON.stringify(
       {
         timestamp: new Date().toISOString(),
-        matrix: args.matrix,
+        matrix: args['android-only'] ? ANDROID_MATRIX : args.matrix,
         timings: { ...timings, totalMs },
         results,
       },

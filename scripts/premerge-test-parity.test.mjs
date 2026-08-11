@@ -13,6 +13,8 @@ const androidInstrumentationScript = readFileSync(
   join(ROOT, 'scripts/ci-android-instrumentation.sh'),
   'utf8',
 );
+const androidEmulatorScript = readFileSync(join(ROOT, 'scripts/ci-android-emulator.sh'), 'utf8');
+const androidSyncLegScript = readFileSync(join(ROOT, 'scripts/ci-android-sync-leg.sh'), 'utf8');
 
 function topLevelBlock(contents, startPattern) {
   const match = startPattern.exec(contents);
@@ -111,11 +113,34 @@ describe('pre-merge JavaScript test routing', () => {
     expect(androidJob).not.toContain('- docs/**/*');
     expect(androidJob).not.toContain('- .gitlab-ci.yml');
     expect(releaseGate).toContain('- job: build:android-native');
-    expect(androidInstrumentationScript).toContain('sys.boot_completed');
+    // Device readiness now lives in the shared emulator script (both CI
+    // emulator users source it), so assert the wiring plus the wait itself.
+    expect(androidInstrumentationScript).toContain('scripts/ci-android-emulator.sh');
+    expect(androidInstrumentationScript).toContain('ci_emulator_start --wipe');
+    expect(androidEmulatorScript).toContain('sys.boot_completed');
     expect(androidInstrumentationScript).toContain(':app:connectedDebugAndroidTest');
     expect(androidInstrumentationScript).toContain(
       'Android instrumentation results contain no testcases',
     );
+  });
+
+  it('runs the desktop<->Android sync leg on a booted emulator and gates the release on it', () => {
+    const androidSyncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:android:$/m);
+    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
+
+    expect(androidSyncJob).toContain('bash "$CI_PROJECT_DIR/scripts/ci-android-sync-leg.sh"');
+    expect(androidSyncJob).toContain('- job: build:android-native');
+    // Same runner-exclusion as the desktop mesh; overlapping starves both.
+    expect(androidSyncJob).toContain('resource_group: cross-platform-sync');
+    expect(releaseGate).toContain('- job: test:cross-platform-sync:android');
+    // The APK producer's gate must be a superset of this job's, so neither may
+    // trigger on a path the other ignores (build:android-native excludes
+    // .gitlab-ci.yml and docs, per the test above).
+    expect(androidSyncJob).not.toContain('- .gitlab-ci.yml');
+    expect(androidSyncJob).not.toContain('- docs/**/*');
+    // A run that finds no usable device must fail, not report green (M11).
+    expect(androidSyncLegScript).toContain('--android-only');
+    expect(androidEmulatorScript).toContain('service check package');
   });
 
   it('keeps mobile-target Rust compile coverage on every crate change', () => {

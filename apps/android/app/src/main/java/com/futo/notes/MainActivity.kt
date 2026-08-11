@@ -546,6 +546,21 @@ class MainActivity : ComponentActivity() {
             adoptExistingStorage(adoption)
             null
         },
+        // Focusing the editor is native focus + DOM focus, in that order
+        // (EditorWebView.focusEditor) — evaluating `FutoEditor.focus()` from
+        // outside the app does only the DOM half, which Chromium then withholds
+        // because the document itself is unfocused, so `.cm-focused` never
+        // appears. This hook calls the SAME entry point the quick-capture open
+        // uses, so a harness's focus is a user's focus.
+        "focus-editor" to {
+            val editorHost = EditorHost.get(this)
+            // Throwing is the contract for a hook that cannot mean anything yet:
+            // with no editor attached, focusing would be a silent no-op that
+            // looks exactly like a hung open.
+            checkNotNull(editorHost.currentAttachment()) { "no note is open in the editor" }
+            editorHost.focusEditor()
+            null
+        },
     )
 
     override fun onDestroy() {

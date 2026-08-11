@@ -305,8 +305,14 @@ emu-boot:
   [ -n "$AVD" ] || { echo "No AVDs available — create one with Android Studio or avdmanager." >&2; exit 1; }
   echo "Launching AVD: $AVD"
   "$EMULATOR" -avd "$AVD" -no-snapshot-load >/dev/null 2>&1 &
+  # Wait for the package service too, not just boot_completed: the property
+  # flips first, and an `adb install` issued in that window fails with
+  # "cmd: Can't find service: package".
   for i in $(seq 1 60); do
-    [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && echo "Booted." && exit 0
+    if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] \
+      && adb shell service check package 2>/dev/null | grep -q found; then
+      echo "Booted."; exit 0
+    fi
     sleep 2
   done
   echo "Emulator did not boot within 120s" >&2; exit 1
