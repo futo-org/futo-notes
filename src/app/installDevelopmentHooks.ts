@@ -7,12 +7,14 @@ import {
   moveNote,
 } from '$features/notes/notes.svelte';
 import { installTestSync } from '$features/sync/testSync';
+import { installPerfCourse } from '$shared/perf/installPerfCourse';
 
 import { testHooksEnabled } from './testHooksEnabled';
 
 export async function installDevelopmentHooks(): Promise<void> {
   if (!testHooksEnabled()) return;
 
+  installPerfCourse();
   const notes = await getLocalNoteStore();
   Object.assign(window, {
     __testNotes: {
