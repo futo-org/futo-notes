@@ -3,6 +3,8 @@ import type { SearchResultItem } from '$shared/types/search';
 import {
   currentLocalNoteStore,
   getLocalNoteStore,
+  getLocalNoteStoreSync,
+  type LocalNoteListingSnapshot,
   type LocalNoteMetadata,
   type LocalNoteMutation,
   type LocalNoteSnapshot,
@@ -17,13 +19,14 @@ import { buildWikilinkIndex, type WikilinkIndex } from '$shared/note/wikilinks';
  * it as an authoritative empty note list. */
 export type NotesReadiness = 'ready' | 'failed';
 
-let notesCache = $state<NotePreview[]>([]);
+let notesCache = $state.raw<NotePreview[]>([]);
 let initialized = false;
 let notesReadyResolve: ((readiness: NotesReadiness) => void) | null = null;
 const notesReadyPromise = new Promise<NotesReadiness>((resolve) => {
   notesReadyResolve = resolve;
 });
 let searchReady: Promise<void> | null = null;
+let projectionRevision = 0;
 
 /** Upper bound on how long a search waits for the index to become ready before
  * degrading to whatever the store returns (empty until ready). Prevents a
@@ -49,6 +52,19 @@ function replaceFromSnapshot(snapshot: LocalNoteSnapshot): void {
   notesCache = snapshot.notes.map(preview);
   setFolderSnapshot(snapshot.folders, notesCache);
   lastSaveIdentityChange = null;
+  projectionRevision += 1;
+}
+
+function replaceFromListing(snapshot: LocalNoteListingSnapshot): void {
+  notesCache = snapshot.notes.map(([id, title, _folder, modifiedMs]) => ({
+    id,
+    title,
+    preview: '',
+    modificationTime: modifiedMs,
+    tags: [],
+  }));
+  lastSaveIdentityChange = null;
+  projectionRevision += 1;
 }
 
 let lastSaveIdentityChange: { from: string | null; to: string } | null = null;
@@ -76,6 +92,7 @@ export function _applyLocalMutation(mutation: LocalNoteMutation): void {
     next.splice(position, 0, preview(entry.note));
   }
   notesCache = next;
+  projectionRevision += 1;
   setFolderSnapshot(mutation.folders, notesCache);
   // The old id names a note again, so the rename can no longer explain its absence.
   const recorded = lastSaveIdentityChange?.from;
@@ -93,34 +110,50 @@ export function whenNotesReady(): Promise<NotesReadiness> {
   return notesReadyPromise;
 }
 
+function settleNotesReadiness(readiness: NotesReadiness): void {
+  notesReadyResolve?.(readiness);
+  notesReadyResolve = null;
+}
+
 export async function initNotes(onStep?: (label: string) => void): Promise<void> {
   if (initialized) return;
   try {
     onStep?.('initNotes: local store');
-    const store = await getLocalNoteStore();
+    const store = getLocalNoteStoreSync();
     onStep?.('initNotes: bootstrap');
-    const bootstrap = await store.bootstrap();
-    replaceFromSnapshot(bootstrap.snapshot);
-    for (const warning of bootstrap.warnings) console.warn(`[local-notes] ${warning}`);
+    const listing = await store.startupListing();
+    onStep?.('initNotes: listing received');
+    replaceFromListing(listing);
+    onStep?.('initNotes: listing projected');
+    setFolderSnapshot(listing.folders, notesCache);
 
-    // Search may await background index readiness, but initial rendering never
-    // does. Timeout or rejection degrades to empty results while the engine heals.
-    searchReady = store.waitUntilSearchReady(searchReadyTimeoutMs).then(
-      () => undefined,
-      (err) => {
-        console.warn('[local-notes] search readiness wait failed:', err);
-      },
-    );
+    // Content-derived previews/tags and BM25 reconciliation hydrate after the
+    // ordered title list is usable. If a mutation lands while the snapshot is
+    // in flight, retry the read rather than replacing that newer projection.
+    searchReady = (async () => {
+      let observedRevision = projectionRevision;
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const bootstrap = await store.bootstrap();
+      for (const warning of bootstrap.warnings) console.warn(`[local-notes] ${warning}`);
+      let snapshot = bootstrap.snapshot;
+      while (observedRevision !== projectionRevision) {
+        observedRevision = projectionRevision;
+        snapshot = await store.snapshot();
+      }
+      replaceFromSnapshot(snapshot);
+      settleNotesReadiness('ready');
+      await store.waitUntilSearchReady(searchReadyTimeoutMs);
+    })().catch((err) => {
+      console.warn('[local-notes] background hydration failed:', err);
+      settleNotesReadiness('failed');
+    });
   } catch (error) {
     // #33: a failed bootstrap must still settle readiness, or every awaiter
     // (tab hydration → hash routing) hangs forever and the app goes dead.
-    notesReadyResolve?.('failed');
-    notesReadyResolve = null;
+    settleNotesReadiness('failed');
     throw error;
   }
   initialized = true;
-  notesReadyResolve?.('ready');
-  notesReadyResolve = null;
   onStep?.('initNotes: done');
 }
 
@@ -128,11 +161,13 @@ export async function initNotes(onStep?: (label: string) => void): Promise<void>
  * already in engine order (native shells pass their engine-ordered list). */
 export function setNotesUniverse(previews: NotePreview[]): void {
   notesCache = previews;
+  projectionRevision += 1;
 }
 
 export function _injectTestNote(id: string, title: string): void {
   // Newest-first: the cache holds engine order and Date.now() is the newest.
-  notesCache.unshift({ id, title, preview: '', modificationTime: Date.now(), tags: [] });
+  notesCache = [{ id, title, preview: '', modificationTime: Date.now(), tags: [] }, ...notesCache];
+  projectionRevision += 1;
 }
 
 export function noteTitleFromId(id: string): string {

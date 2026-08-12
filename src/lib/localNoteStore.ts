@@ -2,6 +2,7 @@ import { makePreview, noteTags } from '$features/notes/notesIndex';
 import { sanitizeTitle } from './rules';
 import { rewriteWikilinks } from '$shared/note/wikilinks';
 import { isTauri } from './platform';
+import { tauriLocalNoteStore } from './platform/localNoteStore';
 
 export interface LocalNoteMetadata {
   id: string;
@@ -15,6 +16,18 @@ export interface LocalNoteMetadata {
 
 export interface LocalNoteSnapshot {
   notes: LocalNoteMetadata[];
+  folders: string[];
+}
+
+export type LocalNoteListingMetadata = readonly [
+  id: string,
+  title: string,
+  folder: string,
+  modifiedMs: number,
+];
+
+export interface LocalNoteListingSnapshot {
+  notes: LocalNoteListingMetadata[];
   folders: string[];
 }
 
@@ -75,6 +88,7 @@ export interface LocalSearchHit {
 }
 
 export interface LocalNoteStore {
+  startupListing(): Promise<LocalNoteListingSnapshot>;
   bootstrap(): Promise<LocalNoteBootstrap>;
   snapshot(): Promise<LocalNoteSnapshot>;
   inventory(): Promise<LocalNoteInventoryItem[]>;
@@ -133,6 +147,19 @@ export class BrowserLocalNoteStore implements LocalNoteStore {
 
   async bootstrap(): Promise<LocalNoteBootstrap> {
     return { snapshot: await this.snapshot(), seeded: 0, migrated: 0, warnings: [] };
+  }
+
+  async startupListing(): Promise<LocalNoteListingSnapshot> {
+    const bootstrap = await this.bootstrap();
+    return {
+      notes: bootstrap.snapshot.notes.map(({ id, title, folder, modifiedMs }) => [
+        id,
+        title,
+        folder,
+        modifiedMs,
+      ]),
+      folders: bootstrap.snapshot.folders,
+    };
   }
 
   async snapshot(): Promise<LocalNoteSnapshot> {
@@ -517,16 +544,28 @@ function isDatedConflictVariant(stem: string, candidate: string): boolean {
 
 let localNotes: LocalNoteStore | null = null;
 
-export async function getLocalNoteStore(): Promise<LocalNoteStore> {
+/** Start desktop's content-free listing invoke before Svelte mounts. Never
+ * awaited: M1's first render remains synchronous, and init consumes this same
+ * promise once the reactive notes owner exists. */
+export function prefetchLocalNoteListing(): void {
+  if (!isTauri) return;
+  localNotes = tauriLocalNoteStore;
+  tauriLocalNoteStore.prefetchStartupListing();
+}
+
+export function getLocalNoteStoreSync(): LocalNoteStore {
   if (!localNotes) {
     if (isTauri) {
-      const { tauriLocalNoteStore } = await import('./platform/localNoteStore');
       localNotes = tauriLocalNoteStore;
     } else {
       localNotes = new BrowserLocalNoteStore();
     }
   }
   return localNotes;
+}
+
+export async function getLocalNoteStore(): Promise<LocalNoteStore> {
+  return getLocalNoteStoreSync();
 }
 
 export function currentLocalNoteStore(): LocalNoteStore {

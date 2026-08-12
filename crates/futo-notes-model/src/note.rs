@@ -53,19 +53,47 @@ pub fn note_tags(content: &str) -> Vec<String> {
 /// The list preview contract is: collapse CRLF/LF/tab to spaces, trim the
 /// whole result, then keep at most 100 Unicode scalar values.
 pub fn make_preview(content: &str) -> String {
-    let mut collapsed = String::with_capacity(content.len().min(128));
+    let mut preview = String::with_capacity(content.len().min(128));
+    let mut pending_whitespace = String::new();
+    let mut pending_whitespace_chars = 0;
+    let mut preview_chars = 0;
     let mut chars = content.chars().peekable();
     while let Some(character) = chars.next() {
-        match character {
+        let collapsed = match character {
             '\r' if chars.peek() == Some(&'\n') => {
                 chars.next();
-                collapsed.push(' ');
+                ' '
             }
-            '\n' | '\t' => collapsed.push(' '),
-            other => collapsed.push(other),
+            '\n' | '\t' => ' ',
+            other => other,
+        };
+
+        if collapsed.is_whitespace() {
+            if !preview.is_empty() && pending_whitespace_chars < 100 - preview_chars {
+                pending_whitespace.push(collapsed);
+                pending_whitespace_chars += 1;
+            }
+            continue;
+        }
+
+        for whitespace in pending_whitespace.drain(..) {
+            if preview_chars == 100 {
+                return preview;
+            }
+            preview.push(whitespace);
+            preview_chars += 1;
+        }
+        pending_whitespace_chars = 0;
+        if preview_chars == 100 {
+            return preview;
+        }
+        preview.push(collapsed);
+        preview_chars += 1;
+        if preview_chars == 100 {
+            return preview;
         }
     }
-    collapsed.trim().chars().take(100).collect()
+    preview
 }
 
 pub fn make_rich_preview(content: &str) -> String {
@@ -138,6 +166,22 @@ fn display_line(line: &str) -> String {
 mod tests {
     use super::*;
 
+    fn allocation_heavy_preview(content: &str) -> String {
+        let mut collapsed = String::with_capacity(content.len().min(128));
+        let mut chars = content.chars().peekable();
+        while let Some(character) = chars.next() {
+            match character {
+                '\r' if chars.peek() == Some(&'\n') => {
+                    chars.next();
+                    collapsed.push(' ');
+                }
+                '\n' | '\t' => collapsed.push(' '),
+                other => collapsed.push(other),
+            }
+        }
+        collapsed.trim().chars().take(100).collect()
+    }
+
     #[test]
     fn ids_keep_the_filename_leaf_verbatim_after_sanitizing() {
         assert_eq!(
@@ -154,6 +198,35 @@ mod tests {
     fn preview_follows_collapse_trim_then_unicode_limit() {
         assert_eq!(make_preview(" \r\n hello\tworld \n"), "hello world");
         assert_eq!(make_preview(&"🎉".repeat(101)).chars().count(), 100);
+    }
+
+    #[test]
+    fn streaming_preview_matches_the_previous_rule_exhaustively() {
+        let alphabet = ['a', ' ', '\t', '\n', '\r', '\u{2003}', '🎉'];
+        for length in 0..=6 {
+            let combinations = alphabet.len().pow(length);
+            for mut value in 0..combinations {
+                let mut input = String::new();
+                for _ in 0..length {
+                    input.push(alphabet[value % alphabet.len()]);
+                    value /= alphabet.len();
+                }
+                assert_eq!(
+                    make_preview(&input),
+                    allocation_heavy_preview(&input),
+                    "input: {input:?}"
+                );
+            }
+        }
+
+        let long = format!("{}   later", "x".repeat(99));
+        assert_eq!(make_preview(&long), allocation_heavy_preview(&long));
+
+        let whitespace_tail = format!("kept{}", "\u{2003}".repeat(1_000_000));
+        assert_eq!(
+            make_preview(&whitespace_tail),
+            allocation_heavy_preview(&whitespace_tail)
+        );
     }
 
     #[test]

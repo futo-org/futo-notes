@@ -1,7 +1,7 @@
 <script lang="ts">
   import './folderTree.css';
 
-  import { onDestroy } from 'svelte';
+  import { flushSync, onDestroy } from 'svelte';
   import type { NotePreview } from '$shared/types/note';
   import { isFolderOpen, toggleFolderOpen } from './folderExpansion.svelte';
   import { buildFolderTree, flattenFolderTree, type FlatNode, type FolderNode } from './folderTree';
@@ -159,12 +159,19 @@
     // where the next painted frame lands; cover at least one viewport ahead
     // for as long as the list is moving at all.
     const viewportRows = Math.ceil(viewportHeight / pitch);
-    if (next !== scrollTop) scrollLeadDown = next > scrollTop;
-    scrollLeadRows = Math.min(
-      MAX_LEAD_ROWS,
-      Math.max(jumpedRows, viewportRows, scrollLeadRows - LEAD_DECAY_ROWS),
-    );
-    scrollTop = next;
+    // WebKit can paint the new scroll offset before Svelte's normal microtask
+    // flush. With only the old virtual window mounted, a large wheel/thumb jump
+    // then shows spacer-only blank rows for one frame. Mount the destination
+    // slice inside the scroll event so every paint has labels; the lead above
+    // covers the frames WebKit paints before notifying the main thread at all.
+    flushSync(() => {
+      if (next !== scrollTop) scrollLeadDown = next > scrollTop;
+      scrollLeadRows = Math.min(
+        MAX_LEAD_ROWS,
+        Math.max(jumpedRows, viewportRows, scrollLeadRows - LEAD_DECAY_ROWS),
+      );
+      scrollTop = next;
+    });
     clearTimeout(settleTimer);
     settleTimer = setTimeout(() => {
       scrollLeadRows = 0;

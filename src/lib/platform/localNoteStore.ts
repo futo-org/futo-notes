@@ -3,6 +3,7 @@ import type {
   LocalFlushDraftResult,
   LocalNoteBootstrap,
   LocalNoteInventoryItem,
+  LocalNoteListingSnapshot,
   LocalNoteMutation,
   LocalNoteSnapshot,
   LocalNoteStore,
@@ -10,6 +11,17 @@ import type {
 } from '../localNoteStore';
 
 class TauriLocalNoteStore implements LocalNoteStore {
+  private startupListingPromise: Promise<LocalNoteListingSnapshot> | null = null;
+
+  prefetchStartupListing(): void {
+    this.startupListingPromise ??= invoke<LocalNoteListingSnapshot>('local_notes_startup_listing');
+  }
+
+  startupListing() {
+    this.prefetchStartupListing();
+    return this.startupListingPromise!;
+  }
+
   bootstrap() {
     return invoke<LocalNoteBootstrap>('local_notes_bootstrap');
   }
@@ -87,4 +99,4 @@ class TauriLocalNoteStore implements LocalNoteStore {
   }
 }
 
-export const tauriLocalNoteStore: LocalNoteStore = new TauriLocalNoteStore();
+export const tauriLocalNoteStore = new TauriLocalNoteStore();

@@ -46,6 +46,25 @@ pub struct Snapshot {
     pub folders: Vec<String>,
 }
 
+/// Content-free note-list projection for latency-sensitive shell startup.
+/// The engine still owns ordering; shells hydrate previews and tags from a
+/// full [`Snapshot`] after the usable title list is visible.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteListingMetadata {
+    pub id: String,
+    pub title: String,
+    pub folder: String,
+    pub modified_ms: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingSnapshot {
+    pub notes: Vec<NoteListingMetadata>,
+    pub folders: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteRename {
@@ -351,13 +370,31 @@ impl LocalNoteStore {
 
     pub fn bootstrap(&self) -> Result<BootstrapResult, String> {
         let _gate = self.lock_gate()?;
+        let (migrated, mut warnings) = self.prepare_bootstrap()?;
+        let mut snapshot = vault::snapshot(&self.root);
+        let seeded = self.seed_empty_vault(snapshot.notes.is_empty(), &mut warnings);
+        if seeded == 1 {
+            snapshot = vault::snapshot(&self.root);
+        }
+        Ok(BootstrapResult {
+            snapshot,
+            seeded,
+            migrated,
+            warnings,
+        })
+    }
+
+    /// Read-only, content-free projection for the first desktop list frame.
+    /// The authoritative bootstrap immediately follows it and still owns crash
+    /// recovery, migration, empty-vault seeding, and content-derived metadata.
+    pub fn startup_listing(&self) -> ListingSnapshot {
+        vault::listing(&self.root)
+    }
+
+    /// Recover crash leftovers before migration/scan/seed so a stranded real
+    /// note can never be mistaken for an empty vault (A2/C1).
+    fn prepare_bootstrap(&self) -> Result<(u32, Vec<String>), String> {
         fs::create_dir_all(&self.root).map_err(io_error)?;
-        // Recover notes stranded by a crash inside a collision-fallback install
-        // BEFORE migrate/scan/seed, so recovered notes are in this run's
-        // snapshot and an empty-vault seed can't fire while a real note is only
-        // stranded (A2). Divergent backups the sweep cannot canonically restore
-        // are parked under a visible recovered name here rather than left
-        // eligible for a resurrecting restore (C1).
         let mut warnings = Vec::new();
         for recovered in futo_notes_core::files::recover_parked_backups(&self.root) {
             if let Err(error) = self.park_recovered_backup(&recovered) {
@@ -366,25 +403,22 @@ impl LocalNoteStore {
         }
         let (migrated, migrate_warnings) = self.migrate_text_files();
         warnings.extend(migrate_warnings);
-        let seeded = if vault::note_paths(&self.root).is_empty() {
-            match vault_mutation_guard()
-                .and_then(|_vault_mutation| self.write_raw(WELCOME_NOTE_ID, WELCOME_NOTE, None))
-            {
-                Ok(_) => 1,
-                Err(error) => {
-                    warnings.push(format!("welcome note: {error}"));
-                    0
-                }
+        Ok((migrated, warnings))
+    }
+
+    fn seed_empty_vault(&self, is_empty: bool, warnings: &mut Vec<String>) -> u32 {
+        if !is_empty {
+            return 0;
+        }
+        match vault_mutation_guard()
+            .and_then(|_vault_mutation| self.write_raw(WELCOME_NOTE_ID, WELCOME_NOTE, None))
+        {
+            Ok(_) => 1,
+            Err(error) => {
+                warnings.push(format!("welcome note: {error}"));
+                0
             }
-        } else {
-            0
-        };
-        Ok(BootstrapResult {
-            snapshot: vault::snapshot(&self.root),
-            seeded,
-            migrated,
-            warnings,
-        })
+        }
     }
 
     /// Bootstrap the vault, then start the owned search index in the background
