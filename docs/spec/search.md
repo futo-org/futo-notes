@@ -24,9 +24,20 @@ desktop, iOS, and Android query that owner through thin adapters.
 - A query that matches nothing exactly retries at edit distance 1, so one
   mistyped character returns the note instead of an empty list. Fuzzy is a last
   resort only — an exactly-spelled query is never diluted by near-spellings.
+- A query ending mid-word matches its last word as a prefix (`Aug` retrieves a
+  note titled `August 10, 2026`); earlier words still match as typed. Trailing
+  whitespace or punctuation ends the word, so `Aug ` matches only the literal
+  word — shells must not trim the query's tail. A tail glued to punctuation
+  (`folder-sco`) is not prefixed, preserving hyphen-compound adjacency.
+  → `futo-notes-search` `tantivy_indices::split_trailing_prefix`
 - Terms match as typed: there is no stemming, so `meeting` does not retrieve
   `meetings`. Measured on a 2,608-note corpus, adding the English stemmer cost
   more ranking quality on exact titles than it recovered on word variants.
+- Ranking is BM25 with two bounded adjustments: title matches are boosted 2×,
+  and a recency multiplier (up to 2×, halving every 30 days of note age)
+  prefers recently modified notes among comparable matches — so a fresh daily
+  note titled with the query word outranks an old note whose body repeats it.
+  → `futo-notes-search` `TantivyIndices::run_pass`
 - Retrieval is lexical. There is no semantic/embedding search, so a query
   sharing no words with a note will not find it.
 - Empty-query UI behavior remains surface-specific: desktop and Android show

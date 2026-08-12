@@ -2,13 +2,31 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use tantivy::collector::TopDocs;
-use tantivy::query::QueryParser;
+use tantivy::query::{BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query, QueryParser};
 use tantivy::schema::{
     Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, INDEXED, STORED, STRING,
 };
-use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
+use tantivy::{
+    DocId, Index, IndexReader, IndexWriter, ReloadPolicy, Score, SegmentReader, TantivyDocument,
+    Term,
+};
+
+/// Boost on title-field matches. Titles are what users search for most, and
+/// per-field BM25 gives a note whose short body repeats a word more score
+/// than a note whose title IS the word; this counterweights that.
+const TITLE_BOOST: f32 = 2.0;
+
+/// Recency multiplier: a just-edited note scores up to (1 + RECENCY_WEIGHT)×
+/// its BM25 score, decaying by half every RECENCY_HALF_LIFE_DAYS. Bounded and
+/// multiplicative, so it reorders comparable matches (a daily note titled
+/// "August 10, 2026" vs one from 2022) without letting a fresh-but-irrelevant
+/// note beat a strong exact match.
+const RECENCY_WEIGHT: f32 = 1.0;
+const RECENCY_HALF_LIFE_DAYS: f32 = 30.0;
+const MS_PER_DAY: f32 = 86_400_000.0;
 
 pub struct Bm25Schema {
     pub note_id: Field,
@@ -170,6 +188,12 @@ impl TantivyIndices {
         }
         let searcher = self.bm25_reader.searcher();
 
+        // A query ending mid-word is search-as-you-type: its last word
+        // matches as a prefix ("Aug" finds "August"). Trailing whitespace or
+        // punctuation means the user finished the word, so it matches as
+        // typed — which is why callers must not trim the query's tail.
+        let (head, prefix_word) = split_trailing_prefix(query);
+
         // Three passes, most precise first. Each falls through only when the
         // previous one found nothing, so the cheap common case stays one pass
         // and no pass can ever shadow a better one's results.
@@ -182,12 +206,12 @@ impl TantivyIndices {
         //    questions, a stray stop word).
         // 3. Edit-distance 1, for a typo. Without it one wrong character
         //    returns an empty list, which reads as "you have no such note".
-        let mut top = self.run_pass(&searcher, query, k, Pass::AllWords)?;
+        let mut top = self.run_pass(&searcher, query, head, prefix_word, k, Pass::AllWords)?;
         if top.is_empty() {
-            top = self.run_pass(&searcher, query, k, Pass::AnyWord)?;
+            top = self.run_pass(&searcher, query, head, prefix_word, k, Pass::AnyWord)?;
         }
         if top.is_empty() {
-            top = self.run_pass(&searcher, query, k, Pass::Fuzzy)?;
+            top = self.run_pass(&searcher, query, head, prefix_word, k, Pass::Fuzzy)?;
         }
 
         let mut hits = Vec::with_capacity(top.len());
@@ -202,14 +226,17 @@ impl TantivyIndices {
         Ok(hits)
     }
 
-    /// One retrieval pass. A query the parser rejects outright (unbalanced
-    /// quote, bare operator) is retried with non-alphanumerics stripped; a
-    /// query that survives neither parse yields no hits rather than an error,
-    /// so a later, looser pass still gets its turn.
+    /// One retrieval pass. The head (every completed word) goes through the
+    /// QueryParser; a trailing mid-typing word becomes a prefix clause joined
+    /// with the pass's own occurrence (Must for AllWords, Should for AnyWord).
+    /// A query neither parse survives yields no hits rather than an error, so
+    /// a later, looser pass still gets its turn.
     fn run_pass(
         &self,
         searcher: &tantivy::Searcher,
-        query: &str,
+        raw_query: &str,
+        head: &str,
+        prefix_word: Option<&str>,
         k: usize,
         pass: Pass,
     ) -> Result<Vec<(f32, tantivy::DocAddress)>, String> {
@@ -220,26 +247,126 @@ impl TantivyIndices {
             self.bm25_schema.folder,
         ];
         let mut parser = QueryParser::for_index(&self.bm25, fields.clone());
-        match pass {
-            Pass::AllWords => parser.set_conjunction_by_default(),
-            Pass::AnyWord => {}
+        parser.set_field_boost(self.bm25_schema.title, TITLE_BOOST);
+
+        let parsed: Option<Box<dyn Query>> = match pass {
+            Pass::AllWords | Pass::AnyWord => {
+                let occur = match pass {
+                    Pass::AllWords => {
+                        parser.set_conjunction_by_default();
+                        Occur::Must
+                    }
+                    _ => Occur::Should,
+                };
+                let mut clauses: Vec<(Occur, Box<dyn Query>)> = Vec::new();
+                if let Some(head_query) = parse_lenient(&parser, head) {
+                    clauses.push((occur, head_query));
+                }
+                if let Some(word) = prefix_word {
+                    clauses.push((occur, self.prefix_word_query(word)));
+                }
+                match clauses.len() {
+                    0 => None,
+                    1 => Some(clauses.remove(0).1),
+                    _ => Some(Box::new(BooleanQuery::new(clauses))),
+                }
+            }
             Pass::Fuzzy => {
                 for field in &fields {
                     // (prefix = false, distance = 1, transposition costs 1)
                     parser.set_field_fuzzy(*field, false, 1, true);
                 }
+                parse_lenient(&parser, raw_query)
             }
-        }
-        let parsed = parser.parse_query(query).ok().or_else(|| {
-            let cleaned = query.replace(|c: char| !c.is_alphanumeric() && c != ' ', " ");
-            parser.parse_query(&cleaned).ok()
-        });
+        };
         let Some(parsed) = parsed else {
             return Ok(vec![]);
         };
+
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let collector =
+            TopDocs::with_limit(k).tweak_score(move |segment_reader: &SegmentReader| {
+                let mtimes = segment_reader.fast_fields().i64("mtime").ok();
+                move |doc: DocId, score: Score| {
+                    let mtime_ms = mtimes.as_ref().and_then(|c| c.first(doc)).unwrap_or(0);
+                    // Unset mtime (0) decays to a ~1.0 multiplier, i.e. plain BM25.
+                    let age_days = ((now_ms - mtime_ms).max(0) as f32) / MS_PER_DAY;
+                    let freshness =
+                        (-age_days * std::f32::consts::LN_2 / RECENCY_HALF_LIFE_DAYS).exp();
+                    score * (1.0 + RECENCY_WEIGHT * freshness)
+                }
+            });
         searcher
-            .search(&parsed, &TopDocs::with_limit(k).order_by_score())
+            .search(&parsed, &collector)
             .map_err(|e| format!("bm25 search: {e}"))
+    }
+
+    /// One should-clause per field matching any indexed term that starts with
+    /// `word` (case-folded to mirror the default tokenizer). Prefix hits score
+    /// a constant (boosted for title), so among prefix-only matches the
+    /// recency tweak decides the order — which is what an as-you-type result
+    /// list should do.
+    fn prefix_word_query(&self, word: &str) -> Box<dyn Query> {
+        let lowered = word.to_lowercase();
+        let mut clauses: Vec<(Occur, Box<dyn Query>)> = Vec::new();
+        for field in [
+            self.bm25_schema.title,
+            self.bm25_schema.body,
+            self.bm25_schema.tags,
+            self.bm25_schema.folder,
+        ] {
+            let term = Term::from_field_text(field, &lowered);
+            let mut q: Box<dyn Query> = Box::new(FuzzyTermQuery::new_prefix(term, 0, true));
+            if field == self.bm25_schema.title {
+                q = Box::new(BoostQuery::new(q, TITLE_BOOST));
+            }
+            clauses.push((Occur::Should, q));
+        }
+        Box::new(BooleanQuery::new(clauses))
+    }
+}
+
+/// Parse through the QueryParser, retrying a rejected query (unbalanced
+/// quote, bare operator) with non-alphanumerics stripped.
+fn parse_lenient(parser: &QueryParser, query: &str) -> Option<Box<dyn Query>> {
+    if query.trim().is_empty() {
+        return None;
+    }
+    parser.parse_query(query).ok().or_else(|| {
+        let cleaned = query.replace(|c: char| !c.is_alphanumeric() && c != ' ', " ");
+        if cleaned.trim().is_empty() {
+            return None;
+        }
+        parser.parse_query(&cleaned).ok()
+    })
+}
+
+/// Split a query into a parseable head and the word still being typed. The
+/// last word counts as in-progress only when the query ends mid-word: any
+/// trailing whitespace or punctuation means the user completed it. A tail
+/// glued to punctuation ("folder-sco") is NOT split — the QueryParser owns
+/// hyphen compounds as adjacent phrases, and splitting would silently turn
+/// the phrase into two independent words.
+fn split_trailing_prefix(query: &str) -> (&str, Option<&str>) {
+    match query.chars().last() {
+        Some(c) if c.is_alphanumeric() => {}
+        _ => return (query, None),
+    }
+    let start = query
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| c.is_alphanumeric())
+        .last()
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let head = &query[..start];
+    match head.chars().last() {
+        None => ((""), Some(query)),
+        Some(c) if c.is_whitespace() => (head, Some(&query[start..])),
+        Some(_) => (query, None),
     }
 }
 
@@ -361,6 +488,123 @@ mod tests {
         idx.upsert_note_bm25("alpha", "Alpha", "body2", "", "", 5_000);
         idx.commit_bm25().unwrap();
         assert_eq!(idx.bm25_note_mtimes().unwrap().get("alpha"), Some(&5_000));
+    }
+
+    fn now_ms() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    }
+
+    const FOUR_YEARS_MS: i64 = 4 * 365 * 86_400_000;
+
+    #[test]
+    fn last_word_matches_as_prefix_while_typing() {
+        let (_dir, mut idx) = open_indices_in_tempdir();
+        idx.upsert_note_bm25("august", "August 10, 2026", "daily entry", "", "", now_ms());
+        idx.upsert_note_bm25("groceries", "Groceries", "milk eggs", "", "", now_ms());
+        idx.commit_bm25().unwrap();
+        let hits = idx.search_bm25("Aug", 10).unwrap();
+        assert_eq!(
+            hits.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            vec!["august"],
+            "a mid-typing word must match titles it prefixes"
+        );
+    }
+
+    #[test]
+    fn trailing_space_ends_the_word_so_no_prefix_expansion() {
+        let (_dir, mut idx) = open_indices_in_tempdir();
+        idx.upsert_note_bm25("august", "August 10, 2026", "daily entry", "", "", now_ms());
+        idx.commit_bm25().unwrap();
+        assert!(
+            idx.search_bm25("Aug ", 10).unwrap().is_empty(),
+            "a completed word matches as typed, not as a prefix"
+        );
+    }
+
+    #[test]
+    fn prefix_composes_with_the_all_words_pass() {
+        let (_dir, mut idx) = open_indices_in_tempdir();
+        idx.upsert_note_bm25("list", "Grocery list", "weekly shop", "", "", now_ms());
+        idx.upsert_note_bm25("bills", "Grocery bills", "utilities", "", "", now_ms());
+        idx.commit_bm25().unwrap();
+        let hits = idx.search_bm25("grocery li", 10).unwrap();
+        assert_eq!(
+            hits.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            vec!["list"],
+            "completed words stay required while the last word prefixes"
+        );
+    }
+
+    #[test]
+    fn recent_note_outranks_stale_note_on_an_equal_match() {
+        let (_dir, mut idx) = open_indices_in_tempdir();
+        let now = now_ms();
+        idx.upsert_note_bm25(
+            "old",
+            "meeting notes",
+            "same body",
+            "",
+            "",
+            now - FOUR_YEARS_MS,
+        );
+        idx.upsert_note_bm25("new", "meeting notes", "same body", "", "", now);
+        idx.commit_bm25().unwrap();
+        let hits = idx.search_bm25("meeting", 10).unwrap();
+        assert_eq!(hits[0].0, "new", "recency must break BM25 ties: {hits:?}");
+        assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn title_match_outranks_body_only_match() {
+        let (_dir, mut idx) = open_indices_in_tempdir();
+        let now = now_ms();
+        idx.upsert_note_bm25("titled", "zebra", "some daily entry", "", "", now);
+        idx.upsert_note_bm25("body", "randoms", "zebra spotted today", "", "", now);
+        idx.commit_bm25().unwrap();
+        let hits = idx.search_bm25("zebra", 10).unwrap();
+        assert_eq!(
+            hits[0].0, "titled",
+            "title hits outrank body hits: {hits:?}"
+        );
+        assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn recent_title_match_beats_old_body_heavy_note() {
+        // The reported regression: a 2022 note repeating the word in a short
+        // body outranked a fresh daily note whose TITLE contains it.
+        let (_dir, mut idx) = open_indices_in_tempdir();
+        let now = now_ms();
+        idx.upsert_note_bm25(
+            "old-2022",
+            "randoms",
+            "august august august august",
+            "",
+            "",
+            now - FOUR_YEARS_MS,
+        );
+        idx.upsert_note_bm25("daily", "August 10, 2026", "daily entry", "", "", now);
+        idx.commit_bm25().unwrap();
+        let hits = idx.search_bm25("August", 10).unwrap();
+        assert_eq!(hits[0].0, "daily", "fresh title match must win: {hits:?}");
+    }
+
+    #[test]
+    fn split_trailing_prefix_splits_only_mid_word_tails() {
+        assert_eq!(split_trailing_prefix("Aug"), ("", Some("Aug")));
+        assert_eq!(
+            split_trailing_prefix("grocery li"),
+            ("grocery ", Some("li"))
+        );
+        assert_eq!(split_trailing_prefix("Aug "), ("Aug ", None));
+        assert_eq!(split_trailing_prefix("aug."), ("aug.", None));
+        assert_eq!(split_trailing_prefix(""), ("", None));
+        // A tail glued to punctuation stays with the parser so hyphen
+        // compounds keep their adjacent-phrase semantics.
+        assert_eq!(split_trailing_prefix("folder-sco"), ("folder-sco", None));
     }
 
     #[test]
