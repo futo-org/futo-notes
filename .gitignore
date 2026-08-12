@@ -122,6 +122,18 @@ handoff/
 # Verification
 test-screenshots
 
+# Perf harness output (regenerable). perf-results is already excluded from
+# remote runs (RSYNC_EXCLUDES in scripts/remote-test.mjs); .perf-course-cache
+# is ~47MB of seeded vaults rebuilt on demand.
+.perf-course-cache/
+perf-results/
+
+# Factory run captures — screenshots, last-run.json, parity matrices. Only the
+# captures/ dirs: factories/*/ itself holds tracked source (see the
+# rich-text-factory), so a blanket `factories/` ignore would hide real code.
+# Mirrors the existing `factory/captures` rsync exclude.
+factories/*/captures/
+
 # Docker testing
 futo-notes-data
 /docker-compose.yml
