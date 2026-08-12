@@ -8,6 +8,8 @@ import Foundation
 /// Characters forbidden in a note title: `< > : " / \ | ? *` plus Unicode
 /// control characters, matching the canonical Rust rule. Used only for live
 /// input filtering; authoritative validation + messages come from Rust FFI.
+///
+/// `.controlCharacters` covers the shared C0, DEL, and C1 ranges.
 enum TitleSpec {
     static let forbiddenScalars: CharacterSet =
         CharacterSet(charactersIn: "<>:\"/\\|?*").union(.controlCharacters)

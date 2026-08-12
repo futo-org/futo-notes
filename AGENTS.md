@@ -108,8 +108,9 @@ These are observed failures, not generic advice.
 
 - **M6 — Reimplemented note rule.** Rust owns the domain. The only TS mirrors live in
   `packages/editor` behind conformance fixtures; never add Swift/Kotlin copies.
-- **M7 — One-sided rule edit.** Change canonical Rust + TS, regenerate fixtures, and test both
-  consumers; `packages/editor/AGENTS.md` owns the procedure.
+- **M7 — One-sided rule edit.** Change canonical Rust + TS, update the hand-reviewed
+  `tests/conformance/*` goldens, pass the differential lock, and test both consumers;
+  `packages/editor/AGENTS.md` owns the procedure.
 - **M8 — Generated-file edit.** Edit the registered source of truth and regenerate; never hand-edit
   `GAPS.md`, `ToolbarSpec.*`/`TitleSpec.*`, uniffi bindings/JNI libs, or the **bundled**
   `editor.html` — the root `editor.html` IS the hand-written source. Regenerate with
@@ -169,7 +170,7 @@ Every logic change gets a test; a bug regression fails before the fix. Report co
 |---|---|---|
 | **7.1** | UI/Svelte | `src/AGENTS.md` |
 | **7.2** | CM6 editor | `src/AGENTS.md` |
-| **7.3** | Note/editor rule | `packages/editor/AGENTS.md` + both Rust/TS consumers |
+| **7.3** | Note/editor rule | `packages/editor/AGENTS.md` + both Rust/TS consumers + `just test-rust` (goldens + TS↔Rust differential) |
 | **7.4** | Rust core/Tauri | nearest crate or `apps/tauri/AGENTS.md` |
 | **7.5** | Sync | `crates/futo-notes-sync/AGENTS.md`; preserve push-first |
 | **7.6** | iOS | `apps/ios/AGENTS.md` |

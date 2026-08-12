@@ -25,21 +25,10 @@ cargo test -p futo-notes-core
 just test-rust-full
 ```
 
-### `#[ignore = "known gap: …"]` means the CODE is broken, not the environment
-
-Everywhere else in this repo `#[ignore]` means "needs an external environment"
-(`FUTO_TEST_SERVER`, the OS keyring). In this crate the `known gap:` prefix means
-something different: the property is TRUE as an invariant and the production rule
-does not satisfy it. Each one carries a comment with the counterexample, the root
-cause, and why it is not being fixed in that commit (usually because the rule is
-conformance-locked to `packages/editor` and closing it is a two-sided change plus
-regenerated fixtures — AGENTS.md M7).
-
-So `cargo test -p futo-notes-core -- --ignored` is EXPECTED RED. Those failures
-are not a regression you introduced; read the comment above each one. Plain
-`cargo test` skips them, and `scripts/debt-ratchet.mjs`'s `ignoredPropertyTests`
-count is what stops them from multiplying — closing one means deleting its
-`#[ignore]` and lowering that count in the same commit.
+Core invariant properties run in ordinary `cargo test`. Do not park a production
+defect behind `#[ignore]`; record a behavioral divergence in `docs/spec/` and keep
+an executable regression at the narrowest public seam while fixing it. `#[ignore]`
+is reserved for tests that genuinely require an external environment.
 
 ## Verification (Required)
 

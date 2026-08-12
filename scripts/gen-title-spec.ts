@@ -10,21 +10,23 @@
 //   apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift    (consumed by NoteEditorView.swift)
 //   apps/android/app/src/main/java/com/futo/notes/ui/TitleSpec.kt (consumed by NoteEditorScreen.kt)
 //
-// What is generated: the visible forbidden characters and MAX_TITLE_LENGTH —
-// the two pieces of data shared by every implementation. Control characters are
-// spelled per language because each has its own syntax for them, but every
-// template covers the same Unicode Cc set (C0, DEL, C1) that Rust's
-// `char::is_control()` and the TS `CONTROL_CHARS` range reject.
+// What is generated: the visible forbidden characters, Unicode control ranges,
+// and MAX_TITLE_LENGTH shared by every implementation.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  FORBIDDEN_TITLE_CONTROL_RANGES,
   FORBIDDEN_TITLE_CHARS_VISIBLE,
   MAX_TITLE_LENGTH,
 } from '../packages/editor/src/filename.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const FOUNDATION_CONTROL_CHARACTER_RANGES = [
+  [0x00, 0x1f],
+  [0x7f, 0x9f],
+] as const;
 
 function swiftString(s: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
@@ -43,7 +45,22 @@ function kotlinRegexVisibleChars(visible: string): string {
   return kotlinEscape(visible.replace(/\\/g, '\\\\'));
 }
 
+function kotlinRegexControlRanges(): string {
+  return FORBIDDEN_TITLE_CONTROL_RANGES.map(([start, end]) => {
+    const hex = (value: number) => value.toString(16).padStart(2, '0').toUpperCase();
+    return `\\\\x${hex(start)}-\\\\x${hex(end)}`;
+  }).join('');
+}
+
 function renderSwiftFile(): string {
+  if (
+    JSON.stringify(FORBIDDEN_TITLE_CONTROL_RANGES) !==
+    JSON.stringify(FOUNDATION_CONTROL_CHARACTER_RANGES)
+  ) {
+    throw new Error(
+      'TitleSpec.swift uses Foundation .controlCharacters; update its template for the changed canonical control ranges.',
+    );
+  }
   return [
     '// GENERATED FILE — DO NOT EDIT.',
     '// Source of truth: packages/editor/src/filename.ts (@futo-notes/editor).',
@@ -55,6 +72,8 @@ function renderSwiftFile(): string {
     '/// Characters forbidden in a note title: `< > : " / \\ | ? *` plus Unicode',
     '/// control characters, matching the canonical Rust rule. Used only for live',
     '/// input filtering; authoritative validation + messages come from Rust FFI.',
+    '///',
+    '/// `.controlCharacters` covers the shared C0, DEL, and C1 ranges.',
     'enum TitleSpec {',
     `    static let forbiddenScalars: CharacterSet =`,
     `        CharacterSet(charactersIn: ${swiftString(FORBIDDEN_TITLE_CHARS_VISIBLE)}).union(.controlCharacters)`,
@@ -76,13 +95,12 @@ function renderKotlinFile(): string {
     'package com.futo.notes.ui',
     '',
     '/**',
-    ' * Characters stripped by the Android live title filter: `< > : " / \\ | ? *`',
-    ' * plus the Unicode Cc control characters (C0, DEL, C1), matching the',
-    ' * canonical Rust rule. The Rust FFI validator supplies authoritative',
-    ' * validation + messages.',
+    ' * Characters stripped by the Android live title filter: `< > : " / \\ | ? *`,',
+    ' * C0 control characters, DEL, and C1 controls, matching the shared rule. The',
+    ' * canonical Rust FFI validator supplies authoritative validation + messages.',
     ' */',
     'object TitleSpec {',
-    `    val forbiddenChars = Regex("[${kotlinRegexVisibleChars(FORBIDDEN_TITLE_CHARS_VISIBLE)}\\\\u0000-\\\\u001F\\\\u007F-\\\\u009F]")`,
+    `    val forbiddenChars = Regex("[${kotlinRegexVisibleChars(FORBIDDEN_TITLE_CHARS_VISIBLE)}${kotlinRegexControlRanges()}]")`,
     '',
     '    /** Max title length (chars) — matches the shared `MAX_TITLE_LENGTH`. */',
     `    const val maxLength = ${MAX_TITLE_LENGTH}`,

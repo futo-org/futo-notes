@@ -3,7 +3,7 @@
   "entries": [
     {
       "concept": "note-rules-ts-rust",
-      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Copies must stay bit-for-bit per tests/conformance/*.json.",
+      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; title rules also cross a broad deterministic corpus directly.",
       "lockStatus": "locked",
       "copies": [
         {
@@ -65,12 +65,16 @@
           "kind": "fixture"
         },
         {
-          "path": "tests/conformance/generate.mjs",
-          "kind": "generator"
-        },
-        {
           "path": "crates/futo-notes-model/tests/conformance.rs",
           "kind": "test"
+        },
+        {
+          "path": "tests/conformance/title-rules-differential.mjs",
+          "kind": "differential test"
+        },
+        {
+          "path": "crates/futo-notes-model/examples/title_rule_oracle.rs",
+          "kind": "differential oracle"
         }
       ]
     },
@@ -231,9 +235,9 @@
     },
     {
       "concept": "title-validation-constants",
-      "description": "MAX_TITLE_LENGTH (200) and the visible forbidden-character set, shared by packages/editor/src/filename.ts and Rust, and generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts. The numeric 200 is additionally locked cross-language via constants.json (TS+Rust only). Control characters are still spelled per language in the generator templates, but all four now cover the same Unicode Cc set (C0, DEL, C1).",
-      "lockStatus": "partial",
-      "note": "PARTIAL: generation locks MAX_TITLE_LENGTH and the visible forbidden characters from packages/editor/src/filename.ts into both native files. The control-character set is authored separately in each generator template (Swift `.controlCharacters`, a Kotlin regex range, the TS `CONTROL_CHARS` range, Rust `char::is_control()`) — they agree on Unicode Cc as of the C1 fix, but nothing generates one from another.",
+      "description": "MAX_TITLE_LENGTH (200), the visible forbidden-character set, and the full C0/DEL/C1 control ranges shared by packages/editor/src/filename.ts and Rust, then generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts.",
+      "lockStatus": "locked",
+      "note": "LOCKED: constants.json pins MAX_TITLE_LENGTH in TS+Rust; the reviewed filename fixture and batched differential pin title behavior; gen-title-spec derives both native filters from the TS manifest; Android's TitleSpecTest executes the generated C0/DEL/C1 regex. Swift uses Foundation's matching `.controlCharacters` category and title-spec-check locks the generated source.",
       "copies": [
         {
           "location": "packages/editor/src/filename.ts",
@@ -264,6 +268,14 @@
         {
           "path": "scripts/gen-title-spec.ts",
           "kind": "generator"
+        },
+        {
+          "path": "tests/conformance/title-rules-differential.mjs",
+          "kind": "differential test"
+        },
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/ui/TitleSpecTest.kt",
+          "kind": "test"
         }
       ],
       "scan": {

@@ -45,8 +45,7 @@ This repo ships shared Claude Code config under `.claude/`:
   `/test-agent`, `/verify`, `/zulip`. Available automatically when you open the
   repo in Claude Code. Note `/release`, `/verify`, and `/zulip` need
   `GITLAB_TOKEN` / `ZULIP_API_KEY` (see step 3).
-- **Workflows** (`.claude/workflows/`) — multi-agent flows like
-  `conformance-check` and `sync-adversarial`.
+- **Workflows** (`.claude/workflows/`) — multi-agent flows like `sync-adversarial`.
 - **Shared settings** (`.claude/settings.json`) — a small project permission
   allowlist. Personal overrides go in `.claude/settings.local.json` (gitignored).
 

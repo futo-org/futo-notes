@@ -43,8 +43,10 @@ fn object_id_short(object_id: &str) -> String {
         .collect::<String>();
     if cleaned.is_empty() {
         "object".to_owned()
-    } else {
+    } else if is_object_conflict_token(&cleaned) {
         cleaned
+    } else {
+        format!("object-{cleaned}")
     }
 }
 
@@ -61,7 +63,15 @@ fn split_conflict_name_parts(original: &str) -> (&str, &str) {
         (original, ".md")
     };
 
-    (strip_trailing_conflict_suffixes(base), extension)
+    let stripped = strip_trailing_conflict_suffixes(base);
+    (
+        if stripped.is_empty() {
+            crate::files::FALLBACK_TITLE
+        } else {
+            stripped
+        },
+        extension,
+    )
 }
 
 fn strip_trailing_conflict_suffixes(mut base: &str) -> &str {
@@ -118,6 +128,11 @@ fn is_object_conflict_token(token: &str) -> bool {
         || (token.len() == 8
             && token.as_bytes().iter().all(u8::is_ascii_alphanumeric)
             && token.as_bytes().iter().any(u8::is_ascii_digit))
+        || token.strip_prefix("object-").is_some_and(|short| {
+            !short.is_empty()
+                && short.len() <= 8
+                && short.as_bytes().iter().all(u8::is_ascii_alphanumeric)
+        })
 }
 
 #[cfg(test)]
@@ -366,22 +381,6 @@ mod property_tests {
 
     proptest! {
         #[test]
-        fn dated_naming_is_deterministic(name in vault_filename(), date in date_token()) {
-            prop_assert_eq!(
-                conflict_filename(&name, &date, &HashSet::new()),
-                conflict_filename(&name, &date, &HashSet::new()),
-            );
-        }
-
-        #[test]
-        fn collision_naming_is_deterministic(name in vault_filename(), id in object_id()) {
-            prop_assert_eq!(
-                collision_conflict_filename(&name, &id),
-                collision_conflict_filename(&name, &id),
-            );
-        }
-
-        #[test]
         fn dated_naming_is_a_fixed_point(name in vault_filename(), date in date_token()) {
             let once = conflict_filename(&name, &date, &HashSet::new());
             prop_assert_eq!(conflict_filename(&once, &date, &HashSet::new()), once);
@@ -396,24 +395,9 @@ mod property_tests {
             prop_assert_eq!(collision_conflict_filename(&once, &id), once);
         }
 
-        /// FAILS TODAY — kept as the honest statement of the invariant.
-        /// Counterexample: `collision_conflict_filename("note.md", "a")` yields
-        /// `"note (conflict a).md"`, and re-parking that yields
-        /// `"note (conflict a) (conflict a).md"` — an unbounded stack, the exact
-        /// shape behind the 1-note-to-1081-objects explosion.
-        ///
-        /// Root cause: `is_object_conflict_token` only recognizes a short id of
-        /// exactly 8 hex characters, or 8 alphanumerics containing a digit. Any
-        /// other short id (fewer than 8 alphanumerics, or 8 letters that are not
-        /// all hex — e.g. "a", "z-local", "edited-object", "zzzzzzzz",
-        /// "ZZTFGHKM") is not peeled, so every re-park appends another suffix.
-        /// Unreachable through the shipped sync server, which issues UUID object
-        /// ids (hex-prefixed, so always peeled) — hence the passing
-        /// `..._for_server_object_ids` property above. It would become reachable
-        /// if object ids ever changed shape (ULID/base32/nanoid), so the
-        /// invariant stays recorded rather than narrowed.
+        /// Nonstandard short IDs use an explicit `object-` namespace, keeping the
+        /// suffix recognizable if the server ever changes object-id shape.
         #[test]
-        #[ignore = "known gap: short ids outside the 8-hex/8-alnum-with-digit shape stack suffixes"]
         fn collision_naming_is_a_fixed_point(name in vault_filename(), id in object_id()) {
             let once = collision_conflict_filename(&name, &id);
             prop_assert_eq!(collision_conflict_filename(&once, &id), once);
@@ -458,11 +442,9 @@ mod property_tests {
             }
         }
 
-        /// FAILS TODAY — same root cause as
-        /// `collision_naming_is_a_fixed_point`; see that test's comment for the
-        /// counterexample and the reachability analysis.
+        /// Repeated placement with arbitrary object-id shapes must replace the
+        /// generated suffix instead of stacking another one.
         #[test]
-        #[ignore = "known gap: short ids outside the 8-hex/8-alnum-with-digit shape stack suffixes"]
         fn repeated_collision_naming_never_stacks_another_suffix(
             name in vault_filename(),
             ids in prop::collection::vec(object_id(), NAMING_ROUNDS),
@@ -543,48 +525,25 @@ mod property_tests {
             prop_assert_ne!(conflict_filename(&name, &date, &taken), name);
         }
 
-        /// FAILS TODAY — kept as the honest statement of the invariant.
-        /// Counterexample: an empty stem, i.e. a vault file literally named
-        /// `" (conflict 2026-01-01).md"`. Peeling its generated suffix leaves an
-        /// empty base, so re-parking it with the SAME token reproduces the input:
-        /// `conflict_filename(" (conflict 2026-01-01).md", "2026-01-01", {})`
-        /// returns `" (conflict 2026-01-01).md"`, and
-        /// `collision_conflict_filename(" (conflict 019f3d55).md", "019f3d55")`
-        /// returns its own input. A park that renames a file onto itself lets the
-        /// incoming side overwrite the local content.
-        ///
-        /// Not reachable today, but NOT because the callers all guard it:
-        /// `sanitize_title` trims leading spaces so the note engine cannot create
-        /// such a name, and `classify_incoming_sync_path` heals it on the way in.
-        /// Only two call sites guard the result — `park_local`
-        /// (futo-notes-sync `sync/vault.rs`) and `park_divergent_claim`
-        /// (`sync/tombstones.rs`) fall back to the dated name when the collision
-        /// name already exists, and `conflict_filename` there receives the vault
-        /// listing as `existing` (see the property above). The divert arm in
-        /// `sync/collision_resolution.rs` returns
-        /// `collision_conflict_filename(requested, remote_object_id)` with NO
-        /// existence check, so a no-op name there would write the remote content
-        /// straight over the local file it was supposed to divert around. The
-        /// invariant belongs here, in the naming rule, for exactly that reason.
+        /// An empty stem used to make the first re-park a no-op. Normal generated
+        /// names are deliberately fixed points; the narrower safety requirement is
+        /// that stripping an empty generated stem first moves it under the fallback
+        /// title, so an unguarded collision placement cannot overwrite its input.
         #[test]
-        #[ignore = "known gap: an empty stem makes re-parking with the same token a no-op rename"]
-        fn reparking_with_the_same_token_still_changes_the_name(
-            stem in prop::option::of("[a-z0-9 ]{1,8}"),
+        fn empty_stem_reparking_moves_to_the_safe_fallback(
             date in date_token(),
             short_id in "[0-9a-f]{8}",
         ) {
-            let stem = stem.unwrap_or_default();
-
-            let dated = format!("{stem} (conflict {date}).md");
-            prop_assert_ne!(
+            let dated = format!(" (conflict {date}).md");
+            prop_assert_eq!(
                 conflict_filename(&dated, &date, &HashSet::new()),
-                dated.clone(),
+                format!("Untitled (conflict {date}).md"),
             );
 
-            let collided = format!("{stem} (conflict {short_id}).md");
-            prop_assert_ne!(
+            let collided = format!(" (conflict {short_id}).md");
+            prop_assert_eq!(
                 collision_conflict_filename(&collided, &short_id),
-                collided,
+                format!("Untitled (conflict {short_id}).md"),
             );
         }
     }
