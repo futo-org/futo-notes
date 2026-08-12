@@ -16,8 +16,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.window.Dialog
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import org.junit.After
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -26,18 +28,21 @@ import org.junit.runner.RunWith
 /**
  * Regression for github#23: a dialog-hosted text field lost focus moments
  * after the keyboard opened, closing it (see [ClearFocusOnImeDismiss]). IME
- * visibility is asserted from the activity window, so the test fails loudly
- * if the environment never shows a real keyboard instead of going green
- * without exercising anything.
+ * visibility is asserted from `dumpsys input_method` — window insets can't be
+ * the oracle, because on API 34 the system dispatches NO ime insets to either
+ * the activity or the dialog window even while the keyboard is shown (CI's
+ * AVD; pipeline 33990). The dumpsys gate still fails loudly if the
+ * environment never shows a real keyboard instead of going green without
+ * exercising anything.
  */
 @RunWith(AndroidJUnit4::class)
 class DialogImeDismissTest {
     @get:Rule
     val compose = createComposeRule()
 
-    // Emulators with a hardware keyboard (the CI AVD, stock Studio AVDs) never
-    // show the soft IME unless this setting is on — without it the test can
-    // only fail its keyboard-appeared gate.
+    // Emulators with a hardware keyboard (stock Studio AVDs) never show the
+    // soft IME unless this setting is on — without it the test can only fail
+    // its keyboard-appeared gate.
     private var previousShowIme = ""
 
     @Before
@@ -60,6 +65,9 @@ class DialogImeDismissTest {
         return ParcelFileDescriptor.AutoCloseInputStream(pfd).use { String(it.readBytes()) }
     }
 
+    private fun imeShownInSystem(): Boolean =
+        shell("dumpsys input_method").contains("mInputShown=true")
+
     @Test
     fun dialogFieldKeepsFocusAndKeyboardWhileImeShows() {
         var activityImeVisible = false
@@ -81,13 +89,19 @@ class DialogImeDismissTest {
         repeat(3) {
             compose.onNodeWithTag("name").performClick()
             compose.onNodeWithTag("name").assertIsFocused()
-            compose.waitUntil(timeoutMillis = 5_000) { activityImeVisible }
+            compose.waitUntil(timeoutMillis = 5_000) { imeShownInSystem() }
             // Real clock: the phantom hide fired as the IME's show animation
             // settled, which the compose test clock does not drive.
             Thread.sleep(1_500)
             compose.waitForIdle()
             compose.onNodeWithTag("name").assertIsFocused()
-            compose.waitUntil(timeoutMillis = 1_000) { activityImeVisible }
+            assertTrue("keyboard closed itself after opening", imeShownInSystem())
+            if (Build.VERSION.SDK_INT >= 35) {
+                // The fix's premise (only dispatched on API 35+): the activity
+                // window reads truthful ime insets while a dialog field owns
+                // the keyboard.
+                assertTrue("activity window never saw the ime insets", activityImeVisible)
+            }
         }
     }
 }
