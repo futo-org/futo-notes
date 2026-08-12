@@ -134,21 +134,6 @@
       }
     },
     {
-      "concept": "sort-tiebreaker-modified-id",
-      "description": "Note sort order (modified desc, id asc). The Rust store is canonical: snapshots are emitted sorted and every mutation carries per-note sorted positions (issue #35 / ADR-0001), so the three former shell copies are deleted \u2014 shells apply engine positions as verbatim splices. The ONLY remaining twin is the browser in-memory dev/test harness, the LocalNoteStore seam's second engine adapter. Each side is pinned by its own contract tests (crates/futo-notes-store tests.rs; src/lib/localNoteStore.test.ts); no shared fixture locks the pair.",
-      "lockStatus": "unlocked",
-      "copies": [
-        {
-          "location": "crates/futo-notes-store/src/vault.rs",
-          "pattern": "fn note_list_order"
-        },
-        {
-          "location": "src/lib/localNoteStore.ts",
-          "pattern": "function compareNoteOrder"
-        }
-      ]
-    },
-    {
       "concept": "notes-root-triplet",
       "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
       "lockStatus": "unlocked",
@@ -223,21 +208,6 @@
       ]
     },
     {
-      "concept": "unique-id-collision-loop",
-      "description": "The '-2, -3, ...' unique-id suffix resolver. Rust is canonical for desktop and native (futo-notes-store paths::unique_note_id). The only other generator is the browser-only development/test note-store harness (localNoteStore.ts `unique`). Swift and Kotlin do NOT generate: they pass \"Untitled\" to the Rust createNote and only RECOGNIZE the suffix shape via isPlaceholderTitle \u2014 keep it that way. Separate tests protect each implementation; no shared fixture currently locks them.",
-      "lockStatus": "unlocked",
-      "copies": [
-        {
-          "location": "src/lib/localNoteStore.ts",
-          "pattern": "private unique\\(wanted"
-        },
-        {
-          "location": "crates/futo-notes-store/src/paths.rs",
-          "pattern": "pub\\(crate\\) fn unique_note_id"
-        }
-      ]
-    },
-    {
       "concept": "title-validation-constants",
       "description": "MAX_TITLE_LENGTH (200), the visible forbidden-character set, and the full C0/DEL/C1 control ranges shared by packages/editor/src/filename.ts and Rust, then generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts.",
       "lockStatus": "locked",
@@ -297,31 +267,6 @@
         ],
         "pattern": "MAX_TITLE_LENGTH\\s*[:=]\\s*(usize\\s*=\\s*)?200|TITLE_MAX_LENGTH\\s*=\\s*200|titleMaxLength\\s*=\\s*200|maxLength\\s*=\\s*200"
       }
-    },
-    {
-      "concept": "conflict-copy-naming",
-      "description": "Dated conflict-copy naming (\"<base> (conflict YYYY-MM-DD)\", counter on a same-day collision, never stacking on an existing conflict suffix). Rust rule in futo-notes-core conflict_names is used by sync parks and the note engine's flush_draft arm; both native shells delegate to that engine workflow. The browser LocalNoteStore harness plays the engine side of the seam and mirrors the dated-token subset (it never mints sync's object-id tokens). Partial: the Rust/TS pair has independent test pins rather than one shared fixture.",
-      "lockStatus": "partial",
-      "copies": [
-        {
-          "location": "crates/futo-notes-core/src/conflict_names.rs",
-          "pattern": "pub fn conflict_filename"
-        },
-        {
-          "location": "src/lib/localNoteStore.ts",
-          "pattern": "function conflictCopyTitle"
-        }
-      ],
-      "locks": [
-        {
-          "path": "crates/futo-notes-store/src/tests.rs",
-          "kind": "test"
-        },
-        {
-          "path": "src/lib/localNoteStore.test.ts",
-          "kind": "test"
-        }
-      ]
     },
     {
       "concept": "editor-exit-ordering",

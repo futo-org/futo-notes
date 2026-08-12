@@ -15,7 +15,6 @@ vi.mock('$lib/platform');
 const resetVault = vi.hoisted(() => vi.fn());
 vi.mock('$lib/localNoteStore', () => ({
   getLocalNoteStore: vi.fn(async () => ({ reset: resetVault })),
-  currentLocalNoteStore: vi.fn(() => ({ reset: resetVault })),
 }));
 vi.mock('$features/sync/autoSyncV2', () => ({
   pauseSyncV2: vi.fn(),
