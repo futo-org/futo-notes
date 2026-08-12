@@ -42,11 +42,16 @@ pub struct IndexerHandle {
 
 impl IndexerHandle {
     pub fn query(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>, String> {
-        let trimmed = query.trim();
-        if trimmed.is_empty() {
+        // Trim only the head: trailing whitespace is signal ("Aug " means the
+        // word is complete, "Aug" is mid-typing and matches as a prefix).
+        let trimmed = query.trim_start();
+        if trimmed.trim_end().is_empty() {
             return Ok(vec![]);
         }
-        let indices = self.indices.lock().map_err(|_| "index mutex poisoned".to_string())?;
+        let indices = self
+            .indices
+            .lock()
+            .map_err(|_| "index mutex poisoned".to_string())?;
         let bm25 = indices.search_bm25(trimmed, limit.max(1).min(DEFAULT_TOPK))?;
         let mut out = Vec::with_capacity(bm25.len().min(limit));
         for (id, score) in bm25.into_iter().take(limit) {
@@ -246,7 +251,10 @@ fn reconcile_bm25(
     use std::collections::HashSet;
     let files = walk_md_files(notes_root);
     let total = files.len() as u32;
-    let on_disk: HashSet<String> = files.iter().map(|(rel, _, _)| rel_to_note_id(rel)).collect();
+    let on_disk: HashSet<String> = files
+        .iter()
+        .map(|(rel, _, _)| rel_to_note_id(rel))
+        .collect();
     let mut deleted: u32 = 0;
     let mut reindexed: u32 = 0;
     {
@@ -435,11 +443,7 @@ mod tests {
 
     fn make_state(
         index_root: &Path,
-    ) -> (
-        Ctx,
-        Arc<Mutex<TantivyIndices>>,
-        Arc<Mutex<SearchStatus>>,
-    ) {
+    ) -> (Ctx, Arc<Mutex<TantivyIndices>>, Arc<Mutex<SearchStatus>>) {
         let ctx = Ctx::new(Arc::new(|_| {}));
         let indices = Arc::new(Mutex::new(
             TantivyIndices::open(index_root).expect("open indices"),
@@ -511,8 +515,14 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
         let c = CString::new(path.as_os_str().as_bytes()).unwrap();
         let times = [
-            libc_timeval { tv_sec: secs, tv_usec: 0 },
-            libc_timeval { tv_sec: secs, tv_usec: 0 },
+            libc_timeval {
+                tv_sec: secs,
+                tv_usec: 0,
+            },
+            libc_timeval {
+                tv_sec: secs,
+                tv_usec: 0,
+            },
         ];
         unsafe {
             utimes(c.as_ptr(), times.as_ptr());

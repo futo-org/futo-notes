@@ -157,6 +157,27 @@ const PROBES = [
       ),
     hint: 'Android now has quarantine vocabulary in the editor session/screen — the #80 dropped-keystroke divergence may be closed.',
   },
+  {
+    // search.md — both native shells trim the query tail before calling
+    // store.search, so the core's mid-typing prefix rule cannot tell "Aug "
+    // from "Aug". It closes when neither shell trims on the path that FEEDS
+    // store.search: Android's debounced `snapshotFlow`, and the trim iOS's
+    // `runSearch` passes as `q`. Both files trim elsewhere too (Android's
+    // empty-state check, iOS's local list filter), which is why the regexes
+    // are scoped rather than a bare grep for `.trim()`. A missing file is NOT
+    // evidence of closure — a rename would otherwise fire this every run.
+    match: /native shells trim the query's tail/,
+    closed: () => {
+      const kt = read('apps/android/app/src/main/java/com/futo/notes/ui/SearchScreen.kt');
+      const swift = read('apps/ios/Sources/Notes/List/NoteListView.swift');
+      if (!kt || !swift) return false;
+      return (
+        !/snapshotFlow \{[^}]*\.trim\(\)/.test(kt) &&
+        !/trimmingCharacters[\s\S]{0,400}?store\.search\(q/.test(swift)
+      );
+    },
+    hint: 'neither native shell trims its search query any more — the query-tail trim gap may be closed.',
+  },
 ];
 
 // ── render ─────────────────────────────────────────────────────────────────

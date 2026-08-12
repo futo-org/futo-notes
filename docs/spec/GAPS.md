@@ -33,8 +33,12 @@ flag gaps the codebase suggests have been implemented.
 
 - [nav.md:67](nav.md#L67) — Android on-device autofocus QA (existing note keyboard-less + native-title autofocus) is still pending. *(Android)*
 
+## search.md
+
+- [search.md:33](search.md#L33) — _(native shells)_ both native shells trim the query's tail before calling `store.search`, so a completed word is indistinguishable from a mid-typing one and `Aug ` still prefix-matches — observed 2026-08-12 on Android (API 36) with the field literally holding `Aug `. → SearchScreen.kt:64,68 (`query.trim()`) · NoteListView.swift:143,148 (`trimmingCharacters(in: .whitespacesAndNewlines)`). Consequence on Android: the no-stemming line below fails in every state, not just mid-typing — `meeting ` there also retrieves a note whose only match is `meetings`. Desktop passes the query raw, and the shared core, the Tauri command, and the FFI facade are all untrimmed; the shell trim predates the prefix rule.
+
 ## sync.md
 
 - [sync.md:1099](sync.md#L1099) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 
-_17 gaps._
+_18 gaps._
