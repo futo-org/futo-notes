@@ -608,6 +608,125 @@ mod tests {
     }
 
     #[test]
+    fn no_stemming_yet_a_mid_typing_query_reaches_longer_forms() {
+        // There is still no stemmer: nothing maps "meetings" onto "meeting".
+        // What DOES reach the plural is the prefix rule, and only in the
+        // direction where the query prefixes the indexed word — so the
+        // behavior is asymmetric, not stemming.
+        let (_dir, mut idx) = open_indices_in_tempdir();
+        let now = now_ms();
+        idx.upsert_note_bm25("singular", "Meeting notes", "one meeting", "", "", now);
+        idx.upsert_note_bm25("plural", "Team schedule", "two meetings", "", "", now);
+        idx.commit_bm25().unwrap();
+
+        let mut mid_typing: Vec<String> = idx
+            .search_bm25("meeting", 10)
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        mid_typing.sort();
+        assert_eq!(
+            mid_typing,
+            vec!["plural", "singular"],
+            "mid-typing 'meeting' prefixes 'meetings', so the plural-only note is retrieved"
+        );
+
+        assert_eq!(
+            idx.search_bm25("meeting ", 10)
+                .unwrap()
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["singular"],
+            "a completed word matches as typed — no stemming reaches the plural"
+        );
+
+        assert_eq!(
+            idx.search_bm25("meetings", 10)
+                .unwrap()
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["plural"],
+            "the asymmetry: the longer query does not reach the shorter word"
+        );
+    }
+
+    #[test]
+    fn prefix_only_match_can_outrank_an_exact_match_until_the_word_ends() {
+        // Inside the prefix path every matching term scores a constant, so
+        // BM25 term relevance is discarded and only the title boost plus
+        // recency order the list. A note that merely PREFIXES the query word
+        // can therefore beat one containing it exactly — until the trailing
+        // space completes the word. Both notes share one mtime so recency
+        // cannot explain the order.
+        let (_dir, mut idx) = open_indices_in_tempdir();
+        let now = now_ms();
+        idx.upsert_note_bm25(
+            "snack",
+            "Snack list",
+            "buy cat food and cat litter",
+            "",
+            "",
+            now,
+        );
+        idx.upsert_note_bm25(
+            "category",
+            "Category ideas",
+            "category ideas and catalog",
+            "",
+            "",
+            now,
+        );
+        idx.commit_bm25().unwrap();
+
+        let mid_typing = idx.search_bm25("cat", 10).unwrap();
+        assert_eq!(
+            mid_typing
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["category", "snack"],
+            "prefix-only ordering is title-boost + recency, not term relevance: {mid_typing:?}"
+        );
+
+        let completed = idx.search_bm25("cat ", 10).unwrap();
+        assert_eq!(
+            completed
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["snack"],
+            "completing the word restores exact matching: {completed:?}"
+        );
+    }
+
+    #[test]
+    fn a_longer_query_reaches_a_shorter_word_only_through_the_fuzzy_last_resort() {
+        // Companion to no_stemming_yet_a_mid_typing_query_reaches_longer_forms:
+        // prefixing runs one way, so "meetings" cannot prefix-match
+        // "meeting". When nothing else matches at all, the
+        // edit-distance-1 pass still finds it — which is the fuzzy fallback
+        // doing its job, not stemming. Asserted in a vault where "meetings"
+        // appears nowhere, so no earlier pass can satisfy the query.
+        let (_dir, mut idx) = open_indices_in_tempdir();
+        idx.upsert_note_bm25("singular", "Meeting notes", "one meeting", "", "", now_ms());
+        idx.commit_bm25().unwrap();
+        for query in ["meetings", "meetings "] {
+            assert_eq!(
+                idx.search_bm25(query, 10)
+                    .unwrap()
+                    .iter()
+                    .map(|(id, _)| id.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["singular"],
+                "{query:?} reaches the shorter word via edit distance 1"
+            );
+        }
+    }
+
+    #[test]
     fn delete_note_removes_from_subsequent_list() {
         let (_dir, mut idx) = open_indices_in_tempdir();
         idx.upsert_note_bm25("keep", "K", "x", "", "", 0);

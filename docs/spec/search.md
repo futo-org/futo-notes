@@ -30,14 +30,36 @@ desktop, iOS, and Android query that owner through thin adapters.
   word — shells must not trim the query's tail. A tail glued to punctuation
   (`folder-sco`) is not prefixed, preserving hyphen-compound adjacency.
   → `futo-notes-search` `tantivy_indices::split_trailing_prefix`
-- Terms match as typed: there is no stemming, so `meeting` does not retrieve
-  `meetings`. Measured on a 2,608-note corpus, adding the English stemmer cost
-  more ranking quality on exact titles than it recovered on word variants.
+  > **Gap:** _(native shells)_ both native shells trim the query's tail before
+  > calling `store.search`, so a completed word is indistinguishable from a
+  > mid-typing one and `Aug ` still prefix-matches — observed 2026-08-12 on
+  > Android (API 36) with the field literally holding `Aug `.
+  > → SearchScreen.kt:64,68 (`query.trim()`) · NoteListView.swift:143,148
+  > (`trimmingCharacters(in: .whitespacesAndNewlines)`). Consequence on
+  > Android: the no-stemming line below fails in every state, not just
+  > mid-typing — `meeting ` there also retrieves a note whose only match is
+  > `meetings`. Desktop passes the query raw, and the shared core, the Tauri
+  > command, and the FFI facade are all untrimmed; the shell trim predates the
+  > prefix rule.
+- There is no stemming: no rule maps `meeting` onto `meetings` or back. Measured
+  on a 2,608-note corpus, adding the English stemmer cost more ranking quality
+  on exact titles than it recovered on word variants.
+- What a mid-typing query does reach is longer forms, via the prefix rule above:
+  `meeting` with no trailing space — what the debounce fires on after every
+  keystroke — retrieves a note whose only match is `meetings`. Prefixing runs
+  one way, so `meetings` does not reach `meeting`; only the last-resort fuzzy
+  pass does, at edit distance 1.
+  → `futo-notes-search` `tantivy_indices::prefix_word_query`
 - Ranking is BM25 with two bounded adjustments: title matches are boosted 2×,
   and a recency multiplier (up to 2×, halving every 30 days of note age)
   prefers recently modified notes among comparable matches — so a fresh daily
   note titled with the query word outranks an old note whose body repeats it.
   → `futo-notes-search` `TantivyIndices::run_pass`
+- Among prefix-only matches BM25 relevance does not order the list: every
+  prefix hit scores a constant per field, so the title boost and recency decide,
+  and a note that merely prefixes the query word can outrank one containing it
+  exactly until the word is completed.
+  → `futo-notes-search` `tantivy_indices::prefix_word_query`
 - Retrieval is lexical. There is no semantic/embedding search, so a query
   sharing no words with a note will not find it.
 - Empty-query UI behavior remains surface-specific: desktop and Android show
