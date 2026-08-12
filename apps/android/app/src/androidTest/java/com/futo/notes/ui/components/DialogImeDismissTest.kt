@@ -15,6 +15,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.window.Dialog
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import android.os.ParcelFileDescriptor
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,6 +34,31 @@ import org.junit.runner.RunWith
 class DialogImeDismissTest {
     @get:Rule
     val compose = createComposeRule()
+
+    // Emulators with a hardware keyboard (the CI AVD, stock Studio AVDs) never
+    // show the soft IME unless this setting is on — without it the test can
+    // only fail its keyboard-appeared gate.
+    private var previousShowIme = ""
+
+    @Before
+    fun forceSoftKeyboard() {
+        previousShowIme = shell("settings get secure show_ime_with_hard_keyboard").trim()
+        shell("settings put secure show_ime_with_hard_keyboard 1")
+    }
+
+    @After
+    fun restoreSoftKeyboardSetting() {
+        if (previousShowIme.isEmpty() || previousShowIme == "null") {
+            shell("settings delete secure show_ime_with_hard_keyboard")
+        } else {
+            shell("settings put secure show_ime_with_hard_keyboard $previousShowIme")
+        }
+    }
+
+    private fun shell(command: String): String {
+        val pfd = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+        return ParcelFileDescriptor.AutoCloseInputStream(pfd).use { String(it.readBytes()) }
+    }
 
     @Test
     fun dialogFieldKeepsFocusAndKeyboardWhileImeShows() {
