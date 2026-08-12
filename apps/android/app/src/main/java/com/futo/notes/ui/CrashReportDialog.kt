@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
+import com.futo.notes.ui.components.imeTargetVisible
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -42,6 +43,8 @@ fun CrashReportDialog(
     onDontSend: () -> Unit,
 ) {
     val c = FutoTheme.colors
+    // Read here (activity window) — the dialog window's insets lie (github#23).
+    val imeVisible = imeTargetVisible()
     var showReport by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
     var always by remember { mutableStateOf(false) }
@@ -54,7 +57,7 @@ fun CrashReportDialog(
             Column {
                 // The dialog is its own window — the app-root install (#24)
                 // can't reach its focus manager.
-                ClearFocusOnImeDismiss()
+                ClearFocusOnImeDismiss(imeVisible)
                 Text(
                     "FUTO Notes crashed last time it ran. Send the report so it can be fixed?",
                     style = FutoType.small,

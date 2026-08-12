@@ -49,6 +49,7 @@ import com.futo.notes.storage.recoverStorageStartup
 import com.futo.notes.storage.storageSwitchPlan
 import com.futo.notes.testhook.TestHooks
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
+import com.futo.notes.ui.components.imeTargetVisible
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.NoteEditorScreen
 import com.futo.notes.ui.NoteListScreen
@@ -216,7 +217,7 @@ class MainActivity : ComponentActivity() {
                 // focused field's caret (#24) — native fields via clearFocus,
                 // the editor WebView's DOM caret via a bridge blur (it
                 // survives clearFocus). Dialog windows install their own.
-                ClearFocusOnImeDismiss {
+                ClearFocusOnImeDismiss(imeTargetVisible()) {
                     val editorHost = EditorHost.get(this)
                     if (editorHost.editorFocused) editorHost.blur()
                 }

@@ -20,14 +20,19 @@ import androidx.compose.ui.platform.LocalFocusManager
  * Installed once at the app root (MainActivity), which covers every screen in
  * the Activity window; [onDismiss] is the root's hook to also blur the editor
  * WebView, whose DOM caret survives a view-level clearFocus. A Dialog is its
- * OWN window with its own focus manager and IME insets, so a dialog hosting a
- * text field installs its own copy (NewFolderDialog, CrashReportDialog).
+ * OWN window with its own focus manager, so a dialog hosting a text field
+ * installs its own copy (NewFolderDialog, CrashReportDialog).
+ *
+ * [imeVisible] must be [imeTargetVisible] read in the ACTIVITY window — a
+ * dialog composable reads it in its function body, not its dialog content. A
+ * dialog window's own insets lie: its decor consumes the IME inset, so inside
+ * it the reading is 0 with the keyboard up and >0 transiently while the show
+ * animation runs — keyed on that, this cleared focus and closed the keyboard
+ * as it opened (github#23).
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ClearFocusOnImeDismiss(onDismiss: () -> Unit = {}) {
+fun ClearFocusOnImeDismiss(imeVisible: Boolean, onDismiss: () -> Unit = {}) {
     val focusManager = LocalFocusManager.current
-    val imeVisible = imeTargetVisible()
     var wasVisible by remember { mutableStateOf(imeVisible) }
     LaunchedEffect(imeVisible) {
         if (imeJustHid(wasVisible, imeVisible)) {
@@ -39,10 +44,11 @@ fun ClearFocusOnImeDismiss(onDismiss: () -> Unit = {}) {
 }
 
 /**
- * Whether the IME is — or is animating to be — visible. `imeAnimationTarget`
- * flips to the end state the moment the hide animation STARTS; gating on the
- * live `ime` inset (isImeVisible) would leave the caret up through the whole
- * slide-down, which reads as lag.
+ * Whether the IME is — or is animating to be — visible, per the insets of the
+ * window this composes in: only truthful in the Activity window (github#23).
+ * `imeAnimationTarget` flips to the end state the moment the hide animation
+ * STARTS; gating on the live `ime` inset (isImeVisible) would leave the caret
+ * up through the whole slide-down, which reads as lag.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
