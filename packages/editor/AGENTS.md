@@ -28,7 +28,7 @@ languages satisfy it.
 2. Change both this package and canonical Rust (`futo-notes-model` / `futo-notes-core`) until each
    satisfies that independent expectation.
 3. Run `pnpm run test:editor:minimal` and `just test-rust` — the goldens on both sides, plus the
-   batched TS↔Rust title-rule differential (`tests/conformance/title-rules-differential.mjs`),
+   batched TS↔Rust rule differential (`tests/conformance/title-rules-differential.mjs`),
    which asks both implementations the same broad corpus and fails on any divergence.
 4. Search Swift/Kotlin for un-fixtured sibling copies.
 

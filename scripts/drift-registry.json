@@ -3,7 +3,7 @@
   "entries": [
     {
       "concept": "note-rules-ts-rust",
-      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; title rules also cross a broad deterministic corpus directly.",
+      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; every family also crosses a broad deterministic TS/Rust differential (tests/conformance/README.md).",
       "lockStatus": "locked",
       "copies": [
         {
@@ -75,6 +75,10 @@
         {
           "path": "crates/futo-notes-model/examples/title_rule_oracle.rs",
           "kind": "differential oracle"
+        },
+        {
+          "path": "crates/futo-notes-model/tests/support/rule_ops.rs",
+          "kind": "differential dispatcher"
         }
       ]
     },

@@ -47,7 +47,7 @@ satisfy it yet — that's what makes gaps visible.
   contract because its module names and ownership boundaries are part of this
   rewrite's acceptance criteria.
 - `tests/conformance/*.json` — hand-reviewed pure-rule behavior shared by TS
-  and Rust; the title differential separately checks broad implementation parity.
+  and Rust; the rule differential separately checks broad implementation parity.
 - `markdown-spec/cases/*.yaml` — fine-grained editor decoration/cursor fixtures.
 
 These specs reference the lower layers but don't duplicate them.

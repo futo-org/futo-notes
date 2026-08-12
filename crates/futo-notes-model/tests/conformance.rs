@@ -6,11 +6,17 @@
 //! a rule drifts in Rust this test goes red; if it drifts in TS, the Vitest test
 //! (`packages/editor/src/conformance.test.ts`) goes red. Rule drift therefore
 //! cannot land silently in either language.
+//!
+//! The goldens pin *reviewed examples*. The much larger generated corpus in
+//! `tests/conformance/title-rules-differential.mjs` asks both languages the same
+//! questions through the SAME op dispatcher this file uses (`tests/support/
+//! rule_ops.rs`) and fails on any disagreement. See `tests/conformance/README.md`.
 
 use std::path::PathBuf;
 
-use futo_notes_model as model;
-use serde_json::Value;
+// `run_op` + helpers, shared with examples/title_rule_oracle.rs. Also brings
+// `futo_notes_model as model` and `serde_json::Value` into scope.
+include!("support/rule_ops.rs");
 
 fn conformance_dir() -> PathBuf {
     // crates/futo-notes-model/tests/ -> repo root -> tests/conformance
@@ -25,89 +31,6 @@ fn load(name: &str) -> Value {
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     serde_json::from_str(&text).expect("fixture is valid JSON")
-}
-
-/// Issue kinds as snake_case strings, matching the TS `kind` union.
-fn kinds(issues: &[model::FilenameIssue]) -> Vec<String> {
-    issues.iter().map(|i| i.kind.as_str().to_string()).collect()
-}
-
-/// A JSON string-array field of an input object → `Vec<String>`.
-fn string_vec(input: &Value, key: &str) -> Vec<String> {
-    input
-        .get(key)
-        .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        .unwrap_or_default()
-}
-
-/// Dispatch a language-neutral op + input → a JSON value comparable to the
-/// fixture's `expected`.
-fn run_op(op: &str, input: &Value) -> Value {
-    let s = || input.as_str().unwrap_or_default().to_string();
-    match op {
-        "sanitizeTitle" => Value::from(model::sanitize_title(&s())),
-        "validateTitle" => Value::from(kinds(&model::validate_title(&s()))),
-        "isValidTitle" => Value::from(model::is_valid_title(&s())),
-        "isWindowsReservedName" => Value::from(model::is_windows_reserved_name(&s())),
-        "validateFolderName" => Value::from(kinds(&model::validate_folder_name(&s()))),
-        "isValidFolderName" => Value::from(model::is_valid_folder_name(&s())),
-        "hasCaseInsensitiveSiblingCollision" => {
-            let name = input.get("name").and_then(|v| v.as_str()).unwrap_or_default();
-            let siblings: Vec<String> = input
-                .get("siblings")
-                .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
-            Value::from(model::has_case_insensitive_sibling_collision(name, &siblings))
-        }
-        "validateFolderPath" => Value::from(kinds(&model::validate_folder_path(&s()))),
-        "isValidFolderPath" => Value::from(model::is_valid_folder_path(&s())),
-        "pathDepth" => Value::from(model::path_depth(&s())),
-        "tagRegexMatches" => Value::from(model::tags::tag_regex_matches(&s())),
-        "isValidTagName" => Value::from(model::is_valid_tag_name(&s())),
-        "normalizeTagName" => Value::from(model::normalize_tag_name(&s())),
-        "extractTags" => Value::from(model::extract_tags(&s())),
-        "extractHeaderTagBlock" => {
-            let content = s();
-            let block = model::extract_header_tag_block(&content);
-            serde_json::json!({
-                "tags": block.tags,
-                "endOffset": block.end_offset,
-                "remainder": &content[block.end_offset..],
-            })
-        }
-        "makePreview" => Value::from(model::make_preview(&s())),
-        "resolveWikilink" => {
-            let target = input.get("target").and_then(|v| v.as_str()).unwrap_or_default();
-            let all_ids = string_vec(input, "allIds");
-            match model::resolve_wikilink(target, &all_ids) {
-                Some(id) => Value::from(id),
-                None => Value::Null,
-            }
-        }
-        "shortestUniqueSuffix" => {
-            let target_id = input.get("targetId").and_then(|v| v.as_str()).unwrap_or_default();
-            let all_ids = string_vec(input, "allIds");
-            Value::from(model::shortest_unique_suffix(target_id, &all_ids))
-        }
-        "rewriteWikilinks" => {
-            let text = input.get("text").and_then(|v| v.as_str()).unwrap_or_default();
-            let old_id = input.get("oldId").and_then(|v| v.as_str()).unwrap_or_default();
-            let new_id = input.get("newId").and_then(|v| v.as_str()).unwrap_or_default();
-            let all_ids = string_vec(input, "allIds");
-            let (out, rewrites) = model::rewrite_wikilinks(text, old_id, new_id, &all_ids);
-            serde_json::json!({ "text": out, "rewrites": rewrites })
-        }
-        "isImageFilename" => Value::from(model::is_image_filename(&s())),
-        "imageExtensions" => Value::from(
-            model::IMAGE_EXTENSIONS
-                .iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>(),
-        ),
-        other => panic!("no Rust dispatcher for conformance op {other:?}"),
-    }
 }
 
 /// Compare two JSON values, normalizing integer vs float (serde emits usize as

@@ -154,8 +154,11 @@ pnpm run test 2>&1 | tail -40                  # or run the matching specs only
 
 ```bash
 pnpm run test:editor:minimal
-just test-rust # reviewed goldens + batched TS↔Rust title differential
+just test-rust # reviewed goldens + the batched TS↔Rust differential (all rule families)
 ```
+
+The differential covers title, tags, image, preview, and wikilink rules; on a red run
+it names the family, op, and input. Orientation: `tests/conformance/README.md`.
 
 ### unit-tests: `just test-unit 2>&1 | tail -30`
 ### editor: `just test-markdown-spec 2>&1 | tail -20` and `just toolbar-spec-check` (toolbar manifest changes)
