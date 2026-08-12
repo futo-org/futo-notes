@@ -39,6 +39,8 @@ fun NewFolderDialog(
     excludePath: String? = null,
 ) {
     val c = FutoTheme.colors
+    // Read here (activity window) — the dialog window's insets lie (github#23).
+    val imeVisible = imeTargetVisible()
     var name by remember(initialName) { mutableStateOf(initialName) }
     val raw = name.trim()
     val clean = sanitizeTitle(raw)
@@ -59,7 +61,7 @@ fun NewFolderDialog(
             Column {
                 // The dialog is its own window — the app-root install (#24)
                 // can't reach its focus manager.
-                ClearFocusOnImeDismiss()
+                ClearFocusOnImeDismiss(imeVisible)
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.replace("\n", "") },
