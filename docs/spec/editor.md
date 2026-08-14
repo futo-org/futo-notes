@@ -109,11 +109,13 @@ this file states the behaviors a human cares about.
   from replacing a line break, so hiding those markers threw
   `RangeError: Decorations that replace line breaks may not be specified via
   plugins` mid-render and the editor kept showing the previously opened note.
-  Such a note now opens with its syntax shown rather than hidden; a link whose
-  *text* wraps across lines (`[a\nb](c)`) still hides normally.
+  Opening such a note threw, and so did typing or pasting the same text and then
+  moving the caret off it. Both paths now render the syntax rather than hiding
+  it; a link whose *text* wraps across lines (`[a\nb](c)`) still hides normally.
   → live-preview/decorationSet.ts `replacementCrossesLineBreak`,
   live-preview/inlineDecorations.ts `decorateLink`,
-  liveMarkdownTransform.decorations.test.ts
+  liveMarkdownTransform.decorations.test.ts,
+  markdown-spec/cases/13-adversarial/broken-syntax.yaml
 
 ## Cursor
 

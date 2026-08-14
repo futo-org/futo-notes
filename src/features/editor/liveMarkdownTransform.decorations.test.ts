@@ -64,6 +64,22 @@ function visibleText(view: EditorView): string {
   return view.contentDOM.textContent ?? '';
 }
 
+/**
+ * Reach a document the way a user does: one character at a time through the
+ * update path, then move the caret off the text so its markers un-reveal and
+ * the hide (replacing) decorations are actually attempted.
+ */
+function typeThenMoveCaretAway(doc: string): EditorView {
+  const view = setup('');
+  for (const ch of doc) {
+    const pos = view.state.selection.main.head;
+    view.dispatch({ changes: { from: pos, insert: ch }, selection: { anchor: pos + ch.length } });
+  }
+  view.dispatch({ selection: { anchor: 0 } });
+  view.dispatch({ effects: liveMarkdownRefresh.of(null) });
+  return view;
+}
+
 describe('liveMarkdownTransform decorations', () => {
   describe('wikilinks', () => {
     it('hides [[ and ]] and styles content as wikilink', () => {
@@ -180,44 +196,6 @@ describe('liveMarkdownTransform decorations', () => {
     });
   });
 
-  // CM6 rejects a replacing decoration that covers a line break when it comes
-  // from a view plugin ("Decorations that replace line breaks may not be
-  // specified via plugins"). Malformed-but-parsed inline nodes can straddle a
-  // newline, and hiding their syntax then threw during the very first render of
-  // a freshly created state — the shape `openNote`/`view.setState` produces —
-  // leaving the previous note on screen. These build the state from scratch on
-  // purpose; the same text typed incrementally does not reproduce it.
-  describe('inline nodes that straddle a line break', () => {
-    it('renders a link whose "](...)" crosses a newline instead of throwing', () => {
-      const view = setup(' [](\n)');
-
-      expect(visibleText(view)).toContain('[](');
-      expect(visibleText(view)).toContain(')');
-      const linkMarkers = withClass(collectDecos(view), 'cm-md-link');
-      expect(linkMarkers.length).toBeGreaterThan(0);
-    });
-
-    it('renders an image whose "](...)" crosses a newline instead of throwing', () => {
-      const view = setup(' ![](\n)');
-
-      expect(visibleText(view)).toContain('![](');
-      expect(visibleText(view)).toContain(')');
-    });
-
-    it('still hides link syntax when only the link text crosses the newline', () => {
-      const view = setup('[a\nb](c)');
-
-      expect(visibleText(view)).toBe('ab');
-      expect(withClass(collectDecos(view), 'cm-md-link')).toHaveLength(1);
-    });
-
-    it('still hides link syntax for a single-line link', () => {
-      const view = setup('see [text](https://example.com) end');
-
-      expect(visibleText(view)).toBe('see text end');
-    });
-  });
-
   describe('list marker widgets accept editor events (tap-to-caret)', () => {
     it('bullet and number markers return ignoreEvent() === false', () => {
       const assertMarkerContract = (doc: string, markerClass: string) => {
@@ -244,5 +222,61 @@ describe('liveMarkdownTransform decorations', () => {
       assertMarkerContract('- alpha', 'cm-md-bullet');
       assertMarkerContract('1. one', 'cm-md-number');
     });
+  });
+});
+
+// CM6 rejects a replacing decoration that covers a line break when it comes
+// from a view plugin ("Decorations that replace line breaks may not be
+// specified via plugins"). Malformed-but-parsed inline nodes can straddle a
+// newline, and hiding their syntax then threw whenever the markers were not
+// revealed: on the very first render of a freshly created state (the shape
+// `openNote`/`view.setState` produces, which left the PREVIOUS note on
+// screen), and equally on the update path — typing the same text one
+// character at a time and then moving the caret off it throws identically.
+// Both shapes are covered below; the guard is needed on both.
+describe('inline nodes that straddle a line break', () => {
+  it('renders a link whose "](...)" crosses a newline instead of throwing', () => {
+    const view = setup(' [](\n)');
+
+    expect(visibleText(view)).toContain('[](');
+    expect(visibleText(view)).toContain(')');
+    const linkMarkers = withClass(collectDecos(view), 'cm-md-link');
+    expect(linkMarkers.length).toBeGreaterThan(0);
+  });
+
+  it('renders an image whose "](...)" crosses a newline instead of throwing', () => {
+    const view = setup(' ![](\n)');
+
+    expect(visibleText(view)).toContain('![](');
+    expect(visibleText(view)).toContain(')');
+  });
+
+  it('still hides link syntax when only the link text crosses the newline', () => {
+    const view = setup('[a\nb](c)');
+
+    expect(visibleText(view)).toBe('ab');
+    expect(withClass(collectDecos(view), 'cm-md-link')).toHaveLength(1);
+  });
+
+  it('still hides link syntax for a single-line link', () => {
+    const view = setup('see [text](https://example.com) end');
+
+    expect(visibleText(view)).toBe('see text end');
+  });
+
+  it('renders a link typed one character at a time instead of throwing', () => {
+    const view = typeThenMoveCaretAway(' [](\n)');
+
+    expect(view.state.doc.toString()).toBe(' [](\n)');
+    expect(visibleText(view)).toContain('[](');
+    expect(visibleText(view)).toContain(')');
+  });
+
+  it('renders an image typed one character at a time instead of throwing', () => {
+    const view = typeThenMoveCaretAway(' ![](\n)');
+
+    expect(view.state.doc.toString()).toBe(' ![](\n)');
+    expect(visibleText(view)).toContain('![](');
+    expect(visibleText(view)).toContain(')');
   });
 });
