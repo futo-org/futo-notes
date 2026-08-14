@@ -220,6 +220,13 @@ this file states the behaviors a human cares about.
 - Links: `[text](url)`, autolinks `<url>`, and bare GFM URLs.
 - Blockquotes including nested; the `>` marker is dimmed when the cursor is on
   the line.
+- A blockquote line's content starts at a fixed x-offset that depends only on
+  its nesting depth: every `>` marker occupies a constant-width gutter, so
+  `> text` and `>text` land at the same x, each extra depth adds exactly one
+  more gutter, and revealing the marker under the caret never shifts the line's
+  content sideways. Each nesting level paints its own 2px stripe at the left
+  edge of its gutter. → src/styles/markdown-blocks.css
+  `--md-quote-marker-gutter`, tests/blockquote-gutter.spec.ts
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
 - Tapping/clicking a bullet or number marker places the caret at the marker

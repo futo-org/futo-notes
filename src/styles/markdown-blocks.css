@@ -1,16 +1,25 @@
 /* Block quotes */
 .cm-line.cm-md-quote {
+  /* Width of the gutter each `>` marker occupies (see .cm-md-quote-marker*).
+     em-based so it tracks the editor font size in every shell. */
+  --md-quote-marker-gutter: 0.8em;
   padding-left: 15px !important;
   color: var(--color-muted);
   font-style: italic;
   margin-left: 0;
-  border-left: 2px solid var(--color-primary);
+  /* One 2px stripe per nesting level, painted as a background rather than a
+     border-left: a border sits OUTSIDE the padding box, so level 1 alone would
+     indent 2px more than the 15px-per-level padding implies, and nesting would
+     step unevenly. Levels 2/3 already stripe this way. */
+  background-image: linear-gradient(var(--color-primary), var(--color-primary));
+  background-size: 2px 100%;
+  background-position: 0 0;
+  background-repeat: no-repeat;
 }
 
 /* Level 2: two separate vertical lines */
 .cm-line.cm-md-quote-level-2 {
   padding-left: 30px !important;
-  border-left: none;
   background-image:
     linear-gradient(var(--color-primary), var(--color-primary)),
     linear-gradient(var(--color-primary), var(--color-primary));
@@ -26,7 +35,6 @@
 /* Level 3: three separate vertical lines */
 .cm-line.cm-md-quote-level-3 {
   padding-left: 45px !important;
-  border-left: none;
   background-image:
     linear-gradient(var(--color-primary), var(--color-primary)),
     linear-gradient(var(--color-primary), var(--color-primary)),
@@ -42,17 +50,29 @@
   background-repeat: no-repeat;
 }
 
+/* Every `>` marker — hidden or revealed — occupies one fixed-width gutter, so a
+   line's content x-position depends only on its nesting depth: `> text` and
+   `>text` align, and revealing the marker under the caret cannot move the
+   content sideways (docs/spec/editor.md). Without this the concealed marker
+   keeps its natural text width and the content follows whatever characters the
+   marker happened to be. */
+.cm-md-quote-marker,
+.cm-md-quote-marker-hidden {
+  display: inline-block;
+  width: var(--md-quote-marker-gutter, 0.8em);
+}
+
 /* Dimmed quote markers when cursor/selection is on the line */
 .cm-md-quote-marker {
   color: var(--color-border);
   font-style: normal;
 }
 
-/* Keep quote source markers visible-but-transparent. We deliberately
-   *preserve* the inline width (no font-size: 0) so that revealing the
-   marker on cursor doesn't shift the text right. Match Obsidian's
-   `cm-transparent` approach: color goes to rgba(0,0,0,0), the glyph
-   takes layout space but is invisible. */
+/* Keep quote source markers visible-but-transparent. We deliberately keep the
+   marker box (no font-size: 0, no display: none) so that revealing the marker
+   on cursor doesn't shift the text right. Match Obsidian's `cm-transparent`
+   approach: color goes to rgba(0,0,0,0), the glyph occupies its gutter but is
+   invisible. */
 .cm-md-quote-marker-hidden {
   color: transparent !important;
   pointer-events: none !important;
