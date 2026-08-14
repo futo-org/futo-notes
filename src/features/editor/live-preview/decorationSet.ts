@@ -23,8 +23,14 @@ const MARK_SAFE_WIDGETS = new Set([
  * throws, freezing the view on the previously opened note. Mark decorations may
  * legally span line breaks; only replacements may not, so such a replacement is
  * dropped and its source text stays visible.
+ *
+ * A position outside the document answers `false` rather than letting
+ * `doc.lineAt` throw: an invalid pending decoration stays the business of the
+ * per-decoration guard in `createDecorationSet`, which warns and skips just
+ * that one instead of losing the whole decoration build.
  */
 function replacementCrossesLineBreak(doc: Text, from: number, to: number): boolean {
+  if (from < 0 || from > doc.length || to > doc.length) return false;
   return to > doc.lineAt(from).to;
 }
 
