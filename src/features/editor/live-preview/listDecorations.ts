@@ -62,45 +62,71 @@ class NumberWidget extends WidgetType {
   }
 }
 
+// `indent` is the leading whitespace before the marker; `sourceLength` is
+// measured from the marker itself, so a caller places marker decorations at
+// `nodeFrom + indent` and finds the item's content at `+ sourceLength` past it.
 type ListMarker =
-  | { kind: 'unordered-task'; sourceLength: number; checked: boolean }
-  | { kind: 'ordered-task'; sourceLength: number; checked: boolean; number: number }
-  | { kind: 'bullet'; sourceLength: number }
-  | { kind: 'ordered'; sourceLength: number; number: number };
+  | { kind: 'unordered-task'; indent: number; sourceLength: number; checked: boolean }
+  | { kind: 'ordered-task'; indent: number; sourceLength: number; checked: boolean; number: number }
+  | { kind: 'bullet'; indent: number; sourceLength: number }
+  | { kind: 'ordered'; indent: number; sourceLength: number; number: number };
 
+// lezer-markdown spans a ListItem from the MARKER when the item opens a nested
+// list, but from the LINE START — leading indent included — when the item is a
+// sibling that merely happens to be indented. `*  Parent.` puts its content at
+// column 3, so a two-space child is not deep enough to nest and CommonMark
+// demotes it to an outer-list sibling; a whole list indented by one space is
+// the same shape. Matching the marker without allowing for that indent dropped
+// every decoration for those items, leaving raw `*` on screen.
 function parseListMarker(text: string): ListMarker | null {
-  const unorderedTask = text.match(/^([-*+])\s+\[([ xX])\]\s*/);
+  const indent = text.length - text.replace(/^[ \t]+/, '').length;
+  const body = text.slice(indent);
+
+  const unorderedTask = body.match(/^([-*+])\s+\[([ xX])\]\s*/);
   if (unorderedTask) {
     return {
       kind: 'unordered-task',
+      indent,
       sourceLength: unorderedTask[0].length,
       checked: unorderedTask[2].toLowerCase() === 'x',
     };
   }
 
-  const orderedTask = text.match(/^(\d+)\.\s+\[([ xX])\]\s*/);
+  const orderedTask = body.match(/^(\d+)\.\s+\[([ xX])\]\s*/);
   if (orderedTask) {
     return {
       kind: 'ordered-task',
+      indent,
       sourceLength: orderedTask[0].length,
       checked: orderedTask[2].toLowerCase() === 'x',
       number: Number.parseInt(orderedTask[1], 10),
     };
   }
 
-  const bullet = text.match(/^([-*+])\s+/);
-  if (bullet) return { kind: 'bullet', sourceLength: bullet[0].length };
+  const bullet = body.match(/^([-*+])\s+/);
+  if (bullet) return { kind: 'bullet', indent, sourceLength: bullet[0].length };
 
-  const ordered = text.match(/^(\d+)\.\s+/);
+  const ordered = body.match(/^(\d+)\.\s+/);
   if (ordered) {
     return {
       kind: 'ordered',
+      indent,
       sourceLength: ordered[0].length,
       number: Number.parseInt(ordered[1], 10),
     };
   }
 
   return null;
+}
+
+// Visual depth comes from where lezer STARTS the ListItem node, not from
+// counting the line's leading spaces. The tree already resolved the semantics:
+// a genuine child opens a nested list at the marker (so nodeFrom - lineFrom is
+// the item's own indent), while a sibling that is merely indented spans from
+// the line start (giving 0 — which is right, since it renders level with its
+// siblings even though spaces precede it).
+function listIndentLevel(nodeFrom: number, lineFrom: number): number {
+  return Math.floor((nodeFrom - lineFrom) / 2);
 }
 
 function listLineStyle(indentLevel: number): string {
@@ -239,14 +265,15 @@ export function decorateListItemIndentOnly(
 ): void {
   const line = view.state.doc.lineAt(from);
   const text = view.state.doc.sliceString(from, line.to);
-  const indentLevel = Math.floor((from - line.from) / 2);
+  const indentLevel = listIndentLevel(from, line.from);
   const marker = parseListMarker(text);
 
   addListLineDecoration(line.from, indentLevel, decorations);
   if (marker) {
+    const markerFrom = from + marker.indent;
     decorations.push({
-      from,
-      to: from + marker.sourceLength,
+      from: markerFrom,
+      to: markerFrom + marker.sourceLength,
       value: { class: 'cm-md-bullet cm-md-list-marker' },
     });
   }
@@ -259,12 +286,12 @@ export function decorateListItem(
   decorations: PendingDecoration[],
 ): void {
   const line = view.state.doc.lineAt(from);
-  const indentLevel = Math.floor((from - line.from) / 2);
+  const indentLevel = listIndentLevel(from, line.from);
   const marker = parseListMarker(text);
   if (!marker) return;
 
   const common = {
-    from,
+    from: from + marker.indent,
     lineEnd: line.to,
     lineFrom: line.from,
     indentLevel,

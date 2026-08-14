@@ -222,6 +222,13 @@ this file states the behaviors a human cares about.
   the line.
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
+- A list item's leading indent never suppresses its marker: a whole list
+  indented by one to three spaces still renders bullets, not raw `*`. Depth
+  comes from the parse tree, not from counting spaces — `*  Parent.` (two
+  spaces after the marker) puts its content at column 3, so a two-space child
+  is too shallow to nest and CommonMark renders it level with its parent as a
+  sibling. → live-preview/listDecorations.ts `listIndentLevel` /
+  `parseListMarker`, markdown-spec/cases/06-lists/unordered.yaml
 - Tapping/clicking a bullet or number marker places the caret at the marker
   (revealing the dimmed `-`/`N.` source — the same state as arrowing onto
   it); a marker tap must never be a no-op. The markers are
@@ -450,6 +457,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   > posted back to the host, so the file on disk keeps its own numbering until the next
   > real keystroke, when the renumbered text is saved. _(native shells)_ →
   > editor-embed/createFutoEditorApi.ts `applyContent`
+
 - Undo only ever reverses edits made in the note on screen — never text from another
   note — and opening a note is not itself something undo can reverse.
   → noteHistory.ts, tests/undo-history.spec.ts
