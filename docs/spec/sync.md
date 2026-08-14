@@ -107,6 +107,17 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   Opaque `fetch` `TypeError`s (server unreachable) are rewritten to an actionable
   message. → syncErrorMessage.ts (`getSyncErrorMessage`),
   syncManager.svelte.ts (`syncError`, `clearSyncError`), SyncStatusBar.svelte
+  - **A transport failure names its cause, not just the URL** (all shells — the
+    engine builds the message). Anything that never reached a status line — DNS,
+    no route, a refused or reset connection, a stale pooled socket, TLS, a
+    timeout, a truncated body — carries the whole error `source()` chain
+    (`error sending request for url (…): client error (Connect): tcp connect
+    error: No route to host (os error 65)`), both in the surfaced line and in the
+    journal's `error` field. The outer layer alone is untriageable: a desktop
+    journal held 240 failed cycles over three days that could not be told apart
+    from a dead server, a poisoned connection pool, or a vanished route. →
+    futo-notes-sync `server/mod.rs` (`transport_error` / `error_chain`, guarded
+    by "a refused connection names its cause not just the url")
   (`onclear`), SettingsScreen.svelte (desktop)
 - **Per-item sync failures surface — a cycle that COMPLETES is not assumed
   healthy.** When individual operations fail (an upload/create/update, a

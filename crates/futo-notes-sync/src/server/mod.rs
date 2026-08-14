@@ -47,6 +47,38 @@ impl HttpError {
     }
 }
 
+/// Every failure that never reached a status line — DNS, no route, a refused or
+/// reset connection, a stale pooled socket, TLS, a timeout, a truncated body.
+///
+/// `reqwest::Error`'s own `Display` names only the outermost layer ("error
+/// sending request for url (…)") and drops `source()`, which is where the cause
+/// actually lives. A desktop instance journal held 240 failed cycles across
+/// three days carrying exactly that one line, and it could not be told apart
+/// from a dead server, a poisoned connection pool, or a Tailscale route that
+/// went away — so the whole chain is kept.
+fn transport_error(error: reqwest::Error) -> HttpError {
+    HttpError {
+        status: error.status().map(|status| status.as_u16()),
+        message: error_chain(&error),
+    }
+}
+
+/// `outermost: next: …: root cause`, skipping a link that only repeats the text
+/// its parent already printed (hyper and h2 wrap each other verbatim).
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !message.contains(&text) {
+            message.push_str(": ");
+            message.push_str(&text);
+        }
+        source = cause.source();
+    }
+    message
+}
+
 #[derive(Clone)]
 pub(crate) struct Http {
     base: String,
@@ -174,17 +206,11 @@ impl Http {
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
             .build()
-            .map_err(|e| HttpError {
-                status: None,
-                message: e.to_string(),
-            })?;
+            .map_err(transport_error)?;
         let event_client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .build()
-            .map_err(|e| HttpError {
-                status: None,
-                message: e.to_string(),
-            })?;
+            .map_err(transport_error)?;
         Ok(Self {
             base: base.to_owned(),
             token: None,
@@ -231,17 +257,11 @@ impl Http {
     }
 
     async fn json<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T, HttpError> {
-        let response = request.send().await.map_err(|e| HttpError {
-            status: e.status().map(|s| s.as_u16()),
-            message: e.to_string(),
-        })?;
+        let response = request.send().await.map_err(transport_error)?;
         if !response.status().is_success() {
             return Err(Self::response_error(response).await);
         }
-        response.json().await.map_err(|e| HttpError {
-            status: None,
-            message: e.to_string(),
-        })
+        response.json().await.map_err(transport_error)
     }
 
     pub async fn auth_mode(&self) -> Result<String, HttpError> {
@@ -367,10 +387,7 @@ impl Http {
             .timeout(download_timeout(expected_bytes))
             .send()
             .await
-            .map_err(|e| HttpError {
-                status: e.status().map(|s| s.as_u16()),
-                message: e.to_string(),
-            })?;
+            .map_err(transport_error)?;
         if !response.status().is_success() {
             return Err(Self::response_error(response).await);
         }
@@ -378,10 +395,7 @@ impl Http {
             .bytes()
             .await
             .map(|b| b.to_vec())
-            .map_err(|e| HttpError {
-                status: None,
-                message: e.to_string(),
-            })
+            .map_err(transport_error)
     }
 
     pub async fn blobs_batch(
@@ -395,17 +409,11 @@ impl Http {
             .json(&serde_json::json!({ "keys": keys }))
             .send()
             .await
-            .map_err(|error| HttpError {
-                status: error.status().map(|status| status.as_u16()),
-                message: error.to_string(),
-            })?;
+            .map_err(transport_error)?;
         if !response.status().is_success() {
             return Err(Self::response_error(response).await);
         }
-        let body = response.bytes().await.map_err(|error| HttpError {
-            status: None,
-            message: error.to_string(),
-        })?;
+        let body = response.bytes().await.map_err(transport_error)?;
         let entries = parse_batch_frames(&body).map_err(|message| HttpError {
             status: None,
             message: format!("batch frames: {message}"),
@@ -424,18 +432,17 @@ impl Http {
     }
 
     async fn mutation(request: reqwest::RequestBuilder) -> Result<Mutation, HttpError> {
-        let response = request.send().await.map_err(|e| HttpError {
-            status: e.status().map(|s| s.as_u16()),
-            message: e.to_string(),
-        })?;
+        let response = request.send().await.map_err(transport_error)?;
         if response.status() == StatusCode::CONFLICT {
             return response
                 .json::<Conflict>()
                 .await
                 .map(Mutation::Conflict)
+                // Keeps the 409 the caller dispatches on — only the body was
+                // unreadable — but still names why it was unreadable.
                 .map_err(|e| HttpError {
                     status: Some(409),
-                    message: e.to_string(),
+                    message: error_chain(&e),
                 });
         }
         if !response.status().is_success() {
@@ -445,10 +452,7 @@ impl Http {
             .json::<WriteBody>()
             .await
             .map(|body| Mutation::Written(body.into()))
-            .map_err(|e| HttpError {
-                status: None,
-                message: e.to_string(),
-            })
+            .map_err(transport_error)
     }
 
     pub async fn create_object(
@@ -469,20 +473,14 @@ impl Http {
             .body(ciphertext)
             .send()
             .await
-            .map_err(|error| HttpError {
-                status: error.status().map(|status| status.as_u16()),
-                message: error.to_string(),
-            })?;
+            .map_err(transport_error)?;
         if !response.status().is_success() {
             return Err(Self::response_error(response).await);
         }
         let body = response
             .json::<WriteBody>()
             .await
-            .map_err(|error| HttpError {
-                status: None,
-                message: error.to_string(),
-            })?;
+            .map_err(transport_error)?;
         let replayed = body.replayed;
         Ok(CreateWrite {
             write: body.into(),
@@ -543,17 +541,11 @@ impl Http {
             .body(body)
             .send()
             .await
-            .map_err(|error| HttpError {
-                status: error.status().map(|status| status.as_u16()),
-                message: error.to_string(),
-            })?;
+            .map_err(transport_error)?;
         if !response.status().is_success() {
             return Err(Self::response_error(response).await);
         }
-        let body = response.bytes().await.map_err(|error| HttpError {
-            status: None,
-            message: error.to_string(),
-        })?;
+        let body = response.bytes().await.map_err(transport_error)?;
         parse_batch_write_results(&body, entries)
     }
 
@@ -582,10 +574,7 @@ impl Http {
                 status: None,
                 message: "event stream response timed out".into(),
             })?
-            .map_err(|e| HttpError {
-                status: e.status().map(|s| s.as_u16()),
-                message: e.to_string(),
-            })?;
+            .map_err(transport_error)?;
         if !response.status().is_success() {
             return Err(Self::response_error(response).await);
         }
