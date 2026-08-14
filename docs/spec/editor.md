@@ -103,6 +103,17 @@ this file states the behaviors a human cares about.
 - A blurred editor reveals nothing — all markers stay hidden.
 - Reveal is per-line: moving the cursor onto a line reveals its markers; moving
   off re-hides them.
+- **Markers whose hidden span would cover a line break stay visible instead.**
+  Malformed-but-parsed inline markdown can straddle a newline — `[](\n)` is one
+  link node, `![](\n)` one image node — and CodeMirror forbids a view plugin
+  from replacing a line break, so hiding those markers threw
+  `RangeError: Decorations that replace line breaks may not be specified via
+  plugins` mid-render and the editor kept showing the previously opened note.
+  Such a note now opens with its syntax shown rather than hidden; a link whose
+  *text* wraps across lines (`[a\nb](c)`) still hides normally.
+  → live-preview/decorationSet.ts `replacementCrossesLineBreak`,
+  live-preview/inlineDecorations.ts `decorateLink`,
+  liveMarkdownTransform.decorations.test.ts
 
 ## Cursor
 

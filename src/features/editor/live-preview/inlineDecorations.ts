@@ -88,7 +88,14 @@ export function decorateLink(
   const textEnd = from + closeBracket;
   const urlStart = textEnd + 2;
   const urlEnd = to - 1;
-  const reveal = shouldRevealInlineMarkers(view, from, to);
+  // Hiding the trailing `](...)` is a replacing decoration, and a view plugin
+  // may not replace a line break. `[](\n)` parses as a single Link node whose
+  // tail straddles the newline, so hiding it would throw and leave the editor
+  // rendering the previously opened note. Fall back to the marker styling,
+  // which is only a mark decoration and may legally span line breaks. A link
+  // whose *text* wraps (`[a\nb](c)`) keeps a single-line tail and still hides.
+  const reveal =
+    shouldRevealInlineMarkers(view, from, to) || view.state.doc.lineAt(textEnd).to < to;
 
   if (!reveal) {
     decorations.push(

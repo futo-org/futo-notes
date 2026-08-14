@@ -60,6 +60,10 @@ function withClass(decos: DecoInfo[], cls: string): DecoInfo[] {
   return decos.filter((d) => d.class?.includes(cls));
 }
 
+function visibleText(view: EditorView): string {
+  return view.contentDOM.textContent ?? '';
+}
+
 describe('liveMarkdownTransform decorations', () => {
   describe('wikilinks', () => {
     it('hides [[ and ]] and styles content as wikilink', () => {
@@ -173,6 +177,44 @@ describe('liveMarkdownTransform decorations', () => {
       check(); // after cursor move
       view.dispatch({ selection: { anchor: 15 } });
       check(); // after second cursor move
+    });
+  });
+
+  // CM6 rejects a replacing decoration that covers a line break when it comes
+  // from a view plugin ("Decorations that replace line breaks may not be
+  // specified via plugins"). Malformed-but-parsed inline nodes can straddle a
+  // newline, and hiding their syntax then threw during the very first render of
+  // a freshly created state — the shape `openNote`/`view.setState` produces —
+  // leaving the previous note on screen. These build the state from scratch on
+  // purpose; the same text typed incrementally does not reproduce it.
+  describe('inline nodes that straddle a line break', () => {
+    it('renders a link whose "](...)" crosses a newline instead of throwing', () => {
+      const view = setup(' [](\n)');
+
+      expect(visibleText(view)).toContain('[](');
+      expect(visibleText(view)).toContain(')');
+      const linkMarkers = withClass(collectDecos(view), 'cm-md-link');
+      expect(linkMarkers.length).toBeGreaterThan(0);
+    });
+
+    it('renders an image whose "](...)" crosses a newline instead of throwing', () => {
+      const view = setup(' ![](\n)');
+
+      expect(visibleText(view)).toContain('![](');
+      expect(visibleText(view)).toContain(')');
+    });
+
+    it('still hides link syntax when only the link text crosses the newline', () => {
+      const view = setup('[a\nb](c)');
+
+      expect(visibleText(view)).toBe('ab');
+      expect(withClass(collectDecos(view), 'cm-md-link')).toHaveLength(1);
+    });
+
+    it('still hides link syntax for a single-line link', () => {
+      const view = setup('see [text](https://example.com) end');
+
+      expect(visibleText(view)).toBe('see text end');
     });
   });
 

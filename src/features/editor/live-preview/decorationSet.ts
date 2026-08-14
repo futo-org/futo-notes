@@ -1,5 +1,5 @@
 import { Decoration, type DecorationSet, type EditorView } from '@codemirror/view';
-import type { Range } from '@codemirror/state';
+import type { Range, Text } from '@codemirror/state';
 
 import type { PendingDecoration } from './decorationTypes';
 import { shouldRevealMarkdownSyntax } from './selectionReveal';
@@ -14,22 +14,36 @@ const MARK_SAFE_WIDGETS = new Set([
   'ExternalLinkWidget',
 ]);
 
+/**
+ * CM6 refuses a replacing decoration that covers a line break when it comes
+ * from a view plugin: "Decorations that replace line breaks may not be
+ * specified via plugins". Malformed-but-parsed inline markdown can straddle a
+ * newline — `[](\n)` is one Link node, `![](\n)` one Image node — so the range
+ * whose syntax we want to hide crosses a line boundary and the whole render
+ * throws, freezing the view on the previously opened note. Mark decorations may
+ * legally span line breaks; only replacements may not, so such a replacement is
+ * dropped and its source text stays visible.
+ */
+function replacementCrossesLineBreak(doc: Text, from: number, to: number): boolean {
+  return to > doc.lineAt(from).to;
+}
+
 function collectReplaceRanges(
   decorations: PendingDecoration[],
+  doc: Text,
 ): Array<{ from: number; to: number }> {
   const ranges: Array<{ from: number; to: number }> = [];
   for (const decoration of decorations) {
     const { value } = decoration;
-    if (value.replace === true && value.widget === undefined && decoration.from < decoration.to) {
-      if (!value.wrapInsideMark) ranges.push({ from: decoration.from, to: decoration.to });
-      continue;
-    }
-    if (value.widget && decoration.from < decoration.to) {
-      const widgetName = value.widget.constructor?.name ?? '';
-      if (!MARK_SAFE_WIDGETS.has(widgetName)) {
-        ranges.push({ from: decoration.from, to: decoration.to });
-      }
-    }
+    if (decoration.from >= decoration.to) continue;
+    const isPlainReplace = value.replace === true && value.widget === undefined;
+    const isReplacingWidget =
+      value.widget !== undefined && !MARK_SAFE_WIDGETS.has(value.widget.constructor?.name ?? '');
+    if (!isPlainReplace && !isReplacingWidget) continue;
+    // A replacement the view drops (below) must not clip marks either.
+    if (replacementCrossesLineBreak(doc, decoration.from, decoration.to)) continue;
+    if (isPlainReplace && value.wrapInsideMark) continue;
+    ranges.push({ from: decoration.from, to: decoration.to });
   }
   return ranges.sort((left, right) => left.from - right.from);
 }
@@ -59,12 +73,15 @@ function appendDecorationRanges(
   target: Range<Decoration>[],
   decoration: PendingDecoration,
   replaceRanges: Array<{ from: number; to: number }>,
+  doc: Text,
 ): void {
   const { from, to, value } = decoration;
   if (value.startSide !== undefined || value.endSide !== undefined) {
     target.push(Decoration.line(value).range(from));
   } else if (value.replace === true && value.widget === undefined) {
-    if (from !== to) target.push(Decoration.replace({}).range(from, to));
+    if (from !== to && !replacementCrossesLineBreak(doc, from, to)) {
+      target.push(Decoration.replace({}).range(from, to));
+    }
   } else if (value.class !== undefined && value.widget === undefined) {
     if (from === to) return;
     for (const piece of clipMark(decoration, replaceRanges)) {
@@ -75,7 +92,9 @@ function appendDecorationRanges(
   } else if (value.widget !== undefined && from === to) {
     target.push(Decoration.widget({ widget: value.widget, side: value.side }).range(from));
   } else if (value.widget !== undefined) {
-    target.push(Decoration.replace({ widget: value.widget }).range(from, to));
+    if (!replacementCrossesLineBreak(doc, from, to)) {
+      target.push(Decoration.replace({ widget: value.widget }).range(from, to));
+    }
   }
 }
 
@@ -102,12 +121,13 @@ export function createDecorationSet(
   decorations: PendingDecoration[],
   headerEndOffset: number,
 ): DecorationSet {
-  const replaceRanges = collectReplaceRanges(decorations);
+  const doc = view.state.doc;
+  const replaceRanges = collectReplaceRanges(decorations, doc);
   const ranges: Range<Decoration>[] = [];
 
   for (const decoration of decorations) {
     try {
-      appendDecorationRanges(ranges, decoration, replaceRanges);
+      appendDecorationRanges(ranges, decoration, replaceRanges, doc);
     } catch (error) {
       console.warn('Invalid decoration:', decoration, error);
     }
