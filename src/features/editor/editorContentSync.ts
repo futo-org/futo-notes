@@ -5,14 +5,22 @@ import type { EditorState, Text } from '@codemirror/state';
 export interface SetEditorContentOptions {
   preserveSelection?: boolean;
   annotations?: Annotation<unknown>[];
+  /** `false` exempts the dispatch from every transaction/change filter. */
+  filter?: boolean;
 }
 
 // Text that arrived from outside the editor — a sync adopt, a host push. Undo must not
 // reach past it into the local text it replaced, or undo re-raises the superseded version
 // and the autosave that follows pushes it back over the peer's.
+//
+// `filter: false` for the same reason undo/redo use it: an adopt is not an edit, so the
+// filters that rewrite what you type must not touch what a peer wrote. Without it
+// orderedListRenumber renumbered an arriving `1. / 1. / 1.` list to `1. / 2. / 3.`,
+// dirtied the doc, and autosave pushed that rewrite back out to every other client.
 export const EXTERNAL_CONTENT_OPTS: SetEditorContentOptions = {
   preserveSelection: true,
   annotations: [Transaction.addToHistory.of(false)],
+  filter: false,
 };
 
 // `undefined` means there is no live editor and the save must be skipped;
@@ -45,10 +53,12 @@ export function buildSetContentTransaction(
     const change = getMinimalChangeFromDoc(state.doc, nextText);
     const spec: TransactionSpec = { changes: change };
     if (annotations) spec.annotations = annotations;
+    if (options.filter !== undefined) spec.filter = options.filter;
     return { spec, insertedText: change.insert };
   }
   const spec: TransactionSpec = { changes: { from: 0, to: state.doc.length, insert: nextText } };
   if (annotations) spec.annotations = annotations;
+  if (options.filter !== undefined) spec.filter = options.filter;
   return { spec, insertedText: nextText };
 }
 
