@@ -59,13 +59,34 @@
 }
 
 /* List item line */
+/* Hanging indent. listDecorations sets the two inputs inline per item:
+   --list-depth (the nesting indent) and --list-marker-slot (the column the
+   item's text starts at). The margin puts the whole line on the content
+   column; the negative first-line-only text-indent pulls the marker back out
+   to the nesting indent. So the first visual row starts at the nesting indent
+   while wrapped rows hang under the item's text, never behind its marker
+   (docs/spec/editor.md). No padding rule on purpose: list lines keep the same
+   base padding as plain .cm-lines in whatever context they render (desktop,
+   native embed, blockquotes) — that is why the indent rides on margin. */
 .cm-line.cm-md-list-line {
-  /* A positive first-line-only text-indent is set inline per item
-     (liveMarkdownTransform listLineStyle): only the first visual line
-     carries the nesting indent + marker; wrapped lines start at the left
-     margin — no hanging indent (docs/spec/editor.md). No padding rule on
-     purpose: list lines keep the same base padding as plain .cm-lines in
-     whatever context they render (desktop, native embed, blockquotes). */
+  margin-inline-start: calc(var(--list-depth, 0px) + var(--list-marker-slot, 0px));
+  text-indent: calc(0px - var(--list-marker-slot, 0px));
+}
+
+/* `text-indent` inherits, and any inline-block/inline-flex descendant applies
+   the inherited value to its OWN first line — sliding its content a full slot
+   to the left, out of its box and off screen. The hang belongs to the line box
+   alone, so reset it for everything inside. Deliberately broad: the failure is
+   silent and total, and the next inline-block added to a list line would
+   otherwise re-arm it. */
+.cm-line.cm-md-list-line > * {
+  text-indent: 0;
+}
+
+/* The raw marker while the caret is on it — claims the same slot the widget
+   would, so entering the marker doesn't shift the item's text. */
+.cm-md-list-marker-slot {
+  display: inline-block;
 }
 
 /* Unordered list items */

@@ -99,3 +99,20 @@
       - class: cm-md-tag
     tags:
       - "#todo"
+
+# A list item's leading indentation is hidden with its marker, but only when
+# that indentation reaches the line start. Inside a blockquote the run stops at
+# the `>`, which the quote decorator owns — hiding it too would swallow the
+# quote marker (and overlap another decoration on the same text).
+- name: ul-inside-blockquote-keeps-quote-marker
+  complexity: 45
+  markdown: |
+    > - quoted item
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-ul-item
+    widgets:
+      - class: cm-md-bullet
+        count: 1

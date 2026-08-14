@@ -6,6 +6,37 @@ import { TaskCheckboxWidget } from './widgets';
 
 const INDENT_STEP = 24;
 
+/**
+ * The marker slot: the column an item's text starts at, and the column its
+ * wrapped rows hang to. One CSS length drives all three users — the marker
+ * widget's width, the revealed raw marker's width, and the line's hanging
+ * indent — so they line up by construction instead of by matching glyph
+ * metrics. The line consumes it as `--list-marker-slot` (markdown-blocks.css).
+ *
+ * `1ch` is the advance width of `0`, so an N-digit number really is N ch wide.
+ * The checkbox is a font-independent 28px: TaskCheckboxWidget's wrapper carries
+ * that as a border-box `min-width`, with its 4px padding inside.
+ */
+const BULLET_SLOT = '1em';
+const CHECKBOX_SLOT = '28px';
+
+function orderedSlot(num: number): string {
+  return `calc(${Math.max(1, String(num).length)}ch + 0.5em)`;
+}
+
+function markerSlot(marker: ListMarker): string {
+  switch (marker.kind) {
+    case 'bullet':
+      return BULLET_SLOT;
+    case 'ordered':
+      return orderedSlot(marker.number);
+    case 'unordered-task':
+      return CHECKBOX_SLOT;
+    case 'ordered-task':
+      return `calc(${orderedSlot(marker.number)} + ${CHECKBOX_SLOT})`;
+  }
+}
+
 class BulletWidget extends WidgetType {
   constructor(private indent = 0) {
     super();
@@ -16,7 +47,9 @@ class BulletWidget extends WidgetType {
     span.className = 'cm-md-bullet';
     const glyphs = ['•', '◦', '▪'];
     span.textContent = glyphs[this.indent % glyphs.length];
-    span.style.cssText = 'padding-right: 4px; color: #666;';
+    // Pinned to the slot the line hangs to, so wrapped text lands on the same
+    // x as the first line's text.
+    span.style.cssText = `display: inline-block; width: ${BULLET_SLOT}; color: #666;`;
     return span;
   }
 
@@ -45,7 +78,9 @@ class NumberWidget extends WidgetType {
     const span = document.createElement('span');
     span.className = 'cm-md-number';
     span.textContent = `${this.num}.`;
-    span.style.cssText = 'padding-right: 8px; color: #666; font-weight: 500;';
+    // Same contract as BulletWidget: the widget occupies exactly the column
+    // the line's continuation rows hang to.
+    span.style.cssText = `display: inline-block; width: ${orderedSlot(this.num)}; color: #666; font-weight: 500;`;
     return span;
   }
 
@@ -129,13 +164,12 @@ function listIndentLevel(nodeFrom: number, lineFrom: number): number {
   return Math.floor((nodeFrom - lineFrom) / 2);
 }
 
-function listLineStyle(indentLevel: number): string {
-  return `text-indent: ${indentLevel * INDENT_STEP}px;`;
-}
-
+// The two inputs to the hanging indent; markdown-blocks.css turns them into
+// margin + a negative first-line text-indent.
 function addListLineDecoration(
   lineFrom: number,
   indentLevel: number,
+  slot: string,
   decorations: PendingDecoration[],
 ): void {
   decorations.push({
@@ -143,15 +177,38 @@ function addListLineDecoration(
     to: lineFrom,
     value: {
       class: 'cm-md-list-line',
-      attributes: { style: listLineStyle(indentLevel) },
+      attributes: {
+        style: `--list-depth: ${indentLevel * INDENT_STEP}px; --list-marker-slot: ${slot};`,
+      },
       startSide: 0,
       endSide: 0,
     },
   });
 }
 
+// The caret is on the marker, so the raw source shows instead of the widget.
+// It claims the same slot the widget would, so entering and leaving the marker
+// doesn't shift the item's text — `min-width` rather than `width` because a
+// deeply indented item's source is wider than the slot, and a pinned width
+// would make it overlap the text that follows.
+function revealedMarkerDecoration(
+  hiddenFrom: number,
+  contentStart: number,
+  slot: string,
+): PendingDecoration {
+  return {
+    from: hiddenFrom,
+    to: contentStart,
+    value: {
+      class: 'cm-md-inline-marker cm-md-list-marker-slot',
+      attributes: { style: `min-width: ${slot};` },
+    },
+  };
+}
+
 function addTaskDecorations(params: {
   from: number;
+  hiddenFrom: number;
   lineEnd: number;
   lineFrom: number;
   indentLevel: number;
@@ -159,33 +216,33 @@ function addTaskDecorations(params: {
   view: EditorView;
   decorations: PendingDecoration[];
 }): void {
-  const { from, lineEnd, lineFrom, indentLevel, marker, view, decorations } = params;
+  const { from, hiddenFrom, lineEnd, lineFrom, indentLevel, marker, view, decorations } = params;
   const contentStart = from + marker.sourceLength;
   const revealed = selectionWithinMarkerRange(
     view.hasFocus,
     view.state.selection.ranges,
-    from,
+    hiddenFrom,
     contentStart,
   );
 
   if (revealed) {
-    decorations.push({ from, to: contentStart, value: { class: 'cm-md-inline-marker' } });
+    decorations.push(revealedMarkerDecoration(hiddenFrom, contentStart, markerSlot(marker)));
   } else {
     decorations.push({
-      from,
+      from: hiddenFrom,
       to: contentStart,
       value: { replace: true, wrapInsideMark: true },
     });
     if (marker.kind === 'ordered-task') {
       decorations.push({
-        from,
-        to: from,
+        from: hiddenFrom,
+        to: hiddenFrom,
         value: { widget: new NumberWidget(marker.number, indentLevel), side: -1 },
       });
     }
     decorations.push({
-      from,
-      to: from,
+      from: hiddenFrom,
+      to: hiddenFrom,
       value: { widget: new TaskCheckboxWidget(marker.checked), side: -1 },
     });
   }
@@ -193,11 +250,12 @@ function addTaskDecorations(params: {
   if (contentStart < lineEnd) {
     decorations.push({ from: contentStart, to: lineEnd, value: { class: 'cm-md-task' } });
   }
-  addListLineDecoration(lineFrom, indentLevel, decorations);
+  addListLineDecoration(lineFrom, indentLevel, markerSlot(marker), decorations);
 }
 
 function addBulletDecorations(params: {
   from: number;
+  hiddenFrom: number;
   lineEnd: number;
   lineFrom: number;
   indentLevel: number;
@@ -205,28 +263,32 @@ function addBulletDecorations(params: {
   view: EditorView;
   decorations: PendingDecoration[];
 }): void {
-  const { from, lineEnd, lineFrom, indentLevel, marker, view, decorations } = params;
+  const { from, hiddenFrom, lineEnd, lineFrom, indentLevel, marker, view, decorations } = params;
   const contentStart = from + marker.sourceLength;
   const revealed = selectionWithinMarkerRange(
     view.hasFocus,
     view.state.selection.ranges,
-    from,
+    hiddenFrom,
     contentStart,
   );
 
   decorations.push(
     revealed
-      ? { from, to: from + 1, value: { class: 'cm-md-inline-marker' } }
-      : { from, to: from + 1, value: { widget: new BulletWidget(indentLevel) } },
+      ? revealedMarkerDecoration(hiddenFrom, contentStart, BULLET_SLOT)
+      : // Replaces the marker AND its trailing space, the way the ordered and
+        // task markers already do. Leaving the space behind put the item's
+        // text one space right of the slot its wrapped rows hang to.
+        { from: hiddenFrom, to: contentStart, value: { widget: new BulletWidget(indentLevel) } },
   );
   if (contentStart < lineEnd) {
     decorations.push({ from: contentStart, to: lineEnd, value: { class: 'cm-md-ul-item' } });
   }
-  addListLineDecoration(lineFrom, indentLevel, decorations);
+  addListLineDecoration(lineFrom, indentLevel, markerSlot(marker), decorations);
 }
 
 function addOrderedDecorations(params: {
   from: number;
+  hiddenFrom: number;
   lineEnd: number;
   lineFrom: number;
   indentLevel: number;
@@ -234,20 +296,20 @@ function addOrderedDecorations(params: {
   view: EditorView;
   decorations: PendingDecoration[];
 }): void {
-  const { from, lineEnd, lineFrom, indentLevel, marker, view, decorations } = params;
+  const { from, hiddenFrom, lineEnd, lineFrom, indentLevel, marker, view, decorations } = params;
   const contentStart = from + marker.sourceLength;
   const revealed = selectionWithinMarkerRange(
     view.hasFocus,
     view.state.selection.ranges,
-    from,
+    hiddenFrom,
     contentStart,
   );
 
   decorations.push(
     revealed
-      ? { from, to: contentStart, value: { class: 'cm-md-inline-marker' } }
+      ? revealedMarkerDecoration(hiddenFrom, contentStart, orderedSlot(marker.number))
       : {
-          from,
+          from: hiddenFrom,
           to: contentStart,
           value: { widget: new NumberWidget(marker.number, indentLevel) },
         },
@@ -255,7 +317,7 @@ function addOrderedDecorations(params: {
   if (contentStart < lineEnd) {
     decorations.push({ from: contentStart, to: lineEnd, value: { class: 'cm-md-ol-item' } });
   }
-  addListLineDecoration(lineFrom, indentLevel, decorations);
+  addListLineDecoration(lineFrom, indentLevel, markerSlot(marker), decorations);
 }
 
 export function decorateListItemIndentOnly(
@@ -268,7 +330,10 @@ export function decorateListItemIndentOnly(
   const indentLevel = listIndentLevel(from, line.from);
   const marker = parseListMarker(text);
 
-  addListLineDecoration(line.from, indentLevel, decorations);
+  // The raw marker is on screen here, so its width is the source text's, not
+  // the widget's — but the line keeps the same content column either way, so
+  // wrapped rows don't jump as the caret enters and leaves the item.
+  addListLineDecoration(line.from, indentLevel, marker ? markerSlot(marker) : '0px', decorations);
   if (marker) {
     const markerFrom = from + marker.indent;
     decorations.push({
@@ -277,6 +342,20 @@ export function decorateListItemIndentOnly(
       value: { class: 'cm-md-bullet cm-md-list-marker' },
     });
   }
+}
+
+// Where the hidden run starts: the marker, extended back over the line's
+// leading indentation when that indentation reaches the line start. Those
+// spaces are markdown source exactly like the marker — visual depth comes from
+// the line's margin — and leaving them on screen pushed the item's text one
+// space per indent level right of the column its wrapped rows hang to.
+// Requiring them to reach the line start is what keeps a list inside a
+// blockquote intact: there the run stops at the `>`, which the quote decorator
+// owns, so nothing is hidden.
+function hiddenMarkerStart(view: EditorView, lineFrom: number, markerFrom: number): number {
+  if (markerFrom <= lineFrom) return markerFrom;
+  const lead = view.state.doc.sliceString(lineFrom, markerFrom);
+  return /^[ \t]+$/.test(lead) ? lineFrom : markerFrom;
 }
 
 export function decorateListItem(
@@ -290,8 +369,10 @@ export function decorateListItem(
   const marker = parseListMarker(text);
   if (!marker) return;
 
+  const markerFrom = from + marker.indent;
   const common = {
-    from: from + marker.indent,
+    from: markerFrom,
+    hiddenFrom: hiddenMarkerStart(view, line.from, markerFrom),
     lineEnd: line.to,
     lineFrom: line.from,
     indentLevel,

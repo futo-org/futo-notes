@@ -783,11 +783,12 @@ test.describe('Lists', () => {
     expect(firstChecked).toBe(true);
   });
 
-  test('wrapped list items do not hanging-indent continuation lines', async ({ page }) => {
-    // Spec (docs/spec/editor.md, decision 2026-06-10): only the first visual
-    // line of a list item carries the nesting indent + marker; wrapped
-    // (continuation) lines start at the left margin — the same x where a
-    // wrapped plain paragraph's continuation line starts.
+  test('wrapped list items hanging-indent continuation lines under their text', async ({
+    page,
+  }) => {
+    // Spec (docs/spec/editor.md, decision 2026-08-14): a wrapped list item's
+    // continuation rows start under the item's TEXT, never back under its
+    // marker. The first visual row still starts at the nesting indent.
     const LONG =
       'this sentence is deliberately long enough that it has to wrap onto at ' +
       'least two visual rows inside a pinned four hundred and twenty pixel wide editor view';
@@ -832,18 +833,33 @@ test.describe('Lists', () => {
         return [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, left]) => left);
       }, lineNumber);
 
+    // Where the item's own text begins on its FIRST visual row — the content
+    // span (.cm-md-ul-item / -ol-item / -task) starts right after the marker,
+    // so its first client rect is the column continuation rows must hang to.
+    const firstRowTextLeft = (lineNumber: number) =>
+      page.evaluate((ln) => {
+        const lineEl = document.querySelectorAll('.cm-content .cm-line')[ln];
+        if (!lineEl) throw new Error(`no .cm-line at index ${ln}`);
+        const content = lineEl.querySelector('.cm-md-ul-item, .cm-md-ol-item, .cm-md-task');
+        if (!content) throw new Error(`no content span on line ${ln}`);
+        return content.getClientRects()[0].left;
+      }, lineNumber);
+
     // The plain paragraph's continuation row defines the left margin.
     const plainRows = await rowLefts(5);
     expect(plainRows.length).toBeGreaterThan(1);
     const margin = plainRows[1];
 
-    // Bullet, nested bullet, ordered, and task items: every continuation
-    // row starts at the left margin (no hanging indent).
+    // Bullet, nested bullet, ordered, and task items: every continuation row
+    // lines up with the item's text, so nothing ever wraps back under the
+    // marker.
     for (const line of [0, 1, 2, 3]) {
       const rows = await rowLefts(line);
       expect(rows.length, `line ${line} must wrap`).toBeGreaterThan(1);
+      const textLeft = await firstRowTextLeft(line);
+      expect(textLeft, `line ${line} text must clear the margin`).toBeGreaterThan(margin);
       for (const left of rows.slice(1)) {
-        expect(Math.abs(left - margin), `line ${line} continuation row x`).toBeLessThanOrEqual(2);
+        expect(Math.abs(left - textLeft), `line ${line} continuation row x`).toBeLessThanOrEqual(2);
       }
     }
 
@@ -854,11 +870,10 @@ test.describe('Lists', () => {
     expect(Math.abs(depth0Rows[0] - margin)).toBeLessThanOrEqual(2);
     expect(Math.abs(depth1Rows[0] - (margin + 24))).toBeLessThanOrEqual(2);
 
-    // Mechanism contract: no padding override (a list line inherits the same
-    // base padding as a plain line in its context — that is what puts
-    // continuation rows at the plain-text margin) plus a non-negative
-    // first-line-only text-indent (negative would re-create the hanging
-    // indent).
+    // Mechanism contract: still no padding override — `.cm-line` padding is
+    // owned per context (desktop, native embed, blockquotes), so the hang
+    // rides on margin-left plus a NEGATIVE first-line-only text-indent that
+    // pulls the marker back out to the nesting indent.
     const lineStyles = await page.evaluate(() => {
       const view = (window as any).__cmGetView?.();
       if (!view) throw new Error('CM EditorView not found');
@@ -872,7 +887,8 @@ test.describe('Lists', () => {
         return {
           inlinePaddingLeft: (el as HTMLElement).style?.paddingLeft ?? '',
           paddingLeft: cs.paddingLeft,
-          textIndent: cs.textIndent,
+          marginLeft: parseFloat(cs.marginLeft),
+          textIndent: parseFloat(cs.textIndent),
         };
       });
     });
@@ -881,8 +897,11 @@ test.describe('Lists', () => {
     expect(lineStyles[1].inlinePaddingLeft).toBe('');
     expect(lineStyles[0].paddingLeft).toBe(plain.paddingLeft);
     expect(lineStyles[1].paddingLeft).toBe(plain.paddingLeft);
-    expect(lineStyles[0].textIndent).toBe('0px');
-    expect(lineStyles[1].textIndent).toBe('24px');
+    expect(lineStyles[0].textIndent).toBeLessThan(0);
+    expect(lineStyles[1].textIndent).toBeLessThan(0);
+    // margin-left + text-indent === the nesting indent (0px, then one step).
+    expect(lineStyles[0].marginLeft + lineStyles[0].textIndent).toBeCloseTo(0, 1);
+    expect(lineStyles[1].marginLeft + lineStyles[1].textIndent).toBeCloseTo(24, 1);
   });
 
   test('clicking checkbox toggles the markdown document text', async ({ page }) => {

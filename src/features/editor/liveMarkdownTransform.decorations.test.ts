@@ -247,7 +247,7 @@ describe('list items carrying leading indentation', () => {
 
     expect(lines).toHaveLength(2);
     for (const line of lines) {
-      expect(line.attributes?.style).toBe('text-indent: 0px;');
+      expect(line.attributes?.style).toBe('--list-depth: 0px; --list-marker-slot: 1em;');
     }
   });
 
@@ -256,7 +256,7 @@ describe('list items carrying leading indentation', () => {
     const lines = withClass(collectDecos(view), 'cm-md-list-line');
 
     expect(lines).toHaveLength(2);
-    expect(lines[0].attributes?.style).toBe('text-indent: 0px;');
-    expect(lines[1].attributes?.style).toBe('text-indent: 24px;');
+    expect(lines[0].attributes?.style).toBe('--list-depth: 0px; --list-marker-slot: 1em;');
+    expect(lines[1].attributes?.style).toBe('--list-depth: 24px; --list-marker-slot: 1em;');
   });
 });
