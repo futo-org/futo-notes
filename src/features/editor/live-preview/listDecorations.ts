@@ -320,30 +320,6 @@ function addOrderedDecorations(params: {
   addListLineDecoration(lineFrom, indentLevel, markerSlot(marker), decorations);
 }
 
-export function decorateListItemIndentOnly(
-  from: number,
-  view: EditorView,
-  decorations: PendingDecoration[],
-): void {
-  const line = view.state.doc.lineAt(from);
-  const text = view.state.doc.sliceString(from, line.to);
-  const indentLevel = listIndentLevel(from, line.from);
-  const marker = parseListMarker(text);
-
-  // The raw marker is on screen here, so its width is the source text's, not
-  // the widget's — but the line keeps the same content column either way, so
-  // wrapped rows don't jump as the caret enters and leaves the item.
-  addListLineDecoration(line.from, indentLevel, marker ? markerSlot(marker) : '0px', decorations);
-  if (marker) {
-    const markerFrom = from + marker.indent;
-    decorations.push({
-      from: markerFrom,
-      to: markerFrom + marker.sourceLength,
-      value: { class: 'cm-md-bullet cm-md-list-marker' },
-    });
-  }
-}
-
 // Where the hidden run starts: the marker, extended back over the line's
 // leading indentation when that indentation reaches the line start. Those
 // spaces are markdown source exactly like the marker — visual depth comes from
