@@ -178,6 +178,37 @@ const PROBES = [
     },
     hint: 'neither native shell trims its search query any more — the query-tail trim gap may be closed.',
   },
+  {
+    // editor.md — blockquotes deeper than 3 get no per-level indent because
+    // the stylesheets stop at `.cm-md-quote-level-3`. Closure is visible in
+    // CSS: either a level-4-or-deeper rule, or a depth-general custom property
+    // replacing the hand-written per-level rules. Both stylesheets count —
+    // app-shell.css's `.editor-container`-scoped padding outranks the other.
+    match: /blockquotes nested four or more deep/,
+    closed: () => {
+      const deeperLevelRule = /cm-md-quote-level-(?:[4-9]|\d\d)/;
+      const depthGeneral = /--md-quote-(?:depth|level)\b/;
+      return [read('src/styles/markdown-blocks.css'), read('src/styles/app-shell.css')].some(
+        (css) => deeperLevelRule.test(css) || depthGeneral.test(css),
+      );
+    },
+    hint: 'a quote stylesheet now indents past level 3 (a level-4+ rule or a depth-general custom property) — the deep-nesting indent gap may be closed.',
+  },
+  {
+    // editor.md — a lazy-continuation line inside a blockquote gets no quote
+    // decoration because `decorateBlockQuote` bails on any line whose OWN text
+    // has nest level 0. That single `continue` IS the gap, so its disappearance
+    // is the closure signal. Deliberately not also grepping for "lazy": the
+    // file already says "lazy continuations" in an unrelated perf comment, so
+    // that clause fired on day one. A missing file is not evidence of closure.
+    match: /lazy-continuation line/,
+    closed: () => {
+      const decorations = read('src/features/editor/live-preview/blockDecorations.ts');
+      if (!decorations) return false;
+      return !/if \(nestLevel === 0\) continue;/.test(decorations);
+    },
+    hint: 'blockDecorations.ts no longer skips nest-level-0 lines inside a quote (or has grown lazy-continuation handling) — the flush-left continuation gap may be closed.',
+  },
 ];
 
 // ── render ─────────────────────────────────────────────────────────────────

@@ -220,13 +220,34 @@ this file states the behaviors a human cares about.
 - Links: `[text](url)`, autolinks `<url>`, and bare GFM URLs.
 - Blockquotes including nested; the `>` marker is dimmed when the cursor is on
   the line.
-- A blockquote line's content starts at a fixed x-offset that depends only on
-  its nesting depth: every `>` marker occupies a constant-width gutter, so
-  `> text` and `>text` land at the same x, each extra depth adds exactly one
-  more gutter, and revealing the marker under the caret never shifts the line's
-  content sideways. Each nesting level paints its own 2px stripe at the left
-  edge of its gutter. → src/styles/markdown-blocks.css
+  > **Gap:** a blockquote's lazy-continuation line — one CommonMark keeps
+  > inside the quote even though it carries no `>` of its own — gets no quote
+  > decoration at all, because `decorateBlockQuote` skips every line whose own
+  > text has nest level 0. It renders flush left with neither indent nor
+  > stripe nor the quote's muted italic styling, ~29px left of the depth-1
+  > quoted line above it (15px indent + one 14.4px gutter).
+  > → src/features/editor/live-preview/blockDecorations.ts `decorateBlockQuote`
+- Every `>` marker occupies a constant-width gutter, whatever characters it was
+  written with and at whatever nesting depth: `> text` and `>text` put their
+  content at the same x, and revealing the marker under the caret never shifts
+  the line's content sideways. → src/styles/markdown-blocks.css
   `--md-quote-marker-gutter`, tests/blockquote-gutter.spec.ts
+- Nested one, two, or three deep, a quote line is indented 15px per level and
+  paints one 2px stripe at the left edge of each of those steps — at 0px, 15px
+  and 30px from the line's left edge, so the innermost stripe sits one step
+  left of the content rather than against it. The marker gutters follow the
+  whole indent, so each extra level moves content right by the same constant
+  amount. → src/styles/markdown-blocks.css `.cm-md-quote-level-2`/`-3`,
+  tests/blockquote-gutter.spec.ts
+  > **Gap:** blockquotes nested four or more deep have no per-level rule, so
+  > they fall back to the depth-1 15px indent and a single stripe — a depth-4
+  > line's content renders ~15.6px LEFT of a depth-3 line's (45px + 3 gutters
+  > against 15px + 4 gutters; measured in chromium at the default 18px editor
+  > font, where the 0.8em gutter is 14.4px). Only the indent is affected:
+  > gutter width and reveal stability hold at every depth. Closing it takes a
+  > rule in BOTH src/styles/markdown-blocks.css and src/styles/app-shell.css —
+  > the `.editor-container`-scoped padding there outranks a bare
+  > `.cm-md-quote-level-N` rule.
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
 - Tapping/clicking a bullet or number marker places the caret at the marker
