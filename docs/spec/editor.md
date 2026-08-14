@@ -445,11 +445,17 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   written — a hand-numbered `1. / 1. / 1.` list stays that way until you type in it.
   → orderedListRenumber.ts
 
-  > **Gap:** on the **native** shells (iOS/Android) the note text arrives as an edit, so
-  > opening a lazily-numbered note renumbers it on screen straight away. Nothing is
-  > posted back to the host, so the file on disk keeps its own numbering until the next
-  > real keystroke, when the renumbered text is saved. _(native shells)_ →
+  > **Gap:** on the **native** shells (iOS/Android) opening a note delivers its text as an
+  > edit — a load, not an adopt — so a lazily-numbered note renumbers on screen straight
+  > away. Nothing is posted back to the host, so the file on disk keeps its own numbering
+  > until the next real keystroke, when the renumbered text is saved. _(native shells)_ →
   > editor-embed/createFutoEditorApi.ts `applyContent`
+
+- Text that reaches the open note from outside it — a sync pull landing while you read,
+  a host push of the note on screen — is adopted exactly as sent: renumbering and every
+  other editing rule that rewrites what you type are skipped, so a peer's `1. / 1. / 1.`
+  list is neither rewritten on screen nor saved and pushed back over theirs.
+  → editorContentSync.ts `EXTERNAL_CONTENT_OPTS`, editorContentSync.test.ts
 - Undo only ever reverses edits made in the note on screen — never text from another
   note — and opening a note is not itself something undo can reverse.
   → noteHistory.ts, tests/undo-history.spec.ts
