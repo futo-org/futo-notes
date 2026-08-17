@@ -204,3 +204,59 @@ describe('liveMarkdownTransform decorations', () => {
     });
   });
 });
+
+// Kept as a top-level sibling rather than nested in the describe above, which
+// is already at the max-lines-per-function ceiling.
+describe('list items carrying leading indentation', () => {
+  // lezer-markdown spans a ListItem from the MARKER when the item opens a
+  // nested BulletList, but from the LINE START — indent included — when the
+  // item is a sibling that merely happens to be indented. parseListMarker used
+  // to anchor on the marker with no allowance for that indent, so the whole
+  // item fell through undecorated: raw `*` on screen, no bullet.
+  function bulletWidgetCount(view: EditorView): number {
+    const plugin: any = view.plugin(liveMarkdownTransform);
+    const cur = plugin.decorations.iter();
+    let count = 0;
+    while (cur.value) {
+      const widget = cur.value.spec.widget;
+      if (widget?.toDOM(view).className?.includes('cm-md-bullet')) count += 1;
+      cur.next();
+    }
+    return count;
+  }
+
+  it('renders a bullet for a sibling indented less than the parent content column', () => {
+    // `*  Parent.` puts its content at column 3, so a two-space child is not
+    // deep enough to nest and CommonMark demotes it to an outer-list sibling.
+    const view = setup('*  Parent.\n  * child\n');
+
+    expect(bulletWidgetCount(view)).toBe(2);
+    expect(withClass(collectDecos(view), 'cm-md-ul-item')).toHaveLength(2);
+  });
+
+  it('renders bullets for a whole list indented by one space', () => {
+    const view = setup(' * alpha\n * beta\n');
+
+    expect(bulletWidgetCount(view)).toBe(2);
+    expect(withClass(collectDecos(view), 'cm-md-ul-item')).toHaveLength(2);
+  });
+
+  it('indents a shallow sibling at level 0, not at the parent depth', () => {
+    const view = setup('*  Parent.\n  * child\n');
+    const lines = withClass(collectDecos(view), 'cm-md-list-line');
+
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line.attributes?.style).toBe('--list-depth: 0px; --list-marker-slot: 1em;');
+    }
+  });
+
+  it('still indents a genuinely nested item one level in', () => {
+    const view = setup('* Parent.\n  * child\n');
+    const lines = withClass(collectDecos(view), 'cm-md-list-line');
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0].attributes?.style).toBe('--list-depth: 0px; --list-marker-slot: 1em;');
+    expect(lines[1].attributes?.style).toBe('--list-depth: 24px; --list-marker-slot: 1em;');
+  });
+});

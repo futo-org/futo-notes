@@ -222,6 +222,13 @@ this file states the behaviors a human cares about.
   the line.
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
+- A list item's leading indent never suppresses its marker: a whole list
+  indented by one to three spaces still renders bullets, not raw `*`. Depth
+  comes from the parse tree, not from counting spaces — `*  Parent.` (two
+  spaces after the marker) puts its content at column 3, so a two-space child
+  is too shallow to nest and CommonMark renders it level with its parent as a
+  sibling. → live-preview/listDecorations.ts `listIndentLevel` /
+  `parseListMarker`, markdown-spec/cases/06-lists/unordered.yaml
 - Tapping/clicking a bullet or number marker places the caret at the marker
   (revealing the dimmed `-`/`N.` source — the same state as arrowing onto
   it); a marker tap must never be a no-op. The markers are
@@ -231,12 +238,25 @@ this file states the behaviors a human cares about.
   Checkbox and image widgets intentionally keep `true` + their own handlers
   (toggle / place-at-line-end). → live-preview/listDecorations.ts
   BulletWidget/NumberWidget, liveMarkdownTransform.decorations.test.ts
-- A list item that wraps does **not** hanging-indent its continuation lines:
-  wrapped lines start at the left margin — only the first visual line carries
-  the nesting indent + marker. Applies to bullets, ordered items, and task
-  items at every nesting depth, on every platform (spec decision 2026-06-10;
-  wrapped text previously aligned under the first line's text). →
-  live-preview/listDecorations.ts `cm-md-list-line` decorations
+- A list item that wraps **hanging-indents** its continuation lines: wrapped
+  rows start under the item's text, never back under its marker, while the
+  first visual row still starts at the nesting indent. Applies to bullets,
+  ordered items, and task items at every nesting depth, on every platform
+  (spec decision 2026-08-14, reversing the 2026-06-10 decision that put
+  wrapped rows at the left margin). The indent rides on `margin-left` plus a
+  negative first-line-only `text-indent`, never on `padding-left` — `.cm-line`
+  padding is owned per context (desktop, native embed, blockquotes). →
+  live-preview/listDecorations.ts `cm-md-list-line` decorations,
+  tests/markdown-rendering.spec.ts
+- A list item's marker column is exactly as wide as its rendered marker, so
+  the hang lands on the item's text: the bullet and number widgets are pinned
+  to that width, the marker replacement covers the marker AND its trailing
+  space, and a nested item's leading source indentation is hidden along with
+  the marker (visual depth comes from the line's margin). A caret anywhere in
+  that hidden run reveals the raw source, the same as a caret on the marker.
+  Leading indentation is only hidden when it reaches the line start, so a list
+  inside a blockquote leaves the `> ` alone. →
+  live-preview/listDecorations.ts `markerGutter` / `hiddenMarkerStart`
 - Tables (GFM), horizontal rules, and images — rendered as block widgets.
   Each replace widget's `estimatedHeight` must equal its real rendered
   footprint, and the widget's rendered height must be settled rather than
@@ -450,6 +470,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   > posted back to the host, so the file on disk keeps its own numbering until the next
   > real keystroke, when the renumbered text is saved. _(native shells)_ →
   > editor-embed/createFutoEditorApi.ts `applyContent`
+
 - Undo only ever reverses edits made in the note on screen — never text from another
   note — and opening a note is not itself something undo can reverse.
   → noteHistory.ts, tests/undo-history.spec.ts
