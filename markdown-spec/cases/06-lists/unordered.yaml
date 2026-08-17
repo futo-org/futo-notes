@@ -25,6 +25,41 @@
       - class: cm-md-bullet
         count: 3
 
+# `*  Parent.` (two spaces after the marker) puts its content at column 3, so a
+# two-space child is not deep enough to nest and CommonMark demotes it to an
+# outer-list sibling. lezer then spans that ListItem from the line start rather
+# than the marker, which used to drop every decoration for the line: the raw `*`
+# stayed on screen with no bullet.
+- name: ul-sibling-indented-below-parent-content-column
+  complexity: 35
+  markdown: |
+    *  Parent.
+      * child
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ul-item
+        count: 2
+    widgets:
+      - class: cm-md-bullet
+        count: 2
+    visible_text_excludes: "*"
+
+- name: ul-whole-list-indented-one-space
+  complexity: 35
+  markdown: |
+     * alpha
+     * beta
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ul-item
+        count: 2
+    widgets:
+      - class: cm-md-bullet
+        count: 2
+    visible_text_excludes: "*"
+
 - name: ul-with-emphasis
   complexity: 60
   markdown: "- Item with **bold** text"
@@ -64,3 +99,20 @@
       - class: cm-md-tag
     tags:
       - "#todo"
+
+# A list item's leading indentation is hidden with its marker, but only when
+# that indentation reaches the line start. Inside a blockquote the run stops at
+# the `>`, which the quote decorator owns — hiding it too would swallow the
+# quote marker (and overlap another decoration on the same text).
+- name: ul-inside-blockquote-keeps-quote-marker
+  complexity: 45
+  markdown: |
+    > - quoted item
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-ul-item
+    widgets:
+      - class: cm-md-bullet
+        count: 1

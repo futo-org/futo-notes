@@ -223,8 +223,8 @@ const INVARIANTS_SOURCE = `
     }
   },
   {
-    name: 'list-line-no-hanging-indent',
-    description: 'List lines must NOT hanging-indent wrapped text: no padding override (a list line keeps the same base padding as a plain .cm-line in its context) and the nesting indent rides a non-negative first-line-only text-indent, so continuation lines start where plain-paragraph text starts (docs/spec/editor.md, decision 2026-06-10). Deliberate divergence from Obsidian, so only the SF class shape is checked.',
+    name: 'list-line-hanging-indent',
+    description: 'List lines must hanging-indent wrapped text: no padding override (a list line keeps the same base padding as a plain .cm-line in its context), the hang rides margin-left plus a NEGATIVE first-line-only text-indent, and the two sum to the nesting indent so the first visual row still starts there (docs/spec/editor.md, decision 2026-08-14).',
     fn: () => {
       const root = document.querySelector('.cm-content[data-factory-target="true"]');
       if (!root) return null;
@@ -232,12 +232,17 @@ const INVARIANTS_SOURCE = `
       if (!line) return null;
       if (line.style.paddingLeft) {
         return 'inline padding-left = ' + line.style.paddingLeft +
-          ' (want none — list lines inherit plain-line padding so wrapped lines start at the left margin)';
+          ' (want none — .cm-line padding is owned per context; the hang rides margin-left)';
       }
       const cs = getComputedStyle(line);
       const textIndent = parseFloat(cs.textIndent) || 0;
-      if (textIndent < 0) {
-        return 'text-indent = ' + textIndent + 'px (want >= 0 — the nesting indent is first-line-only; negative re-creates the hanging indent)';
+      const marginLeft = parseFloat(cs.marginLeft) || 0;
+      if (textIndent >= 0) {
+        return 'text-indent = ' + textIndent + 'px (want < 0 — a non-negative first-line indent drops the hang and wraps text back under the marker)';
+      }
+      const nesting = marginLeft + textIndent;
+      if (nesting < -0.5 || Math.abs(nesting % 24) > 0.5) {
+        return 'margin-left + text-indent = ' + nesting + 'px (want a non-negative multiple of the 24px nesting step — that sum is where the first visual row starts)';
       }
       const plain = [...root.querySelectorAll('.cm-line')].find(
         (l) => !l.classList.contains('cm-md-list-line') && !l.classList.contains('cm-md-quote') &&
@@ -248,7 +253,7 @@ const INVARIANTS_SOURCE = `
         const listPad = parseFloat(cs.paddingLeft) || 0;
         if (Math.abs(listPad - plainPad) > 0.5) {
           return 'list-line padding-left = ' + listPad + 'px but plain-line padding-left = ' + plainPad +
-            'px (continuation lines must start where plain text starts)';
+            'px (the hang must come from margin, not from overriding the context padding)';
         }
       }
       return undefined;
