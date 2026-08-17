@@ -44,10 +44,7 @@
      the band; the seam falls on the existing sidebar border. */
   background-color: var(--color-sidebar);
   border-right: 1px solid var(--color-border);
-  transition:
-    width 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
+  transition: width 0.15s ease;
 }
 
 .notes-shell.desktop-layout.sidebar-collapsed .topband-chrome {
@@ -73,7 +70,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease;
 }
 
 .notes-shell.desktop-layout .sidebar-toggle-btn:hover {

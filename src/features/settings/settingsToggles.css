@@ -49,7 +49,6 @@
   border-radius: 14px;
   background: var(--color-border);
   position: relative;
-  transition: background 0.2s ease;
   flex-shrink: 0;
   margin-left: 12px;
 }

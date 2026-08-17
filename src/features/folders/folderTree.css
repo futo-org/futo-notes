@@ -74,9 +74,6 @@
   box-sizing: border-box;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  transition:
-    background 0.1s ease,
-    box-shadow 0.1s ease;
   /* Scope each row's layout/paint to itself so a hover or drop-target
      outline change doesn't trigger reflow/repaint of siblings. Dropped
      p95 frame time noticeably during long drags through 2k-row trees. */

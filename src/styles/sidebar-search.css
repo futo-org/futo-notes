@@ -21,7 +21,6 @@
   justify-content: center;
   gap: 8px;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s ease;
 }
 
 .search-button:active {

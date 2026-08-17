@@ -38,9 +38,6 @@
   padding: 9px 8px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
 }
 
 .settings-segment:active {
