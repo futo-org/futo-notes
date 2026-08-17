@@ -39,6 +39,6 @@ flag gaps the codebase suggests have been implemented.
 
 ## sync.md
 
-- [sync.md:1099](sync.md#L1099) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
+- [sync.md:1110](sync.md#L1110) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 
 _18 gaps._
