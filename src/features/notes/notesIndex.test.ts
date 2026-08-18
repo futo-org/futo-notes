@@ -76,4 +76,19 @@ describe('makePreview', () => {
   it('returns empty string for whitespace-only content', () => {
     expect(makePreview('   \n\t  ')).toBe('');
   });
+
+  it('stands an embedded image in as a placeholder, keeping the text around it', () => {
+    // GitHub #30: a note whose first line is an image previewed as the raw
+    // markdown, e.g. `![](image-20260814-130425.png)`.
+    expect(makePreview('![](image-20260814-130425.png)')).toBe('\u{1F5BC}\u{FE0F}');
+    expect(makePreview('![](image-20260814-130425.png)\nMeeting notes')).toBe(
+      '\u{1F5BC}\u{FE0F} Meeting notes',
+    );
+    // A plain link is not an image, and a construct missing a terminator is not
+    // an image either.
+    expect(makePreview('a [link](https://example.com) stays')).toBe(
+      'a [link](https://example.com) stays',
+    );
+    expect(makePreview('![unterminated](a.png')).toBe('![unterminated](a.png');
+  });
 });

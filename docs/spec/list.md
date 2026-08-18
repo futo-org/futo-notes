@@ -82,6 +82,16 @@ new-note affordances.
   > preview at all. The single-line, markdown-opaque `make_preview` snippet
   > appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar
   > rows. The rich multi-line preview is native-only (iOS + Android) for now.
+- An embedded image stands in as a single 🖼️ in **every** preview — the
+  rich multi-line one and the single-line `make_preview` snippet alike — never
+  as raw `![alt](target)` markdown and never dropped. Surrounding text is kept,
+  so `![](image-20260814-130425.png)` above a line of prose previews as
+  "🖼️ Meeting notes". A construct missing its `]` or `)` is not an image
+  and stays verbatim, and a plain `[link](url)` is untouched. The rule is shared
+  Rust (`futo_notes_model::IMAGE_PLACEHOLDER`, applied inside `make_preview` and
+  `make_rich_preview`), mirrored per-keystroke by `packages/editor/src/preview.ts`
+  and pinned bit-for-bit by tests/conformance/preview.json.
+  → crates/futo-notes-model/src/note.rs / packages/editor/src/preview.ts
 - Preview text is never interactive: tapping anywhere on a note row — including
   preview text that looks like a URL — always opens the note, never a link.
   _(iOS native)_ `AttributedString(markdown:)` auto-attaches a `.link`
