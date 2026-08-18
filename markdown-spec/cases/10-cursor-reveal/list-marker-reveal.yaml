@@ -116,3 +116,33 @@
   expect_final:
     line: 0
     ch: 0
+
+# A nested item's leading source indentation is hidden along with its marker
+# (visual depth comes from the line's margin), so a caret parked in that
+# whitespace must reveal the raw source the same way a caret on the marker
+# does — otherwise it sits inside a replaced range with nothing to show.
+- name: nested-bullet-caret-in-leading-indent-reveals
+  complexity: 45
+  markdown: |
+    - Outer item
+      - Nested item
+    second line
+  cursor: { line: 1, ch: 1 }
+  expect:
+    widgets:
+      - class: cm-md-bullet
+        count: 1
+    visible_text_contains: "- Nested"
+
+- name: nested-bullet-leading-indent-hidden-caret-elsewhere
+  complexity: 45
+  markdown: |
+    - Outer item
+      - Nested item
+    second line
+  cursor: { line: 2, ch: 0 }
+  expect:
+    widgets:
+      - class: cm-md-bullet
+        count: 2
+    visible_text_excludes: "-"

@@ -23,6 +23,7 @@
   import { EditorScrollAnchoring } from './interactions/scrollAnchoring';
   import { createMarkdownEditorRuntime } from './createMarkdownEditorRuntime';
   import { createNoteHistoryStore, restoreState } from './noteHistory';
+  import { swapEditorState } from './swapEditorState';
 
   interface Props {
     content?: string;
@@ -169,7 +170,7 @@
     if (openNoteId) noteHistory.save(openNoteId, v.state);
     openNoteId = noteId;
     scrollAnchoring?.resetAnchor();
-    v.setState(restoreState(text, exts, noteId ? noteHistory.take(noteId) : undefined));
+    swapEditorState(v, restoreState(text, exts, noteId ? noteHistory.take(noteId) : undefined));
     scrollAnchoring?.scheduleWarm();
     if (text) {
       const getImageFn = hasFileSystem ? getImageWebPath : undefined;
@@ -197,7 +198,8 @@
     if (!v || !exts) return;
     openNoteId = null;
     if (undoDepth(v.state) === 0 && redoDepth(v.state) === 0) return;
-    v.setState(
+    swapEditorState(
+      v,
       EditorState.create({ doc: v.state.doc, selection: v.state.selection, extensions: exts }),
     );
   }

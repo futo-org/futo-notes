@@ -1,0 +1,37 @@
+     Running BeforeDevCommand (`npm run dev --prefix ../.. -- --host 127.0.0.1 --port 5329 --strictPort`)
+
+> futo-notes@0.0.0 dev
+> vite --host 127.0.0.1 --port 5329 --strictPort
+
+6:25:55 PM [vite] (client) Forced re-optimization of dependencies
+
+  VITE v7.3.5  ready in 320 ms
+
+  ➜  Local:   http://127.0.0.1:5329/
+     Running DevCommand (`cargo  run --no-default-features --color always --`)
+        Info Watching /home/justin/Developer/futo-notes/.claude/worktrees/mr-229/apps/tauri/src-tauri for changes...
+        Info Watching /home/justin/Developer/futo-notes/.claude/worktrees/mr-229/crates/futo-notes-core for changes...
+        Info Watching /home/justin/Developer/futo-notes/.claude/worktrees/mr-229/crates/futo-notes-store for changes...
+        Info Watching /home/justin/Developer/futo-notes/.claude/worktrees/mr-229/crates/futo-notes-model for changes...
+        Info Watching /home/justin/Developer/futo-notes/.claude/worktrees/mr-229/crates/futo-notes-search for changes...
+        Info Watching /home/justin/Developer/futo-notes/.claude/worktrees/mr-229/crates/futo-notes-sync for changes...
+[1m[36m    Blocking[0m waiting for file lock on package cache
+[1m[36m    Blocking[0m waiting for file lock on package cache
+[1m[36m    Blocking[0m waiting for file lock on package cache
+[1m[36m    Blocking[0m waiting for file lock on shared package cache
+[1m[32m   Compiling[0m futo-notes-core v0.1.0 (/home/justin/Developer/futo-notes/.claude/worktrees/mr-229/crates/futo-notes-core)
+[1m[32m   Compiling[0m futo-notes-tauri v0.1.0 (/home/justin/Developer/futo-notes/.claude/worktrees/mr-229/apps/tauri/src-tauri)
+[1m[32m   Compiling[0m futo-notes-search v0.1.0 (/home/justin/Developer/futo-notes/.claude/worktrees/mr-229/crates/futo-notes-search)
+[1m[36m    Building[0m [=======================> ] 730/739: futo-notes-core, futo-not...[K[1m[32m   Compiling[0m futo-notes-model v0.1.0 (/home/justin/Developer/futo-notes/.claude/worktrees/mr-229/crates/futo-notes-model)
+[1m[32m   Compiling[0m futo-notes-sync v0.1.0 (/home/justin/Developer/futo-notes/.claude/worktrees/mr-229/crates/futo-notes-sync)
+[1m[36m    Building[0m [=======================> ] 730/739: futo-notes-model, futo-no...[1m[36m    Building[0m [=======================> ] 731/739: futo-notes-model, futo-no...[1m[36m    Building[0m [=======================> ] 732/739: futo-notes-tauri(build.rs...[K[1m[32m   Compiling[0m futo-notes-store v0.1.0 (/home/justin/Developer/futo-notes/.claude/worktrees/mr-229/crates/futo-notes-store)
+[1m[36m    Building[0m [=======================> ] 732/739: futo-notes-tauri(build.rs...[1m[36m    Building[0m [=======================> ] 733/739: futo-notes-tauri(build.rs...[1m[36m    Building[0m [=======================> ] 734/739: futo-notes-tauri(build.rs...[1m[36m    Building[0m [=======================> ] 735/739: futo-notes-tauri(build), ...[1m[36m    Building[0m [=======================> ] 736/739: futo-notes-sync             [1m[36m    Building[0m [=======================> ] 737/739: futo-notes-tauri            [1m[36m    Building[0m [=======================> ] 738/739: futo-notes-tauri(bin)       [K[1m[32m    Finished[0m ]8;;https://doc.rust-lang.org/cargo/reference/profiles.html#default-profiles\`dev` profile [unoptimized + debuginfo]]8;;\ target(s) in 26.12s
+[1m[32m     Running[0m `/home/justin/Developer/futo-notes/.claude/worktrees/mr-229/target/debug/futo-notes-tauri`
+[MCP][ELEMENT_PICKER][INFO] Element picker event listeners registered
+[MCP][PLUGIN][INFO] MCP Bridge plugin initialized for 'FUTO Notes Dev' (com.futo.notes.verify.mr229) on 0.0.0.0:9224
+[MCP][WS_SERVER][INFO] WebSocket server listening on: 0.0.0.0:9224
+[journal] recording to /home/justin/Developer/futo-notes/.claude/worktrees/mr-229/.tauri-data/journal
+[search/indexer] BM25 reconcile: 1 new/changed of 1 total (0 skipped via mtime gate)
+7:00:38 PM [vite] (client) hmr update /src/app/NotesShell.svelte, /src/features/editor/MarkdownEditor.svelte, /src/styles/app.css
+7:00:38 PM [vite] (client) hmr update /src/styles/app.css, /src/features/editor/MarkdownEditor.svelte
+7:00:38 PM [vite] (client) hmr update /src/styles/app.css, /src/features/editor/MarkdownEditor.svelte
