@@ -94,29 +94,12 @@
    Mobile adjustments
    =========================== */
 @media (max-width: 480px) {
-  .note-item {
-    padding: 10px 12px;
-  }
-
   .fab {
     height: 44px;
     padding: 0 16px;
     bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
     right: max(12px, calc(12px + env(safe-area-inset-right)));
     font-size: 14px;
-  }
-
-  .settings-fab {
-    width: 44px;
-    height: 44px;
-    bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
-    left: max(12px, calc(12px + env(safe-area-inset-left)));
-    font-size: 20px;
-  }
-
-  .notes-drawer .settings-fab {
-    bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
-    left: max(12px, calc(12px + env(safe-area-inset-left)));
   }
 }
 
@@ -131,10 +114,6 @@
   transform: translateX(var(--drawer-offset));
   transition: transform 0.25s ease;
   will-change: transform;
-}
-
-.notes-shell.drawer-dragging .note-menu-anchor {
-  transition: none;
 }
 
 .note-menu-toggle {
