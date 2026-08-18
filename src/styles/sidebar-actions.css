@@ -25,9 +25,7 @@
   justify-content: center;
   gap: 6px;
   padding: 0 20px;
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease;
+  transition: transform 0.15s ease;
 }
 
 .fab:active {

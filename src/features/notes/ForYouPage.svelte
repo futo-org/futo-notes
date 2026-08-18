@@ -95,10 +95,7 @@
     text-align: left;
     overflow: hidden;
     box-shadow: 0 1px 3px rgba(var(--ink-rgb), 0.04);
-    transition:
-      box-shadow 0.2s ease,
-      transform 0.2s ease,
-      background 0.15s ease;
+    transition: transform 0.2s ease;
   }
 
   @media (hover: hover) {

@@ -155,7 +155,6 @@
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
   color: var(--color-text);
-  transition: background 0.15s ease;
 }
 
 .note-menu-toggle:active {
@@ -224,7 +223,6 @@
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
   color: var(--color-text);
-  transition: background 0.15s ease;
 }
 
 .sidebar-expand-fallback-btn:active {

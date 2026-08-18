@@ -19,7 +19,6 @@
   background: transparent;
   width: 100%;
   text-align: left;
-  transition: background 0.1s ease;
 }
 
 .notes-drawer .note-item.pressed {
