@@ -16,7 +16,7 @@ import {
   decorateLink,
   decorateStrikethrough,
 } from './inlineDecorations';
-import { decorateListItem, decorateListItemIndentOnly } from './listDecorations';
+import { decorateListItem } from './listDecorations';
 import {
   isBlockQuoteNode,
   isCodeNode,
@@ -95,10 +95,7 @@ export function createLiveMarkdownDecorationBuilder() {
           const blockSyntaxRevealed =
             isBlockRevealSensitive(name) &&
             shouldSkipBlockDecorations(name, from, to, view.hasFocus, selectionRanges);
-          if (blockSyntaxRevealed && !isHeadingNode(name)) {
-            if (name === 'ListItem') decorateListItemIndentOnly(from, view, decorations);
-            return;
-          }
+          if (blockSyntaxRevealed && !isHeadingNode(name)) return;
           if (
             /^(Image|Task)/.test(name) &&
             selectionTouchesRange(view.hasFocus, selectionRanges, from, to)

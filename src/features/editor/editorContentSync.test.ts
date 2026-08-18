@@ -6,6 +6,7 @@ import {
   readDocContent,
   EXTERNAL_CONTENT_OPTS,
 } from './editorContentSync';
+import { orderedListRenumber } from './orderedListRenumber';
 
 describe('readDocContent', () => {
   it('reads the live document', () => {
@@ -126,5 +127,28 @@ describe('EXTERNAL_CONTENT_OPTS', () => {
     // Undo takes back the local keystroke, never the adopt: reviving the superseded
     // local text is what the autosave would then push back over the peer's.
     expect(undoOn(state).doc.toString()).toBe('peer version');
+  });
+
+  // A transaction filter that treats an adopt like typing rewrites the peer's text on
+  // arrival, marks the doc dirty, and autosaves that rewrite straight back out to every
+  // other client. Adopted text lands byte for byte or not at all.
+  describe('adopted text is not edited on arrival', () => {
+    function adoptInto(startDoc: string, incoming: string): string {
+      const state = EditorState.create({
+        doc: startDoc,
+        extensions: [history(), orderedListRenumber],
+      });
+      const adopt = buildSetContentTransaction(state, incoming, EXTERNAL_CONTENT_OPTS);
+      expect(adopt).not.toBeNull();
+      return state.update(adopt!.spec).state.doc.toString();
+    }
+
+    it('leaves a hand-numbered ordered list exactly as the peer wrote it', () => {
+      expect(adoptInto('local', '1. a\n1. b')).toBe('1. a\n1. b');
+    });
+
+    it('leaves empty lazily-numbered items alone', () => {
+      expect(adoptInto('local', '1. \n1. ')).toBe('1. \n1. ');
+    });
   });
 });

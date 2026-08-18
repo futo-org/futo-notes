@@ -178,6 +178,19 @@ const PROBES = [
     },
     hint: 'neither native shell trims its search query any more — the query-tail trim gap may be closed.',
   },
+  {
+    // editor.md — the native note-OPEN path (`applyContent`) still dispatches a
+    // plain transaction, so the editing filters run over text the user never
+    // typed. Its sibling, the sync-adopt path, was exempted from them via
+    // EXTERNAL_CONTENT_OPTS `filter: false`; the gap closes when the load path
+    // is exempted too.
+    match: /a load, not an adopt/,
+    closed: () =>
+      /applyContent\([\s\S]{0,300}?filter: false/.test(
+        read('src/editor-embed/createFutoEditorApi.ts'),
+      ),
+    hint: 'editor-embed applyContent now exempts the note-open dispatch from the transaction filters — the native open-renumbers-the-note gap may be closed.',
+  },
 ];
 
 // ── render ─────────────────────────────────────────────────────────────────
