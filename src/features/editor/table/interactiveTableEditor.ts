@@ -319,4 +319,11 @@ const tableFocusTracker = EditorView.focusChangeEffect.of((_state, focusing) =>
   setTableFocus.of(focusing),
 );
 
+// The field only hears about focus through focus EVENTS, and `create()` cannot see the
+// view, so it seeds every fresh state unfocused. Whoever installs a state into a live
+// view has to hand the field the real answer. → swapEditorState.ts
+export function tableFocusSyncEffect(view: EditorView): StateEffect<boolean> {
+  return setTableFocus.of(view.hasFocus);
+}
+
 export const interactiveTableEditor = [tableEditorField, tableFocusTracker];

@@ -103,6 +103,13 @@ this file states the behaviors a human cares about.
 - A blurred editor reveals nothing — all markers stay hidden.
 - Reveal is per-line: moving the cursor onto a line reveals its markers; moving
   off re-hides them.
+- Reveal survives opening a note. Opening one swaps the editor's whole state, and
+  state that is seeded from focus EVENTS (the interactive-table field: `create()`
+  cannot see the view, so a fresh state believes it is unfocused) is re-synced from
+  the live view as part of the swap. A focused editor whose restored caret lands
+  inside a table therefore shows the table's markdown source, not the unfocused
+  table widget. → swapEditorState.ts, table/interactiveTableEditor.ts,
+  tests/table-focus-after-note-switch.spec.ts
 
 ## Cursor
 

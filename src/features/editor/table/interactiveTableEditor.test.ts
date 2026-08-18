@@ -5,7 +5,7 @@ import { EditorView, type DecorationSet } from '@codemirror/view';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMarkdownLanguageSupport } from '../codeMirrorMarkdown';
-import { interactiveTableEditor } from './interactiveTableEditor';
+import { interactiveTableEditor, tableFocusSyncEffect } from './interactiveTableEditor';
 import { TableEditorWidget } from './tableEditorWidget';
 
 const { actualSyntaxTree, iterateCalls, syntaxTreeMock } = vi.hoisted(() => ({
@@ -28,6 +28,7 @@ vi.mock('@codemirror/language', async (importOriginal) => {
 interface TableEditorFieldValue {
   decorations: DecorationSet;
   tables: readonly { from: number; to: number }[];
+  hasFocus: boolean;
 }
 
 interface TableDecoration {
@@ -65,8 +66,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function setupEditor(doc: string): EditorView {
-  let state = EditorState.create({
+function setupState(doc: string): EditorState {
+  const state = EditorState.create({
     doc,
     extensions: [createMarkdownLanguageSupport()],
   });
@@ -76,9 +77,11 @@ function setupEditor(doc: string): EditorView {
       `test setup did not finish parsing the document (${tree?.length ?? 0}/${state.doc.length})`,
     );
   }
-  state = state.update({ effects: StateEffect.appendConfig.of(interactiveTableEditor) }).state;
+  return state.update({ effects: StateEffect.appendConfig.of(interactiveTableEditor) }).state;
+}
 
-  const view = new EditorView({ state, parent: document.body });
+function setupEditor(doc: string): EditorView {
+  const view = new EditorView({ state: setupState(doc), parent: document.body });
   views.push(view);
   return view;
 }
@@ -136,6 +139,16 @@ function getTableDecorations(view: EditorView): TableDecoration[] {
 }
 
 describe('interactiveTableEditor', () => {
+  it('seeds a fresh state unfocused, so a state swap has to hand it the view answer', () => {
+    const view = setupEditor(TABLE);
+    view.focus();
+    expect(view.hasFocus, 'test setup could not focus the editor').toBe(true);
+
+    // `create()` cannot see the view, and only focus EVENTS move the flag afterwards.
+    expect(setupState(TABLE).field(tableEditorField).hasFocus).toBe(false);
+    expect(tableFocusSyncEffect(view).value).toBe(true);
+  });
+
   it('updates the table widget when typing inside a table', () => {
     const view = setupEditor(TABLE);
     const cellPosition = view.state.doc.toString().indexOf('x');
