@@ -775,6 +775,112 @@ EditorWebView.swift, EditorWebView.kt
   simulator), saves the bytes into the vault root under a generated
   space-free name, and calls `insertImage` back into the embed.
 
+## Find in note
+
+Find-in-note locates text inside the OPEN note — match highlighting plus
+next/previous stepping — as opposed to cross-note search ([search.md](search.md)),
+which retrieves whole notes from the vault index. The two meet at exactly one
+seam: opening a note from a cross-note search result seeds find with the query
+(the hand-off section in search.md).
+
+> **Gap:** the entire Find in note surface in this section is a PROPOSAL — none
+> of it is implemented on any platform as of 2026-08-18: `@codemirror/search`
+> is not a dependency (absent even from pnpm-lock.yaml), no shell binds
+> Ctrl/Cmd+F (registerNotesShellShortcuts.ts stops at P/N/T/W/1–9), and neither
+> native editor screen has a find affordance. Recorded from
+> https://github.com/futo-org/futo-notes/issues/26; these lines are the agreed
+> behavior for whoever implements it, and this note (plus its siblings in
+> search.md and tabs.md) comes out only as the behavior lands.
+
+- **One implementation.** All find behavior — matching, the highlight
+  decorations, current-match tracking, next/previous stepping with wrap, the
+  match count, and the find bar UI itself — lives in the shared editor bundle,
+  rendered inside the editor WebView on all three platforms. Shells contribute
+  ONLY an invocation affordance; there is never a Swift/Kotlin/shell-Svelte
+  copy of the matching or a per-shell find bar. The matching machinery is
+  `@codemirror/search` (`SearchQuery`/`SearchCursor` + match decorations — an
+  established library over a custom scanner); the stock CM6 panel UI is not
+  used, the bar is ours.
+- Opening find is a shared editor command dispatched exactly like a toolbar
+  command: native chrome calls the existing `FutoEditor.exec` bridge method
+  with a shared command id (`find`), whose behavior lives beside `TOOLBAR_EXEC`
+  in markdownToolbar.ts — no new bridge message and no BRIDGE_VERSION change
+  for invocation. Whether `find` also appears as a visible button in the
+  scrollable formatting toolbar is a manifest decision
+  (packages/editor/src/toolbar.ts + `just toolbar-spec`) deferred to
+  implementation; this proposal keeps the toolbar formatting-only.
+- *(desktop)* Ctrl/Cmd+F opens the find bar for the active tab's note, query
+  field autofocused — pre-filled with the editor's selection when one exists,
+  otherwise with the previous query, selected either way. Ctrl/Cmd+F with the
+  bar already open refocuses and selects the query. A Home tab has no
+  document, so it does nothing there. The accelerator is recorded in tabs.md's
+  shortcut list; the key is unclaimed today. → registerNotesShellShortcuts.ts
+- *(iOS/Android)* "Find in note" is an entry in the editor screen's existing
+  overflow menu (Android's ⋮ DropdownMenu, iOS's ellipsis-circle Menu), so it
+  is reachable while reading with the keyboard down. The item dispatches the
+  shared open-find command over `exec`. → NoteEditorScreen.kt actions,
+  NoteEditorView.swift toolbar Menu
+- The bar renders pinned to the top of the editor viewport (below native
+  title/app-bar chrome) and shows: the query field, a live match count
+  ("3 of 17"; "No matches" at zero), next and previous buttons, and a close
+  (X) button.
+- Matching is **case-insensitive literal substring** — no case toggle, no
+  whole-word, no regex in v1 (the simplest behavior meeting #26; toggles can
+  join the same bar later without breaking anything here). Literal means find
+  has none of cross-note search's retrieval semantics: no fuzzy, no
+  prefix/mid-typing rule, no all-words preference — `cat` finds `concatenate`,
+  and `Aug ` (trailing space) finds only `Aug` followed by a space.
+- **Matching runs over the source markdown** — the CM6 document — never over
+  the rendered live-preview text. A match inside syntax the live preview
+  currently hides (emphasis markers, a `[label](url)` URL, wikilink brackets,
+  a heading's `#`) counts and is reachable: stepping to it moves the selection
+  there, and the per-line reveal rule (## Live preview) exposes the hidden
+  syntax, so the CURRENT match is always visible on screen. A non-current
+  match inside a hidden span contributes to the count but paints no highlight
+  until its line reveals. Matching rendered text instead would make results
+  depend on cursor position and reveal state; the document is the single
+  truth, and it is what the selection (and any future replace) operates on.
+- The same visibility requirement holds where live preview swaps in a widget:
+  stepping to a match inside a widget-replaced region (an interactive table's
+  source) must reveal the source the same way placing the caret there does.
+- Find searches the note **body** only. The title is the filename — a native
+  field on the native shells, not part of the document text — and titles are
+  cross-note search's job (search.md indexes them).
+- Every match is highlighted; the current match is visually distinct from the
+  rest and is scrolled into view when stepped to. Enter in the query field
+  steps next, Shift+Enter previous; stepping wraps past either end (the count
+  shows the wrapped position; no separate wrap indicator).
+- Editing while the bar is open keeps it open: matches, highlights, and the
+  count recompute against the new text. Find's key bindings apply only while
+  the query field is focused — typing in the note body behaves exactly as it
+  does without find. Recomputation never adds to keystroke latency (M5): match
+  scanning is plain text scanning off the input path, and the count may lag an
+  edit by a frame.
+- Find state is per open note view: the query and current match survive while
+  the note stays on screen — including device rotation on the native shells
+  (the retained WebView keeps the bar; the OS may drop the soft keyboard) —
+  and closing the bar, switching desktop tabs, or leaving the note clears the
+  highlights and the state. Nothing about find persists (no `.app-config.json`
+  field).
+- *(desktop)* Escape closes the bar and returns focus to the editor with the
+  selection left on the current match.
+- *(Android)* System Back with the bar open dismisses the bar, not the screen;
+  the next Back exits normally. *(iOS)* the X closes the bar; the editor's
+  exit chrome (back chevron / edge swipe) exits the note as usual, taking the
+  bar with the screen.
+- *(iOS/Android)* the soft keyboard can never cover the bar: it is pinned to
+  the top of the editor viewport, which both shells already keep above the
+  keyboard inset, and it never docks to the keyboard. While the find query
+  field is focused the formatting toolbar does not show — that toolbar is
+  editor-body-focus chrome (## Markdown toolbar), and the two bars never
+  stack.
+- Replace is **out of scope** for this surface: #26 asks for finding, the
+  engineering default is the simplest implementation that meets the current
+  requirement, and replacing inside markup the live preview hides invites
+  invisible markdown corruption without dedicated UX. The shared
+  `@codemirror/search` core supports layering replace onto the same bar later
+  if it is ever asked for.
+
 ## Images
 
 - Pasting an image into the editor (desktop) saves it to the notes directory
