@@ -209,6 +209,19 @@ const PROBES = [
     },
     hint: 'blockDecorations.ts no longer skips nest-level-0 lines inside a quote (or has grown lazy-continuation handling) — the flush-left continuation gap may be closed.',
   },
+  {
+    // editor.md — the native note-OPEN path (`applyContent`) still dispatches a
+    // plain transaction, so the editing filters run over text the user never
+    // typed. Its sibling, the sync-adopt path, was exempted from them via
+    // EXTERNAL_CONTENT_OPTS `filter: false`; the gap closes when the load path
+    // is exempted too.
+    match: /a load, not an adopt/,
+    closed: () =>
+      /applyContent\([\s\S]{0,300}?filter: false/.test(
+        read('src/editor-embed/createFutoEditorApi.ts'),
+      ),
+    hint: 'editor-embed applyContent now exempts the note-open dispatch from the transaction filters — the native open-renumbers-the-note gap may be closed.',
+  },
 ];
 
 // ── render ─────────────────────────────────────────────────────────────────

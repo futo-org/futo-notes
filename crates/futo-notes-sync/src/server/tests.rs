@@ -379,3 +379,71 @@ async fn classic_create_sends_the_mutation_id_and_accepts_server_generated_objec
     assert_eq!(result.replayed, Some(false));
     assert_eq!(result.write.object.id, "legacy-server-id");
 }
+
+/// A stand-in for the hyper/h2/io layers reqwest nests underneath itself.
+#[derive(Debug)]
+struct Layer(&'static str, Option<Box<Layer>>);
+
+impl std::fmt::Display for Layer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for Layer {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.1
+            .as_deref()
+            .map(|layer| layer as &dyn std::error::Error)
+    }
+}
+
+#[test]
+fn error_chain_keeps_the_root_cause_and_drops_repeated_layers() {
+    let nested = Layer(
+        "error sending request",
+        Some(Box::new(Layer(
+            "client error (Connect)",
+            Some(Box::new(Layer(
+                "tcp connect error: No route to host (os error 65)",
+                None,
+            ))),
+        ))),
+    );
+    assert_eq!(
+        error_chain(&nested),
+        "error sending request: client error (Connect): \
+         tcp connect error: No route to host (os error 65)"
+    );
+
+    // hyper prints its source verbatim inside its own Display; appending it
+    // again would say the same thing twice.
+    let echoed = Layer(
+        "error sending request: connection closed",
+        Some(Box::new(Layer("connection closed", None))),
+    );
+    assert_eq!(
+        error_chain(&echoed),
+        "error sending request: connection closed"
+    );
+}
+
+/// The regression this pairs with: a real transport failure used to reach the
+/// user and the instance journal as the bare "error sending request for url
+/// (…)" line, which named no cause. Port 1 on loopback refuses instantly.
+#[tokio::test]
+async fn a_refused_connection_names_its_cause_not_just_the_url() {
+    let error = Http::new("http://127.0.0.1:1")
+        .unwrap()
+        .auth_mode()
+        .await
+        .expect_err("nothing listens on port 1");
+
+    assert_eq!(error.status, None);
+    let message = error.message.to_lowercase();
+    assert!(
+        message.contains("refused") || message.contains("os error"),
+        "transport error must name its cause, got: {}",
+        error.message
+    );
+}

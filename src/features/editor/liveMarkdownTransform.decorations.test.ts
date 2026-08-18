@@ -60,6 +60,26 @@ function withClass(decos: DecoInfo[], cls: string): DecoInfo[] {
   return decos.filter((d) => d.class?.includes(cls));
 }
 
+function visibleText(view: EditorView): string {
+  return view.contentDOM.textContent ?? '';
+}
+
+/**
+ * Reach a document the way a user does: one character at a time through the
+ * update path, then move the caret off the text so its markers un-reveal and
+ * the hide (replacing) decorations are actually attempted.
+ */
+function typeThenMoveCaretAway(doc: string): EditorView {
+  const view = setup('');
+  for (const ch of doc) {
+    const pos = view.state.selection.main.head;
+    view.dispatch({ changes: { from: pos, insert: ch }, selection: { anchor: pos + ch.length } });
+  }
+  view.dispatch({ selection: { anchor: 0 } });
+  view.dispatch({ effects: liveMarkdownRefresh.of(null) });
+  return view;
+}
+
 describe('liveMarkdownTransform decorations', () => {
   describe('wikilinks', () => {
     it('hides [[ and ]] and styles content as wikilink', () => {
@@ -202,5 +222,117 @@ describe('liveMarkdownTransform decorations', () => {
       assertMarkerContract('- alpha', 'cm-md-bullet');
       assertMarkerContract('1. one', 'cm-md-number');
     });
+  });
+});
+
+// CM6 rejects a replacing decoration that covers a line break when it comes
+// from a view plugin ("Decorations that replace line breaks may not be
+// specified via plugins"). Malformed-but-parsed inline nodes can straddle a
+// newline, and hiding their syntax then threw whenever the markers were not
+// revealed: on the very first render of a freshly created state (the shape
+// `openNote`/`view.setState` produces, which left the PREVIOUS note on
+// screen), and equally on the update path — typing the same text one
+// character at a time and then moving the caret off it throws identically.
+// Both shapes are covered below; the guard is needed on both.
+describe('inline nodes that straddle a line break', () => {
+  it('renders a link whose "](...)" crosses a newline instead of throwing', () => {
+    const view = setup(' [](\n)');
+
+    expect(visibleText(view)).toContain('[](');
+    expect(visibleText(view)).toContain(')');
+    const linkMarkers = withClass(collectDecos(view), 'cm-md-link');
+    expect(linkMarkers.length).toBeGreaterThan(0);
+  });
+
+  it('renders an image whose "](...)" crosses a newline instead of throwing', () => {
+    const view = setup(' ![](\n)');
+
+    expect(visibleText(view)).toContain('![](');
+    expect(visibleText(view)).toContain(')');
+  });
+
+  it('still hides link syntax when only the link text crosses the newline', () => {
+    const view = setup('[a\nb](c)');
+
+    expect(visibleText(view)).toBe('ab');
+    expect(withClass(collectDecos(view), 'cm-md-link')).toHaveLength(1);
+  });
+
+  it('still hides link syntax for a single-line link', () => {
+    const view = setup('see [text](https://example.com) end');
+
+    expect(visibleText(view)).toBe('see text end');
+  });
+
+  it('renders a link typed one character at a time instead of throwing', () => {
+    const view = typeThenMoveCaretAway(' [](\n)');
+
+    expect(view.state.doc.toString()).toBe(' [](\n)');
+    expect(visibleText(view)).toContain('[](');
+    expect(visibleText(view)).toContain(')');
+  });
+
+  it('renders an image typed one character at a time instead of throwing', () => {
+    const view = typeThenMoveCaretAway(' ![](\n)');
+
+    expect(view.state.doc.toString()).toBe(' ![](\n)');
+    expect(visibleText(view)).toContain('![](');
+    expect(visibleText(view)).toContain(')');
+  });
+});
+
+// Kept as a top-level sibling rather than nested in the describe above, which
+// is already at the max-lines-per-function ceiling.
+describe('list items carrying leading indentation', () => {
+  // lezer-markdown spans a ListItem from the MARKER when the item opens a
+  // nested BulletList, but from the LINE START — indent included — when the
+  // item is a sibling that merely happens to be indented. parseListMarker used
+  // to anchor on the marker with no allowance for that indent, so the whole
+  // item fell through undecorated: raw `*` on screen, no bullet.
+  function bulletWidgetCount(view: EditorView): number {
+    const plugin: any = view.plugin(liveMarkdownTransform);
+    const cur = plugin.decorations.iter();
+    let count = 0;
+    while (cur.value) {
+      const widget = cur.value.spec.widget;
+      if (widget?.toDOM(view).className?.includes('cm-md-bullet')) count += 1;
+      cur.next();
+    }
+    return count;
+  }
+
+  it('renders a bullet for a sibling indented less than the parent content column', () => {
+    // `*  Parent.` puts its content at column 3, so a two-space child is not
+    // deep enough to nest and CommonMark demotes it to an outer-list sibling.
+    const view = setup('*  Parent.\n  * child\n');
+
+    expect(bulletWidgetCount(view)).toBe(2);
+    expect(withClass(collectDecos(view), 'cm-md-ul-item')).toHaveLength(2);
+  });
+
+  it('renders bullets for a whole list indented by one space', () => {
+    const view = setup(' * alpha\n * beta\n');
+
+    expect(bulletWidgetCount(view)).toBe(2);
+    expect(withClass(collectDecos(view), 'cm-md-ul-item')).toHaveLength(2);
+  });
+
+  it('indents a shallow sibling at level 0, not at the parent depth', () => {
+    const view = setup('*  Parent.\n  * child\n');
+    const lines = withClass(collectDecos(view), 'cm-md-list-line');
+
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line.attributes?.style).toBe('--list-depth: 0px; --list-marker-slot: 1em;');
+    }
+  });
+
+  it('still indents a genuinely nested item one level in', () => {
+    const view = setup('* Parent.\n  * child\n');
+    const lines = withClass(collectDecos(view), 'cm-md-list-line');
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0].attributes?.style).toBe('--list-depth: 0px; --list-marker-slot: 1em;');
+    expect(lines[1].attributes?.style).toBe('--list-depth: 24px; --list-marker-slot: 1em;');
   });
 });
