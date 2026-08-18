@@ -196,6 +196,25 @@
       - class: cm-md-wikilink
         count: 0
 
+# A link/image whose "](...)" tail straddles a newline is still ONE node, so
+# hiding that tail would be a replacing decoration covering a line break —
+# which CM6 forbids from a view plugin ("Decorations that replace line breaks
+# may not be specified via plugins") and which aborted the whole render, leaving
+# the previously opened note on screen. The syntax stays visible instead.
+- name: link-target-crosses-line-break
+  complexity: 150
+  markdown: " [](\n)"
+  cursor: null
+  expect:
+    visible_text_contains: "[]("
+
+- name: image-target-crosses-line-break
+  complexity: 150
+  markdown: " ![](\n)"
+  cursor: null
+  expect:
+    visible_text_contains: "![]("
+
 - name: heading-after-text
   complexity: 110
   markdown: "some text # not a heading"

@@ -103,6 +103,19 @@ this file states the behaviors a human cares about.
 - A blurred editor reveals nothing — all markers stay hidden.
 - Reveal is per-line: moving the cursor onto a line reveals its markers; moving
   off re-hides them.
+- **Markers whose hidden span would cover a line break stay visible instead.**
+  Malformed-but-parsed inline markdown can straddle a newline — `[](\n)` is one
+  link node, `![](\n)` one image node — and CodeMirror forbids a view plugin
+  from replacing a line break, so hiding those markers threw
+  `RangeError: Decorations that replace line breaks may not be specified via
+  plugins` mid-render and the editor kept showing the previously opened note.
+  Opening such a note threw, and so did typing or pasting the same text and then
+  moving the caret off it. Both paths now render the syntax rather than hiding
+  it; a link whose *text* wraps across lines (`[a\nb](c)`) still hides normally.
+  → live-preview/decorationSet.ts `replacementCrossesLineBreak`,
+  live-preview/inlineDecorations.ts `decorateLink`,
+  liveMarkdownTransform.decorations.test.ts,
+  markdown-spec/cases/13-adversarial/broken-syntax.yaml
 - Reveal survives opening a note. Opening one swaps the editor's whole state, and
   state that is seeded from focus EVENTS (the interactive-table field: `create()`
   cannot see the view, so a fresh state believes it is unfocused) is re-synced from
