@@ -51,8 +51,9 @@ import com.futo.notes.ui.theme.FutoType
  *
  * Pure UI: it never touches disk or permissions itself — [onConfirm] hands the
  * chosen mode back to the Activity, which persists it, requests the permission,
- * and seeds/migrates. Used full-screen on first run and as an overlay from
- * Settings.
+ * and seeds/migrates. Used full-screen on first run (no [onCancel] — there is no
+ * vault yet to go back to) and as the Settings "Storage location" screen, where
+ * it is a nav-stack entry so Back and Cancel are the same pop (github#28).
  */
 @Composable
 fun StorageOnboarding(

@@ -24,6 +24,7 @@ internal sealed interface Screen {
     data class Editor(val noteId: String, val autoFocus: Boolean) : Screen
     data object Search : Screen
     data object Settings : Screen
+    data object StorageLocation : Screen
     data object Sync : Screen
 }
 
@@ -58,6 +59,17 @@ internal class AppNavigator internal constructor(
 
     fun openSync() {
         stack.add(Screen.Sync)
+    }
+
+    /**
+     * Settings -> Storage location. A PUSH, not an overlay: the picker is a
+     * full-screen surface, and presenting it outside the stack left Back pointing
+     * at the Settings entry hidden underneath it, so the first Back popped
+     * Settings invisibly and the next fell through to the OS and finished the
+     * activity (github#28).
+     */
+    fun openStorageLocation() {
+        stack.add(Screen.StorageLocation)
     }
 
     fun goBack() {
