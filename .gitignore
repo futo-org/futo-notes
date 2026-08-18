@@ -178,3 +178,7 @@ apps/tauri/src-tauri/redist/
 
 # Scratch verification scripts
 /tmp-*.mjs
+
+# Per-worktree QA instance log/pid written by the /verify + /mr-qa desktop launcher.
+.tauri-qa.log
+.tauri-qa.pid
