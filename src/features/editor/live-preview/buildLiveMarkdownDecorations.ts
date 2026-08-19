@@ -94,11 +94,11 @@ export function createLiveMarkdownDecorationBuilder() {
 
           const blockSyntaxRevealed =
             isBlockRevealSensitive(name) &&
-            shouldSkipBlockDecorations(name, from, to, view.hasFocus, selectionRanges);
+            shouldSkipBlockDecorations(name, view.state, from, to, view.hasFocus, selectionRanges);
           if (blockSyntaxRevealed && !isHeadingNode(name)) return;
           if (
             /^(Image|Task)/.test(name) &&
-            selectionTouchesRange(view.hasFocus, selectionRanges, from, to)
+            selectionTouchesRange(view.state, view.hasFocus, selectionRanges, from, to)
           ) {
             return;
           }

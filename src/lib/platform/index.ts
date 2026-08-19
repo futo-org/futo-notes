@@ -28,7 +28,7 @@ export const isLinux = typeof navigator !== 'undefined' && /\blinux\b/i.test(nav
 // iPads masquerade as "Macintosh" in modern WebKit UAs, so also treat
 // Mac-with-multitouch as iOS (desktop Macs report maxTouchPoints 0). This
 // was a hardcoded `false` left over from the removed Tauri-iOS shell, which
-// silently disabled the iosTapFocus touchend path inside the native iOS
+// silently disabled the editorPointerInteractions touchend path inside the native iOS
 // embed — first tap landed the cursor at position 0 (2026-07-02 QA).
 export const isIOS =
   typeof navigator !== 'undefined' &&

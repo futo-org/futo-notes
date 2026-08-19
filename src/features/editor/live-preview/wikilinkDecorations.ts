@@ -50,7 +50,13 @@ export function addWikilinkDecorations(
       const from = line.from + match.index;
       const to = from + match[0].length;
       const title = match[1];
-      const reveal = selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
+      const reveal = selectionTouchesRange(
+        view.state,
+        view.hasFocus,
+        view.state.selection.ranges,
+        from,
+        to,
+      );
 
       let isInCode = false;
       tree.iterate({

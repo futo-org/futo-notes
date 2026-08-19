@@ -111,7 +111,9 @@ function appendHiddenHeaderLines(
 ): void {
   if (headerEndOffset <= 0) return;
   const selectionRanges = view.state.selection.ranges;
-  if (shouldRevealMarkdownSyntax(view.hasFocus, selectionRanges, 0, headerEndOffset)) return;
+  if (shouldRevealMarkdownSyntax(view.state, view.hasFocus, selectionRanges, 0, headerEndOffset)) {
+    return;
+  }
 
   const doc = view.state.doc;
   const blockLastLine = doc.lineAt(Math.max(0, Math.min(headerEndOffset - 1, doc.length))).number;

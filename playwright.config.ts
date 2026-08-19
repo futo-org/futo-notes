@@ -35,6 +35,19 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    // Desktop ships on WebKit, whose native selection-drag chromium cannot
+    // reproduce. Local-only: CI installs chromium alone (.setup-playwright).
+    ...(isCI
+      ? []
+      : [
+          {
+            name: 'webkit-pointer',
+            use: { ...devices['Desktop Safari'] },
+            testMatch: '**/editor-ux.spec.ts',
+            // A tag, not a title: a rename must not silently empty the project.
+            grep: /@webkit-pointer/,
+          },
+        ]),
   ],
   webServer: {
     command: 'pnpm run dev',

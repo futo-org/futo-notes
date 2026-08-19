@@ -13,6 +13,7 @@
 import { mount } from 'svelte';
 import '../styles/app.css';
 import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
+import type { EditorLinkGesture } from '$features/editor/interactions/editorPointerInteractions';
 import EmbedToolbar from './EmbedToolbar.svelte';
 import { BRIDGE_VERSION, postToHost, type FutoEditorApi } from '@futo-notes/editor';
 import { getAllNotes } from '../features/notes/notes.svelte';
@@ -71,7 +72,7 @@ const editor = mount(MarkdownEditor, {
         post({ type: 'cursorContext', onListLine: ctx.onListLine });
       }
     },
-    onopenlink: (title: string, _event: MouseEvent) => {
+    onopenlink: (title: string, _gesture: EditorLinkGesture) => {
       const resolved = resolveWikilink(
         title,
         getAllNotes().map((n) => n.id),

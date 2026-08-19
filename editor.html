@@ -62,9 +62,8 @@
      *     scroll" approach with height:auto + overflow:visible did NOT scroll
      *     — CM is built to scroll inside .cm-scroller when the editor has a
      *     fixed height.)
-     *  3. An empty note must still be tappable: the contenteditable
-     *     (.cm-content) fills the scroller so a tap anywhere focuses the
-     *     editor (popping the keyboard).
+     *  3. An empty note must still be tappable: the scroller fills the editor
+     *     and iOS resolves taps from its non-editable blank tail.
      *
      * NOTE ON SPECIFICITY: MarkdownEditor.svelte installs an inline
      * EditorView.theme with `&{height:auto}` and `.cm-content{padding:0}`.
@@ -144,10 +143,8 @@
       overscroll-behavior: contain !important;
     }
 
-    /* The contenteditable surface:
-     *  - horizontal gutters (+ safe-area) so text isn't flush to the edge,
-     *  - min-height fills the scroller so an EMPTY note is fully tappable,
-     *  - bottom padding lifts the last lines above the keyboard. */
+    /* Text gutters and the default keyboard tail. iOS moves the tail to the
+     * scroller below so WebKit cannot apply a second editable selection. */
     .cm-content {
       padding-left: calc(var(--futo-edit-pad-x) + env(safe-area-inset-left)) !important;
       padding-right: calc(var(--futo-edit-pad-x) + env(safe-area-inset-right)) !important;
@@ -159,6 +156,27 @@
        * gives the scroller a resolvable height, so 100% no longer collapses —
        * and unlike 100dvh it isn't zeroed by Android WebView. */
       min-height: 100% !important;
+    }
+
+    .cm-editor[data-ios-off-text-surface] .cm-scroller {
+      position: relative !important;
+      padding-bottom: 0 !important;
+    }
+
+    .cm-editor[data-ios-off-text-surface] .cm-scroller::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 0;
+      width: 1px;
+      height: var(--futo-edit-pad-bottom);
+      pointer-events: none;
+    }
+
+    .cm-editor[data-ios-off-text-surface] .cm-content {
+      min-height: 0 !important;
+      padding-bottom: 0 !important;
+      margin-bottom: var(--futo-edit-pad-bottom) !important;
     }
   </style>
 </head>
