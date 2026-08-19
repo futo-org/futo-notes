@@ -1105,12 +1105,24 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   redirects both; journal files must not sync and must not appear in the note
   list. Retention is a size-capped ring (~20 MB, oldest segment dropped). →
   futo-notes-tauri `instance_journal.rs`
-- Read it with `just journal` (`tail`, `type <event>`, `last-sync`, `where`), or
-  with `jq` over the JSONL directly. → scripts/journal.mjs
+- **Each run of the app writes one `app_launch` marker _(desktop)_.** It names
+  the version and bundle identifier that wrote the ring and is the anchor every
+  later event is read against: a `sync_run` record says how long its cycle took,
+  and only the marker can answer how long after opening the app the first one
+  started. It also separates sessions in a ring that spans many runs. →
+  futo-notes-tauri `instance_journal.rs`
+- Read it with `just journal` (`tail`, `type <event>`, `last-sync`, `startup`,
+  `where`), or with `jq` over the JSONL directly. `startup` reports, per launch,
+  how long until that session's first cycle started. → scripts/journal.mjs
   > **Gap:** Only the desktop shell opens a journal. iOS and Android run the
   > same sync crate, but `SyncSession::set_journal` is not exposed through
   > `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 journal --dir` has nothing to read from a phone.
+  > **Gap:** The desktop scheduler's own triggers are not distinguishable in the
+  > record. Launch, poll, resume and local-save all reach Rust through the one
+  > `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be
+  > told apart from a user pressing "Sync now"; only the live loop's four
+  > triggers are recorded faithfully.
 
 ## Polling
 
