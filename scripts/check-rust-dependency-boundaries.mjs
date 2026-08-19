@@ -84,4 +84,4 @@ function main() {
   console.log('Rust dependency boundaries are intact.');
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

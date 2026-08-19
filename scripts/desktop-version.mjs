@@ -114,6 +114,6 @@ function main(argv) {
   process.stdout.write(`stamped desktop version ${version} in tauri.conf.json and Cargo.toml\n`);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.argv.slice(2));
 }
