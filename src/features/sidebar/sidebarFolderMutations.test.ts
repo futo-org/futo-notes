@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   confirmDialog: vi.fn(),
   deleteNote: vi.fn(),
   moveNote: vi.fn(),
-  renameOrMoveFolder: vi.fn(),
+  renameFolderInPlace: vi.fn(),
   showGlobalToast: vi.fn(),
   getNoteById: vi.fn(),
   getSaveIdentityChange: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock('$features/folders/emptyFolders.svelte', () => ({
 }));
 vi.mock('$features/folders/folderOperations', () => ({
   deleteFolder: vi.fn(),
-  renameOrMoveFolder: mocks.renameOrMoveFolder,
+  renameFolderInPlace: mocks.renameFolderInPlace,
 }));
 vi.mock('$features/notes/notes.svelte', () => ({
   deleteNote: mocks.deleteNote,
@@ -133,7 +133,7 @@ describe('confirmDeleteSidebarNote', () => {
 
   it('flushes an active note before renaming its containing folder', async () => {
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => operation());
-    mocks.renameOrMoveFolder.mockResolvedValue({
+    mocks.renameFolderInPlace.mockResolvedValue({
       ok: true,
       renames: [{ from: 'Projects/Roadmap', to: 'Work/Roadmap' }],
     });
@@ -150,7 +150,7 @@ describe('confirmDeleteSidebarNote', () => {
 
     expect(runWithActiveNoteLock).toHaveBeenCalledOnce();
     expect(runWithActiveNoteLock.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.renameOrMoveFolder.mock.invocationCallOrder[0],
+      mocks.renameFolderInPlace.mock.invocationCallOrder[0],
     );
   });
 

@@ -205,6 +205,43 @@ test.describe('Folder support', () => {
     await expect(page.getByTestId('create-folder-input')).toBeHidden();
   });
 
+  test('an illegal inline folder rename is reported and keeps the edit', async ({ page }) => {
+    await openSidebar(page);
+    await page.getByTestId('new-folder-btn').click();
+    await page.getByTestId('create-folder-input').fill('Work');
+    await page.getByTestId('create-folder-confirm').click();
+    await expect(page.locator('[data-folder-path="Work"]').first()).toBeVisible();
+
+    // A forbidden character used to leave only a red outline and a `title`
+    // tooltip — nothing the user could read — so the rename looked like a no-op.
+    await page.locator('[data-folder-path="Work"]').first().dblclick();
+    const renameInput = page.getByTestId('folder-rename-input');
+    await renameInput.fill('a:b');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.toast')).toHaveText(
+      "That character can't be used in a folder name",
+    );
+    await expect(renameInput).toBeVisible();
+    await expect(renameInput).toHaveValue('a:b');
+    await expect(page.locator('[data-folder-path="Work"]').first()).toBeVisible();
+
+    // A slash used to be spliced into the destination path, so "a/b" silently
+    // MOVED the folder into a brand-new "a" instead of being rejected.
+    await renameInput.fill('a/b');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.toast')).toHaveText(
+      "That character can't be used in a folder name",
+    );
+    await expect(page.locator('[data-folder-path="a"]')).toHaveCount(0);
+    await expect(page.locator('[data-folder-path="a/b"]')).toHaveCount(0);
+    await expect(page.locator('[data-folder-path="Work"]').first()).toBeVisible();
+
+    // The preserved edit is still fixable in place.
+    await renameInput.fill('Projects');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-folder-path="Projects"]').first()).toBeVisible();
+  });
+
   test('existing folders expose discoverable subfolder creation', async ({ page }) => {
     await openSidebar(page);
     await page.getByTestId('new-folder-btn').click();

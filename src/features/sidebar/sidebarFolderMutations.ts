@@ -1,9 +1,9 @@
 import { clearDragHoverExpanded } from '$features/folders/folderExpansion.svelte';
 import { getEmptyFolders } from '$features/folders/emptyFolders.svelte';
-import { deleteFolder, moveFolder, renameOrMoveFolder } from '$features/folders/folderOperations';
+import { deleteFolder, moveFolder, renameFolderInPlace } from '$features/folders/folderOperations';
 import { pickNoteForAction } from '$features/notes/noteActionTarget';
 import { deleteNote, getAllNotes, moveNote } from '$features/notes/notes.svelte';
-import { idLeaf } from '$lib/platform/pathSafety';
+import { idLeaf, idParent } from '$lib/platform/pathSafety';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
@@ -66,17 +66,10 @@ export async function renameSidebarFolder(
   newName: string,
   options: SidebarMutationOptions,
 ): Promise<string | null> {
-  const components = path.split('/');
-  const parent = components.slice(0, -1).join('/');
-  const trimmedName = newName.trim();
-  const newPath = parent ? `${parent}/${trimmedName}` : trimmedName;
-  if (newPath === path) return null;
-
-  const siblings = collectSiblingFolders(parent).filter(
-    (name) => name !== components[components.length - 1],
-  );
+  const parent = idParent(path);
+  const siblings = collectSiblingFolders(parent).filter((name) => name !== idLeaf(path));
   return runWithActiveNoteLockIfInFolder(path, options, async () => {
-    const result = await renameOrMoveFolder(path, newPath, siblings);
+    const result = await renameFolderInPlace(path, newName, siblings);
     if (!result.ok) return result.error ?? 'Failed to rename';
     options.onNoteIdsRenamed(result.renames ?? []);
     retargetActiveNote(result.renames, options);

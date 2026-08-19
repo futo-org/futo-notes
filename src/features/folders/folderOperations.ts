@@ -1,9 +1,11 @@
 import { getLocalNoteStore, type LocalNoteRename } from '$lib/localNoteStore';
+import { idLeaf, idParent } from '$lib/platform/pathSafety';
 import {
   hasCaseInsensitiveSiblingCollision,
-  isValidFolderName,
   MAX_FOLDER_DEPTH,
+  MAX_TITLE_LENGTH,
   validateFolderName,
+  type FilenameIssueKind,
 } from '$lib/rules';
 
 import {
@@ -29,14 +31,32 @@ function folderOperationError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+// The shared rules are written for note titles ("That character can't be used
+// in a note title"), because `validateFolderName` layers on `validateTitle`.
+// Naming the surface is the caller's job, so the manifest stays generic and a
+// folder dialog never tells the user they broke a *note title* rule.
+const FOLDER_NAME_MESSAGES: Partial<Record<FilenameIssueKind, string>> = {
+  empty: 'Folder name cannot be empty',
+  forbidden_chars: "That character can't be used in a folder name",
+  leading_dots: 'Folder name cannot start with a dot',
+  trailing_dots: 'Folder name cannot end with a dot',
+  too_long: `Folder name cannot exceed ${MAX_TITLE_LENGTH} characters`,
+};
+
+/** The first shared-rule violation in `name`, worded for a folder. */
+export function validateFolderNameForDisplay(name: string): string | null {
+  const issue = validateFolderName(name)[0];
+  if (!issue) return null;
+  return FOLDER_NAME_MESSAGES[issue.kind] ?? issue.message;
+}
+
 export function validateNewFolderName(
   parentPath: string,
   name: string,
   siblings: Iterable<string>,
 ): string | null {
-  if (!isValidFolderName(name)) {
-    return validateFolderName(name)[0]?.message ?? 'Invalid folder name';
-  }
+  const nameError = validateFolderNameForDisplay(name);
+  if (nameError) return nameError;
   if (hasCaseInsensitiveSiblingCollision(name, siblings)) {
     return 'A folder with this name already exists';
   }
@@ -82,12 +102,8 @@ export async function renameOrMoveFolder(
 
   const components = toPath.split('/');
   for (const component of components) {
-    if (!isValidFolderName(component)) {
-      return {
-        ok: false,
-        error: validateFolderName(component)[0]?.message ?? 'Invalid folder name',
-      };
-    }
+    const componentError = validateFolderNameForDisplay(component);
+    if (componentError) return { ok: false, error: componentError };
   }
   const newName = components[components.length - 1] ?? '';
   if (hasCaseInsensitiveSiblingCollision(newName, siblings)) {
@@ -104,6 +120,36 @@ export async function renameOrMoveFolder(
   } catch (cause) {
     return { ok: false, error: folderOperationError(cause, 'Failed to rename folder') };
   }
+}
+
+/**
+ * Rename a folder to a new NAME inside its current parent.
+ *
+ * Distinct from `renameOrMoveFolder`, which takes a destination PATH: a name
+ * typed into the inline rename field is a single path component, so `a/b` is an
+ * illegal name — not an instruction to move the folder into a new `a`. Splicing
+ * the typed text into the destination path is exactly how that used to happen
+ * silently.
+ */
+export async function renameFolderInPlace(
+  path: string,
+  newName: string,
+  siblings: Iterable<string>,
+): Promise<{
+  ok: boolean;
+  error?: string;
+  renames?: LocalNoteRename[];
+  finalFolder?: string;
+}> {
+  const parent = idParent(path);
+  const trimmed = newName.trim();
+  if (trimmed === idLeaf(path)) return { ok: true };
+
+  const siblingList = [...siblings];
+  const error = validateNewFolderName(parent, trimmed, siblingList);
+  if (error) return { ok: false, error };
+
+  return renameOrMoveFolder(path, parent ? `${parent}/${trimmed}` : trimmed, siblingList);
 }
 
 export async function moveFolder(
