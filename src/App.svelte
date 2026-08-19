@@ -9,6 +9,7 @@
   import UpdateBanner from '$features/system/UpdateBanner.svelte';
   import { createCrashReporting } from '$features/system/createCrashReporting.svelte';
   import { installExternalFileDropGuard } from '$features/system/externalFileDropGuard';
+  import { revealAppWindow } from '$lib/platform';
   import { currentToastMessage, showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
   const windowChrome = configureWindowChrome();
@@ -22,6 +23,20 @@
   const stopContextMenuGuard = installDesktopContextMenuGuard();
   const stopBootstrap = bootstrap.start();
   const toastMessage = $derived(currentToastMessage());
+
+  // The desktop window is created hidden so the launch never shows WKWebView's
+  // opaque white (apps/tauri/src-tauri/src/window_reveal.rs). Reveal it as soon
+  // as the shell is in the DOM.
+  //
+  // Deliberately NOT `requestAnimationFrame`: WebKit suspends rendering for an
+  // off-screen window, so while the window is hidden `visibilityState` is
+  // 'hidden' and rAF never fires at all — measured on this app, the frame
+  // callback stayed at 0 for the whole 3s until something else showed the
+  // window. Waiting for a paint that cannot happen is a deadlock; a committed
+  // DOM is the last signal available before the window goes on screen.
+  $effect(() => {
+    revealAppWindow();
+  });
 
   $effect(() => {
     return () => {

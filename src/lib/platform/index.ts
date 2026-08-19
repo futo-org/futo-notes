@@ -61,6 +61,17 @@ export function onAppMenuCommand(handler: (command: string) => void): () => void
   };
 }
 
+// Reveal the desktop window once the shell has painted. The window is created
+// hidden so the launch never flashes WKWebView's white; see
+// apps/tauri/src-tauri/src/window_reveal.rs, which shows it anyway after a
+// timeout so a frontend that never paints cannot hide the app forever.
+export function revealAppWindow(): void {
+  if (platformName !== 'tauri') return;
+  void import('./tauri/windowReveal')
+    .then(({ showAppWindow }) => showAppWindow())
+    .catch((error) => console.warn('Failed to reveal the app window:', error));
+}
+
 // Lazy-loaded platform filesystem implementation
 let _fs: PlatformFS | null = null;
 

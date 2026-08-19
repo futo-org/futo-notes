@@ -16,6 +16,7 @@
     "clipboard-manager:allow-write-text",
     "opener:default",
     "core:window:default",
+    "core:window:allow-show",
     "core:window:allow-close",
     "core:window:allow-destroy",
     "core:window:allow-minimize",

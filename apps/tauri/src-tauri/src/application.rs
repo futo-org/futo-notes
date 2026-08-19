@@ -44,6 +44,7 @@ pub(crate) fn run() {
             }
             crate::platform_integration::configure_app(handle)?;
             crate::app_menu::install(handle)?;
+            crate::window_reveal::install(handle)?;
             crate::instance_journal::install(handle);
             crate::local_notes::init_on_startup(handle);
             Ok(())
