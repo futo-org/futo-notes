@@ -40,6 +40,27 @@ export const isIOS =
 export const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
 
+// Native application-menu commands (macOS). Off Tauri — the web dev server and
+// the native mobile editor embed — there is no menu, so this is a no-op
+// subscription rather than a branch every caller has to remember.
+export function onAppMenuCommand(handler: (command: string) => void): () => void {
+  if (platformName !== 'tauri') return () => {};
+  let unlisten: (() => void) | null = null;
+  let disposed = false;
+  void import('./tauri/appMenu')
+    .then(({ subscribeToAppMenu }) => subscribeToAppMenu(handler))
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch((error) => console.warn('Failed to subscribe to the app menu:', error));
+  return () => {
+    disposed = true;
+    unlisten?.();
+    unlisten = null;
+  };
+}
+
 // Lazy-loaded platform filesystem implementation
 let _fs: PlatformFS | null = null;
 
