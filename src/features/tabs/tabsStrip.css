@@ -1,48 +1,67 @@
 /* The tab strip fills the trailing part of the desktop top band (see
      `.desktop-topband` in desktop-shell.css). The band's height comes from
-     `--tabs-strip-height` (48px on macOS to seat the traffic lights, 40px
-     elsewhere); the strip simply stretches to it. The macOS traffic-light
-     clearance lives in `.topband-chrome`, never here — so the strip needs no
-     sidebar-state-specific padding. */
+     `--tabs-strip-height` — nothing sets it today, so every platform gets the
+     40px fallback; the 48px macOS variant the shell is designed for is still
+     only a possibility. The macOS traffic-light clearance lives in
+     `.topband-chrome`, never here — so the strip needs no sidebar-state-specific
+     padding.
+
+     Tabs FLOAT (Firefox/Brave-style): fully-rounded pills centred in the band
+     with clearance on every side, rather than trapezoids welded to the editor
+     surface below. `align-items: center` is what makes any band height work off
+     one set of numbers — the leftover space just redistributes, so 40px and
+     48px need no separate rules. */
 .tabs-strip {
+  /* One place to retune the floating geometry. */
+  --tab-height: 30px;
+  --tab-radius: 8px;
+
   flex: 1 1 auto;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 2px;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 6px;
   background: var(--color-surface, var(--color-bg));
-  /* Inset so the active tab can cover it; overflow-y clips the tab at the padding box. */
+  /* The band/content separator. It used to be interrupted by the active tab
+     (which covered it with `margin-bottom: -1px`); with floating tabs nothing
+     covers it, so it now runs unbroken under the whole strip. Keep it: the
+     band (`--color-surface`) and the editor (`--color-bg`) are only ~10/255
+     apart in light mode, and without the hairline the band stops reading as a
+     distinct region attached to the window. */
   box-shadow: inset 0 -1px 0 var(--color-border);
   overflow-x: auto;
   overflow-y: hidden;
+  /* Tabs shrink to `min-width` long before they overflow; a visible scrollbar
+     inside a 40px band would cut across the floating pills, so scroll silently
+     (wheel/trackpad) the way Firefox and Brave do. */
+  scrollbar-width: none;
   user-select: none;
   -webkit-user-select: none;
-  scrollbar-width: thin;
+}
+
+.tabs-strip::-webkit-scrollbar {
+  display: none;
 }
 
 .notes-shell.desktop-layout.sidebar-collapsed .tabs-strip {
+  /* The collapsed chrome column already ends with 11px of padding, which is the
+     inset the first floating tab wants. */
   padding-left: 0;
 }
 
-/* Tabs sit at the bottom of the strip with rounded-top corners and a
-     1px bottom margin trick that lets the active tab merge into the
-     editor surface below: the active tab's background is `--color-bg`
-     (matches the editor) and its `margin-bottom: -1px` covers the
-     hairline between strip and editor, so the active tab visually
-     "becomes" the top of the editor card. */
+/* A floating pill: equal radius on all four corners (top and bottom), no
+     negative margin, no shared edge with the editor surface. */
 .tab-pill {
   display: inline-flex;
   align-items: center;
   flex: 0 1 200px;
-  min-width: 96px;
+  min-width: 88px;
   max-width: 220px;
-  height: 32px;
-  margin: 0 0 -1px 0;
-  padding: 0 6px 0 12px;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
+  height: var(--tab-height);
+  padding: 0 6px 0 10px;
+  border: none;
+  border-radius: var(--tab-radius);
   background: transparent;
   color: var(--color-muted, #888);
   font: inherit;
@@ -54,18 +73,44 @@
   white-space: nowrap;
 }
 
+/* Hover fill is mixed from `--color-text`, not `--color-bg`: paper-over-band is
+     only a couple of values apart in light mode, so a bg-based wash was
+     invisible and hover read as "nothing happened". An ink wash darkens in
+     light and lightens in dark by the same amount. */
 .tab-pill:hover:not(.active) {
-  background: color-mix(in srgb, var(--color-bg) 50%, transparent);
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
   color: var(--color-text);
 }
 
+/* The active tab is the raised, filled one. Its fill is the editor's own paper
+     colour, so the selection still reads as "this tab IS the document" now that
+     it no longer physically merges into the surface below; the ring plus the
+     drop shadow supply the lift the shared edge used to. The shadow is black
+     rather than `rgba(var(--ink-rgb), …)` on purpose — ink inverts with the
+     theme, and a white shadow is a glow, not a shadow. Dark mode drops it
+     entirely (below). */
 .tab-pill.active {
-  /* Same background as the editor body — looks like the editor
-       surface "extends up" through this tab. */
-  background: var(--color-bg);
+  --tab-active-bg: var(--color-bg);
+  --tab-active-ring: var(--color-border);
+  --tab-active-lift: 0 1px 2px rgba(0, 0, 0, 0.09);
+
+  background: var(--tab-active-bg);
   color: var(--color-text);
-  border-color: var(--color-border);
   font-weight: 500;
+  box-shadow:
+    0 0 0 1px var(--tab-active-ring),
+    var(--tab-active-lift);
+}
+
+/* Dark mode: paper (`--color-bg`, #0a0a0a) is DARKER than the band
+     (`--color-surface`, #171717), so painting the active tab with it reads as a
+     hole punched in the band rather than a card lifted off it. Lift the band
+     colour toward the text colour instead — the move Firefox's dark theme makes
+     — and drop the shadow, which only muddies a dark ground. */
+[data-theme='dark'] .tab-pill.active {
+  --tab-active-bg: color-mix(in srgb, var(--color-surface) 92%, var(--color-text) 8%);
+  --tab-active-ring: color-mix(in srgb, var(--color-border) 90%, var(--color-text) 10%);
+  --tab-active-lift: 0 0 0 0 transparent;
 }
 
 .tab-pill.dragging {
@@ -81,15 +126,17 @@
   padding-right: 4px;
 }
 
+/* Close affordance: a small rounded square that echoes the pill's own radius
+     at the scale it sits in. */
 .tab-close-btn {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  line-height: 16px;
+  width: 18px;
+  height: 18px;
+  line-height: 17px;
   text-align: center;
-  border-radius: 4px;
+  border-radius: 5px;
   color: var(--color-muted, #888);
-  font-size: 16px;
+  font-size: 15px;
   opacity: 0;
   cursor: pointer;
 }
@@ -100,19 +147,19 @@
 }
 
 .tab-close-btn:hover {
-  background: var(--color-border);
+  background: color-mix(in srgb, var(--color-text) 12%, transparent);
   opacity: 1;
   color: var(--color-text);
 }
 
-/* "+" button — sits at the same baseline as tab pills, smaller and
-     icon-like (not styled as a tab itself). */
+/* "+" button — a floating icon button on the same centre line as the pills,
+     with the same corner radius so the whole row reads as one family. */
 .tab-new-btn {
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  margin: 0 0 2px 4px;
-  border-radius: 8px;
+  width: var(--tab-height);
+  height: var(--tab-height);
+  margin-left: 4px;
+  border-radius: var(--tab-radius);
   border: none;
   background: transparent;
   color: var(--color-muted, #888);
@@ -122,6 +169,6 @@
 }
 
 .tab-new-btn:hover {
-  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
   color: var(--color-text);
 }
