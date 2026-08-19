@@ -108,3 +108,41 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   and the whole chrome column, traffic-light gutter included; only the buttons
   take clicks. Same on the Linux title bar. → DesktopTopBand.svelte,
   TabsStrip.svelte, TitleBar.svelte
+- The window is not shown until the shell has painted: it is created hidden and
+  revealed on first render, so launching never flashes the webview's white.
+  Rust reveals it regardless after a timeout, so a frontend that never paints
+  delays the window rather than losing it. → window_reveal.rs, App.svelte
+- Window size, position, maximized and fullscreen state persist across launches,
+  validated against the attached monitors so an unplugged display cannot strand
+  the window off-screen. → application.rs (tauri-plugin-window-state)
+
+### Application menu *(macOS)*
+
+- macOS gets a real menu bar owned by the app: **App** (About, Settings… ⌘,
+  Services, Hide, Quit) · **File** (New Note ⌘N, New Tab ⌘T, Reopen Closed Tab
+  ⇧⌘T, Search Notes… ⌘P, Close Tab ⌘W, Close Window ⇧⌘W) · **Edit** (undo, redo,
+  cut, copy, paste, select all) · **View** (Toggle Sidebar ⌘\, Full Screen) ·
+  **Window**. → app_menu.rs
+- ⌘W closes the **tab**; ⇧⌘W closes the window. macOS resolves a menu item's key
+  equivalent before the webview sees it, so the menu — not the keydown handler —
+  is what makes ⌘W reach the tab strip at all. → app_menu.rs, tabs.md
+- A menu command and its keyboard accelerator run the same shell command; the
+  menu's command ids are locked against the shell's dispatch table by a test. →
+  registerNotesShellShortcuts.ts, app_menu.rs
+- Windows and Linux render no menu bar; their accelerators stay with the
+  keydown handler. → app_menu.rs
+
+### Desktop chrome behaves like an application, not a document *(desktop)*
+
+- Chrome shows the arrow cursor — rows, tabs, buttons and toolbar icons never
+  switch to the pointing hand. Text fields keep the I-beam, the sidebar divider
+  keeps the resize cursor, outbound links keep the pointer, and the editor keeps
+  every document cursor it had. → desktop-native.css
+- Right-clicking chrome opens nothing. Right-clicking inside the editor, inside
+  a text field, or on a live selection still opens the native menu — Cut/Copy/
+  Paste, Look Up, Share and spellcheck suggestions. The app's own note and
+  folder context menus are unaffected. → installDesktopContextMenuGuard.ts
+- Settings opens with ⌘, and the sidebar toggles with ⌘\ (Ctrl elsewhere). →
+  registerNotesShellShortcuts.ts
+- The system "Reduce Motion" setting removes the shell's transitions and
+  animations. → desktop-native.css
