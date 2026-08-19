@@ -21,6 +21,20 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 
 - Connecting requires a server URL + password; a successful connect auto-runs a
   first sync. → SyncScreen.kt
+- **Opening the app with sync already configured syncs immediately _(desktop)_.**
+  The first cycle waits on the boot credential load and nothing else — the
+  app-state read plus the keyring password that together make
+  `isE2eeConfigured()` answer truthfully — and starts as soon as that settles
+  (~0.5 s after process start, measured launch-to-cycle through the instance
+  journal). The SSE live stream attaches immediately behind it and runs its own
+  catch-up. It is deliberately not deferred by a timer: a flat 8 s deferral
+  inherited from the removed Tauri mobile shell put the first cycle 8.6 s after
+  launch, which reads as "sync doesn't start when I open the app". A host that
+  never runs the credential hook still gets a first cycle from a fallback timer,
+  and a first cycle that cannot run yet (no vault configured, offline, user
+  already typing) hands off to the existing retry ladder. → autoSyncV2.ts
+  `startAutoSyncV2` (guarded by "runs the first cycle as soon as boot
+  credentials settle, with no timer wait" in `autoSyncV2.test.ts`)
 - Once connected, the server URL is locked. The user can "Sync now" or
   "Disconnect" (desktop labels the disconnect **Reset connection** and asks
   for confirmation; a separate **Forget password** drops only the stored
