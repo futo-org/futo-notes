@@ -3,6 +3,7 @@
   import TitleBar from './app/components/TitleBar.svelte';
   import { configureWindowChrome } from './app/configureWindowChrome';
   import { createAppBootstrap } from './app/createAppBootstrap.svelte';
+  import { installDesktopContextMenuGuard } from './app/installDesktopContextMenuGuard';
   import { installDevelopmentHooks } from './app/installDevelopmentHooks';
   import CrashReportDialog from '$features/system/CrashReportDialog.svelte';
   import UpdateBanner from '$features/system/UpdateBanner.svelte';
@@ -18,12 +19,14 @@
   });
 
   installExternalFileDropGuard();
+  const stopContextMenuGuard = installDesktopContextMenuGuard();
   const stopBootstrap = bootstrap.start();
   const toastMessage = $derived(currentToastMessage());
 
   $effect(() => {
     return () => {
       stopBootstrap();
+      stopContextMenuGuard();
       windowChrome.dispose();
     };
   });
