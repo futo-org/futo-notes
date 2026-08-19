@@ -19,6 +19,23 @@ pub(crate) fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
+    // Reopen where the user left the window. VISIBLE and DECORATIONS are
+    // deliberately excluded from the restored set: a persisted `visible: false`
+    // would relaunch the app invisible with no way back, and Linux turns
+    // decorations off at runtime (platform_integration::configure_app) rather
+    // than from a stored value.
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::new()
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::SIZE
+                    | tauri_plugin_window_state::StateFlags::POSITION
+                    | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                    | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+            )
+            .build(),
+    );
+
     builder
         .setup(|app| {
             let handle = app.handle();
