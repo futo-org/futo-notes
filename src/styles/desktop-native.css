@@ -69,3 +69,19 @@
     cursor: pointer !important;
   }
 }
+
+/* macOS "Reduce Motion" (System Settings ▸ Accessibility ▸ Display). A native
+   app participates in this automatically; a webview only does if it is asked.
+   Scoped to the desktop shell so the embedded mobile editor keeps its own
+   timings. */
+@media (prefers-reduced-motion: reduce) {
+  html.desktop-chrome,
+  html.desktop-chrome *,
+  html.desktop-chrome *::before,
+  html.desktop-chrome *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
