@@ -380,6 +380,16 @@ export function collectInstructionFiles(root) {
     );
   }
 
+  // Subagent definitions are instruction surfaces too: .claude/agents/app-qa.md
+  // tells an agent how to drive the REAL apps, and it was invisible to this gate
+  // while check-qa-input-safety already scanned it. A stale `just` recipe or a
+  // broken path there sends a subagent down the same dead end as one in a
+  // SKILL.md (pc_4cdae245beda, filed as a blocker).
+  const agentsDir = path.join(root, '.claude', 'agents');
+  if (fs.existsSync(agentsDir)) {
+    files.push(...findFiles(agentsDir, (full) => full.endsWith('.md')));
+  }
+
   const workflowsDir = path.join(root, '.claude', 'workflows');
   if (fs.existsSync(workflowsDir)) {
     for (const name of fs.readdirSync(workflowsDir)) {
