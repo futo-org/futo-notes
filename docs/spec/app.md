@@ -281,7 +281,7 @@ Behaviors and constraints that hold across every surface and platform.
 ## Feedback & crash reporting
 
 - Action feedback uses transient toasts (~3 s, one at a time, auto-dismiss):
-  "Note deleted", "Moved to {folder}", "Path copied", etc. _(Tauri; Android
+  "Note deleted", "Moved to {folder}", "Folder created", "Path copied", etc. _(Tauri; Android
   native shows the same platform toasts — delete now toasts "Note deleted" from
   both the editor ⋮ menu and the list long-press)_ → shared/notifications/toastBus.svelte.ts,
   NoteEditorScreen.kt, NoteListScreen.kt

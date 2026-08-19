@@ -4,6 +4,7 @@ import { deleteFolder, moveFolder, renameFolderInPlace } from '$features/folders
 import { pickNoteForAction } from '$features/notes/noteActionTarget';
 import { deleteNote, getAllNotes, moveNote } from '$features/notes/notes.svelte';
 import { idLeaf, idParent } from '$lib/platform/pathSafety';
+import { validateTitle } from '$lib/rules';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
@@ -75,6 +76,52 @@ export async function renameSidebarFolder(
     retargetActiveNote(result.renames, options);
     return null;
   });
+}
+
+/**
+ * Rename a note in place — that is, rename its file. The typed text becomes the
+ * filename verbatim (AGENTS.md M2: the filename IS the title), so an illegal
+ * name is REJECTED rather than quietly sanitized into something else, and the
+ * move itself goes through the Rust-backed store so backlinks and the note
+ * cache are projected from one committed mutation.
+ */
+export async function renameSidebarNote(
+  noteId: string,
+  newTitle: string,
+  options: SidebarMutationOptions,
+): Promise<string | null> {
+  const trimmed = newTitle.trim();
+  if (trimmed === idLeaf(noteId)) return null;
+
+  const issue = validateTitle(trimmed)[0];
+  if (issue) return issue.message;
+
+  const parent = idParent(noteId);
+  const newId = parent ? `${parent}/${trimmed}` : trimmed;
+  const collides = getAllNotes().some(
+    (note) => note.id !== noteId && note.id.toLowerCase() === newId.toLowerCase(),
+  );
+  if (collides) return 'A note with this name already exists';
+
+  try {
+    const pick = pickNoteForAction(noteId);
+    // Always locked: whether this row is the open note is unanswerable until
+    // its pending rename has landed (same reasoning as moveSidebarNote).
+    return await options.runWithActiveNoteLock(async () => {
+      const fromId = pick.resolve();
+      if (!fromId) return 'That note is no longer available';
+      const targetId = parent ? `${parent}/${trimmed}` : trimmed;
+      const renamingActiveNote = options.getActiveNoteId() === fromId;
+      const result = await moveNote(fromId, targetId);
+      options.onNoteIdsRenamed([{ from: fromId, to: result.id }]);
+      if (renamingActiveNote) {
+        options.onActiveNoteMoved(fromId, result.id, idLeaf(result.id));
+      }
+      return null;
+    });
+  } catch (error) {
+    return error instanceof Error ? error.message : 'Rename failed';
+  }
 }
 
 export async function moveSidebarNote(

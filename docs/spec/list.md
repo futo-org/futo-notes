@@ -175,8 +175,19 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   ancestor folders on every platform. Desktop supplies the trash policy to the
   shared local-note store; native shells delete directly. →
   `futo-notes-store::LocalNoteStore::delete_with`, `local_notes_delete`
-- A note row in the folder tree offers the same Move/Delete via context menu
-  (desktop right-click / mobile long-press). → FolderTreeView.svelte
+- A note row in the folder tree offers Rename / Move to folder / Delete via
+  context menu (desktop right-click / mobile long-press). → FolderTreeView.svelte
+- _(desktop)_ **A note row renames inline**, by the same three gestures as a
+  folder row: double-click, F2 on the focused row, or the context menu's
+  **Rename**. The field opens seeded with the current name and selected; Enter
+  commits, Escape cancels, and clicking away commits. The typed text becomes the
+  filename verbatim — trailing whitespace aside, nothing is prettified (AGENTS.md
+  M2) — and the rename is one `move` mutation through the shared store, so
+  backlinks, the open tab, and the note cache follow it. Illegal names are
+  rejected with the shared title rules and messages ("That character can't be
+  used in a note title", "A note with this name already exists"), never
+  sanitized into a different name. → FolderTreeNoteRow.svelte,
+  TreeRowRename.svelte, sidebarFolderMutations.ts `renameSidebarNote`
 - The native editor menus reach parity: **Android** ⋮ offers Move to
   folder… / Copy file path / Delete note (Share is a dedicated top-bar
   action); **iOS** ⋯ offers Rename / Move to Folder… / Copy File Path /
@@ -332,7 +343,8 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   shared Rust `sanitizeTitle`. Folder-name violations are worded for a FOLDER
   ("That character can't be used in a folder name", "Folder name cannot be
   empty") — the shared rules are layered on `validateTitle`, so the surface
-  supplies the noun rather than the manifest. A hard guard in `createFolder` also blocks the
+  supplies the noun rather than the manifest. A committed create toasts
+  "Folder created". A hard guard in `createFolder` also blocks the
   idempotent `create_dir_all` from silently merging into an existing folder. →
   folderOperations.ts, NewFolderDialog.kt, NoteListView.swift
 - A folder can be renamed; the rename updates every note path beneath it and
