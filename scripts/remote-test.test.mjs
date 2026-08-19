@@ -9,6 +9,8 @@ import {
   DEFAULT_HOST,
   DEFAULT_USER,
   EXIT_LOCKED,
+  buildLockScript,
+  buildUnlockScript,
   EXIT_MOVED,
   EXIT_REFUSED,
   GRADLE_JDK_CANDIDATES,
@@ -35,6 +37,16 @@ const recipes = parseJustRecipes(justfile);
 
 const classify = (name) => classifyRecipe(name, { aliases, recipes });
 
+function lockScript(overrides = {}) {
+  return buildLockScript({
+    remoteDir: '$HOME/ci/futo-main',
+    holder: 'who=justin@mac',
+    forceLock: false,
+    nonce: 'test-nonce-0001',
+    ...overrides,
+  });
+}
+
 function runScript(overrides = {}) {
   return buildRunScript({
     remoteDir: '$HOME/ci/futo-main',
@@ -43,8 +55,7 @@ function runScript(overrides = {}) {
     sha: 'abc1234def',
     recipe: 'test-rust-full',
     recipeArgs: [],
-    holder: 'who=justin@mac',
-    forceLock: false,
+    nonce: 'test-nonce-0001',
     ndkVersion: '28.2.13676358',
     ...overrides,
   });
@@ -236,14 +247,15 @@ describe('run script', () => {
   });
 
   it('takes an exclusive lock on the remote worktree and releases it on any exit', () => {
-    const script = runScript();
-    expect(script).toContain('mkdir "$LOCK_DIR"');
-    expect(script).toContain(`exit ${EXIT_LOCKED}`);
-    expect(script).toContain(`trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM HUP`);
+    // Acquisition is phase 1 (its own ssh session, before any transfer);
+    // release belongs to the run script that adopts it.
+    expect(lockScript()).toContain('mkdir "$LOCK_DIR"');
+    expect(lockScript()).toContain(`exit ${EXIT_LOCKED}`);
+    expect(runScript()).toContain(`trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM HUP`);
   });
 
   it('shows a blocked run WHO holds the lock', () => {
-    const script = runScript();
+    const script = lockScript();
     expect(script).toContain('if [ -f "$LOCK_DIR/holder" ]; then');
     // `2>/dev/null >&2` points fd1 at /dev/null (redirections apply left to
     // right) and silently ate the holder details the first time round.
@@ -279,15 +291,15 @@ describe('run script', () => {
   });
 
   it('fails fast by default and queues only when asked', () => {
-    expect(runScript()).toContain('WAIT_SECS=0');
-    expect(runScript({ waitSeconds: 600 })).toContain('WAIT_SECS=600');
+    expect(lockScript()).toContain('WAIT_SECS=0');
+    expect(lockScript({ waitSeconds: 600 })).toContain('WAIT_SECS=600');
     // The wait is a bounded loop around the atomic mkdir, not a sleep-then-hope.
-    expect(runScript({ waitSeconds: 600 })).toContain('while ! mkdir "$LOCK_DIR"');
+    expect(lockScript({ waitSeconds: 600 })).toContain('while ! mkdir "$LOCK_DIR"');
   });
 
   it('only breaks the lock when explicitly asked', () => {
-    expect(runScript()).not.toContain('rm -rf "$LOCK_DIR"\nmkdir');
-    expect(runScript({ forceLock: true })).toContain('rm -rf "$LOCK_DIR"');
+    expect(lockScript()).not.toContain('rm -rf "$LOCK_DIR"\nmkdir');
+    expect(lockScript({ forceLock: true })).toContain('rm -rf "$LOCK_DIR"');
   });
 
   it('git mode fetches and detaches at the requested sha', () => {
@@ -407,5 +419,49 @@ describe('justfile wiring', () => {
     }
     // No remote recipe may ssh on its own.
     expect(justfile).not.toMatch(/^\s+ssh .*just /m);
+  });
+});
+
+// The rsync-mode corruption: rsync --delete used to push the working tree
+// BEFORE the run script took the lock, so a run queued behind --wait deleted and
+// rewrote the checkout the in-flight run was using. It cost two 300-doc runs,
+// which degraded into 100+ failures that all read as product bugs
+// (pc_7610adf57cbd, pc_48b854c9f90a, pc_ea83d57a69d5). The HEAD guard cannot
+// see it: rsync mode never moves HEAD.
+describe('two-phase lock (rsync cannot precede the lock)', () => {
+  it('acquires the lock in a script that does no transfer and runs no recipe', () => {
+    const script = lockScript();
+    expect(script).toContain('mkdir "$LOCK_DIR"');
+    expect(script).not.toContain('rsync');
+    expect(script).not.toContain('just ');
+  });
+
+  it('records a nonce so a later phase can prove the lock is still ours', () => {
+    expect(lockScript()).toContain('"$LOCK_DIR/nonce"');
+    expect(lockScript({ nonce: 'abc-123' })).toContain('abc-123');
+  });
+
+  it('makes the run script ADOPT the lock — it can never acquire one itself', () => {
+    const script = runScript();
+    // No acquisition primitives left in the run script at all.
+    expect(script).not.toContain('while ! mkdir "$LOCK_DIR"');
+    expect(script).not.toContain('WAIT_SECS');
+    // It verifies the lock is still the one phase 1 took...
+    expect(script).toContain('LOCK_NONCE="test-nonce-0001"');
+    expect(script).toContain(`exit ${EXIT_LOCKED}`);
+    // ...and owns the release.
+    expect(script).toContain(`trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM HUP`);
+  });
+
+  it('releases the lock only when the nonce still matches', () => {
+    const script = buildUnlockScript({ remoteDir: '$HOME/ci/futo-main', nonce: 'abc-123' });
+    expect(script).toContain('abc-123');
+    expect(script).toContain('rm -rf "$LOCK_DIR"');
+  });
+
+  it('marks the holder as being in the transfer phase', () => {
+    // A lock stranded between phases is identifiable as stale rather than
+    // looking like a live run.
+    expect(lockScript({ holder: 'who=justin@mac\nphase=transfer' })).toContain('phase=transfer');
   });
 });

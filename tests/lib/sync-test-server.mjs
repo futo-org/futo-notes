@@ -19,6 +19,7 @@ import { homedir, tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { PG_BASE, pgQuery } from '../../scripts/lib/pg.mjs';
 import { slotOf } from '../../scripts/lib/slot.mjs';
+import { formatSpawnFailure } from '../../scripts/lib/spawn-result.mjs';
 
 const PASSWORD = 'testing123';
 
@@ -35,7 +36,7 @@ function hashPassword(serverRepo, password) {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error(`Failed to hash test server password:\n${result.stderr || result.stdout}`);
+    throw new Error(`Failed to hash test server password: ${formatSpawnFailure(result, 'bun')}`);
   }
   const hash = result.stdout.trim();
   hashCache.set(cacheKey, hash);
@@ -142,7 +143,7 @@ export async function startServer(port, repoRoot, options = {}) {
   const reset = pgQuery(serverRepo, dbUrl, truncateSql);
   if (reset.status !== 0) {
     proc.kill('SIGKILL');
-    throw new Error(`Failed to reset E2EE server database:\n${reset.stderr || reset.stdout}`);
+    throw new Error(`Failed to reset E2EE server database: ${formatSpawnFailure(reset, 'bun')}`);
   }
 
   let proxyServer = null;

@@ -27,6 +27,7 @@
  * M22 (Playwright cannot prove WebView2). See docs/remote-testing.md.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
 import path from 'node:path';
@@ -277,33 +278,34 @@ export function shQuote(value) {
 // Remote scripts
 // ---------------------------------------------------------------------------
 
-export function buildRunScript({
-  remoteDir,
-  sourceRepo,
-  mode,
-  sha,
-  recipe,
-  recipeArgs = [],
-  holder,
-  forceLock,
-  waitSeconds = 0,
-  ndkVersion,
-}) {
+// Phase 1 of the two-phase remote protocol: take the worktree lock in its OWN
+// ssh session, BEFORE any transfer.
+//
+// rsync mode used to push the working tree (with --delete) before the run
+// script ran, and the run script was what took the lock. So a run queued behind
+// `--wait` deleted and rewrote the checkout that the run in flight was actively
+// using. That is not a lost start-up race — it CORRUPTS the running job: a
+// sibling agent's transfer removed a file an in-flight 300-doc run depended on,
+// vite reported "Failed to resolve import ... Does the file exist?", and the run
+// degraded into 100+ failures that all looked like product bugs. Two separate
+// runs died that way. The HEAD_BEFORE/HEAD_AFTER guard cannot catch it either,
+// because rsync mode never moves HEAD.
+//
+// The lock is a mkdir lockdir (atomic, no flock needed), so it survives between
+// ssh sessions. `nonce` ties it to this run: phase 2 rsyncs, then phase 3 adopts
+// the lock only if the nonce still matches, and owns its release. If we die
+// between phases the lock leaks — bounded by the holder file, which records
+// phase=transfer and a timestamp so the next user can see it is stale and clear
+// it with --force-lock.
+export function buildLockScript({ remoteDir, holder, forceLock, waitSeconds = 0, nonce }) {
   const lockDir = `${remoteDir}.lock`;
-  const justArgs = [recipe, ...recipeArgs].map(shQuote).join(' ');
   return `
 set -uo pipefail
-${remoteEnvPreamble({ ndkVersion })}
 
-REMOTE_DIR="${remoteDir}"
-SOURCE_REPO="${sourceRepo}"
 LOCK_DIR="${lockDir}"
 WAIT_SECS=${waitSeconds}
 
 show_holder() {
-  # Redirections apply left to right, so silencing stderr BEFORE aiming stdout
-  # at it points fd1 into the void and swallows the holder — the one thing a
-  # blocked user needs. Test it, don't remember it.
   if [ -f "$LOCK_DIR/holder" ]; then
     sed 's/^/    /' "$LOCK_DIR/holder" >&2
   else
@@ -334,6 +336,63 @@ while ! mkdir "$LOCK_DIR" 2>/dev/null; do
   sleep 10
 done
 printf '%s\\n' ${shQuote(holder)} > "$LOCK_DIR/holder"
+printf '%s\\n' ${shQuote(nonce)} > "$LOCK_DIR/nonce"
+`;
+}
+
+// Release a lock we still own (nonce match). Used when we fail between phases,
+// so a transfer error does not strand the worktree locked.
+export function buildUnlockScript({ remoteDir, nonce }) {
+  const lockDir = `${remoteDir}.lock`;
+  return `
+set -u
+LOCK_DIR="${lockDir}"
+if [ "$(cat "$LOCK_DIR/nonce" 2>/dev/null)" = ${shQuote(nonce)} ]; then
+  rm -rf "$LOCK_DIR"
+fi
+`;
+}
+
+export function buildRunScript({
+  remoteDir,
+  sourceRepo,
+  mode,
+  sha,
+  recipe,
+  recipeArgs = [],
+  nonce,
+  ndkVersion,
+}) {
+  const lockDir = `${remoteDir}.lock`;
+  const justArgs = [recipe, ...recipeArgs].map(shQuote).join(' ');
+  return `
+set -uo pipefail
+${remoteEnvPreamble({ ndkVersion })}
+
+REMOTE_DIR="${remoteDir}"
+SOURCE_REPO="${sourceRepo}"
+LOCK_DIR="${lockDir}"
+LOCK_NONCE="${nonce}"
+
+show_holder() {
+  # Redirections apply left to right, so silencing stderr BEFORE aiming stdout
+  # at it points fd1 into the void and swallows the holder — the one thing a
+  # blocked user needs. Test it, don't remember it.
+  if [ -f "$LOCK_DIR/holder" ]; then
+    sed 's/^/    /' "$LOCK_DIR/holder" >&2
+  else
+    echo "    (lock dir exists but has no holder file — probably stale)" >&2
+  fi
+}
+
+# The lock is acquired by buildLockScript() in a SEPARATE ssh session before
+# this one, so that an rsync-mode transfer happens UNDER the lock. Adopt it
+# here (verifying it is still ours via the nonce) and own its release.
+if [ ! -d "$LOCK_DIR" ] || [ "$(cat "$LOCK_DIR/nonce" 2>/dev/null)" != "$LOCK_NONCE" ]; then
+  echo "remote-test: lost the worktree lock before the run started." >&2
+  show_holder
+  exit ${EXIT_LOCKED}
+fi
 trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM HUP
 
 set -e
@@ -623,9 +682,22 @@ export function parseCliArgs(argv) {
       case '--force-lock':
         opts.forceLock = true;
         break;
-      case '--wait':
-        opts.waitSeconds = 1800;
+      case '--wait': {
+        // Accept `--wait 600` as well as `--wait=600`. Only consume the next
+        // argument when it actually looks like a duration: bare `--wait` is
+        // valid and is normally followed by the recipe name, which must not be
+        // swallowed. Before this, `--wait 600 <recipe>` ate the recipe slot with
+        // "600" and died with an unhelpful is-not-a-recipe error
+        // (pc_8082388d5c53).
+        const next = argv[i + 1];
+        if (next !== undefined && /^\d+$/.test(next)) {
+          opts.waitSeconds = Number(next);
+          i += 1;
+        } else {
+          opts.waitSeconds = 1800;
+        }
         break;
+      }
       case '--host':
         opts.host = argv[++i];
         break;
@@ -839,7 +911,46 @@ function main() {
   for (const caveat of verdict.caveats) console.log(`[remote-test] CAVEAT: ${caveat}`);
   console.log('');
 
+  const holder = [
+    `who=${userInfo().username}@${hostname()}`,
+    `worktree=${ROOT}`,
+    `recipe=just ${[verdict.recipe, ...opts.recipeArgs].join(' ')}`,
+    `mode=${opts.mode}`,
+    `sha=${label}`,
+    `started=${new Date().toISOString()}`,
+    'phase=transfer',
+  ].join('\n');
+
+  // PHASE 1 — take the lock before anything touches the remote checkout.
+  const nonce = randomUUID();
+  const lock = spawnSync('ssh', ['-T', target, 'bash -s'], {
+    input: buildLockScript({
+      remoteDir: opts.remoteDir,
+      holder,
+      forceLock: opts.forceLock,
+      waitSeconds: opts.waitSeconds,
+      nonce,
+    }),
+    stdio: ['pipe', 'inherit', 'inherit'],
+  });
+  if (lock.status !== 0) {
+    const lockStatus = lock.status ?? 1;
+    console.log(
+      `\n[remote-test] ${lockStatus === EXIT_LOCKED ? 'BLOCKED' : 'FAIL'} — could not take the remote worktree lock, exit ${lockStatus}`,
+    );
+    return lockStatus;
+  }
+
+  // Any failure from here to the run must release the lock we just took.
+  const releaseLock = () => {
+    spawnSync('ssh', ['-T', target, 'bash -s'], {
+      input: buildUnlockScript({ remoteDir: opts.remoteDir, nonce }),
+      stdio: ['pipe', 'ignore', 'ignore'],
+    });
+  };
+
   if (opts.mode === 'rsync') {
+    // PHASE 2 — transfer, now safely under the lock.
     // The remote dir has to exist before rsync can fill it; the run script
     // creates the worktree, so seed it with a git-mode-shaped bootstrap first.
     const bootstrap = spawnSync('ssh', ['-T', target, 'bash -s'], {
@@ -855,6 +966,7 @@ function main() {
     });
     if (bootstrap.status !== 0) {
       console.error('remote-test: could not create the remote worktree.');
+      releaseLock();
       return bootstrap.status ?? 1;
     }
 
@@ -870,19 +982,12 @@ function main() {
     const rsync = spawnSync('rsync', rsyncArgs, { stdio: ['ignore', 'inherit', 'inherit'] });
     if (rsync.status !== 0) {
       console.error('remote-test: rsync failed.');
+      releaseLock();
       return rsync.status ?? 1;
     }
   }
 
-  const holder = [
-    `who=${userInfo().username}@${hostname()}`,
-    `worktree=${ROOT}`,
-    `recipe=just ${[verdict.recipe, ...opts.recipeArgs].join(' ')}`,
-    `mode=${opts.mode}`,
-    `sha=${label}`,
-    `started=${new Date().toISOString()}`,
-  ].join('\n');
-
+  // PHASE 3 — run, adopting the lock taken in phase 1.
   const script = buildRunScript({
     remoteDir: opts.remoteDir,
     sourceRepo: opts.sourceRepo,
@@ -890,9 +995,7 @@ function main() {
     sha,
     recipe: verdict.recipe,
     recipeArgs: opts.recipeArgs,
-    holder,
-    forceLock: opts.forceLock,
-    waitSeconds: opts.waitSeconds,
+    nonce,
     ndkVersion,
   });
 
