@@ -95,7 +95,8 @@ against spec. Written so the **next** run is faster. Append freely.
 
 ## Driving the running apps (this run)
 
-- **Desktop (dev Tauri)**: WS bridge on `ws://127.0.0.1:9223` (debug build only;
+- **Desktop (dev Tauri)**: WS bridge on `ws://127.0.0.1:$MCP_PORT` (debug build only;
+  the base port is per-worktree — `just ports` prints it; never hardcode 9223;
   the dev app's `document.title` is "FUTO Notes (dev)" — verify before driving so
   you never hit the user's release app). Client protocol in
   `tests/lib/mcp-client.mjs` (`connectWs`, `executeJs(ws, script)` →
