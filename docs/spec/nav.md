@@ -134,6 +134,19 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   Linux desktop render light. → theme.ts `windowAppearanceFor`,
   platform_integration.rs (`linux-theme-changed`)
 
+  > **Gap:** on Linux an explicit light/dark choice poisons a later switch back
+  > to **auto** until the next desktop change or relaunch. Pinning the window
+  > writes `gtk-application-prefer-dark-theme`, which is also the property
+  > WebKitGTK answers `prefers-color-scheme` from, so `resolveTheme('auto')`
+  > reads back the value the app itself just wrote: measured on a dark GTK
+  > desktop, `setTheme('light')` makes the webview report
+  > `prefers-color-scheme: dark = false`. Choosing Light and then Auto therefore
+  > leaves a dark desktop showing the light theme. The fix is for `auto` to
+  > resolve from the xdg portal's `color-scheme` on Linux rather than from the
+  > media query — the app already watches that signal, it just cannot read its
+  > current value. macOS and Windows are unaffected: their `auto` hands the
+  > window back to the OS and never writes the appearance it later reads.
+
 ### Application menu *(macOS)*
 
 - macOS gets a real menu bar owned by the app: **App** (About, Settings… ⌘,

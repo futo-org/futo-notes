@@ -34,6 +34,7 @@ flag gaps the codebase suggests have been implemented.
 ## nav.md
 
 - [nav.md:67](nav.md#L67) — Android on-device autofocus QA (existing note keyboard-less + native-title autofocus) is still pending. *(Android)*
+- [nav.md:137](nav.md#L137) — on Linux an explicit light/dark choice poisons a later switch back to **auto** until the next desktop change or relaunch. Pinning the window writes `gtk-application-prefer-dark-theme`, which is also the property WebKitGTK answers `prefers-color-scheme` from, so `resolveTheme('auto')` reads back the value the app itself just wrote: measured on a dark GTK desktop, `setTheme('light')` makes the webview report `prefers-color-scheme: dark = false`. Choosing Light and then Auto therefore leaves a dark desktop showing the light theme. The fix is for `auto` to resolve from the xdg portal's `color-scheme` on Linux rather than from the media query — the app already watches that signal, it just cannot read its current value. macOS and Windows are unaffected: their `auto` hands the window back to the OS and never writes the appearance it later reads.
 
 ## search.md
 
@@ -43,4 +44,4 @@ flag gaps the codebase suggests have been implemented.
 
 - [sync.md:1110](sync.md#L1110) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 
-_20 gaps._
+_21 gaps._
