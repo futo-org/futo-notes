@@ -252,12 +252,17 @@ qa-server-stop *flags:
 # /verify skill's references/ios.md and references/android.md. All sim-*
 # helpers honor $SIM (from qa-claim); adb-based ones honor $ANDROID_SERIAL.
 
+# Deliberately does NOT foreground Simulator.app: `simctl` boots, installs,
+# launches and screenshots a headless device just fine, while activating the app
+# drags whoever is typing to another space (parallel QA sessions on one Mac).
+# Pass SHOW=1 when a HUMAN needs to watch, or when measuring anything that
+# awaits a frame — an occluded window has its rendering suspended.
 # Boot an iOS simulator by name (no-op if already booted) and wait for it.
 sim-boot name="iPhone 17 Pro":
   #!/usr/bin/env bash
   set -euo pipefail
   xcrun simctl boot '{{name}}' 2>/dev/null || true  # "already booted" is fine
-  open -a Simulator
+  if [ -n "${SHOW:-}" ]; then open -a Simulator; fi
   for i in $(seq 1 30); do
     xcrun simctl list devices booted | grep -q Booted && break; sleep 1
   done
@@ -584,6 +589,18 @@ sync-contract-check:
 # (architecture-hardening.md R1 — AGENTS.md "Drift watchlist" as code, deny-by-default).
 check-drift:
   node scripts/drift-check.mjs
+
+# No space switch and no stolen keyboard focus, so a parallel QA session cannot
+# yank the human out of whatever they are typing in: it captures the window
+# where it lives, even on another space (`screencapture -l <window id>`).
+# Refuses anything scripts/qa-target.mjs will not verify as a debug build of
+# THIS worktree, since a window can show the user's real vault (M24). With a
+# live bridge, prefer its capture_native_screenshot; frame/paint probes still
+# need a genuinely VISIBLE window, which no capture tool can substitute for.
+#   just qa-shot list | pid <pid> | port <port> [--out <path>]
+# Screenshot this worktree's desktop QA window WITHOUT activating it.
+qa-shot *args:
+  @node scripts/qa-shot.mjs {{args}}
 
 # Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents) teaches
 # OS-level input into this app (AppleScript UI scripting, click injection), a
