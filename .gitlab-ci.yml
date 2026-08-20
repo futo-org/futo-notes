@@ -484,7 +484,6 @@ test:audit:
     key: cargo-audit-bin-$CARGO_AUDIT_VERSION
     paths:
       - .cargo-home/bin/
-    policy: pull-push
     when: always
   script:
     # The MUSL tarball is statically linked, so it cannot fail on the image's glibc the way

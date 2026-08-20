@@ -227,8 +227,8 @@ function prune({ file, stale }) {
   fs.writeFileSync(full, `${tidy.join('\n').replace(/\n+$/, '')}\n`);
 }
 
-// Line-anchored from the list onward, so prose mentioning an id is not an acknowledgement.
-function listedIds(file, blockStart, idPattern) {
+// Read through `idIn`, the same matcher prune deletes with, so everything listed is prunable.
+function listedIds(file, blockStart) {
   let text;
   try {
     text = fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -237,7 +237,11 @@ function listedIds(file, blockStart, idPattern) {
   }
   const start = text.indexOf(blockStart);
   if (start === -1) return fail(`${file} no longer contains \`${blockStart}\`.`);
-  return [...text.slice(start + blockStart.length).matchAll(idPattern)].map((match) => match[1]);
+  return text
+    .slice(start + blockStart.length)
+    .split('\n')
+    .map(idIn)
+    .filter(Boolean);
 }
 
 // The gating scans; their own output is the report.
@@ -251,12 +255,12 @@ const allReport = runJson('pnpm', ['audit', '--json'], ROOT, npmReport);
 const groups = [
   {
     file: '.cargo/audit.toml',
-    ids: listedIds('.cargo/audit.toml', 'ignore = [', /^\s*"(RUSTSEC-\d{4}-\d{4})"/gim),
+    ids: listedIds('.cargo/audit.toml', 'ignore = ['),
     live: liveCargo(),
   },
   {
     file: 'pnpm-workspace.yaml',
-    ids: listedIds('pnpm-workspace.yaml', 'ignoreGhsas:', /^\s*- (GHSA-[\w-]+)/gim),
+    ids: listedIds('pnpm-workspace.yaml', 'ignoreGhsas:'),
     // Compared against the all-scope count, matching the all-scope mirror above.
     live: allReport ? liveNpm(allReport.metadata.totalDependencies) : null,
   },
@@ -355,36 +359,30 @@ function table(label, rows, columns) {
 table('Rust — cargo audit', cargoRows, ['state', 'id', 'what']);
 table('npm — pnpm audit', npmRows, ['state', 'severity', 'id', 'what']);
 
-const count = (rows, test) => rows.filter(test).length;
+const tally = (rows, test) => rows.filter(test).length;
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 // `?` rather than 0: an unreadable list is not an empty one.
-const ack = (file) =>
-  `${groups.find((group) => group.file === file)?.ids?.length ?? '?'} acknowledged`;
+const listed = (file) => groups.find((group) => group.file === file)?.ids?.length ?? '?';
 
-const totals = [
-  cargoRows
-    ? [
-        plural(
-          count(cargoRows, (row) => row.state === 'vulnerability'),
-          'vulnerability',
-          'vulnerabilities',
-        ),
-        plural(
-          count(cargoRows, (row) => row.state !== 'vulnerability'),
-          'warning',
-          'warnings',
-        ),
-        ack('.cargo/audit.toml'),
-      ].join(', ')
-    : 'not summarized',
-  npmRows
-    ? [
-        `${count(npmRows, (row) => row.state === 'gated')} gated`,
-        `${count(npmRows, (row) => row.state === 'dev-only')} dev-only`,
-        ack('pnpm-workspace.yaml'),
-      ].join(', ')
-    : 'not summarized',
-];
-console.log(`\nRust: ${totals[0]}  ·  npm: ${totals[1]}`);
+const isVuln = (row) => row.state === 'vulnerability';
+const rust = cargoRows
+  ? [
+      plural(tally(cargoRows, isVuln), 'vulnerability', 'vulnerabilities'),
+      plural(
+        tally(cargoRows, (row) => !isVuln(row)),
+        'warning',
+        'warnings',
+      ),
+      `${listed('.cargo/audit.toml')} acknowledged`,
+    ].join(', ')
+  : 'not summarized';
+const npm = npmRows
+  ? [
+      `${tally(npmRows, (row) => row.state === 'gated')} gated`,
+      `${tally(npmRows, (row) => row.state === 'dev-only')} dev-only`,
+      `${listed('pnpm-workspace.yaml')} acknowledged`,
+    ].join(', ')
+  : 'not summarized';
+console.log(`\nRust: ${rust}  ·  npm: ${npm}`);
 
 process.exit(status);

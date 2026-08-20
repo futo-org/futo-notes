@@ -12,15 +12,15 @@ bridge-spec check uses `tsx`, while the other checks only read repository files.
 
 ## Checks
 
-| Check                | Inputs                                                                                                                     | What fails                                                                                                                                    |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Command reachability | Tauri's `generate_handler!`, literal `invoke("...")` calls under `src/`, and `scripts/command-reachability-allowlist.json` | An uncalled registered command, an unregistered invoked command, or a stale allowlist entry                                                   |
-| Platform discipline  | `@tauri-apps/*` imports under `src/` and `scripts/platform-discipline-allowlist.json`                                      | A direct Tauri import outside `src/lib/platform/**` without an explicit exception, or a stale exception                                       |
-| Native bridge specs  | `packages/editor/src/bridge.ts` and generated Kotlin/Swift specs                                                           | Generated message types or bridge versions are stale; run `just bridge-spec` and commit the results                                           |
-| Tauri sync contract  | Rust records in `apps/tauri/src-tauri/src/sync/frontend_contract.rs` and generated TypeScript                              | Generated frontend types are stale; run `just sync-contract` and commit the result                                                            |
-| Drift registry       | Copies, locks, and optional scan patterns in `scripts/drift-registry.json`                                                 | A registered copy or lock disappeared, a detection pattern became stale, lock status is inconsistent, or a scan finds a new unregistered copy |
+| Check                | Inputs                                                                                                                                                                                  | What fails                                                                                                                                                            |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Command reachability | Tauri's `generate_handler!`, literal `invoke("...")` calls under `src/`, and `scripts/command-reachability-allowlist.json`                                                              | An uncalled registered command, an unregistered invoked command, or a stale allowlist entry                                                                           |
+| Platform discipline  | `@tauri-apps/*` imports under `src/` and `scripts/platform-discipline-allowlist.json`                                                                                                   | A direct Tauri import outside `src/lib/platform/**` without an explicit exception, or a stale exception                                                               |
+| Native bridge specs  | `packages/editor/src/bridge.ts` and generated Kotlin/Swift specs                                                                                                                        | Generated message types or bridge versions are stale; run `just bridge-spec` and commit the results                                                                   |
+| Tauri sync contract  | Rust records in `apps/tauri/src-tauri/src/sync/frontend_contract.rs` and generated TypeScript                                                                                           | Generated frontend types are stale; run `just sync-contract` and commit the result                                                                                    |
+| Drift registry       | Copies, locks, and optional scan patterns in `scripts/drift-registry.json`                                                                                                              | A registered copy or lock disappeared, a detection pattern became stale, lock status is inconsistent, or a scan finds a new unregistered copy                         |
 | QA input safety      | Instruction surfaces (README, CONTRIBUTING, every `AGENTS.md`, `docs/**`, `.claude/skills/**`, `.claude/agents/**`, `.claude/workflows/*`) and `scripts/qa-input-safety-allowlist.json` | An instruction file teaches OS-level input into this app, a process-name/PID lookup against it, or a relative `find -newermt` check; or a pinned exception went stale |
-| Gate red-proofs      | Every gate above plus the spec/contract generators, each re-run against one seeded violation in a throwaway `git worktree`  | A gate exits 0 on a seeded violation, exits non-zero without naming it, or is already red on a pristine checkout                              |
+| Gate red-proofs      | Every gate above plus the spec/contract generators, each re-run against one seeded violation in a throwaway `git worktree`                                                              | A gate exits 0 on a seeded violation, exits non-zero without naming it, or is already red on a pristine checkout                                                      |
 
 Each gate must observe something no other gate already observes. Prefer extending the gate that
 owns a boundary over adding a second number about it.
@@ -47,8 +47,8 @@ Two mechanisms, doing different jobs:
   technique in order to forbid it stays legal while a fresh occurrence — even in
   the same file — fails, and a pinned line that disappears fails as stale.
 
-What is enforced versus merely written down: an unsafe *resolution* is
-impossible through the resolver, and an unsafe *instruction* is impossible to
+What is enforced versus merely written down: an unsafe _resolution_ is
+impossible through the resolver, and an unsafe _instruction_ is impossible to
 land in a scanned surface. An agent that improvises OS input from its own memory
 is still only discouraged — nothing inside this repo can revoke a shell's access
 to the window server. Related runtime guard: M3's dev/prod split, which is what
@@ -117,11 +117,11 @@ the network — the RUSTSEC database and the npm registry — while every gate a
 scan.
 
 **CI runs it as a reporter, not a blocker.** `test:audit` is `allow_failure: true` and is deliberately
-*absent* from `release:gate.needs` — a documented exception to M14. This app is an offline-first local
+_absent_ from `release:gate.needs` — a documented exception to M14. This app is an offline-first local
 editor: nearly every advisory that reaches it is in build tooling or on a code path no user input
 travels, so a hard gate would stop releases far more often than it would stop a real risk. Restoring
-either would turn this back into a release blocker, which is a product decision rather than a
-hardening fix.
+either turns this back into a release blocker, which is a product decision rather than a hardening
+fix.
 
 Acknowledgements live in the tools' own ignore lists:
 
@@ -134,31 +134,9 @@ the job only reports, a real finding is allowed to sit there unacknowledged and 
 advisory is a choice someone makes and signs, not a step in going green. Add the id with a comment
 recording whether it ships, how it goes away, and who owns it.
 
-`just audit` and CI's `test:audit` both run `scripts/audit.mjs` — the pinned CI image has no `just`,
-so the script is the shared entry point rather than the recipe, the same reason arch-gate's command
-list lives in `package.json`. It ends with one grouped list of everything found — Rust rows tagged
-`vulnerability` or by warning kind, npm rows tagged `gated` or `dev-only` — and a single line of
-totals, since the tools' own output is two walls of text in two different shapes. Before that it
-names ignore entries the audits no longer report: the ones to delete after a dependency bump, and
-the only thing keeping the lists from growing forever.
-Neither tool does this itself and neither has a flag to bypass its own ignore list, so the live set
-is read from a directory where that config does not exist — cargo-audit from a temp cwd with an
-absolute `--file`, and pnpm from a temp dir holding the lockfile, `package.json` (without which
-`--prod` could not classify anything), and a workspace file with `auditConfig` and the member globs
-removed. Each bypass is then checked: cargo-audit's echoed settings must be the unfiltered defaults
-(a `$CARGO_HOME/audit.toml` can filter a run that a temp cwd does not), the mirrored workspace must
-carry no ignore list, and the mirror must resolve at least as many dependencies as the real tree. A
-bypass that stops working fails the run rather than naming every entry stale, which is the dangerous
-direction: the tools would report *less* than reality, and staleness means "listed but not reported".
-
-`just audit --fix` deletes the stale entries, each with the comment explaining it. Both lists are
-written as blank-line-separated blocks — a comment plus the ids it describes — so an entry's prose is
-unambiguous; a block covering several ids keeps its comment until the last of them goes, and a
-column-0 comment is the file's own header rather than any entry's. Pruning is not the default: a
-wrong "no longer detected" would destroy hand-written analysis, and if `just audit` self-healed then
-CI would too, going green while the committed file stayed stale.
-
-`cargo audit` reports unmaintained/unsound advisories as "allowed warnings" that never fail the run
-(26 at baseline; the gtk-rs GTK3 bindings Tauri 2 pins are the largest group at 10). `--prod` is the
-npm gate, and because it hides dev-only findings entirely, the script lists them separately without
-failing on them: visible, but never a reason for the job to go yellow.
+`just audit` also names ignore entries the audits no longer report, and `just audit --fix` removes
+them with the comment explaining them — the only thing keeping the lists from growing forever. It is
+not automatic: a wrong "no longer detected" would delete hand-written analysis, and a self-healing
+`just audit` means a self-healing CI job. How that is detected without trusting a tool that
+under-reports is documented in `scripts/audit.mjs`, which `just audit` and `test:audit` both run —
+the pinned CI image has no `just`, the same reason arch-gate's command list lives in `package.json`.
