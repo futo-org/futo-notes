@@ -109,3 +109,56 @@ The `check:arch-gate` script in `package.json` owns the check list because the p
 image does not include `just`. Both the root `justfile` and `.gitlab-ci.yml` call that script. When
 adding or removing a gate, change only `check:arch-gate`; do not duplicate the command list in
 either caller.
+
+## Not here: the dependency vulnerability scan
+
+`just audit` runs `cargo audit` and `pnpm audit --prod`. It stays out of `arch-gate` because it needs
+the network — the RUSTSEC database and the npm registry — while every gate above is an offline source
+scan.
+
+**CI runs it as a reporter, not a blocker.** `test:audit` is `allow_failure: true` and is deliberately
+*absent* from `release:gate.needs` — a documented exception to M14. This app is an offline-first local
+editor: nearly every advisory that reaches it is in build tooling or on a code path no user input
+travels, so a hard gate would stop releases far more often than it would stop a real risk. Restoring
+either would turn this back into a release blocker, which is a product decision rather than a
+hardening fix.
+
+Acknowledgements live in the tools' own ignore lists:
+
+- Rust: `[advisories] ignore` in `.cargo/audit.toml`
+- npm: `auditConfig.ignoreGhsas` in `pnpm-workspace.yaml`
+
+**Both ship empty, and an empty list is the normal state.** An id there says a person looked at that
+advisory and decided it is fine to ship, so nothing is added on anyone else's behalf — and because
+the job only reports, a real finding is allowed to sit there unacknowledged and yellow. Silencing an
+advisory is a choice someone makes and signs, not a step in going green. Add the id with a comment
+recording whether it ships, how it goes away, and who owns it.
+
+`just audit` and CI's `test:audit` both run `scripts/audit.mjs` — the pinned CI image has no `just`,
+so the script is the shared entry point rather than the recipe, the same reason arch-gate's command
+list lives in `package.json`. It ends with one grouped list of everything found — Rust rows tagged
+`vulnerability` or by warning kind, npm rows tagged `gated` or `dev-only` — and a single line of
+totals, since the tools' own output is two walls of text in two different shapes. Before that it
+names ignore entries the audits no longer report: the ones to delete after a dependency bump, and
+the only thing keeping the lists from growing forever.
+Neither tool does this itself and neither has a flag to bypass its own ignore list, so the live set
+is read from a directory where that config does not exist — cargo-audit from a temp cwd with an
+absolute `--file`, and pnpm from a temp dir holding the lockfile, `package.json` (without which
+`--prod` could not classify anything), and a workspace file with `auditConfig` and the member globs
+removed. Each bypass is then checked: cargo-audit's echoed settings must be the unfiltered defaults
+(a `$CARGO_HOME/audit.toml` can filter a run that a temp cwd does not), the mirrored workspace must
+carry no ignore list, and the mirror must resolve at least as many dependencies as the real tree. A
+bypass that stops working fails the run rather than naming every entry stale, which is the dangerous
+direction: the tools would report *less* than reality, and staleness means "listed but not reported".
+
+`just audit --fix` deletes the stale entries, each with the comment explaining it. Both lists are
+written as blank-line-separated blocks — a comment plus the ids it describes — so an entry's prose is
+unambiguous; a block covering several ids keeps its comment until the last of them goes, and a
+column-0 comment is the file's own header rather than any entry's. Pruning is not the default: a
+wrong "no longer detected" would destroy hand-written analysis, and if `just audit` self-healed then
+CI would too, going green while the committed file stayed stale.
+
+`cargo audit` reports unmaintained/unsound advisories as "allowed warnings" that never fail the run
+(26 at baseline; the gtk-rs GTK3 bindings Tauri 2 pins are the largest group at 10). `--prod` is the
+npm gate, and because it hides dev-only findings entirely, the script lists them separately without
+failing on them: visible, but never a reason for the job to go yellow.

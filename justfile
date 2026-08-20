@@ -639,6 +639,15 @@ arch-gate:
 skills-link:
   @node scripts/skills-link.mjs
 
+# ── Dependency vulnerability scan ──
+# Acknowledgements live in .cargo/audit.toml and `auditConfig.ignoreGhsas` in
+# pnpm-workspace.yaml; `--fix` drops entries whose advisory is gone. Needs network and
+# cargo-audit on PATH (`cargo binstall cargo-audit --locked`); CI runs this same script,
+# non-blocking (docs/architecture-gates.md).
+# Report known vulnerabilities across the project (Rust + npm).
+audit *args:
+  node scripts/audit.mjs {{args}}
+
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
 clean:
