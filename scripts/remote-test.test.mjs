@@ -9,6 +9,7 @@ import {
   DEFAULT_HOST,
   DEFAULT_USER,
   EXIT_LOCKED,
+  buildKillScript,
   buildLockScript,
   pinnedPlaywrightBrowsers,
   buildUnlockScript,
@@ -241,7 +242,11 @@ describe('remote environment', () => {
 describe('run script', () => {
   it('propagates the recipe exit status instead of masking it (M11)', () => {
     const script = runScript();
-    expect(script).toMatch(/just 'test-rust-full'\nSTATUS=\$\?/);
+    // The recipe runs as a background job so it gets its own process group
+    // (--kill), so the status comes from `wait` — still the recipe's own, never
+    // a pipeline's tail.
+    expect(script).toMatch(/just 'test-rust-full' &/);
+    expect(script).toMatch(/wait "\$RECIPE_PID"\nSTATUS=\$\?/);
     expect(script.trimEnd().endsWith('exit $STATUS')).toBe(true);
     // Nothing may pipe the suite's output — a pipe reports the tail's status.
     expect(script).not.toMatch(/^just .*\|/m);
@@ -503,5 +508,43 @@ describe('doctor: playwright browsers are checked against the pinned revisions',
 
   it('returns an empty set rather than throwing when node_modules is absent', () => {
     expect(pinnedPlaywrightBrowsers('/definitely/not/a/repo')).toEqual([]);
+  });
+});
+
+// Cleaning up a hung remote run used to mean a broad pattern kill, which on a
+// box several agents share would also kill a sibling's browsers: the worktree
+// lock stops two runs colliding but gave no way to reap just THIS run's
+// processes (pc_6b79075ff9ba).
+describe('--kill reaps only this run', () => {
+  it('runs the recipe in its own process group and records the pgid', () => {
+    const script = runScript();
+    // Job control, not setsid: setsid is absent on macOS and a missing binary
+    // here would break every remote run, not just cleanup.
+    expect(script).toContain('set -m');
+    // Not merely absent as a word — the comment explains why it is avoided.
+    // Assert it is never INVOKED as a command.
+    expect(script).not.toMatch(/^\s*setsid\b/m);
+    expect(script).toContain('"$LOCK_DIR/pgid"');
+  });
+
+  it('signals a process group, never a pattern', () => {
+    const script = buildKillScript({ remoteDir: '$HOME/ci/futo-main' });
+    expect(script).toContain('kill -TERM "-$PGID"');
+    expect(script).toContain('kill -KILL "-$PGID"');
+    expect(script).not.toContain('pkill');
+    expect(script).not.toContain('killall');
+  });
+
+  it('escalates TERM to KILL rather than hanging on it', () => {
+    const script = buildKillScript({ remoteDir: '/x' });
+    expect(script).toContain('still alive after 10s');
+  });
+
+  it('leaves the lock alone when there is nothing of ours to kill', () => {
+    // A lock with no pgid is mid-transfer; blowing it away would strand the
+    // run that owns it.
+    const script = buildKillScript({ remoteDir: '/x' });
+    expect(script).toContain('recorded no process group');
+    expect(script).toContain('already gone; leaving the lock alone');
   });
 });

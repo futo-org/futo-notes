@@ -340,6 +340,46 @@ printf '%s\\n' ${shQuote(nonce)} > "$LOCK_DIR/nonce"
 `;
 }
 
+// Reap ONLY the run recorded in this worktree's lock: signal its process group,
+// never a pattern match. `--kill` is for a run that is genuinely wedged; it
+// leaves the lock in place if the group is already gone so a normal exit can
+// still clean up after itself.
+export function buildKillScript({ remoteDir }) {
+  const lockDir = `${remoteDir}.lock`;
+  return `
+set -u
+LOCK_DIR="${lockDir}"
+if [ ! -d "$LOCK_DIR" ]; then
+  echo "remote-test: no run is holding the lock — nothing to kill." >&2
+  exit 0
+fi
+echo "remote-test: lock holder:" >&2
+sed 's/^/    /' "$LOCK_DIR/holder" 2>/dev/null || echo "    (no holder file)" >&2
+PGID="$(cat "$LOCK_DIR/pgid" 2>/dev/null || true)"
+if [ -z "$PGID" ]; then
+  echo "remote-test: the holder recorded no process group (it may still be transferring)." >&2
+  echo "  Nothing was signalled. Use --force-lock if you are certain it is stale." >&2
+  exit 0
+fi
+if ! kill -0 "-$PGID" 2>/dev/null; then
+  echo "remote-test: process group $PGID is already gone; leaving the lock alone." >&2
+  exit 0
+fi
+echo "remote-test: sending TERM to process group $PGID" >&2
+kill -TERM "-$PGID" 2>/dev/null || true
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  kill -0 "-$PGID" 2>/dev/null || break
+  sleep 1
+done
+if kill -0 "-$PGID" 2>/dev/null; then
+  echo "remote-test: still alive after 10s — sending KILL" >&2
+  kill -KILL "-$PGID" 2>/dev/null || true
+fi
+rm -rf "$LOCK_DIR"
+echo "remote-test: killed process group $PGID and released the lock." >&2
+`;
+}
+
 // Release a lock we still own (nonce match). Used when we fail between phases,
 // so a transfer error does not strand the worktree locked.
 export function buildUnlockScript({ remoteDir, nonce }) {
@@ -452,8 +492,27 @@ echo "==> cargo target: $REMOTE_DIR/target (repo-local, warm across runs)"
 echo
 echo "───────────────────── just ${recipe} ─────────────────────"
 set +e
-just ${justArgs}
+# Own process group, with its pgid recorded next to the lock.
+#
+# Cleaning up a hung remote run used to mean a broad pattern kill
+# (pkill -f chrome-headless-shell), which on a box several agents share would
+# also kill a SIBLING's browsers -- the lock stops two runs colliding but gave
+# no way to reap just this run's processes (pc_6b79075ff9ba). setsid puts the
+# whole recipe in one group, so 'just remote --kill' signals exactly this run.
+#
+# 'set -m' (job control), NOT setsid: setsid is not installed everywhere --
+# macOS has no such binary -- and a missing one here would break EVERY remote
+# run, not just cleanup. With job control on, bash puts a background job in its
+# own process group whose pgid equals the job leader's pid, using nothing
+# external.
+set -m
+just ${justArgs} &
+RECIPE_PID=$!
+set +m
+echo "$RECIPE_PID" > "$LOCK_DIR/pgid" 2>/dev/null || true
+wait "$RECIPE_PID"
 STATUS=$?
+rm -f "$LOCK_DIR/pgid" 2>/dev/null || true
 set -e
 echo "───────────────────── just ${recipe} exited $STATUS ─────────────────────"
 
@@ -723,6 +782,9 @@ export function parseCliArgs(argv) {
       case '--force-lock':
         opts.forceLock = true;
         break;
+      case '--kill':
+        opts.kill = true;
+        break;
       case '--wait': {
         // Accept `--wait 600` as well as `--wait=600`. Only consume the next
         // argument when it actually looks like a duration: bare `--wait` is
@@ -799,6 +861,9 @@ const HELP = `remote-test — run this repo's non-macOS suites on a Linux box ov
 
 Options (must precede the recipe name):
   --rsync            push the working tree as-is instead of checking out a pushed sha
+  --kill             reap THIS worktree's remote run (its process group only) and
+                     release the lock — never a pattern kill, so a sibling agent's
+                     processes on the shared box are untouched
   --doctor, --setup  report what is present/missing on the remote and exit
   --host H           default $FUTO_REMOTE_HOST or '${DEFAULT_HOST}' (falls back to ${FALLBACK_HOSTS[0]})
   --user U           default $FUTO_REMOTE_USER or '${DEFAULT_USER}'
@@ -876,7 +941,7 @@ function main() {
     return EXIT_REFUSED;
   }
 
-  if (opts.help || (!opts.doctor && !opts.recipe)) {
+  if (opts.help || (!opts.doctor && !opts.kill && !opts.recipe)) {
     console.log(HELP);
     return opts.help ? 0 : EXIT_REFUSED;
   }
@@ -887,7 +952,7 @@ function main() {
 
   // Refuse BEFORE touching the network: a refusal should be instant and offline.
   let verdict = null;
-  if (!opts.doctor) {
+  if (!opts.doctor && !opts.kill) {
     const justfile = readFileSync(path.join(ROOT, 'justfile'), 'utf8');
     verdict = classifyRecipe(opts.recipe, {
       aliases: parseJustAliases(justfile),
@@ -923,6 +988,14 @@ function main() {
   }
 
   if (opts.doctor) return runDoctor(target, opts, ndkVersion);
+
+  if (opts.kill) {
+    const res = spawnSync('ssh', ['-T', target, 'bash -s'], {
+      input: buildKillScript({ remoteDir: opts.remoteDir }),
+      stdio: ['pipe', 'inherit', 'inherit'],
+    });
+    return res.status ?? 1;
+  }
 
   const sha = git(['rev-parse', 'HEAD']);
   const dirty = git(['status', '--porcelain']).split('\n').filter(Boolean);
