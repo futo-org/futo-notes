@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { resolveTheme, applyThemePreference, applyResolvedTheme } from './theme';
+import {
+  resolveTheme,
+  applyThemePreference,
+  applyResolvedTheme,
+  windowAppearanceFor,
+} from './theme';
 import { setNativeWindowAppearance } from '$lib/platform';
 
 vi.mock('$lib/platform', () => ({
   setNativeWindowAppearance: vi.fn(),
+  isLinux: false,
 }));
 
 const nativeAppearance = vi.mocked(setNativeWindowAppearance);
@@ -84,5 +90,32 @@ describe('applyThemePreference — native window appearance', () => {
   it('leaves the native window following the OS on auto', async () => {
     await applyThemePreference('auto', 'dark');
     expect(nativeAppearance).toHaveBeenCalledWith(null);
+  });
+});
+
+// GTK is not macOS/Windows: tao's Linux `set_theme` maps BOTH `None` and
+// `Some(Light)` onto `gtk-application-prefer-dark-theme = false`, so `null` does
+// not mean "follow the desktop" there — it means "prefer light". WebKitGTK then
+// derives the page's own `prefers-color-scheme` from that same GTK property, so
+// handing the window back to the OS overwrites the signal `resolveTheme('auto')`
+// reads. Measured on Fedora 44 / WebKitGTK 2.52.5 against a dark GTK desktop:
+// this app rendered LIGHT (data-theme=light, prefers-color-scheme=false) where
+// the pre-change build rendered dark.
+describe('windowAppearanceFor', () => {
+  it('pins an explicit preference on every platform', () => {
+    expect(windowAppearanceFor('dark', 'dark', false)).toBe('dark');
+    expect(windowAppearanceFor('light', 'light', false)).toBe('light');
+    expect(windowAppearanceFor('dark', 'dark', true)).toBe('dark');
+    expect(windowAppearanceFor('light', 'light', true)).toBe('light');
+  });
+
+  it('hands the window back to the OS on auto where null means "follow the system"', () => {
+    expect(windowAppearanceFor('auto', 'dark', false)).toBeNull();
+    expect(windowAppearanceFor('auto', 'light', false)).toBeNull();
+  });
+
+  it('sends the resolved theme on auto on Linux, where null would force light', () => {
+    expect(windowAppearanceFor('auto', 'dark', true)).toBe('dark');
+    expect(windowAppearanceFor('auto', 'light', true)).toBe('light');
   });
 });
