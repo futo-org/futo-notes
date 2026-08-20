@@ -1,3 +1,5 @@
+import { setNativeWindowAppearance } from '$lib/platform';
+
 export type ThemePreference = 'auto' | 'dark' | 'light';
 export type ResolvedTheme = 'dark' | 'light';
 
@@ -27,6 +29,17 @@ export async function applyThemePreference(
   const resolved =
     preference === 'auto' && systemThemeOverride ? systemThemeOverride : resolveTheme(preference);
   applyResolvedTheme(resolved);
+  // The theme is not only a stylesheet: the OS draws the window frame in the
+  // window's appearance (see setNativeWindowAppearance). An explicit preference
+  // is pinned so the frame, the app menu and native dialogs match the app.
+  //
+  // `auto` deliberately hands the window back to the OS instead of pinning the
+  // resolved value. The two agree there by definition, and pinning would
+  // silence the very signal `auto` follows: tao decides whether to emit
+  // ThemeChanged by re-reading NSApp.effectiveAppearance, which a pin freezes,
+  // so a later system light/dark switch would never reach
+  // `watchSystemThemeTauri` below.
+  setNativeWindowAppearance(preference === 'auto' ? null : resolved);
   await syncStatusBarTheme(resolved);
   return resolved;
 }

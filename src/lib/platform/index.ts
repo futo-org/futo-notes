@@ -72,6 +72,28 @@ export function revealAppWindow(): void {
     .catch((error) => console.warn('Failed to reveal the app window:', error));
 }
 
+// Keep the native window in the same appearance as the app's theme, or pass
+// `null` to leave it following the OS.
+//
+// The window FRAME is not ours to paint: the OS draws it in the window's own
+// appearance. On macOS AppKit strokes a highlight along the top edge whose
+// brightness is chosen for that appearance, and it composites over our pixels —
+// measured on the #171717 top band, white@55% (rgb 150,150,150) for a
+// light-appearance window against white@20% (rgb 66,66,66) for a dark one. So a
+// window left in the system's light appearance while the app renders its dark
+// theme wears a bright hairline along its top edge, glaring against a dark
+// desktop, where a dark window wears the same subtle edge as every native dark
+// app. Nothing in the DOM can reach it; the appearance has to.
+//
+// Off Tauri (web dev server, the native mobile WebView embeds) there is no
+// window to dress, so this is a no-op rather than a branch at the call site.
+export function setNativeWindowAppearance(theme: 'dark' | 'light' | null): void {
+  if (platformName !== 'tauri') return;
+  void import('./tauri/windowAppearance')
+    .then(({ applyNativeWindowAppearance }) => applyNativeWindowAppearance(theme))
+    .catch((error) => console.warn('Failed to set the native window appearance:', error));
+}
+
 // Lazy-loaded platform filesystem implementation
 let _fs: PlatformFS | null = null;
 
