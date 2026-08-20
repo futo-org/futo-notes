@@ -6,6 +6,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,8 +25,25 @@ afterEach(() => {
   for (const dir of workspaces.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
+// Identity is passed with -c rather than two `git config` spawns per repo.
+//
+// Every subprocess here is wall-clock this test cannot control: 6 of these cases
+// each spawn ~14 processes, which is 130-180ms locally but 1-6 of them blew
+// vitest's 5s default when several CI pipelines shared one runner and starved the
+// CPU ~100x (pc_a7f24bf0a15e). The assertions were never wrong, so the fix is
+// headroom, not a longer timeout (M15): this file now spawns 5 fewer processes
+// per case (2 git config + 3 touch).
+const IDENTITY = [
+  '-c',
+  'user.email=ci@example.com',
+  '-c',
+  'user.name=CI',
+  '-c',
+  'commit.gpgsign=false',
+];
+
 function git(cwd, args) {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  return execFileSync('git', [...IDENTITY, ...args], { cwd, encoding: 'utf8' }).trim();
 }
 
 // A throwaway repo with two commits: an unchanged crate file and one the second
@@ -34,8 +52,6 @@ function makeRepo() {
   const dir = mkdtempSync(join(tmpdir(), 'cargo-cache-guard-'));
   workspaces.push(dir);
   git(dir, ['init', '--quiet', '--initial-branch=main']);
-  git(dir, ['config', 'user.email', 'ci@example.com']);
-  git(dir, ['config', 'user.name', 'CI']);
   mkdirSync(join(dir, 'crates/dep/src'), { recursive: true });
   writeFileSync(join(dir, 'Cargo.toml'), '[workspace]\n');
   writeFileSync(join(dir, 'crates/dep/src/lib.rs'), 'pub fn existing() {}\n');
@@ -58,7 +74,8 @@ function restoreCache(dir, { stamp } = {}) {
   if (stamp) writeFileSync(join(dir, 'target/.ci-source-stamp'), `${stamp}\n`);
   const past = new Date(Date.now() - 3600_000);
   for (const file of ['crates/dep/src/lib.rs', 'crates/dep/src/untouched.rs', 'Cargo.toml']) {
-    execFileSync('touch', ['-d', past.toISOString(), join(dir, file)]);
+    // utimesSync, not `touch -d`: same effect, no subprocess (see git() above).
+    utimesSync(join(dir, file), past, past);
   }
 }
 
