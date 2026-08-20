@@ -24,6 +24,11 @@ pub(crate) const MENU_EVENT: &str = "app-menu";
 
 /// Commands the frontend performs, in menu order. Every id here must be
 /// handled by `src/app/registerNotesShellShortcuts.ts`.
+///
+/// Only the macOS `install` reads these, but the contract test below asserts on
+/// them on every platform, so they are compiled everywhere rather than
+/// `cfg`-gated away.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) const FRONTEND_COMMANDS: &[&str] = &[
     "new-note",
     "new-tab",
@@ -35,6 +40,7 @@ pub(crate) const FRONTEND_COMMANDS: &[&str] = &[
 ];
 
 /// Handled in Rust, not forwarded.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const CLOSE_WINDOW: &str = "close-window";
 
 #[cfg(target_os = "macos")]
