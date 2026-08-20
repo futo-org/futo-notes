@@ -675,7 +675,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
+check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.
