@@ -12,15 +12,15 @@ bridge-spec check uses `tsx`, while the other checks only read repository files.
 
 ## Checks
 
-| Check                | Inputs                                                                                                                                                                                  | What fails                                                                                                                                                            |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Command reachability | Tauri's `generate_handler!`, literal `invoke("...")` calls under `src/`, and `scripts/command-reachability-allowlist.json`                                                              | An uncalled registered command, an unregistered invoked command, or a stale allowlist entry                                                                           |
-| Platform discipline  | `@tauri-apps/*` imports under `src/` and `scripts/platform-discipline-allowlist.json`                                                                                                   | A direct Tauri import outside `src/lib/platform/**` without an explicit exception, or a stale exception                                                               |
-| Native bridge specs  | `packages/editor/src/bridge.ts` and generated Kotlin/Swift specs                                                                                                                        | Generated message types or bridge versions are stale; run `just bridge-spec` and commit the results                                                                   |
-| Tauri sync contract  | Rust records in `apps/tauri/src-tauri/src/sync/frontend_contract.rs` and generated TypeScript                                                                                           | Generated frontend types are stale; run `just sync-contract` and commit the result                                                                                    |
-| Drift registry       | Copies, locks, and optional scan patterns in `scripts/drift-registry.json`                                                                                                              | A registered copy or lock disappeared, a detection pattern became stale, lock status is inconsistent, or a scan finds a new unregistered copy                         |
+| Check                | Inputs                                                                                                                     | What fails                                                                                                                                    |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Command reachability | Tauri's `generate_handler!`, literal `invoke("...")` calls under `src/`, and `scripts/command-reachability-allowlist.json` | An uncalled registered command, an unregistered invoked command, or a stale allowlist entry                                                   |
+| Platform discipline  | `@tauri-apps/*` imports under `src/` and `scripts/platform-discipline-allowlist.json`                                      | A direct Tauri import outside `src/lib/platform/**` without an explicit exception, or a stale exception                                       |
+| Native bridge specs  | `packages/editor/src/bridge.ts` and generated Kotlin/Swift specs                                                           | Generated message types or bridge versions are stale; run `just bridge-spec` and commit the results                                           |
+| Tauri sync contract  | Rust records in `apps/tauri/src-tauri/src/sync/frontend_contract.rs` and generated TypeScript                              | Generated frontend types are stale; run `just sync-contract` and commit the result                                                            |
+| Drift registry       | Copies, locks, and optional scan patterns in `scripts/drift-registry.json`                                                 | A registered copy or lock disappeared, a detection pattern became stale, lock status is inconsistent, or a scan finds a new unregistered copy |
 | QA input safety      | Instruction surfaces (README, CONTRIBUTING, every `AGENTS.md`, `docs/**`, `.claude/skills/**`, `.claude/agents/**`, `.claude/workflows/*`) and `scripts/qa-input-safety-allowlist.json` | An instruction file teaches OS-level input into this app, a process-name/PID lookup against it, or a relative `find -newermt` check; or a pinned exception went stale |
-| Gate red-proofs      | Every gate above plus the spec/contract generators, each re-run against one seeded violation in a throwaway `git worktree`                                                              | A gate exits 0 on a seeded violation, exits non-zero without naming it, or is already red on a pristine checkout                                                      |
+| Gate red-proofs      | Every gate above plus the spec/contract generators, each re-run against one seeded violation in a throwaway `git worktree`  | A gate exits 0 on a seeded violation, exits non-zero without naming it, or is already red on a pristine checkout                              |
 
 Each gate must observe something no other gate already observes. Prefer extending the gate that
 owns a boundary over adding a second number about it.
@@ -47,8 +47,8 @@ Two mechanisms, doing different jobs:
   technique in order to forbid it stays legal while a fresh occurrence — even in
   the same file — fails, and a pinned line that disappears fails as stale.
 
-What is enforced versus merely written down: an unsafe _resolution_ is
-impossible through the resolver, and an unsafe _instruction_ is impossible to
+What is enforced versus merely written down: an unsafe *resolution* is
+impossible through the resolver, and an unsafe *instruction* is impossible to
 land in a scanned surface. An agent that improvises OS input from its own memory
 is still only discouraged — nothing inside this repo can revoke a shell's access
 to the window server. Related runtime guard: M3's dev/prod split, which is what
@@ -117,7 +117,7 @@ the network — the RUSTSEC database and the npm registry — while every gate a
 scan.
 
 **CI runs it as a reporter, not a blocker.** `test:audit` is `allow_failure: true` and is deliberately
-_absent_ from `release:gate.needs` — a documented exception to M14. This app is an offline-first local
+*absent* from `release:gate.needs` — a documented exception to M14. This app is an offline-first local
 editor: nearly every advisory that reaches it is in build tooling or on a code path no user input
 travels, so a hard gate would stop releases far more often than it would stop a real risk. Restoring
 either turns this back into a release blocker, which is a product decision rather than a hardening
