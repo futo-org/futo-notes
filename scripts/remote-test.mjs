@@ -469,7 +469,32 @@ exit $STATUS
 `;
 }
 
-export function buildDoctorScript({ remoteDir, sourceRepo, ndkVersion }) {
+// The browser builds THIS repo pins, as directory names under
+// ~/.cache/ms-playwright ("chromium-1208", "webkit-2248").
+//
+// The doctor used to list whatever browsers existed on the remote and call that
+// [ok]. A green doctor therefore promised a playwright run that then failed
+// asking for `playwright install chromium`, because the installed build was not
+// the pinned one (pc_cb1c3886bd09). playwright-core ships the revisions it wants
+// in browsers.json, so compare against that instead of merely counting
+// directories. Returns [] when node_modules is absent, in which case the check
+// degrades to the old presence-only report rather than lying in the other
+// direction.
+export function pinnedPlaywrightBrowsers(root = ROOT) {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(path.join(root, 'node_modules/playwright-core/browsers.json'), 'utf8'),
+    );
+    return manifest.browsers
+      .filter((b) => ['chromium', 'webkit', 'firefox'].includes(b.name))
+      .map((b) => `${b.name}-${b.revision}`)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+export function buildDoctorScript({ remoteDir, sourceRepo, ndkVersion, pinnedBrowsers = [] }) {
   return `
 set -uo pipefail
 ${remoteEnvPreamble({ ndkVersion })}
@@ -553,10 +578,26 @@ else
 fi
 
 BROWSERS="$(ls -1 "$HOME/.cache/ms-playwright" 2>/dev/null | grep -E '^(chromium|webkit|firefox)-' | tr '\\n' ' ')"
-if [ -n "$BROWSERS" ]; then
-  emit 'playwright browsers' ok "$BROWSERS"
-else
+PINNED="${pinnedBrowsers.join(' ')}"
+if [ -z "$BROWSERS" ]; then
   emit 'playwright browsers' missing 'no browsers under ~/.cache/ms-playwright'
+elif [ -z "$PINNED" ]; then
+  # No local node_modules to read browsers.json from: report presence only, and
+  # say so rather than implying the versions were checked.
+  emit 'playwright browsers' ok "$BROWSERS (pinned set unknown — no local node_modules)"
+else
+  MISSING=""
+  for want in $PINNED; do
+    case " $BROWSERS " in
+      *" $want "*) ;;
+      *) MISSING="$MISSING $want" ;;
+    esac
+  done
+  if [ -n "$MISSING" ]; then
+    emit 'playwright browsers' warn "installed:$([ -n "$BROWSERS" ] && echo " $BROWSERS") — but this repo pins$MISSING, so a playwright run will ask to install it"
+  else
+    emit 'playwright browsers' ok "$BROWSERS (matches pinned:$(printf ' %s' $PINNED))"
+  fi
 fi
 
 for d in "${sourceRepo}" "$HOME/Developer/futo-notes-server"; do
@@ -782,6 +823,7 @@ function runDoctor(target, opts, ndkVersion) {
     remoteDir: opts.remoteDir,
     sourceRepo: opts.sourceRepo,
     ndkVersion,
+    pinnedBrowsers: pinnedPlaywrightBrowsers(),
   });
   const res = spawnSync('ssh', ['-T', target, 'bash -s'], {
     input: script,

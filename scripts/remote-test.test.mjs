@@ -10,6 +10,7 @@ import {
   DEFAULT_USER,
   EXIT_LOCKED,
   buildLockScript,
+  pinnedPlaywrightBrowsers,
   buildUnlockScript,
   EXIT_MOVED,
   EXIT_REFUSED,
@@ -463,5 +464,44 @@ describe('two-phase lock (rsync cannot precede the lock)', () => {
     // A lock stranded between phases is identifiable as stale rather than
     // looking like a live run.
     expect(lockScript({ holder: 'who=justin@mac\nphase=transfer' })).toContain('phase=transfer');
+  });
+});
+
+// --doctor used to report 'playwright browsers' [ok] by listing whatever
+// chromium builds existed on the remote, without comparing against the revision
+// this repo pins. A green doctor then promised a playwright run that failed
+// asking for `playwright install chromium` (pc_cb1c3886bd09).
+describe('doctor: playwright browsers are checked against the pinned revisions', () => {
+  it('reads the pinned set from playwright-core browsers.json', () => {
+    const pinned = pinnedPlaywrightBrowsers();
+    expect(pinned.length).toBeGreaterThan(0);
+    // Shaped like the ~/.cache/ms-playwright directory names it is compared to.
+    for (const entry of pinned) expect(entry).toMatch(/^(chromium|webkit|firefox)-\d+$/);
+  });
+
+  it('injects the pinned set into the remote script so it can compare', () => {
+    const script = buildDoctorScript({
+      remoteDir: '/x',
+      sourceRepo: '/y',
+      ndkVersion: '1',
+      pinnedBrowsers: ['chromium-1208', 'webkit-2248'],
+    });
+    expect(script).toContain('PINNED="chromium-1208 webkit-2248"');
+    expect(script).toContain('this repo pins');
+  });
+
+  it('degrades honestly when the pinned set cannot be read', () => {
+    // Reporting presence-only is fine; implying the versions were checked is not.
+    const script = buildDoctorScript({
+      remoteDir: '/x',
+      sourceRepo: '/y',
+      ndkVersion: '1',
+      pinnedBrowsers: [],
+    });
+    expect(script).toContain('pinned set unknown');
+  });
+
+  it('returns an empty set rather than throwing when node_modules is absent', () => {
+    expect(pinnedPlaywrightBrowsers('/definitely/not/a/repo')).toEqual([]);
   });
 });
