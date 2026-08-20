@@ -84,12 +84,29 @@ export async function startServer(port, repoRoot, options = {}) {
   // a host-level compose container at localhost:5433 anyway.
   const externalDb = !!process.env.FUTO_NOTES_E2EE_DATABASE_URL;
   if (!externalDb && !readyComposeProjects.has(serverRepo)) {
-    const compose = spawnSync('docker', ['compose', 'up', '-d', 'postgres'], {
-      cwd: serverRepo,
-      encoding: 'utf8',
-    });
-    if (compose.status !== 0) {
-      throw new Error(`Failed to start E2EE server Postgres:\n${compose.stderr || compose.stdout}`);
+    // Reachability FIRST, compose only as a fallback — the same order
+    // scripts/qa.mjs already uses.
+    //
+    // One Postgres serves every worktree (the databases are slot-derived), so a
+    // second checkout does not need a second container. Going straight to
+    // `docker compose up` made a second server checkout fail outright: its
+    // compose file pins `container_name: futo-notes-postgres`, so compose in
+    // another directory conflicts with the container already running from the
+    // first (pc_9ffe03593dcd). Pinging first makes that case a no-op instead.
+    const reachable = () => pgQuery(serverRepo, `${PG_BASE}/postgres`, 'select 1').status === 0;
+    if (!reachable()) {
+      const compose = spawnSync('docker', ['compose', 'up', '-d', 'postgres'], {
+        cwd: serverRepo,
+        encoding: 'utf8',
+      });
+      if (compose.status !== 0 && !reachable()) {
+        throw new Error(
+          `Failed to start E2EE server Postgres: ${formatSpawnFailure(compose, 'docker')}\n` +
+            `If another checkout already runs it, that container is shared — this should not have ` +
+            `needed compose at all, so Postgres is probably not reachable at ${PG_BASE}. ` +
+            `Set FUTO_NOTES_QA_PG to point at it, or FUTO_NOTES_E2EE_DATABASE_URL to skip compose.`,
+        );
+      }
     }
     readyComposeProjects.add(serverRepo);
   }
