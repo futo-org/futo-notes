@@ -4,6 +4,10 @@ import { webPort } from './scripts/lib/slot.mjs';
 const isCI = !!process.env.CI;
 const baseURL = `http://localhost:${webPort()}`;
 
+// Sanitised: this becomes a path segment, so anything that could escape
+// test-results/ is stripped rather than trusted.
+const runId = (process.env.PW_RUN_ID ?? '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 64);
+
 export default defineConfig({
   testDir: './tests',
   // Runner-specific tests stay out of the default Playwright suite: the
@@ -15,6 +19,14 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   workers: 1,
+  // Playwright WIPES outputDir at the start of every run, so a failing run's
+  // trace, video and error-context.md are gone the moment you re-run to check
+  // whether it was a flake — exactly when you need them (pc_fa46ccbcefea).
+  // Set PW_RUN_ID to keep runs side by side:
+  //   PW_RUN_ID=before pnpm exec playwright test tests/foo.spec.ts
+  //   PW_RUN_ID=after  pnpm exec playwright test tests/foo.spec.ts
+  // Unset (CI included) it stays 'test-results', so artifact paths are unchanged.
+  outputDir: runId ? `test-results/${runId}` : 'test-results',
   reporter: [
     [isCI ? 'dot' : 'list'],
     ['json', { outputFile: 'test-results/results.json' }],

@@ -14,6 +14,14 @@ export default defineConfig({
       'markdown-spec/**/*.test.ts',
       'scripts/**/*.test.mjs',
       'tests/lib/**/*.test.mjs',
+      // Throwaway probes and benchmarks. vitest's `include` is a filter even
+      // when you pass an explicit path, so a scratch file outside these globs
+      // could not be run at all — the workarounds were a custom config plus a
+      // node_modules symlink, or copying the file into src/ and remembering to
+      // delete it, which risks landing a stray test (M16). scratch/ is
+      // gitignored, so a probe here can run and cannot be committed by accident
+      // (pc_907152864548).
+      'scratch/**/*.test.{ts,mjs}',
     ],
     mockReset: true,
     // Newer Node releases install an experimental localStorage getter that

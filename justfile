@@ -786,6 +786,37 @@ deploy-rpm:
   fi
   echo "Done. Installed FUTO Notes ${VERSION} (verified on disk)."
 
+# deploy-deb / deploy-rpm / deploy-ios all existed for prod installs while
+# Android only had `android-native` (debug, com.futo.notes.dev) — so a request to
+# install "the prod app" on all three platforms had to descope Android to a debug
+# build. Release signing needs apps/android/keystore.properties (gitignored);
+# without it Gradle produces an UNSIGNED release APK that cannot be installed, so
+# this refuses up front and says what is missing rather than failing at adb.
+# Honors $ANDROID_SERIAL.
+# Build a RELEASE-signed Android build and install it (com.futo.notes).
+deploy-android:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ ! -f apps/android/keystore.properties ]; then
+    echo "No apps/android/keystore.properties — release builds cannot be signed." >&2
+    echo "  A release APK without it is unsigned and will not install." >&2
+    echo "  For a debug install on com.futo.notes.dev use: just android-native" >&2
+    exit 1
+  fi
+  just build-rust-android
+  node_modules/.bin/vite build --config vite.editor.config.ts
+  cd apps/android && ./gradlew :app:assembleRelease
+  APK=$(ls -t app/build/outputs/apk/release/*.apk | head -1)
+  echo "Installing ${APK} (com.futo.notes)…"
+  adb install -r "$APK"
+  # Assert the PRODUCTION package is what landed — an unsigned or misconfigured
+  # build could otherwise leave the .dev package installed and look successful.
+  adb shell pm list packages | grep -qx 'package:com.futo.notes' || {
+    echo "com.futo.notes is not installed after adb install — nothing was deployed." >&2
+    exit 1
+  }
+  echo "Done. Installed release FUTO Notes (com.futo.notes)."
+
 # Build a RELEASE native iOS build and install it on a connected iPhone
 # (production bundle id com.futo.notes). DEBUG device installs go through
 # `just ios-native-device`; the simulator through `just ios-native`.
