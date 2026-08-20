@@ -115,6 +115,24 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 - Window size, position, maximized and fullscreen state persist across launches,
   validated against the attached monitors so an unplugged display cannot strand
   the window off-screen. → application.rs (tauri-plugin-window-state)
+- The window's own appearance follows the resolved app theme, so the OS draws the
+  window frame, the application menu and native dialogs in the app's light/dark
+  rather than the system's. On macOS the visible tell is the stroke AppKit
+  composites along the window's top edge: white@55% over our dark top band when
+  the window is light (a bright hairline on a dark desktop) against white@20%
+  when it is dark. On Windows it is the titlebar. On Linux the window carries no
+  native frame at all (decorations are off and the app draws its own title bar),
+  so it reaches only the GTK-drawn surfaces — the WebKitGTK context menu and GTK
+  dialogs. → theme.ts `windowAppearanceFor`, windowAppearance.ts
+- On **auto** the window is handed back to the OS on macOS and Windows and pinned
+  to the resolved theme on Linux. Same outcome, opposite mechanism, because the
+  platforms disagree about what "no preference" means: on macOS and Windows
+  pinning a theme stops the platform reporting later system light/dark switches,
+  while GTK has no such value — tao maps both "none" and "light" onto
+  `gtk-application-prefer-dark-theme = false`, which WebKitGTK also reads as the
+  page's own `prefers-color-scheme`, so handing the window back would make a dark
+  Linux desktop render light. → theme.ts `windowAppearanceFor`,
+  platform_integration.rs (`linux-theme-changed`)
 
 ### Application menu *(macOS)*
 

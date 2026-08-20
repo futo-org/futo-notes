@@ -125,7 +125,14 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   drop never lands — macOS repro fixed 2026-07-08). With interception off, OS
   file drops reach the DOM — a window-level guard (`externalFileDropGuard.ts`)
   prevents them from navigating the webview, on every platform. Linux keeps
-  `dragDropEnabled` on (WebKitGTK doesn't swallow internal drags).
+  `dragDropEnabled` on, deliberately: of wry's three backends only webview2
+  (RegisterDragDrop on the HWND) and wkwebview (draggingEntered /
+  performDragOperation overrides) install a native layer that eats internal
+  drags — webkitgtk only connects GTK signal handlers that return false, never
+  calling `drag_dest_set`, so a Linux build has nothing to turn off. Verified
+  on the real Linux app with X11 pointer input: note-into-folder fires the full
+  dragstart/dragenter/dragover/drop sequence and moves the file, and a tab drag
+  reorders the strip. → wry webkitgtk/drag_drop.rs, dragDropConfig.test.ts
 - The custom drag-image ghost (a 1×1 canvas to suppress the OS image + a DOM
   mirror that follows the cursor) is **WebKitGTK-only** (`isLinux`). WebKitGTK
   needs it because it rasterizes the OS drag image blurry on hi-DPI; macOS
