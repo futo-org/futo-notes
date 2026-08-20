@@ -15,7 +15,22 @@ just android-drive             # drive the running app; no args prints the comma
 just test-android-storage      # user-level storage stories on a real device
 ```
 
-For app-only Kotlin iteration, `./gradlew :app:installDebug` from here is enough.
+For app-only Kotlin iteration, `./gradlew :app:installDebug` from here is enough
+**in a warm checkout**. In a FRESH worktree it is not, and both failures look
+unrelated to what you changed:
+
+- `SDK location not found` — a new worktree has no `local.properties` and a
+  plain shell has no `ANDROID_HOME`. Either export `ANDROID_HOME`
+  (`~/Library/Android/sdk` on this Mac) or run `just android-native` once, which
+  resolves the SDK for you.
+- a Kotlin compile error on a missing UniFFI symbol — the generated Kotlin
+  bindings are gitignored, so they simply do not exist yet. Run
+  `just build-rust-android` first.
+
+Running `just android-native` once in a new worktree gets you past both; after
+that, direct gradle invocations work. (Cost two dead-end builds before it was
+written down.)
+
 After changing `futo-notes-ffi` or a crate it re-exports, rebuild the bindings
 first (`just build-rust-android`) or you are testing yesterday's Rust (M9) — the
 symptom is "my change did nothing" or a Kotlin compile error on a missing symbol.

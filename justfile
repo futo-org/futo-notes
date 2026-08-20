@@ -384,6 +384,19 @@ test:
 test-full:
   pnpm run test:full
 
+# Run ONE test file (or a name pattern), installing deps first if this is a
+# fresh worktree. `pnpm exec vitest ...` from a worktree with no node_modules
+# fails with ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL / 'Command "vitest" not found',
+# which says nothing about the real cause (pc_cd6fa6e7aa76).
+#   just test-one src/features/notes/notes.test.ts
+#   just test-one -t 'renames a note'
+# Run ONE test file or -t pattern (installs deps if the worktree is fresh).
+test-one *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -d node_modules ] || { echo "==> node_modules missing — pnpm install"; pnpm install; }
+  node_modules/.bin/vitest run {{args}}
+
 test-unit:
   pnpm run test:unit
 
