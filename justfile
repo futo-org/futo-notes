@@ -214,10 +214,14 @@ test-android-storage:
 # simulators/AVDs are never touched. See scripts/qa.mjs and the /verify
 # skill's "Isolation model" section.
 
-# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
 # Prints `export SIM=…` / `export ANDROID_SERIAL=…` — eval or copy them.
-qa-claim target="all":
-  @node scripts/qa.mjs claim {{target}}
+# Pass `--reboot` when `axe`/`idb` report a 0x0 root for a booted simulator:
+# that means it has no Simulator.app window in this WindowServer session, and a
+# full shutdown/boot cycle is the only fix (simctl screenshot keeps working the
+# whole time, which is why it looks like an app bug).
+# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
+qa-claim target="all" *flags:
+  @node scripts/qa.mjs claim {{target}} {{flags}}
 
 # Show pool devices + per-slot sync servers, and which worktree owns each.
 qa-status:
