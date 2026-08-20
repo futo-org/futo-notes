@@ -188,18 +188,29 @@ describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
     ]);
   });
 
-  it('renders decorations after content is replaced via transaction', () => {
+  it('renders decorations after content is replaced via transaction', async () => {
     ({ view, container } = createEditorWithRendering('Just plain text.'));
+    // Synchronous on purpose: plain text has no h1, so this asserts ABSENCE and
+    // must not wait for one to maybe appear.
     expect(container.querySelector('.cm-md-h1')).toBeNull();
 
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: '# New Heading\n\nWith **bold**.' },
     });
 
-    const h1 = container.querySelector('.cm-md-h1');
+    // Wait for the decorations instead of assuming `dispatch` applied them in
+    // the same tick — they land asynchronously (see beforeAll's note on
+    // post-construction reconfiguration), which is why every sibling test here
+    // uses waitForSelector. Asserting synchronously raced: it passed locally and
+    // failed in CI having found .cm-md-h1 but not yet .cm-md-strong, a partial
+    // decoration pass. This cannot hide a real breakage — a decoration that
+    // never arrives still fails, as 'Timed out waiting for <selector>' (M15:
+    // wait on the condition).
+    const [h1, strong] = await Promise.all([
+      waitForSelector(container, '.cm-md-h1'),
+      waitForSelector(container, '.cm-md-strong'),
+    ]);
     expect(h1, 'h1 decoration missing after content replacement').toBeTruthy();
-
-    const strong = container.querySelector('.cm-md-strong');
     expect(strong, 'bold decoration missing after content replacement').toBeTruthy();
   });
 });
