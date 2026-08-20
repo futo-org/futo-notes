@@ -67,7 +67,14 @@ function runGuard(dir, args = []) {
     const stdout = execFileSync('node', [GUARD, ...args], {
       cwd: dir,
       encoding: 'utf8',
-      env: { ...process.env, CI_PROJECT_DIR: dir },
+      // CI_PROJECT_DIR is pinned so the guard resolves paths inside the fixture
+      // repo. CARGO_TARGET_DIR must be UNSET for the same reason: the guard
+      // derives its target dir from it, so inheriting the caller's value made
+      // the guard inspect a directory outside the fixture, report "no restored
+      // target/", and exit 0 — five tests asserting exit 1 then failed. Green on
+      // a normal Mac, red under any runner that exports CARGO_TARGET_DIR, which
+      // is how it surfaced (pc_7f277346768b).
+      env: { ...process.env, CI_PROJECT_DIR: dir, CARGO_TARGET_DIR: undefined },
     });
     return { status: 0, output: stdout };
   } catch (error) {
