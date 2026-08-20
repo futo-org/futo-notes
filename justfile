@@ -33,6 +33,18 @@ format:
 format-check:
   pnpm run format:check
 
+# The repo rule is that every command goes through `just`, but only the
+# TypeScript side had formatting recipes — so Rust changes had no sanctioned way
+# to be formatted or checked. rustfmt is pinned by rust-toolchain.toml (1.89.0),
+# so both are reproducible across machines and CI.
+# Format the Rust workspace.
+rust-format:
+  cargo fmt --all
+
+# Fail if any Rust file is unformatted.
+rust-format-check:
+  cargo fmt --all --check
+
 # Lint the hand-written Swift production and test sources (read-only) with swift-format, which
 # ships with Xcode 16+ (`xcrun swift-format`). The generated UniFFI bindings
 # (Sources/Generated) are excluded — they are not ours to style.

@@ -58,9 +58,17 @@ Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
 
 ## Testable logic goes down, not sideways
 
-There is no instrumented-test target in `check`/CI here, and the storage-switch
-success path ends in `Runtime.getRuntime().exit(0)`, which an instrumentation
-runner reports as a crash. So Kotlin has exactly two places to be verified:
+CI **does** run instrumented tests: `build:android-native` executes
+`scripts/ci-android-instrumentation.sh` on a headless emulator and publishes
+its `apps/android/app/build/outputs/androidTest-results/` JUnit XML. (This file used to claim there
+was no instrumented target; an androidTest written against that claim failed the
+pipeline in MR !225.) They are not part of local `just check`, which has no
+emulator — run them with `just test-android-native-ui`.
+
+Even so, prefer pushing logic down rather than reaching for instrumentation: the
+storage-switch success path ends in `Runtime.getRuntime().exit(0)`, which an
+instrumentation runner reports as a crash. So Kotlin has two main places to be
+verified:
 
 1. **A JVM unit test** in `app/src/test/java/com/futo/notes/`, for anything that
    can be a pure function over plain data.

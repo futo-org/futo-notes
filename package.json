@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint src packages/editor/src --ext .ts",
+    "lint": "eslint src packages/editor/src tests",
     "check:svelte": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "format": "node scripts/format.mjs --write",
     "format:check": "node scripts/format.mjs",

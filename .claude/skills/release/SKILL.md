@@ -21,7 +21,7 @@ One-time setup:
      export ZULIP_RELEASE_BOT_KEY="<bot-api-key>"
      ```
 
-2. **Tools**: `glab` (GitLab CLI, authenticated), `wl-copy` (Wayland clipboard)
+2. **Tools**: `glab` (GitLab CLI, authenticated), `wl-copy` (Wayland) or `pbcopy` (macOS) for the clipboard step
 
 ---
 
@@ -93,7 +93,7 @@ git diff HEAD~30..HEAD --stat
 
 ### 4b. Check Zulip for related feature requests
 
-Fetch recent messages from `notes-app` to cross-reference with changes:
+Fetch recent messages from `futo-notes` to cross-reference with changes:
 
 ```bash
 source ~/.zshrc && curl -sSX GET -G "https://zulip.futo.org/api/v1/messages" \
@@ -101,7 +101,7 @@ source ~/.zshrc && curl -sSX GET -G "https://zulip.futo.org/api/v1/messages" \
     --data-urlencode 'anchor=newest' \
     --data-urlencode 'num_before=200' \
     --data-urlencode 'num_after=0' \
-    --data-urlencode 'narrow=[{"operator": "channel", "operand": "notes-app"}]'
+    --data-urlencode 'narrow=[{"operator": "channel", "operand": "futo-notes"}]'
 ```
 
 Parse messages. Identify any that requested features or reported bugs addressed by the commits. Note the sender's full name.
@@ -133,7 +133,8 @@ Present both versions to the user for review/editing before proceeding.
 Copy the **Zulip version** (with `@_**Name**` mentions):
 
 ```bash
-printf '%s' "$ZULIP_CHANGELOG" | wl-copy
+# Clipboard is platform-specific: wl-copy on Wayland, pbcopy on macOS.
+printf '%s' "$ZULIP_CHANGELOG" | { command -v wl-copy >/dev/null && wl-copy || pbcopy; }
 ```
 
 Confirm to the user that the Zulip changelog is on their clipboard.
@@ -193,13 +194,13 @@ glab ci status
 
 **Pre-flight check**: Confirm with the user via AskUserQuestion that they're ready to announce. Show them the Zulip changelog one more time.
 
-Post the **Zulip version** of the changelog to `#notes-app`:
+Post the **Zulip version** of the changelog to `#futo-notes`:
 
 ```bash
 source ~/.zshrc && curl -sSX POST "https://zulip.futo.org/api/v1/messages" \
     -u "$ZULIP_RELEASE_BOT_EMAIL:$ZULIP_RELEASE_BOT_KEY" \
     --data-urlencode 'type=channel' \
-    --data-urlencode 'to=notes-app' \
+    --data-urlencode 'to=futo-notes' \
     --data-urlencode 'topic=Releases' \
     --data-urlencode "content=$ZULIP_CHANGELOG"
 ```

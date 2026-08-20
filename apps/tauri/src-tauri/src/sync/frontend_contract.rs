@@ -415,7 +415,10 @@ mod tests {
         assert_eq!(projected.downloaded, downloaded as usize);
         assert_eq!(projected.deleted, deleted as usize);
         assert_eq!(projected.conflicts, conflicts as usize);
-        assert_eq!(projected.local_writes_applied, local_writes_applied as usize);
+        assert_eq!(
+            projected.local_writes_applied,
+            local_writes_applied as usize
+        );
         assert_eq!(projected.failures.len(), failures.len());
         assert_eq!(projected.failures[0].kind, "upload");
         assert_eq!(projected.updated_ids, updated_ids);
