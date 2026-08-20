@@ -251,3 +251,12 @@ if [ -f "$PID_FILE" ]; then
   rm -f "$PID_FILE" "$TAURI_LOG"
 fi
 ```
+
+The PID file is the point: it is the identity of the stack YOU started. Never
+clean up by process name. `pkill -f vite`, `pkill -f "cargo tauri dev"` and
+friends are machine-wide — on 2026-08-19 they took out three peer worktrees,
+silently: an orphaned app keeps its bridge port and stops rebuilding (the peer
+reads that as "my change had no effect"), and a dead dev server returns an error
+overlay instead of a test failure (M25). If the PID file is gone,
+`node scripts/qa-target.mjs list` then `kill` reaches this worktree's app
+instances only, and `just ports` prints the ports you own.

@@ -585,11 +585,13 @@ sync-contract-check:
 check-drift:
   node scripts/drift-check.mjs
 
-# Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents) teaches
-# OS-level input into this app (AppleScript UI scripting, click injection), a
-# process-name/PID lookup against it, or a relative `find -newermt` safety check.
+# Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents, plus
+# this justfile) teaches OS-level input into this app (AppleScript UI scripting,
+# click injection), a process-name lookup or pattern KILL against it or its
+# toolchain, or a relative `find -newermt` safety check.
 # 2026-08-10: a QA agent drove the INSTALLED release app on the user's real vault
-# that way. Rationale + the allowlist contract: scripts/check-qa-input-safety.mjs.
+# that way. 2026-08-19: three parallel agents pattern-killed each other's dev
+# stacks. Rationale + the allowlist contract: scripts/check-qa-input-safety.mjs.
 check-qa-input-safety:
   node scripts/check-qa-input-safety.mjs
 
@@ -700,7 +702,12 @@ deploy-deb:
   cd apps/tauri && cargo tauri build --bundles deb
   cd ../..
   DEB=$(ls -t "${BUNDLE_DIR}"/*.deb | head -1)
-  # Kill running instance (comm is truncated to 15 chars, so use -f)
+  # A single-checkout INSTALL step, and the only sanctioned pattern kill in this
+  # repo: it stops EVERY FUTO Notes on the machine, which is what you want right
+  # before overwriting /usr/bin, and is why both copies are pinned in
+  # scripts/qa-input-safety-allowlist.json. Never copy this line for QA cleanup —
+  # on a multi-worktree machine it takes out your peers' apps too (AGENTS.md M25);
+  # use `just qa-target kill`. (`comm` is truncated to 15 chars, hence -f.)
   pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
   echo "Installing ${DEB}..."
   sudo dpkg -i "$DEB"
@@ -736,7 +743,12 @@ deploy-rpm:
   cd apps/tauri && cargo tauri build --bundles rpm
   cd ../..
   RPM=$(ls -t "${BUNDLE_DIR}"/*.rpm | head -1)
-  # Kill running instance (comm is truncated to 15 chars, so use -f)
+  # A single-checkout INSTALL step, and the only sanctioned pattern kill in this
+  # repo: it stops EVERY FUTO Notes on the machine, which is what you want right
+  # before overwriting /usr/bin, and is why both copies are pinned in
+  # scripts/qa-input-safety-allowlist.json. Never copy this line for QA cleanup —
+  # on a multi-worktree machine it takes out your peers' apps too (AGENTS.md M25);
+  # use `just qa-target kill`. (`comm` is truncated to 15 chars, hence -f.)
   pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
   echo "Installing ${RPM}..."
   # Do NOT route this through dnf's version solver. `dnf reinstall` exits 0
