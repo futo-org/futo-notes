@@ -1177,92 +1177,57 @@ left open because closing it is a behavior change, not a refactor:
   _(Android)_
   > **Gap:** on some old Android System WebViews (the Chromium 80–98 tier that
   > runs the editor but predates `@layer`), users report the shift key re-arming
-  > after each character and the caret jumping to the start of the line after the
-  > first character, so words land in reverse order with no spaces between them
-  > (github#8, github#33). Still unreproduced after two passes on an Android 11 /
-  > Chromium 83 emulator with FUTO Keyboard 0.1.29.1 as the IME. Exercised there
-  > and CORRECT: tapped-key composition, fast-burst typing, real glide typing
-  > (evdev MT-protocol-B injection — the composing region advanced word by word,
-  > so the keyboard genuinely processed the gestures), typing 9k chars deep into a
-  > virtualized document, composition interrupted by a mid-composition
-  > `setContent`, and the real Android selection ActionMode's Select all (whole
-  > document selected and deleted, no leftovers). `dumpsys input_method` showed
-  > the IME's selection tracking the document exactly at every word boundary, so
-  > the obvious "Chromium reports a stale empty text state, selection 0,0" theory
-  > is NOT what happens on this configuration.
+  > after each character and the caret jumping to the start of the line, so words
+  > land in reverse order with no spaces between them (github#8, github#33).
+  > Unreproduced after two passes on Android 11 / Chromium 83 with FUTO Keyboard
+  > 0.1.29.1. Exercised there and correct: tapped-key composition, fast-burst
+  > typing, real glide typing, typing 9k characters into a virtualized document,
+  > a composition interrupted mid-flight, and the selection toolbar's Select all
+  > (whole document deleted, no leftovers). The third symptom reported alongside
+  > these — content scrolling out of view while typing — WAS reproduced and is
+  > fixed (the collapsed height chain above); rerunning every input path with that
+  > layout deliberately reinjected still typed correctly, so it is not upstream of
+  > these two.
   >
-  > Two results narrow it. The third symptom reported alongside these — content
-  > scrolling out of view while typing — WAS reproduced on that engine and is
-  > fixed (the collapsed height chain above, not an IME limitation); and rerunning
-  > every input path with that broken layout deliberately reinjected still typed
-  > correctly, so the layout defect is not upstream of these two.
+  > **The offsets Chromium reports to the IME are relative to the start of
+  > CodeMirror's contiguous rendered block, not the document — never read one as a
+  > note position.** A caret at document offset 2,748 was reported as 503, its
+  > distance from the first rendered line exactly. So the base moves as the note
+  > scrolls: caret pinned at line-148, changing only `scrollTop`, the reported
+  > cursor went 1,175 → 0 once line-148 became the first rendered line. From the
+  > IME's side that IS "the caret jumped to the start". It re-bases mid-composition
+  > too, not only between words — and it still misplaces nothing (160 keystrokes,
+  > four arms, zero split edits), because Blink maps back and ships a matching text
+  > window. A precondition, demonstrated; the corruption, not.
   >
-  > What is left is one measured mechanism. **The offsets Chromium hands the IME
-  > are relative to the start of CodeMirror's contiguous rendered block, not to the
-  > document** — never read one as a document position. Measured: a caret at
-  > document offset 9,484 was reported as 424; with lines 99–148 rendered, a caret
-  > at line-120 (document offset 2,748) was reported as 503, which is its offset
-  > from line-99 exactly, excluding the detached line-1 CodeMirror keeps for
-  > measurement. Within one rendered window the mapping is exact, not approximate
-  > (predicted/reported 143/143, 743/743, 1175/1175).
+  > What produces the exact signature is a whole-document `setContent` landing
+  > mid-typing: it replaces the document with `preserveSelection: false`,
+  > CodeMirror maps the caret to 0, and the next word lands at the HEAD of the
+  > note, capitalized and unspaced, because the IME now sees start-of-field.
+  > Engine-independent. Locked by tests in editorContentSync.test.ts rather than
+  > by a device run. **But the code trace says no user can reach it**:
+  > `preserveSelection: false` has exactly ONE call site in the repo — the bridge's
+  > own `FutoEditor.setContent` — so desktop cannot reach it at all, and on Android
+  > all three `host.setContent` sites are guarded (the `lastPushedContent` dedupe,
+  > page boot, and a renderer rebuild that lands in a fresh page with no live
+  > caret). A sync adopt is exempt by construction: it goes through
+  > `applyExternalContent`, which preserves the selection. It was provoked from a
+  > debugger, which bypasses those gates. Weakest remaining point, unproven: while
+  > a storage migration is latched, `acceptsEditorChange` drops editor changes, so
+  > Compose `content` and `lastPushedContent` freeze at the pre-migration text
+  > while the live document diverges — the invariant the dedupe rests on is
+  > deliberately broken there, and any write to `content` inside that window would
+  > push a caret-destroying `setContent` into a document being edited. No such
+  > write was found.
   >
-  > The consequence is the interesting part: **the base moves when the note
-  > scrolls, so scrolling alone re-bases the IME's cursor to 0 with the caret
-  > standing still.** Caret pinned at line-148, changing only `scrollTop`: at 3,000
-  > the IME was told cursor 1,175; at 6,000 and 9,000, once line-148 became the
-  > first rendered line, it was told **0**. From the IME's side that is literally
-  > "the caret jumped to the start", which is symptom (a) arriving from scrolling
-  > rather than from typing. Typing in the re-based state still landed correctly
-  > here — Blink maps back, and Chromium ships a consistent text window beside the
-  > offset — so the precondition is demonstrated and the corruption is not. What
-  > would convert one into the other is an IME that caches an absolute offset
-  > across a scroll, or one that reads "cursor 0, nothing before me" as
-  > start-of-field, which is exactly what drives auto-capitalization and shift
-  > arming and would explain (a) and (b) together. FUTO Keyboard 0.1.29.1 does
-  > neither.
-  >
-  > Typing through a live re-base is measured, and it is CORRECT — 160 keystrokes
-  > across four arms produced zero misplaced edits. The re-base is real and it
-  > opens the window you would suspect: it happens not only between words but
-  > MID-COMPOSITION, with the candidate range live (6 of 7 window moves in one
-  > run). It just never corrupts anything.
-  >
-  > Two traps for anyone re-testing this. First, the broken build only oscillates
-  > when the caret is FAR from the scroll position — then scroll-cursor-into-view
-  > yanks the root document every keystroke and the render window flips (root
-  > scroll 11 ↔ 12133, 6–7 window moves per 40 keystrokes). With the caret near the
-  > scroll position, or at the document end, the same build on the same note is
-  > perfectly calm and moves the window zero times. Land in the calm regime and you
-  > will wrongly conclude the defect does not scroll. Second, do not score
-  > placement by comparing typed text to the document: autocorrect rewrites words
-  > (nonsense keystrokes came back as "Lazy", "Carbon", "This is"), so a naive diff
-  > reads as corruption. Score it as common-prefix + common-suffix against a
-  > baseline snapshot — one contiguous edit satisfies `prefix + suffix == baseline
-  > length` — and type a space before snapshotting, or the keyboard absorbs the
-  > word the caret is sitting on and its rewrite scores as a split.
-  >
-  > What DOES produce the reporter's exact signature is a whole-document
-  > `setContent` landing mid-typing. It replaces the document with
-  > `preserveSelection: false`, CodeMirror maps a caret inside the replaced range
-  > to its start, and the next committed word is inserted at the HEAD of the note —
-  > capitalized, with no leading space, because the IME is now told the cursor is 0
-  > with nothing before it. Engine-independent; the legacy WebView is irrelevant to
-  > it. The caret half is locked by tests in editorContentSync.test.ts rather than
-  > resting on a device run, and the contrast is deliberate: the same text arriving
-  > through `applyExternalContent` (a sync adopt) preserves the caret.
-  >
-  > Stated as a mechanism, NOT a reproduction. It was provoked from the debugger,
-  > which bypasses the shell's `lastPushedContent` dedupe and `acceptsEditorChange`
-  > gate; typing into a normally-opened note never triggered it. But it is the only
-  > thing found that matches the report, and it redirects the search away from IME
-  > timing: find anything that can push a full `setContent` while the user types —
-  > a watcher-driven note reload, a storage-migration re-push, renderer recovery.
-  >
-  > Otherwise untested: Android 10 (API 29) with a Chromium ≥80
-  > WebView (the stock AOSP image ships Chromium 74, below the editor's floor, so
-  > this needs a physical device or a platform-signed WebView APK), FUTO Keyboard
-  > 1.30 as the reporter runs, and Chromium 80–82 / 84–86. Ask a reporter to
-  > re-test on a build carrying the height-chain fix before spending more here.
-  > Glide typing and the selection toolbar are drivable now — `android-drive`'s
-  > `glide` / `longpress` subcommands, which need `adb root` (they land on branch
-  > `feat/android-drive-gestures`).
+  > Two traps for a re-test. The broken build only oscillates when the caret is FAR
+  > from the scroll position; near it, or at the document end, the same build on
+  > the same note moves the window zero times and looks calm. And do not score
+  > placement by diffing typed text against the document — autocorrect rewrites
+  > words, so a naive comparison reads as corruption; use
+  > `tests/lib/android/editPlacement.mjs`. Untested: Android 10 (API 29) with a
+  > Chromium ≥80 WebView (the stock AOSP image ships Chromium 74, below the
+  > editor's floor, so this needs a physical device or a platform-signed WebView
+  > APK), FUTO Keyboard 1.30 as the reporter runs, and Chromium 80–82 / 84–86. Ask
+  > a reporter to re-test on a build carrying the height-chain fix before spending
+  > more here.
