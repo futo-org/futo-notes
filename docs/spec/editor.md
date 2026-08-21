@@ -1221,12 +1221,30 @@ left open because closing it is a behavior change, not a refactor:
   > arming and would explain (a) and (b) together. FUTO Keyboard 0.1.29.1 does
   > neither.
   >
-  > Note the tension worth resolving first: the height-chain defect above made the
-  > document scroll continuously while typing, and continuous scrolling is precisely
-  > what re-bases this offset. Typing under a STATICALLY reinjected broken layout
-  > was correct, but nobody has typed through an actively running scroll on a
-  > pre-fix build while watching the IME cursor. Do that before concluding the two
-  > are unrelated. Otherwise untested: Android 10 (API 29) with a Chromium ≥80
+  > Typing through a live re-base is now measured, and it is CORRECT. With the
+  > broken layout active and the root document scrolling on every keystroke, the
+  > reported cursor slid 669 → 650 → 631 as the render window advanced a line per
+  > word — so it does re-base between words — and each word still landed at the
+  > caret. On the fixed build, twelve words typed at line 383 of a 400-line note
+  > kept the cursor monotonic and the layout stable. The re-base is real and
+  > benign on this stack.
+  >
+  > What DOES produce the reporter's exact signature is a whole-document
+  > `setContent` landing mid-typing: it replaces the document with
+  > `preserveSelection: false`, the caret resets to 0, and the next committed word
+  > lands at the START of the note, capitalized, because the IME now sees
+  > start-of-field. Observed directly (`"Zzz \nline-1 aaaa…"` at the head of a
+  > 400-line note whose caret was at line 393). This is engine-independent, not a
+  > legacy-WebView effect. It was provoked here by driving `FutoEditor.setContent`
+  > from the debugger, which bypasses the shell's `lastPushedContent` dedupe and
+  > `acceptsEditorChange` gate, so it is NOT a demonstrated user path — but it is
+  > the mechanism that matches the report, and it redirects the search: hunt for
+  > anything that can push a full `setContent` while the user types (a watcher-
+  > driven note reload, a storage-migration re-push, renderer recovery), rather
+  > than for IME timing. Note that a sync adopt is already exempt — it goes through
+  > `applyExternalContent`, which preserves the selection.
+  >
+  > Otherwise untested: Android 10 (API 29) with a Chromium ≥80
   > WebView (the stock AOSP image ships Chromium 74, below the editor's floor, so
   > this needs a physical device or a platform-signed WebView APK), FUTO Keyboard
   > 1.30 as the reporter runs, and Chromium 80–82 / 84–86. Ask a reporter to
