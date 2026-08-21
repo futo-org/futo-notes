@@ -289,10 +289,35 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     await settleDeferredAdopt();
   }
 
-  async function handleFileChange(event: FileChangeEvent): Promise<void> {
+  async function handleFileChange(event: FileChangeEvent, shouldNotifySaved = true): Promise<void> {
     const { type, filename } = event;
     const suppressor = dependencies.writeSuppressor;
     const session = dependencies.session;
+
+    if (type === 'rename' && event.from) {
+      const fromIsNote = event.from.endsWith('.md');
+      const toIsNote = filename.endsWith('.md');
+      if (fromIsNote && !toIsNote) {
+        await handleFileChange({ type: 'unlink', filename: event.from }, shouldNotifySaved);
+        return;
+      }
+      if (!fromIsNote && toIsNote) {
+        await handleFileChange({ type: 'add', filename }, shouldNotifySaved);
+        return;
+      }
+      if (!fromIsNote || !toIsNote) return;
+
+      const fromId = event.from.replace(/\.md$/, '');
+      const toId = filename.replace(/\.md$/, '');
+      if (suppressor.getRecentRemoteRename(fromId)) return;
+      if (fromId === session.originalId) {
+        await reconcileOpenNote(fromId, { renamedTo: toId });
+      }
+      await handleExternalFileChange(filename);
+      if (shouldNotifySaved) dependencies.notifySaved();
+      return;
+    }
+
     if (!filename.endsWith('.md')) return;
 
     const id = filename.replace(/\.md$/, '');
@@ -308,7 +333,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     if (isActiveNoteChange && session.composing) {
       deferReconcile(id);
       await handleExternalFileChange(filename);
-      dependencies.notifySaved();
+      if (shouldNotifySaved) dependencies.notifySaved();
       return;
     }
     if (isActiveNoteChange) {
@@ -321,16 +346,37 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     }
 
     await handleExternalFileChange(filename);
-    if (type === 'add' || type === 'change') dependencies.notifySaved();
+    if (shouldNotifySaved && (type === 'add' || type === 'change')) dependencies.notifySaved();
   }
 
   async function handleBulkRefresh(events: FileChangeEvent[]): Promise<void> {
     scheduleRescan(250);
-    const activeId = dependencies.session.originalId;
-    if (!activeId) return;
+    const suppressor = dependencies.writeSuppressor;
+    const activeFilenames = new Set<string>();
+    for (const event of events) {
+      const activeId = dependencies.session.originalId;
+      if (activeId === null) continue;
+      const activeFilename = `${activeId}.md`;
+      activeFilenames.add(activeFilename);
+      if (
+        event.filename === activeFilename ||
+        (event.type === 'rename' && event.from === activeFilename)
+      ) {
+        await handleFileChange(event, false);
+      }
+    }
 
-    const activeEvent = events.find((event) => event.filename === `${activeId}.md`);
-    if (activeEvent) await handleFileChange(activeEvent);
+    const shouldNotifySaved = events.some((event) => {
+      if (event.type !== 'add' && event.type !== 'change' && event.type !== 'rename') return false;
+      if (event.type === 'change' && activeFilenames.has(event.filename)) return true;
+      if (suppressor.isRecentSyncWrite(event.filename)) return false;
+      if (event.type !== 'rename') return true;
+      if (!event.filename.endsWith('.md')) return false;
+      if (!event.from?.endsWith('.md')) return true;
+      const fromId = event.from.replace(/\.md$/, '');
+      return suppressor.getRecentRemoteRename(fromId) === null;
+    });
+    if (shouldNotifySaved) dependencies.notifySaved();
   }
 
   const watcherBatch = createWatcherBatch({

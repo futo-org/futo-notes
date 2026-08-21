@@ -1168,6 +1168,14 @@ journal --dir` has nothing to read from a phone.
   the cleared session. → createExternalChangeCoordinator.ts (guarded by
   createExternalChangeCoordinator.test.ts and the cross-platform scenario
   "external watcher protects dirty draft then settles")
+- **A watcher-reported desktop rename remains one rename through debounce,
+  bulk refresh, and post-sync draining.** Rename chains are applied in event
+  order, so the open note follows each engine `FollowRename` disposition and
+  the resulting local change schedules one auto-push. A rename from `.md` to a
+  non-note extension is handled as an unlink, a rename into `.md` is handled as
+  an add, and renames between non-note files are ignored. → desktop
+  `watcherBatch` + `createExternalChangeCoordinator` (guarded by their paired,
+  bulk-chain, post-sync, and extension-transition tests)
 - A remote edit to the **currently-open note** is adopted into the open editor
   when the local draft is clean (`content == savedContent`); a dirty draft
   still wins and is never overwritten _(iOS/Android)_. Without this, the open
