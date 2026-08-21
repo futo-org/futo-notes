@@ -1179,12 +1179,32 @@ left open because closing it is a behavior change, not a refactor:
   > runs the editor but predates `@layer`), users report the shift key re-arming
   > after each character and the caret jumping to the start of the line after the
   > first character, so words land in reverse order with no spaces between them
-  > (github#8, github#33). Neither reproduced on a Chromium-83 emulator with FUTO
-  > Keyboard as the IME (per-keystroke, fast-burst and tapped-key composition all
-  > behaved; a synthesised glide gesture could not be made to register at all, so
-  > glide typing specifically stays untested there). The third symptom reported
-  > alongside them — content scrolling out of view while typing — WAS reproduced
-  > on that engine and is fixed: it was the collapsed height chain above, not an
-  > IME limitation. Whether the caret and shift glitches were downstream of that
-  > same broken layout is unknown; ask a reporter to re-test on a build after the
-  > fix before spending more on IME timing.
+  > (github#8, github#33). Still unreproduced after two passes on an Android 11 /
+  > Chromium 83 emulator with FUTO Keyboard 0.1.29.1 as the IME. Exercised there
+  > and CORRECT: tapped-key composition, fast-burst typing, real glide typing
+  > (evdev MT-protocol-B injection — the composing region advanced word by word,
+  > so the keyboard genuinely processed the gestures), typing 9k chars deep into a
+  > virtualized document, composition interrupted by a mid-composition
+  > `setContent`, and the real Android selection ActionMode's Select all (whole
+  > document selected and deleted, no leftovers). `dumpsys input_method` showed
+  > the IME's selection tracking the document exactly at every word boundary, so
+  > the obvious "Chromium reports a stale empty text state, selection 0,0" theory
+  > is NOT what happens on this configuration.
+  >
+  > Two results narrow it. The third symptom reported alongside these — content
+  > scrolling out of view while typing — WAS reproduced on that engine and is
+  > fixed (the collapsed height chain above, not an IME limitation); and rerunning
+  > every input path with that broken layout deliberately reinjected still typed
+  > correctly, so the layout defect is not upstream of these two.
+  >
+  > The one measured oddity left: the offsets Chromium hands the IME live in the
+  > RENDERED VIEWPORT's coordinate space, not the document's — a caret at document
+  > offset 9,484 was reported as 424, with 414 characters in the DOM. Harmless
+  > today because the IME only issues small relative edits that Blink translates
+  > back, but it is the structural precondition an "everything lands at offset 0"
+  > bug would need. Untested and worth trying before anything else: Android 10
+  > (API 29) with a Chromium ≥80 WebView (the stock AOSP image ships Chromium 74,
+  > below the editor's floor, so this needs a physical device or a platform-signed
+  > WebView APK), FUTO Keyboard 1.30 as the reporter runs, and Chromium 80–82 /
+  > 84–86. Ask a reporter to re-test on a build carrying the height-chain fix
+  > before spending more here.
