@@ -1197,14 +1197,40 @@ left open because closing it is a behavior change, not a refactor:
   > every input path with that broken layout deliberately reinjected still typed
   > correctly, so the layout defect is not upstream of these two.
   >
-  > The one measured oddity left: the offsets Chromium hands the IME live in the
-  > RENDERED VIEWPORT's coordinate space, not the document's — a caret at document
-  > offset 9,484 was reported as 424, with 414 characters in the DOM. Harmless
-  > today because the IME only issues small relative edits that Blink translates
-  > back, but it is the structural precondition an "everything lands at offset 0"
-  > bug would need. Untested and worth trying before anything else: Android 10
-  > (API 29) with a Chromium ≥80 WebView (the stock AOSP image ships Chromium 74,
-  > below the editor's floor, so this needs a physical device or a platform-signed
-  > WebView APK), FUTO Keyboard 1.30 as the reporter runs, and Chromium 80–82 /
-  > 84–86. Ask a reporter to re-test on a build carrying the height-chain fix
-  > before spending more here.
+  > What is left is one measured mechanism. **The offsets Chromium hands the IME
+  > are relative to the start of CodeMirror's contiguous rendered block, not to the
+  > document** — never read one as a document position. Measured: a caret at
+  > document offset 9,484 was reported as 424; with lines 99–148 rendered, a caret
+  > at line-120 (document offset 2,748) was reported as 503, which is its offset
+  > from line-99 exactly, excluding the detached line-1 CodeMirror keeps for
+  > measurement. Within one rendered window the mapping is exact, not approximate
+  > (predicted/reported 143/143, 743/743, 1175/1175).
+  >
+  > The consequence is the interesting part: **the base moves when the note
+  > scrolls, so scrolling alone re-bases the IME's cursor to 0 with the caret
+  > standing still.** Caret pinned at line-148, changing only `scrollTop`: at 3,000
+  > the IME was told cursor 1,175; at 6,000 and 9,000, once line-148 became the
+  > first rendered line, it was told **0**. From the IME's side that is literally
+  > "the caret jumped to the start", which is symptom (a) arriving from scrolling
+  > rather than from typing. Typing in the re-based state still landed correctly
+  > here — Blink maps back, and Chromium ships a consistent text window beside the
+  > offset — so the precondition is demonstrated and the corruption is not. What
+  > would convert one into the other is an IME that caches an absolute offset
+  > across a scroll, or one that reads "cursor 0, nothing before me" as
+  > start-of-field, which is exactly what drives auto-capitalization and shift
+  > arming and would explain (a) and (b) together. FUTO Keyboard 0.1.29.1 does
+  > neither.
+  >
+  > Note the tension worth resolving first: the height-chain defect above made the
+  > document scroll continuously while typing, and continuous scrolling is precisely
+  > what re-bases this offset. Typing under a STATICALLY reinjected broken layout
+  > was correct, but nobody has typed through an actively running scroll on a
+  > pre-fix build while watching the IME cursor. Do that before concluding the two
+  > are unrelated. Otherwise untested: Android 10 (API 29) with a Chromium ≥80
+  > WebView (the stock AOSP image ships Chromium 74, below the editor's floor, so
+  > this needs a physical device or a platform-signed WebView APK), FUTO Keyboard
+  > 1.30 as the reporter runs, and Chromium 80–82 / 84–86. Ask a reporter to
+  > re-test on a build carrying the height-chain fix before spending more here.
+  > Glide typing and the selection toolbar are drivable now — `android-drive`'s
+  > `glide` / `longpress` subcommands, which need `adb root` (they land on branch
+  > `feat/android-drive-gestures`).
