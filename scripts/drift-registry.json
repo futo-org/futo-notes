@@ -379,6 +379,25 @@
           "pattern": "body \\{\\s*position: fixed;\\s*top: 0;\\s*right: 0;\\s*bottom: 0;\\s*left: 0;\\s*\\}"
         }
       ]
+    },
+    {
+      "concept": "kitchensink-image-digest",
+      "description": "The futocore/ci/kitchensink digest. `.gitlab-ci.yml` runs jobs on it directly and both CI image Dockerfiles build FROM it, so a bump that moves one copy silently leaves jobs and images on different bases. Nothing enforces agreement but this entry \u2014 bump all three together.",
+      "lockStatus": "unlocked",
+      "copies": [
+        {
+          "location": ".gitlab-ci.yml",
+          "pattern": "kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f"
+        },
+        {
+          "location": "ci/test.Dockerfile",
+          "pattern": "kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f"
+        },
+        {
+          "location": "ci/android.Dockerfile",
+          "pattern": "kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f"
+        }
+      ]
     }
   ]
 }

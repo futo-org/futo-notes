@@ -10,7 +10,7 @@
 # baked "ci" AVD + SDK live under root's home, so a non-root USER would break
 # the pipeline. Accept the "image user should not be root" check accordingly.
 #trivy:ignore:DS-0002
-FROM gitlab.futo.org:5050/futocore/ci/kitchensink:latest
+FROM gitlab.futo.org:5050/futocore/ci/kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f
 
 ENV ANDROID_HOME=/opt/android-sdk
 ENV JAVA_HOME=/opt/jdk-21

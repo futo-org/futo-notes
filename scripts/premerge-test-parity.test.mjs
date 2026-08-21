@@ -258,6 +258,55 @@ describe('pre-merge CI routing contracts', () => {
     expect(dockerignore).toMatch(/^!ci\/install-fnm\.sh$/m);
   });
 
+  // A floating tag lets a registry push swap the toolchain with no commit to
+  // point at, so this asserts the whole set rather than the two it started with.
+  it('pins every container image by digest', () => {
+    const lines = gitlabPipeline.split('\n');
+    const refs = [];
+    lines.forEach((line, index) => {
+      const scalar = /^\s*(?:image|-\s*name):\s*(\S+)\s*$/.exec(line);
+      if (scalar) {
+        refs.push(scalar[1]);
+        return;
+      }
+      if (!/^\s*image:\s*$/.test(line)) return;
+      for (let next = index + 1; next < lines.length && /^\s/.test(lines[next]); next += 1) {
+        const named = /^\s*name:\s*(\S+)\s*$/.exec(lines[next]);
+        if (named) {
+          refs.push(named[1]);
+          return;
+        }
+      }
+    });
+
+    expect(refs.length).toBeGreaterThan(10);
+    const digest = /@sha256:[a-f0-9]{64}$/;
+    expect(refs.filter((ref) => !digest.test(ref) && !/^\$IMAGE_[A-Z_]+$/.test(ref))).toEqual([]);
+
+    const declared = [...gitlabPipeline.matchAll(/^\s+(IMAGE_[A-Z_]+):\s*(\S+)\s*$/gm)];
+    expect(declared.length).toBeGreaterThan(0);
+    expect(declared.filter(([, , value]) => !digest.test(value)).map(([, name]) => name)).toEqual(
+      [],
+    );
+    // Same image named twice must carry the SAME digest. The two Linux release
+    // jobs both pin ubuntu:22.04 by inline literal (they hold the updater key, and
+    // `variables:` loses to a run-pipeline variable), so bumping one and not the
+    // other leaves both digest-pinned — and every check above still passes.
+    const byName = new Map();
+    for (const ref of refs.filter((r) => digest.test(r))) {
+      const [name, sha] = ref.split('@sha256:');
+      if (!byName.has(name)) byName.set(name, new Set());
+      byName.get(name).add(sha);
+    }
+    expect([...byName].filter(([, shas]) => shas.size > 1).map(([name]) => name)).toEqual([]);
+
+    // Referencing an undeclared $IMAGE_* resolves to empty, not to an error.
+    const declaredNames = declared.map(([, name]) => name);
+    refs
+      .filter((ref) => ref.startsWith('$IMAGE_'))
+      .forEach((ref) => expect(declaredNames).toContain(ref.slice(1)));
+  });
+
   // .nvmrc holds the exact patch and every surface activates it through fnm.
   // Before fnm there were three capability tiers — nodesource and Homebrew could
   // express only a major line, and Windows pinned against a moving LTS pointer —
