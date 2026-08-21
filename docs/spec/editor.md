@@ -1221,28 +1221,42 @@ left open because closing it is a behavior change, not a refactor:
   > arming and would explain (a) and (b) together. FUTO Keyboard 0.1.29.1 does
   > neither.
   >
-  > Typing through a live re-base is now measured, and it is CORRECT. With the
-  > broken layout active and the root document scrolling on every keystroke, the
-  > reported cursor slid 669 → 650 → 631 as the render window advanced a line per
-  > word — so it does re-base between words — and each word still landed at the
-  > caret. On the fixed build, twelve words typed at line 383 of a 400-line note
-  > kept the cursor monotonic and the layout stable. The re-base is real and
-  > benign on this stack.
+  > Typing through a live re-base is measured, and it is CORRECT — 160 keystrokes
+  > across four arms produced zero misplaced edits. The re-base is real and it
+  > opens the window you would suspect: it happens not only between words but
+  > MID-COMPOSITION, with the candidate range live (6 of 7 window moves in one
+  > run). It just never corrupts anything.
+  >
+  > Two traps for anyone re-testing this. First, the broken build only oscillates
+  > when the caret is FAR from the scroll position — then scroll-cursor-into-view
+  > yanks the root document every keystroke and the render window flips (root
+  > scroll 11 ↔ 12133, 6–7 window moves per 40 keystrokes). With the caret near the
+  > scroll position, or at the document end, the same build on the same note is
+  > perfectly calm and moves the window zero times. Land in the calm regime and you
+  > will wrongly conclude the defect does not scroll. Second, do not score
+  > placement by comparing typed text to the document: autocorrect rewrites words
+  > (nonsense keystrokes came back as "Lazy", "Carbon", "This is"), so a naive diff
+  > reads as corruption. Score it as common-prefix + common-suffix against a
+  > baseline snapshot — one contiguous edit satisfies `prefix + suffix == baseline
+  > length` — and type a space before snapshotting, or the keyboard absorbs the
+  > word the caret is sitting on and its rewrite scores as a split.
   >
   > What DOES produce the reporter's exact signature is a whole-document
-  > `setContent` landing mid-typing: it replaces the document with
-  > `preserveSelection: false`, the caret resets to 0, and the next committed word
-  > lands at the START of the note, capitalized, because the IME now sees
-  > start-of-field. Observed directly (`"Zzz \nline-1 aaaa…"` at the head of a
-  > 400-line note whose caret was at line 393). This is engine-independent, not a
-  > legacy-WebView effect. It was provoked here by driving `FutoEditor.setContent`
-  > from the debugger, which bypasses the shell's `lastPushedContent` dedupe and
-  > `acceptsEditorChange` gate, so it is NOT a demonstrated user path — but it is
-  > the mechanism that matches the report, and it redirects the search: hunt for
-  > anything that can push a full `setContent` while the user types (a watcher-
-  > driven note reload, a storage-migration re-push, renderer recovery), rather
-  > than for IME timing. Note that a sync adopt is already exempt — it goes through
-  > `applyExternalContent`, which preserves the selection.
+  > `setContent` landing mid-typing. It replaces the document with
+  > `preserveSelection: false`, CodeMirror maps a caret inside the replaced range
+  > to its start, and the next committed word is inserted at the HEAD of the note —
+  > capitalized, with no leading space, because the IME is now told the cursor is 0
+  > with nothing before it. Engine-independent; the legacy WebView is irrelevant to
+  > it. The caret half is locked by tests in editorContentSync.test.ts rather than
+  > resting on a device run, and the contrast is deliberate: the same text arriving
+  > through `applyExternalContent` (a sync adopt) preserves the caret.
+  >
+  > Stated as a mechanism, NOT a reproduction. It was provoked from the debugger,
+  > which bypasses the shell's `lastPushedContent` dedupe and `acceptsEditorChange`
+  > gate; typing into a normally-opened note never triggered it. But it is the only
+  > thing found that matches the report, and it redirects the search away from IME
+  > timing: find anything that can push a full `setContent` while the user types —
+  > a watcher-driven note reload, a storage-migration re-push, renderer recovery.
   >
   > Otherwise untested: Android 10 (API 29) with a Chromium ≥80
   > WebView (the stock AOSP image ships Chromium 74, below the editor's floor, so
