@@ -196,6 +196,18 @@ test-android-native-ui: build-rust-android
 test-android-storage:
   node tests/android-storage-migration.mjs
 
+# Sustained human-cadence typing against the REAL native iOS app, with the
+# simulator vault as the oracle: exactly the seeded note, byte-exact content,
+# and no conflict copies or other unrequested files. The build/install is
+# deliberately mandatory so the story always exercises the code being pushed.
+# Requires SIM from `just qa-claim ios`; the runner verifies pool ownership.
+test-ios-stories:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -n "${SIM:-}" ] || { echo 'No claimed simulator — run: eval "$(just qa-claim ios)"' >&2; exit 1; }
+  SIM="$SIM" just ios-native
+  SIM="$SIM" node tests/ios-editor-stories.mjs
+
 # ── Parallel QA isolation (multiple worktrees, one machine) ──
 # Worktree path → slot → pooled devices (futo-qa-0..6 per platform) + a
 # per-slot sync server with its own Postgres database. Your personal
@@ -670,9 +682,12 @@ check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
 # recipe here adds the cargo-dependent Rust dependency-boundary proof.
 # Maximal pre-push gate: `check` + full Rust workspace + full E2E + cross-platform sync.
 prepush: check test-rust-full gate-redproofs
+  #!/usr/bin/env bash
+  set -euo pipefail
   pnpm exec playwright test --retries=1
   pnpm run test:cross-platform
-  @echo "prepush green — check + rust workspace + full e2e + cross-platform sync all passed"
+  bash scripts/run-ios-stories-if-available.sh
+  echo "prepush green — check + rust workspace + full e2e + cross-platform sync + available iOS stories all passed"
 
 ci:
   pnpm run ci

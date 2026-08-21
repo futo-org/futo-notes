@@ -1,0 +1,44 @@
+#!/bin/sh
+# Path-scoped local iOS device-story gate. Git supplies one ref update per
+# stdin line: local-ref local-sha remote-ref remote-sha.
+set -eu
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+
+EMPTY_TREE=$(git hash-object -t tree /dev/null)
+changed_files=''
+has_update=0
+
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ -n "${local_sha:-}" ] || continue
+  case "$local_sha" in
+    *[!0]*) ;;
+    *) continue ;; # deleting a remote ref pushes no local code
+  esac
+  has_update=1
+
+  case "$remote_sha" in
+    *[!0]*) base_sha=$remote_sha ;;
+    *) base_sha=$EMPTY_TREE ;; # a new remote ref: inspect the whole pushed tree
+  esac
+
+  update_files=$(git diff --name-only "$base_sha" "$local_sha")
+  if [ -n "$update_files" ]; then
+    changed_files="${changed_files}${changed_files:+
+}${update_files}"
+  fi
+done
+
+if [ "$has_update" -eq 0 ]; then
+  echo "iOS device stories: SKIPPED — this push contains no local ref update."
+  exit 0
+fi
+
+if ! printf '%s\n' "$changed_files" \
+  | grep -Eq '^(apps/ios/|packages/editor/|crates/futo-notes-(core|store|ffi)/)'; then
+  echo "iOS device stories: SKIPPED — pushed changes do not touch an iOS/editor/core owner."
+  exit 0
+fi
+
+bash scripts/run-ios-stories-if-available.sh

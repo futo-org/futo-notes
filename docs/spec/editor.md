@@ -967,6 +967,18 @@ EditorWebView.swift, EditorWebView.kt
   `EditorLifecycleFlushTest`. Earlier behavior verified on iOS 2026-07-13
   (sim); iOS verb wiring verified via `just test-ios-native` 2026-07-21 and
   Android verb/adoption wiring via `just test-android-native` 2026-07-23.
+- A durable native autosave flush **always advances the open editor's saved
+  baseline to the bytes that landed**. Rescheduling the debounce on the next
+  keystroke may cancel the task, but it must never skip that post-flush record;
+  only an editor identity that has already moved elsewhere may veto it. A
+  parked disposition follows the returned copy and advances its baseline in
+  the same step, so the next save cannot re-park against the original note.
+  iOS makes this liveness-free decision in `settledFlush`; Android holds the
+  flush-and-record span in `withContext(NonCancellable)`. _(iOS, Android)_ →
+  NoteEditorView.swift / NotesStore.swift `settledFlush`, EditorSession.kt
+  `NonCancellable`; guarded by `SettledFlushTests`,
+  `EditorSessionTests.cancelledSaveStillResumes`, and Android
+  `EditorSessionTest`.
 - The open editor's unsaved-draft register is **derived** from the editor's live
   state (note id, buffer, saved content, loaded) rather than hand-synced, so it
   goes clean the instant a save completes or a remote is adopted (no stale draft

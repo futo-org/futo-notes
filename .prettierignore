@@ -7,6 +7,11 @@ apps/ios/.build*/
 apps/android/app/build/
 apps/android/build/
 
+# Local nested checkouts. Prettier honors this file but not .git/info/exclude,
+# so pool worktrees otherwise make this checkout's format gate depend on peers.
+.worktrees/
+wtbase/
+
 # Generated code
 apps/ios/Sources/Generated/
 src/features/sync/syncContract.generated.ts
