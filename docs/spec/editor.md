@@ -594,6 +594,20 @@ EditorWebView.swift, EditorWebView.kt
   are dumb dispatchers: no platform restates the item list or reimplements
   a command. → packages/editor/src/toolbar.ts, src/features/editor/markdownToolbar.ts,
   tests/editor-embed-bridge.spec.ts
+- A block-format command classifies each selected line as plain, bullet,
+  ordered, task, heading, or quote, then emits exactly one block prefix after
+  the line's existing indentation. Tapping Bullet, Ordered, Task, or Quote on
+  the same kind removes it; tapping a different kind converts the whole prefix
+  while preserving the line's text. Converting a checked task drops its
+  checkbox state along with the task prefix. →
+  src/features/editor/toolbar/blockFormatting.ts,
+  src/features/editor/toolbar/blockFormatting.test.ts,
+  tests/editor-embed-bridge.spec.ts
+- Heading follows its own per-line cycle: a non-heading becomes h1, then h1 →
+  h2 → h3 → plain. A multi-line selection applies that transition separately
+  to each line, like the other block-format commands. →
+  src/features/editor/toolbar/blockFormatting.ts,
+  src/features/editor/toolbar/blockFormatting.test.ts
 - Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
   the host renders its own toolbar from a GENERATED copy of the manifest and
   drives the editor over the bridge — `exec(id)` runs the shared command,
