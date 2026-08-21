@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 
 use futo_notes_store::{
     BeforeWrite, BootstrapResult, FileChange, FlushDraftResult, ListingSnapshot, LocalNoteStore,
-    MutationResult, SearchHit, SearchStatus, Snapshot, VaultFile,
+    MutationResult, NoteRename, SearchHit, SearchStatus, Snapshot, VaultFile,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::application_state::AppState;
@@ -370,6 +370,44 @@ pub async fn local_notes_rescan(app: AppHandle, state: State<'_, AppState>) -> R
     Ok(())
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalRenamePair {
+    pub from_id: String,
+    pub to_id: String,
+}
+
+fn local_notes_refresh_external_changes_impl(
+    store: &LocalNoteStore,
+    updated_ids: &[String],
+    deleted_ids: &[String],
+    renamed: Vec<ExternalRenamePair>,
+) -> Result<MutationResult, String> {
+    let renamed = renamed
+        .into_iter()
+        .map(|pair| NoteRename {
+            from: pair.from_id,
+            to: pair.to_id,
+        })
+        .collect::<Vec<_>>();
+    store.refresh_external_changes(updated_ids, deleted_ids, &renamed)
+}
+
+#[tauri::command]
+pub async fn local_notes_refresh_external_changes(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    updated_ids: Vec<String>,
+    deleted_ids: Vec<String>,
+    renamed: Vec<ExternalRenamePair>,
+) -> Result<MutationResult, String> {
+    let store = store(&app, &state)?;
+    blocking(move || {
+        local_notes_refresh_external_changes_impl(&store, &updated_ids, &deleted_ids, renamed)
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -449,6 +487,40 @@ mod tests {
 
         std::fs::remove_dir_all(root).unwrap();
         std::fs::remove_dir_all(other).unwrap();
+    }
+
+    #[test]
+    fn refresh_external_changes_impl_projects_the_complete_engine_mutation() {
+        let root = temp_root();
+        let store = LocalNoteStore::new(root.clone());
+        store.write("Old", "body", Some(10)).unwrap();
+        store.write("Gone", "deleted", Some(5)).unwrap();
+        std::fs::rename(root.join("Old.md"), root.join("New.md")).unwrap();
+        std::fs::remove_file(root.join("Gone.md")).unwrap();
+
+        let mutation = local_notes_refresh_external_changes_impl(
+            &store,
+            &["New".to_owned()],
+            &["Gone".to_owned()],
+            vec![ExternalRenamePair {
+                from_id: "Old".to_owned(),
+                to_id: "New".to_owned(),
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(
+            mutation.renamed,
+            [NoteRename {
+                from: "Old".to_owned(),
+                to: "New".to_owned(),
+            }]
+        );
+        assert_eq!(mutation.removed, ["Gone", "Old"]);
+        assert_eq!(mutation.upserted.len(), 1);
+        assert_eq!(mutation.upserted[0].note.id, "New");
+        assert_eq!(mutation.upserted[0].position, 0);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

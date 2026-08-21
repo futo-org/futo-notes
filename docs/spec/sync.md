@@ -608,17 +608,19 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   syncServiceE2ee.ts, syncManager.svelte.ts
 - When a sync cycle changes the local notes tree, the note list (and the open
   editor's on-disk base) refreshes automatically so the change appears without
-  any user action. Both native shells pass the complete `SyncSummary` through
-  `SyncManager.onLocalTreeChanged` to `NotesStore.localTreeChanged`, where the
-  store-owned
-  `refresh_external_changes` projects only affected rows at their canonical
-  Rust-computed positions. That verb rechecks final filesystem state, so a
+  any user action. Every shell passes the complete changed-id and rename report
+  to the store-owned `refresh_external_changes`, which projects only affected
+  rows at their canonical
+  Rust-computed positions. Desktop applies the returned mutation before it
+  reconciles the open note; native shells pass the complete `SyncSummary`
+  through `SyncManager.onLocalTreeChanged` to `NotesStore.localTreeChanged`.
+  That verb rechecks final filesystem state, so a
   callback racing a recreate/flush cannot delete the recreated row, and sends
   scoped changed/removed notifications to search. If scoped projection fails,
-  a native shell falls back to search reconciliation plus a full snapshot, then
+  a shell falls back to search reconciliation plus a full snapshot, then
   still delivers the summary so the open editor can reconcile from disk. →
-  iOS `FutoNotesApp` / `NotesStore.swift`; Android `MainActivity` /
-  `NotesStore.kt`;
+  desktop `refreshNotesAfterSync` / `local_notes_refresh_external_changes`;
+  iOS `FutoNotesApp` / `NotesStore.swift`; Android `MainActivity` / `NotesStore.kt`;
   futo-notes-store `refresh_external_changes`
   - The refresh fires on the core-computed `SyncSummary.localWritesApplied`, not
     only `downloaded`/`deleted` — a **push-side** clean merge (`MergedClean`)
