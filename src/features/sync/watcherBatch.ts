@@ -128,12 +128,9 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
     postSyncBatchTimer = window.setTimeout(async () => {
       postSyncBatchTimer = null;
       const unhandled = pendingWatcherEvents.filter(
-        (ev) =>
-          isDrainExempt?.(ev) ||
-          (!suppressor.isRecentSyncWrite(ev.filename) && !suppressor.isPreSyncWrite(ev.filename)),
+        (ev) => isDrainExempt?.(ev) || !suppressor.isRecentSyncWrite(ev.filename),
       );
       pendingWatcherEvents = [];
-      suppressor.clearPreSyncWrites();
       if (unhandled.length > 0) {
         await onBulkRefresh(unhandled);
       }
@@ -142,9 +139,6 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
 
   function setSyncActive(active: boolean): void {
     syncActive = active;
-    if (active) {
-      suppressor.capturePreSyncWrites();
-    }
   }
 
   function destroy(): void {

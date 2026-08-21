@@ -240,18 +240,16 @@ describe('watcherBatch drainPostSync', () => {
     batch.destroy();
   });
 
-  it('filters local writes buffered before sync started (expired TTL)', async () => {
+  it('keeps external events while filtering exact sync-write echoes', async () => {
     const onBulkRefresh = vi.fn(async () => {});
     const suppressor = createWriteSuppressor();
     const opts = makeOptions({ onBulkRefresh, suppressor });
     const batch = createWatcherBatch(opts);
 
-    suppressor.recordWrite('new note.md');
-
-    await vi.advanceTimersByTimeAsync(1500);
+    suppressor.recordSyncWrite('synced.md');
 
     batch.setSyncActive(true);
-    batch.enqueue({ type: 'change', filename: 'new note.md' });
+    batch.enqueue({ type: 'change', filename: 'synced.md' });
     batch.enqueue({ type: 'change', filename: 'external.md' });
 
     batch.setSyncActive(false);

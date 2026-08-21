@@ -2,6 +2,5 @@
   "_comment": "Cross-language constants verified to agree today (architecture-hardening.md PKT-7 gate 3 / findings F7, F21). Consumers: crates/futo-notes-model/tests/conformance.rs (maxTitleLength), apps/tauri/src-tauri/src/filesystem_watcher.rs's test module (watcherSuppressionWindowMs), src/lib/constantsConformance.test.ts (all fields). Image extensions are covered by tests/conformance/image.json.",
   "maxTitleLength": 200,
   "watcherSuppressionWindowMs": 5000,
-  "writeSuppressionLocalTtlMs": 1000,
   "writeSuppressionSyncTtlMs": 5000
 }

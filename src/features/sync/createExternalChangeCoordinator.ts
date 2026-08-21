@@ -322,10 +322,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
 
     const id = filename.replace(/\.md$/, '');
     const isActiveNoteChange = type === 'change' && id === session.originalId;
-    if (
-      !isActiveNoteChange &&
-      (suppressor.isRecentSyncWrite(filename) || suppressor.isRecentWrite(filename))
-    ) {
+    if (!isActiveNoteChange && suppressor.isRecentSyncWrite(filename)) {
       return;
     }
     if (type === 'unlink' && suppressor.getRecentRemoteRename(id)) return;
