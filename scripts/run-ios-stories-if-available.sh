@@ -32,6 +32,20 @@ if ! command -v "${AXE_BIN:-axe}" >/dev/null 2>&1; then
   exit 0
 fi
 
+if ! command -v just >/dev/null 2>&1; then
+  echo "================ iOS DEVICE STORIES SKIPPED ================"
+  echo '`just` is unavailable; sustained autosave typing was not tested.'
+  echo "============================================================"
+  exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "================ iOS DEVICE STORIES SKIPPED ================"
+  echo "Node.js is unavailable; sustained autosave typing was not tested."
+  echo "============================================================"
+  exit 0
+fi
+
 # Always resolve the target through the pool. An ambient SIM may name a
 # personal or another worktree's simulator; the story runner independently
 # verifies ownership before it touches the app container or sends input.
@@ -53,5 +67,6 @@ if [ -z "$SIM" ]; then
 fi
 
 printf '%s\n' "$claim_output"
+echo "Pool simulator remains claimed; release it when finished with: just qa-release"
 export SIM
 just test-ios-stories
