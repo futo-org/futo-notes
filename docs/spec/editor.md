@@ -330,6 +330,18 @@ this file states the behaviors a human cares about.
   the shared size cache, and calls `view.requestMeasure()`; a zero-height
   measurement taken before the host has laid out is ignored so it cannot poison
   the cache. → live-preview/images.ts `ImageWidget`
+- On the native shells the embed page pins `body` to the web view with
+  `position: fixed` plus the four offset longhands, and `#editor` fills that body
+  the same way. Both rules live unlayered in `editor.html`, never as `inset` and
+  never behind `@layer`: a Chromium 80–98 Android System WebView discards every
+  layered rule (so `base.css`'s identical `body` rule never arrives) and one
+  below 87 also drops the `inset` shorthand, and that engine sizes the initial
+  containing block to zero — so without both rules `.cm-scroller` never becomes a
+  scroll container and CodeMirror scrolls the ROOT document to reveal the cursor,
+  sliding the note up under the shell's native title bar as the user types
+  (github#33, reported on 1.7.0 / Android 10; reproduced and fixed on a
+  Chromium-83 WebView 2026-08-21). → editor.html, tests/editor-embed-bridge.spec.ts
+  "pre-inset WebView"
 - On the native shells (iOS **and** Android — CM6 owns its own scroller), the
   editor warms CM6's height map on note load (and after font load / width change)
   by measuring every line's real height up front. Off-screen wrapped lines are
@@ -1165,11 +1177,14 @@ left open because closing it is a behavior change, not a refactor:
   _(Android)_
   > **Gap:** on some old Android System WebViews (the Chromium 80–98 tier that
   > runs the editor but predates `@layer`), users report the shift key re-arming
-  > after each character, the caret jumping to the start of the line after the
-  > first character, and content scrolling out of view while typing (github#8).
-  > These are CM6-on-old-engine input limitations. They did **not** reproduce on
-  > the Chromium-83 emulator even with FUTO Keyboard as the IME (per-keystroke,
-  > fast-burst, and glide typing all behaved), so the cause is likely
-  > physical-device IME timing or a specific WebView build. Unaddressed — the
-  > legacy-WebView work fixes the black-text half and the sub-floor blank-editor
-  > case, not these input glitches.
+  > after each character and the caret jumping to the start of the line after the
+  > first character, so words land in reverse order with no spaces between them
+  > (github#8, github#33). Neither reproduced on a Chromium-83 emulator with FUTO
+  > Keyboard as the IME (per-keystroke, fast-burst and tapped-key composition all
+  > behaved; a synthesised glide gesture could not be made to register at all, so
+  > glide typing specifically stays untested there). The third symptom reported
+  > alongside them — content scrolling out of view while typing — WAS reproduced
+  > on that engine and is fixed: it was the collapsed height chain above, not an
+  > IME limitation. Whether the caret and shift glitches were downstream of that
+  > same broken layout is unknown; ask a reporter to re-test on a build after the
+  > fix before spending more on IME timing.

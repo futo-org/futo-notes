@@ -325,7 +325,7 @@
     },
     {
       "concept": "editor-exit-ordering",
-      "description": "The order an open note's exit runs in (admission -> latch -> cancel -> drain -> commit -> effect) so no async completion lands against a stale note identity. One EditorSession per native shell. This duplicate is permitted because every step being ordered is a host-runtime handle the engine cannot hold (a Compose coroutine, a Swift Task, a WebView round-trip, a vetoable navigation) — the engine still owns what a save MEANS via flush_draft/persist-or-park (ADR-0001), reached only through injected effects. The shells also legitimately differ: navigation commit order, where the committed body comes from, and move-picker drain timing. Partial: each shell is pinned by its OWN ordering tests, and the shared invariant is stated in prose in docs/spec/editor.md \"Editor exits\" — nothing mechanically holds the two implementations together. Changing one shell's exit ordering updates that spec section and checks the sibling in the same MR, or records the divergence there. The escalation threshold was reached in iOS v1.7.0: a cancelled Swift autosave resumed after a durable flush but skipped its baseline record, while Android's NonCancellable span already held the invariant; the resulting conflict-copy storm shipped as a device bug. The next architectural step is therefore the deferred Rust editor engine (crates/futo-notes-editor), not a bigger fixture; starting that engine remains a separate scope decision.",
+      "description": "The order an open note's exit runs in (admission -> latch -> cancel -> drain -> commit -> effect) so no async completion lands against a stale note identity. One EditorSession per native shell. This duplicate is permitted because every step being ordered is a host-runtime handle the engine cannot hold (a Compose coroutine, a Swift Task, a WebView round-trip, a vetoable navigation) \u2014 the engine still owns what a save MEANS via flush_draft/persist-or-park (ADR-0001), reached only through injected effects. The shells also legitimately differ: navigation commit order, where the committed body comes from, and move-picker drain timing. Partial: each shell is pinned by its OWN ordering tests, and the shared invariant is stated in prose in docs/spec/editor.md \"Editor exits\" \u2014 nothing mechanically holds the two implementations together. Changing one shell's exit ordering updates that spec section and checks the sibling in the same MR, or records the divergence there. The escalation threshold was reached in iOS v1.7.0: a cancelled Swift autosave resumed after a durable flush but skipped its baseline record, while Android's NonCancellable span already held the invariant; the resulting conflict-copy storm shipped as a device bug. The next architectural step is therefore the deferred Rust editor engine (crates/futo-notes-editor), not a bigger fixture; starting that engine remains a separate scope decision.",
       "lockStatus": "partial",
       "copies": [
         {
@@ -419,6 +419,21 @@
         "pattern": "md5[\\s\\S]{0,400}%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b|%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b[\\s\\S]{0,400}md5",
         "flags": "i"
       }
+    },
+    {
+      "concept": "embed-body-pin",
+      "description": "The rule that gives the editor page a real height: body pinned to the web view with position:fixed and all four offsets. src/styles/base.css owns it for the app; editor.html repeats it UNLAYERED because a Chromium 80-98 Android System WebView discards every @layer'd rule and would otherwise leave body static and zero-height, collapsing the whole #editor -> .cm-editor -> .cm-scroller height chain (github#33). Same declarations on purpose - change one, change the other.",
+      "lockStatus": "unlocked",
+      "copies": [
+        {
+          "location": "src/styles/base.css",
+          "pattern": "body \\{[\\s\\S]*?position: fixed;[\\s\\S]*?inset: 0;"
+        },
+        {
+          "location": "editor.html",
+          "pattern": "body \\{\\s*position: fixed;\\s*top: 0;\\s*right: 0;\\s*bottom: 0;\\s*left: 0;\\s*\\}"
+        }
+      ]
     }
   ]
 }
