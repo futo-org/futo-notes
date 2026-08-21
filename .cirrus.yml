@@ -3,8 +3,9 @@ test_rust_macos_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   testRustMacOS_script:
-    - brew install node@22
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - corepack enable
@@ -36,8 +37,9 @@ test_desktop_smoke_macos_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   testDesktopSmokeMacOS_script:
-    - brew install node@22
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - corepack enable
@@ -70,8 +72,9 @@ test_ios_native_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   testFutoNotesIOSNative_script:
-    - brew install node@22 xcodegen
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm xcodegen
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
@@ -173,8 +176,9 @@ build_ios_task:
     - cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
 
     # Install Node + pnpm
-    - brew install node@22
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - node --version
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
@@ -318,8 +322,9 @@ build_macos_task:
     - export APPLE_API_ISSUER="$ASC_ISSUER_ID"
 
     # Install Node + pnpm
-    - brew install node@22
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - node --version
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
@@ -369,8 +374,9 @@ build_ios_native_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   build_ios_native_script:
-    - brew install node@22 xcodegen
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm xcodegen
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - curl https://sh.rustup.rs -sSf | sh -s -- -y

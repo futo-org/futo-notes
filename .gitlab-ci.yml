@@ -6,7 +6,14 @@ default:
   image: gitlab.futo.org:5050/futocore/ci/kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f
   interruptible: true
   before_script:
-    - . $HOME/.nvm/nvm.sh
+    # The shared base image is another team's and has no fnm, and our own images
+    # only gain it on a manual rebuild — so bootstrap rather than assume. It is a
+    # no-op wherever fnm is already baked in.
+    - sh "$CI_PROJECT_DIR/ci/install-fnm.sh"
+    # Reads .nvmrc from $CI_PROJECT_DIR, and exits non-zero rather than falling
+    # back to another Node.
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm config set store-dir "$PNPM_STORE_DIR"
@@ -52,9 +59,9 @@ stages:
 collect-secrets-from-op:
   stage: collect-secrets
   needs: []
-  # Don't inherit default.before_script (nvm/corepack/pnpm) — none of it exists
-  # on the 1password/op image and `. $HOME/.nvm/nvm.sh` would fail the job
-  # before script: runs.
+  # Don't inherit default.before_script (fnm/corepack/pnpm) — none of it exists
+  # on the 1password/op image and `fnm env` would fail the job before script:
+  # runs.
   before_script: []
   image:
     name: 1password/op
@@ -450,6 +457,10 @@ test:
   # check-qa-input-safety) run here inside check:arch-gate:portable, so nothing
   # a Markdown-only MR could break goes unchecked — which is the db31586c
   # regression this repo already paid for once (M24).
+  # `test:` deliberately keeps NO before_script of its own: the override only
+  # existed to defer pnpm/Corepack for the deleted docs fast path. Inheriting
+  # default.before_script pins Node from .nvmrc via fnm here too, and sets up
+  # Corepack/pnpm under that same pinned Node.
   cache:
     - !reference [.cache-pnpm, cache]
   script:
@@ -1121,9 +1132,11 @@ build:linux-packages:
     # variables before apt, curl, package managers, or build tools run.
     - . "$CI_PROJECT_DIR/scripts/prepare-appimage-signing-environment.sh"
     - apt-get update
-    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates build-essential git file pkg-config
-    - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates build-essential git file pkg-config unzip
+    # nodesource could only ever pin a major line, and this job builds the binary
+    # we sign. ci/install-fnm.sh owns the pinned release and checksums it.
+    - sh "$CI_PROJECT_DIR/ci/install-fnm.sh"
+    - cd "$CI_PROJECT_DIR" && eval "$(fnm env --shell bash)" && fnm use --install-if-missing
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm config set store-dir "$PNPM_STORE_DIR"
@@ -1788,6 +1801,8 @@ windows:sign:
       artifacts: true
   before_script: []
   script:
+    # Deliberately NOT from .nvmrc: Node here only launches the pinned
+    # @tauri-apps/cli, whose native binary does the signing (M23).
     - |
       if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v npx >/dev/null 2>&1; then
         apt-get update

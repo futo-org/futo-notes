@@ -69,21 +69,29 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 }
 git --version
 
-# Node.js
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    Write-Host "Installing Node.js..."
-    winget install --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements -e
+# fnm, not a Node version: this script is scp'd to the VM alone and runs BEFORE
+# the clone, so .nvmrc does not exist yet. win-build.ps1 activates the version
+# (and pnpm, via corepack) after the clone.
+if (-not (Get-Command fnm -ErrorAction SilentlyContinue)) {
+    Write-Host "Installing fnm..."
+    winget install --id Schniz.fnm --accept-source-agreements --accept-package-agreements -e
     Refresh-Path
 }
-node --version
+if (-not (Get-Command fnm -ErrorAction SilentlyContinue)) {
+    throw "fnm installation reported success but fnm is not on PATH. A native command that fails does not throw under PowerShell 5.1, so this check is what makes the install real."
+}
+fnm --version
 
-# pnpm
-if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-    Write-Host "Installing pnpm..."
-    npm install -g pnpm@10.29.2
-    Refresh-Path
+# fnm activates by creating a directory symlink, which needs
+# SeCreateSymbolicLinkPrivilege — an elevated token or Developer Mode. This SSH
+# session is not elevated unless the account is Administrator. Prove it HERE, at
+# provisioning, because the same failure inside build:windows is allow_failure on
+# merge requests and would only surface at tag time, after windows:sign is skipped
+# and release:gate is already blocked.
+fnm env --shell powershell | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "fnm is installed but 'fnm env' failed (exit $LASTEXITCODE). fnm needs permission to create a directory symlink: enable Developer Mode on this VM, or grant the build account SeCreateSymbolicLinkPrivilege."
 }
-pnpm --version
 
 # NSIS
 if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {

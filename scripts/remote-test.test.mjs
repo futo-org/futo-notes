@@ -169,16 +169,39 @@ describe('portable suites', () => {
   });
 });
 
+describe('remote node version', () => {
+  it('activates .nvmrc after the checkout, so a remote run is not on the box default', () => {
+    const script = runScript();
+    const activation = script.indexOf('fnm use --install-if-missing');
+    expect(activation).toBeGreaterThan(-1);
+    // Must land after the worktree exists, and before anything reports or uses node.
+    expect(activation).toBeGreaterThan(script.indexOf('cd "$REMOTE_DIR"'));
+    expect(activation).toBeLessThan(script.indexOf('node --version'));
+    expect(activation).toBeLessThan(script.indexOf('just test-rust-full'));
+    // And before pnpm install, or native modules compile against the box default
+    // and the pin buys nothing. Matched as a command line: the comments around
+    // it name the command too, so indexOf() finds prose and compares the wrong
+    // offsets.
+    const installsDeps = script.search(/^\s*pnpm install$/m);
+    expect(installsDeps).toBeGreaterThan(-1);
+    expect(activation).toBeLessThan(installsDeps);
+  });
+});
+
 describe('remote environment', () => {
-  it('sources nvm, because ssh runs a non-interactive shell with no profile', () => {
+  it('sets up fnm, because ssh runs a non-interactive shell with no profile', () => {
     const preamble = remoteEnvPreamble({ ndkVersion: '28.2.13676358' });
-    expect(preamble).toContain('NVM_DIR="$HOME/.nvm"');
-    expect(preamble).toContain('nvm.sh');
+    expect(preamble).toContain('eval "$(fnm env --shell bash)"');
     expect(preamble).toContain('$HOME/.local/bin');
     expect(preamble).toContain('$HOME/.cargo/bin');
     // The sync test server shells out to `bun`, which lives in ~/.bun/bin and
     // is absent from a non-interactive PATH — the suite died there once.
     expect(preamble).toContain('$HOME/.bun/bin');
+    // fnm has to be on PATH before `fnm env` runs, so the export must precede it.
+    expect(preamble.indexOf('.local/share/fnm')).toBeLessThan(preamble.indexOf('eval "$(fnm env'));
+    // The version itself is activated in the run script, after the checkout —
+    // .nvmrc does not exist at preamble time, whose CWD is $HOME.
+    expect(preamble).not.toContain('fnm use');
   });
 
   it('never relocates the cargo target dir, and clears an inherited one', () => {

@@ -7,7 +7,9 @@ machine ready.
 ## 1. Prerequisites
 
 - **Node + pnpm** — the JS toolchain (`pnpm` is the package manager; `npx`/`npm`
-  is not used here).
+  is not used here). The exact version is pinned in [`.nvmrc`](./.nvmrc);
+  [fnm](https://github.com/Schniz/fnm) reads it (`fnm use`), and every CI surface
+  — Linux, macOS and Windows — installs that same version the same way.
 - **Rust** (stable) + `cargo` — for the Tauri backend and the shared crates.
 - **[just](https://github.com/casey/just)** — every build/dev/test command lives
   in the [`justfile`](./justfile). Run `just` with no args to list recipes.

@@ -235,18 +235,21 @@ export function ndkVersionFromGradle(gradleText) {
 
 /**
  * Sourced on EVERY invocation: `ssh host cmd` is a non-interactive shell, so it
- * reads none of the box's profile — node lives in nvm and is simply absent from
+ * reads none of the box's profile — node lives in fnm and is simply absent from
  * PATH without this.
  */
 export function remoteEnvPreamble({ ndkVersion }) {
   return [
-    'export NVM_DIR="$HOME/.nvm"',
-    // shellcheck-style guard: a missing nvm must fail loudly at `node`, not here.
-    '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null',
     // .bun/bin is here because the E2EE sync test server is a bun project —
     // tests/lib/sync-test-server.mjs shells out to `bun src/index.ts hash`, and
     // without it the cross-platform suite dies AFTER booting both clients.
-    'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"',
+    // .local/share/fnm and linuxbrew cover fnm's two install layouts; this must
+    // precede the `fnm env` below, which needs fnm itself on PATH.
+    'export PATH="$HOME/.local/bin:$HOME/.local/share/fnm:/home/linuxbrew/.linuxbrew/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"',
+    // A missing fnm is not fatal here; it fails at `fnm use` in the runner script,
+    // which is under `set -e`. remote-doctor lists fnm as required and prints the
+    // install command, because the box needs it once.
+    'if command -v fnm >/dev/null 2>&1; then eval "$(fnm env --shell bash)"; fi',
     'export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"',
     'export ANDROID_SDK_ROOT="$ANDROID_HOME"',
     `export ANDROID_NDK_HOME="\${FUTO_REMOTE_NDK:-$ANDROID_HOME/ndk/${ndkVersion}}"`,
@@ -466,6 +469,11 @@ fi`
     : ''
 }
 
+# .nvmrc exists only once the worktree is checked out, so this cannot live in the
+# preamble (whose CWD is $HOME). It must precede the install below, or native
+# modules compile against the box default and the pin buys nothing.
+fnm use --install-if-missing
+
 # pnpm install only when the lockfile actually moved: it is 40s that most runs
 # do not need, and skipping it silently would be worse than paying it. The stamp
 # lives OUTSIDE the checkout so it can never dirty the tree or confuse a
@@ -562,6 +570,7 @@ have() {
   if p="$(command -v "$1" 2>/dev/null)"; then emit "$2" ok "$($3 2>&1 | head -1) — $p"; else emit "$2" missing ""; fi
 }
 
+have fnm         'fnm'          'fnm --version'
 have node        'node'         'node --version'
 have pnpm        'pnpm'         'pnpm --version'
 have cargo       'cargo'        'cargo --version'
@@ -696,6 +705,7 @@ const SUDO_HINTS = {
   'playwright browsers':
     'pnpm exec playwright install chromium webkit   # NOT --with-deps: that needs root',
   'bun (sync server)': 'curl -fsSL https://bun.sh/install | bash   # the sync test server is bun',
+  fnm: "curl -fsSL https://fnm.vercel.app/install | bash   # supplies .nvmrc's exact Node",
 };
 
 // ---------------------------------------------------------------------------
@@ -720,7 +730,7 @@ export const RSYNC_EXCLUDES = [
 // A doctor run is only a hard failure when the box cannot run ANY suite.
 // Everything else (NDK, KVM, Postgres, browsers) gates a specific suite and is
 // reported as WARN/MISS with the command that fixes it.
-export const DOCTOR_REQUIRED = ['node', 'pnpm', 'cargo', 'just', 'git', 'rsync'];
+export const DOCTOR_REQUIRED = ['fnm', 'node', 'pnpm', 'cargo', 'just', 'git', 'rsync'];
 
 /** `CHECK|name|status|detail` lines → rows, tolerating `|` inside detail. */
 export function parseDoctorOutput(stdout) {
