@@ -1,0 +1,76 @@
+#!/bin/sh
+# Path-scoped local iOS device-story gate. Git supplies one ref update per
+# stdin line: local-ref local-sha remote-ref remote-sha.
+set -eu
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+
+remote_name=${1:-origin}
+changed_files=''
+has_update=0
+
+block_push() {
+  echo "iOS device stories: BLOCKED — $1" >&2
+  echo "Fetch '$remote_name' and retry, or bypass explicitly with FUTO_SKIP_IOS_STORIES=1." >&2
+  exit 1
+}
+
+if [ "${FUTO_SKIP_IOS_STORIES:-0}" = "1" ]; then
+  echo "================ iOS DEVICE STORIES SKIPPED ================"
+  echo "FUTO_SKIP_IOS_STORIES=1 was set; sustained autosave typing was not tested."
+  echo "============================================================"
+  exit 0
+fi
+
+while read -r _local_ref local_sha remote_ref remote_sha; do
+  [ -n "${local_sha:-}" ] || continue
+  case "$remote_ref" in
+    refs/heads/*) ;;
+    *) continue ;; # tags and other namespaces do not update a branch
+  esac
+  case "$local_sha" in
+    *[!0]*) ;;
+    *) continue ;; # deleting a remote branch pushes no local code
+  esac
+  has_update=1
+
+  case "$remote_sha" in
+    *[!0]*)
+      if ! git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+        block_push "remote object $remote_sha for $remote_ref is unavailable locally."
+      fi
+      base_sha=$remote_sha
+      ;;
+    *)
+      remote_head="refs/remotes/$remote_name/HEAD"
+      if ! remote_default_ref=$(git symbolic-ref --quiet "$remote_head" 2>/dev/null); then
+        block_push "$remote_head is unavailable; a new branch has no safe diff base."
+      fi
+      if ! base_sha=$(git merge-base "$local_sha" "$remote_default_ref" 2>/dev/null); then
+        block_push "cannot find a merge-base between $local_sha and $remote_default_ref."
+      fi
+      ;;
+  esac
+
+  if ! update_files=$(git diff --name-only "$base_sha" "$local_sha"); then
+    block_push "cannot inspect the changes for $remote_ref."
+  fi
+  if [ -n "$update_files" ]; then
+    changed_files="${changed_files}${changed_files:+
+}${update_files}"
+  fi
+done
+
+if [ "$has_update" -eq 0 ]; then
+  echo "iOS device stories: SKIPPED — this push contains no local branch update."
+  exit 0
+fi
+
+if ! printf '%s\n' "$changed_files" \
+  | grep -Eq '^(apps/ios/|packages/editor/|crates/futo-notes-(core|store|ffi)/)'; then
+  echo "iOS device stories: SKIPPED — pushed changes do not touch an iOS/editor/core owner."
+  exit 0
+fi
+
+bash scripts/run-ios-stories-if-available.sh

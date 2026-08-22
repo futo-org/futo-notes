@@ -67,6 +67,26 @@ export function classifyOpenNote(facts: OpenNoteRequestInput): Promise<OpenNoteD
 
 let cachedPassword: string | null = null;
 
+// The one real precondition for the first auto-sync cycle. `isE2eeConfigured()`
+// reads persisted connection metadata AND the in-memory password, and BOTH are
+// loaded by `initSyncPassword` below — until it finishes, a fully configured
+// vault still reports "not configured". Auto-sync waits on this rather than on
+// a wall-clock guess, so the first cycle runs the moment it can instead of at a
+// time chosen to be safely after it. → autoSyncV2.startAutoSyncV2
+let markSyncCredentialsSettled: () => void = () => {};
+const syncCredentialsSettled = new Promise<void>((resolve) => {
+  markSyncCredentialsSettled = resolve;
+});
+
+/**
+ * Resolves once the boot credential load has finished — successfully or not.
+ * A keyring failure settles it too: "we know there is no password" is just as
+ * actionable as "here it is", and either way waiting longer cannot help.
+ */
+export function whenSyncCredentialsSettled(): Promise<void> {
+  return syncCredentialsSettled;
+}
+
 // Every credential-store mutation — the boot migration, connect, disconnect,
 // forget, and the pending-deletion retry — runs through this single serial
 // queue so their keyring writes, `cachedPassword` assignments, and app-state
@@ -119,6 +139,16 @@ async function deleteStoredPassword(): Promise<void> {
  * never written back to disk in plaintext. Safe to call un-awaited at startup.
  */
 export async function initSyncPassword(): Promise<void> {
+  try {
+    await loadCredentialsOnBoot();
+  } finally {
+    // Whatever happened, auto-sync's first cycle may stop waiting: this is the
+    // point where `isE2eeConfigured()` starts telling the truth.
+    markSyncCredentialsSettled();
+  }
+}
+
+async function loadCredentialsOnBoot(): Promise<void> {
   await loadAppState();
   if (!isTauri) return;
 

@@ -28,50 +28,6 @@
   }
 }
 
-/* ===========================
-   Sync Status Bar
-   =========================== */
-.sync-status-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 32px;
-  background: var(--color-surface);
-  border-top: 1px solid var(--color-border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--color-muted);
-  z-index: var(--z-status);
-  animation: sync-bar-in 0.2s ease;
-}
-
-.sync-status-bar.fading {
-  animation: sync-bar-fade 3s ease forwards;
-}
-
-@keyframes sync-bar-in {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-
-@keyframes sync-bar-fade {
-  0%,
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
 .sync-spinner {
   animation: sync-spin 1s linear infinite;
 }

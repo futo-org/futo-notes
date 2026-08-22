@@ -3,8 +3,8 @@
 How screens stack and transition. Native-shell stack first; Tauri-shell
 navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 
-- Screens: **List** (root) → Editor / Search / Settings; **Settings** → Sync. →
-  AppNavigation.kt *(Android)*
+- Screens: **List** (root) → Editor / Search / Settings; **Settings** → Sync /
+  Storage location. → AppNavigation.kt *(Android)*
 - iOS native: **List** (root) → Editor / folder screen (tapping a folder row
   pushes a filtered list titled with the folder name); search is an inline
   bottom search bar on the list; the nav-bar gear presents the Settings
@@ -29,6 +29,20 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   unhandled Back then follows the OS default and backgrounds/finishes the
   activity. "Nothing app-side" means the nav stack never changes, not that the
   event is swallowed. → AppNavigation.kt `BackHandler`
+- Every full-screen surface the shell can reach is a stack entry, so Back always
+  has an owner. Settings → **Storage location** is one: Back and its **Cancel**
+  button are the same pop, both landing on Settings. (The first-run picker draws
+  the same composable, but it is a different surface — shown before a vault
+  exists, with no stack behind it and no Cancel, so Back there leaves the app.)
+  Presented as an overlay instead, Storage location left Back operating on the
+  Settings entry it was covering: the first press popped Settings invisibly and
+  the second finished the activity (github#28, reproduced and fixed on an API 34
+  emulator 2026-08-18). *(Android)* → AppNavigation.kt `Screen.StorageLocation`,
+  MainActivity.kt `AppShell`
+- A blocking progress overlay ("Moving notes…", "Deleting all notes…") swallows
+  Back as well as taps, so neither operation can be left part-way by a Back press
+  the shell underneath would have handled. *(Android)* → MainActivity.kt,
+  SettingsScreen.kt
 - Forward transitions slide in + fade; back transitions fade + slide out.
   → AppNavigation.kt *(Android)*
 - Activity recreation starts a fresh route stack at List while restoring the

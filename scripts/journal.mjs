@@ -19,14 +19,16 @@ const USAGE = `Usage: just journal [command] [options]
 
 Commands:
   tail [N]            the last N events (default 20), oldest first
-  type <name>         only events of one type (e.g. sync_run, journal_drops)
+  type <name>         only events of one type (e.g. app_launch, sync_run)
   last-sync           a readable summary of the most recent sync run
+  startup             per launch, how long until that session's first sync ran
   where               print the journal directory this would read
 
 Options:
   --dir <path>        read this journal directory instead of resolving one
   --release           resolve the release app's journal, not the dev build's
-  --json              print raw JSONL lines instead of a formatted view
+  --json              machine-readable output: raw JSONL lines, or one row per
+                      launch for startup
 `;
 
 // Mirrors the desktop resolution in apps/tauri/src-tauri/src/instance_journal.rs:
@@ -125,7 +127,12 @@ function printLastSyncRun(events) {
     return;
   }
   const run = last.event.data;
+  const launches = events.filter(({ event }) => event.type === 'app_launch');
+  const launch = launches.filter(({ event }) => event.ts <= last.event.ts).pop();
   console.log(`sync run at ${new Date(last.event.ts).toISOString()}`);
+  if (launch) {
+    console.log(`  started:    +${syncRunStartedAt(last) - launch.event.ts}ms after app launch`);
+  }
   console.log(`  trigger:    ${run.trigger}`);
   console.log(`  outcome:    ${run.outcome}${run.error ? ` — ${run.error}` : ''}`);
   console.log(
@@ -144,6 +151,73 @@ function printLastSyncRun(events) {
     );
   }
   console.log(`  total runs journaled: ${runs.length}`);
+}
+
+// A cycle's record is written when it FINISHES, so the moment it started is the
+// only thing a launch delay can be measured to — and `phases.total_ms` is what
+// makes it recoverable.
+function syncRunStartedAt(entry) {
+  return entry.event.ts - (entry.event.data.phases?.total_ms ?? 0);
+}
+
+// One row per launch: the marker, and the first cycle that ran after it. The
+// ring spans many runs, so a session ends where the next `app_launch` begins.
+function startupSessions(events) {
+  const sessions = [];
+  for (const entry of events) {
+    if (entry.event.type === 'app_launch') {
+      sessions.push({ launch: entry, firstSync: null });
+      continue;
+    }
+    const current = sessions[sessions.length - 1];
+    if (entry.event.type === 'sync_run' && current && !current.firstSync) {
+      current.firstSync = entry;
+    }
+  }
+  return sessions;
+}
+
+function startupRow(session) {
+  const { launch, firstSync } = session;
+  const row = {
+    launched_at: new Date(launch.event.ts).toISOString(),
+    version: launch.event.data.version ?? null,
+    identifier: launch.event.data.identifier ?? null,
+    first_sync_after_ms: null,
+    first_sync_trigger: null,
+    first_sync_outcome: null,
+    first_sync_total_ms: null,
+  };
+  if (firstSync) {
+    row.first_sync_after_ms = syncRunStartedAt(firstSync) - launch.event.ts;
+    row.first_sync_trigger = firstSync.event.data.trigger;
+    row.first_sync_outcome = firstSync.event.data.outcome;
+    row.first_sync_total_ms = firstSync.event.data.phases?.total_ms ?? null;
+  }
+  return row;
+}
+
+function printStartup(events, options) {
+  const sessions = startupSessions(events);
+  if (sessions.length === 0) {
+    console.log('No launches journaled yet (this build predates the app_launch marker).');
+    return;
+  }
+  for (const session of sessions) {
+    const row = startupRow(session);
+    if (options.json) {
+      console.log(JSON.stringify(row));
+      continue;
+    }
+    const build = [row.version && `v${row.version}`, row.identifier].filter(Boolean).join('  ');
+    console.log(`${row.launched_at}  launch  ${build}`);
+    console.log(
+      row.first_sync_after_ms === null
+        ? '  first sync:   none journaled in this session'
+        : `  first sync:   started +${row.first_sync_after_ms}ms after launch ` +
+            `(${row.first_sync_trigger}, ${row.first_sync_outcome}, took ${row.first_sync_total_ms}ms)`,
+    );
+  }
 }
 
 function parseArguments(argv) {
@@ -185,6 +259,8 @@ if (command === 'where') {
   );
 } else if (command === 'last-sync') {
   printLastSyncRun(readEvents(directory));
+} else if (command === 'startup') {
+  printStartup(readEvents(directory), options);
 } else {
   console.error(`Unknown command: ${command}\n`);
   console.error(USAGE);

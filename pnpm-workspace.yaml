@@ -12,3 +12,9 @@ overrides:
   'devalue@<5.8.1': 5.8.1
   'picomatch@4': 4.0.4
   'esbuild@<0.28.1': 0.28.1
+
+# Advisories `pnpm audit --prod` should not fail on. Empty on purpose — see .cargo/audit.toml
+# for the policy. Add the id with a comment saying why; `just audit --fix` removes entries
+# whose advisory is gone.
+auditConfig:
+  ignoreGhsas: []

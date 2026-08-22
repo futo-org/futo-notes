@@ -219,6 +219,17 @@ After table`);
     await expect(cell).toHaveAttribute('contenteditable', 'true');
     // Raw markdown is present in the cell text
     await expect(cell).toContainText('[Example](https://example.com)');
+
+    // A cell is an editing surface, not a rendered anchor: clicking the link
+    // text places the caret in the cell instead of opening the URL.
+    let popupOpened = false;
+    page.on('popup', () => {
+      popupOpened = true;
+    });
+    await cell.click();
+    await page.waitForTimeout(250);
+    expect(popupOpened).toBe(false);
+    await expect(cell).toBeFocused();
   });
 });
 
