@@ -32,6 +32,7 @@ satisfy it yet — that's what makes gaps visible.
 | [app.md](app.md) | Cross-cutting: render lifecycle, data safety, where logic lives |
 | [desktop-rust.md](desktop-rust.md) | Desktop Rust adapter architecture, naming, IPC/event stability, and compatibility rules |
 | [editor.md](editor.md) | The Markdown editor (shared CodeMirror 6 WebView) |
+| [editor-visual.md](editor-visual.md) | Markdown editor appearance and layout |
 | [list.md](list.md) | Note list, home feed, folder drawer, note/folder ops |
 | [nav.md](nav.md) | Navigation / screen stack / drawer |
 | [tabs.md](tabs.md) | Desktop multi-tab + keyboard shortcuts |

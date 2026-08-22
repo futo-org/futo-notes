@@ -50,6 +50,7 @@ export function decorateHeading(
   const markerLength = markerMatch[0].length;
   const markerEnd = from + markerLength + (text[markerLength] === ' ' ? 1 : 0);
   const revealMarkers = shouldRevealMarkdownSyntax(
+    view.state,
     view.hasFocus,
     view.state.selection.ranges,
     from,
@@ -172,7 +173,13 @@ function decorateCodeBlock(
   const contentEndLine =
     nodeName === 'FencedCode' && hasClosingFence ? endLine.number - 1 : endLine.number;
   const contentLineCount = Math.max(0, contentEndLine - contentStartLine + 1);
-  const cursorInBlock = selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
+  const cursorInBlock = selectionTouchesRange(
+    view.state,
+    view.hasFocus,
+    view.state.selection.ranges,
+    from,
+    to,
+  );
   const visibleLines = getIntersectingLineNumbers(doc, from, to, scanRange);
   if (!visibleLines) return;
 
@@ -287,6 +294,7 @@ export function decorateBlockQuote(
     if (nestLevel === 0) continue;
 
     const revealMarker = shouldRevealMarkdownSyntax(
+      view.state,
       view.hasFocus,
       selectionRanges,
       line.from,

@@ -118,7 +118,8 @@
 }
 
 .notes-shell.desktop-layout .editor-container {
-  max-width: 740px;
+  /* 60px past the title column each side, so the space beside the text is reachable. */
+  max-width: 860px;
   margin-left: auto;
   margin-right: auto;
   width: 100%;

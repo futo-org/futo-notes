@@ -8,12 +8,14 @@ import { openExternalUrl } from '$lib/platform/openExternalUrl';
 import { markdownEditorLanguageExtensions } from './codeMirrorMarkdown';
 import { cursorMotionKeymap } from './cursorMotion';
 import { editorHasDomFocus } from './editorDomFocus';
-import { EditorCaretInteractions } from './interactions/caretInteractions';
-import { EditorLinkInteractions } from './interactions/linkInteractions';
+import {
+  editorPointerInteractions,
+  type EditorLinkGesture,
+  type EditorPointerProfile,
+} from './interactions/editorPointerInteractions';
 import { EditorScrollAnchoring } from './interactions/scrollAnchoring';
 import { interactiveTableEditor } from './table/interactiveTableEditor';
 import { imagePasteHandler } from './imagePaste';
-import { iosTapFocus } from './iosTapFocus';
 import { listContinuationKeymap, orderedListRenumber } from './listContinuation';
 import { autoLinkHighlight } from './links/autolinks';
 import { liveMarkdownTransform } from './liveMarkdownTransform';
@@ -30,7 +32,7 @@ interface CreateMarkdownEditorRuntimeOptions {
   getView: () => EditorView | null;
   nativeShell: boolean;
   onEditorContentChange: () => void;
-  openWikilink: (title: string, event: MouseEvent) => void;
+  openWikilink: (title: string, gesture: EditorLinkGesture) => void;
 }
 
 function hostSeesFocus(view: EditorView): boolean {
@@ -39,20 +41,13 @@ function hostSeesFocus(view: EditorView): boolean {
 
 export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntimeOptions) {
   let changeAnimationFrame = 0;
-  const linkInteractions = new EditorLinkInteractions({
-    openWikilink: options.openWikilink,
-    openExternalUrl: (url) => {
-      const onOpenUrl = options.getOnOpenUrl();
-      if (onOpenUrl) onOpenUrl(url);
-      else openExternalUrl(url);
-    },
-  });
-  const caretInteractions = new EditorCaretInteractions({
-    nativeShell: options.nativeShell,
-    isIOS,
-    getView: options.getView,
-    hasPendingExternalLink: () => linkInteractions.hasPendingExternalLink,
-  });
+  const pointerProfile: EditorPointerProfile = !options.nativeShell
+    ? isIOS
+      ? 'browser-ios'
+      : 'desktop'
+    : isIOS
+      ? 'native-ios'
+      : 'native-android';
   const scrollAnchoring = new EditorScrollAnchoring(options.nativeShell);
 
   const extensions = [
@@ -79,26 +74,19 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
     slashMenu,
     wikilinkAutocomplete(),
     imagePasteHandler,
-    ...iosTapFocus({
-      enabled: isIOS,
-      resolveTapPosition: ({ clientX, clientY, target }, view) =>
-        caretInteractions.resolveTapPositionAt(
-          clientX,
-          clientY,
-          view,
-          target instanceof Node ? target : null,
-        ),
-      shouldIgnoreTap: (target) => {
-        const element =
-          target instanceof Element ? target : ((target as Node | null)?.parentElement ?? null);
-        if (!element) return false;
-        const wikilink = element.closest('.cm-md-wikilink');
-        if (wikilink) return !wikilink.classList.contains('cm-md-wikilink-broken');
-        return Boolean(element.closest('.cm-md-link'));
+    editorPointerInteractions({
+      profile: pointerProfile,
+      activateLink: ({ target, gesture }) => {
+        if (target.kind === 'wikilink') {
+          options.openWikilink(target.title, gesture);
+          return;
+        }
+        const onOpenUrl = options.getOnOpenUrl();
+        if (onOpenUrl) onOpenUrl(target.url);
+        else openExternalUrl(target.url);
       },
+      onWindowBlur: () => options.getOnFocusChange()?.(false),
     }),
-    ...caretInteractions.extensions,
-    ...linkInteractions.extensions,
     EditorView.contentAttributes.of({
       autocorrect: 'on',
       autocapitalize: 'sentences',
@@ -154,7 +142,6 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
 
   return {
     extensions,
-    linkInteractions,
     scrollAnchoring,
     destroy,
     editorHasDomFocus: hostSeesFocus,

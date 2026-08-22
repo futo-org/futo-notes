@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { SelectionRange } from '@codemirror/state';
+  import { EditorSelection, type SelectionRange } from '@codemirror/state';
   import type { EditorView } from '@codemirror/view';
   import type { SetEditorContentOptions } from '$features/editor/editorContentSync';
+  import type { EditorLinkGesture } from '$features/editor/interactions/editorPointerInteractions';
 
   import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
   import NoteTagBar from '$features/editor/NoteTagBar.svelte';
-  import { resolveBlankSpaceCaret } from '$features/editor/interactions/blankSpaceCaret';
   import type { NoteSession } from '$features/notes/noteSession.svelte';
   import type { NotePreview } from '$shared/types/note';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
@@ -26,7 +26,6 @@
     isComposing: () => boolean;
     getView: () => EditorView | null;
     refreshDecorations: () => void;
-    placeCaretAtEnd: () => void;
     setCaret: (at: SelectionRange) => void;
   }
 
@@ -35,7 +34,7 @@
     notes: NotePreview[];
     actions: ReturnType<typeof createCurrentNoteActions>;
     active: boolean;
-    onopenlink: (title: string, event: MouseEvent) => void;
+    onopenlink: (title: string, gesture: EditorLinkGesture) => void;
     onfocuschange?: (focused: boolean) => void;
     oncompositionend?: () => void;
     editorApi?: EditorApi;
@@ -64,26 +63,41 @@
     onfocuschange?.(focused);
   }
 
-  // The CM DOM is only as big as the text, so the blank space around it reaches
-  // the editor through no one. → docs/spec/editor.md
-  function handleBlankSpaceMouseDown(event: MouseEvent): void {
-    if (event.button !== 0) return;
-    if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
-    // Only a container's own slack — descendants keep their clicks.
+  function isPlainPress(event: MouseEvent): boolean {
+    if (event.button !== 0) return false;
+    return !(event.shiftKey || event.altKey || event.metaKey || event.ctrlKey);
+  }
+
+  // No coords means a note that is nothing but its hidden tag block.
+  function canPlaceCaretAt(view: EditorView, at: number): boolean {
+    return view.coordsAtPos(at) !== null;
+  }
+
+  // The side chrome is outside the editor surface and owns deselection. → docs/spec/editor.md
+  function handleNoteBodyMouseDown(event: MouseEvent): void {
+    if (!isPlainPress(event)) return;
+    if (event.target === tagBarEl && reachFromTagBar(event)) return;
+    // Only the body's own slack — descendants keep their clicks.
     if (event.target !== event.currentTarget && event.target !== tagBarEl) return;
+
+    // Cancels WebKit's native margin drag into the editor; the manual blur also
+    // commits a pending title rename, which preventDefault swallows.
+    event.preventDefault();
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  }
+
+  // The bar sits above the editor, so its slack reaches down into the first line.
+  function reachFromTagBar(event: MouseEvent): boolean {
     const view = editorApi?.getView();
-    if (!view) return;
+    if (!view) return false;
+    const top = view.contentDOM.getBoundingClientRect().top;
+    const at = view.posAtCoords({ x: event.clientX, y: top + 1 }, false);
+    if (!canPlaceCaretAt(view, at)) return false;
 
-    const at = resolveBlankSpaceCaret(view, {
-      x: event.clientX,
-      y: event.clientY,
-      topLimit: (tagBarEl ?? view.contentDOM).getBoundingClientRect().top,
-    });
-    if (at === null) return;
-
-    event.preventDefault(); // don't blur the contenteditable
+    event.preventDefault();
     editorApi?.focus();
-    editorApi?.setCaret(at);
+    editorApi?.setCaret(EditorSelection.cursor(at));
+    return true;
   }
 </script>
 
@@ -93,7 +107,7 @@
   class:is-hidden={!active}
   bind:this={noteBodyEl}
   data-editor-focused={editorFocused ? '' : undefined}
-  onmousedown={handleBlankSpaceMouseDown}
+  onmousedown={handleNoteBodyMouseDown}
 >
   <div class="note-title-row">
     <textarea
@@ -120,8 +134,7 @@
     {notes}
   />
 
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="editor-container" onmousedown={handleBlankSpaceMouseDown}>
+  <div class="editor-container">
     <MarkdownEditor
       bind:this={editorApi}
       content={session.content}

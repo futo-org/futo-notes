@@ -219,6 +219,7 @@ function addTaskDecorations(params: {
   const { from, hiddenFrom, lineEnd, lineFrom, indentLevel, marker, view, decorations } = params;
   const contentStart = from + marker.sourceLength;
   const revealed = selectionWithinMarkerRange(
+    view.state,
     view.hasFocus,
     view.state.selection.ranges,
     hiddenFrom,
@@ -266,6 +267,7 @@ function addBulletDecorations(params: {
   const { from, hiddenFrom, lineEnd, lineFrom, indentLevel, marker, view, decorations } = params;
   const contentStart = from + marker.sourceLength;
   const revealed = selectionWithinMarkerRange(
+    view.state,
     view.hasFocus,
     view.state.selection.ranges,
     hiddenFrom,
@@ -299,6 +301,7 @@ function addOrderedDecorations(params: {
   const { from, hiddenFrom, lineEnd, lineFrom, indentLevel, marker, view, decorations } = params;
   const contentStart = from + marker.sourceLength;
   const revealed = selectionWithinMarkerRange(
+    view.state,
     view.hasFocus,
     view.state.selection.ranges,
     hiddenFrom,

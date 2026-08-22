@@ -10,6 +10,7 @@ import {
 import { createLiveMarkdownDecorationBuilder } from './buildLiveMarkdownDecorations';
 import { imageCacheUpdated } from './images';
 import { liveMarkdownRefresh } from './refreshEffect';
+import { isMarkdownSelectionRevealSuppressed } from './selectionReveal';
 
 // Pre-parse near-scroll content so decorations are ready as the viewport moves.
 const PARSE_MARGIN_CHARS = 5_000;
@@ -58,11 +59,11 @@ export class LiveMarkdownPlugin implements PluginValue {
     this.lastTreeLength = tree.length;
 
     const { didCursorLineChange, didSelectionMoveWithinLine } = this.trackSelection(update);
+    const selectionRevealSuppressed = isMarkdownSelectionRevealSuppressed(update.state);
     const shouldRebuild =
       update.docChanged ||
       update.viewportChanged ||
-      didCursorLineChange ||
-      didSelectionMoveWithinLine ||
+      (!selectionRevealSuppressed && (didCursorLineChange || didSelectionMoveWithinLine)) ||
       update.focusChanged ||
       didTreeGrow ||
       didImageCacheChange ||
