@@ -370,11 +370,11 @@ test.describe('Clicking past the end of a line', () => {
       // Precondition: past the drawn text of every row, inside the surface.
       expect(
         await page.evaluate(
-          ({ x, y }) => {
+          ({ x }) => {
             const content = document.querySelector('.cm-content')!.getBoundingClientRect();
             return x < content.right;
           },
-          { x, y },
+          { x },
         ),
       ).toBe(true);
 
