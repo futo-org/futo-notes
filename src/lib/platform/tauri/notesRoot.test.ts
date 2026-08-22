@@ -16,6 +16,8 @@ import {
   loadNotesDirOverride,
   saveNotesDirOverride,
   ensureDirectory,
+  vaultDisplayPath,
+  vaultStatus,
 } from './notesRoot';
 import { invoke } from '@tauri-apps/api/core';
 import { mkdir } from '@tauri-apps/plugin-fs';
@@ -89,15 +91,18 @@ describe('resolveDefaultNotesRoot', () => {
 });
 
 describe('resolveNotesRoot', () => {
-  it('returns override dir when set and creates it', async () => {
+  it('returns the override dir without recreating it', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'notes_dir_override_load') return '/custom/notes';
       throw new Error(`unexpected invoke: ${cmd}`);
     });
-    mockMkdir.mockResolvedValueOnce(undefined);
     const result = await resolveNotesRoot();
     expect(result).toBe('/custom/notes');
-    expect(mockMkdir).toHaveBeenCalledWith('/custom/notes', { recursive: true });
+    // `mkdir -p` succeeds under any writable ancestor, so recreating a custom root
+    // here would silently replace a vanished vault (unmounted drive, revoked sandbox
+    // grant) with an empty directory and defeat Rust's `Notes folder unavailable`.
+    // A custom root is created once, when it is picked.
+    expect(mockMkdir).not.toHaveBeenCalled();
   });
 
   it('returns Rust-resolved default dir when no override and creates it', async () => {
@@ -121,6 +126,33 @@ describe('resolveNotesRoot', () => {
     mockMkdir.mockResolvedValueOnce(undefined);
     const result = await resolveNotesRoot();
     expect(result).toBe('/tmp/wt-abc/data/notes');
+  });
+});
+
+describe('vaultStatus', () => {
+  it('delegates to Rust, which answers for an unreachable vault too', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      displayPath: '/home/user/Notes',
+      isCustom: true,
+      available: false,
+      deletesArePermanent: true,
+    });
+    const status = await vaultStatus();
+    expect(mockInvoke).toHaveBeenCalledWith('vault_status');
+    expect(status.available).toBe(false);
+    expect(status.isCustom).toBe(true);
+    expect(status.displayPath).toBe('/home/user/Notes');
+  });
+});
+
+describe('vaultDisplayPath', () => {
+  it('resolves a picked directory to the name the user recognises', async () => {
+    mockInvoke.mockResolvedValueOnce('/home/user/Notes');
+    const shown = await vaultDisplayPath('/run/user/1000/doc/A1b2C3/Notes');
+    expect(mockInvoke).toHaveBeenCalledWith('vault_display_path', {
+      dir: '/run/user/1000/doc/A1b2C3/Notes',
+    });
+    expect(shown).toBe('/home/user/Notes');
   });
 });
 

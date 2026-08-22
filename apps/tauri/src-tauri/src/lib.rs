@@ -13,6 +13,7 @@ mod instance_journal;
 mod local_notes;
 mod panic_reporter;
 mod platform_integration;
+mod portal_vault;
 mod sync;
 mod system_trash;
 mod updater_commands;

@@ -10,6 +10,10 @@ flag gaps the codebase suggests have been implemented.
 - [app.md:136](app.md#L136) — Android pre-11 (API < 30) devices can't use Device storage (All-files access is an API-30 mechanism) — they only get App storage, so their vault is not visible in a file manager. _(Android)_
 - [app.md:140](app.md#L140) — The vault folder is fixed per mode and not a user-pickable arbitrary directory on mobile (desktop allows a custom folder); iOS has no iCloud Drive vault option. Both are possible follow-ups. _(iOS / Android)_
 
+## desktop-rust.md
+
+- [desktop-rust.md:86](desktop-rust.md#L86) — _(Desktop, polled vaults only)_ **A concurrent external edit can be swallowed by self-write suppression.** The poll backend coalesces everything that happened to a file since its last pass into one event, so an app save and an external editor's write to the *same* note inside one interval arrive as a single event — which the one-shot suppression consumes as the app's own echo, leaving the external edit unobserved until something else touches the file. Under inotify the same race exists but its window is milliseconds; polling widens it to the whole interval — structurally: the suppression window (5 s) must outlive a poll interval (4 s) or the app's own saves would re-ingest as external edits, so a polled vault's swallow window is always one full interval. Closing it needs suppression to carry what was written, not just which path, so a coalesced event with different content is delivered instead of consumed. Only reachable on a document-portal vault, the only root that polls.
+
 ## editor.md
 
 - [editor.md:180](editor.md#L180) — the native shells have no deselect zone. Their editor interaction surface is the whole WebView below the title, so a tap outside the text column reaches into the note at any distance instead of dropping focus. _(native shells)_
@@ -28,7 +32,7 @@ flag gaps the codebase suggests have been implemented.
 
 - [list.md:51](list.md#L51) — _(Android)_ A **sync live pull** that creates or re-ranks a note while the list is composed at the top still relies on LazyListState key anchoring, so the remotely-changed row can land above the viewport until the user drags. Same anchoring class as the local-edit invisibility bug fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem` on the FAB path and a pop-time re-pin in `AppNavigator.goBack()`); the `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt `reloadAsync`, AppNavigation.kt `AppNavigator.goBack`
 - [list.md:81](list.md#L81) — Tauri desktop sidebar note rows show the **title only** — no body preview at all. The single-line, markdown-opaque `make_preview` snippet appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar rows. The rich multi-line preview is native-only (iOS + Android) for now.
-- [list.md:332](list.md#L332) — a single isolated frame can still paint the spacer when the scroll jumps further than the virtual window's lead — measured 5 lone frames in ~1,300 native window captures, never two in a row. → docs/perf/tab-switch-baseline.md
+- [list.md:363](list.md#L363) — a single isolated frame can still paint the spacer when the scroll jumps further than the virtual window's lead — measured 5 lone frames in ~1,300 native window captures, never two in a row. → docs/perf/tab-switch-baseline.md
 
 ## nav.md
 
@@ -43,4 +47,4 @@ flag gaps the codebase suggests have been implemented.
 - [sync.md:1133](sync.md#L1133) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 - [sync.md:1137](sync.md#L1137) — The desktop scheduler's own triggers are not distinguishable in the record. Launch, poll, resume and local-save all reach Rust through the one `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be told apart from a user pressing "Sync now"; only the live loop's four triggers are recorded faithfully.
 
-_20 gaps._
+_21 gaps._

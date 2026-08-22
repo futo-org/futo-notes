@@ -222,6 +222,25 @@ const PROBES = [
       ),
     hint: 'editor-embed applyContent now exempts the note-open dispatch from the transaction filters — the native open-renumbers-the-note gap may be closed.',
   },
+  // Retired 2026-08-19: the "Flatpak folder delete is permanent" gap closed as
+  // specified behavior rather than being fixed — folder delete moves every note
+  // to the parent first, so only the emptied shell (plus stray non-note files)
+  // is hard-deleted, and the confirmation now discloses it
+  // (`folderDeleteWarning`, `vault_status.folderDeletesArePermanent`). What
+  // replaces the probe is the live-portal test the gap always leaned on
+  // (`portal_trash_declines_a_directory`) plus the spec line in list.md.
+  {
+    // desktop-rust.md — a coalesced poll event can be eaten by the one-shot
+    // self-write suppressor. Closing it means suppression carrying the written
+    // content, so the registration signature has to grow past a bare path.
+    match: /concurrent external edit can be swallowed by self-write suppression/s,
+    closed: () => {
+      const rs = read('apps/tauri/src-tauri/src/filesystem_watcher.rs');
+      if (!rs) return false;
+      return /fn register\(&self, relative_path: &str, [^)]/.test(rs);
+    },
+    hint: 'WatcherSuppression::register now takes more than a path — content-aware suppression may have closed the polled-vault external-edit race.',
+  },
 ];
 
 // ── render ─────────────────────────────────────────────────────────────────

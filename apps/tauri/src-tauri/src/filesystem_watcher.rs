@@ -9,16 +9,37 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use notify::{
-    event::{ModifyKind, RenameMode},
-    Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+    event::{MetadataKind, ModifyKind, RenameMode},
+    Config, Event, EventKind, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::application_state::AppState;
 use crate::background_tasks::blocking;
 
+/// Must stay LONGER than `POLL_INTERVAL_MS`: suppression hides the app's own
+/// write from the watcher, and under polling that write is only observed on the
+/// next pass — up to one full interval later — so a shorter window would re-ingest
+/// every save as an external edit. The cost of the ordering is the
+/// swallowed-concurrent-edit gap in docs/spec/desktop-rust.md, whose window this
+/// pair fixes at one poll interval.
 const SUPPRESSION_WINDOW_MS: i64 = 5_000;
 const RENAME_PAIR_TIMEOUT_MS: i64 = 500;
+/// How often the poll watcher restats the vault. Only reached on filesystems
+/// where inotify lies (see `WatchMode::Poll`), so a normal vault never pays it.
+/// A stat walk over the document portal measured ~0.095 ms per entry (2,000 notes
+/// in 189 ms, against 14 ms on the real filesystem), so this keeps even a
+/// 10,000-note vault under a quarter of one background thread while still
+/// surfacing an external edit while the user waits.
+const POLL_INTERVAL_MS: u64 = 4_000;
+
+/// How the active watcher learns about changes. Not a preference — inotify is
+/// used wherever it works, and `portal_vault::inotify_is_unreliable` decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WatchMode {
+    Inotify,
+    Poll,
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct WatcherSuppression {
@@ -69,7 +90,7 @@ impl WatcherSuppression {
 
 #[derive(Default)]
 pub(crate) struct WatcherState {
-    active: Arc<Mutex<Option<RecommendedWatcher>>>,
+    active: Arc<Mutex<Option<Box<dyn Watcher + Send>>>>,
     pending_renames: Arc<Mutex<HashMap<u128, PendingRename>>>,
     suppression: WatcherSuppression,
 }
@@ -95,9 +116,21 @@ enum ChangeKind {
     RenameTo,
 }
 
-fn classify(event: &Event) -> Option<ChangeKind> {
+fn classify(event: &Event, mode: WatchMode) -> Option<ChangeKind> {
     match &event.kind {
         EventKind::Create(_) => Some(ChangeKind::Add),
+        // The poll backend reports an edited file as a WriteTime metadata change
+        // (notify's `poll::compare_to_event`) and reserves `Modify(Data)` for the
+        // rarer same-mtime-different-content case. Native backends use WriteTime
+        // for chmod/touch noise only, which is why this is mode-dependent: taking
+        // it everywhere would make every `touch` a change, and dropping it under
+        // poll would make the poll watcher blind to edits — the exact silence this
+        // fallback exists to remove.
+        EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime))
+            if mode == WatchMode::Poll =>
+        {
+            Some(ChangeKind::Change)
+        }
         EventKind::Modify(ModifyKind::Metadata(_)) => None,
         EventKind::Modify(ModifyKind::Name(RenameMode::From)) => Some(ChangeKind::RenameFrom),
         EventKind::Modify(ModifyKind::Name(RenameMode::To | RenameMode::Both)) => {
@@ -182,11 +215,12 @@ struct EventProcessor {
     bases: Vec<PathBuf>,
     pending_renames: Arc<Mutex<HashMap<u128, PendingRename>>>,
     sink: EventSink,
+    mode: WatchMode,
 }
 
 impl EventProcessor {
     fn process(&self, event: Event) {
-        let Some(kind) = classify(&event) else {
+        let Some(kind) = classify(&event, self.mode) else {
             return;
         };
         self.flush_stale_renames();
@@ -308,20 +342,32 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, AppState>) -> Res
         }
 
         let root = crate::vault_location::root(&app)?;
+        let mode = watch_mode(&root);
         let processor = EventProcessor {
             bases: watch_bases(&root),
             pending_renames,
             sink: EventSink { app, suppression },
+            mode,
         };
-        let mut watcher = RecommendedWatcher::new(
-            move |result: Result<Event, _>| {
-                if let Ok(event) = result {
-                    processor.process(event);
-                }
-            },
-            Config::default(),
-        )
-        .map_err(|error| error.to_string())?;
+        let handler = move |result: Result<Event, notify::Error>| {
+            if let Ok(event) = result {
+                processor.process(event);
+            }
+        };
+        let mut watcher: Box<dyn Watcher + Send> = match mode {
+            WatchMode::Poll => Box::new(
+                PollWatcher::new(
+                    handler,
+                    Config::default()
+                        .with_poll_interval(std::time::Duration::from_millis(POLL_INTERVAL_MS)),
+                )
+                .map_err(|error| error.to_string())?,
+            ),
+            WatchMode::Inotify => Box::new(
+                RecommendedWatcher::new(handler, Config::default())
+                    .map_err(|error| error.to_string())?,
+            ),
+        };
         watcher
             .watch(&root, RecursiveMode::Recursive)
             .map_err(|error| error.to_string())?;
@@ -329,6 +375,17 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, AppState>) -> Res
         Ok(())
     })
     .await
+}
+
+/// A document-portal vault — and any other FUSE passthrough — delivers inotify
+/// events only for writes made through the same mount, so an external editor is
+/// invisible to it. Polling is the only way to see those edits.
+fn watch_mode(root: &Path) -> WatchMode {
+    if crate::portal_vault::inotify_is_unreliable(root) {
+        WatchMode::Poll
+    } else {
+        WatchMode::Inotify
+    }
 }
 
 #[cfg(test)]
@@ -428,22 +485,115 @@ mod tests {
     #[test]
     fn events_are_classified_without_metadata_noise() {
         assert_eq!(
-            classify(&Event::new(EventKind::Create(
-                notify::event::CreateKind::File
-            ))),
+            classify(
+                &Event::new(EventKind::Create(notify::event::CreateKind::File)),
+                WatchMode::Inotify
+            ),
             Some(ChangeKind::Add)
         );
         assert_eq!(
-            classify(&Event::new(EventKind::Modify(ModifyKind::Metadata(
-                notify::event::MetadataKind::Permissions
-            )))),
+            classify(
+                &Event::new(EventKind::Modify(ModifyKind::Metadata(
+                    notify::event::MetadataKind::Permissions
+                ))),
+                WatchMode::Inotify
+            ),
             None
         );
         assert_eq!(
-            classify(&Event::new(EventKind::Remove(
-                notify::event::RemoveKind::File
-            ))),
+            classify(
+                &Event::new(EventKind::Remove(notify::event::RemoveKind::File)),
+                WatchMode::Inotify
+            ),
             Some(ChangeKind::Unlink)
+        );
+    }
+
+    /// The poll backend's only signal for "this file was edited" is a WriteTime
+    /// metadata event. Dropping it as noise — which the native-backend rule does —
+    /// would leave a polled vault silent about every external edit.
+    #[test]
+    fn a_polled_write_time_change_is_an_edit_but_native_write_time_is_noise() {
+        let write_time = Event::new(EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::WriteTime,
+        )));
+        assert_eq!(
+            classify(&write_time, WatchMode::Poll),
+            Some(ChangeKind::Change)
+        );
+        assert_eq!(classify(&write_time, WatchMode::Inotify), None);
+
+        // Permission changes stay noise under both backends.
+        let permissions = Event::new(EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::Permissions,
+        )));
+        assert_eq!(classify(&permissions, WatchMode::Poll), None);
+        assert_eq!(classify(&permissions, WatchMode::Inotify), None);
+    }
+
+    /// An ordinary vault must keep using inotify: polling every couple of seconds
+    /// is a fallback for filesystems that lie, not a new default.
+    #[test]
+    fn an_ordinary_vault_is_watched_by_inotify() {
+        assert_eq!(watch_mode(&std::env::temp_dir()), WatchMode::Inotify);
+    }
+
+    /// The poll backend really does deliver an external edit that inotify would
+    /// miss on a doc-portal mount. Uses a real directory (inotify would work here
+    /// too) because what is under test is the PollWatcher + `classify` pairing:
+    /// notify reports the edit as WriteTime metadata, and this asserts the change
+    /// reaches the sink as an edit.
+    #[test]
+    fn the_poll_backend_reports_an_external_edit() {
+        let root = std::env::temp_dir().join(format!(
+            "futo-poll-watch-{}-{}",
+            std::process::id(),
+            futo_notes_core::files::now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let note = root.join("note.md");
+        std::fs::write(&note, "before").unwrap();
+
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let recorder = seen.clone();
+        let mut watcher = PollWatcher::new(
+            move |result: Result<Event, notify::Error>| {
+                let Ok(event) = result else { return };
+                if let Some(kind) = classify(&event, WatchMode::Poll) {
+                    if kind == ChangeKind::Change {
+                        for path in &event.paths {
+                            recorder
+                                .lock()
+                                .unwrap()
+                                .push(path.to_string_lossy().into_owned());
+                        }
+                    }
+                }
+            },
+            Config::default().with_poll_interval(std::time::Duration::from_millis(100)),
+        )
+        .unwrap();
+        watcher.watch(&root, RecursiveMode::Recursive).unwrap();
+
+        // mtime has one-second granularity on some filesystems, so make the edit
+        // unambiguously newer than the initial scan.
+        std::thread::sleep(std::time::Duration::from_millis(1_100));
+        std::fs::write(&note, "after the edit").unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if !seen.lock().unwrap().is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let observed = seen.lock().unwrap().clone();
+        drop(watcher);
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert!(
+            observed.iter().any(|path| path.ends_with("note.md")),
+            "the poll watcher never reported the edit; saw {observed:?}"
         );
     }
 }

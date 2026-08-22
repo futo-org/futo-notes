@@ -29,7 +29,8 @@
         "scope": [
           "$HOME/**",
           "$APPDATA/**",
-          "/tmp/**"
+          "/tmp/**",
+          "/run/user/*/doc/**"
         ]
       }
     }

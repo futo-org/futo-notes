@@ -175,16 +175,47 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - They act on nothing, and toast "That note is no longer available", when the
   picked note disappears for any other reason (a sync pull or an external delete
   mid-action) — never falling through to whatever note is open by then. _(Tauri)_
-- "Delete note" asks for confirmation ("This action cannot be undone."), then
-  deletes the file. _(Desktop)_ routes through the OS trash — recoverable via
-  the OS trash — falling back to permanent delete if the platform trash is
-  unavailable (e.g. headless CI). _(iOS, Android)_ delete permanently; there
+- "Delete note" asks for confirmation, then deletes the file. _(Desktop)_ routes
+  through the OS trash — recoverable via the OS trash — falling back to permanent
+  delete if the platform trash is unavailable (e.g. headless CI). In a Flatpak
+  sandbox the host trash directory is unreachable, so a delete inside the vault the
+  sandbox was granted routes through the `org.freedesktop.portal.Trash` portal
+  instead, with the same permanent-delete fallback. _(iOS, Android)_ delete
+  permanently; there
   is no trash in the native UI flow. Sync is unaffected either way — the file
   leaving the vault tombstones the note on the next sync exactly as a
   permanent delete would. Deleting the only note in a folder prunes now-empty
   ancestor folders on every platform. Desktop supplies the trash policy to the
   shared local-note store; native shells delete directly. →
   `futo-notes-store::LocalNoteStore::delete_with`, `local_notes_delete`
+- _(Desktop)_ The confirmation says what the active vault can actually recover:
+  "This action cannot be undone." where a trash exists, and "This deletes the file
+  for good — it does not go to the trash." on a vault with no reachable trash. It
+  never implies a recovery the vault cannot deliver. _(iOS, Android)_ always say
+  "This action cannot be undone.", which is exact — those shells have no trash by
+  design. → `vault_status.deletesArePermanent`,
+  `src/features/notes/deleteConfirmation.ts`
+- _(Desktop, Flatpak only)_ A notes folder picked inside the sandbox has **no
+  trash at all**: `org.freedesktop.portal.Trash` declines a document-portal path
+  outright, while taking the same file under `$HOME`. Deletes there skip the
+  doomed portal call and hard-delete, and the confirmation says so. Verified
+  against a live portal by
+  `system_trash::tests::portal_trash_declines_a_document_portal_path`. →
+  `system_trash::deletes_are_permanent`
+
+- _(Desktop, Flatpak only)_ **A deleted folder's emptied shell never reaches the
+  trash**, even on a vault whose notes do: the Trash portal accepts only regular
+  files (a directory cannot be opened `O_RDWR`, and the portal declines the
+  `O_PATH` descriptor — pinned live by
+  `system_trash::tests::portal_trash_declines_a_directory`). Notes are always
+  moved to the parent first, so what is permanently removed is the emptied tree
+  plus any stray non-note files inside it — and the confirmation says so:
+  "… Anything else inside it is deleted for good." A non-Flatpak desktop build
+  trashes the shell through `trash::delete` and asks the plain question. →
+  `system_trash::folder_deletes_are_permanent`, deleteConfirmation.ts
+  `folderDeleteWarning`
+- A note row in the folder tree offers the same Move/Delete via context menu
+  (desktop right-click / mobile long-press). → FolderTreeView.svelte
 - A note row in the folder tree offers Rename / Move to folder / Delete via
   context menu (desktop right-click / mobile long-press). → FolderTreeView.svelte
 - _(desktop)_ **A note row renames inline**, by the same three gestures as a

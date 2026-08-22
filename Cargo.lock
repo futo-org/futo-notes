@@ -1774,6 +1774,7 @@ dependencies = [
  "time",
  "tokio",
  "trash",
+ "zbus 5.14.0",
 ]
 
 [[package]]

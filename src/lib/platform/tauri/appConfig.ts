@@ -75,7 +75,8 @@ export function createAppConfigStore({ storage, invalidateNotesRoot }: AppConfig
       resolveDefaultNotesRoot(),
     ]);
     const notesDir = override ?? defaultNotesDir;
-    await ensureDirectory(notesDir);
+    // Never the custom root — see `resolveNotesRoot`.
+    if (override === null) await ensureDirectory(defaultNotesDir);
     return {
       notesDir,
       sidebarWidth: config.sidebarWidth ?? undefined,

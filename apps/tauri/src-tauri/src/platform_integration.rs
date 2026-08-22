@@ -12,6 +12,10 @@ pub(crate) fn prepare_process() {
     install_linux_log_filters();
 }
 
+pub(crate) fn is_flatpak() -> bool {
+    std::path::Path::new("/.flatpak-info").exists()
+}
+
 pub(crate) fn configure_app(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(desktop)]
     if std::env::var("FUTO_NOTES_MULTI_INSTANCE").is_err() {

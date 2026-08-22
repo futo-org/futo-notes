@@ -67,8 +67,18 @@ export function createTauriAdapter() {
     writeClipboardText: writeText,
   };
 
-  function onFileChange(callback: (event: FileChangeEvent) => void): () => void {
-    void startWatcher().catch((error) => console.warn('Failed to start file watcher:', error));
+  // A watcher that never started is indistinguishable from a vault nobody is
+  // editing, so the failure is reported to the caller instead of only reaching
+  // the console: external edits will not show up until the app is restarted.
+  function onFileChange(
+    callback: (event: FileChangeEvent) => void,
+    onStartFailed?: (message: string) => void,
+  ): () => void {
+    void startWatcher().catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('Failed to start file watcher:', error);
+      onStartFailed?.(message);
+    });
     return subscribe('fs:change', callback);
   }
 

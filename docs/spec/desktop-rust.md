@@ -27,11 +27,12 @@ owners.
 | `application_state.rs`                     | The single desktop state aggregate.                                                   |
 | `local_notes.rs`                           | `local_notes_*` projection, including desktop note/folder trash policy.               |
 | `filesystem_watcher.rs`                    | Recursive watcher, normalized events, rename pairing, and typed one-shot suppression. |
-| `vault_location.rs`                        | Custom-root persistence and the debug/release default-root safety split.              |
+| `vault_location.rs`                        | Custom-root persistence, vault availability reporting, and the debug/release default-root safety split. |
 | `image_commands.rs`                        | Image import and clipboard bitmap persistence.                                        |
 | `system_trash.rs`                          | Recoverable delete with headless hard-delete fallback.                                |
 | `sync/*`                                   | Tauri wiring for the shared sync session/orchestrator.                                |
 | `platform_integration.rs`                  | Linux integration, single-instance behavior, and process setup.                       |
+| `portal_vault.rs`                          | Document-portal vaults: path recognition, grant persistence, host-path display, and the watcher-backend reliability probe. |
 | `updater_commands.rs`, `panic_reporter.rs` | Updater policy and crash persistence.                                                 |
 
 ## Local-note IPC
@@ -70,6 +71,32 @@ compatibility requirements and must not be reintroduced.
   the expiry window is therefore still delivered.
 - External changes are projected back into the store and trigger one index
   reconcile plus one frontend snapshot refresh.
+- The backend is chosen per vault, not per platform: a root on the document-portal
+  mount is watched by polling (`portal_vault::inotify_is_unreliable` — a doc-mount
+  path check, deliberately **not** a general FUSE probe: other FUSE filesystems
+  such as sshfs may share the blind spot, but polling's cost is not charged on a
+  guess until one is measured), because inotify there reports only the writes made
+  through that same mount and is silent about every external editor. An external edit therefore
+  appears within one poll interval (4 s) rather than immediately. The poll backend
+  signals an edited file as a `WriteTime` metadata event, which is treated as a
+  change under polling and as noise under the native backends. A watcher that fails
+  to start is reported to the frontend, never only logged. →
+  `filesystem_watcher::WatchMode`, `portal_vault::inotify_is_unreliable`
+
+  > **Gap:** _(Desktop, polled vaults only)_ **A concurrent external edit can be
+  > swallowed by self-write suppression.** The poll backend coalesces everything
+  > that happened to a file since its last pass into one event, so an app save and
+  > an external editor's write to the *same* note inside one interval arrive as a
+  > single event — which the one-shot suppression consumes as the app's own echo,
+  > leaving the external edit unobserved until something else touches the file.
+  > Under inotify the same race exists but its window is milliseconds; polling
+  > widens it to the whole interval — structurally: the suppression window (5 s)
+  > must outlive a poll interval (4 s) or the app's own saves would re-ingest as
+  > external edits, so a polled vault's swallow window is always one full
+  > interval. Closing it needs suppression to carry what was
+  > written, not just which path, so a coalesced event with different content is
+  > delivered instead of consumed. Only reachable on a document-portal vault, the
+  > only root that polls.
 
 ## Safety boundaries
 
@@ -77,6 +104,11 @@ compatibility requirements and must not be reintroduced.
   `~/Documents/fake-notes`; release defaults to `~/Documents/futo-notes`.
   The frontend delegates default selection through `resolve_default_notes_root`
   in `src/lib/platform/tauri/notesRoot.ts`; it never reconstructs either path.
+- The default root is created on first use; a **custom** root is not. A custom
+  root that has gone missing fails every command with `Notes folder unavailable`
+  rather than being recreated, so notes are never written into an empty directory
+  standing where the vault used to be. `vault_status` reports that state without
+  touching the vault, which is what keeps the recovery UI reachable.
 - Note IDs and folder paths are validated beneath the root; traversal and root
   deletion are refused.
 - Destination collisions are folded by case and Unicode normalization, then
