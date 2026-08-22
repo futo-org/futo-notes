@@ -29,7 +29,7 @@ flag gaps the codebase suggests have been implemented.
 
 - [list.md:51](list.md#L51) — _(Android)_ A **sync live pull** that creates or re-ranks a note while the list is composed at the top still relies on LazyListState key anchoring, so the remotely-changed row can land above the viewport until the user drags. Same anchoring class as the local-edit invisibility bug fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem` on the FAB path and a pop-time re-pin in `AppNavigator.goBack()`); the `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt `reloadAsync`, AppNavigation.kt `AppNavigator.goBack`
 - [list.md:81](list.md#L81) — Tauri desktop sidebar note rows show the **title only** — no body preview at all. The single-line, markdown-opaque `make_preview` snippet appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar rows. The rich multi-line preview is native-only (iOS + Android) for now.
-- [list.md:311](list.md#L311) — a single isolated frame can still paint the spacer when the scroll jumps further than the virtual window's lead — measured 5 lone frames in ~1,300 native window captures, never two in a row. → docs/perf/tab-switch-baseline.md
+- [list.md:321](list.md#L321) — a single isolated frame can still paint the spacer when the scroll jumps further than the virtual window's lead — measured 5 lone frames in ~1,300 native window captures, never two in a row. → docs/perf/tab-switch-baseline.md
 
 ## nav.md
 
