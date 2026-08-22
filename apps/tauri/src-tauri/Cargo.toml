@@ -66,6 +66,7 @@ keyring = { version = "3", features = ["windows-native"] }
 tauri-plugin-single-instance = "2"
 glib = "0.18"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+zbus = "5"
 
 [lints.clippy]
 too_many_lines = "warn"

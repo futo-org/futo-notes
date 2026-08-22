@@ -25,6 +25,10 @@ const IGNORED_WATCH_DIRS = [
   '.claude/worktrees',
   'target',
   'dist',
+  // A flatpak-builder tree mounts /var/run/udev/watch, which is full of symlink
+  // loops — chokidar stats one and the uncaught ELOOP kills the dev server.
+  'flatpak',
+  '.flatpak-scratch',
   '.tauri-data',
   'build',
   'playwright-report',

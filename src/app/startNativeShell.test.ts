@@ -6,11 +6,17 @@ const mocks = vi.hoisted(() => ({
   fileCleanup: vi.fn(),
   onCloseRequested: vi.fn(),
   onFileChange: vi.fn(),
+  vaultStatus: vi.fn(),
+  showGlobalToast: vi.fn(),
 }));
 
 vi.mock('$lib/platform', () => ({ isTauri: true }));
 vi.mock('$lib/platform/tauri', () => ({
   onFileChange: mocks.onFileChange,
+  vaultStatus: mocks.vaultStatus,
+}));
+vi.mock('$shared/notifications/toastBus.svelte', () => ({
+  showGlobalToast: mocks.showGlobalToast,
 }));
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: () => ({
@@ -22,11 +28,20 @@ vi.mock('@tauri-apps/plugin-process', () => ({ exit: vi.fn() }));
 
 import { startNativeShell } from './startNativeShell';
 
+const vaultStatus = (overrides: { available?: boolean } = {}) => ({
+  displayPath: '/vault',
+  isCustom: false,
+  available: overrides.available ?? true,
+  deletesArePermanent: false,
+  folderDeletesArePermanent: false,
+});
+
 describe('startNativeShell', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.onFileChange.mockReturnValue(mocks.fileCleanup);
     mocks.onCloseRequested.mockResolvedValue(mocks.closeCleanup);
+    mocks.vaultStatus.mockResolvedValue(vaultStatus());
   });
 
   it('closes the window even when the save drain hangs', async () => {
@@ -88,5 +103,61 @@ describe('startNativeShell', () => {
     });
     expect(mocks.fileCleanup).toHaveBeenCalledOnce();
     expect(mocks.closeCleanup).toHaveBeenCalledOnce();
+  });
+
+  it('tells the user when the watcher never started', async () => {
+    startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
+    await vi.waitFor(() => expect(mocks.onFileChange).toHaveBeenCalledOnce());
+
+    // A watcher that failed to start looks exactly like a vault nobody is
+    // editing, so the shell has to say so rather than only log it.
+    const onStartFailed = mocks.onFileChange.mock.calls[0][1] as (message: string) => void;
+    onStartFailed('inotify limit reached');
+
+    await vi.waitFor(() =>
+      expect(mocks.showGlobalToast).toHaveBeenCalledWith(
+        'External file changes will not be detected until you restart',
+      ),
+    );
+  });
+
+  it('lets the vault message win when the vault is why the watcher failed', async () => {
+    mocks.vaultStatus.mockResolvedValue(vaultStatus({ available: false }));
+    startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
+    await vi.waitFor(() => expect(mocks.onFileChange).toHaveBeenCalledOnce());
+
+    // The decision is the typed vault status, not the failure message's prose —
+    // Rust is free to reword its errors without changing which toast wins.
+    const onStartFailed = mocks.onFileChange.mock.calls[0][1] as (message: string) => void;
+    onStartFailed('anything the backend said');
+
+    // One toast slot: the watcher failure is a symptom, and overwriting the message
+    // that names the way out would leave the user with nothing actionable.
+    await vi.waitFor(() =>
+      expect(mocks.showGlobalToast).toHaveBeenCalledWith(
+        'Notes folder unavailable — choose a folder in Settings',
+      ),
+    );
+    expect(mocks.showGlobalToast).not.toHaveBeenCalledWith(
+      'External file changes will not be detected until you restart',
+    );
+  });
+
+  it('points at Settings when the notes folder is unreachable', async () => {
+    mocks.vaultStatus.mockResolvedValue(vaultStatus({ available: false }));
+    startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
+
+    await vi.waitFor(() =>
+      expect(mocks.showGlobalToast).toHaveBeenCalledWith(
+        'Notes folder unavailable — choose a folder in Settings',
+      ),
+    );
+  });
+
+  it('stays quiet about a reachable notes folder', async () => {
+    startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
+    await vi.waitFor(() => expect(mocks.vaultStatus).toHaveBeenCalledOnce());
+
+    expect(mocks.showGlobalToast).not.toHaveBeenCalled();
   });
 });

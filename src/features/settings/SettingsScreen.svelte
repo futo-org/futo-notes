@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isTauri } from '$lib/platform';
-  import { getConfig, setNotesDir } from '$lib/platform/tauri';
+  import { setNotesDir, vaultDisplayPath, vaultStatus } from '$lib/platform/tauri';
   import { applyThemePreference, watchSystemTheme } from '$features/system/theme';
   import { getAppVersion } from '$features/system/crashHandler';
   import { updateChecker } from '$features/system/updateChecker.svelte';
@@ -8,6 +8,7 @@
   import type { SyncSummary } from '$features/sync/syncServiceE2ee';
   import { confirmDialog } from '$shared/dialogs/confirmDialog';
   import { dismissable } from '$shared/dialogs/dismissable';
+  import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
   import {
     getCachedPreferences,
     savePreferences,
@@ -39,6 +40,7 @@
   let preferences = $state<AppPreferences>(copyPreferences(getCachedPreferences()));
   let notesDirectory = $state(isTauri ? 'Loading…' : 'In-memory test vault');
   let isCustomDirectory = $state(false);
+  let vaultAvailable = $state(true);
   let resetting = $state(false);
   let resetError = $state('');
   let updateSupported = $state(false);
@@ -101,13 +103,26 @@
     const { open } = await import('@tauri-apps/plugin-dialog');
     const selected = await open({ directory: true, multiple: false });
     if (typeof selected !== 'string') return;
-    const confirmed = await confirmDialog(
-      `Move your notes directory to:\n${selected}\n\nExisting notes in the current directory will NOT be moved. The app will restart.`,
-      { title: 'Change notes directory', kind: 'warning' },
-    );
-    if (!confirmed) return;
-    await setNotesDir(selected);
-    await restartForNewVault();
+    try {
+      // Name the folder the user picked, not the `/run/user/1000/doc/…` path a
+      // sandboxed file chooser hands back. Read-only on purpose: the lasting
+      // document-portal grant is minted by `setNotesDir` below, so a cancelled
+      // dialog leaves nothing behind.
+      const confirmed = await confirmDialog(
+        `Move your notes directory to:\n${await vaultDisplayPath(selected)}\n\nExisting notes in the current directory will NOT be moved. The app will restart.`,
+        { title: 'Change notes directory', kind: 'warning' },
+      );
+      if (!confirmed) return;
+      await setNotesDir(selected);
+      await restartForNewVault();
+    } catch (error) {
+      // Picking a folder and having nothing happen is the worst outcome here, and
+      // every step above can fail: an unusable grant, a folder that cannot be
+      // created, a refused relaunch.
+      showGlobalToast(
+        `Could not use that folder: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   async function resetNotesDirectory(): Promise<void> {
@@ -147,10 +162,15 @@
   }
 
   if (isTauri) {
-    void getConfig()
-      .then((config) => {
-        notesDirectory = config.notesDir;
-        isCustomDirectory = config.isCustomDir;
+    // Read the vault's *location*, not the vault: `vaultStatus` answers for a
+    // folder that has gone missing too, where reading the config would leave
+    // "Reset to default" hidden precisely when the vault is broken — exactly
+    // when the user needs it.
+    void vaultStatus()
+      .then((status) => {
+        notesDirectory = status.displayPath;
+        isCustomDirectory = status.isCustom;
+        vaultAvailable = status.available;
       })
       .catch((error) => {
         notesDirectory = 'Unable to read notes directory';
@@ -198,6 +218,7 @@
         <StorageSettingsSection
           {notesDirectory}
           {isCustomDirectory}
+          {vaultAvailable}
           onchange={() => void chooseNotesDirectory()}
           onreset={() => void resetNotesDirectory()}
         />

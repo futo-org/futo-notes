@@ -37,6 +37,8 @@ pub(crate) fn run() {
             crate::vault_location::notes_dir_override_load,
             crate::vault_location::notes_dir_override_save,
             crate::vault_location::resolve_default_notes_root,
+            crate::vault_location::vault_status,
+            crate::vault_location::vault_display_path,
             crate::updater_commands::app_self_update_supported,
             crate::sync::tauri_commands::e2ee_connect,
             crate::sync::tauri_commands::e2ee_resume,

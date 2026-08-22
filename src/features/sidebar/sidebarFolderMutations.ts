@@ -1,6 +1,7 @@
 import { clearDragHoverExpanded } from '$features/folders/folderExpansion.svelte';
 import { getEmptyFolders } from '$features/folders/emptyFolders.svelte';
 import { deleteFolder, moveFolder, renameFolderInPlace } from '$features/folders/folderOperations';
+import { folderDeleteWarning, noteDeleteWarning } from '$features/notes/deleteConfirmation';
 import { pickNoteForAction } from '$features/notes/noteActionTarget';
 import { deleteNote, getAllNotes, moveNote } from '$features/notes/notes.svelte';
 import { idLeaf, idParent } from '$lib/platform/pathSafety';
@@ -156,10 +157,10 @@ export async function confirmDeleteSidebarNote(
   options: SidebarMutationOptions,
 ): Promise<void> {
   try {
-    const confirmed = await confirmDialog(`Delete note "${idLeaf(id)}"?`, {
-      title: 'Delete note',
-      kind: 'warning',
-    });
+    const confirmed = await confirmDialog(
+      `Delete note "${idLeaf(id)}"? ${await noteDeleteWarning()}`,
+      { title: 'Delete note', kind: 'warning' },
+    );
     if (!confirmed) return;
   } catch (error) {
     console.warn('[delete-note] confirmation dialog failed:', error);
@@ -187,10 +188,10 @@ export async function confirmDeleteSidebarFolder(
   options: SidebarMutationOptions,
 ): Promise<void> {
   try {
-    const confirmed = await confirmDialog(
-      'Delete this folder? Notes inside it will be moved to the parent folder.',
-      { title: 'Delete folder', kind: 'warning' },
-    );
+    const confirmed = await confirmDialog(await folderDeleteWarning(), {
+      title: 'Delete folder',
+      kind: 'warning',
+    });
     if (!confirmed) return;
   } catch (error) {
     console.warn('[delete-folder] confirmation dialog failed:', error);

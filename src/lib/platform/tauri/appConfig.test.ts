@@ -67,12 +67,23 @@ describe('getConfig', () => {
     expect(cfg.sidebarWidth).toBeUndefined();
   });
 
-  it('returns custom dir when override is set', async () => {
+  it('returns custom dir when override is set, without recreating it', async () => {
     setupInvokeMock({ notes_dir_override_load: '/custom/notes' });
+    const { mkdir } = await import('@tauri-apps/plugin-fs');
     const cfg = await getConfig();
     expect(cfg.notesDir).toBe('/custom/notes');
     expect(cfg.isCustomDir).toBe(true);
     expect(cfg.defaultNotesDir).toBe('/home/user/Documents/futo-notes');
+    // Reading the config must not resurrect a vanished custom vault — see
+    // `resolveNotesRoot`.
+    expect(mkdir).not.toHaveBeenCalled();
+  });
+
+  it('creates the default root on first use', async () => {
+    setupInvokeMock();
+    const { mkdir } = await import('@tauri-apps/plugin-fs');
+    await getConfig();
+    expect(mkdir).toHaveBeenCalledWith('/home/user/Documents/futo-notes', { recursive: true });
   });
 
   it('reads the sidebar width from the config file', async () => {
