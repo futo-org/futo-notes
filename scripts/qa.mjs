@@ -14,7 +14,7 @@
 // heartbeats. Pool devices are the ONLY devices this tool touches; your own
 // simulators/AVDs are never claimed, booted, or deleted.
 //
-//   node scripts/qa.mjs claim [ios|android|all]   # ensure+boot devices, print exports
+//   node scripts/qa.mjs claim [ios|android|all] [--reboot]   # ensure+boot devices, print exports
 //   node scripts/qa.mjs status                    # pool devices + servers, owners, state
 //   node scripts/qa.mjs release [--shutdown]      # release this worktree's claims
 //   node scripts/qa.mjs gc                        # reap devices/servers of deleted worktrees
@@ -172,7 +172,17 @@ function simDevices() {
 
 const findSim = (name) => simDevices().find((d) => d.name === name && d.isAvailable !== false);
 
-async function ensureSim(name) {
+// `reboot: true` forces a full shutdown -> boot -> attach cycle.
+//
+// A simulator booted without a Simulator.app window in the CURRENT WindowServer
+// context makes `axe`/`idb` UI commands return a degenerate 0x0 root, while
+// `simctl screenshot` keeps working perfectly. So the failure looks like the app
+// rendering nothing rather than a windowing problem, and an agent can burn a long
+// session concluding the UI is unreadable (pc_93dab75886da). Re-running
+// `open -a Simulator` against an ALREADY-RUNNING Simulator.app does not fix it —
+// `--args` is only read at launch — so the repair is the full cycle, which is
+// what `just qa-claim ios --reboot` now does.
+async function ensureSim(name, { reboot = false } = {}) {
   let sim = findSim(name);
   if (!sim) {
     info(`creating simulator ${name} (${SIM_DEVICE_TYPE})`);
@@ -180,13 +190,28 @@ async function ensureSim(name) {
     sim = findSim(name);
     if (!sim) die(`simctl create ${name} did not produce a device`);
   }
+  if (reboot && sim.state === 'Booted') {
+    info(`rebooting simulator ${name} (${sim.udid}) to re-attach a window`);
+    tryRun('xcrun', ['simctl', 'shutdown', sim.udid]);
+    for (let i = 0; i < 30 && findSim(name)?.state === 'Booted'; i++) await sleep(1000);
+    sim = findSim(name);
+  }
   if (sim.state !== 'Booted') {
     info(`booting simulator ${name} (${sim.udid})`);
     tryRun('xcrun', ['simctl', 'boot', sim.udid]); // "already booted" is fine
     for (let i = 0; i < 30 && findSim(name)?.state !== 'Booted'; i++) await sleep(1000);
     if (findSim(name)?.state !== 'Booted') die(`simulator ${name} did not reach Booted`);
-    tryRun('open', ['-a', 'Simulator']); // show the window; harmless if headless use
   }
+  // Make sure Simulator.app is running and ask it to front THIS device.
+  //
+  // Honest limitation: `-CurrentDeviceUDID` is only read when Simulator.app
+  // LAUNCHES. If it is already running (commonly, showing another worktree's
+  // device) this just activates it and the flag is ignored — measured. So this
+  // covers the "Simulator.app not running at all" case, and --reboot above is
+  // the documented repair for a booted device whose UI reads as a 0x0 root.
+  // Quitting Simulator.app is deliberately NOT done: sibling worktrees' claimed
+  // devices share the one app instance.
+  tryRun('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', findSim(name).udid]);
   return findSim(name).udid;
 }
 
@@ -324,7 +349,7 @@ async function ensureAvd(name) {
 
 // ── commands ───────────────────────────────────────────────────────────────
 
-async function cmdClaim(target = 'all') {
+async function cmdClaim(target, { reboot = false } = {}) {
   const root = worktreeRoot();
   const wantIos = target === 'ios' || target === 'all';
   const wantAndroid = target === 'android' || target === 'all';
@@ -334,7 +359,7 @@ async function cmdClaim(target = 'all') {
   const exports = [];
   if (wantIos && IS_MAC) {
     const name = claimPoolName('ios', root);
-    const udid = await ensureSim(name);
+    const udid = await ensureSim(name, { reboot });
     info(`ios: ${name} → ${udid}`);
     exports.push(`export SIM=${udid}`);
   } else if (wantIos) {
@@ -594,9 +619,14 @@ function serverStop(root, drop) {
 
 const [cmd, ...args] = process.argv.slice(2);
 switch (cmd) {
-  case 'claim':
-    await cmdClaim(args[0] || 'all');
+  case 'claim': {
+    // --reboot forces a simulator shutdown/boot cycle, the only reliable repair
+    // for an already-booted sim whose UI reads as a 0x0 root (see ensureSim).
+    const reboot = args.includes('--reboot');
+    const positional = args.find((a) => !a.startsWith('--'));
+    await cmdClaim(positional || 'all', { reboot });
     break;
+  }
   case 'status':
     cmdStatus();
     break;
@@ -618,6 +648,6 @@ switch (cmd) {
     break;
   default:
     die(
-      'usage: qa.mjs claim [ios|android|all] | status | release [--shutdown] | gc | server-start | server-stop [--drop] | avd-baseline',
+      'usage: qa.mjs claim [ios|android|all] [--reboot] | status | release [--shutdown] | gc | server-start | server-stop [--drop] | avd-baseline',
     );
 }

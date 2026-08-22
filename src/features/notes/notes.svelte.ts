@@ -314,11 +314,27 @@ export async function refreshNotesFromStorage(): Promise<void> {
 }
 
 export async function refreshNotesAfterSync(
-  _updatedIds: string[],
-  _deletedIds: string[],
+  updatedIds: string[],
+  deletedIds: string[],
+  renamed: { fromId: string; toId: string }[],
 ): Promise<void> {
-  await refreshNotesFromStorage();
-  await currentLocalNoteStore().rescan();
+  const store = await getLocalNoteStore();
+  try {
+    _applyLocalMutation(await store.refreshExternalChanges(updatedIds, deletedIds, renamed));
+  } catch (error) {
+    console.warn('Scoped sync projection failed; rebuilding snapshot:', error);
+    const [searchRecovery, snapshotRecovery] = await Promise.allSettled([
+      store.rescan(),
+      store.snapshot(),
+    ]);
+    if (snapshotRecovery.status === 'fulfilled') replaceFromSnapshot(snapshotRecovery.value);
+    const recoveryErrors = [searchRecovery, snapshotRecovery]
+      .filter((result) => result.status === 'rejected')
+      .map((result) => result.reason);
+    if (recoveryErrors.length > 0) {
+      console.warn('Sync projection recovery was incomplete:', recoveryErrors);
+    }
+  }
 }
 
 export async function handleExternalFileChange(filename: string): Promise<NotePreview | null> {

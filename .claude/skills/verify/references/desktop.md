@@ -31,7 +31,7 @@ node scripts/qa-target.mjs kill          # stop THIS worktree's instances only
 
 It verifies the real executable path against this repo's worktree list plus the
 instance's own data dir and vault, and refuses everything else — emphatically
-an installed bundle. Exit 3 means *stop*, not "try harder". `scripts/check-qa-input-safety.mjs`
+an installed bundle. Exit 3 means _stop_, not "try harder". `scripts/check-qa-input-safety.mjs`
 fails the build if either habit reappears in an instruction file.
 
 One more measurement trap from the same incident: on BSD/macOS `find -newermt`
@@ -68,13 +68,22 @@ agent-browser close                    # cleanup (and kill the dev server)
 ## Tauri desktop (the default)
 
 Debug builds include `tauri-plugin-mcp-bridge`, exposing the Tauri MCP tools
-(`driver_session`, `webview_*`). The bridge picks a free port in 9223–9322 so
-multiple worktree instances coexist.
+(`driver_session`, `webview_*`). The bridge binds **loopback only** and scans
+upward from a per-worktree base port (`scripts/lib/slot.mjs` -> `mcp`, passed as
+`FUTO_MCP_BASE_PORT` by `just tauri-dev`), so worktree instances coexist without
+contending for one port. Bases land in 9223–9272 and the scan runs 100 ports up,
+so 9223–9322 is still the range to sweep.
+
+Print this worktree's base with `just ports`. Loopback-only matters: the plugin
+used to bind `0.0.0.0`, which succeeds even while another process holds
+`127.0.0.1:<port>` — so it logged a port that every client (all of which dial
+127.0.0.1) resolved to the OTHER process.
 
 ### Launch (or reuse a running instance)
 
 <!-- The config path below is relative to the cd into apps/tauri a few lines into this same script, not repo-root — the checker can't see that shell context. -->
 <!-- check-agent-docs: ignore-next-block -->
+
 ```bash
 # Re-compute instance variables (see SKILL.md Instance Setup)
 ALREADY_RUNNING=false
@@ -198,13 +207,39 @@ const url = performance
   .getEntriesByType('resource')
   .map((entry) => entry.name)
   .find((name) => /@codemirror_commands/.test(name));
-const commands = await import(url);           // the app's live instance
+const commands = await import(url); // the app's live instance
 commands.undoDepth(window.__editorView.state);
 ```
 
-A plain `import('@codemirror/commands')` resolves to a *different* module
+A plain `import('@codemirror/commands')` resolves to a _different_ module
 instance whose `historyField` is not the app's, which is why depth reads come
 back 0 and undo appears to do nothing. Same trick for any dep the app loaded.
+
+### Screenshots without stealing focus
+
+Several sessions QA this app in parallel on one Mac, and the human is usually
+typing in a terminal on another space. Anything that activates an app — `open -a`,
+or the window-raise below — yanks them mid-sentence. Treat activation as a cost
+you justify, not a default.
+
+You almost never need it: a window's surface stays live and current while it
+sits on another space, so capture it where it is.
+
+| Situation                                 | Use                                                       |
+| ----------------------------------------- | --------------------------------------------------------- |
+| Live bridge (the normal case)             | `capture_native_screenshot` — ~19 ms, no extra permission |
+| No bridge, or an unknown/dead bridge port | `just qa-shot pid <pid>` \| `port <port>` \| `list`       |
+| iOS simulator content                     | `just sim-screenshot` (`simctl` needs no foreground app)  |
+
+`just qa-shot` captures by window id (`screencapture -l`), which is why it
+reaches a window on another space — that window is not "on screen", so a naive
+enumeration misses it and tempts you into activating the app to make it appear.
+It refuses any process `qa-target.mjs` will not verify as this worktree's debug
+build: a capture reads pixels, and the release app's window shows the user's
+real vault (M24).
+
+`just sim-boot` no longer foregrounds Simulator.app. Pass `SHOW=1` when a human
+wants to watch, or for the frame-dependent case below.
 
 ### Frame-dependent measurements need a VISIBLE window
 
@@ -229,6 +264,13 @@ Parallel sessions steal focus back within seconds, so arm the measurement on
 and record `visibilityState` in the result so a stolen-focus run is discardable
 rather than silently wrong.
 
+This raise is the one thing in this file that legitimately takes the screen from
+the user, so keep it scoped to measurements that actually await a frame — never
+to "see" the app, which the capture options above do without disturbing anyone.
+On a single-display machine there is no way to make it polite; a second display
+(a real one, or a virtual/dummy display) is what buys an unoccluded window that
+nobody is looking at.
+
 ### What the DOM says is not what the screen shows
 
 For scroll/animation defects, in-page sampling can be structurally blind:
@@ -251,3 +293,12 @@ if [ -f "$PID_FILE" ]; then
   rm -f "$PID_FILE" "$TAURI_LOG"
 fi
 ```
+
+The PID file is the point: it is the identity of the stack YOU started. Never
+clean up by process name. `pkill -f vite`, `pkill -f "cargo tauri dev"` and
+friends are machine-wide — on 2026-08-19 they took out three peer worktrees,
+silently: an orphaned app keeps its bridge port and stops rebuilding (the peer
+reads that as "my change had no effect"), and a dead dev server returns an error
+overlay instead of a test failure (M25). If the PID file is gone,
+`node scripts/qa-target.mjs list` then `kill` reaches this worktree's app
+instances only, and `just ports` prints the ports you own.

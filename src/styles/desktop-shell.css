@@ -117,10 +117,6 @@
   will-change: auto;
 }
 
-.notes-shell.desktop-layout .drawer-overlay {
-  display: none;
-}
-
 .notes-shell.desktop-layout .note-title-row {
   padding-top: 60px;
   max-width: 740px;
@@ -130,7 +126,8 @@
 }
 
 .notes-shell.desktop-layout .editor-container {
-  max-width: 740px;
+  /* 60px past the title column each side, so the space beside the text is reachable. */
+  max-width: 860px;
   margin-left: auto;
   margin-right: auto;
   width: 100%;
@@ -183,15 +180,7 @@
   padding: 12px 12px 0;
 }
 
-.notes-shell.desktop-layout .notes-drawer .notes-list-scroll {
-  padding: 8px 8px 80px;
-}
-
 .notes-shell.desktop-layout .notes-drawer .fab {
   bottom: 16px;
   right: 16px;
-}
-.notes-shell.desktop-layout .notes-drawer .settings-fab {
-  bottom: 16px;
-  left: 16px;
 }

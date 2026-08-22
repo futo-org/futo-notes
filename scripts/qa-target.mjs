@@ -261,12 +261,12 @@ function run(command, args) {
   return result.status === 0 ? (result.stdout ?? '') : '';
 }
 
-function worktreeRoots(selfRoot) {
+export function worktreeRoots(selfRoot) {
   const roots = parseWorktreeRoots(run('git', ['-C', selfRoot, 'worktree', 'list', '--porcelain']));
   return roots.length > 0 ? roots : [selfRoot];
 }
 
-function repoRoot() {
+export function repoRoot() {
   const top = run('git', ['-C', HERE, 'rev-parse', '--show-toplevel']).trim();
   return top || path.resolve(HERE, '..');
 }
@@ -371,7 +371,7 @@ function notesDirOf(dataDir) {
   }
 }
 
-function candidateFor(pid) {
+export function candidateFor(pid) {
   const execPath = execPathOf(pid);
   const env = envOf(pid);
   const dataDir = env?.FUTO_NOTES_DATA_DIR ?? null;
@@ -386,7 +386,7 @@ function candidateFor(pid) {
  * one process this tool most needs to name. macOS `ps -o comm=` prints the full
  * executable path with spaces intact; Linux truncates it, so read /proc there.
  */
-function allCandidatePids() {
+export function allCandidatePids() {
   if (process.platform === 'linux') {
     const pids = [];
     for (const entry of fs.readdirSync('/proc')) {

@@ -36,6 +36,12 @@ export interface LocalNoteRename {
   to: string;
 }
 
+/** Rename shape projected by a sync summary. */
+export interface LocalNoteRenamePair {
+  fromId: string;
+  toId: string;
+}
+
 export interface LocalNoteUpsert {
   note: LocalNoteMetadata;
   position: number;
@@ -116,6 +122,12 @@ export interface LocalNoteStore {
   search(query: string, limit?: number): Promise<LocalSearchHit[]>;
   /** Bounded, engine-owned keyword readiness wait; shells do not poll. */
   waitUntilSearchReady(timeoutMs: number): Promise<boolean>;
+  /** Project files written outside this store's mutation verbs. */
+  refreshExternalChanges(
+    updatedIds: string[],
+    deletedIds: string[],
+    renamed: LocalNoteRenamePair[],
+  ): Promise<LocalNoteMutation>;
   rescan(): Promise<void>;
 }
 
@@ -412,6 +424,18 @@ export class BrowserLocalNoteStore implements LocalNoteStore {
   }
 
   async rescan(): Promise<void> {}
+
+  async refreshExternalChanges(): Promise<LocalNoteMutation> {
+    return {
+      upserted: [],
+      removed: [],
+      renamed: [],
+      folders: [],
+      finalId: null,
+      finalFolder: null,
+      warnings: [],
+    };
+  }
 
   private metadata(id: string, note: BrowserNote): LocalNoteMetadata {
     const slash = id.lastIndexOf('/');

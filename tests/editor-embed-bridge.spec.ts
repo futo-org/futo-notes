@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Browser, type Page } from '@playwright/test';
 
 import { EDITOR_BUNDLE_PATH, EDITOR_URL } from './editorEmbedBundle';
 
@@ -87,6 +87,30 @@ const test = base.extend<{ page: Page }>({
     await context.close();
   },
 });
+
+const IOS_TOUCH_USER_AGENT =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148';
+
+async function openIosTouchEditor(browser: Browser) {
+  const context = await browser.newContext({ hasTouch: true, userAgent: IOS_TOUCH_USER_AGENT });
+  await context.addInitScript(installFakeAndroidHost);
+  const page = await context.newPage();
+  await page.goto(EDITOR_URL);
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs?.some((message) => message.type === 'ready'),
+  );
+  return { context, page };
+}
+
+async function pointBelowFinalEditorLine(page: Page, rowsBelow: number) {
+  const line = page.locator('.cm-line').last();
+  const box = await line.boundingBox();
+  if (!box) throw new Error('no final editor line geometry');
+  const rowHeight = await line.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).lineHeight),
+  );
+  return { x: box.x + 18, y: box.y + box.height + rowHeight * rowsBelow };
+}
 
 // Let the editor's rAF-coalesced change callback flush before we assert.
 async function flushFrames(page: Page): Promise<void> {
@@ -403,6 +427,22 @@ test('exec task-list toggles a - [ ] marker', async ({ page }) => {
   expect(await execOnLine(page, 'hello', 'task-list')).toBe('- [ ] hello');
 });
 
+test('exec converts task, bullet, and ordered line kinds without accumulating prefixes', async ({
+  page,
+}) => {
+  await hostSetContent(page, 'hello');
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+
+  await exec(page, 'task-list');
+  expect(await getContent(page)).toBe('- [ ] hello');
+
+  await exec(page, 'bullet-list');
+  expect(await getContent(page)).toBe('- hello');
+
+  await exec(page, 'ordered-list');
+  expect(await getContent(page)).toBe('1. hello');
+});
+
 test('exec link wraps a selection as [sel]() with the caret in the URL slot', async ({ page }) => {
   await hostSetContent(page, 'word');
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
@@ -544,6 +584,189 @@ test('tapping a broken wikilink posts nothing (recorded native Gap)', async ({ p
 
   await tapCenter(page, '.cm-md-wikilink-broken');
   expect(await messages(page)).toEqual([]);
+});
+
+// The native shells put a screenful of blank space under a short note
+// (`.cm-content { min-height: 100% }`), so this is the tap that happens most.
+// Checked on a Galaxy S23 Ultra (Android 15) and the iOS simulator.
+test('a tap far below the text goes to the end of the note, not the column above it', async ({
+  page,
+}) => {
+  await hostSetContent(page, 'first line here\nsecond line is the last one and it is fairly long');
+
+  const box = await page.locator('.cm-content').boundingBox();
+  if (!box) throw new Error('no content box');
+  const lastLine = await page.locator('.cm-line').last().boundingBox();
+  if (!lastLine) throw new Error('no last line box');
+  await page.touchscreen.tap(box.x + 40, lastLine.y + lastLine.height + 200);
+  await flushFrames(page);
+  await page.keyboard.type('X');
+  await flushFrames(page);
+
+  expect(await getContent(page)).toBe(
+    'first line here\nsecond line is the last one and it is fairly longX',
+  );
+});
+
+// Repeated taps must give the same answer.
+//
+// SCOPE: this passes on the broken code too. Headless Chromium's synthetic tap
+// leaves no engine-placed DOM caret to sync back, so the alternation it guards
+// against reproduces only on a device (checked on a Galaxy S23 Ultra). What
+// this locks is the end state of two taps in a row.
+test('tapping below the text twice lands at the end of the note both times', async ({ page }) => {
+  await hostSetContent(page, 'first line here\nsecond line is the last one and it is fairly long');
+
+  const box = await page.locator('.cm-content').boundingBox();
+  const lastLine = await page.locator('.cm-line').last().boundingBox();
+  if (!box || !lastLine) throw new Error('no geometry');
+  const point = { x: box.x + 40, y: lastLine.y + lastLine.height + 200 };
+
+  await page.touchscreen.tap(point.x, point.y);
+  await flushFrames(page);
+  await page.keyboard.type('X');
+  await flushFrames(page);
+
+  await page.touchscreen.tap(point.x, point.y);
+  await flushFrames(page);
+  await page.keyboard.type('Y');
+  await flushFrames(page);
+
+  expect(await getContent(page)).toBe(
+    'first line here\nsecond line is the last one and it is fairly longXY',
+  );
+});
+
+test('native off-text double taps select the near column word or far final word', async ({
+  page,
+}) => {
+  const selectAndReplace = async (rowsBelow: number) => {
+    await hostSetContent(page, 'alpha bravo.');
+    const point = await pointBelowFinalEditorLine(page, rowsBelow);
+    await page.mouse.dblclick(point.x, point.y);
+    await page.keyboard.type('X');
+    await flushFrames(page);
+    return getContent(page);
+  };
+
+  expect(await selectAndReplace(1)).toBe('X bravo.');
+  expect(await selectAndReplace(2)).toBe('alpha X.');
+});
+
+test('the iOS touch sequence resolves off-text words before compatibility mouse events', async ({
+  browser,
+}) => {
+  const { context, page: iosPage } = await openIosTouchEditor(browser);
+
+  const selectAndReplace = async (rowsBelow: number) => {
+    await hostSetContent(iosPage, 'alpha bravo.');
+    const point = await pointBelowFinalEditorLine(iosPage, rowsBelow);
+    const target = await iosPage.evaluate(({ x, y }) => {
+      const element = document.elementFromPoint(x, y);
+      return {
+        editor: Boolean(element?.closest('.cm-editor')),
+        content: Boolean(element?.closest('.cm-content')),
+        scroller: Boolean(element?.closest('.cm-scroller')),
+      };
+    }, point);
+
+    expect(target).toEqual({ editor: true, content: false, scroller: true });
+
+    await iosPage.touchscreen.tap(point.x, point.y);
+    await iosPage.touchscreen.tap(point.x, point.y);
+    await iosPage.keyboard.type('X');
+    await flushFrames(iosPage);
+    return getContent(iosPage);
+  };
+
+  expect(await selectAndReplace(1)).toBe('X bravo.');
+  expect(await selectAndReplace(2)).toBe('alpha X.');
+
+  await hostSetContent(iosPage, 'first paragraph\nalpha bravo.');
+  const tripleTapPoint = await pointBelowFinalEditorLine(iosPage, 1);
+  await iosPage.touchscreen.tap(tripleTapPoint.x, tripleTapPoint.y);
+  await iosPage.touchscreen.tap(tripleTapPoint.x, tripleTapPoint.y);
+  await iosPage.touchscreen.tap(tripleTapPoint.x, tripleTapPoint.y);
+  await iosPage.keyboard.type('X');
+  await flushFrames(iosPage);
+  expect(await getContent(iosPage)).toBe('first paragraph\nX');
+
+  await context.close();
+});
+
+test('iOS notes keep a non-editable scroll tail at short and long lengths', async ({ browser }) => {
+  const { context, page: iosPage } = await openIosTouchEditor(browser);
+  await hostSetContent(iosPage, 'short note');
+
+  const scroller = iosPage.locator('.cm-scroller');
+  const metrics = await scroller.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+
+  await scroller.evaluate((element) => {
+    element.scrollTop = 100;
+  });
+  expect(await scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+  await hostSetContent(
+    iosPage,
+    Array.from({ length: 60 }, (_, index) => `long note line ${index + 1}`).join('\n'),
+  );
+  const trailingSpace = await iosPage
+    .locator('.cm-line')
+    .last()
+    .evaluate((line) => {
+      const scroller = line.closest('.cm-scroller');
+      if (!(scroller instanceof HTMLElement)) throw new Error('no scroller');
+      const scrollerBox = scroller.getBoundingClientRect();
+      const lineBox = line.getBoundingClientRect();
+      const lineBottomInScroller = lineBox.bottom - scrollerBox.top + scroller.scrollTop;
+      return scroller.scrollHeight - lineBottomInScroller;
+    });
+  expect(trailingSpace).toBeGreaterThanOrEqual(250);
+
+  await scroller.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  const longTailTarget = await iosPage
+    .locator('.cm-line')
+    .last()
+    .evaluate((line) => {
+      const scroller = line.closest('.cm-scroller');
+      if (!(scroller instanceof HTMLElement)) throw new Error('no scroller');
+      const lineBox = line.getBoundingClientRect();
+      const scrollerBox = scroller.getBoundingClientRect();
+      const element = document.elementFromPoint(
+        scrollerBox.left + 40,
+        Math.min(lineBox.bottom + 40, scrollerBox.bottom - 1),
+      );
+      return {
+        content: Boolean(element?.closest('.cm-content')),
+        scroller: Boolean(element?.closest('.cm-scroller')),
+      };
+    });
+  expect(longTailTarget).toEqual({ content: false, scroller: true });
+
+  await context.close();
+});
+
+// Every position in a tag-only note is collapsed markup. The desktop shell
+// refuses that press; a touch shell must not — with no caret there is no
+// keyboard, so the note could never be typed into again.
+test('a tag-only note still takes a tap and types', async ({ page }) => {
+  await hostSetContent(page, '#work #ideas');
+
+  // The line has no box to aim at, so the tap lands on the surface — a finger
+  // has the same problem.
+  await tapCenter(page, '.cm-content');
+  await page.keyboard.type('X');
+  await flushFrames(page);
+
+  // Which edge the caret takes is the engine's own answer: Chromium the start,
+  // WKWebView the end. Both must yield a caret without splitting the tag text.
+  expect(await getContent(page)).toMatch(/^(X#work #ideas|#work #ideasX)$/);
 });
 
 test('tapping an external link posts openUrl and never calls window.open', async ({ page }) => {

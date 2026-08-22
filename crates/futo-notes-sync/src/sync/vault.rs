@@ -227,6 +227,7 @@ pub(super) fn content_hash(root: &Path, name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{Arc, Mutex};
 
     use super::*;
 
@@ -249,6 +250,60 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn watcher_registration_precedes_write_park_and_remove_mutations() {
+        let root = TempRoot::new();
+        let note = root.0.join("note.md");
+        std::fs::write(&note, "old body").unwrap();
+
+        let write_calls = Arc::new(Mutex::new(Vec::new()));
+        let callback_calls = Arc::clone(&write_calls);
+        let callback_note = note.clone();
+        let before_write = move |name: &str| {
+            callback_calls.lock().unwrap().push(name.to_owned());
+            assert_eq!(std::fs::read_to_string(&callback_note).unwrap(), "old body");
+        };
+        write_content_if_changed(&root.0, "note.md", "new body", "", 0, &before_write).unwrap();
+        assert_eq!(write_calls.lock().unwrap().as_slice(), ["note.md"]);
+        assert_eq!(std::fs::read_to_string(&note).unwrap(), "new body");
+
+        let parked_name = collision_conflict_filename("note.md", "object-1");
+        let parked = root.0.join(&parked_name);
+        let park_calls = Arc::new(Mutex::new(Vec::new()));
+        let callback_calls = Arc::clone(&park_calls);
+        let callback_note = note.clone();
+        let callback_parked = parked.clone();
+        let before_park = move |name: &str| {
+            callback_calls.lock().unwrap().push(name.to_owned());
+            assert_eq!(std::fs::read_to_string(&callback_note).unwrap(), "new body");
+            assert!(!callback_parked.exists());
+        };
+        assert_eq!(
+            park_local(&root.0, "note.md", "object-1", &before_park).unwrap(),
+            parked_name
+        );
+        assert_eq!(
+            park_calls.lock().unwrap().as_slice(),
+            ["note.md", parked_name.as_str()]
+        );
+        assert!(!note.exists());
+        assert_eq!(std::fs::read_to_string(&parked).unwrap(), "new body");
+
+        let remove_calls = Arc::new(Mutex::new(Vec::new()));
+        let callback_calls = Arc::clone(&remove_calls);
+        let callback_parked = parked.clone();
+        let before_remove = move |name: &str| {
+            callback_calls.lock().unwrap().push(name.to_owned());
+            assert_eq!(
+                std::fs::read_to_string(&callback_parked).unwrap(),
+                "new body"
+            );
+        };
+        assert!(remove_local(&root.0, &parked_name, &before_remove).unwrap());
+        assert_eq!(remove_calls.lock().unwrap().as_slice(), [parked_name]);
+        assert!(!parked.exists());
     }
 
     enum Fault {

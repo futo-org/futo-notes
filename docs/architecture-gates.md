@@ -109,3 +109,34 @@ The `check:arch-gate` script in `package.json` owns the check list because the p
 image does not include `just`. Both the root `justfile` and `.gitlab-ci.yml` call that script. When
 adding or removing a gate, change only `check:arch-gate`; do not duplicate the command list in
 either caller.
+
+## Not here: the dependency vulnerability scan
+
+`just audit` runs `cargo audit` and `pnpm audit --prod`. It stays out of `arch-gate` because it needs
+the network — the RUSTSEC database and the npm registry — while every gate above is an offline source
+scan.
+
+**CI runs it as a reporter, not a blocker.** `test:audit` is `allow_failure: true` and is deliberately
+*absent* from `release:gate.needs` — a documented exception to M14. This app is an offline-first local
+editor: nearly every advisory that reaches it is in build tooling or on a code path no user input
+travels, so a hard gate would stop releases far more often than it would stop a real risk. Restoring
+either turns this back into a release blocker, which is a product decision rather than a hardening
+fix.
+
+Acknowledgements live in the tools' own ignore lists:
+
+- Rust: `[advisories] ignore` in `.cargo/audit.toml`
+- npm: `auditConfig.ignoreGhsas` in `pnpm-workspace.yaml`
+
+**Both ship empty, and an empty list is the normal state.** An id there says a person looked at that
+advisory and decided it is fine to ship, so nothing is added on anyone else's behalf — and because
+the job only reports, a real finding is allowed to sit there unacknowledged and yellow. Silencing an
+advisory is a choice someone makes and signs, not a step in going green. Add the id with a comment
+recording whether it ships, how it goes away, and who owns it.
+
+`just audit` also names ignore entries the audits no longer report, and `just audit --fix` removes
+them with the comment explaining them — the only thing keeping the lists from growing forever. It is
+not automatic: a wrong "no longer detected" would delete hand-written analysis, and a self-healing
+`just audit` means a self-healing CI job. How that is detected without trusting a tool that
+under-reports is documented in `scripts/audit.mjs`, which `just audit` and `test:audit` both run —
+the pinned CI image has no `just`, the same reason arch-gate's command list lives in `package.json`.

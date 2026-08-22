@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SearchResultItem } from '$shared/types/search';
   import { search } from '$features/notes/notes.svelte';
+  import { dismissable } from '$shared/dialogs/dismissable';
 
   interface Props {
     onclose: () => void;
@@ -62,12 +63,9 @@
     }
   });
 
+  // Escape is not handled here: the shared dialog stack (use:dismissable on the
+  // overlay) closes the top-most overlay wherever focus happens to be.
   function handleKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      onclose();
-      return;
-    }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       selectedIndex = Math.min(selectedIndex + 1, results.length - 1);
@@ -91,7 +89,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-<div class="search-overlay" onclick={onclose}>
+<div class="search-overlay" use:dismissable={{ ondismiss: onclose }} onclick={onclose}>
   <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
   <div class="search-panel" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown}>
     <div class="search-input-row">

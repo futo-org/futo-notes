@@ -123,109 +123,107 @@ this file states the behaviors a human cares about.
   inside a table therefore shows the table's markdown source, not the unfocused
   table widget. → swapEditorState.ts, table/interactiveTableEditor.ts,
   tests/table-focus-after-note-switch.spec.ts
+- Reveal state belongs to one editor: pressing or dragging in one open editor
+  never freezes or suppresses markdown reveal in another. →
+  interactions/editorPointerInteractions.ts, live-preview/selectionReveal.ts
 
 ## Cursor
 
-- **Tapping in the editor places the cursor at the tapped character** — not the
-  start/end of the line or document. → MarkdownEditor.svelte
-- **A tap past the end of a line's text lands at the end of the tapped VISUAL
-  row.** A wrapped line is one markdown line across several rows, and its
-  `line.to` is the end of the LAST row: snapping there dropped the caret a row
-  below the tap, right after the engine had placed it correctly. On the row that
-  carries the line's end the answer IS `line.to`, because hidden trailing markers
-  (a wikilink's `]]`) stop the rendered row short of the source it stands for.
-  → interactions/caretInteractions.ts `rowEndAt`, tests/editor-ux.spec.ts,
-  tests/wikilinks.spec.ts
-- **A resolved caret carries its row.** A wrap point is ONE position the caret can
-  be drawn in two places — the end of a row or the start of the next — and only
-  the association distinguishes them; the tap's own y picks. Every path that
-  places a caret from a pointer dispatches that association rather than a bare
-  offset, or the caret appears one row below an otherwise correct tap. This bit
-  a tap on an UNFOCUSED editor long after the focused path was right, and again
-  the blank space beside a wrapped row, because each resolves through a different
-  handler — the rule holds only where every one of them applies it.
-  → interactions/caretRow.ts `cursorOnTappedRow`, interactions/caretInteractions.ts,
-  interactions/blankSpaceCaret.ts, iosTapFocus.ts, MarkdownEditor.svelte `setCaret`,
-  interactions/caretInteractions.test.ts
-- **Tapping the blank space around a note reaches into it.** The note's tappable
-  surface is the text plus two line-heights to either side and below it, and
-  upward it takes in the whole tag bar — the bar's slack is part of the surface,
-  while its pills, buttons and input keep their own taps. The title row is
-  outside. → NoteWorkspace.svelte `handleBlankSpaceMouseDown`,
-  interactions/blankSpaceCaret.ts `resolveBlankSpaceCaret`, tests/editor-ux.spec.ts
-- Inside that surface the caret goes to the **nearest position in the text**:
-  left of a line → its start, right of it → its end, and below the last line →
-  whatever the same tap would have hit ON that line, so the column under the
-  pointer picks the character. A tap above the text reaches the first VISIBLE
-  line, never a hidden header tag block — the caret would reveal its markup.
-- Past the surface the directions differ. **Below** the note is still the note:
-  the tap lands at its end. **Out to either side** is a tap away from it: the
-  caret stays where it was. The side edge is one straight line at every height,
-  so the surface is a rectangle rather than an L.
-- **Reaching also hands the editor focus; tapping off takes it away.** Inside the
-  surface the caret moves AND the editor focuses, so the note is ready to type
-  into — being able to type is the whole point of reaching. Outside it the editor
-  gives up focus and the caret stays put, so the note reads as deselected rather
-  than half-selected. → tests/editor-ux.spec.ts
-- Only a **primary (left) press** reaches. Any other button leaves the caret where
-  it is, so a right-press in the blank space opens the platform menu without
-  dragging the cursor along first. A modified tap (Shift/Alt/Cmd/Ctrl) is likewise
-  a selection gesture, left to the platform, and a note that is nothing but a
-  hidden tag block has no reachable position at all — a tap in it must not land in
-  the markup. → NoteWorkspace.svelte `handleBlankSpaceMouseDown`
-  > **Gap:** the native shells have no reach rules of their own. Their blank space
-  > below the text is INSIDE the contenteditable (editor.html's `.cm-content
-{ min-height: 100% }`), so the engine resolves those taps: there is no
-  > two-line boundary and no click-off zone, at any distance. The reach rules
-  > above are desktop/web only. _(native shells)_
-- The first tap that opens the editor resolves the tapped CM line on `touchend`,
-  focuses with `preventScroll`, then sets the selection — it must NOT use the
-  native contenteditable tap-focus path, which scroll-jumps the whole app during
-  keyboard presentation. → docs/learnings/ios-keyboard-editor-jump.md _(iOS)_
-  > **Gap:** a first tap that resolves to NO CM line — the blank space below the
-  > text, which on the native shells is inside the contenteditable — has no
-  > position to set, so `iosTapFocus` declines and that native tap-focus path runs
-  > after all. Certain from the gating (`getLineHitAtPoint` finds no `.cm-line`,
-  > so `resolveTapPositionAt` answers null); whether the scroll-jump actually
-  > follows is NOT verified on device. Predates the reach work. _(iOS)_
-- **Tapping an UNFOCUSED editor places the caret at the tap AND raises the
-  keyboard** — on refocus, WebKit and Blink restore the selection saved at
-  blur (e.g. the header the cursor was on when the keyboard was dismissed,
-  #24). The mechanism differs per engine: iOS intercepts the touchend
-  (`iosTapFocus`, also dodging WKWebView's tap-focus scroll-jump); Android
-  must let the NATIVE tap run — preventDefault-ing it suppresses the IME for
-  a JS focus — and re-places the caret on click
-  (`mobileTapCaretCorrection`, which also fixes Android Chrome dropping to
-  position 0 on empty/widget lines — that fallback bites even while focused,
-  so Android corrects every single tap that lands ON a line; iOS focused taps
-  are left to WebKit's native placement). A tap that lands on NO line — the
-  blank space below the text — has no answer to correct to, and the engine's
-  own placement stands: answering "end of the document" there discarded the
-  column the engine had resolved from the same tap, and the caret then walked
-  between the two answers on alternate taps. The correction is anchored on the
-  host-asserted
-  `nativeShell` prop, never a UA-sniffed flag alone — pinned-false flags
-  silently disabled tap paths in the native embeds twice. On a WRAPPED line
-  the tap resolves within the tapped visual row (the tap's own y, clamped
-  into the line box — never the line-rect midpoint, which yanked the caret
-  to the middle row and made repeated corrective taps read as
-  double/triple-tap selections). Double/triple-tap word/line selection stays
-  native on both shells. → src/features/editor/iosTapFocus.ts, MarkdownEditor.svelte
-- Arrow up/down on a wrapped line moves by visual row, not logical line.
-  Arrowing past a block widget (HR) lands in the adjacent paragraph, not inside
-  the widget. → markdown-spec/cases/10-cursor-reveal
-- Pressing Enter in a continued list item scrolls the new item into view (don't
-  bypass CM's `scrollIntoView`). → docs/learnings/ios-keyboard-editor-jump.md
-  _(iOS)_
-- Text selection is the platform's native selection. On the native shells the
-  system owns it entirely (loupe, grab handles, callout) — the editor never
-  re-dispatches or "snaps" the selection, so it must not fight the native
-  handles. On desktop ONLY, a mouse drag-select that covers the visible content
-  of a markdown element whose source markers are hidden snaps outward through
-  those markers so copy/delete carry valid markdown; the pointer-selection
-  listeners are disabled whenever `nativeShell` identifies the native embed.
-  Verified on Android and iOS devices 2026-07-10.
-  → MarkdownEditor.svelte (pointer-selection gate) _(native shells / desktop snap)_
+### Placement
+
+- Tapping text places the caret at the tapped character. → MarkdownEditor.svelte
+- Tapping past a visual row's rendered text lands at that row's end; at a wrap
+  boundary the caret stays on the tapped row. → interactions/pointerHitTest.ts
+  `rowEndSelectionAt` `cursorOnTappedRow`, interactions/pointerHitTest.test.ts,
+  tests/editor-ux.spec.ts
+- When hidden trailing syntax such as a wikilink's `]]` or a closing code fence
+  extends past the rendered row, off-text placement uses the logical line end
+  rather than entering the hidden markup. → interactions/pointerHitTest.ts
+  `lineHitBesidePoint`, tests/editor-ux.spec.ts, tests/wikilinks.spec.ts
+- Arrow up/down moves by visual row on wrapped lines and skips block widgets. →
+  markdown-spec/cases/10-cursor-reveal
+- Pressing Enter in a continued list item scrolls the new item into view. →
+  docs/learnings/ios-keyboard-editor-jump.md _(iOS)_
+
+### Blank editor surface
+
+- Blank space beside lines and below the final line is part of the editor;
+  desktop press, drag, double-click, modified-click, and right-click beside a
+  line behave as they do on its text. → src/styles/app-shell.css
+  `.editor-container .cm-line`, tests/editor-ux.spec.ts
+- A tap beside a line lands at its nearest end: left space selects the line
+  start and right space selects the line end.
+- A tap less than two line-heights below the text uses the pointer's column on
+  the final visual row; a tap two or more line-heights below lands at the end of
+  the note. → interactions/pointerHitTest.ts `positionBelowText`
+  `ROWS_BELOW_TEXT`, tests/editor-ux.spec.ts, tests/editor-embed-bridge.spec.ts
+- Modified presses (Shift/Alt/Cmd/Ctrl) retain the platform's selection
+  behavior. → interactions/editorPointerInteractions.test.ts
+- An off-text double-tap selects the word at the resolved position: the word
+  under the pointer's column near the text or the final word two or more rows
+  below it. On iOS, a third tap selects that logical paragraph; Android leaves
+  triple-tap selection to Blink. → interactions/editorPointerInteractions.ts,
+  interactions/editorPointerInteractions.test.ts,
+  tests/editor-embed-bridge.spec.ts _(native shells)_
+- The tag bar's blank space reaches the first visible editor line at the
+  pointer's column, never a hidden header tag block; tag controls and the title
+  keep their own interactions. → NoteWorkspace.svelte `reachFromTagBar`
+- A primary press outside the desktop editor surface deselects the note without
+  moving its caret and commits a pending title rename; movement during that
+  press does not turn it into a text-selection drag. → NoteWorkspace.svelte
+  `handleNoteBodyMouseDown`, tests/editor-ux.spec.ts _(desktop)_
+- A desktop press in a note containing only hidden tag markup is refused rather
+  than entering the markup. Native shells keep a platform caret so the note
+  remains typeable, but it never lands inside a tag. →
+  interactions/editorPointerInteractions.ts `guardHiddenOnlyNote`,
+  tests/editor-embed-bridge.spec.ts _(desktop; native diverges)_
+  > **Gap:** the native shells have no deselect zone. Their editor interaction
+  > surface is the whole WebView below the title, so a tap outside the text
+  > column reaches into the note at any distance instead of dropping focus.
+  > _(native shells)_
+
+### Native touch and focus
+
+- Tapping an unfocused editor places the caret at the tap and raises the
+  keyboard; wrapped-line taps remain on the tapped visual row. →
+  interactions/editorPointerInteractions.ts, MarkdownEditor.svelte
+- Off-text placement has one owner and never visibly jumps: desktop and Android
+  resolve it on `mousedown`; iOS resolves it only after a single-touch gesture
+  qualifies as a tap on `touchend`. → interactions/editorPointerInteractions.ts
+  `desktopOffTextSelection` `handleMouseDown` `handleTouchEnd`
+- Android preserves the native tap and keyboard path. It uses the compatibility
+  mouse event for off-text placement because CodeMirror suppresses mouse-selection
+  hooks immediately after touch, then corrects on-text single taps that Blink
+  places incorrectly. → interactions/editorPointerInteractions.ts
+  `handleMouseDown` `handleClick` _(Android)_
+- The iOS blank tail is scrollable and outside `contenteditable`, preventing
+  WebKit from replacing the resolved caret. Moved, cancelled, and multitouch
+  gestures remain scrolling; the tail works after short and long notes so the
+  final line can clear the keyboard. → editor.html
+  `[data-ios-off-text-surface]`, tests/editor-embed-bridge.spec.ts _(iOS)_
+- The first iOS tap focuses with `preventScroll` before setting the caret,
+  including in the blank tail, so keyboard presentation does not scroll-jump
+  the editor. → docs/learnings/ios-keyboard-editor-jump.md,
+  interactions/editorPointerInteractions.ts `handleTouchEnd` _(iOS)_
+- Native-shell policy comes from the host-provided `nativeShell` mode; iOS
+  platform detection selects the iOS versus non-iOS pointer profile. →
+  createMarkdownEditorRuntime.ts
+- Focused on-text placement remains native on iOS. Android corrects every
+  on-text single tap, including empty or widget lines that Blink maps to
+  position zero. → interactions/editorPointerInteractions.ts `handleClick`
+  _(native shells)_
+- On-text double/triple-tap selection remains native on both shells; off-text
+  multi-taps use the resolved word/paragraph rules above. _(native shells)_
+
+### Selection
+
+- Native shells keep platform selection, handles, loupe, and callout except for
+  seeding the off-text double-tap range and the iOS paragraph range above.
+  Verified on Android and iOS devices 2026-07-10. →
+  interactions/editorPointerInteractions.ts _(native shells)_
+- Desktop drag-selection across a rendered Markdown element expands through its
+  hidden source markers so copy/delete preserve valid Markdown. →
+  interactions/selectionSnap.ts _(desktop)_
 
 ## Markdown elements (rendered / decorated)
 
@@ -410,7 +408,7 @@ native shells edit tags as text in the body, which is not a gap.
   handler's prevented `mousedown`, so a click-only handler dead-ends on iOS
   while Chromium double-fires; the touchend path covers both. A tap on a
   navigable link follows it on the **first** tap even when the editor is
-  unfocused: on iOS the tap-to-focus handler (`iosTapFocus`) yields taps that
+  unfocused: on iOS `editorPointerInteractions` yields taps that
   land on a resolved wikilink or external link so the link handler acts on them,
   instead of consuming the tap to place the caret (a _broken_ wikilink still
   focuses, so it can be edited). Android has no such interceptor, so it already
@@ -422,8 +420,9 @@ native shells edit tags as text in the body, which is not a gap.
   Android composes only the top of the stack, so one note binds the WebView at
   a time by construction. Verified emulator + simulator 2026-07-08 (A → wikilink
   → B → Back returns to A with A's content intact and the editor still
-  interactive; Back again returns to the list). → MarkdownEditor.svelte
-  `wikilinkClickHandler`, AppNavigation.kt `AppNavigator.openNote` (push),
+  interactive; Back again returns to the list). →
+  interactions/editorPointerInteractions.ts, MarkdownEditor.svelte,
+  AppNavigation.kt `AppNavigator.openNote` (push),
   NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`,
   tests/editor-embed-bridge.spec.ts
 - Native Back and resolved-wikilink navigation wait for every admitted editor
@@ -462,7 +461,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
 
 - Tapping/clicking an external link (`http(s)://`, autolinks, bare URLs) opens
   it in the system browser, never inside the editor. On the native shells a tap
-  is detected via a dedicated `touchend` path in `linkClickHandler` (mirroring
+  is detected via a dedicated `touchend` path in `editorPointerInteractions` (mirroring
   wikilinks — a click-only handler dead-ends on iOS WebKit) and the resolved URL
   is posted to the host via the `openUrl` bridge message (bridge v6); the host
   opens it in the system browser (iOS `UIApplication.open`, Android
@@ -483,7 +482,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   `EditorNavigationDecisionTests.swift`. Verified emulator + simulator
   2026-07-08 (tapping a rendered link opens Safari / Chrome to the target; iOS
   `openUrl` case and Android `ACTION_VIEW` intent both fire).
-  → platform/openExternalUrl.ts, MarkdownEditor.svelte `linkClickHandler` (`onopenurl`),
+  → platform/openExternalUrl.ts, interactions/editorPointerInteractions.ts (`activateLink`),
   editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
   EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
   `shouldOverrideUrlLoading` / `isInAppEditorNavigation`,
@@ -492,7 +491,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   (`getClientRects()`), so clicking the blank space past the end of a link —
   including a link that wraps onto several visual lines, whose union bounding box
   spans that blank space — places the caret instead of opening the URL.
-  → interactions/linkInteractions.ts `findExternalLinkElementAtPoint`,
+  → interactions/pointerHitTest.ts `findExternalLinkElementAtPoint`,
   tests/p1-regressions.spec.ts
 
 ## Interactive elements
@@ -594,6 +593,20 @@ EditorWebView.swift, EditorWebView.kt
   are dumb dispatchers: no platform restates the item list or reimplements
   a command. → packages/editor/src/toolbar.ts, src/features/editor/markdownToolbar.ts,
   tests/editor-embed-bridge.spec.ts
+- A block-format command classifies each selected line as plain, bullet,
+  ordered, task, heading, or quote, then emits exactly one block prefix after
+  the line's existing indentation. Tapping Bullet, Ordered, Task, or Quote on
+  the same kind removes it; tapping a different kind converts the whole prefix
+  while preserving the line's text. Converting a checked task drops its
+  checkbox state along with the task prefix. →
+  src/features/editor/toolbar/blockFormatting.ts,
+  src/features/editor/toolbar/blockFormatting.test.ts,
+  tests/editor-embed-bridge.spec.ts
+- Heading follows its own per-line cycle: a non-heading becomes h1, then h1 →
+  h2 → h3 → plain. A multi-line selection applies that transition separately
+  to each line, like the other block-format commands. →
+  src/features/editor/toolbar/blockFormatting.ts,
+  src/features/editor/toolbar/blockFormatting.test.ts
 - Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
   the host renders its own toolbar from a GENERATED copy of the manifest and
   drives the editor over the bridge — `exec(id)` runs the shared command,
@@ -953,6 +966,18 @@ EditorWebView.swift, EditorWebView.kt
   `EditorLifecycleFlushTest`. Earlier behavior verified on iOS 2026-07-13
   (sim); iOS verb wiring verified via `just test-ios-native` 2026-07-21 and
   Android verb/adoption wiring via `just test-android-native` 2026-07-23.
+- A durable native autosave flush **always advances the open editor's saved
+  baseline to the bytes that landed**. Rescheduling the debounce on the next
+  keystroke may cancel the task, but it must never skip that post-flush record;
+  only an editor identity that has already moved elsewhere may veto it. A
+  parked disposition follows the returned copy and advances its baseline in
+  the same step, so the next save cannot re-park against the original note.
+  iOS makes this liveness-free decision in `settledFlush`; Android holds the
+  flush-and-record span in `withContext(NonCancellable)`. _(iOS, Android)_ →
+  NoteEditorView.swift / NotesStore.swift `settledFlush`, EditorSession.kt
+  `NonCancellable`; guarded by `SettledFlushTests`,
+  `EditorSessionTests.cancelledSaveStillResumes`, and Android
+  `EditorSessionTest`.
 - The open editor's unsaved-draft register is **derived** from the editor's live
   state (note id, buffer, saved content, loaded) rather than hand-synced, so it
   goes clean the instant a save completes or a remote is adopted (no stale draft

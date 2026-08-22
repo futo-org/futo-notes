@@ -34,7 +34,7 @@ pub use filename::{
 pub use image::{is_image_filename, IMAGE_EXTENSIONS};
 pub use note::{
     make_id, make_preview, make_rich_preview, note_tags, sanitize_folder_path, split_id,
-    WELCOME_NOTE, WELCOME_NOTE_ID,
+    IMAGE_PLACEHOLDER, WELCOME_NOTE, WELCOME_NOTE_ID,
 };
 pub use tags::{
     extract_header_tag_block, extract_tags, is_valid_tag_name, normalize_tag_name, HeaderTagBlock,

@@ -30,7 +30,9 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   theme follows; persisted in UserDefaults `futo.themeMode` / Android
   SharedPreferences `theme_mode`; survives relaunch — verified via the
   crash-test relaunch).
-- **Storage**: a notes-directory path readout. On Android, changing Device/App
+- **Storage**: a notes-directory path readout. On Android, **Storage location**
+  opens the picker as a Settings sub-screen — Back or its **Cancel** button
+  returns to Settings and changes nothing (see nav.md). Changing Device/App
   storage shows a blocking migration state and relaunches only after the whole
   vault is verified and an app-private migration journal is durably activated.
   The journal is the authority across preference-commit ambiguity and process
@@ -106,17 +108,68 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   src/styles/editor-selection-toolbar.css, tests/editor-ux.spec.ts "Selection
   toolbar > stacks below blocking overlays" (see settings-visual.md for the
   platform-split and shared content model)
-- **Storage:** the displayed active/default roots come from the Tauri platform
-  facade. Both changing and resetting the root confirm first with a warning
-  dialog naming the restart (the change dialog also notes existing notes are
-  not moved). Choosing a custom root requires an absolute path, creates it before
-  persistence, saves it through `notes_dir_override_save`, invalidates the
-  frontend root cache, and then relaunches. Reset saves a `null` override and
-  relaunches. The relaunch is a full process restart, **not** a
-  `window.location.reload()`: the Rust filesystem watcher binds the vault root
-  once at startup, so only a restart rebinds it to the new vault (a webview
-  reload leaves external-change detection pointed at the old root). →
-  `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`, SettingsScreen.svelte
+- **Storage:** the section is described by `vault_status`, which answers for a
+  vault that has gone missing as well as a healthy one, so it never depends on
+  reading the vault it is there to fix. Both changing and resetting the root
+  confirm first with a warning dialog naming the restart (the change dialog also
+  notes existing notes are not moved). Choosing a custom root requires an absolute
+  path, creates it before persistence, saves it through
+  `notes_dir_override_save`, invalidates the frontend root cache, and then
+  relaunches. Reset saves a `null` override and relaunches. The relaunch is a full
+  process restart, **not** a `window.location.reload()`: the Rust filesystem
+  watcher binds the vault root once at startup, so only a restart rebinds it to
+  the new vault (a webview reload leaves external-change detection pointed at the
+  old root). →
+  `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`, SettingsScreen.svelte,
+  `apps/tauri/src-tauri/src/vault_location.rs`
+- **Storage in a sandbox:** **Change directory** works in sandboxed (Flatpak)
+  builds too. The folder picker routes through the FileChooser portal, so the chosen
+  directory arrives as an XDG document-portal path, which is stored **verbatim**. The
+  app registers nothing: the portal already grants a picked directory
+  `PERSISTENT | REUSE_EXISTING` with `read,write,grant-permissions`, so the grant
+  outlives the process and re-picking the same folder returns the same document id —
+  no accumulation, and a stable vault path. →
+  `apps/tauri/src-tauri/src/portal_vault.rs`, `vault_location::write_override_file`
+- Nothing may re-register a picked vault to "make it persistent": the document portal
+  refuses a descriptor pointing into its own FUSE mount
+  (`org.freedesktop.portal.Error.InvalidArgument: Invalid fd passed`), so the attempt
+  fails for exactly the paths it would be for. →
+  `portal_vault::tests::re_registering_a_document_portal_path_is_refused`
+- The grant the chooser issues carries no document-`delete` permission, which the
+  vault does not need: creating, atomically replacing, renaming and unlinking notes
+  and folders all work through the granted directory. That permission governs deleting
+  the *document entry*, which the app never does.
+- Every path shown for a sandboxed vault — in Storage and in the change
+  confirmation — is the folder the user actually picked, resolved back through
+  `Documents.Info`, never `/run/user/<uid>/doc/<id>/…`. Asking for that name is
+  read-only and grants nothing. → `vault_display_path`, `portal_vault::display_path`
+- Images in a sandboxed vault render through `asset://` like any other vault: the
+  asset-protocol scope includes `/run/user/*/doc/**`. → tauri.conf.json
+- A picked directory the app cannot use — a folder it cannot create, a refused
+  relaunch — toasts "Could not use that folder: …" rather than leaving the pick to do
+  nothing. → SettingsScreen.svelte
+- **A vault that has gone missing** — an unmounted drive, a revoked sandbox grant
+  — is a recoverable state, not a wedged app: the root is never recreated in
+  place, every note command fails with `Notes folder unavailable`, the shell
+  toasts "Notes folder unavailable — choose a folder in Settings", and the
+  Storage section explains it ("This folder is no longer reachable. Choose it
+  again, or reset to the default location.") and keeps both **Change directory**
+  and **Reset to default** usable. `isCustom` is read from the vault's *location*,
+  never from a successful vault read, so **Reset to default** cannot be hidden by
+  the failure it is there to undo. → `vault_location::VAULT_UNAVAILABLE`,
+  StorageSettingsSection.svelte
+- A vault whose external changes are found by polling rather than by inotify says
+  nothing about it in the UI; the only user-visible consequence is that an external
+  edit can take a few seconds to appear (see desktop-rust.md). If the watcher fails
+  to start at all, the shell toasts "External file changes will not be detected
+  until you restart". → startNativeShell.ts
+- Re-picking a folder reuses its existing document id, so an ordinary re-pick keeps
+  the saved sync password. Only a folder re-picked after its grant was **revoked**
+  comes back under a new document id — the E2EE sync password is keyed on the vault
+  path, so **sync asks for the vault password once more** after that recovery.
+  Accepted rather than worked around: the alternative is an identifier persisted
+  inside the vault plus a rule for whether a re-picked folder inherits it, and a
+  wrong answer would hand one vault's password to another. → `sync/password_store.rs`
 - **Sync**: server URL + password inline with a Connect button and a
   "Last sync: …" line ("never" before the first sync). Once connected the
   section shows the locked URL plus **Sync now**, **Forget password**, and

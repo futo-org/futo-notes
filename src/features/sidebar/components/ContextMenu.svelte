@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { dismissable } from '$shared/dialogs/dismissable';
   import { portal } from '$shared/dom/portal';
 
   export interface MenuItem {
@@ -22,19 +23,16 @@
     function handleDocClick(e: MouseEvent): void {
       if (menuEl && !menuEl.contains(e.target as Node)) onclose();
     }
-    function handleKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') onclose();
-    }
+    // Escape comes from the shared dialog stack (use:dismissable below), which
+    // also guarantees a menu opened over a modal closes the menu, not both.
     const tid = setTimeout(() => {
       document.addEventListener('mousedown', handleDocClick);
       document.addEventListener('touchstart', handleDocClick as unknown as EventListener);
-      document.addEventListener('keydown', handleKey);
     }, 0);
     return () => {
       clearTimeout(tid);
       document.removeEventListener('mousedown', handleDocClick);
       document.removeEventListener('touchstart', handleDocClick as unknown as EventListener);
-      document.removeEventListener('keydown', handleKey);
     };
   });
 
@@ -44,7 +42,14 @@
   }
 </script>
 
-<div bind:this={menuEl} use:portal class="context-menu" style="left: {x}px; top: {y}px" role="menu">
+<div
+  bind:this={menuEl}
+  use:portal
+  use:dismissable={{ ondismiss: onclose }}
+  class="context-menu"
+  style="left: {x}px; top: {y}px"
+  role="menu"
+>
   {#each items as item (item.label)}
     <button
       type="button"

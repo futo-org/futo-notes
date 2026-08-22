@@ -124,6 +124,13 @@
   line-height: 1.35;
 }
 
+.settings-warning {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--color-danger);
+}
+
 .settings-link-btn {
   display: block;
   margin: 6px 0 2px;

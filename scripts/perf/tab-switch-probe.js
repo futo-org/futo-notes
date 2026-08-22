@@ -3,11 +3,17 @@
 // Paste the whole file into the running dev app's webview (the MCP bridge's
 // webview_execute_js, or the Web Inspector console) and call:
 //
+//   await __tabSwitchProbe.check()       // RUN FIRST: hooks present? frames live?
 //   await __tabSwitchProbe.setup(6)      // open N tabs spanning the note sizes
 //   await __tabSwitchProbe.measure(7)    // returns per-switch phase timings
 //   __tabSwitchProbe.summarize(rows)     // p50/p90 per phase
 //
 // Baseline and interpretation: docs/perf/tab-switch-baseline.md
+//
+// If check() reports framesLive:false the window is occluded or minimised —
+// WebKit suspends requestAnimationFrame for a window it is not compositing, so
+// every measurement here would block. Bring the app forward first; the
+// sanctioned way to do that is in .claude/skills/verify/references/desktop.md.
 //
 // It drives Ctrl+Tab through the real window keydown listener
 // (registerNotesShellShortcuts), so it exercises the shipping shortcut path.
@@ -16,8 +22,57 @@
 
 (() => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const raf = () => new Promise((r) => requestAnimationFrame(r));
   const hook = () => window.__notesShellTest;
+
+  // WebKit suspends requestAnimationFrame for an occluded/minimised window, so
+  // a bare `await raf()` never resolves and the probe hangs FOREVER with no
+  // output — it looks stuck rather than blocked, and a QA leg reported the perf
+  // claim BLOCKED because of it (pc_00c64855edc9). Every await here is bounded:
+  // a stalled frame clock throws a named error instead of hanging.
+  const FRAME_STALL_MS = 1200;
+
+  class FramesStalledError extends Error {
+    constructor() {
+      super(
+        'frames are stalled: requestAnimationFrame delivered no frame in ' +
+          FRAME_STALL_MS +
+          'ms. The window is almost certainly occluded or minimised — WebKit ' +
+          'suspends rAF for a window it is not compositing. Bring the app ' +
+          'forward and re-run; see .claude/skills/verify/references/desktop.md ' +
+          'for the sanctioned way to focus a dev window.',
+      );
+      this.name = 'FramesStalledError';
+    }
+  }
+
+  const raf = () =>
+    new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new FramesStalledError());
+      }, FRAME_STALL_MS);
+      requestAnimationFrame(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+
+  // Is the frame clock actually running? Resolves true/false in <= FRAME_STALL_MS
+  // instead of hanging, so a caller can tell "app is broken" from "window is
+  // not being composited" before spending a measurement run on it.
+  async function framesLive() {
+    try {
+      await raf();
+      return true;
+    } catch (err) {
+      if (err instanceof FramesStalledError) return false;
+      throw err;
+    }
+  }
 
   function ctrlTab() {
     window.dispatchEvent(
@@ -53,6 +108,26 @@
   }
 
   window.__tabSwitchProbe = {
+    // Run this FIRST. Reports whether the probe can actually measure anything:
+    // the test hooks it needs, and whether frames are being delivered at all.
+    // Returns in ~1.2s worst case rather than hanging (pc_00c64855edc9).
+    async check() {
+      const missing = ['__notesShellTest', '__testNotes'].filter((k) => !window[k]);
+      const live = await framesLive();
+      return {
+        ok: missing.length === 0 && live,
+        framesLive: live,
+        missingHooks: missing,
+        note: live
+          ? missing.length
+            ? 'missing test hooks — is this a debug build?'
+            : 'ready'
+          : 'frames are stalled (window occluded/minimised) — measurements would hang',
+      };
+    },
+
+    framesLive,
+
     // Opens `count` tabs on notes spanning the vault's size distribution.
     async setup(count = 6) {
       const notes = window.__testNotes

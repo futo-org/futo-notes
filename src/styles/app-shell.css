@@ -24,47 +24,6 @@
 }
 
 /* ===========================
-   Drawer Toggle (mobile hamburger)
-   =========================== */
-.drawer-toggle {
-  width: 40px;
-  height: 40px;
-  border: none;
-  background: transparent;
-  font-size: 22px;
-  cursor: pointer;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  -webkit-tap-highlight-color: transparent;
-  color: var(--color-text);
-}
-
-.drawer-toggle.floating {
-  position: absolute;
-  top: calc(max(12px, calc(12px + env(safe-area-inset-top))) + var(--vv-offset, 0px));
-  left: max(12px, calc(12px + env(safe-area-inset-left)));
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: rgba(var(--paper-rgb), 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow:
-    0 2px 8px rgba(var(--ink-rgb), 0.08),
-    0 0 0 1px rgba(var(--ink-rgb), 0.04);
-  z-index: 35;
-  transform: translateX(var(--drawer-offset));
-  transition: transform 0.25s ease;
-  will-change: transform;
-}
-
-.drawer-toggle.floating:active {
-  background: var(--color-surface);
-}
-
-/* ===========================
    Note Body / Editor Area
    =========================== */
 .note-body {
@@ -90,18 +49,29 @@
   flex-shrink: 0;
 }
 
+/* No padding of its own; the blank space belongs to the editor. → docs/spec/editor.md */
 .editor-container {
+  --futo-editor-bottom-tail: max(200px, calc(40vh + env(safe-area-inset-bottom, 0)));
   overflow: visible;
   background: transparent;
   overflow-x: hidden;
   flex: 1 0 auto;
-  padding-left: max(20px, calc(20px + env(safe-area-inset-left)));
-  padding-right: max(20px, calc(20px + env(safe-area-inset-right)));
-  padding-bottom: max(200px, calc(40vh + env(safe-area-inset-bottom, 0)));
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-container > div {
+  display: flex;
+  flex: 1 0 auto;
+  min-width: 0;
 }
 
 .editor-container .cm-editor {
   height: auto !important;
+  min-height: 100%;
+  flex: 1 0 auto;
+  min-width: 0;
+  width: 100%;
   font-size: 18px;
   background: transparent !important;
 }
@@ -112,23 +82,63 @@
   overflow-x: hidden;
   height: auto !important;
   flex: 0 0 auto !important;
+  min-height: 100%;
 }
 
 .editor-container .cm-content {
   background: transparent;
   height: auto !important;
-  padding: 0 !important;
+  min-height: 100%;
   min-width: 0;
-}
-
-.editor-container .cm-line {
-  line-height: 1.7;
+  padding-top: 0 !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
+  padding-bottom: var(--futo-editor-bottom-tail) !important;
+}
+
+.editor-container .cm-editor[data-ios-off-text-surface] .cm-scroller {
+  position: relative;
+  padding-bottom: 0 !important;
+}
+
+.editor-container .cm-editor[data-ios-off-text-surface] .cm-scroller::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 1px;
+  height: var(--futo-editor-bottom-tail);
+  pointer-events: none;
+}
+
+.editor-container .cm-editor[data-ios-off-text-surface] .cm-content {
+  min-height: 0;
+  padding-bottom: 0 !important;
+  margin-bottom: var(--futo-editor-bottom-tail) !important;
+}
+
+/* The LINES carry the gutter, not the content box: CodeMirror bounds a multi-row
+   selection by the first line's padding, so on the content box the highlight
+   paints across the blank space. → docs/spec/editor.md */
+.editor-container .cm-line {
+  --note-gutter-left: max(20px, calc(20px + env(safe-area-inset-left)), calc((100% - 700px) / 2));
+  --note-gutter-right: max(20px, calc(20px + env(safe-area-inset-right)), calc((100% - 700px) / 2));
+  line-height: 1.7;
+  padding-left: var(--note-gutter-left) !important;
+  padding-right: var(--note-gutter-right) !important;
+}
+
+/* A line painting its own background or bar takes the gutter as margin instead,
+   so the paint stops at the text rather than bleeding into the blank space. */
+.editor-container .cm-line.cm-md-quote,
+.editor-container .cm-line.cm-md-code-block {
+  margin-left: var(--note-gutter-left);
+  margin-right: var(--note-gutter-right);
 }
 
 .editor-container .cm-line.cm-md-quote {
   padding-left: 15px !important;
+  padding-right: 0 !important;
 }
 .editor-container .cm-line.cm-md-quote-level-2 {
   padding-left: 30px !important;

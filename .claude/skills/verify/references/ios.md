@@ -285,6 +285,15 @@ record sync happy-path stories as **Blocked**, not failed.
 
 ## Known gotchas
 
+- **`axe`/`idb` report a 0x0 root** → this is a WINDOWING problem, not the app.
+  A simulator booted without a Simulator.app window in the current WindowServer
+  session returns a degenerate 0x0 root for every UI query, while
+  `just sim-screenshot` keeps working perfectly the whole time — so it reads as
+  "the app renders nothing" and can burn a whole session. Re-running
+  `open -a Simulator` does NOT fix it: `-CurrentDeviceUDID` is only read when
+  Simulator.app launches, so an already-running instance ignores it. The repair
+  is a full device cycle: `just qa-claim ios --reboot`. Suspect this before the
+  app whenever screenshots work but UI queries return nothing (M21).
 - **Locked physical iPhone** → `FBSOpenApplicationErrorDomain error 7` on
   launch; unlock and relaunch (device installs: `just ios-native-device`).
 - **Theme**: the app pushes theme changes into the editor live

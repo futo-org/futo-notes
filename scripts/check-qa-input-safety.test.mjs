@@ -1,6 +1,16 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
-import { RULES, applyAllowlist, scanText } from './check-qa-input-safety.mjs';
+import {
+  RULES,
+  applyAllowlist,
+  collectInstructionFiles,
+  scanText,
+} from './check-qa-input-safety.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // The techniques this gate bans are the ones that, on 2026-08-10, sent real
 // Cmd+Z keystrokes from a QA agent into the user's production vault. These tests
@@ -77,6 +87,57 @@ describe('scanText — what it must leave alone', () => {
   });
 });
 
+// The second incident, 2026-08-19: three of six parallel agents independently
+// reached for a pattern kill to clean up after themselves, and each one was
+// machine-wide. These are the exact commands they ran.
+describe('scanText — pattern kills across worktrees', () => {
+  it('flags all three commands from the incident', () => {
+    expect(ruleIds('pkill -f "cargo tauri dev"')).toEqual(['process-name-kill']);
+    expect(ruleIds('pkill -f "cargo  run --no-default-features"')).toEqual(['process-name-kill']);
+    expect(ruleIds('pkill -f "vite"')).toEqual(['process-name-kill']);
+  });
+
+  it('flags killall and the pgrep-composed forms', () => {
+    expect(ruleIds('killall node')).toEqual(['process-name-kill']);
+    expect(ruleIds('kill $(pgrep -f vite)')).toEqual(['process-name-kill']);
+    expect(ruleIds('pgrep -f gradle | xargs kill -9')).toEqual(['process-name-kill']);
+  });
+
+  it('reports a kill that spells the app binary under the app rule alone', () => {
+    // The two rules are complementary by construction: one dangerous line, one
+    // rule id, one allowlist entry.
+    expect(ruleIds('pkill -f futo-notes-tauri')).toEqual(['app-process-name-lookup']);
+  });
+});
+
+describe('scanText — what the kill rule must leave alone', () => {
+  it('does not fire on a prohibition that only names the verb', () => {
+    // A gate that cannot tell a ban from an instruction makes the docs
+    // unwritable — and this repo's own skills already carry such a line.
+    expect(scanText('- **Never `pkill` the Codex processes.** Cancel the job instead.')).toEqual(
+      [],
+    );
+  });
+
+  it('does not fire on a pattern scoped to this checkout', () => {
+    expect(scanText('pkill -f "$PWD"')).toEqual([]);
+    expect(scanText('pkill -f "worktrees/mr-203"')).toEqual([]);
+  });
+
+  it('does not fire on killing a PID, a process group, or a port you own', () => {
+    expect(scanText('kill -- -$(ps -o pgid= "$CARGO_PID" | tr -d \' \')')).toEqual([]);
+    expect(scanText('lsof -ti :$(node scripts/lib/slot.mjs web) | xargs kill')).toEqual([]);
+    expect(scanText('node scripts/qa-target.mjs kill   # this worktree only')).toEqual([]);
+  });
+});
+
+describe('collectInstructionFiles', () => {
+  it('scans the root justfile, which AGENTS.md imports into every agent context', () => {
+    const relative = collectInstructionFiles(ROOT).map((file) => path.relative(ROOT, file));
+    expect(relative).toContain('justfile');
+  });
+});
+
 describe('applyAllowlist', () => {
   const hit = { line: 14, rule: 'cliclick', text: '- **OS-level input** (`cliclick`) is unsafe' };
 
@@ -105,6 +166,22 @@ describe('applyAllowlist', () => {
     expect(result.violations).toEqual([]);
     expect(result.staleEntries).toHaveLength(1);
     expect(result.staleEntries[0].file).toBe('docs/x.md');
+  });
+
+  it('lets the pinned deploy-recipe line through while failing a new kill beside it', () => {
+    // `deploy-deb`/`deploy-rpm` legitimately stop every instance right before
+    // overwriting /usr/bin. The exemption is two exact lines, not the file.
+    const deploy = {
+      line: 711,
+      rule: 'app-process-name-lookup',
+      text: 'pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true',
+    };
+    const fresh = { line: 780, rule: 'process-name-kill', text: 'pkill -f vite' };
+    const result = applyAllowlist(
+      { justfile: [deploy, fresh] },
+      { justfile: [{ rule: deploy.rule, line: deploy.text, reason: 'single-checkout deploy' }] },
+    );
+    expect(result).toEqual({ violations: [{ file: 'justfile', ...fresh }], staleEntries: [] });
   });
 
   it('does not let one pinned line excuse two identical occurrences', () => {

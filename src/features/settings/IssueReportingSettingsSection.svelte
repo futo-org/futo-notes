@@ -32,7 +32,7 @@
   </div>
   {#if enabled}
     <div
-      class="settings-toggle-row sub settings-issue-middle-row"
+      class="settings-toggle-row settings-issue-middle-row"
       onclick={ontogglealwayssend}
       role="button"
       tabindex="0"

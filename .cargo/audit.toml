@@ -1,0 +1,8 @@
+# Advisories `cargo audit` should not fail on. Empty on purpose: an id here says a person read
+# that advisory and decided it is fine to ship, so nothing goes in until someone has. Add the id
+# with a comment saying why; `just audit --fix` removes entries whose advisory is gone.
+#
+# Unmaintained/unsound advisories arrive as "allowed warnings" that never fail the run.
+
+[advisories]
+ignore = []

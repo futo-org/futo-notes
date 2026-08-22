@@ -1,0 +1,121 @@
+/* Shared modal chrome. Imported (unlayered) by Modal.svelte, so every dialog
+   built through that component gets the same backdrop, card, title, form
+   fields, and action buttons without restating them. Global rather than
+   component-scoped on purpose: the buttons and fields live in the caller's
+   snippet, which Svelte would scope to the caller. */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-overlay);
+}
+
+.modal-card {
+  background: var(--color-bg, #fff);
+  color: var(--color-text, #000);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  padding: 20px;
+  width: 360px;
+  max-width: calc(100% - 32px);
+}
+
+.modal-card:focus {
+  outline: none;
+}
+
+/* Cards whose body scrolls (folder picker) cap their height instead. */
+.modal-card.modal-card-scroll {
+  padding: 16px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-title {
+  font-weight: 600;
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+
+.modal-card-scroll .modal-title {
+  font-size: 1.05rem;
+  margin-bottom: 12px;
+}
+
+.modal-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--color-muted, #666);
+}
+
+.modal-input {
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 1rem;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #000);
+}
+
+.modal-input:focus {
+  outline: 2px solid var(--color-primary, #2563eb);
+  outline-offset: -1px;
+}
+
+.modal-error {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: #b91c1c;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.modal-btn {
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--color-border, #d1d5db);
+  background: transparent;
+  color: var(--color-text, inherit);
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.modal-btn-primary {
+  background: var(--color-primary, #2563eb);
+  color: #fff;
+  border-color: var(--color-primary, #2563eb);
+}
+
+.modal-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Hover affordances only where a real pointer exists — a touch shell would
+   otherwise keep the last-tapped button stuck in its hover state. */
+@media (hover: hover) and (pointer: fine) {
+  .modal-btn-secondary:hover {
+    background: rgba(var(--ink-rgb), 0.06);
+    border-color: var(--color-muted, #737373);
+  }
+
+  .modal-btn-primary:hover:not(:disabled) {
+    background: var(--color-primary-hover, #d9550f);
+    border-color: var(--color-primary-hover, #d9550f);
+  }
+}

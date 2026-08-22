@@ -245,7 +245,7 @@ test.describe('Pointer selection (marker snapping)', () => {
   // listeners keyed on synthetic mouse events, which WebKit also emits for touch
   // gestures — so we were re-dispatching the selection out from under the user's
   // native grab handles. They are now desktop-only; the selection must stay put.
-  // See MarkdownEditor.svelte's pointer-selection gate (`if (!nativeShell)`).
+  // See editorPointerInteractions' desktop-only reveal and snapping policy.
   test('native embed leaves selection to the system (nativeShell)', async ({ page }) => {
     await page.goto('/editor.html');
     await page.waitForSelector('.cm-editor', { timeout: 10000 });
@@ -350,49 +350,52 @@ test.describe('Clicking past the end of a line', () => {
     expect(await getSelection(page)).toEqual({ from: 10, to: 10 });
   });
 
-  // Same wrap point as the case above, but resolved by the shell's blank-space
-  // handler rather than the editor's.
-  test('a click in the blank space beside a wrapped row keeps the caret on that row', async ({
-    page,
-  }) => {
-    await setupEditor(page, WRAPPING_LINE);
-    const rows = await rowsOfFirstLine(page);
-    expect(rows.length).toBeGreaterThan(1);
-    const row = rows[0];
-    await setCursor(page, 0);
+  // Same wrap point as above, but out in the gutter rather than over the text.
+  test(
+    'a click in the blank space beside a wrapped row keeps the caret on that row',
+    { tag: '@webkit-pointer' },
+    async ({ page }) => {
+      await setupEditor(page, WRAPPING_LINE);
+      const rows = await rowsOfFirstLine(page);
+      expect(rows.length).toBeGreaterThan(1);
+      const row = rows[0];
+      await setCursor(page, 0);
 
-    const x = await page.evaluate(() => {
-      const view = (window as any).__cmGetView();
-      const content = document.querySelector('.cm-content')!.getBoundingClientRect();
-      return Math.round(content.right + view.defaultLineHeight);
-    });
-    const y = Math.round((row.top + row.bottom) / 2);
-    // Precondition: the shell's blank space, not the editor's.
-    expect(
-      await page.evaluate(({ x, y }) => !document.elementFromPoint(x, y)?.closest('.cm-editor'), {
-        x,
-        y,
-      }),
-    ).toBe(true);
+      const widest = Math.max(...rows.map((r) => r.right));
+      const x = await page.evaluate(
+        ({ widest }) => Math.round(widest + (window as any).__cmGetView().defaultLineHeight),
+        { widest },
+      );
+      const y = Math.round((row.top + row.bottom) / 2);
+      // Precondition: past the drawn text of every row, inside the surface.
+      expect(
+        await page.evaluate(
+          ({ x }) => {
+            const content = document.querySelector('.cm-content')!.getBoundingClientRect();
+            return x < content.right;
+          },
+          { x },
+        ),
+      ).toBe(true);
 
-    await page.mouse.click(x, y);
-    await page.waitForTimeout(100);
+      await page.mouse.click(x, y);
+      await page.waitForTimeout(100);
 
-    const caret = await caretState(page);
-    expect(caret.drawnTop).toBeGreaterThanOrEqual(row.top - 2);
-    expect(caret.drawnTop).toBeLessThan(row.bottom);
-  });
+      const caret = await caretState(page);
+      expect(caret.drawnTop).toBeGreaterThanOrEqual(row.top - 2);
+      expect(caret.drawnTop).toBeLessThan(row.bottom);
+    },
+  );
 
-  // "Past the text" is decided against the pointer's row. Judged across the
-  // whole line it took the widest row, so this click fell through to the engine
-  // and landed inside the wikilink's hidden `]]`, splitting the link on typing.
+  // "Past the text" is decided against the pointer's OWN row. Judged across the
+  // whole line it would take the widest row, and this click would fall through
+  // to the engine into the wikilink's hidden `]]`, splitting it on the next key.
   test('a click past a last row ending in a wikilink lands after the link', async ({ page }) => {
     await setupEditor(page, WRAPPING_WIKILINK_LINE);
     const rows = await rowsOfFirstLine(page);
     const last = rows[rows.length - 1];
     const widest = Math.max(...rows.map((r) => r.right));
-    // Preconditions: the line wraps, and the gap between the last row's text
-    // and the widest row — the only place this regression can be seen — exists.
+    // Preconditions: the line wraps, and the last row is short of the widest.
     expect(rows.length).toBeGreaterThan(1);
     expect(widest).toBeGreaterThan(last.right + 10);
     await setCursor(page, 0);
@@ -409,155 +412,366 @@ test.describe('Clicking past the end of a line', () => {
 });
 
 // ============================================================================
-// CLICK IN THE BLANK SPACE AROUND THE NOTE
+// THE BLANK SPACE AROUND THE NOTE
 // ============================================================================
 
 /**
- * Geometry below is in multiples of the editor's reach, so each case stays on the
- * intended side of the boundary. → docs/spec/editor.md
+ * The note's boxes: the editor's whole surface — `.cm-content`, as wide as the
+ * lines' own padding makes it — the text DRAWN inside it, and the last row's
+ * height. The line boxes span the surface, so only a range over their contents
+ * measures the text. → docs/spec/editor.md
  */
-type Probe = {
-  x: number;
-  y: number;
-  onLinePos: number;
-  hitsBlankSpace: boolean;
-};
+async function noteGeometry(page: Page) {
+  return page.evaluate(() => {
+    const view = (window as any).__cmGetView();
+    const surface = document.querySelector('.cm-content')!.getBoundingClientRect();
+    const drawn = document.createRange();
+    drawn.selectNodeContents(document.querySelector('.cm-line')!);
+    const column = drawn.getBoundingClientRect();
+    const last = view.coordsAtPos(view.state.doc.length);
+    return {
+      surface: {
+        left: Math.round(surface.left),
+        right: Math.round(surface.right),
+        bottom: Math.round(surface.bottom),
+        visibleBottom: Math.round(Math.min(surface.bottom, window.innerHeight)),
+      },
+      column: { left: Math.round(column.left), right: Math.round(column.right) },
+      lastRowY: Math.round((last.top + last.bottom) / 2),
+      lastBottom: Math.round(last.bottom),
+    };
+  });
+}
 
-/**
- * A click point in units of reach: `down` from the last line's bottom, `side`
- * from the content column's edge (negative = left). `onLinePos` is what the same
- * column resolves to ON the last line — the reference for below-the-text cases.
- */
-async function probePoint(
-  page: Page,
-  { down = 0, side = 0, atPos }: { down?: number; side?: number; atPos?: number },
-): Promise<Probe> {
+/** Whose box the point falls in: the editor's own, or the shell's slack around it. */
+async function whoseSpace(page: Page, x: number, y: number): Promise<string> {
   return page.evaluate(
-    ({ down, side, atPos }) => {
-      const view = (window as any).__cmGetView();
-      const reach = view.defaultLineHeight * 2;
-      const content = document.querySelector('.cm-content')!.getBoundingClientRect();
-      const last = view.coordsAtPos(view.state.doc.length);
-
-      const x =
-        atPos !== undefined
-          ? Math.round(view.coordsAtPos(atPos).left)
-          : Math.round(side < 0 ? content.left + side * reach : content.right + side * reach);
-      const y = Math.round(down > 0 ? last.bottom + down * reach : (last.top + last.bottom) / 2);
+    ({ x, y }) => {
       const hit = document.elementFromPoint(x, y);
-
-      return {
-        x,
-        y,
-        onLinePos: view.posAtCoords({ x, y: (last.top + last.bottom) / 2 }, false),
-        // Outside the editor's own DOM, or the case proves CM's placement
-        // rather than the handler's.
-        hitsBlankSpace: Boolean(hit && !hit.closest('.cm-editor') && hit.closest('.note-body')),
-      };
+      if (!hit) return 'nothing';
+      if (hit.closest('.cm-editor')) return 'editor';
+      if (hit.classList.contains('note-body')) return 'shell';
+      return hit.className;
     },
-    { down, side, atPos },
+    { x, y },
   );
 }
 
-test.describe('Click in the blank space around the note', () => {
-  test('within reach below the text lands on the same character as the line would', async ({
-    page,
-  }) => {
-    await setupEditor(page, 'alpha bravo charlie delta');
-    const probe = await probePoint(page, { down: 0.5, atPos: 12 });
-    await setCursor(page, 0);
+async function editorFocused(page: Page): Promise<boolean> {
+  return page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor')));
+}
 
-    expect(probe.hitsBlankSpace).toBe(true);
-    // A middle column, so end-of-note would be a different answer.
-    expect(probe.onLinePos).toBeGreaterThan(0);
-    expect(probe.onLinePos).toBeLessThan(25);
+// 'first line' spans 0..10, 'second line' 11..22.
+const TWO_LINES = 'first line\nsecond line';
 
-    await page.mouse.click(probe.x, probe.y);
-    await page.waitForTimeout(100);
-
-    expect(await getSelection(page)).toEqual({ from: probe.onLinePos, to: probe.onLinePos });
-  });
-
-  test('beyond reach below the text lands at the end of the note', async ({ page }) => {
-    await setupEditor(page, 'alpha bravo charlie delta');
-    const probe = await probePoint(page, { down: 2, atPos: 12 });
-    await setCursor(page, 0);
-
-    expect(probe.hitsBlankSpace).toBe(true);
-    expect(probe.onLinePos).toBeLessThan(25); // same column as the case above
-
-    await page.mouse.click(probe.x, probe.y);
-    await page.waitForTimeout(100);
-
-    expect(await getSelection(page)).toEqual({ from: 25, to: 25 });
-    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor')))).toBe(
-      true,
-    );
-  });
-
-  for (const [side, offset, expected] of [
-    ['left', -0.5, 11],
-    ['right', 0.5, 22],
+test.describe('The blank space around the note', { tag: '@webkit-pointer' }, () => {
+  for (const [side, dx, expected] of [
+    ['left', 10, 11],
+    ['right', -10, 22],
   ] as const) {
-    test(`within reach ${side} of the second line lands at its ${side === 'left' ? 'start' : 'end'}`, async ({
+    test(`a click beside a line lands at its ${side === 'left' ? 'start' : 'end'}`, async ({
       page,
     }) => {
-      await setupEditor(page, 'first line\nsecond line');
-      // The doc end is on the second line, so that is probePoint's vertical
-      // reference; 'first line\nsecond line' spans 11..22.
-      const probe = await probePoint(page, { side: offset });
+      await setupEditor(page, TWO_LINES);
+      const geo = await noteGeometry(page);
+      const x = side === 'left' ? geo.surface.left + dx : geo.surface.right + dx;
       await setCursor(page, 0);
-      expect(probe.hitsBlankSpace).toBe(true);
+      expect(await whoseSpace(page, x, geo.lastRowY)).toBe('editor');
 
-      await page.mouse.click(probe.x, probe.y);
+      await page.mouse.click(x, geo.lastRowY);
       await page.waitForTimeout(100);
 
       expect(await getSelection(page)).toEqual({ from: expected, to: expected });
-      expect(
-        await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor'))),
-      ).toBe(true);
+      expect(await editorFocused(page)).toBe(true);
     });
   }
 
-  for (const [side, offset] of [
-    ['left', -2],
-    ['right', 2],
-  ] as const) {
-    test(`beyond reach ${side} of a line clicks off the note`, async ({ page }) => {
-      await setupEditor(page, 'first line\nsecond line');
-      const probe = await probePoint(page, { side: offset });
-      await setCursor(page, 5);
-      expect(probe.hitsBlankSpace).toBe(true);
-
-      await page.mouse.click(probe.x, probe.y);
-      await page.waitForTimeout(100);
-
-      expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
-      expect(
-        await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor'))),
-      ).toBe(false);
+  test('a drag that starts beside the text selects it', async ({ page }) => {
+    await setupEditor(page, TWO_LINES);
+    const geo = await noteGeometry(page);
+    const target = await page.evaluate(() => {
+      const coords = (window as any).__cmGetView().coordsAtPos(18);
+      return { x: Math.round(coords.left), y: Math.round((coords.top + coords.bottom) / 2) };
     });
-  }
+    await setCursor(page, 0);
 
-  // The corridor is a rectangle, not an L: one straight edge at every height.
-  test('beyond reach to the side clicks off at every height', async ({ page }) => {
-    await setupEditor(page, 'first line\nsecond line');
-    const heights = await Promise.all(
-      [0, 0.5, 1.5, 3].map((down) => probePoint(page, { side: -2, down })),
+    await page.mouse.move(geo.surface.left + 10, geo.lastRowY);
+    await page.mouse.down();
+    await page.mouse.move(target.x, target.y, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: 11, to: 18 });
+  });
+
+  test('a double-click beside the text takes the nearest word', async ({ page }) => {
+    await setupEditor(page, TWO_LINES);
+    const geo = await noteGeometry(page);
+    await setCursor(page, 0);
+
+    await page.mouse.dblclick(geo.surface.left + 10, geo.lastRowY);
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: 11, to: 17 }); // 'second'
+  });
+
+  test('a shift-click beside the text extends the selection', async ({ page }) => {
+    await setupEditor(page, TWO_LINES);
+    const geo = await noteGeometry(page);
+    await setCursor(page, 13);
+
+    await page.keyboard.down('Shift');
+    await page.mouse.click(geo.surface.right - 10, geo.lastRowY);
+    await page.keyboard.up('Shift');
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: 13, to: 22 });
+  });
+
+  test('a click below the text lands on the character under the pointer', async ({ page }) => {
+    await setupEditor(page, TWO_LINES);
+    const geo = await noteGeometry(page);
+    const probe = await page.evaluate(() => {
+      const view = (window as any).__cmGetView();
+      const coords = view.coordsAtPos(16); // mid-word on the last line
+      return { x: Math.round(coords.left), onLinePos: 16 };
+    });
+    const y = geo.lastBottom + 40;
+    await setCursor(page, 0);
+    // Preconditions: below every line, inside the surface, and not the note's end.
+    expect(y).toBeLessThan(geo.surface.bottom);
+    expect(await whoseSpace(page, probe.x, y)).toBe('editor');
+
+    await page.mouse.click(probe.x, y);
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: 16, to: 16 });
+    expect(await editorFocused(page)).toBe(true);
+  });
+
+  test('the caret is already right while the button is still down', async ({ page }) => {
+    await setupEditor(page, TWO_LINES);
+    const geo = await noteGeometry(page);
+    const x = await page.evaluate(() =>
+      Math.round((window as any).__cmGetView().coordsAtPos(16).left),
     );
+    await setCursor(page, 0);
 
-    for (const probe of heights) {
+    await page.mouse.move(x, geo.lastBottom + 40);
+    await page.mouse.down();
+    await page.waitForTimeout(80);
+    const duringPress = await getSelection(page);
+    await page.mouse.up();
+    await page.waitForTimeout(80);
+
+    expect(duringPress).toEqual({ from: 16, to: 16 });
+    expect(await getSelection(page)).toEqual({ from: 16, to: 16 });
+  });
+
+  test('a click well below the text lands at the end of the note', async ({ page }) => {
+    await setupEditor(page, TWO_LINES);
+    const probe = await page.evaluate(() => {
+      const view = (window as any).__cmGetView();
+      const end = view.coordsAtPos(view.state.doc.length, -1);
+      return {
+        x: Math.round(view.coordsAtPos(16).left), // a column the note's end is not at
+        justBelow: Math.round(end.bottom + view.defaultLineHeight),
+        wellBelow: Math.round(end.bottom + view.defaultLineHeight * 3),
+      };
+    });
+    const geo = await noteGeometry(page);
+    expect(probe.wellBelow).toBeLessThan(geo.surface.bottom);
+
+    await setCursor(page, 0);
+    await page.mouse.click(probe.x, probe.justBelow);
+    await page.waitForTimeout(100);
+    expect(await getSelection(page)).toEqual({ from: 16, to: 16 });
+
+    await setCursor(page, 0);
+    await page.mouse.click(probe.x, probe.wellBelow);
+    await page.waitForTimeout(100);
+    expect(await getSelection(page)).toEqual({ from: 22, to: 22 });
+  });
+
+  test('a double-click below the text takes the word under the pointer', async ({ page }) => {
+    await setupEditor(page, 'alpha bravo charlie.\nsecond line of words here.');
+    const geo = await noteGeometry(page);
+    const x = await page.evaluate(() =>
+      Math.round((window as any).__cmGetView().coordsAtPos(34).left),
+    );
+    await setCursor(page, 0);
+
+    await page.mouse.dblclick(x, geo.lastBottom + 40);
+    await page.waitForTimeout(100);
+
+    const selected = await page.evaluate(() => {
+      const view = (window as any).__cmGetView();
+      const range = view.state.selection.main;
+      return view.state.doc.sliceString(range.from, range.to);
+    });
+    expect(selected).toBe('of');
+  });
+
+  test('a drag that starts below the text selects from there', async ({ page }) => {
+    await setupEditor(page, TWO_LINES);
+    const geo = await noteGeometry(page);
+    const probe = await page.evaluate(() => {
+      const view = (window as any).__cmGetView();
+      const start = view.coordsAtPos(16);
+      const target = view.coordsAtPos(5);
+      return {
+        x: Math.round(start.left),
+        targetX: Math.round(target.left),
+        targetY: Math.round((target.top + target.bottom) / 2),
+      };
+    });
+    await setCursor(page, 0);
+
+    await page.mouse.move(probe.x, geo.lastBottom + 40);
+    await page.mouse.down();
+    await page.mouse.move(probe.targetX, probe.targetY, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: 5, to: 16 });
+  });
+
+  // Both notes end in markup a keystroke would corrupt if the caret landed in it.
+  for (const [ending, doc, expected] of [
+    ['a wikilink', 'intro\nsee [[Some Note]]', 23],
+    ['a code fence', 'intro\n\n```js\nconst a = 1;\n```', 29],
+  ] as const) {
+    test(`a click below a note ending in ${ending} lands at the end of the note`, async ({
+      page,
+    }) => {
+      await setupEditor(page, doc);
+      const geo = await noteGeometry(page);
+      const y = geo.lastBottom + 40;
+      const x = geo.surface.right - 10; // below the text and past what it draws
+      await setCursor(page, 0);
+      expect(await getDocText(page)).toHaveLength(expected);
+      expect(await whoseSpace(page, x, y)).toBe('editor');
+
+      await page.mouse.click(x, y);
+      await page.waitForTimeout(100);
+      await page.keyboard.type('X');
+      await page.waitForTimeout(100);
+
+      expect(await getDocText(page)).toBe(`${doc}X`);
+    });
+  }
+
+  for (const [side, dx] of [
+    ['left', -20],
+    ['right', 20],
+  ] as const) {
+    test(`a click past the surface on the ${side} deselects the note`, async ({ page }) => {
+      await setupEditor(page, TWO_LINES);
+      const geo = await noteGeometry(page);
+      const x = side === 'left' ? geo.surface.left + dx : geo.surface.right + dx;
       await setCursor(page, 5);
-      expect(probe.hitsBlankSpace).toBe(true);
+      expect(await whoseSpace(page, x, geo.lastRowY)).toBe('shell');
 
-      await page.mouse.click(probe.x, probe.y);
+      await page.mouse.click(x, geo.lastRowY);
       await page.waitForTimeout(100);
 
       expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
-      expect(
-        await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor'))),
-      ).toBe(false);
+      expect(await editorFocused(page)).toBe(false);
+    });
+  }
+
+  // Chromium never hijacks a press out here, so only webkit-pointer proves these.
+  for (const [side, dx] of [
+    ['left', -20],
+    ['right', 20],
+  ] as const) {
+    test(`a press past the surface on the ${side} deselects even with hand jitter`, async ({
+      page,
+    }) => {
+      await setupEditor(page, TWO_LINES);
+      const geo = await noteGeometry(page);
+      const x = side === 'left' ? geo.surface.left + dx : geo.surface.right + dx;
+      await setCursor(page, 5);
+
+      await page.mouse.move(x, geo.lastRowY);
+      await page.mouse.down();
+      await page.mouse.move(x + 2, geo.lastRowY + 1);
+      await page.mouse.up();
+      await page.waitForTimeout(100);
+
+      expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
+      expect(await editorFocused(page)).toBe(false);
+    });
+  }
+
+  test('a drag from past the surface into the text selects nothing', async ({ page }) => {
+    await setupEditor(page, TWO_LINES);
+    const geo = await noteGeometry(page);
+    const target = await page.evaluate(() => {
+      const coords = (window as any).__cmGetView().coordsAtPos(18);
+      return { x: Math.round(coords.left), y: Math.round((coords.top + coords.bottom) / 2) };
+    });
+    await setCursor(page, 5);
+
+    await page.mouse.move(geo.surface.left - 20, geo.lastRowY);
+    await page.mouse.down();
+    await page.mouse.move(target.x, target.y, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
+    expect(await editorFocused(page)).toBe(false);
+  });
+
+  // The edge is one straight line, so the answer cannot depend on the height.
+  test('the surface edge deselects at every height', async ({ page }) => {
+    await setupEditor(page, TWO_LINES);
+    const geo = await noteGeometry(page);
+    const x = geo.surface.left - 20;
+
+    for (const y of [
+      geo.lastRowY - 30,
+      geo.lastRowY,
+      geo.lastBottom + 40,
+      geo.surface.visibleBottom - 20,
+    ]) {
+      await setCursor(page, 5);
+      expect(await whoseSpace(page, x, y)).toBe('shell');
+
+      await page.mouse.click(x, y);
+      await page.waitForTimeout(100);
+
+      expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
+      expect(await editorFocused(page)).toBe(false);
     }
+  });
+
+  // The hidden `]]` stops the drawn row short of the line it stands for.
+  test('a click beside a line ending in a wikilink lands after the link', async ({ page }) => {
+    await setupEditor(page, 'see [[Some Note]]\nnext line');
+    const geo = await noteGeometry(page);
+    const probe = await page.evaluate(() => {
+      const view = (window as any).__cmGetView();
+      const line = document.querySelector('.cm-line')!;
+      const box = line.getBoundingClientRect();
+      const drawn = document.createRange();
+      drawn.selectNodeContents(line);
+      return {
+        x: Math.round(drawn.getBoundingClientRect().right + 40),
+        y: Math.round((box.top + box.bottom) / 2),
+        lineTo: view.state.doc.line(1).to,
+      };
+    });
+    await setCursor(page, 0);
+    // Preconditions: past the drawn row, inside the editor, and `]]` is hidden.
+    expect(probe.x).toBeGreaterThan(geo.column.right);
+    expect(probe.x).toBeLessThan(geo.surface.right);
+    expect(await getDocText(page)).toContain(']]');
+
+    await page.mouse.click(probe.x, probe.y);
+    await page.waitForTimeout(100);
+
+    expect(await getSelection(page)).toEqual({ from: probe.lineTo, to: probe.lineTo });
   });
 
   test('the tag bar slack reaches into the first line', async ({ page }) => {
@@ -590,9 +804,7 @@ test.describe('Click in the blank space around the note', () => {
     await page.waitForTimeout(100);
 
     expect(await getSelection(page)).toEqual({ from: probe.onLinePos, to: probe.onLinePos });
-    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor')))).toBe(
-      true,
-    );
+    expect(await editorFocused(page)).toBe(true);
   });
 
   // A hidden header tag block renders `display: none`, so the slack has to reach
@@ -634,7 +846,7 @@ test.describe('Click in the blank space around the note', () => {
 
   // Every candidate position sits in hidden markup, where a keystroke would
   // corrupt a tag (`#ideas` + "hello" → `#ideashello`).
-  test('a note that is only a hidden tag block has nothing to reach', async ({ page }) => {
+  test('a note that is only a hidden tag block has nothing to land on', async ({ page }) => {
     await setupEditor(page, '#work #ideas');
     // The block only collapses once the editor is blurred.
     await page.evaluate(() => (window as any).__cmGetView().contentDOM.blur());
@@ -647,6 +859,7 @@ test.describe('Click in the blank space around the note', () => {
       return {
         x: Math.round(content.left + 80),
         y: Math.round(content.top + 40),
+        tailY: Math.round(content.bottom - 20),
         pills: [...document.querySelectorAll('.tag-pill-name')].map((p) => p.textContent),
         noVisibleLine: [...document.querySelectorAll('.cm-line')].every(
           (l) => l.getBoundingClientRect().height === 0,
@@ -656,11 +869,15 @@ test.describe('Click in the blank space around the note', () => {
     // Precondition: the whole doc is the hidden block.
     expect(probe.pills).toEqual(['work', 'ideas']);
     expect(probe.noVisibleLine).toBe(true);
+    expect(await whoseSpace(page, probe.x, probe.y)).toBe('editor');
+    expect(await whoseSpace(page, probe.x, probe.tailY)).toBe('editor');
 
-    await page.mouse.click(probe.x, probe.y);
-    await page.waitForTimeout(100);
-    await page.keyboard.type('hello');
-    await page.waitForTimeout(100);
+    for (const y of [probe.y, probe.tailY]) {
+      await page.mouse.click(probe.x, y);
+      await page.waitForTimeout(100);
+      await page.keyboard.type('hello');
+      await page.waitForTimeout(100);
+    }
 
     expect(await getDocText(page)).toBe('#work #ideas');
     expect(
@@ -680,73 +897,58 @@ test.describe('Click in the blank space around the note', () => {
     await expect(page.locator('.title-input')).toBeFocused();
     expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
 
-    // The Add button is inside the surface, so only the target check keeps this
+    // The Add button sits in the tag bar, so only the target check keeps this
     // click; a hijack still reaches `startAdding`, so watch the body caret.
     await page.locator('.tag-add-btn').click();
     await expect(page.locator('.tag-input')).toBeFocused();
     expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
   });
 
-  // Probed inside the corridor, so the side gate cannot be what rejects it.
-  test('within the corridor but above the tag bar clicks off', async ({ page }) => {
-    await setupEditor(page, 'first line\nsecond line');
+  // A line that takes the gutter as margin must drop it from its padding, or
+  // its text starts one gutter further in than every plain line.
+  test('a decorated line uses the same text width as a plain one', async ({ page }) => {
+    await setupEditor(page, 'plain paragraph\n\n> quoted paragraph\n\n```js\ncode line\n```');
+    await setCursor(page, 0);
+    await page.waitForTimeout(100);
+
+    const edges = await page.evaluate(() => {
+      const textRight = (el: Element) =>
+        Math.round(
+          el.getBoundingClientRect().right - parseFloat(getComputedStyle(el).paddingRight),
+        );
+      const boxRight = (el: Element) => Math.round(el.getBoundingClientRect().right);
+      const find = (cls: string) => document.querySelector(`.cm-line.${cls}`)!;
+      const plain = [...document.querySelectorAll('.cm-line')].find(
+        (l) => !l.className.includes('cm-md-'),
+      )!;
+      return {
+        plainText: textRight(plain),
+        quoteText: textRight(find('cm-md-quote')),
+        codeBox: boxRight(find('cm-md-code-block')),
+      };
+    });
+
+    expect(edges.quoteText).toBe(edges.plainText);
+    expect(edges.codeBox).toBe(edges.plainText);
+  });
+
+  // Probed inside the surface's x band, so the side edge cannot be what rejects it.
+  test('a click above the tag bar deselects the note', async ({ page }) => {
+    await setupEditor(page, TWO_LINES);
     await setCursor(page, 5);
 
     const point = await page.evaluate(() => {
-      const view = (window as any).__cmGetView();
-      const content = document.querySelector('.cm-content')!.getBoundingClientRect();
+      const surface = document.querySelector('.cm-content')!.getBoundingClientRect();
       const bar = document.querySelector('.note-tag-bar')!.getBoundingClientRect();
-      const x = Math.round(content.left - view.defaultLineHeight); // half a reach out
-      const y = Math.round(bar.top - 6);
-      const hit = document.elementFromPoint(x, y);
-      return {
-        x,
-        y,
-        insideCorridor: x > content.left - view.defaultLineHeight * 2,
-        aboveTheBar: y < bar.top,
-        hitsBlankSpace: Boolean(hit?.classList.contains('note-body')),
-      };
+      return { x: Math.round(surface.left + 10), y: Math.round(bar.top - 6) };
     });
-    expect(point.insideCorridor).toBe(true);
-    expect(point.aboveTheBar).toBe(true);
-    expect(point.hitsBlankSpace).toBe(true);
+    expect(await whoseSpace(page, point.x, point.y)).toBe('shell');
 
     await page.mouse.click(point.x, point.y);
     await page.waitForTimeout(100);
 
     expect(await getSelection(page)).toEqual({ from: 5, to: 5 });
-    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor')))).toBe(
-      false,
-    );
-  });
-
-  // A modified click is a selection gesture; the platform owns it.
-  test('shift-clicking in the reach zone does not collapse the selection', async ({ page }) => {
-    await setupEditor(page, 'alpha bravo charlie delta');
-    const probe = await probePoint(page, { side: 0.5 });
-    await setCursor(page, 6);
-
-    await page.keyboard.down('Shift');
-    await page.mouse.click(probe.x, probe.y);
-    await page.keyboard.up('Shift');
-    await page.waitForTimeout(100);
-
-    const sel = await getSelection(page);
-    expect(sel).not.toEqual({ from: 25, to: 25 }); // not collapsed to the end
-  });
-
-  test('a right-press in the reach zone leaves the caret alone', async ({ page }) => {
-    await setupEditor(page, 'alpha bravo charlie delta');
-    const probe = await probePoint(page, { side: 0.5 });
-    await setCursor(page, 6);
-    expect(probe.hitsBlankSpace).toBe(true);
-    // This point reaches on a left press, so the button is the only variable.
-    expect(probe.onLinePos).toBe(25);
-
-    await page.mouse.click(probe.x, probe.y, { button: 'right' });
-    await page.waitForTimeout(100);
-
-    expect(await getSelection(page)).toEqual({ from: 6, to: 6 });
+    expect(await editorFocused(page)).toBe(false);
   });
 });
 

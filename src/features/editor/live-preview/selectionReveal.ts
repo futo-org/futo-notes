@@ -1,3 +1,10 @@
+import {
+  EditorSelection,
+  StateEffect,
+  StateField,
+  type EditorState,
+  type SelectionRange,
+} from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 
 export interface SelectionRangeLike {
@@ -9,26 +16,71 @@ interface LineNumberLookup {
   lineAt(position: number): { number: number };
 }
 
-let suppressReveal = false;
-let frozenReveal: { hasFocus: boolean; ranges: readonly SelectionRangeLike[] } | null = null;
-
-export function setSuppressSelectionReveal(suppress: boolean): void {
-  suppressReveal = suppress;
+interface FrozenSelectionReveal {
+  hasFocus: boolean;
+  ranges: readonly SelectionRange[];
 }
 
-export function isMarkdownSelectionRevealSuppressed(): boolean {
-  return suppressReveal;
+interface SelectionRevealValue {
+  frozen: FrozenSelectionReveal | null;
+  suppressed: boolean;
 }
 
-export function freezeSelectionReveal(
+/** Freezes markdown selection reveal at the current selection until the pointer gesture settles. */
+export const freezeMarkdownSelectionReveal = StateEffect.define<FrozenSelectionReveal>();
+
+/** Clears a markdown selection reveal snapshot after a pointer gesture settles. */
+export const clearMarkdownSelectionReveal = StateEffect.define<null>();
+
+/** Suppresses selection-driven decoration rebuilding while a desktop pointer drag is active. */
+export const suppressMarkdownSelectionReveal = StateEffect.define<boolean>();
+
+/** Per-editor markdown selection reveal state shared by live preview and pointer interactions. */
+export const markdownSelectionRevealState = StateField.define<SelectionRevealValue>({
+  create: () => ({ frozen: null, suppressed: false }),
+  update(value, transaction) {
+    let frozen = value.frozen;
+    let suppressed = value.suppressed;
+    let changed = false;
+
+    if (frozen && transaction.docChanged) {
+      frozen = {
+        ...frozen,
+        ranges: frozen.ranges.map((range) => range.map(transaction.changes)),
+      };
+      changed = true;
+    }
+
+    for (const effect of transaction.effects) {
+      if (effect.is(freezeMarkdownSelectionReveal)) {
+        frozen = effect.value;
+        changed = true;
+      } else if (effect.is(clearMarkdownSelectionReveal)) {
+        frozen = null;
+        changed = true;
+      } else if (effect.is(suppressMarkdownSelectionReveal)) {
+        suppressed = effect.value;
+        changed = true;
+      }
+    }
+    return changed ? { frozen, suppressed } : value;
+  },
+});
+
+/** Creates a detached selection snapshot suitable for freezeMarkdownSelectionReveal. */
+export function createSelectionRevealSnapshot(
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
-): void {
-  frozenReveal = { hasFocus, ranges: ranges.map(({ from, to }) => ({ from, to })) };
+): FrozenSelectionReveal {
+  return {
+    hasFocus,
+    ranges: ranges.map(({ from, to }) => EditorSelection.range(from, to)),
+  };
 }
 
-export function clearSelectionRevealFreeze(): void {
-  frozenReveal = null;
+/** True when selection-driven decoration rebuilding is suppressed for this editor state. */
+export function isMarkdownSelectionRevealSuppressed(state: EditorState): boolean {
+  return state.field(markdownSelectionRevealState, false)?.suppressed ?? false;
 }
 
 export function getCursorLinesForReveal(
@@ -49,12 +101,13 @@ export function isInlineRevealSensitive(nodeName: string): boolean {
 }
 
 export function selectionTouchesRange(
+  state: EditorState,
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
   from: number,
   to: number,
 ): boolean {
-  const effectiveRanges = getEffectiveRanges(hasFocus, ranges);
+  const effectiveRanges = getEffectiveRanges(state, hasFocus, ranges);
   return effectiveRanges !== null && selectionIntersectsRange(effectiveRanges, from, to);
 }
 
@@ -71,12 +124,13 @@ export function selectionIntersectsRange(
 }
 
 export function selectionWithinMarkerRange(
+  state: EditorState,
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
   markerStart: number,
   contentStart: number,
 ): boolean {
-  const effectiveRanges = getEffectiveRanges(hasFocus, ranges);
+  const effectiveRanges = getEffectiveRanges(state, hasFocus, ranges);
   if (!effectiveRanges) return false;
   return effectiveRanges.some((range) =>
     range.from === range.to
@@ -86,16 +140,17 @@ export function selectionWithinMarkerRange(
 }
 
 export function shouldRevealMarkdownSyntax(
+  state: EditorState,
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
   from: number,
   to: number,
 ): boolean {
-  return selectionTouchesRange(hasFocus, ranges, from, to);
+  return selectionTouchesRange(state, hasFocus, ranges, from, to);
 }
 
 export function shouldRevealInlineMarkers(view: EditorView, from: number, to: number): boolean {
-  return selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
+  return selectionTouchesRange(view.state, view.hasFocus, view.state.selection.ranges, from, to);
 }
 
 export function shouldSkipBlockDecorations(
@@ -105,6 +160,7 @@ export function shouldSkipBlockDecorations(
 ): boolean;
 export function shouldSkipBlockDecorations(
   nodeName: string,
+  state: EditorState,
   from: number,
   to: number,
   hasFocus: boolean,
@@ -112,24 +168,30 @@ export function shouldSkipBlockDecorations(
 ): boolean;
 export function shouldSkipBlockDecorations(
   nodeName: string,
-  fromOrLine: number,
-  toOrCursorLines: number | Set<number>,
+  lineOrState: number | EditorState,
+  fromOrCursorLines: number | Set<number>,
+  to = 0,
   hasFocus = false,
   ranges: readonly SelectionRangeLike[] = [],
 ): boolean {
   if (!isBlockRevealSensitive(nodeName)) return false;
-  if (toOrCursorLines instanceof Set) return toOrCursorLines.has(fromOrLine);
-  return shouldRevealMarkdownSyntax(hasFocus, ranges, fromOrLine, toOrCursorLines);
+  if (typeof lineOrState === 'number') {
+    return (fromOrCursorLines as Set<number>).has(lineOrState);
+  }
+  return shouldRevealMarkdownSyntax(lineOrState, hasFocus, ranges, fromOrCursorLines as number, to);
 }
 
 export function shouldSkipInlineDecorations(
   nodeName: string,
+  state: EditorState,
   from: number,
   to: number,
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
 ): boolean {
-  return isInlineRevealSensitive(nodeName) && selectionTouchesRange(hasFocus, ranges, from, to);
+  return (
+    isInlineRevealSensitive(nodeName) && selectionTouchesRange(state, hasFocus, ranges, from, to)
+  );
 }
 
 export function shouldHideHeaderTagBlock(blockLastLine: number, cursorLines: Set<number>): boolean {
@@ -140,10 +202,12 @@ export function shouldHideHeaderTagBlock(blockLastLine: number, cursorLines: Set
 }
 
 function getEffectiveRanges(
+  state: EditorState,
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
 ): readonly SelectionRangeLike[] | null {
-  if (frozenReveal) return frozenReveal.hasFocus ? frozenReveal.ranges : null;
-  if (suppressReveal || !hasFocus) return null;
+  const reveal = state.field(markdownSelectionRevealState, false);
+  if (reveal?.frozen) return reveal.frozen.hasFocus ? reveal.frozen.ranges : null;
+  if (reveal?.suppressed || !hasFocus) return null;
   return ranges;
 }

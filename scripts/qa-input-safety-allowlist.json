@@ -1,10 +1,15 @@
 {
-  "_comment": "Pinned EXACT lines that name a banned QA-input technique in order to FORBID it (scripts/check-qa-input-safety.mjs). Matching is rule + exact trimmed line text, so a new occurrence fails even inside an allowlisted file, and a pinned line that disappears fails as stale. Never add an entry to make a fresh instruction green — these techniques reached the user's production vault once (M24).",
+  "_comment": "Pinned EXACT lines that name a banned QA-input technique in order to FORBID it, plus the single-checkout deploy steps in the justfile (scripts/check-qa-input-safety.mjs). Matching is rule + exact trimmed line text, so a new occurrence fails even inside an allowlisted file, and a pinned line that disappears fails as stale. Never add an entry to make a fresh instruction green — these techniques reached the user's production vault once (M24) and killed three peer worktrees' dev stacks once (M25).",
   "allowed": {
     "AGENTS.md": [
       {
         "rule": "cliclick",
         "line": "- **M24 — QA input hit the production app.** OS-level input (AppleScript UI scripting, `cliclick`)",
+        "reason": "the named mistake has to name the technique it bans, or it teaches nothing."
+      },
+      {
+        "rule": "process-name-kill",
+        "line": "- **M25 — Pattern kill across worktrees.** `pkill -f vite` / `pkill -f \"cargo tauri dev\"` reach every",
         "reason": "the named mistake has to name the technique it bans, or it teaches nothing."
       }
     ],
@@ -13,6 +18,11 @@
         "rule": "cliclick",
         "line": "- **OS-level input** (AppleScript UI scripting, `cliclick`, `xdotool`) is",
         "reason": "the desktop QA playbook's prohibition — this is where the banned technique used to be recommended, so the ban must be explicit here."
+      },
+      {
+        "rule": "process-name-kill",
+        "line": "clean up by process name. `pkill -f vite`, `pkill -f \"cargo tauri dev\"` and",
+        "reason": "the desktop QA playbook's teardown prohibition — the cleanup step is where an agent reaches for a pattern kill, so the ban must be explicit here."
       }
     ],
     ".claude/skills/mr-qa/SKILL.md": [
@@ -42,6 +52,18 @@
         "rule": "cliclick",
         "line": "and never `cliclick`: the process-name lookup they need cannot distinguish a QA",
         "reason": "same list, continuation line."
+      }
+    ],
+    "justfile": [
+      {
+        "rule": "app-process-name-lookup",
+        "line": "pkill -f futo-notes-tauri 2>/dev/null && echo \"Stopped running instance.\" && sleep 1 || true",
+        "reason": "`deploy-deb`: a single-checkout install step has to stop the running app before overwriting /usr/bin, and the shared binary name is all it has to go on. Deliberately NOT a template for QA cleanup — see the comment above the line, and AGENTS.md M25."
+      },
+      {
+        "rule": "app-process-name-lookup",
+        "line": "pkill -f futo-notes-tauri 2>/dev/null && echo \"Stopped running instance.\" && sleep 1 || true",
+        "reason": "`deploy-rpm`: the same install step in the rpm recipe. Two exact entries rather than one file-wide exemption, so a THIRD pattern kill anywhere in the justfile is still a violation."
       }
     ]
   }

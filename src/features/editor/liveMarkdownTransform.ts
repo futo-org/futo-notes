@@ -10,8 +10,6 @@ export {
   setLocalImageBaseUrl,
 } from './live-preview/images';
 export {
-  clearSelectionRevealFreeze,
-  freezeSelectionReveal,
   getCursorLinesForReveal,
   isBlockRevealSensitive,
   isInlineRevealSensitive,
@@ -19,7 +17,6 @@ export {
   selectionIntersectsRange,
   selectionTouchesRange,
   selectionWithinMarkerRange,
-  setSuppressSelectionReveal,
   shouldHideHeaderTagBlock,
   shouldRevealInlineMarkers,
   shouldRevealMarkdownSyntax,
@@ -30,6 +27,7 @@ export {
 
 export { liveMarkdownRefresh } from './live-preview/refreshEffect';
 
+/** Installs live markdown decorations for the current editor view. */
 export const liveMarkdownTransform = ViewPlugin.fromClass(LiveMarkdownPlugin, {
-  decorations: (v) => v.decorations,
+  decorations: (plugin) => plugin.decorations,
 });

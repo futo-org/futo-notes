@@ -130,6 +130,52 @@ func confirmedSavedContent(
     }
 }
 
+/// What the editor must record after a `flush_draft` that has already answered.
+///
+/// The flush is DURABLE by the time it returns a disposition, so what happens
+/// next must not be conditional on the calling task still being live. The
+/// debounced save is cancelled by the very next keystroke
+/// (`EditorSession.schedule` cancels the previous `.save`), and gating the
+/// baseline advance on that cancellation left `savedContent` behind disk — which
+/// made the NEXT flush's `base` a lie, so the engine read this editor's own
+/// earlier write as a peer edit and parked the draft as a conflict copy. Android
+/// holds the same span uncancellable (`EditorSession.kt`,
+/// `withContext(NonCancellable)`); a Swift `Task` body is not cancel-proof, so
+/// the decision is pure and lives here instead. IDENTITY, not liveness, is the
+/// only thing that may veto it.
+enum SettledFlush: Equatable {
+    /// Advance the baseline to the bytes that landed. Nothing else moved.
+    case record(savedContent: String)
+    /// The engine parked the draft: follow the copy AND advance the baseline, or
+    /// the editor keeps writing at an id whose disk it no longer matches.
+    case follow(parkedId: String, savedContent: String)
+    /// Nothing landed, or it landed at an identity this editor has since left.
+    case ignore
+}
+
+func settledFlush(
+    disposition: FlushDisposition?,
+    writtenContent: String,
+    flushedId: String,
+    currentId: String,
+    sessionIsClosing: Bool
+) -> SettledFlush {
+    // A nil disposition is an I/O failure: nothing reached disk, so the existing
+    // baseline still describes it and the draft stays dirty for a later retry.
+    guard let disposition else { return .ignore }
+    // The write landed at an id this editor no longer shows. Whoever owns the
+    // new identity owns its baseline; recording here would describe another note.
+    guard currentId == flushedId else { return .ignore }
+    guard case .parkedConflict(let parkedId) = disposition else {
+        return .record(savedContent: writtenContent)
+    }
+    // A destructive exit has latched. It owns identity until it finishes, so
+    // record the bytes that landed but leave `noteId` where the exit left it.
+    return sessionIsClosing
+        ? .record(savedContent: writtenContent)
+        : .follow(parkedId: parkedId, savedContent: writtenContent)
+}
+
 func shouldContinueDeleteAfterEditorWrite(
     hasPendingChanges: Bool,
     outcome: NoteMutationOutcome<Void>?

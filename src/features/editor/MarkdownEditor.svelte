@@ -18,8 +18,7 @@
   } from './editorContentSync';
   import { hasFileSystem } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough } from './markdownToolbar';
-  import { EditorLinkInteractions } from './interactions/linkInteractions';
-  import { EditorPointerSelection } from './interactions/pointerSelection';
+  import type { EditorLinkGesture } from './interactions/editorPointerInteractions';
   import { EditorScrollAnchoring } from './interactions/scrollAnchoring';
   import { createMarkdownEditorRuntime } from './createMarkdownEditorRuntime';
   import { createNoteHistoryStore, restoreState } from './noteHistory';
@@ -33,7 +32,7 @@
     oncursorcontext?: (ctx: { onListLine: boolean }) => void;
     scrollParent?: HTMLElement | null;
     nativeShell?: boolean;
-    onopenlink: (title: string, event: MouseEvent) => void;
+    onopenlink: (title: string, gesture: EditorLinkGesture) => void;
     onopenurl?: (url: string) => void;
   }
 
@@ -62,7 +61,6 @@
 
   let editorOwnsContent = false;
 
-  let linkInteractions: EditorLinkInteractions | null = null;
   let scrollAnchoring: EditorScrollAnchoring | null = null;
 
   onMount(() => {
@@ -74,13 +72,11 @@
       getOnFocusChange: () => onfocuschange,
       getOnCursorContext: () => oncursorcontext,
       getOnOpenUrl: () => onopenurl,
-      openWikilink: (title, event) => onopenlink(title, event),
+      openWikilink: (title, gesture) => onopenlink(title, gesture),
       onEditorContentChange: () => {
         editorOwnsContent = true;
       },
     });
-    const currentLinkInteractions = runtime.linkInteractions;
-    linkInteractions = currentLinkInteractions;
     const currentScrollAnchoring = runtime.scrollAnchoring;
     scrollAnchoring = currentScrollAnchoring;
 
@@ -107,14 +103,6 @@
       });
     }
 
-    const pointerSelection = new EditorPointerSelection({
-      view: v,
-      onBlur: () => onfocuschange?.(false),
-    });
-    if (!nativeShell) {
-      pointerSelection.attach();
-    }
-
     if (import.meta.env.DEV) {
       const w = window as DevelopmentEditorWindow;
       w.__cmToggle = (v: EditorView, name: string) => {
@@ -133,8 +121,6 @@
 
     return () => {
       runtime.destroy();
-      pointerSelection.destroy();
-      if (linkInteractions === currentLinkInteractions) linkInteractions = null;
       if (scrollAnchoring === currentScrollAnchoring) scrollAnchoring = null;
       noteHistory.clear();
       extensions = null;
@@ -232,14 +218,6 @@
   export function refreshDecorations(): void {
     if (!view) return;
     view.dispatch({ effects: liveMarkdownRefresh.of(null) });
-  }
-
-  export function placeCaretAtEnd(): void {
-    if (!view) return;
-    view.dispatch({
-      selection: { anchor: view.state.doc.length },
-      scrollIntoView: true,
-    });
   }
 
   export function blur(): void {

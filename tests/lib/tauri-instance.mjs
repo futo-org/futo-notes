@@ -33,8 +33,24 @@ export async function startDesktopTauriInstance(name, repoRoot) {
     }
   }
   if (!binaryPath) {
+    // This harness deliberately assumes the REPO-LOCAL target/ — see
+    // REMOTE_CARGO_TARGET_DIR in scripts/remote-test.mjs for why the repo does
+    // not relocate it. With CARGO_TARGET_DIR exported, cargo writes the binary
+    // somewhere else and this used to fail as a bare "not found" AFTER an
+    // 84-second build, naming nothing (pc_f7e52544227e). Say what is actually
+    // going on.
+    const relocated = process.env.CARGO_TARGET_DIR;
     throw new Error(
-      'Debug binary not found. Run: cd apps/tauri && cargo tauri build --debug --no-bundle',
+      [
+        `Debug binary not found. Looked in:`,
+        ...candidates.map((c) => `  ${c}`),
+        relocated
+          ? `\nCARGO_TARGET_DIR is set to '${relocated}', so cargo put the binary there ` +
+            `instead. This harness (and cross-platform-sync.mjs's pgrep cleanup, which only ` +
+            `kills binaries under the repo-local target/) requires the repo-local path — ` +
+            `unset CARGO_TARGET_DIR and re-run.`
+          : `\nRun: cd apps/tauri && cargo tauri build --debug --no-bundle`,
+      ].join('\n'),
     );
   }
 

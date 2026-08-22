@@ -119,6 +119,9 @@ experiments/
 # Agent scratch (handoff notes)
 handoff/
 
+# Throwaway probes/benchmarks runnable by vitest (see vitest.config.ts include)
+scratch/
+
 # Verification
 test-screenshots
 
@@ -182,3 +185,11 @@ apps/tauri/src-tauri/redist/
 # Per-worktree QA instance log/pid written by the /verify + /mr-qa desktop launcher.
 .tauri-qa.log
 .tauri-qa.pid
+
+# Flatpak build inputs/outputs (`just flatpak-build` on the packaging branch) and
+# the scratch vault `flatpak-run` uses instead of the real one. The build tree
+# mounts /var/run/udev/watch with symlink loops that crash file watchers (ELOOP).
+flatpak/deb/
+flatpak/.build/
+flatpak/.builder-state/
+.flatpak-scratch/

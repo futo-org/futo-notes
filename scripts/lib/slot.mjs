@@ -13,6 +13,11 @@ export const PORT_BASES = {
   web: 5250,
   sync: 3100,
   cdp: 9330,
+  // The debug MCP/QA bridge's BASE port. The plugin scans upward from it, so
+  // this band is 100 wide per the plugin's scan range — but a slot only ever
+  // needs its own base to be free, and a stride of 1 kept two worktrees fighting
+  // over 9223. Kept clear of cdp (9330+).
+  mcp: 9223,
 };
 
 // The cross-platform sync harness is the one consumer that needs a RANGE, not a
@@ -63,6 +68,7 @@ export const ENV_NAMES = {
   web: 'WEB_VITE_PORT',
   sync: 'SYNC_PORT',
   cdp: 'CDP_PORT',
+  mcp: 'FUTO_MCP_BASE_PORT',
 };
 
 export function envLines(root) {

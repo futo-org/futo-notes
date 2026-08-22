@@ -2,6 +2,7 @@ import { getPlatformFS, isTauri } from '$lib/platform';
 import { idLeaf, safeNotePath } from '$lib/platform/pathSafety';
 import { getConfig } from '$lib/platform/tauri';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
+import { noteDeleteWarning } from '$features/notes/deleteConfirmation';
 import { pickNoteForAction } from '$features/notes/noteActionTarget';
 import { deleteNote as deleteNoteFromVault, moveNote } from '$features/notes/notes.svelte';
 
@@ -79,7 +80,7 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
   async function deleteCurrentNote(): Promise<void> {
     closeMenu();
     const pick = pickNoteForAction(deps.getActiveNoteId());
-    const confirmed = await confirmDialog('Delete this note? This action cannot be undone.', {
+    const confirmed = await confirmDialog(`Delete this note? ${await noteDeleteWarning()}`, {
       title: 'Delete note',
       kind: 'warning',
     });

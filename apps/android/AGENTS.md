@@ -15,7 +15,22 @@ just android-drive             # drive the running app; no args prints the comma
 just test-android-storage      # user-level storage stories on a real device
 ```
 
-For app-only Kotlin iteration, `./gradlew :app:installDebug` from here is enough.
+For app-only Kotlin iteration, `./gradlew :app:installDebug` from here is enough
+**in a warm checkout**. In a FRESH worktree it is not, and both failures look
+unrelated to what you changed:
+
+- `SDK location not found` — a new worktree has no `local.properties` and a
+  plain shell has no `ANDROID_HOME`. Either export `ANDROID_HOME`
+  (`~/Library/Android/sdk` on this Mac) or run `just android-native` once, which
+  resolves the SDK for you.
+- a Kotlin compile error on a missing UniFFI symbol — the generated Kotlin
+  bindings are gitignored, so they simply do not exist yet. Run
+  `just build-rust-android` first.
+
+Running `just android-native` once in a new worktree gets you past both; after
+that, direct gradle invocations work. (Cost two dead-end builds before it was
+written down.)
+
 After changing `futo-notes-ffi` or a crate it re-exports, rebuild the bindings
 first (`just build-rust-android`) or you are testing yesterday's Rust (M9) — the
 symptom is "my change did nothing" or a Kotlin compile error on a missing symbol.
@@ -58,9 +73,17 @@ Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
 
 ## Testable logic goes down, not sideways
 
-There is no instrumented-test target in `check`/CI here, and the storage-switch
-success path ends in `Runtime.getRuntime().exit(0)`, which an instrumentation
-runner reports as a crash. So Kotlin has exactly two places to be verified:
+CI **does** run instrumented tests: `build:android-native` executes
+`scripts/ci-android-instrumentation.sh` on a headless emulator and publishes
+its `apps/android/app/build/outputs/androidTest-results/` JUnit XML. (This file used to claim there
+was no instrumented target; an androidTest written against that claim failed the
+pipeline in MR !225.) They are not part of local `just check`, which has no
+emulator — run them with `just test-android-native-ui`.
+
+Even so, prefer pushing logic down rather than reaching for instrumentation: the
+storage-switch success path ends in `Runtime.getRuntime().exit(0)`, which an
+instrumentation runner reports as a crash. So Kotlin has two main places to be
+verified:
 
 1. **A JVM unit test** in `app/src/test/java/com/futo/notes/`, for anything that
    can be a pure function over plain data.

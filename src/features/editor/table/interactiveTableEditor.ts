@@ -236,7 +236,9 @@ function buildTableDecorations(
   const decorations: Array<{ from: number; to: number; decoration: Decoration }> = [];
 
   for (const table of tables) {
-    if (selectionTouchesRange(hasFocus, state.selection.ranges, table.from, table.to)) continue;
+    if (selectionTouchesRange(state, hasFocus, state.selection.ranges, table.from, table.to)) {
+      continue;
+    }
 
     const source = state.doc.sliceString(table.from, table.to);
     decorations.push({
@@ -276,7 +278,8 @@ const tableEditorField = StateField.define<TableEditorFieldValue>({
   update(value, transaction) {
     const tree = syntaxTree(transaction.state);
     const refreshRequested = transaction.effects.some((effect) => effect.is(liveMarkdownRefresh));
-    const selectionNeedsRebuild = transaction.selection && !isMarkdownSelectionRevealSuppressed();
+    const selectionNeedsRebuild =
+      transaction.selection && !isMarkdownSelectionRevealSuppressed(transaction.state);
     let hasFocus = value.hasFocus;
     let focusChanged = false;
 

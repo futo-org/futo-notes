@@ -201,7 +201,10 @@
     }
   }
 
-  function openNote(noteId: string, event?: MouseEvent): void {
+  function openNote(
+    noteId: string,
+    event?: Pick<MouseEvent, 'metaKey' | 'ctrlKey' | 'shiftKey' | 'button'>,
+  ): void {
     if (noteId === '__home__') {
       tabsStore.openNote(null, 'current');
       return;
@@ -216,12 +219,15 @@
     tabsStore.setPendingFolder(tab.id, folder || null);
   }
 
-  function openWikilink(title: string, event: MouseEvent): void {
+  function openWikilink(
+    title: string,
+    gesture: Pick<MouseEvent, 'metaKey' | 'ctrlKey' | 'shiftKey' | 'button'>,
+  ): void {
     const noteId = resolveDesktopWikilinkTarget(
       title,
       getAllNotes().map((note) => note.id),
     );
-    openNote(noteId, event);
+    openNote(noteId, gesture);
   }
 
   function handleHashChange(): void {

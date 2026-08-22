@@ -33,6 +33,18 @@ format:
 format-check:
   pnpm run format:check
 
+# The repo rule is that every command goes through `just`, but only the
+# TypeScript side had formatting recipes — so Rust changes had no sanctioned way
+# to be formatted or checked. rustfmt is pinned by rust-toolchain.toml (1.89.0),
+# so both are reproducible across machines and CI.
+# Format the Rust workspace.
+rust-format:
+  cargo fmt --all
+
+# Fail if any Rust file is unformatted.
+rust-format-check:
+  cargo fmt --all --check
+
 # Lint the hand-written Swift production and test sources (read-only) with swift-format, which
 # ships with Xcode 16+ (`xcrun swift-format`). The generated UniFFI bindings
 # (Sources/Generated) are excluded — they are not ours to style.
@@ -75,16 +87,18 @@ updater-localdev *args:
 # ── Instance journal (desktop) ──
 # Read what a running instance actually DID: the app writes a JSONL event
 # journal (futo_notes_core::journal) under its app data dir — never inside a
-# vault, never uploaded anywhere. Today it records one `sync_run` event per
-# sync cycle: trigger (manual/live-catch-up/local-change/remote-change/
-# safety-poll), push and pull timings, counts, the version watermarks either
-# side of the run, and the per-file reconcile decisions with the reason the
-# summary counters throw away.
+# vault, never uploaded anywhere. Today it records an `app_launch` marker per
+# run of the app — the anchor every later event is read against — and one
+# `sync_run` event per sync cycle: trigger (manual/live-catch-up/local-change/
+# remote-change/safety-poll), push and pull timings, counts, the version
+# watermarks either side of the run, and the per-file reconcile decisions with
+# the reason the summary counters throw away.
 #
 #   just journal                    # last 20 events
 #   just journal tail 100
-#   just journal type sync_run      # or journal_drops (queue pressure)
+#   just journal type sync_run      # or app_launch, journal_drops
 #   just journal last-sync          # readable summary of the newest cycle
+#   just journal startup            # per launch, how long until it first synced
 #   just journal where              # which directory it is reading
 #   just journal ... --release      # the release app, not the dev build
 #   just journal ... --dir <path>   # somewhere else entirely (a pulled phone journal)
@@ -196,16 +210,32 @@ test-android-native-ui: build-rust-android
 test-android-storage:
   node tests/android-storage-migration.mjs
 
+# Sustained human-cadence typing against the REAL native iOS app, with the
+# simulator vault as the oracle: exactly the seeded note, byte-exact content,
+# and no conflict copies or other unrequested files. The build/install is
+# deliberately mandatory so the story always exercises the code being pushed.
+# Requires SIM from `just qa-claim ios`; the runner verifies pool ownership.
+test-ios-stories:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -n "${SIM:-}" ] || { echo 'No claimed simulator — run: eval "$(just qa-claim ios)"' >&2; exit 1; }
+  SIM="$SIM" just ios-native
+  SIM="$SIM" node tests/ios-editor-stories.mjs
+
 # ── Parallel QA isolation (multiple worktrees, one machine) ──
 # Worktree path → slot → pooled devices (futo-qa-0..6 per platform) + a
 # per-slot sync server with its own Postgres database. Your personal
 # simulators/AVDs are never touched. See scripts/qa.mjs and the /verify
 # skill's "Isolation model" section.
 
-# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
 # Prints `export SIM=…` / `export ANDROID_SERIAL=…` — eval or copy them.
-qa-claim target="all":
-  @node scripts/qa.mjs claim {{target}}
+# Pass `--reboot` when `axe`/`idb` report a 0x0 root for a booted simulator:
+# that means it has no Simulator.app window in this WindowServer session, and a
+# full shutdown/boot cycle is the only fix (simctl screenshot keeps working the
+# whole time, which is why it looks like an app bug).
+# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
+qa-claim target="all" *flags:
+  @node scripts/qa.mjs claim {{target}} {{flags}}
 
 # Show pool devices + per-slot sync servers, and which worktree owns each.
 qa-status:
@@ -252,12 +282,17 @@ qa-server-stop *flags:
 # /verify skill's references/ios.md and references/android.md. All sim-*
 # helpers honor $SIM (from qa-claim); adb-based ones honor $ANDROID_SERIAL.
 
+# Deliberately does NOT foreground Simulator.app: `simctl` boots, installs,
+# launches and screenshots a headless device just fine, while activating the app
+# drags whoever is typing to another space (parallel QA sessions on one Mac).
+# Pass SHOW=1 when a HUMAN needs to watch, or when measuring anything that
+# awaits a frame — an occluded window has its rendering suspended.
 # Boot an iOS simulator by name (no-op if already booted) and wait for it.
 sim-boot name="iPhone 17 Pro":
   #!/usr/bin/env bash
   set -euo pipefail
   xcrun simctl boot '{{name}}' 2>/dev/null || true  # "already booted" is fine
-  open -a Simulator
+  if [ -n "${SHOW:-}" ]; then open -a Simulator; fi
   for i in $(seq 1 30); do
     xcrun simctl list devices booted | grep -q Booted && break; sleep 1
   done
@@ -367,6 +402,19 @@ test:
 
 test-full:
   pnpm run test:full
+
+# Run ONE test file (or a name pattern), installing deps first if this is a
+# fresh worktree. `pnpm exec vitest ...` from a worktree with no node_modules
+# fails with ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL / 'Command "vitest" not found',
+# which says nothing about the real cause (pc_cd6fa6e7aa76).
+#   just test-one src/features/notes/notes.test.ts
+#   just test-one -t 'renames a note'
+# Run ONE test file or -t pattern (installs deps if the worktree is fresh).
+test-one *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -d node_modules ] || { echo "==> node_modules missing — pnpm install"; pnpm install; }
+  node_modules/.bin/vitest run {{args}}
 
 test-unit:
   pnpm run test:unit
@@ -585,11 +633,25 @@ sync-contract-check:
 check-drift:
   node scripts/drift-check.mjs
 
-# Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents) teaches
-# OS-level input into this app (AppleScript UI scripting, click injection), a
-# process-name/PID lookup against it, or a relative `find -newermt` safety check.
+# No space switch and no stolen keyboard focus, so a parallel QA session cannot
+# yank the human out of whatever they are typing in: it captures the window
+# where it lives, even on another space (`screencapture -l <window id>`).
+# Refuses anything scripts/qa-target.mjs will not verify as a debug build of
+# THIS worktree, since a window can show the user's real vault (M24). With a
+# live bridge, prefer its capture_native_screenshot; frame/paint probes still
+# need a genuinely VISIBLE window, which no capture tool can substitute for.
+#   just qa-shot list | pid <pid> | port <port> [--out <path>]
+# Screenshot this worktree's desktop QA window WITHOUT activating it.
+qa-shot *args:
+  @node scripts/qa-shot.mjs {{args}}
+
+# Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents, plus
+# this justfile) teaches OS-level input into this app (AppleScript UI scripting,
+# click injection), a process-name lookup or pattern KILL against it or its
+# toolchain, or a relative `find -newermt` safety check.
 # 2026-08-10: a QA agent drove the INSTALLED release app on the user's real vault
-# that way. Rationale + the allowlist contract: scripts/check-qa-input-safety.mjs.
+# that way. 2026-08-19: three parallel agents pattern-killed each other's dev
+# stacks. Rationale + the allowlist contract: scripts/check-qa-input-safety.mjs.
 check-qa-input-safety:
   node scripts/check-qa-input-safety.mjs
 
@@ -639,6 +701,14 @@ arch-gate:
 skills-link:
   @node scripts/skills-link.mjs
 
+# ── Dependency vulnerability scan ──
+# Needs network and cargo-audit on PATH (`cargo binstall cargo-audit --locked`). `--fix` drops
+# ignore entries whose advisory is gone. CI runs this same script, non-blocking
+# (docs/architecture-gates.md).
+# Report known vulnerabilities across the project (Rust + npm).
+audit *args:
+  node scripts/audit.mjs {{args}}
+
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
 clean:
@@ -646,7 +716,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
+check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.
@@ -670,9 +740,12 @@ check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
 # recipe here adds the cargo-dependent Rust dependency-boundary proof.
 # Maximal pre-push gate: `check` + full Rust workspace + full E2E + cross-platform sync.
 prepush: check test-rust-full gate-redproofs
+  #!/usr/bin/env bash
+  set -euo pipefail
   pnpm exec playwright test --retries=1
   pnpm run test:cross-platform
-  @echo "prepush green — check + rust workspace + full e2e + cross-platform sync all passed"
+  bash scripts/run-ios-stories-if-available.sh
+  echo "prepush green — check + rust workspace + full e2e + cross-platform sync + available iOS stories all passed"
 
 ci:
   pnpm run ci
@@ -700,7 +773,12 @@ deploy-deb:
   cd apps/tauri && cargo tauri build --bundles deb
   cd ../..
   DEB=$(ls -t "${BUNDLE_DIR}"/*.deb | head -1)
-  # Kill running instance (comm is truncated to 15 chars, so use -f)
+  # A single-checkout INSTALL step, and the only sanctioned pattern kill in this
+  # repo: it stops EVERY FUTO Notes on the machine, which is what you want right
+  # before overwriting /usr/bin, and is why both copies are pinned in
+  # scripts/qa-input-safety-allowlist.json. Never copy this line for QA cleanup —
+  # on a multi-worktree machine it takes out your peers' apps too (AGENTS.md M25);
+  # use `just qa-target kill`. (`comm` is truncated to 15 chars, hence -f.)
   pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
   echo "Installing ${DEB}..."
   sudo dpkg -i "$DEB"
@@ -736,7 +814,12 @@ deploy-rpm:
   cd apps/tauri && cargo tauri build --bundles rpm
   cd ../..
   RPM=$(ls -t "${BUNDLE_DIR}"/*.rpm | head -1)
-  # Kill running instance (comm is truncated to 15 chars, so use -f)
+  # A single-checkout INSTALL step, and the only sanctioned pattern kill in this
+  # repo: it stops EVERY FUTO Notes on the machine, which is what you want right
+  # before overwriting /usr/bin, and is why both copies are pinned in
+  # scripts/qa-input-safety-allowlist.json. Never copy this line for QA cleanup —
+  # on a multi-worktree machine it takes out your peers' apps too (AGENTS.md M25);
+  # use `just qa-target kill`. (`comm` is truncated to 15 chars, hence -f.)
   pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
   echo "Installing ${RPM}..."
   # Do NOT route this through dnf's version solver. `dnf reinstall` exits 0
@@ -769,6 +852,37 @@ deploy-rpm:
     exit 1
   fi
   echo "Done. Installed FUTO Notes ${VERSION} (verified on disk)."
+
+# deploy-deb / deploy-rpm / deploy-ios all existed for prod installs while
+# Android only had `android-native` (debug, com.futo.notes.dev) — so a request to
+# install "the prod app" on all three platforms had to descope Android to a debug
+# build. Release signing needs apps/android/keystore.properties (gitignored);
+# without it Gradle produces an UNSIGNED release APK that cannot be installed, so
+# this refuses up front and says what is missing rather than failing at adb.
+# Honors $ANDROID_SERIAL.
+# Build a RELEASE-signed Android build and install it (com.futo.notes).
+deploy-android:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ ! -f apps/android/keystore.properties ]; then
+    echo "No apps/android/keystore.properties — release builds cannot be signed." >&2
+    echo "  A release APK without it is unsigned and will not install." >&2
+    echo "  For a debug install on com.futo.notes.dev use: just android-native" >&2
+    exit 1
+  fi
+  just build-rust-android
+  node_modules/.bin/vite build --config vite.editor.config.ts
+  cd apps/android && ./gradlew :app:assembleRelease
+  APK=$(ls -t app/build/outputs/apk/release/*.apk | head -1)
+  echo "Installing ${APK} (com.futo.notes)…"
+  adb install -r "$APK"
+  # Assert the PRODUCTION package is what landed — an unsigned or misconfigured
+  # build could otherwise leave the .dev package installed and look successful.
+  adb shell pm list packages | grep -qx 'package:com.futo.notes' || {
+    echo "com.futo.notes is not installed after adb install — nothing was deployed." >&2
+    exit 1
+  }
+  echo "Done. Installed release FUTO Notes (com.futo.notes)."
 
 # Build a RELEASE native iOS build and install it on a connected iPhone
 # (production bundle id com.futo.notes). DEBUG device installs go through

@@ -82,6 +82,16 @@ new-note affordances.
   > preview at all. The single-line, markdown-opaque `make_preview` snippet
   > appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar
   > rows. The rich multi-line preview is native-only (iOS + Android) for now.
+- An embedded image stands in as a single 🖼️ in **every** preview — the
+  rich multi-line one and the single-line `make_preview` snippet alike — never
+  as raw `![alt](target)` markdown and never dropped. Surrounding text is kept,
+  so `![](image-20260814-130425.png)` above a line of prose previews as
+  "🖼️ Meeting notes". A construct missing its `]` or `)` is not an image
+  and stays verbatim, and a plain `[link](url)` is untouched. The rule is shared
+  Rust (`futo_notes_model::IMAGE_PLACEHOLDER`, applied inside `make_preview` and
+  `make_rich_preview`), mirrored per-keystroke by `packages/editor/src/preview.ts`
+  and pinned bit-for-bit by tests/conformance/preview.json.
+  → crates/futo-notes-model/src/note.rs / packages/editor/src/preview.ts
 - Preview text is never interactive: tapping anywhere on a note row — including
   preview text that looks like a URL — always opens the note, never a link.
   _(iOS native)_ `AttributedString(markdown:)` auto-attaches a `.link`
@@ -172,18 +182,60 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - They act on nothing, and toast "That note is no longer available", when the
   picked note disappears for any other reason (a sync pull or an external delete
   mid-action) — never falling through to whatever note is open by then. _(Tauri)_
-- "Delete note" asks for confirmation ("This action cannot be undone."), then
-  deletes the file. _(Desktop)_ routes through the OS trash — recoverable via
-  the OS trash — falling back to permanent delete if the platform trash is
-  unavailable (e.g. headless CI). _(iOS, Android)_ delete permanently; there
+- "Delete note" asks for confirmation, then deletes the file. _(Desktop)_ routes
+  through the OS trash — recoverable via the OS trash — falling back to permanent
+  delete if the platform trash is unavailable (e.g. headless CI). In a Flatpak
+  sandbox the host trash directory is unreachable, so a delete inside the vault the
+  sandbox was granted routes through the `org.freedesktop.portal.Trash` portal
+  instead, with the same permanent-delete fallback. _(iOS, Android)_ delete
+  permanently; there
   is no trash in the native UI flow. Sync is unaffected either way — the file
   leaving the vault tombstones the note on the next sync exactly as a
   permanent delete would. Deleting the only note in a folder prunes now-empty
   ancestor folders on every platform. Desktop supplies the trash policy to the
   shared local-note store; native shells delete directly. →
   `futo-notes-store::LocalNoteStore::delete_with`, `local_notes_delete`
+- _(Desktop)_ The confirmation says what the active vault can actually recover:
+  "This action cannot be undone." where a trash exists, and "This deletes the file
+  for good — it does not go to the trash." on a vault with no reachable trash. It
+  never implies a recovery the vault cannot deliver. _(iOS, Android)_ always say
+  "This action cannot be undone.", which is exact — those shells have no trash by
+  design. → `vault_status.deletesArePermanent`,
+  `src/features/notes/deleteConfirmation.ts`
+- _(Desktop, Flatpak only)_ A notes folder picked inside the sandbox has **no
+  trash at all**: `org.freedesktop.portal.Trash` declines a document-portal path
+  outright, while taking the same file under `$HOME`. Deletes there skip the
+  doomed portal call and hard-delete, and the confirmation says so. Verified
+  against a live portal by
+  `system_trash::tests::portal_trash_declines_a_document_portal_path`. →
+  `system_trash::deletes_are_permanent`
+
+- _(Desktop, Flatpak only)_ **A deleted folder's emptied shell never reaches the
+  trash**, even on a vault whose notes do: the Trash portal accepts only regular
+  files (a directory cannot be opened `O_RDWR`, and the portal declines the
+  `O_PATH` descriptor — pinned live by
+  `system_trash::tests::portal_trash_declines_a_directory`). Notes are always
+  moved to the parent first, so what is permanently removed is the emptied tree
+  plus any stray non-note files inside it — and the confirmation says so:
+  "… Anything else inside it is deleted for good." A non-Flatpak desktop build
+  trashes the shell through `trash::delete` and asks the plain question. →
+  `system_trash::folder_deletes_are_permanent`, deleteConfirmation.ts
+  `folderDeleteWarning`
 - A note row in the folder tree offers the same Move/Delete via context menu
   (desktop right-click / mobile long-press). → FolderTreeView.svelte
+- A note row in the folder tree offers Rename / Move to folder / Delete via
+  context menu (desktop right-click / mobile long-press). → FolderTreeView.svelte
+- _(desktop)_ **A note row renames inline**, by the same three gestures as a
+  folder row: double-click, F2 on the focused row, or the context menu's
+  **Rename**. The field opens seeded with the current name and selected; Enter
+  commits, Escape cancels, and clicking away commits. The typed text becomes the
+  filename verbatim — trailing whitespace aside, nothing is prettified (AGENTS.md
+  M2) — and the rename is one `move` mutation through the shared store, so
+  backlinks, the open tab, and the note cache follow it. Illegal names are
+  rejected with the shared title rules and messages ("That character can't be
+  used in a note title", "A note with this name already exists"), never
+  sanitized into a different name. → FolderTreeNoteRow.svelte,
+  TreeRowRename.svelte, sidebarFolderMutations.ts `renameSidebarNote`
 - The native editor menus reach parity: **Android** ⋮ offers Move to
   folder… / Copy file path / Delete note (Share is a dedicated top-bar
   action); **iOS** ⋯ offers Rename / Move to Folder… / Copy File Path /
@@ -336,7 +388,11 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   action live; non-empty invalid names show the validation error, while an empty
   field stays disabled but quiet. On a case-insensitive sibling match the dialog
   shows "A folder with this name already exists", with the name cleaned via the
-  shared Rust `sanitizeTitle`. A hard guard in `createFolder` also blocks the
+  shared Rust `sanitizeTitle`. Folder-name violations are worded for a FOLDER
+  ("That character can't be used in a folder name", "Folder name cannot be
+  empty") — the shared rules are layered on `validateTitle`, so the surface
+  supplies the noun rather than the manifest. A committed create toasts
+  "Folder created". A hard guard in `createFolder` also blocks the
   idempotent `create_dir_all` from silently merging into an existing folder. →
   folderOperations.ts, NewFolderDialog.kt, NoteListView.swift
 - A folder can be renamed; the rename updates every note path beneath it and
@@ -346,6 +402,15 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   name against the shared folder-name rules and case-insensitive siblings before
   committing one `rename_folder` mutation. → folderOperations.ts,
   NoteListView.swift, NoteListScreen.kt
+- _(desktop)_ Rename is also inline from a **double-click** on the row or **F2**
+  on the focused row. The typed text is a NAME, not a path: a `/` in it is an
+  illegal character, never an instruction to nest the folder somewhere new
+  (`renameFolderInPlace`, regression-locked 2026-08-19 — the old code spliced the
+  text into the destination path, so "a/b" silently moved the folder into a new
+  "a"). A rejected name is REPORTED as a toast and the edit stays in the field,
+  still focused and still fixable; it is never discarded, and the only feedback
+  is never a bare red outline. → folderOperations.ts `renameFolderInPlace`,
+  FolderTreeFolderRow.svelte, TreeRowRename.svelte
 - A folder can be moved to Root or any existing folder except itself or one of
   its descendants. The picker omits those invalid destinations. The shared
   `move_folder` workflow preserves the entire subtree, rewrites wikilinks to

@@ -13,6 +13,14 @@
 //! notes-root path, so the debug (`fake-notes`) and production
 //! (`futo-notes`) vaults — and any `FUTO_NOTES_DATA_DIR` worktree — keep
 //! independent entries, exactly like the old per-`.app-state.json` scoping.
+//!
+//! A document-portal vault's path contains a document id. Re-picking the same
+//! folder returns the SAME id while its entry exists (`REUSE_EXISTING`), so an
+//! ordinary re-pick keeps the saved password; a folder re-picked after its entry
+//! was REVOKED comes back under a new id, orphaning the account, and sync asks
+//! once more. Deliberate: the new path cannot prove "same vault", a wrong guess
+//! would hand one vault's password to another, and the cost is one re-prompt
+//! after an explicit revocation — with the M3 dev/prod split intact.
 
 use std::path::Path;
 
@@ -193,6 +201,21 @@ mod tests {
         assert_eq!(
             get_impl(&store, Path::new("/home/u/Documents/fake-notes")).unwrap(),
             Some("dev-pw".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_re_granted_portal_vault_asks_for_the_password_again() {
+        // Pins the documented trade-off in this module's header rather than
+        // leaving it as prose: the account is the path, and a folder re-picked
+        // after its grant was revoked comes back under a new document id, so
+        // that recovery re-prompts. If this ever starts returning the old
+        // secret, the account scheme changed and the header needs rewriting.
+        let store = MemStore::default();
+        set_impl(&store, Path::new("/run/user/1000/doc/A1b2C3/Notes"), "pw").unwrap();
+        assert_eq!(
+            get_impl(&store, Path::new("/run/user/1000/doc/Z9y8X7/Notes")).unwrap(),
+            None
         );
     }
 }

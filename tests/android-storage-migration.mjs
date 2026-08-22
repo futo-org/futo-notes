@@ -38,6 +38,7 @@
 
 import { createAndroidDevice } from './lib/android/device.mjs';
 import { parseDirListing } from './lib/android/adbClient.mjs';
+import { describeVaultViolations, vaultInvariant } from './lib/vaultInvariant.mjs';
 
 const PACKAGE = 'com.futo.notes.dev';
 // The debug build's dev/prod split (AGENTS.md M3): "FUTO Notes Dev", not "FUTO Notes".
@@ -64,6 +65,14 @@ function vaultContents(path) {
     adb.readFileCommand(`${path}/${SEEDED_NOTE}`),
   ]);
   return { entries: parseDirListing(listing), note };
+}
+
+/** Platform-blind relative paths across both roots, for the shared end-of-story oracle. */
+function vaultSnapshot() {
+  return [
+    ...vaultContents(APP_VAULT).entries.map((entry) => `app/${entry}`),
+    ...vaultContents(DEVICE_VAULT).entries.map((entry) => `device/${entry}`),
+  ].sort();
 }
 
 /** The migration's own success criteria: both notes present at the destination,
@@ -165,10 +174,13 @@ async function tapThroughStoragePicker(label) {
 
 const results = [];
 
-async function check(name, fn) {
+async function check(name, fn, { expectedCreations = [] } = {}) {
   const start = Date.now();
+  const before = vaultSnapshot();
   try {
     await fn();
+    const violations = vaultInvariant(before, vaultSnapshot(), expectedCreations);
+    if (violations.length > 0) throw new Error(describeVaultViolations(violations));
     results.push({ name, pass: true });
     console.log(`  ✓ ${name} (${Date.now() - start}ms)`);
   } catch (error) {
@@ -181,37 +193,53 @@ async function main() {
   device.requireReady();
   console.log(`Storage-migration stories on ${device.serial ?? 'the connected device'}:\n`);
 
-  await check('first run picks App storage', async () => {
-    resetInstall();
-    await completeFirstRunOnAppStorage();
-    await device.waitForState(
-      'the app to come up on App storage',
-      (snapshot) => snapshot.storageMode === 'APP' && snapshot.shellVisible,
-    );
-  });
+  await check(
+    'first run picks App storage',
+    async () => {
+      resetInstall();
+      await completeFirstRunOnAppStorage();
+      await device.waitForState(
+        'the app to come up on App storage',
+        (snapshot) => snapshot.storageMode === 'APP' && snapshot.shellVisible,
+      );
+    },
+    { expectedCreations: ['app/.txt-migration-done', 'app/Welcome.md'] },
+  );
 
-  await check('App storage → Device storage moves the vault and removes the source', async () => {
-    seedSecondNote(APP_VAULT);
-    await switchStorageTo('DEVICE');
-    await waitForVaultAt(DEVICE_VAULT, 'DEVICE');
-    if (adb.exists(APP_VAULT)) {
-      throw new Error('the App-storage source survived a finalized migration');
-    }
-  });
+  await check(
+    'App storage → Device storage moves the vault and removes the source',
+    async () => {
+      seedSecondNote(APP_VAULT);
+      await switchStorageTo('DEVICE');
+      await waitForVaultAt(DEVICE_VAULT, 'DEVICE');
+      if (adb.exists(APP_VAULT)) {
+        throw new Error('the App-storage source survived a finalized migration');
+      }
+    },
+    {
+      expectedCreations: ['device/.txt-migration-done', 'device/Groceries.md', 'device/Welcome.md'],
+    },
+  );
 
   await check('the app relaunches on the Device vault without stalling', async () => {
     await waitForNoteListOn('DEVICE');
   });
 
-  await check('Device storage → App storage moves the vault and retains the source', async () => {
-    await switchStorageTo('APP');
-    await waitForVaultAt(APP_VAULT, 'APP');
-    // Policy: a Device source is never deleted — other apps can write it
-    // outside FUTO Notes' migration gate (docs/spec/settings.md).
-    if (!vaultContents(DEVICE_VAULT).entries.includes('Welcome.md')) {
-      throw new Error('the Device source must be retained as a backup, not deleted');
-    }
-  });
+  await check(
+    'Device storage → App storage moves the vault and retains the source',
+    async () => {
+      await switchStorageTo('APP');
+      await waitForVaultAt(APP_VAULT, 'APP');
+      // Policy: a Device source is never deleted — other apps can write it
+      // outside FUTO Notes' migration gate (docs/spec/settings.md).
+      if (!vaultContents(DEVICE_VAULT).entries.includes('Welcome.md')) {
+        throw new Error('the Device source must be retained as a backup, not deleted');
+      }
+    },
+    {
+      expectedCreations: ['app/.txt-migration-done', 'app/Groceries.md', 'app/Welcome.md'],
+    },
+  );
 
   // The round trip the old "destination already contains different files"
   // refusal made impossible: the retained Device backup permanently blocked

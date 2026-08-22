@@ -26,7 +26,3 @@
 .search-button:active {
   background: rgba(var(--ink-rgb), 0.1);
 }
-
-.notes-shell.drawer-dragging .drawer-search-area {
-  pointer-events: none;
-}

@@ -2,6 +2,8 @@ import { createTauriAdapter } from './tauri/adapter';
 import { createAppConfigStore } from './tauri/appConfig';
 
 export type { AppConfig, AppConfigUpdates, PersistedTab, PersistedTabs } from './tauri/appConfig';
+export type { VaultStatus } from './tauri/notesRoot';
+export { vaultDisplayPath, vaultStatus } from './tauri/notesRoot';
 
 const adapter = createTauriAdapter();
 

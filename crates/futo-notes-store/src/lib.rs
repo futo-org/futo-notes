@@ -1535,10 +1535,7 @@ fn note_filename(id: &str) -> String {
 }
 
 fn note_title(filename: &str) -> String {
-    filename
-        .strip_suffix(".md")
-        .unwrap_or(filename)
-        .to_owned()
+    filename.strip_suffix(".md").unwrap_or(filename).to_owned()
 }
 
 fn join_id(folder: &str, title: &str) -> String {

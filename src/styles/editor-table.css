@@ -137,30 +137,6 @@
   cursor: grabbing;
 }
 
-.sf-table__row--drop-before td {
-  box-shadow: inset 0 2px 0 0 var(--color-primary);
-}
-.sf-table__row--drop-after td {
-  box-shadow: inset 0 -2px 0 0 var(--color-primary);
-}
-
-.sf-table__col--drop-before::before,
-.sf-table__col--drop-after::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--color-primary);
-  pointer-events: none;
-}
-.sf-table__col--drop-before::before {
-  left: -1px;
-}
-.sf-table__col--drop-after::before {
-  right: -1px;
-}
-
 /* NOTE: we intentionally do NOT hide the CM6 cursor while a table cell has focus.
  * Earlier we did `.cm-editor[data-table-focused='true'] .cm-cursor { opacity: 0 }`,
  * but the attribute could stick (widget destroyed before blur fired), which made

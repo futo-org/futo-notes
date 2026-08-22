@@ -9,6 +9,10 @@ import {
   DEFAULT_HOST,
   DEFAULT_USER,
   EXIT_LOCKED,
+  buildKillScript,
+  buildLockScript,
+  pinnedPlaywrightBrowsers,
+  buildUnlockScript,
   EXIT_MOVED,
   EXIT_REFUSED,
   GRADLE_JDK_CANDIDATES,
@@ -35,6 +39,16 @@ const recipes = parseJustRecipes(justfile);
 
 const classify = (name) => classifyRecipe(name, { aliases, recipes });
 
+function lockScript(overrides = {}) {
+  return buildLockScript({
+    remoteDir: '$HOME/ci/futo-main',
+    holder: 'who=justin@mac',
+    forceLock: false,
+    nonce: 'test-nonce-0001',
+    ...overrides,
+  });
+}
+
 function runScript(overrides = {}) {
   return buildRunScript({
     remoteDir: '$HOME/ci/futo-main',
@@ -43,8 +57,7 @@ function runScript(overrides = {}) {
     sha: 'abc1234def',
     recipe: 'test-rust-full',
     recipeArgs: [],
-    holder: 'who=justin@mac',
-    forceLock: false,
+    nonce: 'test-nonce-0001',
     ndkVersion: '28.2.13676358',
     ...overrides,
   });
@@ -229,21 +242,26 @@ describe('remote environment', () => {
 describe('run script', () => {
   it('propagates the recipe exit status instead of masking it (M11)', () => {
     const script = runScript();
-    expect(script).toMatch(/just 'test-rust-full'\nSTATUS=\$\?/);
+    // The recipe runs as a background job so it gets its own process group
+    // (--kill), so the status comes from `wait` — still the recipe's own, never
+    // a pipeline's tail.
+    expect(script).toMatch(/just 'test-rust-full' &/);
+    expect(script).toMatch(/wait "\$RECIPE_PID"\nSTATUS=\$\?/);
     expect(script.trimEnd().endsWith('exit $STATUS')).toBe(true);
     // Nothing may pipe the suite's output — a pipe reports the tail's status.
     expect(script).not.toMatch(/^just .*\|/m);
   });
 
   it('takes an exclusive lock on the remote worktree and releases it on any exit', () => {
-    const script = runScript();
-    expect(script).toContain('mkdir "$LOCK_DIR"');
-    expect(script).toContain(`exit ${EXIT_LOCKED}`);
-    expect(script).toContain(`trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM HUP`);
+    // Acquisition is phase 1 (its own ssh session, before any transfer);
+    // release belongs to the run script that adopts it.
+    expect(lockScript()).toContain('mkdir "$LOCK_DIR"');
+    expect(lockScript()).toContain(`exit ${EXIT_LOCKED}`);
+    expect(runScript()).toContain(`trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM HUP`);
   });
 
   it('shows a blocked run WHO holds the lock', () => {
-    const script = runScript();
+    const script = lockScript();
     expect(script).toContain('if [ -f "$LOCK_DIR/holder" ]; then');
     // `2>/dev/null >&2` points fd1 at /dev/null (redirections apply left to
     // right) and silently ate the holder details the first time round.
@@ -279,15 +297,15 @@ describe('run script', () => {
   });
 
   it('fails fast by default and queues only when asked', () => {
-    expect(runScript()).toContain('WAIT_SECS=0');
-    expect(runScript({ waitSeconds: 600 })).toContain('WAIT_SECS=600');
+    expect(lockScript()).toContain('WAIT_SECS=0');
+    expect(lockScript({ waitSeconds: 600 })).toContain('WAIT_SECS=600');
     // The wait is a bounded loop around the atomic mkdir, not a sleep-then-hope.
-    expect(runScript({ waitSeconds: 600 })).toContain('while ! mkdir "$LOCK_DIR"');
+    expect(lockScript({ waitSeconds: 600 })).toContain('while ! mkdir "$LOCK_DIR"');
   });
 
   it('only breaks the lock when explicitly asked', () => {
-    expect(runScript()).not.toContain('rm -rf "$LOCK_DIR"\nmkdir');
-    expect(runScript({ forceLock: true })).toContain('rm -rf "$LOCK_DIR"');
+    expect(lockScript()).not.toContain('rm -rf "$LOCK_DIR"\nmkdir');
+    expect(lockScript({ forceLock: true })).toContain('rm -rf "$LOCK_DIR"');
   });
 
   it('git mode fetches and detaches at the requested sha', () => {
@@ -407,5 +425,126 @@ describe('justfile wiring', () => {
     }
     // No remote recipe may ssh on its own.
     expect(justfile).not.toMatch(/^\s+ssh .*just /m);
+  });
+});
+
+// The rsync-mode corruption: rsync --delete used to push the working tree
+// BEFORE the run script took the lock, so a run queued behind --wait deleted and
+// rewrote the checkout the in-flight run was using. It cost two 300-doc runs,
+// which degraded into 100+ failures that all read as product bugs
+// (pc_7610adf57cbd, pc_48b854c9f90a, pc_ea83d57a69d5). The HEAD guard cannot
+// see it: rsync mode never moves HEAD.
+describe('two-phase lock (rsync cannot precede the lock)', () => {
+  it('acquires the lock in a script that does no transfer and runs no recipe', () => {
+    const script = lockScript();
+    expect(script).toContain('mkdir "$LOCK_DIR"');
+    expect(script).not.toContain('rsync');
+    expect(script).not.toContain('just ');
+  });
+
+  it('records a nonce so a later phase can prove the lock is still ours', () => {
+    expect(lockScript()).toContain('"$LOCK_DIR/nonce"');
+    expect(lockScript({ nonce: 'abc-123' })).toContain('abc-123');
+  });
+
+  it('makes the run script ADOPT the lock — it can never acquire one itself', () => {
+    const script = runScript();
+    // No acquisition primitives left in the run script at all.
+    expect(script).not.toContain('while ! mkdir "$LOCK_DIR"');
+    expect(script).not.toContain('WAIT_SECS');
+    // It verifies the lock is still the one phase 1 took...
+    expect(script).toContain('LOCK_NONCE="test-nonce-0001"');
+    expect(script).toContain(`exit ${EXIT_LOCKED}`);
+    // ...and owns the release.
+    expect(script).toContain(`trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM HUP`);
+  });
+
+  it('releases the lock only when the nonce still matches', () => {
+    const script = buildUnlockScript({ remoteDir: '$HOME/ci/futo-main', nonce: 'abc-123' });
+    expect(script).toContain('abc-123');
+    expect(script).toContain('rm -rf "$LOCK_DIR"');
+  });
+
+  it('marks the holder as being in the transfer phase', () => {
+    // A lock stranded between phases is identifiable as stale rather than
+    // looking like a live run.
+    expect(lockScript({ holder: 'who=justin@mac\nphase=transfer' })).toContain('phase=transfer');
+  });
+});
+
+// --doctor used to report 'playwright browsers' [ok] by listing whatever
+// chromium builds existed on the remote, without comparing against the revision
+// this repo pins. A green doctor then promised a playwright run that failed
+// asking for `playwright install chromium` (pc_cb1c3886bd09).
+describe('doctor: playwright browsers are checked against the pinned revisions', () => {
+  it('reads the pinned set from playwright-core browsers.json', () => {
+    const pinned = pinnedPlaywrightBrowsers();
+    expect(pinned.length).toBeGreaterThan(0);
+    // Shaped like the ~/.cache/ms-playwright directory names it is compared to.
+    for (const entry of pinned) expect(entry).toMatch(/^(chromium|webkit|firefox)-\d+$/);
+  });
+
+  it('injects the pinned set into the remote script so it can compare', () => {
+    const script = buildDoctorScript({
+      remoteDir: '/x',
+      sourceRepo: '/y',
+      ndkVersion: '1',
+      pinnedBrowsers: ['chromium-1208', 'webkit-2248'],
+    });
+    expect(script).toContain('PINNED="chromium-1208 webkit-2248"');
+    expect(script).toContain('this repo pins');
+  });
+
+  it('degrades honestly when the pinned set cannot be read', () => {
+    // Reporting presence-only is fine; implying the versions were checked is not.
+    const script = buildDoctorScript({
+      remoteDir: '/x',
+      sourceRepo: '/y',
+      ndkVersion: '1',
+      pinnedBrowsers: [],
+    });
+    expect(script).toContain('pinned set unknown');
+  });
+
+  it('returns an empty set rather than throwing when node_modules is absent', () => {
+    expect(pinnedPlaywrightBrowsers('/definitely/not/a/repo')).toEqual([]);
+  });
+});
+
+// Cleaning up a hung remote run used to mean a broad pattern kill, which on a
+// box several agents share would also kill a sibling's browsers: the worktree
+// lock stops two runs colliding but gave no way to reap just THIS run's
+// processes (pc_6b79075ff9ba).
+describe('--kill reaps only this run', () => {
+  it('runs the recipe in its own process group and records the pgid', () => {
+    const script = runScript();
+    // Job control, not setsid: setsid is absent on macOS and a missing binary
+    // here would break every remote run, not just cleanup.
+    expect(script).toContain('set -m');
+    // Not merely absent as a word — the comment explains why it is avoided.
+    // Assert it is never INVOKED as a command.
+    expect(script).not.toMatch(/^\s*setsid\b/m);
+    expect(script).toContain('"$LOCK_DIR/pgid"');
+  });
+
+  it('signals a process group, never a pattern', () => {
+    const script = buildKillScript({ remoteDir: '$HOME/ci/futo-main' });
+    expect(script).toContain('kill -TERM "-$PGID"');
+    expect(script).toContain('kill -KILL "-$PGID"');
+    expect(script).not.toContain('pkill');
+    expect(script).not.toContain('killall');
+  });
+
+  it('escalates TERM to KILL rather than hanging on it', () => {
+    const script = buildKillScript({ remoteDir: '/x' });
+    expect(script).toContain('still alive after 10s');
+  });
+
+  it('leaves the lock alone when there is nothing of ours to kill', () => {
+    // A lock with no pgid is mid-transfer; blowing it away would strand the
+    // run that owns it.
+    const script = buildKillScript({ remoteDir: '/x' });
+    expect(script).toContain('recorded no process group');
+    expect(script).toContain('already gone; leaving the lock alone');
   });
 });

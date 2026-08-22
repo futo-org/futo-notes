@@ -41,10 +41,22 @@ const SKIP_DIRS = new Set([
   'Pods',
 ]);
 
+export function shouldSkipDriftDirectory(name, fullPath, pathExists = fs.existsSync) {
+  return (
+    SKIP_DIRS.has(name) ||
+    name.startsWith('.') ||
+    // A nested checkout may use either a .git directory or the .git pointer
+    // file created by `git worktree add`. Its copies belong to that checkout,
+    // not to this worktree's deny-by-default registry scan.
+    pathExists(path.join(fullPath, '.git'))
+  );
+}
+
 function walk(dir, exts, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
     const full = path.join(dir, entry.name);
+    if (!entry.isDirectory() && entry.name.startsWith('.')) continue;
+    if (entry.isDirectory() && shouldSkipDriftDirectory(entry.name, full)) continue;
     if (entry.isDirectory()) walk(full, exts, out);
     else if (exts.some((ext) => entry.name.endsWith(ext))) out.push(full);
   }
@@ -192,4 +204,4 @@ function main() {
   );
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
