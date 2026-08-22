@@ -33,7 +33,7 @@ flag gaps the codebase suggests have been implemented.
 
 ## nav.md
 
-- [nav.md:67](nav.md#L67) — Android on-device autofocus QA (existing note keyboard-less + native-title autofocus) is still pending. *(Android)*
+- [nav.md:81](nav.md#L81) — Android on-device autofocus QA (existing note keyboard-less + native-title autofocus) is still pending. *(Android)*
 
 ## search.md
 

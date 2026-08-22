@@ -30,7 +30,9 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   theme follows; persisted in UserDefaults `futo.themeMode` / Android
   SharedPreferences `theme_mode`; survives relaunch — verified via the
   crash-test relaunch).
-- **Storage**: a notes-directory path readout. On Android, changing Device/App
+- **Storage**: a notes-directory path readout. On Android, **Storage location**
+  opens the picker as a Settings sub-screen — Back or its **Cancel** button
+  returns to Settings and changes nothing (see nav.md). Changing Device/App
   storage shows a blocking migration state and relaunches only after the whole
   vault is verified and an app-private migration journal is durably activated.
   The journal is the authority across preference-commit ambiguity and process
