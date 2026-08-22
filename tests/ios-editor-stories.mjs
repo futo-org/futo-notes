@@ -41,7 +41,9 @@ async function check(name, fn) {
     let screenshot = null;
     try {
       screenshot = device.screenshot(join('test-screenshots', 'ios-editor-story-failure.png'));
-    } catch {}
+    } catch {
+      // A failed screenshot must not mask the original story failure.
+    }
     const detail = screenshot ? `${error.message} (screenshot: ${screenshot})` : error.message;
     results.push({ name, pass: false, error: detail });
     console.log(`  ✗ ${name} (${Date.now() - start}ms) — ${detail}`);

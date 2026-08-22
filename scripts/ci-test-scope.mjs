@@ -30,7 +30,7 @@ function changedFilesFromMergeRequest() {
     .filter(Boolean);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const explicitFiles = process.argv.slice(2);
   const files = explicitFiles.length > 0 ? explicitFiles : changedFilesFromMergeRequest();
   process.stdout.write(`${classifyChangedFiles(files)}\n`);

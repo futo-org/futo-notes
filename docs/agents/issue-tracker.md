@@ -16,6 +16,40 @@ This file is also the repo-side adapter for the third-party skills that talk abo
 
 Infer the repo from `git remote -v` — `glab` does this automatically when run inside a clone.
 
+## `glab` gotchas that cost real time
+
+Each of these produced an error message that named nothing useful, and each was
+reported more than once.
+
+- **Run it from inside the checkout, or set the host.** `glab api` fills the
+  endpoint's repo placeholders from *the repository of the current directory*, so
+  run outside one it silently targets `gitlab.com` and returns `401`. That reads
+  as "my token is broken" when the real problem is the host. Fix by running from
+  the worktree, or being explicit:
+
+  ```bash
+  GITLAB_HOST=gitlab.futo.org glab api "projects/futo-notes%2Ffuto-notes"
+  ```
+
+  `--hostname gitlab.futo.org` does the same per-invocation. A bare `glab mr view`
+  that "cannot recognize the repository" is the same root cause.
+
+- **File uploads need `--form`, not `-F`.** `-F`/`--field` sends JSON, so
+  `-F file=@path` uploads the literal *string* `"@path"` and the API answers
+  `400 {"error":"file is invalid"}` — never mentioning the flag. `--form` sends
+  `multipart/form-data`, which is what an upload endpoint requires:
+
+  ```bash
+  glab api --form file=@screenshot.png "projects/488/uploads"
+  ```
+
+  Do not mix `--form` with `--field`, `--raw-field`, or `--input`.
+
+- **Output format is `-F json`, not `--json`.** `glab mr view --json iid,title`
+  is rejected by the installed CLI. Use `glab mr view <n> -F json` (and
+  `glab issue list -F json`). Note the overload: on `glab api`, `-F` means
+  *field*; on `issue`/`mr` subcommands it means *output format*.
+
 ## Merge requests as a triage surface
 
 **MRs as a request surface: no.** _(Set to `yes` if this repo treats external merge requests as feature requests; `/triage` reads this flag.)_

@@ -2,6 +2,38 @@
 
 use crate::application_state::AppState;
 
+/// The debug-only QA bridge, bound to loopback on a per-worktree base port.
+///
+/// Two deliberate departures from the plugin's defaults, each a fix for
+/// repeatedly reported friction:
+///
+/// * **`127.0.0.1`, not `0.0.0.0`.** The plugin picks a port by trying to BIND
+///   it. Binding `0.0.0.0:9223` succeeds even while another process holds
+///   `127.0.0.1:9223` (a browser's remote-debugging socket does exactly this),
+///   so the plugin logged 9223 as its own while every client — all of which dial
+///   `127.0.0.1` — reached the OTHER process. That surfaced as
+///   `Could not connect to ws://127.0.0.1:9223` from a perfectly healthy app,
+///   and worse, as a harness driving a foreign process. Binding the address
+///   clients actually dial makes the scan see what they see, so a squatter
+///   pushes the bridge to the next free port instead of aliasing it.
+///
+/// * **Per-worktree base port.** `FUTO_MCP_BASE_PORT` is set by
+///   `scripts/tauri-dev.mjs` from the worktree slot (`scripts/lib/slot.mjs`,
+///   the single owner of slot derivation — do not re-derive it here). Parallel
+///   worktrees then never contend for one 9223 like they used to.
+#[cfg(debug_assertions)]
+fn mcp_bridge_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    let mut builder = tauri_plugin_mcp_bridge::Builder::new().bind_address("127.0.0.1");
+    if let Some(port) = std::env::var("FUTO_MCP_BASE_PORT")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u16>().ok())
+        .filter(|port| *port > 0)
+    {
+        builder = builder.base_port(port);
+    }
+    builder.build()
+}
+
 pub(crate) fn run() {
     crate::platform_integration::prepare_process();
 
@@ -14,7 +46,7 @@ pub(crate) fn run() {
         .manage(AppState::default());
 
     #[cfg(debug_assertions)]
-    let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+    let builder = builder.plugin(mcp_bridge_plugin());
 
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());

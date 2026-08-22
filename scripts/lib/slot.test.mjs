@@ -59,12 +59,13 @@ describe('portsFor', () => {
       web: PORT_BASES.web + slot,
       sync: PORT_BASES.sync + slot,
       cdp: PORT_BASES.cdp + slot,
+      mcp: PORT_BASES.mcp + slot,
     });
   });
 
   // /verify's SKILL.md publishes these ranges, so the literals are the contract.
   it('pins the published port bases', () => {
-    expect(PORT_BASES).toEqual({ tauriVite: 5200, web: 5250, sync: 3100, cdp: 9330 });
+    expect(PORT_BASES).toEqual({ tauriVite: 5200, web: 5250, sync: 3100, cdp: 9330, mcp: 9223 });
   });
 
   it('keeps the tauri-dev and web ranges disjoint so both can run at once', () => {
@@ -166,6 +167,7 @@ describe('CLI selectors', () => {
       web: 'WEB_VITE_PORT',
       sync: 'SYNC_PORT',
       cdp: 'CDP_PORT',
+      mcp: 'FUTO_MCP_BASE_PORT',
     });
   });
 
@@ -211,5 +213,32 @@ describe('webPort', () => {
     } finally {
       delete process.env.FUTO_DEV_PORT;
     }
+  });
+});
+
+// The MCP/QA bridge base used to be a fixed 9223 for every checkout, so two
+// worktrees fought over one port and an unrelated loopback listener could alias
+// it (pc_50660eca8873, pc_4742535db909, pc_7fac6f19cc66, pc_c63c48f0128c,
+// pc_8928c073b738). It is slot-derived now; the plugin scans 100 ports up from
+// the base, so the whole span must stay clear of the next service's range.
+describe('mcp bridge base port', () => {
+  it('gives every slot a base disjoint from every other service base', () => {
+    const slots = Array.from({ length: 50 }, (_, i) => i);
+    const mcp = slots.map((s) => PORT_BASES.mcp + s);
+    expect(Math.min(...mcp)).toBe(9223);
+    expect(Math.max(...mcp)).toBe(9272);
+    for (const other of ['tauriVite', 'web', 'sync', 'cdp']) {
+      const theirs = slots.map((s) => PORT_BASES[other] + s);
+      expect(mcp.filter((p) => theirs.includes(p))).toEqual([]);
+    }
+    // NOTE the honest limit: the plugin scans 100 ports UP from its base, so a
+    // heavily contended high slot could in principle walk into the cdp range
+    // (9330+). Only the BASES are guaranteed disjoint — that is what keeps two
+    // idle worktrees off each other. Reaching cdp would take ~107 consecutive
+    // occupied ports, and the bridge logs the port it settled on.
+  });
+
+  it('gives two different worktrees different bases', () => {
+    expect(portsFor(ROOTS[0]).mcp).not.toBe(portsFor(ROOTS[1]).mcp);
   });
 });

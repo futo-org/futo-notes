@@ -27,6 +27,7 @@
  * M22 (Playwright cannot prove WebView2). See docs/remote-testing.md.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
 import path from 'node:path';
@@ -277,33 +278,34 @@ export function shQuote(value) {
 // Remote scripts
 // ---------------------------------------------------------------------------
 
-export function buildRunScript({
-  remoteDir,
-  sourceRepo,
-  mode,
-  sha,
-  recipe,
-  recipeArgs = [],
-  holder,
-  forceLock,
-  waitSeconds = 0,
-  ndkVersion,
-}) {
+// Phase 1 of the two-phase remote protocol: take the worktree lock in its OWN
+// ssh session, BEFORE any transfer.
+//
+// rsync mode used to push the working tree (with --delete) before the run
+// script ran, and the run script was what took the lock. So a run queued behind
+// `--wait` deleted and rewrote the checkout that the run in flight was actively
+// using. That is not a lost start-up race — it CORRUPTS the running job: a
+// sibling agent's transfer removed a file an in-flight 300-doc run depended on,
+// vite reported "Failed to resolve import ... Does the file exist?", and the run
+// degraded into 100+ failures that all looked like product bugs. Two separate
+// runs died that way. The HEAD_BEFORE/HEAD_AFTER guard cannot catch it either,
+// because rsync mode never moves HEAD.
+//
+// The lock is a mkdir lockdir (atomic, no flock needed), so it survives between
+// ssh sessions. `nonce` ties it to this run: phase 2 rsyncs, then phase 3 adopts
+// the lock only if the nonce still matches, and owns its release. If we die
+// between phases the lock leaks — bounded by the holder file, which records
+// phase=transfer and a timestamp so the next user can see it is stale and clear
+// it with --force-lock.
+export function buildLockScript({ remoteDir, holder, forceLock, waitSeconds = 0, nonce }) {
   const lockDir = `${remoteDir}.lock`;
-  const justArgs = [recipe, ...recipeArgs].map(shQuote).join(' ');
   return `
 set -uo pipefail
-${remoteEnvPreamble({ ndkVersion })}
 
-REMOTE_DIR="${remoteDir}"
-SOURCE_REPO="${sourceRepo}"
 LOCK_DIR="${lockDir}"
 WAIT_SECS=${waitSeconds}
 
 show_holder() {
-  # Redirections apply left to right, so silencing stderr BEFORE aiming stdout
-  # at it points fd1 into the void and swallows the holder — the one thing a
-  # blocked user needs. Test it, don't remember it.
   if [ -f "$LOCK_DIR/holder" ]; then
     sed 's/^/    /' "$LOCK_DIR/holder" >&2
   else
@@ -334,6 +336,103 @@ while ! mkdir "$LOCK_DIR" 2>/dev/null; do
   sleep 10
 done
 printf '%s\\n' ${shQuote(holder)} > "$LOCK_DIR/holder"
+printf '%s\\n' ${shQuote(nonce)} > "$LOCK_DIR/nonce"
+`;
+}
+
+// Reap ONLY the run recorded in this worktree's lock: signal its process group,
+// never a pattern match. `--kill` is for a run that is genuinely wedged; it
+// leaves the lock in place if the group is already gone so a normal exit can
+// still clean up after itself.
+export function buildKillScript({ remoteDir }) {
+  const lockDir = `${remoteDir}.lock`;
+  return `
+set -u
+LOCK_DIR="${lockDir}"
+if [ ! -d "$LOCK_DIR" ]; then
+  echo "remote-test: no run is holding the lock — nothing to kill." >&2
+  exit 0
+fi
+echo "remote-test: lock holder:" >&2
+sed 's/^/    /' "$LOCK_DIR/holder" 2>/dev/null || echo "    (no holder file)" >&2
+PGID="$(cat "$LOCK_DIR/pgid" 2>/dev/null || true)"
+if [ -z "$PGID" ]; then
+  echo "remote-test: the holder recorded no process group (it may still be transferring)." >&2
+  echo "  Nothing was signalled. Use --force-lock if you are certain it is stale." >&2
+  exit 0
+fi
+if ! kill -0 "-$PGID" 2>/dev/null; then
+  echo "remote-test: process group $PGID is already gone; leaving the lock alone." >&2
+  exit 0
+fi
+echo "remote-test: sending TERM to process group $PGID" >&2
+kill -TERM "-$PGID" 2>/dev/null || true
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  kill -0 "-$PGID" 2>/dev/null || break
+  sleep 1
+done
+if kill -0 "-$PGID" 2>/dev/null; then
+  echo "remote-test: still alive after 10s — sending KILL" >&2
+  kill -KILL "-$PGID" 2>/dev/null || true
+fi
+rm -rf "$LOCK_DIR"
+echo "remote-test: killed process group $PGID and released the lock." >&2
+`;
+}
+
+// Release a lock we still own (nonce match). Used when we fail between phases,
+// so a transfer error does not strand the worktree locked.
+export function buildUnlockScript({ remoteDir, nonce }) {
+  const lockDir = `${remoteDir}.lock`;
+  return `
+set -u
+LOCK_DIR="${lockDir}"
+if [ "$(cat "$LOCK_DIR/nonce" 2>/dev/null)" = ${shQuote(nonce)} ]; then
+  rm -rf "$LOCK_DIR"
+fi
+`;
+}
+
+export function buildRunScript({
+  remoteDir,
+  sourceRepo,
+  mode,
+  sha,
+  recipe,
+  recipeArgs = [],
+  nonce,
+  ndkVersion,
+}) {
+  const lockDir = `${remoteDir}.lock`;
+  const justArgs = [recipe, ...recipeArgs].map(shQuote).join(' ');
+  return `
+set -uo pipefail
+${remoteEnvPreamble({ ndkVersion })}
+
+REMOTE_DIR="${remoteDir}"
+SOURCE_REPO="${sourceRepo}"
+LOCK_DIR="${lockDir}"
+LOCK_NONCE="${nonce}"
+
+show_holder() {
+  # Redirections apply left to right, so silencing stderr BEFORE aiming stdout
+  # at it points fd1 into the void and swallows the holder — the one thing a
+  # blocked user needs. Test it, don't remember it.
+  if [ -f "$LOCK_DIR/holder" ]; then
+    sed 's/^/    /' "$LOCK_DIR/holder" >&2
+  else
+    echo "    (lock dir exists but has no holder file — probably stale)" >&2
+  fi
+}
+
+# The lock is acquired by buildLockScript() in a SEPARATE ssh session before
+# this one, so that an rsync-mode transfer happens UNDER the lock. Adopt it
+# here (verifying it is still ours via the nonce) and own its release.
+if [ ! -d "$LOCK_DIR" ] || [ "$(cat "$LOCK_DIR/nonce" 2>/dev/null)" != "$LOCK_NONCE" ]; then
+  echo "remote-test: lost the worktree lock before the run started." >&2
+  show_holder
+  exit ${EXIT_LOCKED}
+fi
 trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM HUP
 
 set -e
@@ -393,8 +492,27 @@ echo "==> cargo target: $REMOTE_DIR/target (repo-local, warm across runs)"
 echo
 echo "───────────────────── just ${recipe} ─────────────────────"
 set +e
-just ${justArgs}
+# Own process group, with its pgid recorded next to the lock.
+#
+# Cleaning up a hung remote run used to mean a broad pattern kill
+# (pkill -f chrome-headless-shell), which on a box several agents share would
+# also kill a SIBLING's browsers -- the lock stops two runs colliding but gave
+# no way to reap just this run's processes (pc_6b79075ff9ba). setsid puts the
+# whole recipe in one group, so 'just remote --kill' signals exactly this run.
+#
+# 'set -m' (job control), NOT setsid: setsid is not installed everywhere --
+# macOS has no such binary -- and a missing one here would break EVERY remote
+# run, not just cleanup. With job control on, bash puts a background job in its
+# own process group whose pgid equals the job leader's pid, using nothing
+# external.
+set -m
+just ${justArgs} &
+RECIPE_PID=$!
+set +m
+echo "$RECIPE_PID" > "$LOCK_DIR/pgid" 2>/dev/null || true
+wait "$RECIPE_PID"
 STATUS=$?
+rm -f "$LOCK_DIR/pgid" 2>/dev/null || true
 set -e
 echo "───────────────────── just ${recipe} exited $STATUS ─────────────────────"
 
@@ -410,7 +528,32 @@ exit $STATUS
 `;
 }
 
-export function buildDoctorScript({ remoteDir, sourceRepo, ndkVersion }) {
+// The browser builds THIS repo pins, as directory names under
+// ~/.cache/ms-playwright ("chromium-1208", "webkit-2248").
+//
+// The doctor used to list whatever browsers existed on the remote and call that
+// [ok]. A green doctor therefore promised a playwright run that then failed
+// asking for `playwright install chromium`, because the installed build was not
+// the pinned one (pc_cb1c3886bd09). playwright-core ships the revisions it wants
+// in browsers.json, so compare against that instead of merely counting
+// directories. Returns [] when node_modules is absent, in which case the check
+// degrades to the old presence-only report rather than lying in the other
+// direction.
+export function pinnedPlaywrightBrowsers(root = ROOT) {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(path.join(root, 'node_modules/playwright-core/browsers.json'), 'utf8'),
+    );
+    return manifest.browsers
+      .filter((b) => ['chromium', 'webkit', 'firefox'].includes(b.name))
+      .map((b) => `${b.name}-${b.revision}`)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+export function buildDoctorScript({ remoteDir, sourceRepo, ndkVersion, pinnedBrowsers = [] }) {
   return `
 set -uo pipefail
 ${remoteEnvPreamble({ ndkVersion })}
@@ -494,10 +637,26 @@ else
 fi
 
 BROWSERS="$(ls -1 "$HOME/.cache/ms-playwright" 2>/dev/null | grep -E '^(chromium|webkit|firefox)-' | tr '\\n' ' ')"
-if [ -n "$BROWSERS" ]; then
-  emit 'playwright browsers' ok "$BROWSERS"
-else
+PINNED="${pinnedBrowsers.join(' ')}"
+if [ -z "$BROWSERS" ]; then
   emit 'playwright browsers' missing 'no browsers under ~/.cache/ms-playwright'
+elif [ -z "$PINNED" ]; then
+  # No local node_modules to read browsers.json from: report presence only, and
+  # say so rather than implying the versions were checked.
+  emit 'playwright browsers' ok "$BROWSERS (pinned set unknown — no local node_modules)"
+else
+  MISSING=""
+  for want in $PINNED; do
+    case " $BROWSERS " in
+      *" $want "*) ;;
+      *) MISSING="$MISSING $want" ;;
+    esac
+  done
+  if [ -n "$MISSING" ]; then
+    emit 'playwright browsers' warn "installed:$([ -n "$BROWSERS" ] && echo " $BROWSERS") — but this repo pins$MISSING, so a playwright run will ask to install it"
+  else
+    emit 'playwright browsers' ok "$BROWSERS (matches pinned:$(printf ' %s' $PINNED))"
+  fi
 fi
 
 for d in "${sourceRepo}" "$HOME/Developer/futo-notes-server"; do
@@ -623,9 +782,25 @@ export function parseCliArgs(argv) {
       case '--force-lock':
         opts.forceLock = true;
         break;
-      case '--wait':
-        opts.waitSeconds = 1800;
+      case '--kill':
+        opts.kill = true;
         break;
+      case '--wait': {
+        // Accept `--wait 600` as well as `--wait=600`. Only consume the next
+        // argument when it actually looks like a duration: bare `--wait` is
+        // valid and is normally followed by the recipe name, which must not be
+        // swallowed. Before this, `--wait 600 <recipe>` ate the recipe slot with
+        // "600" and died with an unhelpful is-not-a-recipe error
+        // (pc_8082388d5c53).
+        const next = argv[i + 1];
+        if (next !== undefined && /^\d+$/.test(next)) {
+          opts.waitSeconds = Number(next);
+          i += 1;
+        } else {
+          opts.waitSeconds = 1800;
+        }
+        break;
+      }
       case '--host':
         opts.host = argv[++i];
         break;
@@ -686,6 +861,9 @@ const HELP = `remote-test — run this repo's non-macOS suites on a Linux box ov
 
 Options (must precede the recipe name):
   --rsync            push the working tree as-is instead of checking out a pushed sha
+  --kill             reap THIS worktree's remote run (its process group only) and
+                     release the lock — never a pattern kill, so a sibling agent's
+                     processes on the shared box are untouched
   --doctor, --setup  report what is present/missing on the remote and exit
   --host H           default $FUTO_REMOTE_HOST or '${DEFAULT_HOST}' (falls back to ${FALLBACK_HOSTS[0]})
   --user U           default $FUTO_REMOTE_USER or '${DEFAULT_USER}'
@@ -710,6 +888,7 @@ function runDoctor(target, opts, ndkVersion) {
     remoteDir: opts.remoteDir,
     sourceRepo: opts.sourceRepo,
     ndkVersion,
+    pinnedBrowsers: pinnedPlaywrightBrowsers(),
   });
   const res = spawnSync('ssh', ['-T', target, 'bash -s'], {
     input: script,
@@ -762,7 +941,7 @@ function main() {
     return EXIT_REFUSED;
   }
 
-  if (opts.help || (!opts.doctor && !opts.recipe)) {
+  if (opts.help || (!opts.doctor && !opts.kill && !opts.recipe)) {
     console.log(HELP);
     return opts.help ? 0 : EXIT_REFUSED;
   }
@@ -773,7 +952,7 @@ function main() {
 
   // Refuse BEFORE touching the network: a refusal should be instant and offline.
   let verdict = null;
-  if (!opts.doctor) {
+  if (!opts.doctor && !opts.kill) {
     const justfile = readFileSync(path.join(ROOT, 'justfile'), 'utf8');
     verdict = classifyRecipe(opts.recipe, {
       aliases: parseJustAliases(justfile),
@@ -810,6 +989,14 @@ function main() {
 
   if (opts.doctor) return runDoctor(target, opts, ndkVersion);
 
+  if (opts.kill) {
+    const res = spawnSync('ssh', ['-T', target, 'bash -s'], {
+      input: buildKillScript({ remoteDir: opts.remoteDir }),
+      stdio: ['pipe', 'inherit', 'inherit'],
+    });
+    return res.status ?? 1;
+  }
+
   const sha = git(['rev-parse', 'HEAD']);
   const dirty = git(['status', '--porcelain']).split('\n').filter(Boolean);
 
@@ -839,7 +1026,46 @@ function main() {
   for (const caveat of verdict.caveats) console.log(`[remote-test] CAVEAT: ${caveat}`);
   console.log('');
 
+  const holder = [
+    `who=${userInfo().username}@${hostname()}`,
+    `worktree=${ROOT}`,
+    `recipe=just ${[verdict.recipe, ...opts.recipeArgs].join(' ')}`,
+    `mode=${opts.mode}`,
+    `sha=${label}`,
+    `started=${new Date().toISOString()}`,
+    'phase=transfer',
+  ].join('\n');
+
+  // PHASE 1 — take the lock before anything touches the remote checkout.
+  const nonce = randomUUID();
+  const lock = spawnSync('ssh', ['-T', target, 'bash -s'], {
+    input: buildLockScript({
+      remoteDir: opts.remoteDir,
+      holder,
+      forceLock: opts.forceLock,
+      waitSeconds: opts.waitSeconds,
+      nonce,
+    }),
+    stdio: ['pipe', 'inherit', 'inherit'],
+  });
+  if (lock.status !== 0) {
+    const lockStatus = lock.status ?? 1;
+    console.log(
+      `\n[remote-test] ${lockStatus === EXIT_LOCKED ? 'BLOCKED' : 'FAIL'} — could not take the remote worktree lock, exit ${lockStatus}`,
+    );
+    return lockStatus;
+  }
+
+  // Any failure from here to the run must release the lock we just took.
+  const releaseLock = () => {
+    spawnSync('ssh', ['-T', target, 'bash -s'], {
+      input: buildUnlockScript({ remoteDir: opts.remoteDir, nonce }),
+      stdio: ['pipe', 'ignore', 'ignore'],
+    });
+  };
+
   if (opts.mode === 'rsync') {
+    // PHASE 2 — transfer, now safely under the lock.
     // The remote dir has to exist before rsync can fill it; the run script
     // creates the worktree, so seed it with a git-mode-shaped bootstrap first.
     const bootstrap = spawnSync('ssh', ['-T', target, 'bash -s'], {
@@ -855,6 +1081,7 @@ function main() {
     });
     if (bootstrap.status !== 0) {
       console.error('remote-test: could not create the remote worktree.');
+      releaseLock();
       return bootstrap.status ?? 1;
     }
 
@@ -870,19 +1097,12 @@ function main() {
     const rsync = spawnSync('rsync', rsyncArgs, { stdio: ['ignore', 'inherit', 'inherit'] });
     if (rsync.status !== 0) {
       console.error('remote-test: rsync failed.');
+      releaseLock();
       return rsync.status ?? 1;
     }
   }
 
-  const holder = [
-    `who=${userInfo().username}@${hostname()}`,
-    `worktree=${ROOT}`,
-    `recipe=just ${[verdict.recipe, ...opts.recipeArgs].join(' ')}`,
-    `mode=${opts.mode}`,
-    `sha=${label}`,
-    `started=${new Date().toISOString()}`,
-  ].join('\n');
-
+  // PHASE 3 — run, adopting the lock taken in phase 1.
   const script = buildRunScript({
     remoteDir: opts.remoteDir,
     sourceRepo: opts.sourceRepo,
@@ -890,9 +1110,7 @@ function main() {
     sha,
     recipe: verdict.recipe,
     recipeArgs: opts.recipeArgs,
-    holder,
-    forceLock: opts.forceLock,
-    waitSeconds: opts.waitSeconds,
+    nonce,
     ndkVersion,
   });
 

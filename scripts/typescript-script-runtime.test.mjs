@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, extname, join, normalize } from 'node:path';
 
@@ -69,5 +69,45 @@ describe('TypeScript script runtimes', () => {
     });
 
     expect(invalidImportChains).toEqual([]);
+  });
+});
+
+// The house main-guard, `import.meta.url === pathToFileURL(process.argv[1]).href`,
+// throws ERR_INVALID_ARG_TYPE ("The 'path' argument must be of type string.
+// Received undefined") when the module is IMPORTED from a context with no
+// script path — `node -e` / `node --input-type=module`. That is exactly how an
+// agent pokes at an exported helper for an ad-hoc check, so the module crashed
+// before running anything (pc_85196368c500, pc_b723be936925).
+//
+// scripts/lib/slot.mjs already guarded with `process.argv[1] &&`; nine other
+// scripts did not. This keeps every script on the guarded form (M17).
+describe('main-guard is safe to import from node -e', () => {
+  const GUARDED = 'process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href';
+  const UNGUARDED = 'import.meta.url === pathToFileURL(process.argv[1]).href';
+
+  function scriptFiles(dir) {
+    const out = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules') continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) out.push(...scriptFiles(full));
+      // Skip *.test.mjs: not entry points, and this file names both forms
+      // as string literals to test for them.
+      else if (entry.name.endsWith('.mjs') && !entry.name.endsWith('.test.mjs')) out.push(full);
+    }
+    return out;
+  }
+
+  it('never uses the unguarded form', () => {
+    const offenders = [];
+    for (const file of scriptFiles(join(ROOT, 'scripts'))) {
+      const text = readFileSync(file, 'utf8');
+      if (!text.includes(UNGUARDED)) continue;
+      // Strip the guarded occurrences; anything left is the bare form.
+      if (text.split(GUARDED).join('').includes(UNGUARDED)) {
+        offenders.push(file.slice(ROOT.length + 1));
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

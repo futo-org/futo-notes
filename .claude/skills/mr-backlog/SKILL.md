@@ -209,6 +209,31 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" --request PUT \
   "$API/merge_requests/<B>?target_branch=<A-branch>"
 ```
 
+### Before blaming a stacked MR's red pipeline, check its base is fresh
+
+A stacked MR's pipeline runs ITS OWN branch head, which can sit on a **stale
+parent**. !204/!205 were stacked on !203 from before !203's fix commit, so
+`test:e2e:rest` failed on them and the failure was attributed to !203 — whose own
+pipeline was green on that very test. Nothing in the MR view or the job log says
+"this pipeline does not contain the parent MR's current head", and it cost a
+multi-hour root-cause hunt.
+
+For a stacked MR (one whose `target_branch` is another open MR's `source_branch`),
+assert the parent's tip is actually in the child's history:
+
+```bash
+git fetch --quiet origin
+git merge-base --is-ancestor origin/<target_branch> origin/<source_branch> \
+  && echo "base fresh" || echo "STALE BASE — this pipeline predates its parent's head"
+```
+
+A `STALE BASE` means the run tested a base without the parent's current head, so
+**its failures are not attributable to its own diff** — rebase onto the parent and
+re-run before triaging anything.
+
+Scope this to stacked MRs only. Run against `main` it would fire for every MR
+that is merely behind main, which is normal, and the noise would bury the signal.
+
 Its diff stays readable while stacked. After A merges, retarget B to `main` — it
 should show **no conflicts**. Verify that rather than assuming (`grep` exits 1
 when it finds nothing, so give it an `|| echo clean`):

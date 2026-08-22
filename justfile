@@ -33,6 +33,18 @@ format:
 format-check:
   pnpm run format:check
 
+# The repo rule is that every command goes through `just`, but only the
+# TypeScript side had formatting recipes — so Rust changes had no sanctioned way
+# to be formatted or checked. rustfmt is pinned by rust-toolchain.toml (1.89.0),
+# so both are reproducible across machines and CI.
+# Format the Rust workspace.
+rust-format:
+  cargo fmt --all
+
+# Fail if any Rust file is unformatted.
+rust-format-check:
+  cargo fmt --all --check
+
 # Lint the hand-written Swift production and test sources (read-only) with swift-format, which
 # ships with Xcode 16+ (`xcrun swift-format`). The generated UniFFI bindings
 # (Sources/Generated) are excluded — they are not ours to style.
@@ -216,10 +228,14 @@ test-ios-stories:
 # simulators/AVDs are never touched. See scripts/qa.mjs and the /verify
 # skill's "Isolation model" section.
 
-# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
 # Prints `export SIM=…` / `export ANDROID_SERIAL=…` — eval or copy them.
-qa-claim target="all":
-  @node scripts/qa.mjs claim {{target}}
+# Pass `--reboot` when `axe`/`idb` report a 0x0 root for a booted simulator:
+# that means it has no Simulator.app window in this WindowServer session, and a
+# full shutdown/boot cycle is the only fix (simctl screenshot keeps working the
+# whole time, which is why it looks like an app bug).
+# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
+qa-claim target="all" *flags:
+  @node scripts/qa.mjs claim {{target}} {{flags}}
 
 # Show pool devices + per-slot sync servers, and which worktree owns each.
 qa-status:
@@ -386,6 +402,19 @@ test:
 
 test-full:
   pnpm run test:full
+
+# Run ONE test file (or a name pattern), installing deps first if this is a
+# fresh worktree. `pnpm exec vitest ...` from a worktree with no node_modules
+# fails with ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL / 'Command "vitest" not found',
+# which says nothing about the real cause (pc_cd6fa6e7aa76).
+#   just test-one src/features/notes/notes.test.ts
+#   just test-one -t 'renames a note'
+# Run ONE test file or -t pattern (installs deps if the worktree is fresh).
+test-one *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -d node_modules ] || { echo "==> node_modules missing — pnpm install"; pnpm install; }
+  node_modules/.bin/vitest run {{args}}
 
 test-unit:
   pnpm run test:unit
@@ -687,7 +716,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
+check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.
@@ -823,6 +852,37 @@ deploy-rpm:
     exit 1
   fi
   echo "Done. Installed FUTO Notes ${VERSION} (verified on disk)."
+
+# deploy-deb / deploy-rpm / deploy-ios all existed for prod installs while
+# Android only had `android-native` (debug, com.futo.notes.dev) — so a request to
+# install "the prod app" on all three platforms had to descope Android to a debug
+# build. Release signing needs apps/android/keystore.properties (gitignored);
+# without it Gradle produces an UNSIGNED release APK that cannot be installed, so
+# this refuses up front and says what is missing rather than failing at adb.
+# Honors $ANDROID_SERIAL.
+# Build a RELEASE-signed Android build and install it (com.futo.notes).
+deploy-android:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ ! -f apps/android/keystore.properties ]; then
+    echo "No apps/android/keystore.properties — release builds cannot be signed." >&2
+    echo "  A release APK without it is unsigned and will not install." >&2
+    echo "  For a debug install on com.futo.notes.dev use: just android-native" >&2
+    exit 1
+  fi
+  just build-rust-android
+  node_modules/.bin/vite build --config vite.editor.config.ts
+  cd apps/android && ./gradlew :app:assembleRelease
+  APK=$(ls -t app/build/outputs/apk/release/*.apk | head -1)
+  echo "Installing ${APK} (com.futo.notes)…"
+  adb install -r "$APK"
+  # Assert the PRODUCTION package is what landed — an unsigned or misconfigured
+  # build could otherwise leave the .dev package installed and look successful.
+  adb shell pm list packages | grep -qx 'package:com.futo.notes' || {
+    echo "com.futo.notes is not installed after adb install — nothing was deployed." >&2
+    exit 1
+  }
+  echo "Done. Installed release FUTO Notes (com.futo.notes)."
 
 # Build a RELEASE native iOS build and install it on a connected iPhone
 # (production bundle id com.futo.notes). DEBUG device installs go through

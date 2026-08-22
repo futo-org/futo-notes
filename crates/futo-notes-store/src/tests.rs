@@ -68,7 +68,10 @@ fn create_never_clobbers_a_concurrent_writer_at_the_chosen_id() {
     let mutation = store.create("", "Note", "my new note").unwrap();
     let final_id = mutation.final_id.clone().unwrap();
 
-    assert_ne!(final_id, "Note", "create must re-suffix away from the taken id");
+    assert_ne!(
+        final_id, "Note",
+        "create must re-suffix away from the taken id"
+    );
     assert_eq!(
         store.read("Note"),
         "peer wrote here",
@@ -118,15 +121,28 @@ fn a_divergent_backup_is_parked_visibly_and_never_resurrects_a_deleted_note() {
         .into_iter()
         .filter(|note| note.id.contains("recovered"))
         .collect();
-    assert_eq!(recovered.len(), 1, "the divergent backup surfaced as a visible note");
+    assert_eq!(
+        recovered.len(),
+        1,
+        "the divergent backup surfaced as a visible note"
+    );
     assert_eq!(store.read(&recovered[0].id), "old superseded");
-    assert!(!root.0.join(".sf-bak-1-1-1").exists(), "backup renamed into the recovered note");
-    assert!(!root.0.join(".sf-bak-1-1-1.path").exists(), "sidecar consumed");
+    assert!(
+        !root.0.join(".sf-bak-1-1-1").exists(),
+        "backup renamed into the recovered note"
+    );
+    assert!(
+        !root.0.join(".sf-bak-1-1-1.path").exists(),
+        "sidecar consumed"
+    );
 
     // The user deletes the live note; a later bootstrap must NOT resurrect it.
     store.delete("Welcome").unwrap();
     store.bootstrap().unwrap();
-    assert!(!store.exists("Welcome"), "a deleted note must not be resurrected");
+    assert!(
+        !store.exists("Welcome"),
+        "a deleted note must not be resurrected"
+    );
 }
 
 // Parking a recovered backup must NOT clobber a note an external writer created
@@ -176,10 +192,17 @@ fn re_parking_after_a_crash_does_not_duplicate_the_recovered_note() {
         .into_iter()
         .filter(|note| note.id.contains("recovered"))
         .collect();
-    assert_eq!(recovered.len(), 1, "re-sweep must not duplicate the recovered note");
+    assert_eq!(
+        recovered.len(),
+        1,
+        "re-sweep must not duplicate the recovered note"
+    );
     assert_eq!(store.read("Welcome (recovered)"), "old superseded");
     assert!(!root.0.join(".sf-bak-1-1-1").exists(), "backup cleaned up");
-    assert!(!root.0.join(".sf-bak-1-1-1.path").exists(), "sidecar cleaned up");
+    assert!(
+        !root.0.join(".sf-bak-1-1-1.path").exists(),
+        "sidecar cleaned up"
+    );
 }
 
 // The park idempotency guard must match only a note THIS park could have
@@ -268,7 +291,10 @@ fn a_recovered_note_keeps_its_subfolder() {
         .filter(|note| note.id.contains("recovered"))
         .collect();
     assert_eq!(recovered.len(), 1);
-    assert_eq!(recovered[0].folder, "Projects", "recovered note stays in its folder");
+    assert_eq!(
+        recovered[0].folder, "Projects",
+        "recovered note stays in its folder"
+    );
     assert!(recovered[0].id.starts_with("Projects/"));
     assert_eq!(store.read(&recovered[0].id), "stranded");
 }
@@ -476,7 +502,10 @@ fn reported_external_changes_issue_scoped_search_notifications() {
         if hits.iter().any(|hit| hit.note_id == "created") {
             break;
         }
-        assert!(Instant::now() < deadline, "external create never reached search");
+        assert!(
+            Instant::now() < deadline,
+            "external create never reached search"
+        );
         std::thread::sleep(Duration::from_millis(25));
     }
 
@@ -499,7 +528,10 @@ fn reported_external_changes_issue_scoped_search_notifications() {
         if has_new && !has_old {
             break;
         }
-        assert!(Instant::now() < deadline, "external rename left stale search rows");
+        assert!(
+            Instant::now() < deadline,
+            "external rename left stale search rows"
+        );
         std::thread::sleep(Duration::from_millis(25));
     }
 
@@ -512,7 +544,10 @@ fn reported_external_changes_issue_scoped_search_notifications() {
         if store.search("zzexternal", Some(10)).unwrap().is_empty() {
             break;
         }
-        assert!(Instant::now() < deadline, "external delete left a search row");
+        assert!(
+            Instant::now() < deadline,
+            "external delete left a search row"
+        );
         std::thread::sleep(Duration::from_millis(25));
     }
 }
@@ -685,7 +720,11 @@ fn bootstrap_succeeds_and_seeds_even_when_search_cannot_start() {
     let result = store.bootstrap_with_search(bad_index, observer).unwrap();
 
     assert_eq!(result.seeded, 1, "empty vault still seeds Welcome");
-    assert_eq!(result.snapshot.notes.len(), 1, "the note list still populates");
+    assert_eq!(
+        result.snapshot.notes.len(),
+        1,
+        "the note list still populates"
+    );
     assert!(
         result.warnings.iter().any(|w| w.contains("search startup")),
         "the search failure is surfaced as a warning"
@@ -721,9 +760,19 @@ fn a_failed_source_removal_during_rename_leaves_no_duplicate() {
     let result = store.rename("Src/note", "Dst/note");
     fs::set_permissions(&src_dir, original).unwrap();
 
-    assert!(result.is_err(), "rename must fail when the source can't be removed");
-    assert_eq!(store.read("Src/note"), "the content", "source note preserved");
-    assert!(!store.exists("Dst/note"), "no stranded duplicate at the destination");
+    assert!(
+        result.is_err(),
+        "rename must fail when the source can't be removed"
+    );
+    assert_eq!(
+        store.read("Src/note"),
+        "the content",
+        "source note preserved"
+    );
+    assert!(
+        !store.exists("Dst/note"),
+        "no stranded duplicate at the destination"
+    );
 }
 
 // ── search-engine start self-heal (F13 retry, PKT-10, now shared) ──
@@ -772,8 +821,14 @@ fn wait_until_search_ready_returns_false_once_the_budget_elapses() {
     let started = Instant::now();
     assert!(!store.wait_until_search_ready(80));
     let waited = started.elapsed();
-    assert!(waited >= Duration::from_millis(80), "returned before the budget: {waited:?}");
-    assert!(waited < Duration::from_secs(5), "wait unbounded: {waited:?}");
+    assert!(
+        waited >= Duration::from_millis(80),
+        "returned before the budget: {waited:?}"
+    );
+    assert!(
+        waited < Duration::from_secs(5),
+        "wait unbounded: {waited:?}"
+    );
 }
 
 #[test]
@@ -834,9 +889,7 @@ fn create_folder_and_move_note_commits_both_changes() {
     let store = store(&root);
     store.write("note", "body", None).unwrap();
 
-    let mutation = store
-        .move_note_to_new_folder("note", "Projects")
-        .unwrap();
+    let mutation = store.move_note_to_new_folder("note", "Projects").unwrap();
 
     assert_eq!(mutation.final_id.as_deref(), Some("Projects/note"));
     assert!(root.0.join("Projects").is_dir());
@@ -1008,16 +1061,23 @@ fn applying_removals_then_position_splices_reproduces_the_snapshot_order() {
     store
         .write("Lists/groceries", "self [[groceries]]", Some(1_000))
         .unwrap();
-    store.write("pointer", "see [[groceries]]", Some(2_000)).unwrap();
+    store
+        .write("pointer", "see [[groceries]]", Some(2_000))
+        .unwrap();
     store.write("third", "unrelated", Some(3_000)).unwrap();
 
     let before = ids_in_order(&store);
-    let renamed = store.rename("Lists/groceries", "Archive/groceries").unwrap();
+    let renamed = store
+        .rename("Lists/groceries", "Archive/groceries")
+        .unwrap();
     assert_eq!(apply_as_shell(&before, &renamed), ids_in_order(&store));
 
     let before = ids_in_order(&store);
     let folder_deleted = store.delete_folder("Archive").unwrap();
-    assert_eq!(apply_as_shell(&before, &folder_deleted), ids_in_order(&store));
+    assert_eq!(
+        apply_as_shell(&before, &folder_deleted),
+        ids_in_order(&store)
+    );
 
     let before = ids_in_order(&store);
     let deleted = store.delete("pointer").unwrap();
@@ -1058,7 +1118,9 @@ fn flush_draft_writes_when_the_note_still_holds_the_base() {
     let store = store(&root);
     store.write("note", "base text", None).unwrap();
 
-    let result = store.flush_draft("note", "base text", "draft text").unwrap();
+    let result = store
+        .flush_draft("note", "base text", "draft text")
+        .unwrap();
 
     assert_eq!(result.disposition, FlushDisposition::Wrote);
     let mutation = result.mutation.expect("a write projects a mutation");
@@ -1157,7 +1219,9 @@ fn flush_draft_reports_convergence_without_rewriting_identical_bytes() {
     let store = store(&root);
     store.write("note", "same text", Some(1_000)).unwrap();
 
-    let result = store.flush_draft("note", "stale base", "same text").unwrap();
+    let result = store
+        .flush_draft("note", "stale base", "same text")
+        .unwrap();
 
     assert_eq!(result.disposition, FlushDisposition::Converged);
     assert!(result.mutation.is_none());
@@ -1172,7 +1236,9 @@ fn flush_draft_parks_a_diverged_draft_as_a_dated_conflict_copy() {
     let store = store(&root);
     store.write("note", "peer version", None).unwrap();
 
-    let result = store.flush_draft("note", "original base", "my draft").unwrap();
+    let result = store
+        .flush_draft("note", "original base", "my draft")
+        .unwrap();
 
     let expected_copy = format!("note (conflict {})", current_conflict_date());
     assert_eq!(
@@ -1184,7 +1250,11 @@ fn flush_draft_parks_a_diverged_draft_as_a_dated_conflict_copy() {
     let mutation = result.mutation.expect("a fresh park projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some(expected_copy.as_str()));
     assert_eq!(mutation.upserted[0].note.id, expected_copy);
-    assert_eq!(store.read("note"), "peer version", "diverged note untouched");
+    assert_eq!(
+        store.read("note"),
+        "peer version",
+        "diverged note untouched"
+    );
     assert_eq!(store.read(&expected_copy), "my draft");
 }
 
@@ -1193,7 +1263,9 @@ fn flush_draft_recreates_a_peer_deleted_note_at_the_original_id() {
     let root = TestRoot::new();
     let store = store(&root);
 
-    let result = store.flush_draft("Gone", "old base", "surviving draft").unwrap();
+    let result = store
+        .flush_draft("Gone", "old base", "surviving draft")
+        .unwrap();
 
     assert_eq!(result.disposition, FlushDisposition::Recreated);
     assert_eq!(store.read("Gone"), "surviving draft");
@@ -1288,8 +1360,15 @@ fn parking_an_identical_draft_twice_mints_one_copy() {
             parked_id: expected_copy
         }
     );
-    assert!(second.mutation.is_none(), "the second park must mint nothing");
-    assert_eq!(store.snapshot().notes.len(), 2, "original + exactly one copy");
+    assert!(
+        second.mutation.is_none(),
+        "the second park must mint nothing"
+    );
+    assert_eq!(
+        store.snapshot().notes.len(),
+        2,
+        "original + exactly one copy"
+    );
 }
 
 // A genuinely different second draft is NOT the idempotent case — it gets its
@@ -1312,7 +1391,10 @@ fn each_distinct_diverged_draft_gets_its_own_counter_suffixed_copy() {
         }
     );
     assert_eq!(store.read(&format!("note (conflict {date})")), "draft one");
-    assert_eq!(store.read(&format!("note (conflict {date} 2)")), "draft two");
+    assert_eq!(
+        store.read(&format!("note (conflict {date} 2)")),
+        "draft two"
+    );
 }
 
 // The idempotency guard matches only names this park could have minted — a
@@ -1407,7 +1489,9 @@ fn flush_draft_park_skips_a_case_colliding_conflict_id() {
         .write(&format!("Note (conflict {date})"), "unrelated copy", None)
         .unwrap();
 
-    let result = store.flush_draft("note", "original base", "my draft").unwrap();
+    let result = store
+        .flush_draft("note", "original base", "my draft")
+        .unwrap();
 
     let parked_id = match result.disposition {
         FlushDisposition::ParkedConflict { parked_id } => parked_id,
@@ -1669,9 +1753,7 @@ fn vault_migration_retains_an_empty_shared_source() {
 
     assert_eq!(outcome.status, VaultMigrationStatus::EmptySource);
     assert_eq!(
-        store
-            .finalize_vault_migration(&destination, false)
-            .unwrap(),
+        store.finalize_vault_migration(&destination, false).unwrap(),
         VaultMigrationFinalization::SourceRetained
     );
     assert!(source.0.is_dir());
@@ -1688,9 +1770,7 @@ fn empty_vault_migration_does_not_require_a_destination_to_finalize() {
     assert_eq!(outcome.status, VaultMigrationStatus::EmptySource);
     assert!(!destination.exists());
     assert_eq!(
-        store
-            .finalize_vault_migration(&destination, true)
-            .unwrap(),
+        store.finalize_vault_migration(&destination, true).unwrap(),
         VaultMigrationFinalization::Finalized
     );
     assert!(!source.0.exists());

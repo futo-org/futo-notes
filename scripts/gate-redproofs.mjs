@@ -825,7 +825,8 @@ const REMEDIATION = {
   'green-spawn-failed':
     'the gate could not be launched in a fresh checkout. Run `pnpm install` (tsx gates need node_modules), then re-run.',
   'green-not-clean':
-    'the gate is ALREADY red on a pristine checkout, so its red-proof would prove nothing. Fix the violation the gate is reporting (above), or fix the gate.',
+    'the gate is ALREADY red on a pristine checkout, so its red-proof would prove nothing. Fix the violation the gate is reporting (above), or fix the gate. ' +
+    'If the gate names a path that DOES exist in your working tree, check the NOT PROVED line above: the proof worktree is built from tracked state, so a new file you have not `git add`ed is absent there and reads as a broken reference.',
   'inject-failed':
     'the seeded violation could not be applied — the file or literal this proof edits moved. Update the proof in scripts/gate-redproofs.mjs so it seeds the same violation against the current code.',
   'red-spawn-failed': 'the gate could not be launched. Run `pnpm install`, then re-run.',

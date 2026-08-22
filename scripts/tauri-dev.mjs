@@ -81,7 +81,15 @@ if (fakeUpdate)
 
     const child = spawn('cargo', ['tauri', 'dev', '--config', 'src-tauri/tauri.dev.conf.json'], {
       cwd: join(repoRoot, 'apps/tauri'),
-      env: { ...process.env, ...WAYLAND_ENV, ...FAKE_ENV, FUTO_NOTES_DATA_DIR: dataDir },
+      env: {
+        ...process.env,
+        ...WAYLAND_ENV,
+        ...FAKE_ENV,
+        FUTO_NOTES_DATA_DIR: dataDir,
+        // Per-checkout base port for the debug MCP/QA bridge, so parallel
+        // checkouts never contend for one 9223 (see application.rs).
+        FUTO_MCP_BASE_PORT: String(portsFor(repoRoot).mcp),
+      },
       stdio: 'inherit',
     });
     child.on('exit', (code) => process.exit(code ?? 0));
@@ -148,6 +156,7 @@ if (fakeUpdate)
           ...WAYLAND_ENV,
           ...FAKE_ENV,
           FUTO_NOTES_DATA_DIR: dataDir,
+          FUTO_MCP_BASE_PORT: String(portsFor(repoRoot).mcp),
         },
         stdio: 'inherit',
       },

@@ -23,6 +23,38 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': 'off',
     },
   },
+  // Test harnesses under tests/ are Node programs (Playwright specs and the
+  // .mjs-adjacent TS harnesses), not browser code. They were prettier-checked
+  // but never eslint-checked, because `pnpm run lint` only covered
+  // `src packages/editor/src` — so a whole harness directory had zero lint
+  // coverage while still gating format:check (pc_e27758f0134a).
+  {
+    files: ['tests/**/*.{ts,mjs,js}'],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly',
+        URL: 'readonly',
+        clearTimeout: 'readonly',
+        console: 'readonly',
+        fetch: 'readonly',
+        process: 'readonly',
+        setTimeout: 'readonly',
+      },
+    },
+    rules: {
+      // Harness files are long by nature (a spec is a list of scenarios) and
+      // an unused capture in a destructure is idiomatic there.
+      'max-lines': 'off',
+      'max-lines-per-function': 'off',
+      // `_`-prefixed names are deliberate discards here (destructuring a field
+      // off, an unused capture group), so ignore vars as well as args.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+    },
+  },
+
   // Type-checked promise-safety guard for the controller/orchestration layer
   // (`src/**` .ts + Svelte-runes `.svelte.ts`). Unhandled or misused promises —
   // a rejected async left un-awaited, or an async function handed to a

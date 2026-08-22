@@ -28,8 +28,8 @@ fn conformance_dir() -> PathBuf {
 
 fn load(name: &str) -> Value {
     let path = conformance_dir().join(format!("{name}.json"));
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     serde_json::from_str(&text).expect("fixture is valid JSON")
 }
 
@@ -37,9 +37,11 @@ fn load(name: &str) -> Value {
 /// u64, fixtures may carry plain numbers) so `endOffset: 6` matches `6`.
 fn json_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
-        (Value::Number(x), Value::Number(y)) => {
-            x.as_f64().zip(y.as_f64()).map(|(p, q)| p == q).unwrap_or(false)
-        }
+        (Value::Number(x), Value::Number(y)) => x
+            .as_f64()
+            .zip(y.as_f64())
+            .map(|(p, q)| p == q)
+            .unwrap_or(false),
         (Value::Array(x), Value::Array(y)) => {
             x.len() == y.len() && x.iter().zip(y).all(|(p, q)| json_eq(p, q))
         }
@@ -112,11 +114,11 @@ fn wikilinks_conformance() {
 #[test]
 fn constants_conformance() {
     let fixture = load("constants");
-    let expected_max_title_length = fixture["maxTitleLength"]
-        .as_u64()
-        .expect("maxTitleLength") as usize;
+    let expected_max_title_length =
+        fixture["maxTitleLength"].as_u64().expect("maxTitleLength") as usize;
     assert_eq!(
-        model::MAX_TITLE_LENGTH, expected_max_title_length,
+        model::MAX_TITLE_LENGTH,
+        expected_max_title_length,
         "futo_notes_model::MAX_TITLE_LENGTH drifted from tests/conformance/constants.json"
     );
 }

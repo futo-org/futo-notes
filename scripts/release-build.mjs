@@ -532,6 +532,6 @@ function main(argv) {
 // `file://C:\…` which never equals the real import.meta.url
 // (`file:///C:/…/release-build.mjs`) — the guard was always false and the CLI
 // silently no-op'd.
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.argv.slice(2));
 }

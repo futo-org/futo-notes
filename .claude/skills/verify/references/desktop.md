@@ -68,8 +68,16 @@ agent-browser close                    # cleanup (and kill the dev server)
 ## Tauri desktop (the default)
 
 Debug builds include `tauri-plugin-mcp-bridge`, exposing the Tauri MCP tools
-(`driver_session`, `webview_*`). The bridge picks a free port in 9223–9322 so
-multiple worktree instances coexist.
+(`driver_session`, `webview_*`). The bridge binds **loopback only** and scans
+upward from a per-worktree base port (`scripts/lib/slot.mjs` -> `mcp`, passed as
+`FUTO_MCP_BASE_PORT` by `just tauri-dev`), so worktree instances coexist without
+contending for one port. Bases land in 9223–9272 and the scan runs 100 ports up,
+so 9223–9322 is still the range to sweep.
+
+Print this worktree's base with `just ports`. Loopback-only matters: the plugin
+used to bind `0.0.0.0`, which succeeds even while another process holds
+`127.0.0.1:<port>` — so it logged a port that every client (all of which dial
+127.0.0.1) resolved to the OTHER process.
 
 ### Launch (or reuse a running instance)
 

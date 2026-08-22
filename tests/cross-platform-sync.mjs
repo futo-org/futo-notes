@@ -161,12 +161,6 @@ async function waitForSaveIdle(client, timeoutMs = 5_000) {
   throw new Error(`${client.name}: savePending did not become false after ${timeoutMs}ms`);
 }
 
-async function createNoteViaEditor(client, title, content) {
-  await client.openNewNote();
-  await client.setTitle(title);
-  await client.typeInEditor(content);
-}
-
 /**
  * Wait for the open-note session itself to satisfy [predicate].
  *

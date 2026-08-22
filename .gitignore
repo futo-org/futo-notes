@@ -119,6 +119,9 @@ experiments/
 # Agent scratch (handoff notes)
 handoff/
 
+# Throwaway probes/benchmarks runnable by vitest (see vitest.config.ts include)
+scratch/
+
 # Verification
 test-screenshots
 

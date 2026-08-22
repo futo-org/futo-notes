@@ -215,7 +215,10 @@ fn note_store_reads_existing_notes_without_collapsing_empty_and_missing() {
     fs::write(notes_root.join("Empty.md"), "").unwrap();
     let store = NoteStore::new(path_string(&notes_root));
 
-    assert_eq!(store.read_if_exists("Empty".to_owned()).unwrap(), Some(String::new()));
+    assert_eq!(
+        store.read_if_exists("Empty".to_owned()).unwrap(),
+        Some(String::new())
+    );
     assert_eq!(store.read_if_exists("Missing".to_owned()).unwrap(), None);
     assert!(matches!(
         store.read_if_exists("../outside".to_owned()),
@@ -329,8 +332,15 @@ fn flush_draft_projects_every_disposition() {
     };
     assert!(parked_id.starts_with("note (conflict "));
     assert_eq!(store.read(parked_id.clone()), "diverged");
-    assert_eq!(store.read("note".to_owned()), "draft", "diverged note untouched");
-    assert!(parked.mutation.is_some(), "a fresh park projects a mutation");
+    assert_eq!(
+        store.read("note".to_owned()),
+        "draft",
+        "diverged note untouched"
+    );
+    assert!(
+        parked.mutation.is_some(),
+        "a fresh park projects a mutation"
+    );
 
     // Park idempotency across the FFI: the identical draft reports the same
     // copy and mints nothing new.

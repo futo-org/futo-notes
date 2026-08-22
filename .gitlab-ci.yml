@@ -420,6 +420,30 @@ collect-secrets-from-op:
 
 test:
   stage: test
+  # Never overlap another pipeline's unit-test job. The contention is between
+  # concurrent JOBS on the one shared runner, not within vitest (which already
+  # caps maxWorkers:4 in CI): with 3 stacked-MR pipelines in flight,
+  # FolderTreeView.test.ts's virtualization cases went from 54/65/52ms to
+  # 5397/3619/3408ms — a 60-100x slowdown — and one crossed vitest's 5s default
+  # and went red. The assertion was fine and the CPU was not, so this is
+  # exclusion, not a longer timeout (M15). Same root-cause fix, and the same
+  # mechanism, as the sync suite's resource_group above; a distinct key so the
+  # two suites never wait on each other.
+  #
+  # Cost, measured on recent main pipelines: this job runs 47s (docs fast path)
+  # to ~271s, so a third concurrent MR queues roughly 8 minutes. That is cheaper
+  # than the failure it replaces — a red pipeline plus the attribution hunt.
+  #
+  # Merge trains would be the other way to stop stacked pipelines overlapping,
+  # but gitlab.futo.org runs the EE binary on a Free tier and merge trains are
+  # Premium-only (merge_trains_enabled is absent from the project API payload).
+  resource_group: unit-tests
+  # TIGHTENED from the inherited 60m project default, not bumped: inside a
+  # resource group a hung job is head-of-line blocking for every other MR, and
+  # hangs are real here (a test:rust:workspace run hung 3870s in the same
+  # incident). 15m is ~3x the worst observed run, so a cold cache still fits
+  # while a wedged job frees the group in 15m instead of an hour.
+  timeout: 15m
   # The docs fast path only needs Node. Defer pnpm/Corepack setup until the
   # classifier selects the full path so a documentation MR performs no
   # package-manager or registry work.

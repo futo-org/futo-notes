@@ -218,6 +218,9 @@ const ASTRAL = [
   '\u{1f44d}\u{1f3ff}', // emoji + skin-tone modifier
 ];
 
+// \u0000 here is the LOW BOUND of the ASCII range, not a stray control
+// character: the test is "is every code point in 0x00-0x7f".
+// eslint-disable-next-line no-control-regex
 const isAscii = (value) => typeof value === 'string' && !/[^\u0000-\u007f]/u.test(value);
 
 // --- Family: title (filename.json) -----------------------------------------
