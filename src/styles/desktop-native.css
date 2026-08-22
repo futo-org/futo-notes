@@ -1,0 +1,87 @@
+/* ===========================
+   Desktop native feel
+   ===========================
+   Rules that stop the desktop shell reading as a web page in a frame.
+
+   Two scoping rules apply to everything in this file:
+
+   1. `html.desktop-chrome` — set by configureWindowChrome() only when the app
+      is running under Tauri. app.css is ALSO loaded by the native iOS/Android
+      editor embed (src/editor-embed/main.ts) and by the browser dev server;
+      neither ever gets the class, which is what keeps mobile and the Playwright
+      harness untouched. It sits on the ROOT rather than on `.notes-shell`
+      because popovers, dialogs and the settings screen render outside the
+      shell element.
+   2. `.cm-editor` and its subtree are excluded from the cursor sweep. Inside a
+      note the web cursors are the correct ones: I-beam over text, pointer over
+      a link, grab over a table handle. */
+
+@media (hover: hover) and (pointer: fine) {
+  /* Native desktop controls do not use the hand cursor: a Finder sidebar row, a
+     Mail toolbar button and a Safari tab all show the arrow. This app sets
+     `cursor: pointer` in ~30 component stylesheets owned by different surfaces,
+     so the correction is centralised here rather than edited into each one
+     (AGENTS.md M17).
+
+     `!important` inside the component layer is load-bearing, not laziness:
+     several of the stylesheets this corrects (folderTree.css, tabsStrip.css)
+     are imported straight from their Svelte components and are therefore
+     UNLAYERED, which beats any layered rule on specificity alone. The important
+     cascade reverses layer order — unlayered important declarations rank lowest
+     — so a layered `!important` is the one thing that wins. Cursor policy is
+     consequently owned by this file: a surface that needs a different cursor
+     declares it below. */
+  html.desktop-chrome *:not(:where(.cm-editor, .cm-editor *)) {
+    cursor: default !important;
+  }
+
+  /* Exceptions, in cascade order. Each carries information the arrow cannot. */
+
+  /* The editor subtree is excluded from the sweep, but it would still INHERIT
+     `default` from `.editor-container` around it — which puts an arrow over
+     editable text. `auto` restores the document cursors: I-beam over text,
+     and the editor's own rules (link pointer, table grab) still win over an
+     inherited value because they declare on the element itself. */
+  html.desktop-chrome .cm-editor {
+    cursor: auto !important;
+  }
+
+  html.desktop-chrome textarea,
+  html.desktop-chrome input:not([type]),
+  html.desktop-chrome input[type='text'],
+  html.desktop-chrome input[type='search'],
+  html.desktop-chrome input[type='password'],
+  html.desktop-chrome input[type='number'] {
+    cursor: text !important;
+  }
+
+  html.desktop-chrome .sidebar-resize-handle {
+    cursor: col-resize !important;
+  }
+
+  html.desktop-chrome [draggable='true']:active {
+    cursor: grabbing !important;
+  }
+
+  /* A link that leaves the app is the one place the pointer is still right. */
+  html.desktop-chrome a[href^='http'],
+  html.desktop-chrome a[href^='mailto'] {
+    cursor: pointer !important;
+  }
+}
+
+/* macOS "Reduce Motion" (System Settings ▸ Accessibility ▸ Display). A native
+   app participates in this automatically; a webview only does if it is asked.
+   Scoped to the desktop shell so the embedded mobile editor keeps its own
+   timings. */
+@media (prefers-reduced-motion: reduce) {
+  html.desktop-chrome,
+  html.desktop-chrome *,
+  html.desktop-chrome *::before,
+  html.desktop-chrome *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -40,6 +40,60 @@ export const isIOS =
 export const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
 
+// Native application-menu commands (macOS). Off Tauri — the web dev server and
+// the native mobile editor embed — there is no menu, so this is a no-op
+// subscription rather than a branch every caller has to remember.
+export function onAppMenuCommand(handler: (command: string) => void): () => void {
+  if (platformName !== 'tauri') return () => {};
+  let unlisten: (() => void) | null = null;
+  let disposed = false;
+  void import('./tauri/appMenu')
+    .then(({ subscribeToAppMenu }) => subscribeToAppMenu(handler))
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch((error) => console.warn('Failed to subscribe to the app menu:', error));
+  return () => {
+    disposed = true;
+    unlisten?.();
+    unlisten = null;
+  };
+}
+
+// Reveal the desktop window once the shell has painted. The window is created
+// hidden so the launch never flashes WKWebView's white; see
+// apps/tauri/src-tauri/src/window_reveal.rs, which shows it anyway after a
+// timeout so a frontend that never paints cannot hide the app forever.
+export function revealAppWindow(): void {
+  if (platformName !== 'tauri') return;
+  void import('./tauri/windowReveal')
+    .then(({ showAppWindow }) => showAppWindow())
+    .catch((error) => console.warn('Failed to reveal the app window:', error));
+}
+
+// Keep the native window in the same appearance as the app's theme, or pass
+// `null` to leave it following the OS.
+//
+// The window FRAME is not ours to paint: the OS draws it in the window's own
+// appearance. On macOS AppKit strokes a highlight along the top edge whose
+// brightness is chosen for that appearance, and it composites over our pixels —
+// measured on the #171717 top band, white@55% (rgb 150,150,150) for a
+// light-appearance window against white@20% (rgb 66,66,66) for a dark one. So a
+// window left in the system's light appearance while the app renders its dark
+// theme wears a bright hairline along its top edge, glaring against a dark
+// desktop, where a dark window wears the same subtle edge as every native dark
+// app. Nothing in the DOM can reach it; the appearance has to.
+//
+// Off Tauri (web dev server, the native mobile WebView embeds) there is no
+// window to dress, so this is a no-op rather than a branch at the call site.
+export function setNativeWindowAppearance(theme: 'dark' | 'light' | null): void {
+  if (platformName !== 'tauri') return;
+  void import('./tauri/windowAppearance')
+    .then(({ applyNativeWindowAppearance }) => applyNativeWindowAppearance(theme))
+    .catch((error) => console.warn('Failed to set the native window appearance:', error));
+}
+
 // Lazy-loaded platform filesystem implementation
 let _fs: PlatformFS | null = null;
 

@@ -4,6 +4,7 @@
 //! only Tauri IPC, desktop lifecycle, OS integration, and translation between
 //! those two boundaries.
 
+mod app_menu;
 mod application;
 mod application_state;
 mod background_tasks;
@@ -18,6 +19,7 @@ mod sync;
 mod system_trash;
 mod updater_commands;
 mod vault_location;
+mod window_reveal;
 
 pub fn run() {
     application::run();

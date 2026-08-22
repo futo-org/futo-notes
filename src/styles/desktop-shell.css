@@ -10,6 +10,14 @@
 .notes-shell.desktop-layout {
   display: flex;
   flex-direction: column;
+  /* The band's height, owned here because the traffic-light inset is computed
+     against it. `trafficLightPosition` in the Tauri window configs centres the
+     macOS buttons on y=20 (measured: buttons span 13→26.5 logical px), which is
+     the centre line of a 40px band and of the 32px sidebar toggle inside it.
+     Changing this without re-deriving that inset unseats the traffic lights.
+     Previously only a `var(--tabs-strip-height, 40px)` fallback in two files —
+     the value had no owner at all. */
+  --tabs-strip-height: 40px;
 }
 
 .notes-shell.desktop-layout .desktop-body {

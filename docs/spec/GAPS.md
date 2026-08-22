@@ -32,11 +32,12 @@ flag gaps the codebase suggests have been implemented.
 
 - [list.md:51](list.md#L51) — _(Android)_ A **sync live pull** that creates or re-ranks a note while the list is composed at the top still relies on LazyListState key anchoring, so the remotely-changed row can land above the viewport until the user drags. Same anchoring class as the local-edit invisibility bug fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem` on the FAB path and a pop-time re-pin in `AppNavigator.goBack()`); the `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt `reloadAsync`, AppNavigation.kt `AppNavigator.goBack`
 - [list.md:81](list.md#L81) — Tauri desktop sidebar note rows show the **title only** — no body preview at all. The single-line, markdown-opaque `make_preview` snippet appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar rows. The rich multi-line preview is native-only (iOS + Android) for now.
-- [list.md:363](list.md#L363) — a single isolated frame can still paint the spacer when the scroll jumps further than the virtual window's lead — measured 5 lone frames in ~1,300 native window captures, never two in a row. → docs/perf/tab-switch-baseline.md
+- [list.md:370](list.md#L370) — a single isolated frame can still paint the spacer when the scroll jumps further than the virtual window's lead — measured 5 lone frames in ~1,300 native window captures, never two in a row. → docs/perf/tab-switch-baseline.md
 
 ## nav.md
 
 - [nav.md:81](nav.md#L81) — Android on-device autofocus QA (existing note keyboard-less + native-title autofocus) is still pending. *(Android)*
+- [nav.md:151](nav.md#L151) — on Linux an explicit light/dark choice poisons a later switch back to **auto** until the next desktop change or relaunch. Pinning the window writes `gtk-application-prefer-dark-theme`, which is also the property WebKitGTK answers `prefers-color-scheme` from, so `resolveTheme('auto')` reads back the value the app itself just wrote: measured on a dark GTK desktop, `setTheme('light')` makes the webview report `prefers-color-scheme: dark = false`. Choosing Light and then Auto therefore leaves a dark desktop showing the light theme. The fix is for `auto` to resolve from the xdg portal's `color-scheme` on Linux rather than from the media query — the app already watches that signal, it just cannot read its current value. macOS and Windows are unaffected: their `auto` hands the window back to the OS and never writes the appearance it later reads.
 
 ## search.md
 
@@ -47,4 +48,4 @@ flag gaps the codebase suggests have been implemented.
 - [sync.md:1133](sync.md#L1133) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 - [sync.md:1137](sync.md#L1137) — The desktop scheduler's own triggers are not distinguishable in the record. Launch, poll, resume and local-save all reach Rust through the one `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be told apart from a user pressing "Sync now"; only the live loop's four triggers are recorded faithfully.
 
-_21 gaps._
+_22 gaps._

@@ -14,6 +14,10 @@
 @import './note-tags.css' layer(components);
 @import './sidebar-views.css' layer(components);
 @import './markdown.css' layer(components);
+/* Last in the component layer: the cursor sweep is a correction over every
+   surface above it (and, via `!important`, over the unlayered component
+   stylesheets too). See the file header. */
+@import './desktop-native.css' layer(components);
 @import './editor-ux.css';
 @import './fonts.css';
 @import './theme.css';

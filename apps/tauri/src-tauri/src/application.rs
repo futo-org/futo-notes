@@ -51,6 +51,23 @@ pub(crate) fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
+    // Reopen where the user left the window. VISIBLE and DECORATIONS are
+    // deliberately excluded from the restored set: a persisted `visible: false`
+    // would relaunch the app invisible with no way back, and Linux turns
+    // decorations off at runtime (platform_integration::configure_app) rather
+    // than from a stored value.
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::new()
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::SIZE
+                    | tauri_plugin_window_state::StateFlags::POSITION
+                    | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                    | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+            )
+            .build(),
+    );
+
     builder
         .setup(|app| {
             let handle = app.handle();
@@ -58,6 +75,8 @@ pub(crate) fn run() {
                 crate::panic_reporter::install(root.join(".crashlogs"));
             }
             crate::platform_integration::configure_app(handle)?;
+            crate::app_menu::install(handle)?;
+            crate::window_reveal::install(handle)?;
             crate::instance_journal::install(handle);
             crate::local_notes::init_on_startup(handle);
             Ok(())

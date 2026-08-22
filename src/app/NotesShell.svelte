@@ -264,6 +264,10 @@
       searchOpen = true;
     },
     createNote: () => createNewNote(),
+    openSettings: () => {
+      settingsOpen = true;
+    },
+    toggleSidebar,
   });
   const stopNativeShell = startNativeShell({
     enqueueFileChange: sync.enqueueFileChange,

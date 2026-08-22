@@ -22,6 +22,10 @@ pub(crate) fn configure_app(app: &tauri::AppHandle) -> Result<(), Box<dyn std::e
         app.plugin(tauri_plugin_single_instance::init(
             |app, _arguments, _cwd| {
                 if let Some(window) = app.get_webview_window("main") {
+                    // The window starts hidden (window_reveal): a second launch
+                    // during that gap must reveal it, not just focus a window
+                    // nobody can see.
+                    let _ = window.show();
                     let _ = window.set_focus();
                 }
             },
