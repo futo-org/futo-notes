@@ -20,7 +20,9 @@
     onnotedragstart?: (id: string, e: DragEvent) => void;
     onfolderdragstart?: (path: string, e: DragEvent) => void;
     onrenamefolder?: (path: string, newName: string) => Promise<string | null> | string | null;
+    onrenamenote?: (id: string, newTitle: string) => Promise<string | null> | string | null;
     renameRequest?: { path: string; nonce: number } | null;
+    noteRenameRequest?: { id: string; nonce: number } | null;
     ondropnoteonfolder?: (noteId: string, folderPath: string) => void;
     ondropfolderonfolder?: (folderPath: string, targetPath: string) => void;
     ondropnoteonroot?: (noteId: string) => void;
@@ -36,7 +38,9 @@
     onnotedragstart,
     onfolderdragstart,
     onrenamefolder,
+    onrenamenote,
     renameRequest = null,
+    noteRenameRequest = null,
     ondropnoteonfolder,
     ondropfolderonfolder,
     ondropnoteonroot,
@@ -132,8 +136,13 @@
     // rename always starts on a visible row, so in practice this widens the
     // window by nothing; the unbounded case is a user scrolling away while
     // renaming, where correctness beats row count.
-    if (renameRequest) {
-      const pinned = flat.findIndex((node) => keyOf(node) === `f:${renameRequest.path}`);
+    const pinnedKey = renameRequest
+      ? `f:${renameRequest.path}`
+      : noteRenameRequest
+        ? `n:${noteRenameRequest.id}`
+        : null;
+    if (pinnedKey) {
+      const pinned = flat.findIndex((node) => keyOf(node) === pinnedKey);
       if (pinned >= 0) {
         start = Math.min(start, pinned);
         end = Math.max(end, pinned + 1);
@@ -282,8 +291,10 @@
           {node}
           indentPixels={DEPTH_INDENT_PX}
           selected={node.note.id === selectedId}
+          renameRequest={noteRenameRequest}
           onselect={(event) => handleNoteClick(node.note.id, event)}
           oncontextmenu={(event) => handleNoteContextMenu(event, node.note.id)}
+          onrename={onrenamenote}
           ondragstart={(event) => drag.handleNoteDragStart(event, node.note.id)}
           ondragend={drag.handleDragEnd}
           ondragover={(event) => drag.handleNoteDragOver(event, node.parentPath)}

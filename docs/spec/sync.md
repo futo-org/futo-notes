@@ -21,6 +21,20 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 
 - Connecting requires a server URL + password; a successful connect auto-runs a
   first sync. → SyncScreen.kt
+- **Opening the app with sync already configured syncs immediately _(desktop)_.**
+  The first cycle waits on the boot credential load and nothing else — the
+  app-state read plus the keyring password that together make
+  `isE2eeConfigured()` answer truthfully — and starts as soon as that settles
+  (~0.5 s after process start, measured launch-to-cycle through the instance
+  journal). The SSE live stream attaches immediately behind it and runs its own
+  catch-up. It is deliberately not deferred by a timer: a flat 8 s deferral
+  inherited from the removed Tauri mobile shell put the first cycle 8.6 s after
+  launch, which reads as "sync doesn't start when I open the app". A host that
+  never runs the credential hook still gets a first cycle from a fallback timer,
+  and a first cycle that cannot run yet (no vault configured, offline, user
+  already typing) hands off to the existing retry ladder. → autoSyncV2.ts
+  `startAutoSyncV2` (guarded by "runs the first cycle as soon as boot
+  credentials settle, with no timer wait" in `autoSyncV2.test.ts`)
 - Once connected, the server URL is locked. The user can "Sync now" or
   "Disconnect" (desktop labels the disconnect **Reset connection** and asks
   for confirmation; a separate **Forget password** drops only the stored
@@ -608,17 +622,19 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   syncServiceE2ee.ts, syncManager.svelte.ts
 - When a sync cycle changes the local notes tree, the note list (and the open
   editor's on-disk base) refreshes automatically so the change appears without
-  any user action. Both native shells pass the complete `SyncSummary` through
-  `SyncManager.onLocalTreeChanged` to `NotesStore.localTreeChanged`, where the
-  store-owned
-  `refresh_external_changes` projects only affected rows at their canonical
-  Rust-computed positions. That verb rechecks final filesystem state, so a
+  any user action. Every shell passes the complete changed-id and rename report
+  to the store-owned `refresh_external_changes`, which projects only affected
+  rows at their canonical
+  Rust-computed positions. Desktop applies the returned mutation before it
+  reconciles the open note; native shells pass the complete `SyncSummary`
+  through `SyncManager.onLocalTreeChanged` to `NotesStore.localTreeChanged`.
+  That verb rechecks final filesystem state, so a
   callback racing a recreate/flush cannot delete the recreated row, and sends
   scoped changed/removed notifications to search. If scoped projection fails,
-  a native shell falls back to search reconciliation plus a full snapshot, then
+  a shell falls back to search reconciliation plus a full snapshot, then
   still delivers the summary so the open editor can reconcile from disk. →
-  iOS `FutoNotesApp` / `NotesStore.swift`; Android `MainActivity` /
-  `NotesStore.kt`;
+  desktop `refreshNotesAfterSync` / `local_notes_refresh_external_changes`;
+  iOS `FutoNotesApp` / `NotesStore.swift`; Android `MainActivity` / `NotesStore.kt`;
   futo-notes-store `refresh_external_changes`
   - The refresh fires on the core-computed `SyncSummary.localWritesApplied`, not
     only `downloaded`/`deleted` — a **push-side** clean merge (`MergedClean`)
@@ -1105,12 +1121,24 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   redirects both; journal files must not sync and must not appear in the note
   list. Retention is a size-capped ring (~20 MB, oldest segment dropped). →
   futo-notes-tauri `instance_journal.rs`
-- Read it with `just journal` (`tail`, `type <event>`, `last-sync`, `where`), or
-  with `jq` over the JSONL directly. → scripts/journal.mjs
+- **Each run of the app writes one `app_launch` marker _(desktop)_.** It names
+  the version and bundle identifier that wrote the ring and is the anchor every
+  later event is read against: a `sync_run` record says how long its cycle took,
+  and only the marker can answer how long after opening the app the first one
+  started. It also separates sessions in a ring that spans many runs. →
+  futo-notes-tauri `instance_journal.rs`
+- Read it with `just journal` (`tail`, `type <event>`, `last-sync`, `startup`,
+  `where`), or with `jq` over the JSONL directly. `startup` reports, per launch,
+  how long until that session's first cycle started. → scripts/journal.mjs
   > **Gap:** Only the desktop shell opens a journal. iOS and Android run the
   > same sync crate, but `SyncSession::set_journal` is not exposed through
   > `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 journal --dir` has nothing to read from a phone.
+  > **Gap:** The desktop scheduler's own triggers are not distinguishable in the
+  > record. Launch, poll, resume and local-save all reach Rust through the one
+  > `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be
+  > told apart from a user pressing "Sync now"; only the live loop's four
+  > triggers are recorded faithfully.
 
 ## Polling
 
@@ -1166,6 +1194,14 @@ journal --dir` has nothing to read from a phone.
   the cleared session. → createExternalChangeCoordinator.ts (guarded by
   createExternalChangeCoordinator.test.ts and the cross-platform scenario
   "external watcher protects dirty draft then settles")
+- **A watcher-reported desktop rename remains one rename through debounce,
+  bulk refresh, and post-sync draining.** Rename chains are applied in event
+  order, so the open note follows each engine `FollowRename` disposition and
+  the resulting local change schedules one auto-push. A rename from `.md` to a
+  non-note extension is handled as an unlink, a rename into `.md` is handled as
+  an add, and renames between non-note files are ignored. → desktop
+  `watcherBatch` + `createExternalChangeCoordinator` (guarded by their paired,
+  bulk-chain, post-sync, and extension-transition tests)
 - A remote edit to the **currently-open note** is adopted into the open editor
   when the local draft is clean (`content == savedContent`); a dirty draft
   still wins and is never overwritten _(iOS/Android)_. Without this, the open

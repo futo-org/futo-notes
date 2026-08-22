@@ -15,6 +15,11 @@ const androidInstrumentationScript = readFileSync(
 );
 const androidEmulatorScript = readFileSync(join(ROOT, 'scripts/ci-android-emulator.sh'), 'utf8');
 const androidSyncLegScript = readFileSync(join(ROOT, 'scripts/ci-android-sync-leg.sh'), 'utf8');
+const prePushHook = readFileSync(join(ROOT, '.githooks/pre-push'), 'utf8');
+const iosStoryAvailabilityGate = readFileSync(
+  join(ROOT, 'scripts/run-ios-stories-if-available.sh'),
+  'utf8',
+);
 
 function topLevelBlock(contents, startPattern) {
   const match = startPattern.exec(contents);
@@ -30,6 +35,26 @@ function topLevelBlock(contents, startPattern) {
 }
 
 describe('pre-merge JavaScript test routing', () => {
+  it('builds iOS stories from the pushed source and routes them through both local gates', () => {
+    const storyRecipe = topLevelBlock(justfile, /^test-ios-stories:[^\n]*$/m);
+    const prepushRecipe = topLevelBlock(justfile, /^prepush:[^\n]*$/m);
+
+    expect(storyRecipe).toContain('just ios-native');
+    expect(storyRecipe).toContain('node tests/ios-editor-stories.mjs');
+    expect(storyRecipe.indexOf('just ios-native')).toBeLessThan(
+      storyRecipe.indexOf('node tests/ios-editor-stories.mjs'),
+    );
+    expect(prepushRecipe).toContain('scripts/run-ios-stories-if-available.sh');
+    expect(prePushHook).toContain('scripts/run-ios-stories-if-available.sh');
+    expect(prePushHook).toContain('apps/ios/');
+    expect(prePushHook).toContain('packages/editor/');
+    expect(prePushHook).toContain('crates/futo-notes-(core|store|ffi)/');
+    expect(iosStoryAvailabilityGate).toContain('FUTO_SKIP_IOS_STORIES');
+    expect(iosStoryAvailabilityGate).toContain('AXE_BIN');
+    expect(iosStoryAvailabilityGate).toContain('just qa-claim ios');
+    expect(iosStoryAvailabilityGate).toContain('iOS DEVICE STORIES SKIPPED');
+  });
+
   it('runs the full suite from just check', () => {
     const checkRecipe = topLevelBlock(justfile, /^check:[^\n]*$/m);
 

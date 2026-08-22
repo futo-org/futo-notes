@@ -69,6 +69,42 @@
         {
           "input": "  🎉\tparty\nover here  ",
           "expected": "🎉 party over here"
+        },
+        {
+          "input": "![](image-20260814-130425.png)",
+          "expected": "🖼️"
+        },
+        {
+          "input": "![](image-20260814-130425.png)\nMeeting notes",
+          "expected": "🖼️ Meeting notes"
+        },
+        {
+          "input": "Before ![alt text](photo.png) after",
+          "expected": "Before 🖼️ after"
+        },
+        {
+          "input": "![](a.png)![](b.png)",
+          "expected": "🖼️🖼️"
+        },
+        {
+          "input": "![](a.png)\n\n# Heading\ntext",
+          "expected": "🖼️  # Heading text"
+        },
+        {
+          "input": "a [link](https://example.com) stays",
+          "expected": "a [link](https://example.com) stays"
+        },
+        {
+          "input": "![unterminated](a.png",
+          "expected": "![unterminated](a.png"
+        },
+        {
+          "input": "![no target] here",
+          "expected": "![no target] here"
+        },
+        {
+          "input": "![](a.png) xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "expected": "🖼️ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         }
       ]
     }

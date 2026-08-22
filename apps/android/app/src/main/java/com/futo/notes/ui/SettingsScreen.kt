@@ -3,6 +3,7 @@ package com.futo.notes.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -280,7 +281,9 @@ fun SettingsScreen(
     }
 
     if (resetting) {
-        // Blocking overlay — swallow every tap while the vault is wiped.
+        // Blocking overlay — swallow every tap AND Back while the vault is
+        // wiped; Back would otherwise leave Settings mid-delete.
+        BackHandler {}
         Box(
             modifier = Modifier
                 .fillMaxSize()

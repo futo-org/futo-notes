@@ -251,7 +251,7 @@ class AndroidNativeSyncClient {
     // field itself.
     this.device.tapPoint(field.x, field.y);
     await this.device.waitFor(`the "${label}" field to accept input`, UI_TIMEOUT_MS, () =>
-      this.device.isImeVisible(),
+      this.device.isImeInputActive(),
     );
     this.device.typeReplacingSelection(value);
     if (!expectVisibleValue) return;
@@ -263,6 +263,7 @@ class AndroidNativeSyncClient {
   }
 
   async #dismissKeyboard() {
+    if (!this.device.isImeVisible()) return;
     this.device.pressBack();
     await this.device.waitFor(
       'the keyboard to close',

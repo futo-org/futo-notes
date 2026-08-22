@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { tick } from 'svelte';
-
   import { idLeaf } from '$lib/platform/pathSafety';
 
   import type { FolderNode } from './folderTree';
+  import TreeRowRename from './TreeRowRename.svelte';
 
   interface Props {
     node: FolderNode;
@@ -37,11 +36,9 @@
     ondrop,
   }: Props = $props();
 
+  // The field itself (focus, commit, cancel, failure reporting) is TreeRowRename;
+  // the row only decides when it is open. Note rows use the same component.
   let isEditing = $state(false);
-  let value = $state('');
-  let error = $state<string | null>(null);
-  let isSubmitting = $state(false);
-  let input: HTMLInputElement | undefined = $state();
   let lastRenameNonce = -1;
 
   $effect(() => {
@@ -53,68 +50,17 @@
       return;
     }
     lastRenameNonce = renameRequest.nonce;
-    void beginRename();
-  });
-
-  async function beginRename(): Promise<void> {
     isEditing = true;
-    value = idLeaf(node.path);
-    error = null;
-    await tick();
-    input?.focus();
-    input?.select();
-  }
-
-  function cancelRename(): void {
-    isEditing = false;
-    value = '';
-    error = null;
-    isSubmitting = false;
-  }
-
-  async function submitRename(): Promise<void> {
-    if (!isEditing || isSubmitting) return;
-    isSubmitting = true;
-    error = null;
-    try {
-      const renameError = await onrename?.(node.path, value);
-      if (!renameError) {
-        cancelRename();
-        return;
-      }
-      error = renameError;
-      await tick();
-      input?.focus();
-      input?.select();
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Rename failed';
-      await tick();
-      input?.focus();
-    } finally {
-      isSubmitting = false;
-    }
-  }
+  });
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'F2') {
       event.preventDefault();
       event.stopPropagation();
-      void beginRename();
+      isEditing = true;
     } else if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       onclick();
-    }
-  }
-
-  function handleRenameKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      event.stopPropagation();
-      void submitRename();
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      cancelRename();
     }
   }
 </script>
@@ -130,7 +76,7 @@
   ondblclick={(event) => {
     event.preventDefault();
     event.stopPropagation();
-    void beginRename();
+    isEditing = true;
   }}
   onkeydown={handleKeydown}
   {oncontextmenu}
@@ -176,25 +122,15 @@
     {/if}
   </span>
   {#if isEditing}
-    <span
-      class="folder-inline-edit"
-      onclick={(event) => event.stopPropagation()}
-      ondblclick={(event) => event.stopPropagation()}
-      onkeydown={(event) => event.stopPropagation()}
-    >
-      <input
-        bind:this={input}
-        bind:value
-        class:error={error !== null}
-        disabled={isSubmitting}
-        aria-label="Folder name"
-        aria-invalid={error !== null}
-        title={error ?? 'Folder name'}
-        onkeydown={handleRenameKeydown}
-        onblur={() => !isSubmitting && void submitRename()}
-        data-testid="folder-rename-input"
-      />
-    </span>
+    <TreeRowRename
+      initialValue={idLeaf(node.path)}
+      label="Folder name"
+      testId="folder-rename-input"
+      onsubmit={(value) => onrename?.(node.path, value) ?? null}
+      onclose={() => {
+        isEditing = false;
+      }}
+    />
   {:else}
     <span class="folder-name">{node.name}</span>
   {/if}

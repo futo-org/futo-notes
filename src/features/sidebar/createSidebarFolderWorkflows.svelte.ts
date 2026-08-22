@@ -1,4 +1,5 @@
 import { createFolder, validateNewFolderName } from '$features/folders/folderOperations';
+import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import {
   collectSiblingFolders,
   confirmDeleteSidebarFolder,
@@ -9,6 +10,7 @@ import {
   moveSidebarNoteToFolder,
   moveSidebarNoteToRoot,
   renameSidebarFolder,
+  renameSidebarNote,
 } from './sidebarFolderMutations';
 
 export interface SidebarFolderMenuItem {
@@ -28,10 +30,43 @@ interface SidebarFolderWorkflowOptions {
   onNewNoteInFolder: (folderPath: string) => void;
 }
 
+/** Folder rows expose the same discoverable action set on every platform
+ * (docs/spec/list.md § Folder management). */
+function folderMenuItems(on: {
+  newNote: () => void;
+  newFolder: () => void;
+  rename: () => void;
+  move: () => void;
+  remove: () => void;
+}): SidebarFolderMenuItem[] {
+  return [
+    { label: 'New Note', onclick: on.newNote },
+    { label: 'New Folder', onclick: on.newFolder },
+    { label: 'Rename', onclick: on.rename },
+    { label: 'Move to folder', onclick: on.move },
+    { label: 'Delete', destructive: true, onclick: on.remove },
+  ];
+}
+
+/** Note rows mirror the folder set minus the create actions — Rename is the
+ * discoverable twin of the row's double-click / F2 gesture. */
+function noteMenuItems(on: {
+  rename: () => void;
+  move: () => void;
+  remove: () => void;
+}): SidebarFolderMenuItem[] {
+  return [
+    { label: 'Rename', onclick: on.rename },
+    { label: 'Move to folder', onclick: on.move },
+    { label: 'Delete', destructive: true, onclick: on.remove },
+  ];
+}
+
 export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptions) {
   let isCreateFolderOpen = $state(false);
   let createFolderParent = $state('');
   let renameRequest = $state<{ path: string; nonce: number } | null>(null);
+  let noteRenameRequest = $state<{ id: string; nonce: number } | null>(null);
   let folderPicker = $state<{
     title: string;
     onpick: (target: string) => void;
@@ -68,6 +103,7 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     );
     if (!result.ok) return result.error ?? 'Failed to create folder';
     closeCreateFolder();
+    showGlobalToast('Folder created');
     return null;
   }
 
@@ -75,25 +111,15 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     contextMenu = {
       x,
       y,
-      items: [
-        { label: 'New Note', onclick: () => options.onNewNoteInFolder(path) },
-        { label: 'New Folder', onclick: () => openCreateFolder(path) },
-        {
-          label: 'Rename',
-          onclick: () => {
-            renameRequest = { path, nonce: Date.now() };
-          },
+      items: folderMenuItems({
+        newNote: () => options.onNewNoteInFolder(path),
+        newFolder: () => openCreateFolder(path),
+        rename: () => {
+          renameRequest = { path, nonce: Date.now() };
         },
-        {
-          label: 'Move to folder',
-          onclick: () => openMoveFolderPicker(path),
-        },
-        {
-          label: 'Delete',
-          destructive: true,
-          onclick: () => void confirmDeleteSidebarFolder(path, options),
-        },
-      ],
+        move: () => openMoveFolderPicker(path),
+        remove: () => void confirmDeleteSidebarFolder(path, options),
+      }),
     };
   }
 
@@ -101,14 +127,13 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     contextMenu = {
       x,
       y,
-      items: [
-        { label: 'Move to folder', onclick: () => openMoveNotePicker(id) },
-        {
-          label: 'Delete',
-          destructive: true,
-          onclick: () => void confirmDeleteSidebarNote(id, options),
+      items: noteMenuItems({
+        rename: () => {
+          noteRenameRequest = { id, nonce: Date.now() };
         },
-      ],
+        move: () => openMoveNotePicker(id),
+        remove: () => void confirmDeleteSidebarNote(id, options),
+      }),
     };
   }
 
@@ -157,6 +182,9 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     get renameRequest() {
       return renameRequest;
     },
+    get noteRenameRequest() {
+      return noteRenameRequest;
+    },
     get folderPicker() {
       return folderPicker;
     },
@@ -171,6 +199,7 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     showNoteContextMenu,
     closeContextMenu,
     renameFolder: (path: string, newName: string) => renameSidebarFolder(path, newName, options),
+    renameNote: (id: string, newTitle: string) => renameSidebarNote(id, newTitle, options),
     closeFolderPicker,
     moveNoteToFolder: (noteId: string, folderPath: string) =>
       moveSidebarNoteToFolder(noteId, folderPath, options),

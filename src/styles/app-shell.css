@@ -24,47 +24,6 @@
 }
 
 /* ===========================
-   Drawer Toggle (mobile hamburger)
-   =========================== */
-.drawer-toggle {
-  width: 40px;
-  height: 40px;
-  border: none;
-  background: transparent;
-  font-size: 22px;
-  cursor: pointer;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  -webkit-tap-highlight-color: transparent;
-  color: var(--color-text);
-}
-
-.drawer-toggle.floating {
-  position: absolute;
-  top: calc(max(12px, calc(12px + env(safe-area-inset-top))) + var(--vv-offset, 0px));
-  left: max(12px, calc(12px + env(safe-area-inset-left)));
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: rgba(var(--paper-rgb), 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow:
-    0 2px 8px rgba(var(--ink-rgb), 0.08),
-    0 0 0 1px rgba(var(--ink-rgb), 0.04);
-  z-index: 35;
-  transform: translateX(var(--drawer-offset));
-  transition: transform 0.25s ease;
-  will-change: transform;
-}
-
-.drawer-toggle.floating:active {
-  background: var(--color-surface);
-}
-
-/* ===========================
    Note Body / Editor Area
    =========================== */
 .note-body {

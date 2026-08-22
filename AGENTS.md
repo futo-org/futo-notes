@@ -131,7 +131,8 @@ These are observed failures, not generic advice.
 - **M13 — Untested tag job.** Exercise tag-gated work before tagging, propagate secrets into nested
   VMs, and upload caches `when: always`. Use `/ci-doctor`.
 - **M14 — Missing release dependency.** Every new test job enters `release:gate.needs` in the same
-  commit or it cannot block publication.
+  commit or it cannot block publication. One deliberate exception: `test:audit` is non-blocking by
+  design (docs/architecture-gates.md).
 - **M15 — Loosening instead of diagnosing.** Wait on conditions, not sleeps; avoid exact
   cross-platform UI strings. A second timeout bump means stop and root-cause.
 - **M16 — Landed artifacts/debugging.** Gitignore generated paths before building, inspect status,
@@ -161,6 +162,11 @@ These are observed failures, not generic advice.
   goes to the FOCUSED window, and every build shares the binary name — so a name/PID lookup sent
   real keystrokes into the user's live vault. Resolve any desktop QA target ONLY through
   `scripts/qa-target.mjs`, and drive the webview bridge, never the window server.
+- **M25 — Pattern kill across worktrees.** `pkill -f vite` / `pkill -f "cargo tauri dev"` reach every
+  checkout on the machine, and fail silently as a wrong answer: the peer gets an orphan that still
+  serves its bridge but never rebuilds, or a screenshot of a dead dev server instead of a test
+  failure. Terminate by identity only — `just qa-target kill`, the PID/process group you started, or
+  a port from `just ports` — never by process name. `just check-qa-input-safety` enforces it.
 
 ## 7. Quality bar per deliverable
 
@@ -189,7 +195,8 @@ Run `just build` rather than hand-piping `tsc`/`vite build` through `head`/`tail
 ## 9. Driving the real apps
 
 Use `/verify`; desktop debug has an MCP bridge, native mobile does not. Claim QA devices and never
-touch an unclaimed one. Prefer `window.__testSync`; WebView2 requires `scripts/win-vm/`.
+touch an unclaimed one. Tear down only what you started (M25). Prefer `window.__testSync`; WebView2
+requires `scripts/win-vm/`.
 
 ## 10. Behavioral spec — source of truth
 

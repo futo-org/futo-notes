@@ -593,6 +593,20 @@ EditorWebView.swift, EditorWebView.kt
   are dumb dispatchers: no platform restates the item list or reimplements
   a command. → packages/editor/src/toolbar.ts, src/features/editor/markdownToolbar.ts,
   tests/editor-embed-bridge.spec.ts
+- A block-format command classifies each selected line as plain, bullet,
+  ordered, task, heading, or quote, then emits exactly one block prefix after
+  the line's existing indentation. Tapping Bullet, Ordered, Task, or Quote on
+  the same kind removes it; tapping a different kind converts the whole prefix
+  while preserving the line's text. Converting a checked task drops its
+  checkbox state along with the task prefix. →
+  src/features/editor/toolbar/blockFormatting.ts,
+  src/features/editor/toolbar/blockFormatting.test.ts,
+  tests/editor-embed-bridge.spec.ts
+- Heading follows its own per-line cycle: a non-heading becomes h1, then h1 →
+  h2 → h3 → plain. A multi-line selection applies that transition separately
+  to each line, like the other block-format commands. →
+  src/features/editor/toolbar/blockFormatting.ts,
+  src/features/editor/toolbar/blockFormatting.test.ts
 - Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
   the host renders its own toolbar from a GENERATED copy of the manifest and
   drives the editor over the bridge — `exec(id)` runs the shared command,
@@ -952,6 +966,18 @@ EditorWebView.swift, EditorWebView.kt
   `EditorLifecycleFlushTest`. Earlier behavior verified on iOS 2026-07-13
   (sim); iOS verb wiring verified via `just test-ios-native` 2026-07-21 and
   Android verb/adoption wiring via `just test-android-native` 2026-07-23.
+- A durable native autosave flush **always advances the open editor's saved
+  baseline to the bytes that landed**. Rescheduling the debounce on the next
+  keystroke may cancel the task, but it must never skip that post-flush record;
+  only an editor identity that has already moved elsewhere may veto it. A
+  parked disposition follows the returned copy and advances its baseline in
+  the same step, so the next save cannot re-park against the original note.
+  iOS makes this liveness-free decision in `settledFlush`; Android holds the
+  flush-and-record span in `withContext(NonCancellable)`. _(iOS, Android)_ →
+  NoteEditorView.swift / NotesStore.swift `settledFlush`, EditorSession.kt
+  `NonCancellable`; guarded by `SettledFlushTests`,
+  `EditorSessionTests.cancelledSaveStillResumes`, and Android
+  `EditorSessionTest`.
 - The open editor's unsaved-draft register is **derived** from the editor's live
   state (note id, buffer, saved content, loaded) rather than hand-synced, so it
   goes clean the instant a save completes or a remote is adopted (no stale draft

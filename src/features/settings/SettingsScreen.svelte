@@ -7,6 +7,7 @@
   import { selfUpdateSupported, updaterSupported } from '$features/system/updater';
   import type { SyncSummary } from '$features/sync/syncServiceE2ee';
   import { confirmDialog } from '$shared/dialogs/confirmDialog';
+  import { dismissable } from '$shared/dialogs/dismissable';
   import {
     getCachedPreferences,
     savePreferences,
@@ -145,10 +146,6 @@
     }
   }
 
-  function handleKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') close();
-  }
-
   if (isTauri) {
     void getConfig()
       .then((config) => {
@@ -176,10 +173,13 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-<div class="settings-overlay" role="presentation" onclick={close}>
+<div
+  class="settings-overlay"
+  role="presentation"
+  use:dismissable={{ ondismiss: close }}
+  onclick={close}
+>
   <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
   <div
     class="settings-panel"
