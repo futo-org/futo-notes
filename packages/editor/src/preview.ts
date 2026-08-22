@@ -15,9 +15,32 @@
 export const PREVIEW_MAX_CHARS = 100;
 
 /**
- * ~100-char preview with CR/LF/TAB collapsed to single spaces and trimmed.
+ * Stands in for an embedded image in every list preview. Two code points
+ * (U+1F5BC framed picture + U+FE0F variation selector), so it spends two of the
+ * preview budget and renders as an emoji rather than a text glyph.
+ *
+ * MUST equal Rust `futo_notes_model::IMAGE_PLACEHOLDER`.
+ */
+export const IMAGE_PLACEHOLDER = '\u{1F5BC}\u{FE0F}';
+
+/**
+ * A markdown image construct: `![alt](target)`.
+ *
+ * A non-`]` alt run, then a non-`)` target run — the same scan Rust's
+ * `image_construct_end` performs. A construct missing either terminator is left
+ * alone, and `[link](url)` without the leading `!` is not an image.
+ */
+const IMAGE_MARKDOWN_PATTERN = /!\[[^\]]*\]\([^)]*\)/gu;
+
+/**
+ * ~100-char preview: image markdown stood in as an emoji placeholder, CR/LF/TAB
+ * collapsed to single spaces, then trimmed.
  *
  * MUST match Rust `make_preview` exactly:
+ *   0. Replace every `![alt](target)` image construct with
+ *      `IMAGE_PLACEHOLDER`. Previews are read as text, so raw image markdown is
+ *      noise — a note starting with an image previewed as
+ *      `![](image-20260814-130425.png)`.
  *   1. Replace `\r\n`, then bare `\n`, then `\t` with a single space each.
  *      (`\r\n` is collapsed first so a CRLF becomes ONE space, not two. A bare
  *      `\r` not followed by `\n` is intentionally left as-is — Rust does the
@@ -31,7 +54,11 @@ export const PREVIEW_MAX_CHARS = 100;
  * budget is spent on visible content, not on whitespace that gets dropped.
  */
 export function makePreview(content: string): string {
-  const collapsed = content.replace(/\r\n/g, ' ').replace(/\n/g, ' ').replace(/\t/g, ' ');
+  const collapsed = content
+    .replace(IMAGE_MARKDOWN_PATTERN, IMAGE_PLACEHOLDER)
+    .replace(/\r\n/g, ' ')
+    .replace(/\n/g, ' ')
+    .replace(/\t/g, ' ');
   const trimmed = collapsed.trim();
   return Array.from(trimmed).slice(0, PREVIEW_MAX_CHARS).join('');
 }

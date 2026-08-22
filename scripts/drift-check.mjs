@@ -18,7 +18,6 @@
 //       image-extension array, a new validateServerUrl definition, a new
 //       MAX_TITLE_LENGTH=200 literal, ...)
 
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -42,75 +41,23 @@ const SKIP_DIRS = new Set([
   'Pods',
 ]);
 
-// Enumerate candidate files under `dir` via git rather than readdirSync.
-//
-// A hand-rolled walk descends into ANY directory it finds, including a nested
-// git worktree or sibling checkout (`wtbase/`, a `.worktrees/` sibling) — which
-// is a whole second copy of this repo, so every registered copy reappears there
-// as an "unregistered occurrence" and the gate fails on a clean tree. That false
-// red was reported five separate times. Git already knows the boundary: it does
-// not recurse into a nested repository, so `ls-files` returns nothing for it.
-//
-// `--cached --others --exclude-standard` keeps the gate deny-by-default: it
-// still sees a NEW, not-yet-committed file (the case this scan exists to catch)
-// while honouring .gitignore/.git/info/exclude. SKIP_DIRS is still applied on
-// top, for tracked directories we deliberately ignore.
-function gitFiles(dir) {
-  const out = execFileSync(
-    'git',
-    ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', dir],
-    {
-      cwd: ROOT,
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    },
+export function shouldSkipDriftDirectory(name, fullPath, pathExists = fs.existsSync) {
+  return (
+    SKIP_DIRS.has(name) ||
+    name.startsWith('.') ||
+    // A nested checkout may use either a .git directory or the .git pointer
+    // file created by `git worktree add`. Its copies belong to that checkout,
+    // not to this worktree's deny-by-default registry scan.
+    pathExists(path.join(fullPath, '.git'))
   );
-  // -z output ends with a trailing NUL; drop the empty tail rather than
-  // emitting a bogus '' path.
-  return out.split('\0').filter(Boolean);
 }
 
-// Decide whether a git-reported path belongs to this scan. The skip rules are
-// applied to the portion BELOW the requested dir only, so an explicitly-scanned
-// dot-directory ('.claude', a registered scan.dirs entry) is still scanned while
-// a scan of '.' keeps ignoring dot-directories exactly as the old walk did.
-export function isScannablePath(relPath, relDir, exts) {
-  const prefix = relDir === '.' ? '' : `${relDir}/`;
-  const below = relPath.startsWith(prefix) ? relPath.slice(prefix.length) : relPath;
-  const segments = below.split('/');
-  if (segments.some((seg) => SKIP_DIRS.has(seg) || seg.startsWith('.'))) return false;
-  const name = segments[segments.length - 1];
-  return exts.some((ext) => name.endsWith(ext));
-}
-
-function walk(dir, exts) {
-  const relDir = path.relative(ROOT, dir) || '.';
-  let listed;
-  try {
-    listed = gitFiles(relDir);
-  } catch {
-    // Not a git checkout (source tarball, vendored copy). Fall back to the
-    // filesystem walk so the gate still runs rather than silently scanning
-    // zero files — the exact failure mode findMissingScanDirs() guards.
-    return walkFs(dir, exts);
-  }
-  const out = [];
-  for (const relPath of listed) {
-    if (!isScannablePath(relPath, relDir, exts)) continue;
-    const full = path.join(ROOT, relPath);
-    // `--others` lists paths that may have vanished since (or be a dangling
-    // symlink); the scan reads every hit, so drop unreadable ones here.
-    if (!fs.existsSync(full)) continue;
-    out.push(full);
-  }
-  return out;
-}
-
-function walkFs(dir, exts, out = []) {
+function walk(dir, exts, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) walkFs(full, exts, out);
+    if (!entry.isDirectory() && entry.name.startsWith('.')) continue;
+    if (entry.isDirectory() && shouldSkipDriftDirectory(entry.name, full)) continue;
+    if (entry.isDirectory()) walk(full, exts, out);
     else if (exts.some((ext) => entry.name.endsWith(ext))) out.push(full);
   }
   return out;

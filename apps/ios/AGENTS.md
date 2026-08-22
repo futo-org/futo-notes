@@ -52,10 +52,10 @@ shared `validateServerUrl` fixture — it is a lock, not a sample.
 
 Device/simulator QA of the changed flow is required; keyboard, safe-area, and scroll changes need
 the full matrix (new note, existing note, toolbar, scroll-during-IME). Drive the app with
-`xcrun simctl` + `idb`; the full playbook is the `/verify` skill's `references/ios.md`.
+`xcrun simctl` + AXe; the full playbook is the `/verify` skill's `references/ios.md`.
 
-**iOS 26 nav-bar toolbar items are invisible to the a11y tree and to idb taps** — list rows and the
-FAB work. When automation reports "nothing happened", suspect the tool before the app.
+**iOS 26 nav-bar toolbar items are invisible to idb's shallow a11y tree but visible to AXe**. When
+automation reports "nothing happened", suspect the tool before the app and follow the AXe playbook.
 
 `just sim-logs` streams os_log, but the app logs mostly via `print()`, which os_log does not
 capture — for stdout use `xcrun simctl launch --console-pty booted com.futo.notes.dev`.

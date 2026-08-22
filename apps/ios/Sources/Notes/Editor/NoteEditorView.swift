@@ -423,13 +423,28 @@ struct NoteEditorView: View {
             // three-way state without clobbering the peer version.
             let savedId = noteId
             let base = savedContent
-            guard
-                let disposition = await store.flushDraft(
-                    PendingDraft(id: savedId, base: base, content: newContent))
-            else { return false }
-            guard session.isActive, noteId == savedId else { return false }
-            savedContent = newContent
-            if case .parkedConflict(let parkedId) = disposition {
+            let disposition = await store.flushDraft(
+                PendingDraft(id: savedId, base: base, content: newContent))
+            // No cancellation guard here, deliberately: by the time the flush
+            // answers, its write is durable, and this task is routinely cancelled
+            // by the next keystroke's `session.schedule(.save)`. Skipping the
+            // baseline advance on that cancellation left `savedContent` behind
+            // disk, so the next flush's `base` no longer matched — and the engine
+            // parked this editor's own earlier write as a conflict copy.
+            // `settledFlush` owns that decision and vetoes on identity only.
+            switch settledFlush(
+                disposition: disposition,
+                writtenContent: newContent,
+                flushedId: savedId,
+                currentId: noteId,
+                sessionIsClosing: session.isClosing
+            ) {
+            case .ignore:
+                return false
+            case .record(let content):
+                savedContent = content
+            case .follow(let parkedId, let content):
+                savedContent = content
                 noteId = parkedId
                 titleField = splitId(id: parkedId).title
                 store.showTransient("Conflicting edits saved to a copy")

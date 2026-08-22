@@ -403,6 +403,22 @@ test('exec task-list toggles a - [ ] marker', async ({ page }) => {
   expect(await execOnLine(page, 'hello', 'task-list')).toBe('- [ ] hello');
 });
 
+test('exec converts task, bullet, and ordered line kinds without accumulating prefixes', async ({
+  page,
+}) => {
+  await hostSetContent(page, 'hello');
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+
+  await exec(page, 'task-list');
+  expect(await getContent(page)).toBe('- [ ] hello');
+
+  await exec(page, 'bullet-list');
+  expect(await getContent(page)).toBe('- hello');
+
+  await exec(page, 'ordered-list');
+  expect(await getContent(page)).toBe('1. hello');
+});
+
 test('exec link wraps a selection as [sel]() with the caret in the URL slot', async ({ page }) => {
   await hostSetContent(page, 'word');
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());

@@ -21,12 +21,6 @@
   pointer-events: none;
 }
 
-.settings-toggle-row.sub {
-  padding-left: 24px;
-  border-radius: 0 0 12px 12px;
-  margin-top: 0;
-}
-
 .settings-toggle-row.settings-issue-first-row {
   border-radius: 12px 12px 0 0;
 }

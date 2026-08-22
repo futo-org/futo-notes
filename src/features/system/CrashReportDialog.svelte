@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { CrashReport } from './crashHandler';
   import { keyboard } from '$features/editor/keyboard.svelte';
+  import { dismissable } from '$shared/dialogs/dismissable';
   import './crashReportDialog.css';
 
   interface Props {
@@ -52,12 +53,14 @@
 </script>
 
 <div class="crash-overlay" role="presentation" style="padding-bottom: {keyboard.height + 24}px">
+  <!-- Escape dismisses through the shared dialog stack. The old handler sat on
+       this panel, which nothing ever focused, so Escape never reached it. -->
   <div
     class="crash-panel"
     role="dialog"
     aria-modal="true"
     tabindex="-1"
-    onkeydown={(e) => e.key === 'Escape' && handleDiscard()}
+    use:dismissable={{ ondismiss: handleDiscard }}
   >
     <div class="crash-header">
       <h2 class="crash-title">Crash Report</h2>

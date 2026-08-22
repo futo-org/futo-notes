@@ -1,55 +1,32 @@
 /**
  * Write-suppression tracker for the file watcher.
  *
- * When the app writes a note to disk (local save or sync), the OS file watcher
- * fires a change event moments later. Without suppression we'd reload the note
- * the user just saved, clobbering their cursor position and undo history.
+ * When sync writes a note to disk, the OS file watcher fires a change event
+ * moments later. Without suppression we'd treat the sync echo as an external
+ * edit.
  *
- * Three independent maps track recent writes with different TTLs:
- * - recentWrites     (1s TTL) — local saves
- * - recentSyncWrites (5s TTL) — files written by sync (longer because sync
+ * Two independent maps track recent sync mutations:
+ * - recentSyncWrites (5s TTL) — files written by sync (watcher events may
  *   writes are batched and watcher events may arrive after a delay)
  * - recentRemoteRenames (5s TTL) — rename pairs from sync so we can suppress
  *   the unlink event for the old filename
  */
 
-/** TTL for `recentWrites` (local saves). Asserted against
- *  `tests/conformance/constants.json` by `constantsConformance.test.ts`. */
-export const LOCAL_WRITE_TTL_MS = 1000;
 /** TTL for `recentSyncWrites`/`recentRemoteRenames` (sync-originated writes).
  *  Also the Rust watcher's `SUPPRESSION_WINDOW_MS` — same value, independent
  *  constant (F21); asserted against `tests/conformance/constants.json`. */
 export const SYNC_WRITE_TTL_MS = 5000;
 
 export interface WriteSuppressor {
-  recordWrite(filename: string): void;
-  isRecentWrite(filename: string): boolean;
   recordSyncWrite(filename: string): void;
   isRecentSyncWrite(filename: string): boolean;
   recordRemoteRename(fromId: string, toId: string): void;
   getRecentRemoteRename(id: string): { toId: string; ts: number } | null;
-  capturePreSyncWrites(): void;
-  isPreSyncWrite(filename: string): boolean;
-  clearPreSyncWrites(): void;
 }
 
 export function createWriteSuppressor(): WriteSuppressor {
-  const recentWrites = new Map<string, number>();
   const recentSyncWrites = new Map<string, number>();
   const recentRemoteRenames = new Map<string, { toId: string; ts: number }>();
-  let preSyncWrites = new Set<string>();
-
-  function recordWrite(filename: string): void {
-    recentWrites.set(filename, Date.now());
-    for (const [key, ts] of recentWrites) {
-      if (Date.now() - ts > 2000) recentWrites.delete(key);
-    }
-  }
-
-  function isRecentWrite(filename: string): boolean {
-    const ts = recentWrites.get(filename);
-    return ts !== undefined && Date.now() - ts < LOCAL_WRITE_TTL_MS;
-  }
 
   function recordSyncWrite(filename: string): void {
     recentSyncWrites.set(filename, Date.now());
@@ -80,28 +57,11 @@ export function createWriteSuppressor(): WriteSuppressor {
     return entry;
   }
 
-  function capturePreSyncWrites(): void {
-    preSyncWrites = new Set(recentWrites.keys());
-  }
-
-  function isPreSyncWrite(filename: string): boolean {
-    return preSyncWrites.has(filename);
-  }
-
-  function clearPreSyncWrites(): void {
-    preSyncWrites.clear();
-  }
-
   return {
-    recordWrite,
-    isRecentWrite,
     recordSyncWrite,
     isRecentSyncWrite,
     recordRemoteRename,
     getRecentRemoteRename,
-    capturePreSyncWrites,
-    isPreSyncWrite,
-    clearPreSyncWrites,
   };
 }
 

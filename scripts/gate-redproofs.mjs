@@ -359,6 +359,40 @@ const PROOFS = [
   },
   {
     gate: 'qa-input-safety',
+    id: 'toolchain-pattern-kill',
+    seeded: 'added a `pkill -f "cargo tauri dev"` cleanup step to README.md',
+    claim:
+      "a pattern kill against this repo's toolchain must fail — six worktrees share every process name, so it is machine-wide",
+    inject: (wt) =>
+      seed.append(
+        wt,
+        'README.md',
+        '\nSeeded: clean up afterwards with `pkill -f "cargo tauri dev"`.\n',
+      ),
+    expect: ['README.md', 'process-name-kill', 'qa-target kill'],
+    // The app binary is a DIFFERENT rule's territory; if this fires too, the two
+    // rules have stopped being complementary and every line needs two exceptions.
+    absent: ['app-process-name-lookup'],
+    fix: "the process-name-kill rule stopped firing (or KILL_BY_PATTERN in scripts/check-qa-input-safety.mjs stopped recognising a kill in command position). Without it an instruction file can again teach the cleanup step that orphaned three peer worktrees' builds on 2026-08-19 — silently, as a wrong answer rather than an error.",
+  },
+  {
+    gate: 'qa-input-safety',
+    id: 'unpinned-pattern-kill-in-the-justfile',
+    seeded: 'added a recipe with an unpinned `pkill -f vite` to the justfile',
+    claim:
+      'the justfile is scanned too: `deploy-deb`/`deploy-rpm` are pinned exceptions, and a THIRD pattern kill beside them must still fail',
+    inject: (wt) =>
+      seed.append(
+        wt,
+        'justfile',
+        '\n# Seeded by scripts/gate-redproofs.mjs — delete this recipe.\nredproof-sentinel-cleanup:\n  pkill -f vite\n',
+      ),
+    expect: ['justfile', 'process-name-kill', 'pkill -f vite'],
+    absent: ['stale entry'],
+    fix: 'collectInstructionFiles() in scripts/check-qa-input-safety.mjs stopped scanning the root justfile. AGENTS.md imports it (`@justfile`), so it is instruction every agent reads — and it is where the two legitimate pattern kills live, which is exactly why a new one must not be able to hide beside them.',
+  },
+  {
+    gate: 'qa-input-safety',
     id: 'new-occurrence-in-an-allowlisted-file',
     seeded: 'added a fresh `cliclick` line to AGENTS.md, which has a pinned cliclick exception',
     claim:

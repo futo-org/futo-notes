@@ -665,6 +665,38 @@ function previewCorpus() {
   for (const astral of ASTRAL) {
     contents.push(astral.repeat(60), ` ${astral} \n ${astral} `);
   }
+  // Image constructs are stood in as the placeholder BEFORE collapse/trim/
+  // truncate, so both languages must agree on where a construct starts and ends
+  // (including the malformed ones that are not constructs at all) and on
+  // spending two code points of the budget per placeholder.
+  contents.push(
+    '![](image-20260814-130425.png)',
+    '![](image-20260814-130425.png)\ntext below',
+    '![alt text](photo.png)',
+    'lead ![](a.png) trail',
+    '![](a.png)![](b.png)![](c.png)',
+    '![](a.png)\n\n# Heading\ntext',
+    '- ![](a.png) caption',
+    '> ![](a.png)',
+    'a [link](https://example.com) is not an image',
+    '![unterminated](a.png',
+    '![no target] here',
+    '![a]b](x.png)',
+    '![a![b](c.png)',
+    '!![](x.png)',
+    '![](a(b)c.png)',
+    '![](){}',
+    '![]()',
+    '![\n](a.png)',
+    `![](${PARTY}.png)`,
+    `![${PARTY}](a.png)`,
+    // Placeholder straddling the 100-code-point truncation boundary: the
+    // variation selector must be dropped or kept identically on both sides.
+    `${'a'.repeat(99)}![](x.png)tail`,
+    `${'a'.repeat(98)}![](x.png)tail`,
+    `${'a'.repeat(100)}![](x.png)`,
+    `${'![](a.png)'.repeat(60)}`,
+  );
   const alphabet = [
     'a',
     'B',
@@ -681,6 +713,11 @@ function previewCorpus() {
   ];
   const rng = xorshift32(0x9e3779b9);
   for (let index = 0; index < 300; index += 1) contents.push(sample(rng, alphabet, rng() % 130));
+  // Random image-ish soup: the delimiter characters interleaved with text and
+  // whitespace, so nesting/overlap cases nobody hand-wrote still get compared.
+  const imageAlphabet = ['!', '[', ']', '(', ')', 'a', '.', 'png', ' ', '\n', PARTY];
+  for (let index = 0; index < 400; index += 1)
+    contents.push(sample(rng, imageAlphabet, rng() % 40));
   return unique(contents);
 }
 

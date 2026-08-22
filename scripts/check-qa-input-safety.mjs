@@ -1,5 +1,5 @@
 // QA input-safety gate — no instruction surface may teach an agent to drive
-// this app with OS-level input, or to find it by process name.
+// this app with OS-level input, or to find (or kill) it by process name.
 //
 //   node scripts/check-qa-input-safety.mjs        (just check-qa-input-safety)
 //
@@ -31,14 +31,35 @@
 // while a fresh occurrence — even in the same file — still fails. A pinned line
 // that disappears fails too, so the allowlist cannot rot.
 //
+// WHY IT ALSO COVERS TERMINATION. 2026-08-19: six agents worked in parallel
+// worktrees on one machine, and three of them independently reached for a
+// pattern kill to clean up after themselves — `pkill -f "cargo tauri dev"`,
+// `pkill -f "cargo  run --no-default-features"`, `pkill -f vite`. Each one is
+// machine-wide. The first two killed OTHER worktrees' Tauri supervisors,
+// orphaning their app binaries: an orphan keeps serving its DevTools/MCP bridge
+// while it stops rebuilding, so a peer spent a long time concluding its change
+// "had no effect" from a build that never happened. The third took every
+// worktree's dev server to zero at once, mid-Playwright-run. Nobody got an
+// exception; they got plausible wrong answers, which is the worst shape a
+// failure can have. Same root cause as the 2026-08-10 incident — a process name
+// is not an identity — so it is the same gate, not a sibling.
+//
 // SCOPE / LIMITS. This gate reads instruction surfaces (Markdown + agent/skill
-// definitions), not source code: `factory/`'s Obsidian and Apple Notes oracles
-// legitimately script OTHER applications, and banning the mechanism in TypeScript
-// would be a different rule with different trade-offs. It also cannot see
-// gitignored working files (QA ledgers under test-screenshots/) or an agent's
-// own memory outside the repo — which is why the safe technique is documented
-// alongside the ban, and why scripts/qa-target.mjs refuses unsafe targets at
-// runtime instead of trusting anyone to have read this.
+// definitions) plus the root `justfile`, not source code: `factory/`'s Obsidian
+// and Apple Notes oracles legitimately script OTHER applications, and banning
+// the mechanism in TypeScript would be a different rule with different
+// trade-offs. The justfile is in because AGENTS.md imports it by reference
+// (`@justfile`), so it is loaded into every agent's context as instruction, and
+// because it is the one file in this repo that demonstrates a pattern kill —
+// `deploy-deb`/`deploy-rpm` legitimately stop every instance right before
+// overwriting /usr/bin. Those two lines are pinned; a THIRD one is a violation.
+//
+// It cannot see gitignored working files (QA ledgers under test-screenshots/) or
+// an agent's own memory outside the repo, and — unlike scripts/qa-target.mjs,
+// which refuses an unsafe target at runtime — nothing intercepts a pkill an
+// agent types straight into a shell. This gate stops the repo TEACHING the
+// idiom; it is not a runtime guard, which is why the safe technique is
+// documented alongside every ban.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -56,6 +77,33 @@ const SKIP_DIRS = new Set([
   '.build-device',
   '.build-device-release',
 ]);
+
+// ---------------------------------------------------------------------------
+// Shapes shared by the two process-identity rules
+// ---------------------------------------------------------------------------
+
+// The command verb must be on THIS line (so a violation is reported where it
+// lives), but the app name may wrap onto the next — these commands are
+// routinely line-wrapped in Markdown prose.
+const APP_NAME_LOOKUP_VERB = /\b(pgrep|pkill|killall)\b/;
+const APP_BINARY_NAME = /(futo-notes-tauri|FUTO Notes)/;
+const namesTheApp = (line, nextLine) =>
+  APP_NAME_LOOKUP_VERB.test(line) && APP_BINARY_NAME.test(`${line} ${nextLine ?? ''}`);
+
+// A pattern that can only ever match processes launched from THIS checkout —
+// the one legal shape of a pattern kill.
+const WORKTREE_ANCHORED = /\$\{?PWD\}?|\$\(pwd\)|\$CI_PROJECT_DIR|\bworktrees\//;
+
+// A kill in COMMAND position: the verb followed by a flag, a quote, a variable
+// or a name. A bare mention of the verb in prose that FORBIDS it (``pkill``
+// inside backticks, no argument) is not a command, and has to stay writable —
+// otherwise the ban cannot be documented. `kill <pid>` is deliberately absent:
+// a PID is an identity, and it is the sanctioned form.
+const KILL_BY_PATTERN = [
+  /\b(pkill|killall)\s+["'$\w-]/,
+  /\bkill\b[^\n]*\$\(\s*pgrep\b/,
+  /\bpgrep\b[^\n]*\|[^\n]*\bxargs\b[^\n]*\bkill\b/,
+];
 
 // ---------------------------------------------------------------------------
 // The banned patterns
@@ -100,12 +148,21 @@ export const RULES = [
     why: 'every build of this app shares the binary name `futo-notes-tauri`, including /Applications/FUTO Notes.app and each parallel worktree — a name or PID match cannot tell them apart.',
     instead:
       "`node scripts/qa-target.mjs list|pid|port|kill`, the only sanctioned resolver: it classifies by real executable path, this repo's worktree list, and the instance's own data dir and vault.",
-    // The command verb must be on THIS line (so the violation is reported where
-    // it lives), but the app name may wrap onto the next — these commands are
-    // routinely line-wrapped in Markdown prose.
+    match: namesTheApp,
+  },
+  {
+    id: 'process-name-kill',
+    why: 'up to seven checkouts of this repo run at once on this machine and every one of them spawns identically-named processes (`vite`, `cargo tauri dev`, `node`, `gradle`), so a pattern kill is machine-wide. The damage is silent and shaped like a wrong answer rather than an error: an orphaned app keeps serving its bridge port while it stops rebuilding, and a killed dev server hands an in-flight test run a screenshot of an error overlay instead of a failure.',
+    instead:
+      'kill by identity, not by name — `just qa-target kill` for this worktree\'s desktop instances (it refuses anything that is not a debug build of THIS checkout), the PID or process group you recorded when you started the job, or the port this worktree owns (`just ports`). A pattern kill is legal only when the pattern itself is scoped to this checkout (`pkill -f "$PWD"`).',
+    // Complementary to app-process-name-lookup by construction: that rule owns
+    // every line spelling the desktop binary, this one owns the rest. One
+    // dangerous line therefore reports under exactly one id and needs exactly
+    // one allowlist entry.
     match: (line, nextLine) =>
-      /\b(pgrep|pkill|killall)\b/.test(line) &&
-      /(futo-notes-tauri|FUTO Notes)/.test(`${line} ${nextLine ?? ''}`),
+      !namesTheApp(line, nextLine) &&
+      !WORKTREE_ANCHORED.test(line) &&
+      KILL_BY_PATTERN.some((shape) => shape.test(line)),
   },
   {
     id: 'relative-newermt',
@@ -142,7 +199,10 @@ function findFiles(dir, matches, out = []) {
 export function collectInstructionFiles(root) {
   const files = [];
 
-  for (const name of ['README.md', 'CONTRIBUTING.md']) {
+  // `justfile` is an instruction surface, not just tooling: AGENTS.md imports it
+  // by reference (`@justfile`), so every agent has it in context, and it is
+  // where the pattern-kill idiom is demonstrated (see the header).
+  for (const name of ['README.md', 'CONTRIBUTING.md', 'justfile']) {
     const full = path.join(root, name);
     if (fs.existsSync(full)) files.push(full);
   }
@@ -270,8 +330,10 @@ function main() {
     console.error(
       `${violations.length} banned QA-input pattern(s) and ${staleEntries.length} stale allowlist ` +
         `entry(ies) across ${files.length} instruction file(s).\n` +
-        "These techniques sent real Cmd+Z keystrokes into the user's production vault once. " +
-        'Do not allowlist a new occurrence to get green — use scripts/qa-target.mjs and the webview bridge.',
+        "These techniques sent real Cmd+Z keystrokes into the user's production vault once (M24), " +
+        "and killed three peer worktrees' dev stacks in one hour (M25). Do not allowlist a new " +
+        'occurrence to get green — use scripts/qa-target.mjs, the webview bridge, and a PID or port ' +
+        'you own.',
     );
     process.exit(1);
   }
