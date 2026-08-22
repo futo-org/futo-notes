@@ -33,11 +33,6 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
   const pendingDeletes: Map<string, { hash: string; timer: number }> = new Map();
 
   function enqueue(event: FileChangeEvent): void {
-    if (event.type === 'rename' && event.from) {
-      enqueue({ type: 'unlink', filename: event.from });
-      enqueue({ type: 'add', filename: event.filename });
-      return;
-    }
     if (syncActive) {
       pendingWatcherEvents.push(event);
       return;
@@ -103,11 +98,17 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
     try {
       while (watcherHandlerQueue.length > 0) {
         const batch = watcherHandlerQueue.splice(0);
-        const deduped = new Map<string, FileChangeEvent>();
-        for (const ev of batch) {
-          deduped.set(ev.filename, ev);
+        const seenOrdinaryFilenames = new Set<string>();
+        const events: FileChangeEvent[] = [];
+        for (let index = batch.length - 1; index >= 0; index -= 1) {
+          const event = batch[index];
+          if (event.type !== 'rename') {
+            if (seenOrdinaryFilenames.has(event.filename)) continue;
+            seenOrdinaryFilenames.add(event.filename);
+          }
+          events.push(event);
         }
-        const events = [...deduped.values()];
+        events.reverse();
 
         if (events.length > 10) {
           await onBulkRefresh(events);
@@ -127,12 +128,9 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
     postSyncBatchTimer = window.setTimeout(async () => {
       postSyncBatchTimer = null;
       const unhandled = pendingWatcherEvents.filter(
-        (ev) =>
-          isDrainExempt?.(ev) ||
-          (!suppressor.isRecentSyncWrite(ev.filename) && !suppressor.isPreSyncWrite(ev.filename)),
+        (ev) => isDrainExempt?.(ev) || !suppressor.isRecentSyncWrite(ev.filename),
       );
       pendingWatcherEvents = [];
-      suppressor.clearPreSyncWrites();
       if (unhandled.length > 0) {
         await onBulkRefresh(unhandled);
       }
@@ -141,9 +139,6 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
 
   function setSyncActive(active: boolean): void {
     syncActive = active;
-    if (active) {
-      suppressor.capturePreSyncWrites();
-    }
   }
 
   function destroy(): void {

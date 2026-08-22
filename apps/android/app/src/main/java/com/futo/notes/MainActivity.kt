@@ -9,6 +9,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -111,7 +112,6 @@ class MainActivity : ComponentActivity() {
     private val store = mutableStateOf<NotesStore?>(null)
     private val showOnboarding = mutableStateOf(false)
     private val showRegrant = mutableStateOf(false)
-    private val showStoragePicker = mutableStateOf(false)
     private val storageSwitching = mutableStateOf(false)
     private val storageResolving = mutableStateOf(true)
     private val storageRecoveryError = mutableStateOf<String?>(null)
@@ -247,6 +247,11 @@ class MainActivity : ComponentActivity() {
                                 prefs.edit().putString(Prefs.THEME, it.name).apply()
                             }, dark = dark)
                             if (vaultSurface.showMovingOverlay) {
+                                // The tap swallow below has a Back twin: without
+                                // it Back reaches the shell underneath and pops
+                                // (or, at the list, finishes the activity) while
+                                // the vault is being moved.
+                                BackHandler {}
                                 Surface(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -370,8 +375,20 @@ class MainActivity : ComponentActivity() {
                     onThemeMode = onThemeMode,
                     onOpenSync = navigator::openSync,
                     storageMode = currentMode(),
-                    onChangeStorage = { showStoragePicker.value = true },
+                    onChangeStorage = navigator::openStorageLocation,
                     onBack = navigator::goBack,
+                )
+                // Settings -> Storage location. A screen, not an overlay: Back and
+                // Cancel are the same pop, and the Settings entry stays underneath
+                // it (github#28). Confirming migrates + restarts.
+                is Screen.StorageLocation -> StorageOnboarding(
+                    initialMode = currentMode(),
+                    deviceModeSupported = NotesStorage.deviceModeSupported(),
+                    onConfirm = {
+                        navigator.goBack()
+                        performStorageChange(it)
+                    },
+                    onCancel = navigator::goBack,
                 )
                 is Screen.Sync -> SyncScreen(
                     store = s,
@@ -401,16 +418,6 @@ class MainActivity : ComponentActivity() {
                         CrashReporter.discardAll(notesRoot)
                     }
                 },
-            )
-        }
-
-        // Change-storage overlay (Settings → Storage location). Migrates + restarts.
-        if (showStoragePicker.value) {
-            StorageOnboarding(
-                initialMode = currentMode(),
-                deviceModeSupported = NotesStorage.deviceModeSupported(),
-                onConfirm = { performStorageChange(it) },
-                onCancel = { showStoragePicker.value = false },
             )
         }
 
@@ -522,7 +529,9 @@ class MainActivity : ComponentActivity() {
                 "storageMode" to currentMode().name,
                 "vaultPath" to if (::notesRoot.isInitialized) notesRoot.path else null,
                 "notes" to (store.value?.notes?.size ?: 0),
-                "onboarding" to (showOnboarding.value || showStoragePicker.value),
+                // First-run only. The Settings change-location picker is an
+                // ordinary screen now, so it is observed by its own label.
+                "onboarding" to showOnboarding.value,
                 "movingNotes" to storageSwitching.value,
                 "awaitingStorageConfirmation" to (pendingStorageAdoption.value != null),
                 "shellVisible" to (store.value != null && !storageSwitching.value),
@@ -571,7 +580,6 @@ class MainActivity : ComponentActivity() {
 
     /** Settings change-location confirm: migrate the vault, then relaunch. */
     private fun performStorageChange(mode: StorageMode) {
-        showStoragePicker.value = false
         if (mode == currentMode()) return
         if (mode == StorageMode.DEVICE && !NotesStorage.deviceModeSupported()) {
             Toast.makeText(this, "Device storage requires Android 11 or newer.", Toast.LENGTH_LONG).show()

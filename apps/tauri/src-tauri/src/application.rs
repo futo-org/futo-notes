@@ -68,6 +68,7 @@ pub(crate) fn run() {
             crate::local_notes::local_notes_search,
             crate::local_notes::local_notes_wait_until_search_ready,
             crate::local_notes::local_notes_rescan,
+            crate::local_notes::local_notes_refresh_external_changes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

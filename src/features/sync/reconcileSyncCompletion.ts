@@ -1,6 +1,5 @@
-import { getNoteById, noteExists } from '$features/notes/notes.svelte';
+import { getNoteById, noteExists, refreshNotesAfterSync } from '$features/notes/notes.svelte';
 import type { NoteSession } from '$features/notes/noteSession.svelte';
-import { getLocalNoteStore } from '$lib/localNoteStore';
 import { updateAppState } from '$shared/state/appState';
 
 import type { SyncTrigger } from './autoSyncV2';
@@ -10,7 +9,7 @@ import type { WriteSuppressor } from '$lib/platform/writeSuppression';
 
 type ExternalChangeCoordinator = Pick<
   ReturnType<typeof createExternalChangeCoordinator>,
-  'reconcileOpenNote' | 'runRescan'
+  'reconcileOpenNote'
 >;
 
 interface SyncCompletionDependencies {
@@ -54,17 +53,14 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     }
   }
 
-  function reindexPeerChanges(summary: SyncSummary): void {
-    const hasPeerNoteChanges =
-      summary.peerUpdatedIds.length > 0 ||
-      summary.peerDeletedIds.length > 0 ||
+  async function projectSyncChanges(summary: SyncSummary): Promise<void> {
+    const wroteLocalChanges =
+      summary.localWritesApplied > 0 ||
+      summary.updatedIds.length > 0 ||
+      summary.deletedIds.length > 0 ||
       summary.renamed.length > 0;
-    if (!hasPeerNoteChanges) return;
-
-    // Sync writes bypass LocalNoteStore mutation methods, so reconcile its
-    // Rust-owned index once for the complete peer batch.
-    void getLocalNoteStore().then((store) => store.rescan());
-    setTimeout(() => void externalChanges.runRescan(), 50);
+    if (!wroteLocalChanges) return;
+    await refreshNotesAfterSync(summary.updatedIds, summary.deletedIds, summary.renamed);
   }
 
   // Every reported rename the open-note executor did not already follow —
@@ -145,7 +141,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     });
 
     recordSyncedFiles(summary);
-    reindexPeerChanges(summary);
+    await projectSyncChanges(summary);
     const openNoteResult = await reconcileOpenNote(summary, syncStartEditVersion);
     projectReportedRenames(summary, openNoteResult.followedRenameFromIds);
 

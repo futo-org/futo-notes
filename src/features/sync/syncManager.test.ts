@@ -27,6 +27,7 @@ vi.mock('./syncServiceE2ee', () => ({
 vi.mock('$lib/platform', () => ({ hasFileSystem: true, isTauri: true }));
 vi.mock('$shared/state/appState', () => ({ updateAppState: vi.fn(async () => {}) }));
 const rescanLocalNotes = vi.hoisted(() => vi.fn(async () => {}));
+const refreshNotesAfterSync = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('$lib/localNoteStore', () => ({
   getLocalNoteStore: vi.fn(async () => ({ rescan: rescanLocalNotes })),
 }));
@@ -35,6 +36,7 @@ vi.mock('$features/notes/notes.svelte', () => ({
   noteExists: vi.fn(async () => false),
   getNoteById: vi.fn(() => undefined),
   handleExternalFileChange: vi.fn(async () => {}),
+  refreshNotesAfterSync,
   refreshNotesFromStorage: vi.fn(async () => {}),
 }));
 
@@ -54,6 +56,7 @@ const emptySummary: SyncSummary = {
   downloaded: 0,
   deleted: 0,
   conflicts: 0,
+  localWritesApplied: 0,
   failures: [],
   failureMessage: null,
   updatedIds: [],
@@ -238,6 +241,7 @@ beforeEach(() => {
     disposition: 'wrote',
   }));
   rescanLocalNotes.mockClear();
+  refreshNotesAfterSync.mockClear();
   vi.mocked(updateAppState).mockClear();
   openNoteMocks.classifyOpenNote.mockReset();
   openNoteMocks.classifyOpenNote.mockResolvedValue({ kind: 'leave' });
@@ -325,7 +329,7 @@ describe('sync outcome state', () => {
 });
 
 describe('peer projections', () => {
-  it('reconciles the owned index once for a peer-driven batch', async () => {
+  it('projects the complete changed-id report for a peer-driven batch', async () => {
     const { manager } = makeManager();
     await manager.handleSyncComplete({
       ...emptySummary,
@@ -335,13 +339,22 @@ describe('peer projections', () => {
       peerDeletedIds: ['Gone'],
       renamed: [{ fromId: 'Old', toId: 'New' }],
     });
-    expect(rescanLocalNotes).toHaveBeenCalledTimes(1);
+    expect(refreshNotesAfterSync).toHaveBeenCalledExactlyOnceWith(
+      ['Peer', 'Mine'],
+      ['Gone'],
+      [{ fromId: 'Old', toId: 'New' }],
+    );
   });
 
-  it('does not reconcile the owned index for a pure push echo', async () => {
+  it('projects a push-side write that has no peer-id entry', async () => {
     const { manager } = makeManager();
-    await manager.handleSyncComplete({ ...emptySummary, updatedIds: ['Mine'] });
-    expect(rescanLocalNotes).not.toHaveBeenCalled();
+    await manager.handleSyncComplete({
+      ...emptySummary,
+      uploaded: 1,
+      localWritesApplied: 1,
+      updatedIds: ['Mine'],
+    });
+    expect(refreshNotesAfterSync).toHaveBeenCalledExactlyOnceWith(['Mine'], [], []);
   });
 
   // Rename intent is engine-reported (including collision placements — see

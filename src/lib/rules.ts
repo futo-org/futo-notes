@@ -2,6 +2,7 @@ export {
   FALLBACK_TITLE,
   FORBIDDEN_CHARS_RE,
   MAX_FOLDER_DEPTH,
+  MAX_TITLE_LENGTH,
   sanitizeTitle,
   validateTitle,
   validateFolderName,

@@ -151,8 +151,6 @@ export class EditorLinkInteractions {
         const targetNode = event.target as Node | null;
         const target =
           targetNode instanceof Element ? targetNode : (targetNode?.parentElement ?? null);
-        if (target?.closest('a.cm-md-table-link')) return false;
-
         const hit = document.elementFromPoint(event.clientX, event.clientY);
         const link =
           findExternalLinkElementAtPoint(hit, event.clientX, event.clientY) ??

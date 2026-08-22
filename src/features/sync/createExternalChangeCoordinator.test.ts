@@ -434,6 +434,185 @@ describe('save, composition, and watcher ordering', () => {
     expect(bundle.rebaseSavedContent).toHaveBeenCalledWith('base');
     bundle.coordinator.stop();
   });
+});
+
+describe('watcher rename semantics', () => {
+  it('follows and auto-pushes a paired rename of the open note', async () => {
+    syncMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'followRename',
+      toId: 'renamed',
+    });
+    const bundle = makeCoordinator();
+
+    await bundle.coordinator.handleFileChange({
+      type: 'rename',
+      filename: 'renamed.md',
+      from: 'active.md',
+    });
+
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: 'active', renamedTo: 'renamed' }),
+    );
+    expect(bundle.followRename).toHaveBeenCalledExactlyOnceWith('active', 'renamed');
+    expect(bundle.notifySaved).toHaveBeenCalledOnce();
+    bundle.coordinator.stop();
+  });
+
+  it('treats a rename out of markdown as an unlink of the old note', async () => {
+    const bundle = makeCoordinator();
+
+    await bundle.coordinator.handleFileChange({
+      type: 'rename',
+      filename: 'active.txt',
+      from: 'active.md',
+    });
+
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: 'active', renamedTo: null }),
+    );
+    expect(noteMocks.handleExternalFileChange).toHaveBeenCalledExactlyOnceWith('active.md');
+    expect(bundle.notifySaved).not.toHaveBeenCalled();
+    bundle.coordinator.stop();
+  });
+
+  it('treats a rename into markdown as an added note', async () => {
+    const bundle = makeCoordinator();
+
+    await bundle.coordinator.handleFileChange({
+      type: 'rename',
+      filename: 'imported.md',
+      from: 'imported.txt',
+    });
+
+    expect(noteMocks.handleExternalFileChange).toHaveBeenCalledExactlyOnceWith('imported.md');
+    expect(syncMocks.classifyOpenNote).not.toHaveBeenCalled();
+    expect(bundle.notifySaved).toHaveBeenCalledOnce();
+    bundle.coordinator.stop();
+  });
+
+  it('ignores a rename between non-markdown files', async () => {
+    const bundle = makeCoordinator();
+
+    await bundle.coordinator.handleFileChange({
+      type: 'rename',
+      filename: 'asset.json',
+      from: 'asset.txt',
+    });
+
+    expect(noteMocks.handleExternalFileChange).not.toHaveBeenCalled();
+    expect(syncMocks.classifyOpenNote).not.toHaveBeenCalled();
+    expect(bundle.notifySaved).not.toHaveBeenCalled();
+    bundle.coordinator.stop();
+  });
+});
+
+describe('watcher rename batching', () => {
+  it('keeps an open-note rename actionable inside a bulk watcher batch', async () => {
+    vi.useFakeTimers();
+    syncMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'followRename',
+      toId: 'renamed',
+    });
+    const bundle = makeCoordinator();
+
+    bundle.coordinator.watcherBatch.enqueue({
+      type: 'rename',
+      filename: 'renamed.md',
+      from: 'active.md',
+    });
+    for (let index = 0; index < 10; index += 1) {
+      bundle.coordinator.watcherBatch.enqueue({
+        type: 'change',
+        filename: `background-${index}.md`,
+      });
+    }
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(bundle.followRename).toHaveBeenCalledExactlyOnceWith('active', 'renamed');
+    expect(bundle.notifySaved).toHaveBeenCalledOnce();
+    bundle.coordinator.stop();
+    vi.useRealTimers();
+  });
+
+  it('follows an open note through a bulk rename chain in event order', async () => {
+    vi.useFakeTimers();
+    syncMocks.classifyOpenNote
+      .mockResolvedValueOnce({ kind: 'followRename', toId: 'middle' })
+      .mockResolvedValueOnce({ kind: 'followRename', toId: 'final' });
+    const bundle = makeCoordinator();
+
+    bundle.coordinator.watcherBatch.enqueue({
+      type: 'rename',
+      filename: 'middle.md',
+      from: 'active.md',
+    });
+    bundle.coordinator.watcherBatch.enqueue({
+      type: 'rename',
+      filename: 'final.md',
+      from: 'middle.md',
+    });
+    for (let index = 0; index < 9; index += 1) {
+      bundle.coordinator.watcherBatch.enqueue({
+        type: 'unlink',
+        filename: `removed-${index}.md`,
+      });
+    }
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(bundle.followRename.mock.calls).toEqual([
+      ['active', 'middle'],
+      ['middle', 'final'],
+    ]);
+    expect(bundle.notifySaved).toHaveBeenCalledOnce();
+    bundle.coordinator.stop();
+    vi.useRealTimers();
+  });
+
+  it('preserves and auto-pushes an open-note rename drained after sync', async () => {
+    vi.useFakeTimers();
+    syncMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'followRename',
+      toId: 'renamed',
+    });
+    const bundle = makeCoordinator();
+
+    bundle.coordinator.watcherBatch.setSyncActive(true);
+    bundle.coordinator.watcherBatch.enqueue({
+      type: 'rename',
+      filename: 'renamed.md',
+      from: 'active.md',
+    });
+    bundle.coordinator.watcherBatch.setSyncActive(false);
+    bundle.coordinator.watcherBatch.drainPostSync();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(bundle.followRename).toHaveBeenCalledExactlyOnceWith('active', 'renamed');
+    expect(bundle.notifySaved).toHaveBeenCalledOnce();
+    bundle.coordinator.stop();
+    vi.useRealTimers();
+  });
+
+  it('auto-pushes a background rename inside a bulk watcher batch', async () => {
+    vi.useFakeTimers();
+    const bundle = makeCoordinator(makeSession({ originalId: null }));
+
+    bundle.coordinator.watcherBatch.enqueue({
+      type: 'rename',
+      filename: 'renamed.md',
+      from: 'old.md',
+    });
+    for (let index = 0; index < 10; index += 1) {
+      bundle.coordinator.watcherBatch.enqueue({
+        type: 'unlink',
+        filename: `removed-${index}.md`,
+      });
+    }
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(bundle.notifySaved).toHaveBeenCalledOnce();
+    bundle.coordinator.stop();
+    vi.useRealTimers();
+  });
 
   it('keeps suppressing non-active sync writes while active changes still classify', async () => {
     const suppressor = createWriteSuppressor();

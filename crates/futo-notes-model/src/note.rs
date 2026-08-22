@@ -1,5 +1,7 @@
 //! Pure note rules. Nothing in this module reads or writes the vault.
 
+use std::borrow::Cow;
+
 use futo_notes_core::files::sanitize_title;
 
 pub const WELCOME_NOTE_ID: &str = "Welcome";
@@ -50,9 +52,75 @@ pub fn note_tags(content: &str) -> Vec<String> {
     crate::tags::extract_tag_names(content)
 }
 
-/// The list preview contract is: collapse CRLF/LF/tab to spaces, trim the
-/// whole result, then keep at most 100 Unicode scalar values.
+/// Stands in for an embedded image in every list preview. Two code points
+/// (U+1F5BC framed picture + U+FE0F variation selector), so it spends two of
+/// the preview budget and renders as an emoji rather than a text glyph.
+pub const IMAGE_PLACEHOLDER: &str = "🖼️";
+
+/// Replace every `![alt](target)` image construct with [`IMAGE_PLACEHOLDER`].
+///
+/// Previews are read as text, so raw image markdown is noise: a note whose
+/// first line is an image previewed as `![](image-20260814-130425.png)`.
+/// Borrowed unchanged when the content has no image construct, which is the
+/// common case on the list hot path.
+///
+/// Mirrored in TypeScript by `packages/editor/src/preview.ts`
+/// (`IMAGE_MARKDOWN_PATTERN`), whose `/!\[[^\]]*\]\([^)]*\)/g` this scanner
+/// reproduces exactly: a non-`]` alt run, then a non-`)` target run. A
+/// construct missing either terminator is left alone, and `[link](url)`
+/// without the leading `!` is not an image.
+fn replace_images(content: &str) -> Cow<'_, str> {
+    let bytes = content.as_bytes();
+    let mut out = String::new();
+    let mut copied = 0;
+    let mut cursor = 0;
+    while cursor + 1 < bytes.len() {
+        if bytes[cursor] != b'!' || bytes[cursor + 1] != b'[' {
+            cursor += 1;
+            continue;
+        }
+        match image_construct_end(bytes, cursor) {
+            Some(end) => {
+                if out.is_empty() {
+                    out.reserve(content.len());
+                }
+                out.push_str(&content[copied..cursor]);
+                out.push_str(IMAGE_PLACEHOLDER);
+                copied = end;
+                cursor = end;
+            }
+            None => cursor += 1,
+        }
+    }
+    if copied == 0 {
+        return Cow::Borrowed(content);
+    }
+    out.push_str(&content[copied..]);
+    Cow::Owned(out)
+}
+
+/// Exclusive end of the `![...](...)` construct starting at `start`, or `None`
+/// when the text there only looks like one. Every delimiter is ASCII, so the
+/// byte offsets returned are always char boundaries.
+fn image_construct_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let alt_start = start + 2;
+    let alt_end = alt_start + bytes[alt_start..].iter().position(|b| *b == b']')?;
+    if bytes.get(alt_end + 1) != Some(&b'(') {
+        return None;
+    }
+    let target_start = alt_end + 2;
+    let target_end = target_start + bytes[target_start..].iter().position(|b| *b == b')')?;
+    Some(target_end + 1)
+}
+
+/// The list preview contract is: stand every image construct in as
+/// [`IMAGE_PLACEHOLDER`], collapse CRLF/LF/tab to spaces, trim the whole
+/// result, then keep at most 100 Unicode scalar values.
 pub fn make_preview(content: &str) -> String {
+    collapse_to_preview(&replace_images(content))
+}
+
+fn collapse_to_preview(content: &str) -> String {
     let mut preview = String::with_capacity(content.len().min(128));
     let mut pending_whitespace = String::new();
     let mut pending_whitespace_chars = 0;
@@ -97,6 +165,7 @@ pub fn make_preview(content: &str) -> String {
 }
 
 pub fn make_rich_preview(content: &str) -> String {
+    let content = replace_images(content);
     let mut lines = Vec::with_capacity(3);
     for raw in content.lines() {
         if lines.len() == 3 {
@@ -227,6 +296,36 @@ mod tests {
             make_preview(&whitespace_tail),
             allocation_heavy_preview(&whitespace_tail)
         );
+    }
+
+    #[test]
+    fn preview_stands_an_image_construct_in_as_a_placeholder() {
+        assert_eq!(make_preview("![](image-20260814-130425.png)"), "🖼️");
+        assert_eq!(make_preview("![](a.png)\ntext"), "🖼️ text");
+        assert_eq!(
+            make_preview("before ![alt](a.png) after"),
+            "before 🖼️ after"
+        );
+        // Only the image construct: a plain link and an unterminated `![` stay put.
+        assert_eq!(
+            make_preview("a [link](https://example.com) stays"),
+            "a [link](https://example.com) stays"
+        );
+        assert_eq!(
+            make_preview("![unterminated](a.png"),
+            "![unterminated](a.png"
+        );
+        assert_eq!(make_preview("![no target] here"), "![no target] here");
+    }
+
+    #[test]
+    fn rich_preview_stands_an_image_construct_in_as_a_placeholder() {
+        assert_eq!(
+            make_rich_preview("![](image-20260814-130425.png)\nMeeting notes"),
+            "🖼️\nMeeting notes"
+        );
+        assert_eq!(make_rich_preview("- ![](a.png) caption"), "• 🖼️ caption");
+        assert_eq!(make_rich_preview("# ![](a.png)"), "🖼️");
     }
 
     #[test]

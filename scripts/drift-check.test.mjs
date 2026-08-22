@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { findMissingScanDirs } from './drift-check.mjs';
+import { findMissingScanDirs, shouldSkipDriftDirectory } from './drift-check.mjs';
 
 // Regression coverage: `walk()` used to silently return zero files for a
 // scan.dirs entry that doesn't exist (`if (!fs.existsSync(dir)) return out;`),
@@ -23,5 +23,16 @@ describe('findMissingScanDirs', () => {
     // something is actually wrong (covered by the test above).
     const dirExists = () => true;
     expect(findMissingScanDirs(['src', 'crates'], dirExists)).toEqual([]);
+  });
+});
+
+describe('shouldSkipDriftDirectory', () => {
+  it('skips a nested git worktree whose .git metadata is a pointer file', () => {
+    const exists = (path) => path === '/repo/wtbase/.git';
+    expect(shouldSkipDriftDirectory('wtbase', '/repo/wtbase', exists)).toBe(true);
+  });
+
+  it('keeps an ordinary source directory in the registry scan', () => {
+    expect(shouldSkipDriftDirectory('src', '/repo/src', () => false)).toBe(false);
   });
 });

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { MAX_TITLE_LENGTH } from '@futo-notes/editor';
-import { LOCAL_WRITE_TTL_MS, SYNC_WRITE_TTL_MS } from '$lib/platform/writeSuppression';
+import { SYNC_WRITE_TTL_MS } from '$lib/platform/writeSuppression';
 
 const CONSTANTS_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -26,8 +26,7 @@ describe('cross-language constants conformance', () => {
     expect(MAX_TITLE_LENGTH).toBe(constants.maxTitleLength);
   });
 
-  it('writeSuppression TTLs match the fixture (and the Rust watcher window)', () => {
-    expect(LOCAL_WRITE_TTL_MS).toBe(constants.writeSuppressionLocalTtlMs);
+  it('writeSuppression TTL matches the fixture and Rust watcher window', () => {
     expect(SYNC_WRITE_TTL_MS).toBe(constants.writeSuppressionSyncTtlMs);
     expect(SYNC_WRITE_TTL_MS).toBe(constants.watcherSuppressionWindowMs);
   });

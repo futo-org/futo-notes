@@ -24,6 +24,36 @@ afterEach(() => {
 });
 
 describe('watcherBatch enqueue', () => {
+  it('carries a paired rename through without decomposing it', async () => {
+    const onEvent = vi.fn(async () => {});
+    const batch = createWatcherBatch(makeOptions({ onEvent }));
+
+    batch.enqueue({ type: 'rename', filename: 'New.md', from: 'Old.md' });
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(onEvent).toHaveBeenCalledExactlyOnceWith({
+      type: 'rename',
+      filename: 'New.md',
+      from: 'Old.md',
+    });
+    batch.destroy();
+  });
+
+  it('does not let a destination change replace a paired rename', async () => {
+    const onEvent = vi.fn(async () => {});
+    const batch = createWatcherBatch(makeOptions({ onEvent }));
+
+    batch.enqueue({ type: 'rename', filename: 'New.md', from: 'Old.md' });
+    batch.enqueue({ type: 'change', filename: 'New.md' });
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(onEvent.mock.calls.map(([event]) => event)).toEqual([
+      { type: 'rename', filename: 'New.md', from: 'Old.md' },
+      { type: 'change', filename: 'New.md' },
+    ]);
+    batch.destroy();
+  });
+
   it('queues events and processes after 50ms debounce', async () => {
     const onEvent = vi.fn(async () => {});
     const opts = makeOptions({ onEvent });
@@ -210,18 +240,16 @@ describe('watcherBatch drainPostSync', () => {
     batch.destroy();
   });
 
-  it('filters local writes buffered before sync started (expired TTL)', async () => {
+  it('keeps external events while filtering exact sync-write echoes', async () => {
     const onBulkRefresh = vi.fn(async () => {});
     const suppressor = createWriteSuppressor();
     const opts = makeOptions({ onBulkRefresh, suppressor });
     const batch = createWatcherBatch(opts);
 
-    suppressor.recordWrite('new note.md');
-
-    await vi.advanceTimersByTimeAsync(1500);
+    suppressor.recordSyncWrite('synced.md');
 
     batch.setSyncActive(true);
-    batch.enqueue({ type: 'change', filename: 'new note.md' });
+    batch.enqueue({ type: 'change', filename: 'synced.md' });
     batch.enqueue({ type: 'change', filename: 'external.md' });
 
     batch.setSyncActive(false);

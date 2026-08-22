@@ -75,16 +75,18 @@ updater-localdev *args:
 # ── Instance journal (desktop) ──
 # Read what a running instance actually DID: the app writes a JSONL event
 # journal (futo_notes_core::journal) under its app data dir — never inside a
-# vault, never uploaded anywhere. Today it records one `sync_run` event per
-# sync cycle: trigger (manual/live-catch-up/local-change/remote-change/
-# safety-poll), push and pull timings, counts, the version watermarks either
-# side of the run, and the per-file reconcile decisions with the reason the
-# summary counters throw away.
+# vault, never uploaded anywhere. Today it records an `app_launch` marker per
+# run of the app — the anchor every later event is read against — and one
+# `sync_run` event per sync cycle: trigger (manual/live-catch-up/local-change/
+# remote-change/safety-poll), push and pull timings, counts, the version
+# watermarks either side of the run, and the per-file reconcile decisions with
+# the reason the summary counters throw away.
 #
 #   just journal                    # last 20 events
 #   just journal tail 100
-#   just journal type sync_run      # or journal_drops (queue pressure)
+#   just journal type sync_run      # or app_launch, journal_drops
 #   just journal last-sync          # readable summary of the newest cycle
+#   just journal startup            # per launch, how long until it first synced
 #   just journal where              # which directory it is reading
 #   just journal ... --release      # the release app, not the dev build
 #   just journal ... --dir <path>   # somewhere else entirely (a pulled phone journal)
@@ -196,6 +198,18 @@ test-android-native-ui: build-rust-android
 test-android-storage:
   node tests/android-storage-migration.mjs
 
+# Sustained human-cadence typing against the REAL native iOS app, with the
+# simulator vault as the oracle: exactly the seeded note, byte-exact content,
+# and no conflict copies or other unrequested files. The build/install is
+# deliberately mandatory so the story always exercises the code being pushed.
+# Requires SIM from `just qa-claim ios`; the runner verifies pool ownership.
+test-ios-stories:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -n "${SIM:-}" ] || { echo 'No claimed simulator — run: eval "$(just qa-claim ios)"' >&2; exit 1; }
+  SIM="$SIM" just ios-native
+  SIM="$SIM" node tests/ios-editor-stories.mjs
+
 # ── Parallel QA isolation (multiple worktrees, one machine) ──
 # Worktree path → slot → pooled devices (futo-qa-0..6 per platform) + a
 # per-slot sync server with its own Postgres database. Your personal
@@ -252,12 +266,17 @@ qa-server-stop *flags:
 # /verify skill's references/ios.md and references/android.md. All sim-*
 # helpers honor $SIM (from qa-claim); adb-based ones honor $ANDROID_SERIAL.
 
+# Deliberately does NOT foreground Simulator.app: `simctl` boots, installs,
+# launches and screenshots a headless device just fine, while activating the app
+# drags whoever is typing to another space (parallel QA sessions on one Mac).
+# Pass SHOW=1 when a HUMAN needs to watch, or when measuring anything that
+# awaits a frame — an occluded window has its rendering suspended.
 # Boot an iOS simulator by name (no-op if already booted) and wait for it.
 sim-boot name="iPhone 17 Pro":
   #!/usr/bin/env bash
   set -euo pipefail
   xcrun simctl boot '{{name}}' 2>/dev/null || true  # "already booted" is fine
-  open -a Simulator
+  if [ -n "${SHOW:-}" ]; then open -a Simulator; fi
   for i in $(seq 1 30); do
     xcrun simctl list devices booted | grep -q Booted && break; sleep 1
   done
@@ -585,11 +604,25 @@ sync-contract-check:
 check-drift:
   node scripts/drift-check.mjs
 
-# Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents) teaches
-# OS-level input into this app (AppleScript UI scripting, click injection), a
-# process-name/PID lookup against it, or a relative `find -newermt` safety check.
+# No space switch and no stolen keyboard focus, so a parallel QA session cannot
+# yank the human out of whatever they are typing in: it captures the window
+# where it lives, even on another space (`screencapture -l <window id>`).
+# Refuses anything scripts/qa-target.mjs will not verify as a debug build of
+# THIS worktree, since a window can show the user's real vault (M24). With a
+# live bridge, prefer its capture_native_screenshot; frame/paint probes still
+# need a genuinely VISIBLE window, which no capture tool can substitute for.
+#   just qa-shot list | pid <pid> | port <port> [--out <path>]
+# Screenshot this worktree's desktop QA window WITHOUT activating it.
+qa-shot *args:
+  @node scripts/qa-shot.mjs {{args}}
+
+# Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents, plus
+# this justfile) teaches OS-level input into this app (AppleScript UI scripting,
+# click injection), a process-name lookup or pattern KILL against it or its
+# toolchain, or a relative `find -newermt` safety check.
 # 2026-08-10: a QA agent drove the INSTALLED release app on the user's real vault
-# that way. Rationale + the allowlist contract: scripts/check-qa-input-safety.mjs.
+# that way. 2026-08-19: three parallel agents pattern-killed each other's dev
+# stacks. Rationale + the allowlist contract: scripts/check-qa-input-safety.mjs.
 check-qa-input-safety:
   node scripts/check-qa-input-safety.mjs
 
@@ -678,9 +711,12 @@ check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust
 # recipe here adds the cargo-dependent Rust dependency-boundary proof.
 # Maximal pre-push gate: `check` + full Rust workspace + full E2E + cross-platform sync.
 prepush: check test-rust-full gate-redproofs
+  #!/usr/bin/env bash
+  set -euo pipefail
   pnpm exec playwright test --retries=1
   pnpm run test:cross-platform
-  @echo "prepush green — check + rust workspace + full e2e + cross-platform sync all passed"
+  bash scripts/run-ios-stories-if-available.sh
+  echo "prepush green — check + rust workspace + full e2e + cross-platform sync + available iOS stories all passed"
 
 ci:
   pnpm run ci
@@ -708,7 +744,12 @@ deploy-deb:
   cd apps/tauri && cargo tauri build --bundles deb
   cd ../..
   DEB=$(ls -t "${BUNDLE_DIR}"/*.deb | head -1)
-  # Kill running instance (comm is truncated to 15 chars, so use -f)
+  # A single-checkout INSTALL step, and the only sanctioned pattern kill in this
+  # repo: it stops EVERY FUTO Notes on the machine, which is what you want right
+  # before overwriting /usr/bin, and is why both copies are pinned in
+  # scripts/qa-input-safety-allowlist.json. Never copy this line for QA cleanup —
+  # on a multi-worktree machine it takes out your peers' apps too (AGENTS.md M25);
+  # use `just qa-target kill`. (`comm` is truncated to 15 chars, hence -f.)
   pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
   echo "Installing ${DEB}..."
   sudo dpkg -i "$DEB"
@@ -744,7 +785,12 @@ deploy-rpm:
   cd apps/tauri && cargo tauri build --bundles rpm
   cd ../..
   RPM=$(ls -t "${BUNDLE_DIR}"/*.rpm | head -1)
-  # Kill running instance (comm is truncated to 15 chars, so use -f)
+  # A single-checkout INSTALL step, and the only sanctioned pattern kill in this
+  # repo: it stops EVERY FUTO Notes on the machine, which is what you want right
+  # before overwriting /usr/bin, and is why both copies are pinned in
+  # scripts/qa-input-safety-allowlist.json. Never copy this line for QA cleanup —
+  # on a multi-worktree machine it takes out your peers' apps too (AGENTS.md M25);
+  # use `just qa-target kill`. (`comm` is truncated to 15 chars, hence -f.)
   pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
   echo "Installing ${RPM}..."
   # Do NOT route this through dnf's version solver. `dnf reinstall` exits 0

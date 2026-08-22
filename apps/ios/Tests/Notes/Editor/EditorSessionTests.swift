@@ -119,6 +119,43 @@ struct EditorSessionTests {
         #expect(recorder.events == ["save settled", "drain returned"])
     }
 
+    /// The session property that made the autosave conflict-copy regression
+    /// possible, asserted directly. Cancelling a save does NOT stop its body: the
+    /// body resumes past its suspension point with `Task.isCancelled` already
+    /// true, so a write it issued before that point is already durable. Anything
+    /// the save must record afterwards therefore has to be recorded
+    /// unconditionally (`settledFlush`), never behind `session.isActive` —
+    /// gating the baseline advance there left `savedContent` behind disk and the
+    /// engine parked the editor's own write as a conflict copy.
+    ///
+    /// Its neighbour above asserts that `cancelAndDrain` WAITS for this body.
+    /// This one asserts what the body still does while it is waited on.
+    @Test("a cancelled save still resumes past its suspension point")
+    func cancelledSaveStillResumes() async {
+        let session = EditorSession()
+        let recorder = Recorder()
+        let started = Signal()
+        let release = Signal()
+
+        session.schedule(.save) {
+            started.set()
+            await release.wait()
+            recorder.append("write landed, cancelled=\(Task.isCancelled)")
+            return true
+        }
+        await started.wait()
+
+        // The next keystroke's reschedule — this is what cancels the in-flight save.
+        let next = session.schedule(.save) {
+            recorder.append("second save ran")
+            return true
+        }
+        release.set()
+        _ = await next.value
+
+        #expect(recorder.events == ["write landed, cancelled=true", "second save ran"])
+    }
+
     @Test("delete latches the session closed before it suspends")
     func deleteLatchesSynchronously() async {
         let session = EditorSession()
