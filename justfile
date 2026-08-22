@@ -75,16 +75,18 @@ updater-localdev *args:
 # ── Instance journal (desktop) ──
 # Read what a running instance actually DID: the app writes a JSONL event
 # journal (futo_notes_core::journal) under its app data dir — never inside a
-# vault, never uploaded anywhere. Today it records one `sync_run` event per
-# sync cycle: trigger (manual/live-catch-up/local-change/remote-change/
-# safety-poll), push and pull timings, counts, the version watermarks either
-# side of the run, and the per-file reconcile decisions with the reason the
-# summary counters throw away.
+# vault, never uploaded anywhere. Today it records an `app_launch` marker per
+# run of the app — the anchor every later event is read against — and one
+# `sync_run` event per sync cycle: trigger (manual/live-catch-up/local-change/
+# remote-change/safety-poll), push and pull timings, counts, the version
+# watermarks either side of the run, and the per-file reconcile decisions with
+# the reason the summary counters throw away.
 #
 #   just journal                    # last 20 events
 #   just journal tail 100
-#   just journal type sync_run      # or journal_drops (queue pressure)
+#   just journal type sync_run      # or app_launch, journal_drops
 #   just journal last-sync          # readable summary of the newest cycle
+#   just journal startup            # per launch, how long until it first synced
 #   just journal where              # which directory it is reading
 #   just journal ... --release      # the release app, not the dev build
 #   just journal ... --dir <path>   # somewhere else entirely (a pulled phone journal)
