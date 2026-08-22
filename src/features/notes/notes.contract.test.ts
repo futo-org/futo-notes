@@ -7,6 +7,7 @@ import {
   getAllNotes,
   handleExternalFileChange,
   moveNote,
+  refreshNotesAfterSync,
   search,
   setNotesUniverse,
   updateNote,
@@ -87,6 +88,7 @@ function fakeStore(overrides: Partial<LocalNoteStore> = {}): LocalNoteStore {
     reset: vi.fn(),
     search: vi.fn(async () => []),
     waitUntilSearchReady: vi.fn(async () => true),
+    refreshExternalChanges: vi.fn(async () => mutation()),
     rescan: vi.fn(),
     ...overrides,
   } as LocalNoteStore;
@@ -129,6 +131,47 @@ describe('TypeScript local-note projection', () => {
     expect(move).toHaveBeenCalledOnce();
     expect(getAllNotes().map((note) => note.id)).toEqual(['Folder/New', 'Links']);
     expect(getAllNotes().find((note) => note.id === 'Links')?.preview).toBe('See [[Folder/New]]');
+  });
+
+  it('applies the engine mutation returned for sync-written files', async () => {
+    setNotesUniverse([preview('Old')]);
+    const projected = mutation({
+      removed: ['Old'],
+      upserted: [upsert('New')],
+      renamed: [{ from: 'Old', to: 'New' }],
+      folders: ['Archive'],
+    });
+    const refreshExternalChanges = vi.fn(async () => projected);
+    _setLocalNoteStoreForTest(fakeStore({ refreshExternalChanges }));
+
+    await refreshNotesAfterSync(['New'], ['Old'], [{ fromId: 'Old', toId: 'New' }]);
+
+    expect(refreshExternalChanges).toHaveBeenCalledExactlyOnceWith(
+      ['New'],
+      ['Old'],
+      [{ fromId: 'Old', toId: 'New' }],
+    );
+    expect(getAllNotes().map((note) => note.id)).toEqual(['New']);
+    expect(getEmptyFolders()).toEqual(new Set(['Archive']));
+  });
+
+  it('keeps sync completion alive when scoped projection and recovery both fail', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const refreshExternalChanges = vi.fn(async () => {
+      throw new Error('scoped projection failed');
+    });
+    const rescan = vi.fn(async () => {
+      throw new Error('search recovery failed');
+    });
+    const snapshot = vi.fn(async () => {
+      throw new Error('snapshot recovery failed');
+    });
+    _setLocalNoteStoreForTest(fakeStore({ refreshExternalChanges, rescan, snapshot }));
+
+    await expect(refreshNotesAfterSync(['New'], [], [])).resolves.toBeUndefined();
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 
   it.each([

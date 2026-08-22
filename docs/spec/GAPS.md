@@ -41,7 +41,7 @@ flag gaps the codebase suggests have been implemented.
 
 ## sync.md
 
-- [sync.md:1131](sync.md#L1131) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
-- [sync.md:1135](sync.md#L1135) — The desktop scheduler's own triggers are not distinguishable in the record. Launch, poll, resume and local-save all reach Rust through the one `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be told apart from a user pressing "Sync now"; only the live loop's four triggers are recorded faithfully.
+- [sync.md:1133](sync.md#L1133) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
+- [sync.md:1137](sync.md#L1137) — The desktop scheduler's own triggers are not distinguishable in the record. Launch, poll, resume and local-save all reach Rust through the one `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be told apart from a user pressing "Sync now"; only the live loop's four triggers are recorded faithfully.
 
 _21 gaps._

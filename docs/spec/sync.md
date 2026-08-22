@@ -622,17 +622,19 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   syncServiceE2ee.ts, syncManager.svelte.ts
 - When a sync cycle changes the local notes tree, the note list (and the open
   editor's on-disk base) refreshes automatically so the change appears without
-  any user action. Both native shells pass the complete `SyncSummary` through
-  `SyncManager.onLocalTreeChanged` to `NotesStore.localTreeChanged`, where the
-  store-owned
-  `refresh_external_changes` projects only affected rows at their canonical
-  Rust-computed positions. That verb rechecks final filesystem state, so a
+  any user action. Every shell passes the complete changed-id and rename report
+  to the store-owned `refresh_external_changes`, which projects only affected
+  rows at their canonical
+  Rust-computed positions. Desktop applies the returned mutation before it
+  reconciles the open note; native shells pass the complete `SyncSummary`
+  through `SyncManager.onLocalTreeChanged` to `NotesStore.localTreeChanged`.
+  That verb rechecks final filesystem state, so a
   callback racing a recreate/flush cannot delete the recreated row, and sends
   scoped changed/removed notifications to search. If scoped projection fails,
-  a native shell falls back to search reconciliation plus a full snapshot, then
+  a shell falls back to search reconciliation plus a full snapshot, then
   still delivers the summary so the open editor can reconcile from disk. →
-  iOS `FutoNotesApp` / `NotesStore.swift`; Android `MainActivity` /
-  `NotesStore.kt`;
+  desktop `refreshNotesAfterSync` / `local_notes_refresh_external_changes`;
+  iOS `FutoNotesApp` / `NotesStore.swift`; Android `MainActivity` / `NotesStore.kt`;
   futo-notes-store `refresh_external_changes`
   - The refresh fires on the core-computed `SyncSummary.localWritesApplied`, not
     only `downloaded`/`deleted` — a **push-side** clean merge (`MergedClean`)
@@ -1192,6 +1194,14 @@ journal --dir` has nothing to read from a phone.
   the cleared session. → createExternalChangeCoordinator.ts (guarded by
   createExternalChangeCoordinator.test.ts and the cross-platform scenario
   "external watcher protects dirty draft then settles")
+- **A watcher-reported desktop rename remains one rename through debounce,
+  bulk refresh, and post-sync draining.** Rename chains are applied in event
+  order, so the open note follows each engine `FollowRename` disposition and
+  the resulting local change schedules one auto-push. A rename from `.md` to a
+  non-note extension is handled as an unlink, a rename into `.md` is handled as
+  an add, and renames between non-note files are ignored. → desktop
+  `watcherBatch` + `createExternalChangeCoordinator` (guarded by their paired,
+  bulk-chain, post-sync, and extension-transition tests)
 - A remote edit to the **currently-open note** is adopted into the open editor
   when the local draft is clean (`content == savedContent`); a dirty draft
   still wins and is never overwritten _(iOS/Android)_. Without this, the open

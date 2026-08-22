@@ -94,6 +94,18 @@ class TauriLocalNoteStore implements LocalNoteStore {
     return invoke<boolean>('local_notes_wait_until_search_ready', { timeoutMs });
   }
 
+  refreshExternalChanges(
+    updatedIds: string[],
+    deletedIds: string[],
+    renamed: { fromId: string; toId: string }[],
+  ) {
+    return invoke<LocalNoteMutation>('local_notes_refresh_external_changes', {
+      updatedIds,
+      deletedIds,
+      renamed,
+    });
+  }
+
   rescan() {
     return invoke<void>('local_notes_rescan');
   }
