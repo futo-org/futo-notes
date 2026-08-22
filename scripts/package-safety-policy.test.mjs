@@ -16,6 +16,9 @@ describe('package safety policy', () => {
       'devalue@<5.8.1': '5.8.1',
       'picomatch@4': '4.0.4',
       'esbuild@<0.28.1': '0.28.1',
+      'postcss@<8.5.23': '8.5.23',
+      'nanoid@<3.3.18': '3.3.18',
+      'yaml@<2.8.3': '2.8.3',
     });
   });
 
