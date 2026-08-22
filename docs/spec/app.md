@@ -235,6 +235,21 @@ Behaviors and constraints that hold across every surface and platform.
 
 ## Dialogs _(desktop)_
 
+- **Escape dismisses the top-most dialog or overlay, from wherever focus is** —
+  including from a text field inside it — and never more than one at a time. It
+  is a property of dialog composition, not of each dialog: `Modal.svelte` (used
+  by every standard modal) and the `use:dismissable` action (used by overlays
+  with bespoke chrome — crash report, context menu, search, settings) share one
+  document-level handler and a dialog stack. Escape consumed by an open overlay
+  does not also reach the editor or the screen behind it. → shared/dialogs/dismissable.ts,
+  shared/dialogs/Modal.svelte, shared/dialogs/dismissable.test.ts
+- A standard modal is `role="dialog" aria-modal="true"`, named by its title,
+  traps Tab inside the card, dismisses on a backdrop click, and returns focus to
+  whatever was focused when it opened. → shared/dialogs/Modal.svelte
+- Secondary/cancel buttons in dialogs carry a hover affordance, gated behind
+  `@media (hover: hover) and (pointer: fine)` so a touch shell never leaves a
+  button stuck in its hover state. → shared/dialogs/modal.css,
+  crashReportDialog.css, settingsBlockingOverlay.css
 - `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
   `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → CLAUDE.md
 - Confirmation prompts go through `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`):
@@ -266,7 +281,7 @@ Behaviors and constraints that hold across every surface and platform.
 ## Feedback & crash reporting
 
 - Action feedback uses transient toasts (~3 s, one at a time, auto-dismiss):
-  "Note deleted", "Moved to {folder}", "Path copied", etc. _(Tauri; Android
+  "Note deleted", "Moved to {folder}", "Folder created", "Path copied", etc. _(Tauri; Android
   native shows the same platform toasts — delete now toasts "Note deleted" from
   both the editor ⋮ menu and the list long-press)_ → shared/notifications/toastBus.svelte.ts,
   NoteEditorScreen.kt, NoteListScreen.kt

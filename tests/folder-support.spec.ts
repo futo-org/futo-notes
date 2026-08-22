@@ -205,6 +205,97 @@ test.describe('Folder support', () => {
     await expect(page.getByTestId('create-folder-input')).toBeHidden();
   });
 
+  test('an illegal inline folder rename is reported and keeps the edit', async ({ page }) => {
+    await openSidebar(page);
+    await page.getByTestId('new-folder-btn').click();
+    await page.getByTestId('create-folder-input').fill('Work');
+    await page.getByTestId('create-folder-confirm').click();
+    await expect(page.locator('[data-folder-path="Work"]').first()).toBeVisible();
+
+    // A forbidden character used to leave only a red outline and a `title`
+    // tooltip — nothing the user could read — so the rename looked like a no-op.
+    await page.locator('[data-folder-path="Work"]').first().dblclick();
+    const renameInput = page.getByTestId('folder-rename-input');
+    await renameInput.fill('a:b');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.toast')).toHaveText(
+      "That character can't be used in a folder name",
+    );
+    await expect(renameInput).toBeVisible();
+    await expect(renameInput).toHaveValue('a:b');
+    await expect(page.locator('[data-folder-path="Work"]').first()).toBeVisible();
+
+    // A slash used to be spliced into the destination path, so "a/b" silently
+    // MOVED the folder into a brand-new "a" instead of being rejected.
+    await renameInput.fill('a/b');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.toast')).toHaveText(
+      "That character can't be used in a folder name",
+    );
+    await expect(page.locator('[data-folder-path="a"]')).toHaveCount(0);
+    await expect(page.locator('[data-folder-path="a/b"]')).toHaveCount(0);
+    await expect(page.locator('[data-folder-path="Work"]').first()).toBeVisible();
+
+    // The preserved edit is still fixable in place.
+    await renameInput.fill('Projects');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-folder-path="Projects"]').first()).toBeVisible();
+  });
+
+  test('creating a folder shows a toast', async ({ page }) => {
+    await openSidebar(page);
+    await page.getByTestId('new-folder-btn').click();
+    await page.getByTestId('create-folder-input').fill('Reports');
+    await page.getByTestId('create-folder-confirm').click();
+    await expect(page.locator('.toast')).toHaveText('Folder created');
+    await expect(page.locator('[data-folder-path="Reports"]').first()).toBeVisible();
+  });
+
+  test('Escape dismisses the Move to folder picker', async ({ page }) => {
+    await openSidebar(page);
+    await page.getByTestId('new-folder-btn').click();
+    await page.getByTestId('create-folder-input').fill('Work');
+    await page.getByTestId('create-folder-confirm').click();
+
+    await page.locator('[data-folder-path="Work"]').first().click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Move to folder' }).click();
+    await expect(page.locator('.modal-backdrop')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.modal-backdrop')).toHaveCount(0);
+  });
+
+  test('a note is renamed inline from double-click and F2', async ({ page }) => {
+    await openSidebar(page);
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('Groceries', 'milk');
+    });
+    const row = page.locator('[data-note-id="Groceries"]').first();
+    await expect(row).toBeVisible();
+
+    await row.dblclick();
+    const renameInput = page.getByTestId('note-rename-input');
+    await expect(renameInput).toBeVisible();
+    await expect(renameInput).toHaveValue('Groceries');
+    await renameInput.fill('grocery list');
+    await page.keyboard.press('Enter');
+    // The filename IS the title (AGENTS.md M2) — no case or dash prettifying.
+    await expect(page.locator('[data-note-id="grocery list"]').first()).toBeVisible();
+
+    // F2 mirrors the folder row, and an illegal name is reported, not swallowed.
+    await page.locator('[data-note-id="grocery list"]').first().focus();
+    await page.keyboard.press('F2');
+    await page.getByTestId('note-rename-input').fill('bad:name');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.toast')).toHaveText("That character can't be used in a note title");
+    await expect(page.getByTestId('note-rename-input')).toHaveValue('bad:name');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('note-rename-input')).toHaveCount(0);
+    await expect(page.locator('[data-note-id="grocery list"]').first()).toBeVisible();
+  });
+
   test('existing folders expose discoverable subfolder creation', async ({ page }) => {
     await openSidebar(page);
     await page.getByTestId('new-folder-btn').click();

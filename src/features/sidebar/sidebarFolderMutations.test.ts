@@ -4,8 +4,9 @@ const mocks = vi.hoisted(() => ({
   confirmDialog: vi.fn(),
   deleteNote: vi.fn(),
   moveNote: vi.fn(),
-  renameOrMoveFolder: vi.fn(),
+  renameFolderInPlace: vi.fn(),
   showGlobalToast: vi.fn(),
+  getAllNotes: vi.fn(() => []),
   getNoteById: vi.fn(),
   getSaveIdentityChange: vi.fn(),
 }));
@@ -18,11 +19,11 @@ vi.mock('$features/folders/emptyFolders.svelte', () => ({
 }));
 vi.mock('$features/folders/folderOperations', () => ({
   deleteFolder: vi.fn(),
-  renameOrMoveFolder: mocks.renameOrMoveFolder,
+  renameFolderInPlace: mocks.renameFolderInPlace,
 }));
 vi.mock('$features/notes/notes.svelte', () => ({
   deleteNote: mocks.deleteNote,
-  getAllNotes: vi.fn(() => []),
+  getAllNotes: mocks.getAllNotes,
   getNoteById: mocks.getNoteById,
   getSaveIdentityChange: mocks.getSaveIdentityChange,
   moveNote: mocks.moveNote,
@@ -38,6 +39,7 @@ import {
   confirmDeleteSidebarNote,
   moveSidebarNote,
   renameSidebarFolder,
+  renameSidebarNote,
 } from './sidebarFolderMutations';
 
 describe('confirmDeleteSidebarNote', () => {
@@ -133,7 +135,7 @@ describe('confirmDeleteSidebarNote', () => {
 
   it('flushes an active note before renaming its containing folder', async () => {
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => operation());
-    mocks.renameOrMoveFolder.mockResolvedValue({
+    mocks.renameFolderInPlace.mockResolvedValue({
       ok: true,
       renames: [{ from: 'Projects/Roadmap', to: 'Work/Roadmap' }],
     });
@@ -150,7 +152,7 @@ describe('confirmDeleteSidebarNote', () => {
 
     expect(runWithActiveNoteLock).toHaveBeenCalledOnce();
     expect(runWithActiveNoteLock.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.renameOrMoveFolder.mock.invocationCallOrder[0],
+      mocks.renameFolderInPlace.mock.invocationCallOrder[0],
     );
   });
 
@@ -229,5 +231,107 @@ describe('sidebar note targeting', () => {
     expect(mocks.deleteNote).not.toHaveBeenCalled();
     expect(onNoteIdsDeleted).not.toHaveBeenCalled();
     expect(mocks.showGlobalToast).toHaveBeenCalledWith('That note is no longer available');
+  });
+});
+
+describe('renameSidebarNote', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getNoteById.mockImplementation((id: string) => ({ id }));
+    mocks.getSaveIdentityChange.mockReturnValue(null);
+  });
+
+  function options(overrides: Record<string, unknown> = {}) {
+    return {
+      getActiveNoteId: () => null,
+      runWithActiveNoteLock: <T>(operation: () => Promise<T>) => operation(),
+      onNoteIdsRenamed: vi.fn(),
+      onNoteIdsDeleted: vi.fn(),
+      onSelect: vi.fn(),
+      onActiveNoteDeleted: vi.fn(),
+      onActiveNoteMoved: vi.fn(),
+      ...overrides,
+    } as Parameters<typeof renameSidebarNote>[2];
+  }
+
+  it('renames the file to the typed name verbatim — the filename IS the title', async () => {
+    mocks.moveNote.mockResolvedValue({ id: 'Projects/grocery list', mtime: 1 });
+    const onNoteIdsRenamed = vi.fn();
+
+    const error = await renameSidebarNote(
+      'Projects/Roadmap',
+      '  grocery list  ',
+      options({ onNoteIdsRenamed }),
+    );
+
+    // Only surrounding whitespace goes; no case, dash, or word "improvement".
+    expect(mocks.moveNote).toHaveBeenCalledWith('Projects/Roadmap', 'Projects/grocery list');
+    expect(error).toBeNull();
+    expect(onNoteIdsRenamed).toHaveBeenCalledWith([
+      { from: 'Projects/Roadmap', to: 'Projects/grocery list' },
+    ]);
+  });
+
+  it('reports a forbidden character instead of sanitizing it away', async () => {
+    await expect(renameSidebarNote('Roadmap', 'a:b', options())).resolves.toBe(
+      "That character can't be used in a note title",
+    );
+    expect(mocks.moveNote).not.toHaveBeenCalled();
+  });
+
+  it('rejects a path separator rather than moving the note into a new folder', async () => {
+    await expect(renameSidebarNote('Roadmap', 'a/b', options())).resolves.toBe(
+      "That character can't be used in a note title",
+    );
+    expect(mocks.moveNote).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty name and leaves the note alone', async () => {
+    await expect(renameSidebarNote('Roadmap', '   ', options())).resolves.toBe(
+      'Title cannot be empty',
+    );
+    expect(mocks.moveNote).not.toHaveBeenCalled();
+  });
+
+  it('blocks a case-insensitive duplicate in the same folder', async () => {
+    mocks.getAllNotes.mockReturnValue([{ id: 'Projects/Roadmap' }, { id: 'Projects/Notes' }]);
+
+    await expect(renameSidebarNote('Projects/Roadmap', 'notes', options())).resolves.toBe(
+      'A note with this name already exists',
+    );
+    expect(mocks.moveNote).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the name is unchanged', async () => {
+    await expect(renameSidebarNote('Projects/Roadmap', 'Roadmap', options())).resolves.toBeNull();
+    expect(mocks.moveNote).not.toHaveBeenCalled();
+  });
+
+  it('flushes the live session first and retargets it to the committed id', async () => {
+    const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => operation());
+    mocks.moveNote.mockResolvedValue({ id: 'Projects/Plan-2', mtime: 1 });
+    const onActiveNoteMoved = vi.fn();
+
+    const error = await renameSidebarNote(
+      'Projects/Roadmap',
+      'Plan',
+      options({
+        getActiveNoteId: () => 'Projects/Roadmap',
+        runWithActiveNoteLock,
+        onActiveNoteMoved,
+      }),
+    );
+
+    expect(error).toBeNull();
+    expect(runWithActiveNoteLock.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.moveNote.mock.invocationCallOrder[0],
+    );
+    expect(onActiveNoteMoved).toHaveBeenCalledWith('Projects/Roadmap', 'Projects/Plan-2', 'Plan-2');
+  });
+
+  it('reports a store failure instead of losing the edit', async () => {
+    mocks.moveNote.mockRejectedValue(new Error('disk is full'));
+
+    await expect(renameSidebarNote('Roadmap', 'Plan', options())).resolves.toBe('disk is full');
   });
 });

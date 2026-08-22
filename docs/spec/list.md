@@ -185,8 +185,19 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   ancestor folders on every platform. Desktop supplies the trash policy to the
   shared local-note store; native shells delete directly. →
   `futo-notes-store::LocalNoteStore::delete_with`, `local_notes_delete`
-- A note row in the folder tree offers the same Move/Delete via context menu
-  (desktop right-click / mobile long-press). → FolderTreeView.svelte
+- A note row in the folder tree offers Rename / Move to folder / Delete via
+  context menu (desktop right-click / mobile long-press). → FolderTreeView.svelte
+- _(desktop)_ **A note row renames inline**, by the same three gestures as a
+  folder row: double-click, F2 on the focused row, or the context menu's
+  **Rename**. The field opens seeded with the current name and selected; Enter
+  commits, Escape cancels, and clicking away commits. The typed text becomes the
+  filename verbatim — trailing whitespace aside, nothing is prettified (AGENTS.md
+  M2) — and the rename is one `move` mutation through the shared store, so
+  backlinks, the open tab, and the note cache follow it. Illegal names are
+  rejected with the shared title rules and messages ("That character can't be
+  used in a note title", "A note with this name already exists"), never
+  sanitized into a different name. → FolderTreeNoteRow.svelte,
+  TreeRowRename.svelte, sidebarFolderMutations.ts `renameSidebarNote`
 - The native editor menus reach parity: **Android** ⋮ offers Move to
   folder… / Copy file path / Delete note (Share is a dedicated top-bar
   action); **iOS** ⋯ offers Rename / Move to Folder… / Copy File Path /
@@ -339,7 +350,11 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   action live; non-empty invalid names show the validation error, while an empty
   field stays disabled but quiet. On a case-insensitive sibling match the dialog
   shows "A folder with this name already exists", with the name cleaned via the
-  shared Rust `sanitizeTitle`. A hard guard in `createFolder` also blocks the
+  shared Rust `sanitizeTitle`. Folder-name violations are worded for a FOLDER
+  ("That character can't be used in a folder name", "Folder name cannot be
+  empty") — the shared rules are layered on `validateTitle`, so the surface
+  supplies the noun rather than the manifest. A committed create toasts
+  "Folder created". A hard guard in `createFolder` also blocks the
   idempotent `create_dir_all` from silently merging into an existing folder. →
   folderOperations.ts, NewFolderDialog.kt, NoteListView.swift
 - A folder can be renamed; the rename updates every note path beneath it and
@@ -349,6 +364,15 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   name against the shared folder-name rules and case-insensitive siblings before
   committing one `rename_folder` mutation. → folderOperations.ts,
   NoteListView.swift, NoteListScreen.kt
+- _(desktop)_ Rename is also inline from a **double-click** on the row or **F2**
+  on the focused row. The typed text is a NAME, not a path: a `/` in it is an
+  illegal character, never an instruction to nest the folder somewhere new
+  (`renameFolderInPlace`, regression-locked 2026-08-19 — the old code spliced the
+  text into the destination path, so "a/b" silently moved the folder into a new
+  "a"). A rejected name is REPORTED as a toast and the edit stays in the field,
+  still focused and still fixable; it is never discarded, and the only feedback
+  is never a bare red outline. → folderOperations.ts `renameFolderInPlace`,
+  FolderTreeFolderRow.svelte, TreeRowRename.svelte
 - A folder can be moved to Root or any existing folder except itself or one of
   its descendants. The picker omits those invalid destinations. The shared
   `move_folder` workflow preserves the entire subtree, rewrites wikilinks to

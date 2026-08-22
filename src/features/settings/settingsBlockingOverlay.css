@@ -55,6 +55,13 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Pointer-only so a touch shell never leaves this stuck in its hover state. */
+@media (hover: hover) and (pointer: fine) {
+  .connect-sync-cancel:hover {
+    background: color-mix(in srgb, var(--color-surface) 90%, var(--color-text));
+  }
+}
+
 .connect-sync-cancel:active {
   opacity: 0.7;
 }

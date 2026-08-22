@@ -133,7 +133,9 @@
       onfoldercontextmenu={workflows.showFolderContextMenu}
       onnotecontextmenu={workflows.showNoteContextMenu}
       onrenamefolder={workflows.renameFolder}
+      onrenamenote={workflows.renameNote}
       renameRequest={workflows.renameRequest}
+      noteRenameRequest={workflows.noteRenameRequest}
       ondropnoteonfolder={workflows.moveNoteToFolder}
       ondropfolderonfolder={workflows.moveFolder}
       ondropnoteonroot={workflows.moveNoteToRoot}
