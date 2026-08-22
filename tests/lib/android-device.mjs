@@ -47,6 +47,17 @@ function decodeXmlEntities(value) {
     .replace(/&amp;/g, '&');
 }
 
+/** Whether WindowManager's IME inset covers any pixels. Android 16 can keep
+ * `mInputShown=true` for an active text input while the software keyboard is
+ * physically absent; its IME source is then "visible" but has zero height. */
+export function imeOccupiesScreen(windowDump) {
+  const pattern =
+    /InsetsSource[^\n]*\btype=ime\b[^\n]*\bframe=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\][^\n]*\bvisible=true\b/g;
+  return [...windowDump.matchAll(pattern)].some(([, x1, y1, x2, y2]) => {
+    return Number(x2) > Number(x1) && Number(y2) > Number(y1);
+  });
+}
+
 /** Devices in `device` state, as `adb devices` reports them. */
 export function listAttachedDevices() {
   const result = spawnSync('adb', ['devices'], { encoding: 'utf8' });
@@ -244,11 +255,17 @@ export class AndroidDevice {
     this.shell('input keyevent 4');
   }
 
-  /** Is the soft keyboard up? Taps aimed at the app land on keys while it is,
-   *  and uiautomator's dump does not show it. */
-  isImeVisible() {
+  /** Does a text field currently own an IME input connection? This proves adb
+   *  text can target the field, but does NOT mean a keyboard covers the app. */
+  isImeInputActive() {
     const out = this.shell('dumpsys input_method', { allowFailure: true });
     return /mInputShown=true/.test(out);
+  }
+
+  /** Is the soft keyboard actually covering screen pixels? Taps aimed at the
+   *  app land on keys while it is, and uiautomator's dump does not show it. */
+  isImeVisible() {
+    return imeOccupiesScreen(this.shell('dumpsys window', { allowFailure: true }));
   }
 
   // ── App lifecycle ─────────────────────────────────────────────

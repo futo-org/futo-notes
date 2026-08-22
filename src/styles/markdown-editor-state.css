@@ -27,13 +27,4 @@
     font-size: 0.85em;
     padding: 6px;
   }
-
-  .cm-md-table-rendered {
-    font-size: 0.85em;
-  }
-
-  .cm-md-table-rendered th,
-  .cm-md-table-rendered td {
-    padding: 8px 10px;
-  }
 }

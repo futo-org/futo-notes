@@ -53,3 +53,34 @@ test('issue reporting exposes the shared copy and GitHub issue tracker link', as
     )
     .toBe(ISSUE_TRACKER_URL);
 });
+
+// Regression: github.com/futo-org/futo-notes/issues/31 — "Send crashes
+// automatically" sat 8px further right than the rows above and below it
+// (a leftover `.settings-toggle-row.sub { padding-left: 24px }` from when it
+// was the last row of a two-row card). The dependency on "Share crash
+// reports" is expressed by conditional presence, exactly as the native
+// shells do it — never by a horizontal offset.
+test('issue reporting rows share one left edge', async ({ page }) => {
+  await openSettings(page);
+
+  const rows = [
+    page.locator('.settings-issue-first-row'),
+    page.locator('.settings-issue-middle-row'),
+    page.locator('.settings-issue-link'),
+  ];
+
+  // Every row in the group uses the shared row inset — no row is indented.
+  for (const row of rows) {
+    await expect(row).toHaveCSS('padding-left', '16px');
+  }
+
+  // And the labels actually line up on screen.
+  const labelLefts = await Promise.all(
+    rows.map(async (row) => {
+      const box = await row.locator('.settings-btn-label').boundingBox();
+      if (!box) throw new Error('settings row label is not rendered');
+      return box.x;
+    }),
+  );
+  expect(new Set(labelLefts).size).toBe(1);
+});
