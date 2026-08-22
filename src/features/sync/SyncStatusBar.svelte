@@ -99,7 +99,8 @@
 
 <style>
   /* Base .sync-indicator / .sync-offline positioning + color lives in
-     src/styles/feedback.css. Only the error modifier is scoped here. */
+     src/styles/sidebar-view-toggle.css (the spinner animation is in
+     src/styles/feedback.css). Only the error modifier is scoped here. */
   .sync-indicator.sync-error {
     color: var(--color-muted);
     opacity: 0.7;

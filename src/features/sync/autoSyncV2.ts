@@ -6,6 +6,7 @@ import {
   ensureLiveSync,
   stopLiveSync,
   notifyNoteChanged,
+  whenSyncCredentialsSettled,
   type SyncSummary,
 } from './syncServiceE2ee';
 
@@ -13,7 +14,17 @@ export type { SyncSummary } from './syncServiceE2ee';
 
 const POLL_INTERVAL_MS = 15_000;
 const LIVE_CONNECTED_POLL_INTERVAL_MS = 120_000;
-const INITIAL_SYNC_DELAY_MS = 8_000;
+// The first cycle is driven by `whenSyncCredentialsSettled()`, not by a clock —
+// launch should sync as soon as it CAN. This timer only covers a host that
+// never runs the boot credential hook at all, which would otherwise leave a
+// session with no first cycle and nothing to start the retry ladder.
+//
+// It replaced a flat 8s deferral, which was measured at 8.6s from process start
+// to the first cycle. That deferral shipped in the April 2026 iOS perf pass
+// ("so sync stops competing with first-paint and touch dispatch") for a mobile
+// shell that no longer runs this code: mobile is native, and `platformName` is
+// only ever 'tauri' or 'web' here.
+const INITIAL_SYNC_FALLBACK_DELAY_MS = 8_000;
 const RESUME_COOLDOWN = 10_000;
 const BACKGROUND_SYNC_RETRY_DELAY = 1_000;
 const INITIAL_RETRY_DELAYS = [4_000, 8_000, 16_000, 30_000, 30_000];
@@ -35,6 +46,7 @@ let autoPaused = false;
 let lastSyncTime = 0;
 let cleanupFns: Array<() => void> = [];
 let initialSyncTimer: number | null = null;
+let initialSyncFired = false;
 let initialRetryTimer: number | null = null;
 let initialRetryCount = 0;
 let backgroundRetryTimer: number | null = null;
@@ -236,6 +248,23 @@ function scheduleBackgroundRetry(trigger: SyncTrigger): void {
   }, BACKGROUND_SYNC_RETRY_DELAY);
 }
 
+function cancelInitialSyncTrigger(): void {
+  if (initialSyncTimer !== null) {
+    clearTimeout(initialSyncTimer);
+    initialSyncTimer = null;
+  }
+}
+
+/** The session's one first cycle, whichever trigger got here first. */
+function runInitialSync(): void {
+  if (initialSyncFired || !callbacks) return;
+  initialSyncFired = true;
+  cancelInitialSyncTrigger();
+  void performSync('initial').then((summary) => {
+    if (!summary) scheduleInitialRetry();
+  });
+}
+
 function cancelInitialRetry(): void {
   if (initialRetryTimer !== null) {
     clearTimeout(initialRetryTimer);
@@ -260,10 +289,8 @@ export function startAutoSyncV2(cb: AutoSyncCallbacks): void {
   callbacks = cb;
   flushPendingSaveFn = cb.flushPendingSave;
   cancelBackgroundRetry();
-  if (initialSyncTimer !== null) {
-    clearTimeout(initialSyncTimer);
-    initialSyncTimer = null;
-  }
+  cancelInitialSyncTrigger();
+  initialSyncFired = false;
 
   if (!hasFileSystem) return;
 
@@ -285,12 +312,11 @@ export function startAutoSyncV2(cb: AutoSyncCallbacks): void {
   void startLiveStateListener();
   startPolling();
 
-  initialSyncTimer = window.setTimeout(() => {
-    initialSyncTimer = null;
-    void performSync('initial').then((summary) => {
-      if (!summary) scheduleInitialRetry();
-    });
-  }, INITIAL_SYNC_DELAY_MS);
+  // Sync the moment it is possible to sync — the boot credential load is the
+  // only thing the first cycle actually waits on. Both paths funnel through
+  // `runInitialSync`, which runs once.
+  void whenSyncCredentialsSettled().then(runInitialSync);
+  initialSyncTimer = window.setTimeout(runInitialSync, INITIAL_SYNC_FALLBACK_DELAY_MS);
 
   const handler = () => {
     if (document.visibilityState === 'visible') {
@@ -313,10 +339,8 @@ export function stopAutoSyncV2(): void {
   lastSyncTime = 0;
   pendingLocalSave = false;
   cancelPendingLocalSaveRetry();
-  if (initialSyncTimer !== null) {
-    clearTimeout(initialSyncTimer);
-    initialSyncTimer = null;
-  }
+  cancelInitialSyncTrigger();
+  initialSyncFired = false;
   cancelInitialRetry();
   cancelBackgroundRetry();
   for (const fn of cleanupFns) fn();

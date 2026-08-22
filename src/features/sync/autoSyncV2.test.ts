@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   ensureLiveSync: vi.fn(),
   stopLiveSync: vi.fn(),
   notifyNoteChanged: vi.fn(),
+  whenSyncCredentialsSettled: vi.fn(),
+  settleCredentials: () => {},
   listen: vi.fn(),
   unlisten: vi.fn(),
   liveListener: null as null | ((event: { payload: { live: boolean; status: string } }) => void),
@@ -23,6 +25,7 @@ vi.mock('./syncServiceE2ee', () => ({
   ensureLiveSync: mocks.ensureLiveSync,
   stopLiveSync: mocks.stopLiveSync,
   notifyNoteChanged: mocks.notifyNoteChanged,
+  whenSyncCredentialsSettled: mocks.whenSyncCredentialsSettled,
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -66,6 +69,11 @@ describe('autoSyncV2 polling cadence', () => {
     mocks.ensureLiveSync.mockResolvedValue(undefined);
     mocks.stopLiveSync.mockResolvedValue(undefined);
     mocks.notifyNoteChanged.mockResolvedValue(undefined);
+    mocks.whenSyncCredentialsSettled.mockReturnValue(
+      new Promise<void>((resolve) => {
+        mocks.settleCredentials = resolve;
+      }),
+    );
     mocks.unlisten = vi.fn();
     mocks.liveListener = null;
     mocks.listen.mockImplementation(async (event: string, cb: typeof mocks.liveListener) => {
@@ -83,6 +91,7 @@ describe('autoSyncV2 polling cadence', () => {
 
   it('keeps the 15s poll cadence while live sync is disconnected', async () => {
     startAutoSyncV2(callbacks());
+    mocks.settleCredentials();
     await vi.advanceTimersByTimeAsync(8_000);
     mocks.syncE2eeAuto.mockClear();
 
@@ -93,6 +102,7 @@ describe('autoSyncV2 polling cadence', () => {
 
   it('backs off polling while live sync is connected', async () => {
     startAutoSyncV2(callbacks());
+    mocks.settleCredentials();
     await vi.advanceTimersByTimeAsync(8_000);
     mocks.syncE2eeAuto.mockClear();
 
@@ -102,5 +112,90 @@ describe('autoSyncV2 polling cadence', () => {
     await vi.advanceTimersByTimeAsync(5 * 60_000);
 
     expect(mocks.syncE2eeAuto).toHaveBeenCalledTimes(2);
+  });
+});
+
+// "Once I open the app, sync should start immediately." It used to wait a flat
+// 8s (8.6s measured from process start to the first cycle), inherited from a
+// mobile perf pass for a shell that no longer runs this code. The first cycle
+// now waits on the one thing it genuinely depends on — the boot credential load
+// that makes `isE2eeConfigured()` answer truthfully — and on nothing else.
+describe('autoSyncV2 first cycle after launch', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+    mocks.syncE2eeAuto.mockResolvedValue(summary());
+    mocks.isE2eeConfigured.mockReturnValue(true);
+    mocks.ensureLiveSync.mockResolvedValue(undefined);
+    mocks.stopLiveSync.mockResolvedValue(undefined);
+    mocks.whenSyncCredentialsSettled.mockReturnValue(
+      new Promise<void>((resolve) => {
+        mocks.settleCredentials = resolve;
+      }),
+    );
+    mocks.listen.mockResolvedValue(vi.fn());
+  });
+
+  afterEach(() => {
+    stopAutoSyncV2();
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('runs the first cycle as soon as boot credentials settle, with no timer wait', async () => {
+    startAutoSyncV2(callbacks());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.syncE2eeAuto).not.toHaveBeenCalled();
+
+    mocks.settleCredentials();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.syncE2eeAuto).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the first cycle as the initial trigger', async () => {
+    const cb = callbacks();
+    startAutoSyncV2(cb);
+    mocks.settleCredentials();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(cb.onSyncComplete).toHaveBeenCalledWith(expect.anything(), 'initial');
+  });
+
+  it('does not run a second first cycle when the fallback timer comes due', async () => {
+    startAutoSyncV2(callbacks());
+    mocks.settleCredentials();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.syncE2eeAuto).toHaveBeenCalledTimes(1);
+
+    // Far enough to pass the fallback but short of the first 15s poll.
+    await vi.advanceTimersByTimeAsync(14_000);
+
+    expect(mocks.syncE2eeAuto).toHaveBeenCalledTimes(1);
+  });
+
+  it('still runs a first cycle when nothing ever settles the credentials', async () => {
+    // A host that never runs the boot credential hook must not be left with a
+    // session that never syncs at all.
+    startAutoSyncV2(callbacks());
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(mocks.syncE2eeAuto).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    expect(mocks.syncE2eeAuto).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries on the initial ladder when credentials settle to no configured vault', async () => {
+    mocks.isE2eeConfigured.mockReturnValue(false);
+    startAutoSyncV2(callbacks());
+    mocks.settleCredentials();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.syncE2eeAuto).not.toHaveBeenCalled();
+
+    mocks.isE2eeConfigured.mockReturnValue(true);
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    expect(mocks.syncE2eeAuto).toHaveBeenCalledTimes(1);
   });
 });

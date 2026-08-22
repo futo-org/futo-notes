@@ -109,10 +109,6 @@
   will-change: auto;
 }
 
-.notes-shell.desktop-layout .drawer-overlay {
-  display: none;
-}
-
 .notes-shell.desktop-layout .note-title-row {
   padding-top: 60px;
   max-width: 740px;
@@ -175,15 +171,7 @@
   padding: 12px 12px 0;
 }
 
-.notes-shell.desktop-layout .notes-drawer .notes-list-scroll {
-  padding: 8px 8px 80px;
-}
-
 .notes-shell.desktop-layout .notes-drawer .fab {
   bottom: 16px;
   right: 16px;
-}
-.notes-shell.desktop-layout .notes-drawer .settings-fab {
-  bottom: 16px;
-  left: 16px;
 }

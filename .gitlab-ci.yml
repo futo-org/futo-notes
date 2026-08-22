@@ -468,6 +468,60 @@ test:
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
+# ── Dependency vulnerability scan ──
+# NON-BLOCKING BY DESIGN — do not "fix" this into a hard gate (docs/architecture-gates.md).
+# Tags and the default branch run it unconditionally: an advisory appears when the advisory
+# database moves, not when our lockfile does.
+test:audit:
+  stage: test
+  needs: []
+  allow_failure: true
+  variables:
+    CARGO_AUDIT_VERSION: '0.22.2'
+  # Keyed on the tool VERSION with no `files:` — keying on Cargo.lock would discard the
+  # binary on every dependency change.
+  cache:
+    key: cargo-audit-bin-$CARGO_AUDIT_VERSION
+    paths:
+      - .cargo-home/bin/
+    when: always
+  script:
+    # The MUSL tarball is statically linked, so it cannot fail on the image's glibc the way
+    # binstall's cargo-ndk prebuilt did (build:android-native, GLIBC_2.39). Building from
+    # source is not an option — ~315 crates including aws-lc-sys, which needs a C toolchain
+    # this image lacks. `|| true` because GitLab stops at the first failing script line,
+    # which would skip the marker below.
+    - |
+      if ! command -v cargo-audit >/dev/null 2>&1; then
+        SLUG="cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}"
+        mkdir -p "$CARGO_HOME/bin"
+        curl -L --proto '=https' --tlsv1.2 -sSf --retry 3 \
+          "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${CARGO_AUDIT_VERSION}/${SLUG}.tgz" \
+          | tar xz -C "$CARGO_HOME/bin" --strip-components=1 "${SLUG}/cargo-audit" || true
+      fi
+    # M11: allow_failure renders "advisories found" and "the tool never ran" as the same
+    # yellow badge, so AUDIT-DID-NOT-RUN separates them (/ci-doctor greps for it). The delete
+    # is load-bearing: the cache is pull-push and `when: always`, so a truncated download
+    # would satisfy the `command -v` above forever. No `exit` — the npm half still gates.
+    - |
+      if ! cargo-audit --version; then
+        rm -f "$CARGO_HOME/bin/cargo-audit"
+        echo "AUDIT-DID-NOT-RUN: cargo-audit could not be installed; the Rust half was not scanned."
+      fi
+    # The pinned image has no `just`, so the script is the shared entry point with `just audit`.
+    - node "$CI_PROJECT_DIR/scripts/audit.mjs"
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - Cargo.lock
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - .cargo/**/*
+        - scripts/audit.mjs
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
 test:e2e:smoke:
   stage: test
   cache:
@@ -1841,7 +1895,8 @@ windows:cleanup:
 release:gate:
   stage: verify
   needs:
-    # EVERY test job that runs on tag pipelines must be listed here. With
+    # EVERY test job that runs on tag pipelines must be listed here, except
+    # test:audit, which is allow_failure and non-blocking by design. With
     # DAG `needs`, release/publish:ios run as soon as their needs succeed —
     # a failed test job NOT in this list does not stop the publish (this
     # nearly shipped v1.4.0 twice: once past a failed test:e2e:rest, once
