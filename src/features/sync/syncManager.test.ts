@@ -257,14 +257,16 @@ describe('sync outcome state', () => {
     expect(getSyncErrorMessage(new TypeError('Failed to fetch'))).toMatch(/Could not reach server/);
   });
 
-  it('surfaces a background error and clears it on the next clean cycle', async () => {
+  it('keeps a background transport error quiet and clears it on the next clean cycle', async () => {
     const { manager } = makeManager();
     const cleanup = manager.start();
-    autoSyncCallbacks!.onSyncError(new TypeError('Load failed'));
-    expect(manager.syncErrorMessage).toMatch(/Could not reach server/);
+    autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
+    expect(manager.syncError).toBe(false);
+    expect(manager.reconnecting).toBe(true);
 
     await autoSyncCallbacks!.onSyncComplete(emptySummary, 'poll');
     expect(manager.syncError).toBe(false);
+    expect(manager.reconnecting).toBe(false);
     cleanup();
   });
 
@@ -288,7 +290,179 @@ describe('sync outcome state', () => {
       "Sync error: 1 change couldn't reach the server (HTTP 500)",
     ]);
   });
+});
 
+describe('sync transport grace period', () => {
+  it('keeps an alternating post-wake transport outage quiet during the grace period', () => {
+    const { manager, toasts } = makeManager();
+    manager.start();
+    vi.setSystemTime(new Date('2026-08-24T15:58:44Z'));
+
+    for (let elapsed = 0; elapsed <= 120_000; elapsed += 15_000) {
+      vi.setSystemTime(new Date(Date.parse('2026-08-24T15:58:44Z') + elapsed));
+      manager.handleLiveState({
+        live: false,
+        status: 'reconnecting',
+        message: 'connect: error sending request for url (https://notes.example.com/objects)',
+      });
+      autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
+    }
+
+    expect(toasts).toEqual([]);
+    expect(manager.syncError).toBe(false);
+    expect(manager.reconnecting).toBe(true);
+  });
+
+  it('escalates a persistent transport outage exactly once after three minutes', () => {
+    const { manager, toasts } = makeManager();
+    manager.start();
+    const startedAt = Date.parse('2026-08-24T15:58:44Z');
+
+    for (let elapsed = 0; elapsed <= 195_000; elapsed += 15_000) {
+      vi.setSystemTime(new Date(startedAt + elapsed));
+      manager.handleLiveState({
+        live: false,
+        status: 'reconnecting',
+        message: 'connect: error sending request for url (https://notes.example.com/objects)',
+      });
+      autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
+    }
+
+    expect(toasts).toEqual([
+      "Sync error: Could not reach server — check the URL and make sure it's running",
+    ]);
+    expect(manager.syncError).toBe(true);
+  });
+
+  it('a clean cycle resets the quiet reconnecting clock', async () => {
+    const { manager, toasts } = makeManager();
+    manager.start();
+    const startedAt = Date.parse('2026-08-24T15:58:44Z');
+    vi.setSystemTime(new Date(startedAt));
+    autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
+    vi.setSystemTime(new Date(startedAt + 120_000));
+    autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
+
+    await manager.handleSyncComplete(emptySummary, 'poll');
+    expect(manager.reconnecting).toBe(false);
+
+    vi.setSystemTime(new Date(startedAt + 240_000));
+    autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
+    vi.setSystemTime(new Date(startedAt + 300_000));
+    autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
+
+    expect(toasts).toEqual([]);
+    expect(manager.syncError).toBe(false);
+    expect(manager.reconnecting).toBe(true);
+  });
+});
+
+describe('sync error escalation policy', () => {
+  it('surfaces every manual failure immediately', () => {
+    const { manager, toasts } = makeManager();
+    manager.start();
+
+    autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'manual');
+
+    expect(manager.reconnecting).toBe(false);
+    expect(manager.syncError).toBe(true);
+    expect(toasts).toHaveLength(1);
+  });
+
+  it('surfaces live authentication failures immediately without normalizing them', () => {
+    const { manager, toasts } = makeManager();
+
+    manager.handleLiveState({
+      live: false,
+      status: 'reconnecting',
+      message: 'auth: HTTP 401 Unauthorized',
+    });
+
+    expect(manager.reconnecting).toBe(false);
+    expect(manager.syncErrorMessage).toBe('auth: HTTP 401 Unauthorized');
+    expect(toasts).toEqual(['Sync error: auth: HTTP 401 Unauthorized']);
+  });
+
+  it('surfaces completed-cycle per-item failures immediately', async () => {
+    const { manager, toasts } = makeManager();
+
+    await manager.handleSyncComplete(
+      {
+        ...emptySummary,
+        failures: [{ filename: 'note.md', kind: 'upload', statusCode: 500 }],
+        failureMessage: "1 change couldn't reach the server (HTTP 500)",
+      },
+      'poll',
+    );
+
+    expect(manager.reconnecting).toBe(false);
+    expect(manager.syncError).toBe(true);
+    expect(toasts).toEqual(["Sync error: 1 change couldn't reach the server (HTTP 500)"]);
+  });
+
+  it('normalizes stream and cycle transport wording before toast dedupe', () => {
+    const { manager, toasts } = makeManager();
+    manager.start();
+    const startedAt = Date.parse('2026-08-24T15:58:44Z');
+    vi.setSystemTime(new Date(startedAt));
+    manager.handleLiveState({
+      live: false,
+      status: 'reconnecting',
+      message: 'connect: error sending request for url (https://notes.example.com/objects)',
+    });
+    autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
+
+    vi.setSystemTime(new Date(startedAt + 180_000));
+    manager.handleLiveState({
+      live: false,
+      status: 'reconnecting',
+      message: 'connect: error sending request for url (https://notes.example.com/objects)',
+    });
+    autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
+
+    expect(toasts).toEqual([
+      "Sync error: Could not reach server — check the URL and make sure it's running",
+    ]);
+  });
+
+  it('re-raises an escalated transient failure after click-to-dismiss', () => {
+    const { manager, toasts } = makeManager();
+    const startedAt = Date.parse('2026-08-24T15:58:44Z');
+    const failure = {
+      live: false,
+      status: 'reconnecting',
+      message: 'connect: error sending request for url (https://notes.example.com/objects)',
+    };
+    vi.setSystemTime(new Date(startedAt));
+    manager.handleLiveState(failure);
+    vi.setSystemTime(new Date(startedAt + 180_000));
+    manager.handleLiveState(failure);
+
+    manager.clearSyncError();
+    manager.handleLiveState(failure);
+
+    expect(toasts).toHaveLength(2);
+    expect(manager.syncError).toBe(true);
+    expect(manager.reconnecting).toBe(false);
+  });
+
+  it('a clean poll cannot clear a quiet reconnecting stream', async () => {
+    const { manager } = makeManager();
+    manager.handleLiveState({
+      live: false,
+      status: 'reconnecting',
+      message: 'connect: error sending request for url (https://notes.example.com/objects)',
+    });
+
+    await manager.handleSyncComplete(emptySummary, 'poll');
+    expect(manager.reconnecting).toBe(true);
+
+    manager.handleLiveState({ live: true, status: 'connected' });
+    expect(manager.reconnecting).toBe(false);
+  });
+});
+
+describe('sync outcome source clearing', () => {
   it('a clean poll cannot clear or re-toast a still-broken stream', async () => {
     const { manager, toasts } = makeManager();
     manager.handleLiveState({ live: false, status: 'reconnecting', message: 'stream lost' });

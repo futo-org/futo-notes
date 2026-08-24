@@ -31,7 +31,7 @@ const INITIAL_RETRY_DELAYS = [4_000, 8_000, 16_000, 30_000, 30_000];
 
 export interface AutoSyncCallbacks {
   onSyncComplete: (summary: SyncSummary, trigger: SyncTrigger) => void;
-  onSyncError: (error: Error) => void;
+  onSyncError: (error: Error, trigger: SyncTrigger) => void;
   flushPendingSave: () => Promise<void>;
   shouldDeferSync?: () => boolean;
   onSyncStateChange?: (syncing: boolean) => void;
@@ -118,7 +118,7 @@ async function performSync(
     return summary;
   } catch (e) {
     const error = e instanceof Error ? e : new Error(String(e));
-    callbacks.onSyncError(error);
+    callbacks.onSyncError(error, trigger);
     reportedSyncErrors.add(error);
     if (options.propagateErrors) throw error;
     return null;

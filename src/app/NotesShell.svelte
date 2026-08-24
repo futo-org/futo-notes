@@ -436,6 +436,7 @@
   offline={sync.syncOffline}
   error={sync.syncError}
   errorMessage={sync.syncErrorMessage}
+  reconnecting={sync.reconnecting}
   connected={sync.live}
   onclear={sync.clearSyncError}
 />
@@ -456,6 +457,7 @@
     }}
     backgroundSyncError={sync.syncError}
     backgroundSyncErrorMessage={sync.syncErrorMessage}
+    syncReconnecting={sync.reconnecting}
     onsimulatesync={sync.handleSyncComplete}
     onreset={resetAllNotes}
   />

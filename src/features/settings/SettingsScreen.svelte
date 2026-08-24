@@ -30,12 +30,19 @@
     onclose: () => void;
     backgroundSyncError: boolean;
     backgroundSyncErrorMessage: string;
+    syncReconnecting: boolean;
     onsimulatesync: (summary: SyncSummary, trigger?: 'manual') => void | Promise<void>;
     onreset: () => Promise<void>;
   }
 
-  let { onclose, backgroundSyncError, backgroundSyncErrorMessage, onsimulatesync, onreset }: Props =
-    $props();
+  let {
+    onclose,
+    backgroundSyncError,
+    backgroundSyncErrorMessage,
+    syncReconnecting,
+    onsimulatesync,
+    onreset,
+  }: Props = $props();
 
   let preferences = $state<AppPreferences>(copyPreferences(getCachedPreferences()));
   let notesDirectory = $state(isTauri ? 'Loading…' : 'In-memory test vault');
@@ -230,6 +237,7 @@
           {sync}
           backgroundError={backgroundSyncError}
           backgroundErrorMessage={backgroundSyncErrorMessage}
+          reconnecting={syncReconnecting}
         />
         <IssueReportingSettingsSection
           enabled={preferences.crashReporting.enabled}

@@ -5,6 +5,7 @@
     offline: boolean;
     error?: boolean;
     errorMessage?: string;
+    reconnecting?: boolean;
     connected?: boolean;
     onclear?: () => void;
   }
@@ -15,6 +16,7 @@
     offline,
     error = false,
     errorMessage = '',
+    reconnecting = false,
     connected = false,
     onclear,
   }: Props = $props();
@@ -80,6 +82,27 @@
       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
     </svg>
   </div>
+{:else if reconnecting}
+  <div
+    class="sync-indicator sync-reconnecting"
+    role="status"
+    aria-label="Reconnecting to sync server"
+    title="Reconnecting to sync server"
+  >
+    <svg
+      class="sync-spinner"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  </div>
 {:else if connected}
   <div class="sync-indicator sync-idle" role="status" aria-label="Sync up to date">
     <svg
@@ -114,6 +137,12 @@
   }
   .sync-indicator.sync-error:hover {
     opacity: 1;
+  }
+
+  .sync-indicator.sync-reconnecting {
+    color: var(--color-muted);
+    opacity: 0.5;
+    pointer-events: none;
   }
 
   /* Idle "up to date" tick — subtle so a persistent healthy indicator
