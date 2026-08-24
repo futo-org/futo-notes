@@ -1070,8 +1070,7 @@ test:cross-platform-sync:android:
     # build:android-native's changes: gate lists every path below (plus its own
     # extras), so the job producing the APK can never be absent when this one
     # runs. Widening this list means widening that one — and neither may gain
-    # `.gitlab-ci.yml` or docs paths, which that job deliberately excludes
-    # (asserted in scripts/premerge-test-parity.test.mjs).
+    # `.gitlab-ci.yml` or docs paths, which that job deliberately excludes.
     - if: $CI_MERGE_REQUEST_IID
       changes: &android-sync-leg-changes
         - apps/android/**/*
