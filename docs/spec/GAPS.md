@@ -45,7 +45,8 @@ flag gaps the codebase suggests have been implemented.
 
 ## sync.md
 
-- [sync.md:1133](sync.md#L1133) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
-- [sync.md:1137](sync.md#L1137) — The desktop scheduler's own triggers are not distinguishable in the record. Launch, poll, resume and local-save all reach Rust through the one `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be told apart from a user pressing "Sync now"; only the live loop's four triggers are recorded faithfully.
+- [sync.md:133](sync.md#L133) — iOS/Android SyncManagers still escalate on the first failure with no transient/actionable classification (single lastError bucket); desktop-only as of 2026-08-24.
+- [sync.md:1148](sync.md#L1148) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
+- [sync.md:1152](sync.md#L1152) — The desktop scheduler's own triggers are not distinguishable in the record. Launch, poll, resume and local-save all reach Rust through the one `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be told apart from a user pressing "Sync now"; only the live loop's four triggers are recorded faithfully.
 
-_22 gaps._
+_23 gaps._

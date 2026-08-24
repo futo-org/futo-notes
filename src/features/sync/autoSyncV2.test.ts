@@ -162,6 +162,17 @@ describe('autoSyncV2 first cycle after launch', () => {
     expect(cb.onSyncComplete).toHaveBeenCalledWith(expect.anything(), 'initial');
   });
 
+  it('reports a failed cycle with the trigger that caused it', async () => {
+    const cb = callbacks();
+    const error = new TypeError('Load failed');
+    mocks.syncE2eeAuto.mockRejectedValueOnce(error);
+    startAutoSyncV2(cb);
+    mocks.settleCredentials();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(cb.onSyncError).toHaveBeenCalledWith(error, 'initial');
+  });
+
   it('does not run a second first cycle when the fallback timer comes due', async () => {
     startAutoSyncV2(callbacks());
     mocks.settleCredentials();
