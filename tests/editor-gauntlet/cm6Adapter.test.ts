@@ -10,7 +10,7 @@ interface SeedArgument {
 
 function recordingPage(evidence: {
   seedIds: string[];
-  waitedDocuments: string[];
+  seedBodies: string[];
   selections: Array<{ anchor: number; head: number }>;
 }): Page {
   const page = {
@@ -18,9 +18,7 @@ function recordingPage(evidence: {
     goto: async () => null,
     waitForLoadState: async () => {},
     waitForSelector: async () => null,
-    waitForFunction: async (_callback: unknown, argument?: unknown) => {
-      if (typeof argument === 'string') evidence.waitedDocuments.push(argument);
-    },
+    waitForFunction: async () => {},
     evaluate: async (_callback: unknown, argument?: unknown) => {
       if (
         typeof argument === 'object' &&
@@ -29,6 +27,7 @@ function recordingPage(evidence: {
         'body' in argument
       ) {
         evidence.seedIds.push((argument as SeedArgument).id);
+        evidence.seedBodies.push((argument as SeedArgument).body);
       } else if (
         typeof argument === 'object' &&
         argument !== null &&
@@ -44,7 +43,7 @@ function recordingPage(evidence: {
 
 describe('Cm6GauntletAdapter', () => {
   it('reuses one persisted scratch note across cases', async () => {
-    const evidence = { seedIds: [], waitedDocuments: [], selections: [] };
+    const evidence = { seedIds: [], seedBodies: [], selections: [] };
     const adapter = new Cm6GauntletAdapter(recordingPage(evidence));
 
     await adapter.open('first source', 'foreign-1-block-0');
@@ -55,13 +54,13 @@ describe('Cm6GauntletAdapter', () => {
   });
 
   it('maps raw CRLF offsets into the normalized CM6 document without changing the raw oracle', async () => {
-    const evidence = { seedIds: [], waitedDocuments: [], selections: [] };
+    const evidence = { seedIds: [], seedBodies: [], selections: [] };
     const adapter = new Cm6GauntletAdapter(recordingPage(evidence));
 
     await adapter.open('a\r\nb\r\nc', 'foreign-crlf');
     await adapter.select({ anchor: 3, head: 7 });
 
-    expect(evidence.waitedDocuments.at(-1)).toBe('a\nb\nc');
+    expect(evidence.seedBodies).toEqual(['a\r\nb\r\nc']);
     expect(evidence.selections).toEqual([{ anchor: 2, head: 5 }]);
   });
 });

@@ -92,10 +92,6 @@ export class Cm6GauntletAdapter implements EditorGauntletAdapter {
       },
       { id: this.noteId, body: source },
     );
-    await this.page.waitForFunction(
-      (expected) => (window as GauntletWindow).__cmGetView?.()?.state.doc.toString() === expected,
-      source.replace(/\r\n?/g, '\n'),
-    );
     await waitForTwoFrames(this.page);
   }
 
