@@ -53,13 +53,14 @@ export class Cm6GauntletAdapter implements EditorGauntletAdapter {
   readonly name = 'current-cm6';
   private isReady = false;
   private pageErrors: string[] = [];
-  private noteId = '';
+  /** One scratch note prevents a corpus sweep from benchmarking sidebar/cache cardinality. */
+  private readonly noteId = 'editor-gauntlet-active';
 
   constructor(private readonly page: Page) {
     page.on('pageerror', (error) => this.pageErrors.push(error.message));
   }
 
-  async open(source: string, caseId: string): Promise<void> {
+  async open(source: string, _caseId: string): Promise<void> {
     if (!this.isReady) {
       await this.page.goto('/');
       await this.page.waitForLoadState('domcontentloaded');
@@ -78,7 +79,6 @@ export class Cm6GauntletAdapter implements EditorGauntletAdapter {
     }
 
     this.pageErrors = [];
-    this.noteId = `editor-gauntlet-${caseId.replace(/[^a-z0-9-]/gi, '-')}`;
     await this.page.evaluate(
       async ({ id, body }) => {
         const testWindow = window as GauntletWindow;
