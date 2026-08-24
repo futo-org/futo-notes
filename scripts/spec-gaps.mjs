@@ -97,6 +97,25 @@ function read(rel) {
 // cross-platform scenario "dirty draft survives a peer edit then settles".
 const PROBES = [
   {
+    // sync.md — desktop classifies retryable transport failures, while both
+    // native managers still put the first error directly in one lastError
+    // bucket. Closure requires both native owners to gain the two recourse
+    // classes; one-sided implementation is still a real cross-shell gap.
+    match:
+      /SyncManagers still escalate on the first failure with no transient\/actionable classification/,
+    closed: () => {
+      const android = read('apps/android/app/src/main/java/com/futo/notes/SyncManager.kt');
+      const ios = read('apps/ios/Sources/Sync/SyncManager.swift');
+      return [android, ios].every(
+        (manager) =>
+          /(?:reconnectingSince|RECONNECTING_GRACE|SyncErrorClass|FailureClass)/.test(manager) &&
+          /transient/i.test(manager) &&
+          /actionable/i.test(manager),
+      );
+    },
+    hint: 'both native SyncManagers now name transient and actionable failures — verify their escalation behavior and close the desktop-only sync-error gap.',
+  },
+  {
     match: /sync live pull.*land above the viewport|reloadAsync.*no at-top re-pin/s,
     closed: () =>
       /requestScrollToItem/.test(

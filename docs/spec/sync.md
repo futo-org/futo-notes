@@ -108,31 +108,42 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
     resolves but carries per-item failures reports the failure state instead —
     resolution alone is not success. Same rule for the large-sync coordinator
     banner. → syncManager.svelte.ts (`handleSyncComplete`)
-- A failed **auto/background** sync (not just a manual "Sync now") surfaces too,
-  not only in the console: the desktop status bar shows a muted error indicator
-  (a ⚠ warning triangle, distinct from the offline icon, which wins when there's no network)
-  whose hover tooltip carries the error message, and the Settings sync section
-  shows the same "Sync failed: …" line. Both clear on the next successful sync.
-  Manual-sync errors ride the SAME shared state (single reporter — see above);
-  only pre-sync connect failures (bad URL/password) render as a local
-  "Connect failed: …" line in Settings.
-  The ⚠ indicator is also **click-to-dismiss** (`clearSyncError`) — a manual
-  dismiss, not a mute: the next failing sync re-raises it.
-  Opaque `fetch` `TypeError`s (server unreachable) are rewritten to an actionable
-  message. → syncErrorMessage.ts (`getSyncErrorMessage`),
-  syncManager.svelte.ts (`syncError`, `clearSyncError`), SyncStatusBar.svelte
-  - **A transport failure names its cause, not just the URL** (all shells — the
-    engine builds the message). Anything that never reached a status line — DNS,
+- **Desktop sync failures escalate by recourse, not by first failure.** A
+  transport-class background failure (the shared `RUST_TRANSPORT_ERROR` match
+  or an opaque fetch `TypeError`) first enters a visible-but-quiet reconnecting
+  state: the status bar shows a muted spinner, Settings says "Reconnecting…",
+  and neither the ⚠ state nor a toast fires. Retries remain active; if the same
+  source is still failing after 3 minutes, the next retry promotes it to the
+  existing loud state with the muted ⚠ indicator, hover message, Settings
+  "Sync failed: …" line, and toast. A clean cycle clears cycle reconnecting;
+  a stream reconnect clears stream reconnecting. Failures are never swallowed:
+  the quiet state is visible and self-escalates without user action. Manual
+  "Sync now" / Settings-connect cycle failures, auth failures, errors carrying
+  an HTTP status, and completed-cycle per-item failures are actionable and loud
+  immediately. Pre-sync bad-URL/password failures remain the local
+  "Connect failed: …" line. The ⚠ is click-to-dismiss (`clearSyncError`) — a
+  dismiss, not a mute, so a later failure can raise it again. Before display,
+  live-stream messages pass through `getSyncErrorMessage`, so transport details
+  normalize to the safe actionable message rather than exposing a server URL or
+  reqwest internals. Download-per-item retry failures remain immediately
+  actionable for now. → syncErrorMessage.ts (`classifySyncError`,
+  `getSyncErrorMessage`), syncManager.svelte.ts (`reportFailure`,
+  `reconnecting`, `syncError`), SyncStatusBar.svelte, SyncSettingsSection.svelte
+
+  > **Gap:** iOS/Android SyncManagers still escalate on the first failure with no transient/actionable classification (single lastError bucket); desktop-only as of 2026-08-24.
+  - **A transport failure retains its complete cause chain in the engine and
+    journal.** Anything that never reached a status line — DNS,
     no route, a refused or reset connection, a stale pooled socket, TLS, a
     timeout, a truncated body — carries the whole error `source()` chain
     (`error sending request for url (…): client error (Connect): tcp connect
-    error: No route to host (os error 65)`), both in the surfaced line and in the
-    journal's `error` field. The outer layer alone is untriageable: a desktop
+error: No route to host (os error 65)`) in the journal's `error` field; the
+    desktop user-facing boundary normalizes transport-class details as described
+    above. The outer layer alone is untriageable: a desktop
     journal held 240 failed cycles over three days that could not be told apart
     from a dead server, a poisoned connection pool, or a vanished route. →
     futo-notes-sync `server/mod.rs` (`transport_error` / `error_chain`, guarded
     by "a refused connection names its cause not just the url")
-  (`onclear`), SettingsScreen.svelte (desktop)
+
 - **Per-item sync failures surface — a cycle that COMPLETES is not assumed
   healthy.** When individual operations fail (an upload/create/update, a
   push-side delete, a duplicate-move loser takedown, an object-map
@@ -322,11 +333,13 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   `replay_hydration_rechecks_the_local_revision_before_writing`; F-series
   `f_batch_upload_first_push`; server: futo-notes-server
   `src/objects/batch-upload/`
-- **The failure signal also fires a toast, on message change.** A toast —
+- **A loud failure signal fires a toast on message change.** Actionable failures
+  toast immediately; a transient background failure toasts only when its
+  reconnecting state reaches the 3-minute escalation threshold. The toast is
   prefixed **"Sync error: "** so the source is clear outside the sync UI
-  ("Sync error: N change(s) couldn't reach the server …") — appears on the
-  first failure and on
-  every subsequent failure whose **message differs** (count or dominant HTTP
+  ("Sync error: N change(s) couldn't reach the server …"). It appears on the
+  first loud failure and on every subsequent failure whose **message differs**
+  (count or dominant HTTP
   status changed). An **identical** repeat stays silent — auto-sync retries a
   persistent outage every ~15s, and per-cycle toasting would spam. After a
   clear (clean sync or click-to-dismiss) the message resets, so the next
@@ -334,13 +347,15 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   sync clears cycle-failure errors but NOT a live-stream error (the stream is
   still down — clearing it would re-arm the toast and spam every reconnect
   attempt); a stream error clears when the stream reconnects or on dismiss.
-  → syncManager.svelte.ts (`raiseError`, `clearError`)
+  Stream and cycle messages are normalized before this comparison, so alternating
+  raw and browser transport wording cannot defeat dedupe. → syncManager.svelte.ts
+  (`reportFailure`, `raiseSyncError`, `clearSyncError`)
 - **Desktop shows a persistent idle sync indicator.** While the live SSE stream
   is connected and healthy (no active sync, no error, online), the bottom-right
   corner shows a subtle ✓ tick, so "sync is set up and fine" is always legible
-  rather than blank. It yields to the spinner (syncing), ⚠ (error), and
-  offline icons. A failing **cycle** on a healthy stream does not drop the
-  tick's connected state — the live loop reports it as `status: "cycle-error"`
+  rather than blank. It yields to the spinner (syncing), muted reconnecting
+  spinner, ⚠ (error), and offline icons. A failing **cycle** on a healthy stream
+  does not drop the tick's connected state — the live loop reports it as `status: "cycle-error"`
   with `live: true` (only a real stream drop reports `live: false`), so one
   transient cycle error can't blank the tick until the next stream reconnect.
   Desktop only — native shells surface sync state on their Sync screen. →
@@ -542,9 +557,9 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   (2026-06-04): it tracked the reconnect task being alive, not an
   authenticated stream, so it stayed lit while every request 401'd. Errors
   surface via the status/lastError line instead. On desktop, the live loop's
-  error emits (`sync:live-state` with a `message`) also route into the same
-  ⚠ failure indicator + toast as every other sync error — previously the
-  message was dropped and a failing live loop stayed quiet until the (up to
+  error emits (`sync:live-state` with a `message`) also route through the same
+  normalized transient/actionable classifier as every other desktop sync error
+  — previously the message was dropped and a failing live loop stayed quiet until the (up to
   120 s) safety poll hit the same error. The loop distinguishes its two
   failure classes: a failed **cycle** on a healthy stream emits
   `status: "cycle-error"` (`live: true` — same class as a poll failure,
