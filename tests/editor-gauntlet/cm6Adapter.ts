@@ -55,6 +55,7 @@ export class Cm6GauntletAdapter implements EditorGauntletAdapter {
   private pageErrors: string[] = [];
   /** One scratch note prevents a corpus sweep from benchmarking sidebar/cache cardinality. */
   private readonly noteId = 'editor-gauntlet-active';
+  private openedSource = '';
 
   constructor(private readonly page: Page) {
     page.on('pageerror', (error) => this.pageErrors.push(error.message));
@@ -79,6 +80,7 @@ export class Cm6GauntletAdapter implements EditorGauntletAdapter {
     }
 
     this.pageErrors = [];
+    this.openedSource = source;
     await this.page.evaluate(
       async ({ id, body }) => {
         const testWindow = window as GauntletWindow;
@@ -92,18 +94,23 @@ export class Cm6GauntletAdapter implements EditorGauntletAdapter {
     );
     await this.page.waitForFunction(
       (expected) => (window as GauntletWindow).__cmGetView?.()?.state.doc.toString() === expected,
-      source,
+      source.replace(/\r\n?/g, '\n'),
     );
     await waitForTwoFrames(this.page);
   }
 
   async select(selection: SourceSelection): Promise<void> {
-    await this.page.evaluate(({ anchor, head }) => {
-      const view = (window as GauntletWindow).__cmGetView?.();
-      if (!view) throw new Error('CM6 view is unavailable');
-      view.dispatch({ selection: { anchor, head: head ?? anchor } });
-      view.focus();
-    }, selection);
+    const anchor = this.normalizedPosition(selection.anchor);
+    const head = this.normalizedPosition(selection.head ?? selection.anchor);
+    await this.page.evaluate(
+      ({ anchor, head }) => {
+        const view = (window as GauntletWindow).__cmGetView?.();
+        if (!view) throw new Error('CM6 view is unavailable');
+        view.dispatch({ selection: { anchor, head: head ?? anchor } });
+        view.focus();
+      },
+      { anchor, head },
+    );
   }
 
   async perform(action: EditorIntentAction): Promise<EditorSnapshot[]> {
@@ -249,5 +256,9 @@ export class Cm6GauntletAdapter implements EditorGauntletAdapter {
       if (!driver) throw new Error('factory editor driver is unavailable');
       return driver.state();
     });
+  }
+
+  private normalizedPosition(rawPosition: number): number {
+    return this.openedSource.slice(0, rawPosition).replace(/\r\n?/g, '\n').length;
   }
 }
