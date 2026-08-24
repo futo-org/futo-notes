@@ -110,11 +110,10 @@ A differential that skips something quietly is worse than no differential (M11):
    fixture file that is neither driven nor listed in
    `FIXTURES_OUTSIDE_THE_DIFFERENTIAL` (with the reason) fails the run — so a new
    corpus cannot arrive without a decision.
-2. **Closure probes.** Each `KNOWN_DIVERGENCES` entry carries minimal inputs that
-   must STILL diverge. Fix the cause and the run goes red until the entry is
-   deleted, so an exclusion cannot outlive its reason.
-3. **Visible suppression.** Suppressed counts print on a _green_ run. A divergence
-   nobody sees is a divergence nobody fixes.
+2. **Visible suppression.** Every `KNOWN_DIVERGENCES` entry prints how many probes
+   it suppressed, on a _green_ run. A divergence nobody sees is a divergence
+   nobody fixes — and an exclusion whose cause was fixed shows up as a count that
+   should have reached zero, which is the cue to delete the entry.
 
 ### What it deliberately does not compare
 

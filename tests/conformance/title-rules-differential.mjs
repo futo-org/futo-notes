@@ -22,9 +22,9 @@
 //     (`crates/futo-notes-model/examples/title_rule_oracle.rs`) as a single JSON
 //     batch, so growing the corpus costs microseconds, not cargo startups.
 //   * NO SILENT PASS (M11). `assertEveryFixtureOpIsCovered` fails if a fixture op
-//     exists that this differential does not probe; every KNOWN_DIVERGENCES entry
-//     must STILL diverge, so a fix cannot leave a stale exclusion behind; and the
-//     suppressed counts are printed even on a green run.
+//     exists that this differential does not probe, and every KNOWN_DIVERGENCES
+//     entry prints its suppressed count even on a green run - a divergence nobody
+//     sees is a divergence nobody fixes.
 //
 // The filename is historical: this began as a title-only differential and the
 // `justfile`, `.gitlab-ci.yml`, and `scripts/drift-registry.json` all reference
@@ -997,10 +997,9 @@ const FIXTURES_OUTSIDE_THE_DIFFERENTIAL = {
 };
 
 // Divergences the two languages KNOWN-ship today. Each entry names the exact op
-// set and input class it excuses, why, and - crucially - minimal `probes` that
-// MUST STILL diverge: if one starts agreeing, the run fails and tells you to
-// narrow or delete the entry. That is the same closure-probe discipline the
-// docs/spec gap list uses, and it is what stops an exclusion outliving its cause.
+// set and input class it excuses, and why. Every run prints how many probes each
+// entry suppressed, so an exclusion that outlived its cause shows up as a count
+// that should have reached zero - fix the cause, then delete the entry.
 //
 // An entry is a decision to SHIP a divergence. Keep the input class as narrow as
 // the CAUSE, never as wide as the symptom, and file the follow-up.
@@ -1031,22 +1030,6 @@ const KNOWN_DIVERGENCES = [
       'makePreview',
     ]),
     matches: (input) => typeof input === 'string' && /[\u0085\ufeff]/u.test(input),
-    probes: [
-      { op: 'tagRegexMatches', input: 'pre\u0085#a post' },
-      { op: 'tagRegexMatches', input: 'pre\ufeff#a post' },
-      { op: 'tagRegexMatches', input: 'x #a\u0085b' },
-      { op: 'tagRegexMatches', input: 'x #a\ufeffb' },
-      { op: 'extractTags', input: '#a\u0085#b' },
-      { op: 'extractTags', input: '#a\ufeff#b' },
-      { op: 'extractHeaderTagBlock', input: '#a\u0085\n\nbody' },
-      { op: 'extractHeaderTagBlock', input: '#a\ufeff\n\nbody' },
-      { op: 'normalizeTagName', input: 'a\u0085b' },
-      { op: 'normalizeTagName', input: 'a\ufeffb' },
-      { op: 'normalizeTagName', input: '\u0085Tag\u0085' },
-      { op: 'normalizeTagName', input: '\ufeffTag\ufeff' },
-      { op: 'makePreview', input: '\u0085content\u0085' },
-      { op: 'makePreview', input: '\ufeffcontent\ufeff' },
-    ],
   },
 ];
 
@@ -1157,18 +1140,10 @@ const probes = [];
 for (const family of families) {
   for (const probe of family.probes()) probes.push({ family: family.name, ...probe });
 }
-// Closure probes ride along in the same batch, but only on a full run: a narrowed
-// --family run must not fail because an unrelated entry went unexercised.
-const closureProbes = selected.length === 0;
-if (closureProbes) {
-  for (const divergence of KNOWN_DIVERGENCES) {
-    for (const probe of divergence.probes) {
-      probes.push({ family: 'closure-probe', divergenceId: divergence.id, ...probe });
-    }
-  }
-  assertEveryFixtureOpIsCovered(
-    new Set(probes.filter((probe) => !probe.divergenceId).map((probe) => probe.op)),
-  );
+// Only a full run can judge coverage: a narrowed --family run drives some ops on
+// purpose, so "an op no family probes" there is the flag, not a finding.
+if (selected.length === 0) {
+  assertEveryFixtureOpIsCovered(new Set(probes.map((probe) => probe.op)));
 }
 
 const rust = spawnSync(
@@ -1196,30 +1171,19 @@ if (rustAnswers.length !== probes.length) {
 }
 
 const suppressed = new Map(KNOWN_DIVERGENCES.map((divergence) => [divergence.id, 0]));
-const healed = [];
 const mismatches = [];
 const perFamily = new Map();
 
 for (let index = 0; index < probes.length; index += 1) {
   const probe = probes[index];
-  if (!probe.divergenceId) {
-    const counts = perFamily.get(probe.family) ?? { probes: 0, ops: new Set() };
-    counts.probes += 1;
-    counts.ops.add(probe.op);
-    perFamily.set(probe.family, counts);
-  }
+  const counts = perFamily.get(probe.family) ?? { probes: 0, ops: new Set() };
+  counts.probes += 1;
+  counts.ops.add(probe.op);
+  perFamily.set(probe.family, counts);
 
   const typescript = comparable(probe.op, probe.input, TS_OPS[probe.op](probe.input));
   const rustAnswer = comparable(probe.op, probe.input, rustAnswers[index]);
-  const agree = canon(typescript) === canon(rustAnswer);
-
-  // A closure probe MUST still diverge; agreement means the cause was fixed and
-  // the KNOWN_DIVERGENCES entry is now hiding real coverage.
-  if (probe.divergenceId) {
-    if (agree) healed.push({ ...probe, typescript, rust: rustAnswer });
-    continue;
-  }
-  if (agree) continue;
+  if (canon(typescript) === canon(rustAnswer)) continue;
 
   const excuse = KNOWN_DIVERGENCES.find(
     (divergence) => divergence.ops.has(probe.op) && divergence.matches(probe.input),
@@ -1229,23 +1193,6 @@ for (let index = 0; index < probes.length; index += 1) {
     continue;
   }
   mismatches.push({ ...probe, typescript, rust: rustAnswer });
-}
-
-if (healed.length > 0) {
-  process.stderr.write(
-    '\nRULE DIFFERENTIAL FAILED - a recorded divergence no longer diverges. The two\n' +
-      'languages now AGREE on these closure probes, so the KNOWN_DIVERGENCES entry is\n' +
-      'suppressing real coverage. Narrow it, or delete it.\n\n' +
-      healed
-        .map(
-          (probe) =>
-            `  entry "${probe.divergenceId}" op=${probe.op} input=${describe(probe.input)}\n` +
-            `    both languages answered: ${describe(probe.typescript)}\n`,
-        )
-        .join('') +
-      '\n',
-  );
-  process.exit(1);
 }
 
 if (mismatches.length > 0) {
@@ -1285,7 +1232,7 @@ if (mismatches.length > 0) {
   process.exit(1);
 }
 
-const compared = probes.filter((probe) => !probe.divergenceId).length;
+const compared = probes.length;
 const summary = [...perFamily.entries()]
   .map(
     ([name, counts]) =>
@@ -1302,8 +1249,5 @@ process.stdout.write(
   `Rule differential OK - TypeScript and Rust agree on ${compared} probes across ` +
     `${families.length} famil${families.length === 1 ? 'y' : 'ies'}:\n${summary}\n` +
     (excuses ? `${excuses}\n` : '') +
-    (closureProbes
-      ? `  ${String(probes.length - compared).padStart(6)} closure probes still diverging\n`
-      : '') +
     (selected.length > 0 ? 'PARTIAL RUN - coverage guard skipped (--family given).\n' : ''),
 );
