@@ -430,9 +430,9 @@ test:
   # mechanism, as the sync suite's resource_group above; a distinct key so the
   # two suites never wait on each other.
   #
-  # Cost, measured on recent main pipelines: this job runs 47s (docs fast path)
-  # to ~271s, so a third concurrent MR queues roughly 8 minutes. That is cheaper
-  # than the failure it replaces — a red pipeline plus the attribution hunt.
+  # Cost, measured on recent main pipelines: this job runs up to ~271s, so a
+  # third concurrent MR queues roughly 8 minutes. That is cheaper than the
+  # failure it replaces — a red pipeline plus the attribution hunt.
   #
   # Merge trains would be the other way to stop stacked pipelines overlapping,
   # but gitlab.futo.org runs the EE binary on a Free tier and merge trains are
@@ -444,46 +444,30 @@ test:
   # incident). 15m is ~3x the worst observed run, so a cold cache still fits
   # while a wedged job frees the group in 15m instead of an hour.
   timeout: 15m
-  # The docs fast path only needs Node. Defer pnpm/Corepack setup until the
-  # classifier selects the full path so a documentation MR performs no
-  # package-manager or registry work.
-  before_script:
-    - . $HOME/.nvm/nvm.sh
+  # No scope classifier: this job always runs the full script. A documentation
+  # MR pays the pnpm install, and in exchange there is exactly one path that can
+  # be reasoned about. The docs gates it used to shortcut to (check-agent-docs,
+  # check-qa-input-safety) run here inside check:arch-gate:portable, so nothing
+  # a Markdown-only MR could break goes unchecked — which is the db31586c
+  # regression this repo already paid for once (M24).
   cache:
     - !reference [.cache-pnpm, cache]
   script:
-    - export CI_TEST_SCOPE="$(node scripts/ci-test-scope.mjs)"
-    - echo "Selected CI test scope '$CI_TEST_SCOPE'"
-    - |
-      if [ "$CI_TEST_SCOPE" = docs ]; then
-        # Validate the instruction surfaces that select this fast path. Both
-        # gates run on plain Node, without package-manager or registry work.
-        # check-qa-input-safety MUST be here as well as in arch-gate: a
-        # Markdown-only MR is exactly how an unsafe QA technique gets taught
-        # (M24), and the docs fast path skipping a docs gate is the db31586c
-        # regression this repo already paid for once.
-        node scripts/check-agent-docs.mjs
-        node scripts/check-qa-input-safety.mjs
-      else
-        corepack enable
-        corepack prepare pnpm@10.29.2 --activate
-        pnpm config set store-dir "$PNPM_STORE_DIR"
-        pnpm install --frozen-lockfile --prefer-offline
-        pnpm exec tsx scripts/gen-toolbar-spec.ts --check
-        pnpm exec tsx "$CI_PROJECT_DIR/scripts/gen-title-spec.ts" --check
-        pnpm run lint
-        pnpm run lint:platform
-        pnpm run check:svelte
-        pnpm run format:check
-        # Keep portable anti-duplication gates in the first mandatory MR job.
-        # Rust-only dependency boundaries live with the Rust workspace suite.
-        pnpm run check:arch-gate:portable
-        pnpm run test:full
-        pnpm run build
-        # Native shells embed this separate single-file bundle. Building it
-        # here proves editor changes without compiling two native applications.
-        pnpm exec vite build --config vite.editor.config.ts
-      fi
+    - pnpm install --frozen-lockfile --prefer-offline
+    - pnpm exec tsx scripts/gen-toolbar-spec.ts --check
+    - pnpm exec tsx "$CI_PROJECT_DIR/scripts/gen-title-spec.ts" --check
+    - pnpm run lint
+    - pnpm run lint:platform
+    - pnpm run check:svelte
+    - pnpm run format:check
+    # Keep portable anti-duplication gates in the first mandatory MR job.
+    # Rust-only dependency boundaries live with the Rust workspace suite.
+    - pnpm run check:arch-gate:portable
+    - pnpm run test:full
+    - pnpm run build
+    # Native shells embed this separate single-file bundle. Building it here
+    # proves editor changes without compiling two native applications.
+    - pnpm exec vite build --config vite.editor.config.ts
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
