@@ -118,6 +118,7 @@ describe('runForeignPreservationSweep', () => {
     expect(result.editsCompleted).toBe(1);
     expect(result.failedEdits).toBe(1);
     expect(result.failures['edit-perform']).toBe(1);
+    expect(result.hardFailures.adapterOperations).toBe(2);
   });
 
   it.each([

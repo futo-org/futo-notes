@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ForeignSweepShardReport } from './foreignReport';
-import { mergeForeignSweepShardReports } from './foreignReport';
+import {
+  fingerprintForeignSweepConfig,
+  mergeForeignSweepShardReports,
+  type ForeignSweepRunConfig,
+  type ForeignSweepShardReport,
+} from './foreignReport';
 import { emptyForeignSweepResult } from './foreignPreservation';
 
 function shard(index: number, count = 2): ForeignSweepShardReport {
@@ -9,10 +13,29 @@ function shard(index: number, count = 2): ForeignSweepShardReport {
   const sweep = emptyForeignSweepResult();
   sweep.notesPlanned = selectedRecords;
   sweep.notesParsed = selectedRecords;
+  const config: ForeignSweepRunConfig = {
+    semanticsVersion: 'foreign-preservation-v2',
+    candidate: 'candidate',
+    candidateRevision: 'candidate-revision',
+    adapterRevision: 'adapter-sha',
+    corpusSha256: 'corpus-sha',
+    expectedRecords: 3,
+    maxNotes: null,
+    shardCount: count,
+    selection: 'zero-based-record-ordinal-modulo',
+    blocks: 'lezer-markdown-gfm-top-level-v1',
+    caretWalk: 'block-from-and-to-with-render-frame-v1',
+    edit: 'isolated-insert-x-at-block-from-v1',
+  };
   return {
     schemaVersion: 1,
     candidate: 'candidate',
+    corpusSha256: 'corpus-sha',
+    config,
+    configFingerprint: fingerprintForeignSweepConfig(config),
     shard: { index, count },
+    wallMs: 100 + index,
+    maxRssKb: 1_000 + index,
     corpus: {
       recordsSeen: 3,
       selectedRecords,
@@ -41,7 +64,10 @@ describe('mergeForeignSweepShardReports', () => {
 
     expect(mergeForeignSweepShardReports([second, first])).toMatchObject({
       candidate: 'candidate',
+      corpusSha256: 'corpus-sha',
       shards: 2,
+      wallMs: 101,
+      maxRssKb: 1_001,
       corpus: {
         recordsSeen: 3,
         selectedRecords: 3,
@@ -73,5 +99,24 @@ describe('mergeForeignSweepShardReports', () => {
     const incomplete = shard(1);
     incomplete.sweep.editsPlanned = 1;
     expect(() => mergeForeignSweepShardReports([shard(0), incomplete])).toThrow(/planned edit/);
+  });
+
+  it('rejects mixed corpus, config, revision, and expected-record evidence', () => {
+    const wrongCorpus = shard(1);
+    wrongCorpus.corpusSha256 = 'other-corpus';
+    expect(() => mergeForeignSweepShardReports([shard(0), wrongCorpus])).toThrow(/corpus SHA/);
+
+    const wrongRevision = shard(1);
+    wrongRevision.config.adapterRevision = 'other-adapter';
+    wrongRevision.configFingerprint = fingerprintForeignSweepConfig(wrongRevision.config);
+    expect(() => mergeForeignSweepShardReports([shard(0), wrongRevision])).toThrow(
+      /config fingerprint/,
+    );
+
+    const wrongExpectedCount = shard(1);
+    wrongExpectedCount.corpus.recordsSeen = 2;
+    expect(() => mergeForeignSweepShardReports([shard(0), wrongExpectedCount])).toThrow(
+      /expected corpus record count/,
+    );
   });
 });

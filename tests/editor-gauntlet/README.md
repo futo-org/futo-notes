@@ -44,6 +44,7 @@ modulo shards. Each process needs its own dev port, Playwright run ID, and repor
 ```sh
 FUTO_DEV_PORT=5400 PW_RUN_ID=foreign-0 \
   EDITOR_GAUNTLET_CORPUS=~/Developer/futo-notes-ml/dataset/notes_corpus.jsonl.gz \
+  EDITOR_GAUNTLET_EXPECTED_RECORDS=30995 \
   EDITOR_GAUNTLET_SHARD_COUNT=4 EDITOR_GAUNTLET_SHARD_INDEX=0 \
   EDITOR_GAUNTLET_REPORT_PATH=tests/editor-gauntlet/local/foreign-0.json \
   pnpm run test:editor-gauntlet:foreign
@@ -57,8 +58,12 @@ pnpm run test:editor-gauntlet:foreign:aggregate -- --output \
 ```
 
 The aggregate command rejects missing/duplicate shards, capped shards, shards that did not reach
-EOF, mismatched corpus counts, uncompleted planned edits/caret positions, and accounting that does
-not balance. A completed shard report is therefore resumable evidence; rerun only missing shards.
+EOF, mismatched compressed-corpus SHA-256/config/adapter revisions, unexpected corpus or exact
+modulo-shard counts, uncompleted planned edits/caret positions, and accounting that does not
+balance. The run definition is a content-derived config fingerprint shared by every batch; the
+per-process `PW_RUN_ID` is deliberately excluded. Aggregate `wallMs` is the maximum shard duration,
+not a misleading sum. A completed shard report is therefore resumable evidence; rerun only missing
+shards.
 Playwright traces can contain editor state and ordinal case IDs, so `test-results/` and
 `playwright-report/` remain denied by the root `.gitignore` alongside this directory's denied
 `local/` and `generated/` evidence paths.

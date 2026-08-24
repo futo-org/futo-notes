@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ForeignCorpusLoader } from './foreignCorpus';
+import { ForeignCorpusLoader, sha256File } from './foreignCorpus';
 
 const scratchDirs: string[] = [];
 
@@ -75,6 +75,7 @@ describe('ForeignCorpusLoader', () => {
       omittedByLimit: 1,
       reachedEof: true,
     });
+    await expect(sha256File(file)).resolves.toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('accounts malformed selected records on exactly one shard', async () => {

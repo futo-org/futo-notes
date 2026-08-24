@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { createGunzip } from 'node:zlib';
 import { createInterface } from 'node:readline';
@@ -29,6 +30,13 @@ export interface ForeignCorpusOptions {
   shard?: ForeignCorpusShard;
   /** Smoke-only. The loader still reads to EOF and accounts for every omitted note. */
   maxNotes?: number;
+}
+
+/** SHA-256 of the bytes on disk (compressed bytes for `.gz` inputs). */
+export async function sha256File(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 function validateOptions(options: ForeignCorpusOptions): Required<ForeignCorpusOptions> {

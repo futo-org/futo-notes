@@ -34,6 +34,12 @@ export interface ForeignSweepResult {
   editedBlockRewrites: number;
   outsideBlockRewrites: number;
   rewriteRate: number;
+  hardFailures: {
+    parseNotes: number;
+    uneditableEdits: number;
+    budgetExceededOperations: number;
+    adapterOperations: number;
+  };
   failures: Record<ForeignSweepFailureStage, number>;
 }
 
@@ -68,8 +74,29 @@ export function emptyForeignSweepResult(): ForeignSweepResult {
     editedBlockRewrites: 0,
     outsideBlockRewrites: 0,
     rewriteRate: 0,
+    hardFailures: {
+      parseNotes: 0,
+      uneditableEdits: 0,
+      budgetExceededOperations: 0,
+      adapterOperations: 0,
+    },
     failures: emptyFailures(),
   };
+}
+
+function countOperationFailure(
+  result: ForeignSweepResult,
+  stage: ForeignSweepFailureStage,
+  error: unknown,
+): void {
+  result.failures[stage] += 1;
+  if (stage === 'parse') {
+    result.hardFailures.parseNotes += 1;
+  } else if (error instanceof Error && error.name === 'TimeoutError') {
+    result.hardFailures.budgetExceededOperations += 1;
+  } else {
+    result.hardFailures.adapterOperations += 1;
+  }
 }
 
 function diffBounds(
@@ -105,8 +132,8 @@ export async function runForeignPreservationSweep(
     try {
       blocks = markdownBlockRanges(note.source);
       result.notesParsed += 1;
-    } catch {
-      result.failures.parse += 1;
+    } catch (error) {
+      countOperationFailure(result, 'parse', error);
       onProgress?.(result);
       continue;
     }
@@ -120,11 +147,11 @@ export async function runForeignPreservationSweep(
         await adapter.walkCaret(caretPositions);
         result.caretWalksCompleted += 1;
         result.caretPositionsCompleted += caretPositions.length;
-      } catch {
-        result.failures['caret-walk'] += 1;
+      } catch (error) {
+        countOperationFailure(result, 'caret-walk', error);
       }
-    } catch {
-      result.failures['caret-open'] += 1;
+    } catch (error) {
+      countOperationFailure(result, 'caret-open', error);
     }
 
     let noteWasExactOnly = false;
@@ -134,22 +161,22 @@ export async function runForeignPreservationSweep(
       result.editsPlanned += 1;
       try {
         await adapter.open(note.source, `foreign-${note.ordinal}-block-${blockIndex}`);
-      } catch {
-        result.failures['edit-open'] += 1;
+      } catch (error) {
+        countOperationFailure(result, 'edit-open', error);
         result.failedEdits += 1;
         continue;
       }
       try {
         await adapter.select({ anchor: block.from });
-      } catch {
-        result.failures['edit-select'] += 1;
+      } catch (error) {
+        countOperationFailure(result, 'edit-select', error);
         result.failedEdits += 1;
         continue;
       }
       try {
         await adapter.perform({ type: 'insert-text', text: 'x' });
-      } catch {
-        result.failures['edit-perform'] += 1;
+      } catch (error) {
+        countOperationFailure(result, 'edit-perform', error);
         result.failedEdits += 1;
         continue;
       }
@@ -157,8 +184,8 @@ export async function runForeignPreservationSweep(
       let saved;
       try {
         saved = await adapter.save();
-      } catch {
-        result.failures['edit-save'] += 1;
+      } catch (error) {
+        countOperationFailure(result, 'edit-save', error);
         result.failedEdits += 1;
         continue;
       }
@@ -169,6 +196,7 @@ export async function runForeignPreservationSweep(
         result.warningEvents += saved.warnings.length;
       }
       if (saved.mode === 'exact-only') noteWasExactOnly = true;
+      if (saved.refused || saved.mode === 'exact-only') result.hardFailures.uneditableEdits += 1;
 
       const expected = `${note.source.slice(0, block.from)}x${note.source.slice(block.from)}`;
       if (saved.savedSource === expected) continue;
