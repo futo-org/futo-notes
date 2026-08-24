@@ -29,6 +29,9 @@
     "test:minimal": "pnpm run test:unit:minimal && pnpm run test:editor:minimal",
     "test:full": "pnpm run test:unit:full && pnpm run test:editor:full",
     "test:e2e:smoke": "playwright test tests/p0-regressions.spec.ts",
+    "test:editor-gauntlet:cm6": "playwright test tests/editor-gauntlet/split-torture.spec.ts",
+    "test:editor-gauntlet:foreign": "playwright test tests/editor-gauntlet/foreign-preservation.spec.ts",
+    "test:editor-gauntlet:perf": "playwright test tests/editor-gauntlet/performance-floor.spec.ts",
     "test:e2e:full": "playwright test",
     "test:markdown-spec": "playwright test tests/markdown-spec.spec.ts",
     "test:e2e:rest": "playwright test --workers=2 --grep-invert \"P0 Crash and IME Regressions\"",
@@ -44,7 +47,7 @@
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "ci": "pnpm run lint && pnpm run check:svelte && pnpm run format:check && pnpm run test:full && pnpm run build",
-    "_comment": "Tauri commands (dev, build, deploy) live in the justfile \u2014 use `just` from the monorepo root. Only toolchain scripts (vite, vitest, playwright, eslint) belong here.",
+    "_comment": "Tauri commands (dev, build, deploy) live in the justfile — use `just` from the monorepo root. Only toolchain scripts (vite, vitest, playwright, eslint) belong here.",
     "test:cross-platform": "node tests/cross-platform-sync.mjs"
   },
   "dependencies": {
@@ -85,6 +88,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "@lezer/markdown": "1.6.3",
     "@playwright/test": "^1.58.1",
     "@types/js-yaml": "^4.0.9",
     "@types/pixelmatch": "^5.2.6",
