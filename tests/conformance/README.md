@@ -195,8 +195,3 @@ Its two jobs are now split, and both are stronger:
 - _Proving TypeScript and Rust agree_ → this differential, over ~22,800 adversarial
   probes across 21 ops instead of a few hundred curated ones. It found a real
   divergence the generator's corpus could not reach.
-
-Where the differential is red-proofed: perturb one side of one rule (drop a
-character from a class, shorten a limit, drop an extension) and it must fail naming
-the family, the op, the input, and both answers. Do that before trusting a green run
-you have changed the harness for.

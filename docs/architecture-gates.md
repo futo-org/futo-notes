@@ -20,7 +20,6 @@ bridge-spec check uses `tsx`, while the other checks only read repository files.
 | Tauri sync contract  | Rust records in `apps/tauri/src-tauri/src/sync/frontend_contract.rs` and generated TypeScript                              | Generated frontend types are stale; run `just sync-contract` and commit the result                                                            |
 | Drift registry       | Copies, locks, and optional scan patterns in `scripts/drift-registry.json`                                                 | A registered copy or lock disappeared, a detection pattern became stale, lock status is inconsistent, or a scan finds a new unregistered copy |
 | QA input safety      | Instruction surfaces (README, CONTRIBUTING, every `AGENTS.md`, `docs/**`, `.claude/skills/**`, `.claude/agents/**`, `.claude/workflows/*`) and `scripts/qa-input-safety-allowlist.json` | An instruction file teaches OS-level input into this app, a process-name/PID lookup against it, or a relative `find -newermt` check; or a pinned exception went stale |
-| Gate red-proofs      | Every gate above plus the spec/contract generators, each re-run against one seeded violation in a throwaway `git worktree`  | A gate exits 0 on a seeded violation, exits non-zero without naming it, or is already red on a pristine checkout                              |
 
 Each gate must observe something no other gate already observes. Prefer extending the gate that
 owns a boundary over adding a second number about it.
@@ -63,28 +62,18 @@ makes an isolated QA vault possible in the first place.
   fixture, generator, or test in `scripts/drift-registry.json`. Use `partial` or `unlocked`
   honestly when full conformance coverage does not exist.
 
-## The gate red-proof harness
+## Proving a gate can fail
 
-`scripts/gate-redproofs.mjs` is a gate about the gates. For each entry above it seeds exactly one
-violation into a throwaway `git worktree` (system temp dir, never inside the repo) and requires the
-gate to exit non-zero **and** name the seeded violation. Exit code alone is not accepted: a gate that
-dies on a missing module also exits non-zero, and treating that as "the gate works" is the failure
-the harness exists to catch. It also proves the other direction — a gate that is already red on a
-pristine checkout makes its own red-proof vacuous — and self-tests against fixture gates
-(`scripts/__fixtures__/gate-redproofs/`) so it cannot report green vacuously.
+A gate that is green because it silently does nothing is worse than no gate at all — six commits
+(`d87173eb`, `54d1cc41`, `90a62902`, `a6c6e2d5`, `db31586c`, `f81a61d0`) fixed guards that stepped
+over real violations while reporting success. When you add or change a gate, seed one violation it
+claims to catch and confirm it exits non-zero **and names what it found**; an exit-code-only pass is
+not evidence, because a gate that dies on a missing module also exits non-zero.
 
-Six commits fixed guards that were green while stepping over real violations: `d87173eb`,
-`54d1cc41`, `90a62902`, `a6c6e2d5`, `db31586c`, `f81a61d0`. Several proofs are written directly
-against those regressions.
-
-```bash
-just gate-redproofs            # all proofs, including the cargo-dependent one
-pnpm run check:gate-redproofs  # the portable set CI runs (no cargo)
-```
-
-Adding a gate means adding its red-proof in the same change. What the harness cannot prove is listed
-in its own `NOT COVERED` output on every run, and untracked files are absent from the proof worktree
-(it names them rather than pretending they were covered).
+A standing harness that re-ran that proof for every gate on every `just check` was removed on
+2026-08-24 (`docs/plan/scaffolding-simplification.md`): the failures it caught can only be
+introduced by editing a gate, so proving it in that diff is where the evidence belongs. Recover the
+harness from git history if that stops being true.
 
 ## Scope and limits
 
@@ -102,7 +91,6 @@ just check-platform-discipline
 just bridge-spec-check
 just check-drift
 just check-qa-input-safety
-just gate-redproofs
 ```
 
 The `check:arch-gate` script in `package.json` owns the check list because the pinned GitLab CI
