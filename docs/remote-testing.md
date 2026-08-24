@@ -87,7 +87,7 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
 1. **Refused** (exit 2, before any network call) — recipes that need Xcode, the iOS simulator or
    swift-format (`build-rust-ios`, `build-ios-native`, `test-ios-native`, `ios-native*`,
    `deploy-ios`, `lint-swift`, every `sim-*`), recipes whose _purpose_ is the shipped desktop engine
-   (`test-desktop-smoke`, `perf-course`, `factory-*`), interactive dev/QA commands
+   (`test-desktop-smoke`, `perf-course`), interactive dev/QA commands
    (`tauri-dev`, `test-headed`, `test-ui`, `android-drive`, …), recipes needing root
    (`deploy-deb`, `deploy-rpm`), and ones that manage the machine you are sitting at (`qa-claim`,
    `qa-release`, `qa-clone-target` — the last is APFS `cp -Rc`). Refusal resolves the justfile's

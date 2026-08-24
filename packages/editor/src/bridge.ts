@@ -351,8 +351,8 @@ export interface AndroidFutoBridgeHost {
 /**
  * Post an outbound message to whichever host transport is present — iOS
  * (WKScriptMessageHandler, structured object) or Android (`@JavascriptInterface`,
- * JSON string). No-op in a plain browser (Playwright / factory-judge) with no
- * host. Both native shells receive the SAME message shapes.
+ * JSON string). No-op in a plain browser (Playwright) with no host. Both
+ * native shells receive the SAME message shapes.
  */
 export function postToHost(message: FutoEditorOutboundMessage): void {
   const w = globalThis as unknown as {

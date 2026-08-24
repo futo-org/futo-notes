@@ -120,7 +120,6 @@ export const REFUSED = [
   // Runs the shipped desktop app or the CM6 editor in a browser engine.
   ['test-desktop-smoke', 'wkwebview'],
   ['perf-course', 'wkwebview'],
-  [/^factory-/, 'wkwebview'],
   // Interactive.
   ['tauri-dev', 'interactive'],
   ['tauri-prod', 'interactive'],
@@ -714,7 +713,6 @@ export const RSYNC_EXCLUDES = [
   '.build',
   '.build-device',
   '.build-device-release',
-  'factory/captures',
   // The remote's own bookkeeping; deleting it forces a needless pnpm install.
   '.remote-test-pnpm-lock-hash',
 ];

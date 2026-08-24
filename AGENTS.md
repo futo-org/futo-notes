@@ -11,7 +11,7 @@ Engineering defaults: the simplest implementation that fully meets the current r
 established, well-maintained library over a custom one.
 
 **Read the nearest nested `AGENTS.md` before editing a layer.** This includes `src/`,
-`packages/editor/`, `crates/futo-notes-{core,sync}/`, each app, `docs/spec/`, and `factory/`.
+`packages/editor/`, `crates/futo-notes-{core,sync}/`, each app, and `docs/spec/`.
 
 For structural work, read `docs/architecture/codebase-organization.md`: use the narrowest real
 owner, make shared code earn its scope, keep entry points as orchestration, co-locate tests, and
@@ -39,7 +39,7 @@ Their nested manuals own build, device, release, and test variants. Missing
   safety + atomic files) · `-store` (THE local note engine) · `-sync` (push-first `run_sync`, SSE) ·
   `-search` (Tantivy BM25) · `-ffi` (UniFFI projection; bindings gitignored).
 - `apps/`: Tauri desktop plus native iOS and Android shells.
-- `docs/spec/`: behavioral truth; `tests/`, `markdown-spec/`, `factory/`: fixture/oracle systems.
+- `docs/spec/`: behavioral truth; `tests/` and `markdown-spec/`: fixture/oracle systems.
 
 Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
 at `~/Developer/futo-notes-server` receives only client-encrypted opaque blobs.
@@ -220,7 +220,7 @@ verified behavior, and force-pushing a feature branch (`--force-with-lease`, nev
    server, force-pushing `main`, deleting tags, dropping DBs you did not create, or a recursive delete
    outside your scratchpad — gitignored ≠ disposable, and `target/` is a 31GB rebuild. Cleanup
    removes only paths the script itself created, never a computed ancestor: `rmSync(rel.split('/')[0])`
-   ate a worktree's `target/` and a tracked `factory/`.
+   ate a worktree's `target/` and the then-tracked `factory/`.
 4. Publishing: Play/TestFlight uploads, tagging a release, posting to Zulip, F-Droid.
 5. Changing specified intent rather than closing a Gap.
 6. Sync payload, `BRIDGE_VERSION`, or `AppState` schema changes.

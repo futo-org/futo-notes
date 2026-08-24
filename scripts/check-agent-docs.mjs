@@ -52,7 +52,6 @@ const KNOWN_PATH_PREFIXES = [
   'docs/',
   'tests/',
   'scripts/',
-  'factory/',
   'markdown-spec/',
 ];
 

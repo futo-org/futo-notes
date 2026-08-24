@@ -20,7 +20,6 @@ pnpm-lock.yaml
 
 # Fixtures (byte-exact test inputs)
 markdown-spec/cases/
-factory/captures/
 
 # Single-file editor bundle input (hand-tuned inline HTML)
 editor.html

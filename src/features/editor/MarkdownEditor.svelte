@@ -114,9 +114,6 @@
         fns[name]?.(v);
       };
       w.__cmGetView = () => view;
-      import('../../../factory/driver/futoNotes').then(({ installDriver }) => {
-        if (view) installDriver(view);
-      });
     }
 
     return () => {

@@ -128,9 +128,6 @@ importers:
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
-      '@types/pixelmatch':
-        specifier: ^5.2.6
-        version: 5.2.6
       '@types/pngjs':
         specifier: ^6.0.5
         version: 6.0.5
@@ -146,9 +143,6 @@ importers:
       jsdom:
         specifier: ^28.1.0
         version: 28.1.0
-      pixelmatch:
-        specifier: ^7.1.1
-        version: 7.1.1
       pngjs:
         specifier: ^7.0.0
         version: 7.0.0
@@ -992,9 +986,6 @@ packages:
   '@types/node@25.5.0':
     resolution: {integrity: sha512-jp2P3tQMSxWugkCUKLRPVUpGaL5MVFwF8RDuSRztfwgN1wmqJeMSbKlnEtQqU8UrhTmzEmZdu2I6v2dpp7XIxw==}
 
-  '@types/pixelmatch@5.2.6':
-    resolution: {integrity: sha512-wC83uexE5KGuUODn6zkm9gMzTwdY5L0chiK+VrKcDfEjzxh1uadlWTvOmAbCpnM9zx/Ww3f8uKlYQVnO/TrqVg==}
-
   '@types/pngjs@6.0.5':
     resolution: {integrity: sha512-0k5eKfrA83JOZPppLtS2C7OUtyNAl2wKNxfyYl9Q5g9lPkgBl/9hNyAu6HuEH2J4XmIv2znEpkDd0SaZVxW6iQ==}
 
@@ -1570,10 +1561,6 @@ packages:
   picomatch@4.0.4:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
     engines: {node: '>=12'}
-
-  pixelmatch@7.1.1:
-    resolution: {integrity: sha512-ug6CkUcHtxn0umoaqV1VB9+h7IMxRgKQQ/fq4W7ahMnyzDSvQ0vsJRo6BC5s+Gv+RvpriWosDcGkI3L8+8Yxbw==}
-    hasBin: true
 
   playwright-core@1.58.2:
     resolution: {integrity: sha512-yZkEtftgwS8CsfYo7nm0KE8jsvm6i/PTgVtB8DL726wNf6H2IMsDuxCpJj59KDaxCtSnrWan2AeDqM7JBaultg==}
@@ -2686,10 +2673,6 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
-  '@types/pixelmatch@5.2.6':
-    dependencies:
-      '@types/node': 25.5.0
-
   '@types/pngjs@6.0.5':
     dependencies:
       '@types/node': 25.5.0
@@ -3291,10 +3274,6 @@ snapshots:
   picomatch@2.3.2: {}
 
   picomatch@4.0.4: {}
-
-  pixelmatch@7.1.1:
-    dependencies:
-      pngjs: 7.0.0
 
   playwright-core@1.58.2: {}
 

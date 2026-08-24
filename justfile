@@ -520,49 +520,6 @@ remote-android *flags:
   node scripts/remote-test.mjs {{flags}} build-android-native
   node scripts/remote-test.mjs {{flags}} test-android-native
 
-# Factory: compare our editor to Obsidian's, scenario by scenario.
-# See factory/AGENTS.md.
-factory-judge *args:
-  pnpm exec tsx factory/judge/run.ts --no-moves {{args}}
-
-factory-judge-headed *args:
-  pnpm exec tsx factory/judge/run.ts --no-moves --headed {{args}}
-
-# Boot a long-running judge: Obsidian + chromium stay up, listening on
-# factory/captures/daemon.sock. Use `factory-run`, `factory-watch`, and
-# `factory-down` to drive it. Foreground process — Ctrl-C tears down.
-factory-up *args:
-  pnpm exec tsx factory/judge/run.ts daemon {{args}}
-
-# Send a one-shot run to the daemon and stream divergences as they
-# happen. Defaults to --no-moves like factory-judge.
-factory-run *args:
-  pnpm exec tsx factory/judge/run.ts run --no-moves {{args}}
-
-# Re-run on every save of editor source files. Talks to the running
-# daemon and reloads the futo-notes page before each run so HMR drift
-# can't lie to you.
-factory-watch *args:
-  pnpm exec tsx factory/judge/run.ts watch --no-moves {{args}}
-
-factory-down:
-  pnpm exec tsx factory/judge/run.ts down
-
-# Phase-1 visual oracle: inject a neutral theme into both editors,
-# screenshot every scenario in the curated visual set, run a pixel
-# diff, and emit factory/captures/visual-report.html. Pair with
-# `just factory-up` (daemon must be running). After the run, ask
-# Claude Code to "review the visual report" for an LLM-judge pass.
-factory-visual *args:
-  pnpm exec tsx factory/judge/run.ts run --no-moves --visual-only {{args}}
-
-factory-summary:
-  @node -e "const r = require('./factory/captures/last-run.json'); \
-    console.log(JSON.stringify(r.summary, null, 2)); \
-    const fail = r.reports.filter(x => x.divergences.length).sort((a,b) => b.divergences.length - a.divergences.length); \
-    console.log('\\nWorst scenarios:'); \
-    for (const x of fail.slice(0, 15)) console.log(' ', String(x.divergences.length).padStart(3), x.name);"
-
 # Regenerate the native shells' toolbar specs
 # (apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift)
 # from the @futo-notes/editor toolbar manifest (packages/editor/src/toolbar.ts —
