@@ -31,6 +31,7 @@
     "test:e2e:smoke": "playwright test tests/p0-regressions.spec.ts",
     "test:editor-gauntlet:cm6": "playwright test tests/editor-gauntlet/split-torture.spec.ts",
     "test:editor-gauntlet:foreign": "playwright test tests/editor-gauntlet/foreign-preservation.spec.ts",
+    "test:editor-gauntlet:foreign:aggregate": "tsx tests/editor-gauntlet/aggregateForeignReports.ts",
     "test:editor-gauntlet:perf": "playwright test tests/editor-gauntlet/performance-floor.spec.ts",
     "test:e2e:full": "playwright test",
     "test:markdown-spec": "playwright test tests/markdown-spec.spec.ts",
