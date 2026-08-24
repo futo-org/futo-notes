@@ -456,8 +456,7 @@ test:
     - echo "Selected CI test scope '$CI_TEST_SCOPE'"
     - |
       if [ "$CI_TEST_SCOPE" = docs ]; then
-        # Validate the instruction surfaces that select this fast path, then
-        # keep the generated behavioral-spec gap inventory honest. All three
+        # Validate the instruction surfaces that select this fast path. Both
         # gates run on plain Node, without package-manager or registry work.
         # check-qa-input-safety MUST be here as well as in arch-gate: a
         # Markdown-only MR is exactly how an unsafe QA technique gets taught
@@ -465,13 +464,11 @@ test:
         # regression this repo already paid for once.
         node scripts/check-agent-docs.mjs
         node scripts/check-qa-input-safety.mjs
-        node scripts/spec-gaps.mjs --check
       else
         corepack enable
         corepack prepare pnpm@10.29.2 --activate
         pnpm config set store-dir "$PNPM_STORE_DIR"
         pnpm install --frozen-lockfile --prefer-offline
-        node scripts/spec-gaps.mjs --check
         pnpm exec tsx scripts/gen-toolbar-spec.ts --check
         pnpm exec tsx "$CI_PROJECT_DIR/scripts/gen-title-spec.ts" --check
         pnpm run lint

@@ -563,16 +563,6 @@ factory-summary:
     console.log('\\nWorst scenarios:'); \
     for (const x of fail.slice(0, 15)) console.log(' ', String(x.divergences.length).padStart(3), x.name);"
 
-# Regenerate docs/spec/GAPS.md from the inline `> **Gap:**` notes in
-# docs/spec/*.md (which remain the source of truth).
-spec-gaps:
-  node scripts/spec-gaps.mjs --write
-
-# Fail if GAPS.md is stale, or if a closure probe finds codebase evidence
-# that a recorded gap has been implemented (= the spec needs updating).
-spec-gaps-check:
-  node scripts/spec-gaps.mjs --check
-
 # Regenerate the native shells' toolbar specs
 # (apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift)
 # from the @futo-notes/editor toolbar manifest (packages/editor/src/toolbar.ts —
@@ -702,7 +692,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
+check: toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.

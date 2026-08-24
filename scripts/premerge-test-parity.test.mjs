@@ -76,7 +76,6 @@ describe('pre-merge JavaScript test routing', () => {
     )?.[1];
 
     expect(testJob).toContain('node scripts/ci-test-scope.mjs');
-    expect(testJob).toContain('node scripts/spec-gaps.mjs --check');
     expect(testJob).toContain('pnpm run check:svelte');
     expect(testJob).toContain('pnpm run test:full');
     expect(testJob).not.toContain('pnpm run test:minimal');

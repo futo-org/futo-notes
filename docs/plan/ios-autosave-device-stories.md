@@ -64,7 +64,7 @@ Remaining to land:
    durable flush always advances the shell baseline; the next keystroke's reschedule
    must never skip the record; name `settledFlush` (iOS), `NonCancellable` (Android),
    and the guarding tests. No new Gap note (behavior now matches intent).
-   `just spec-gaps-check` stays green.
+   the `> **Gap:**` notes in `docs/spec/` stay accurate.
 2. **Drift registry**: append this incident to the `editor-exit-ordering` entry's
    note — a divergence between the two `EditorSession`s shipped as a device bug,
    which is the escalation trigger the entry itself names. Decision on acting on it
@@ -163,7 +163,7 @@ is local, path-scoped, and loud about skipping — never silently green (M11 spi
 
 | Change | Chain |
 | --- | --- |
-| Phase 1 Swift fix + tests | `just test-ios-native` (green on branch), device story from phase 2, `just spec-gaps-check` |
+| Phase 1 Swift fix + tests | `just test-ios-native` (green on branch), device story from phase 2, spec gap notes re-read |
 | Phase 2 harness + story | vitest unit tests for the pure core, fail-on-main proof, story green on branch, Android storage suite still green on a claimed emulator |
 | Phase 3 hook + recipes | push dry-run with and without iOS-touching changes; skip banner verified on a non-triggering push; `pnpm exec vitest run scripts/premerge-test-parity.test.mjs` |
 | Before merge (§7.10) | `just check`; `just prepush` for the final stack |

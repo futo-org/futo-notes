@@ -16,7 +16,6 @@ wtbase/
 apps/ios/Sources/Generated/
 src/features/sync/syncContract.generated.ts
 tests/conformance/*.json
-docs/spec/GAPS.md
 pnpm-lock.yaml
 
 # Fixtures (byte-exact test inputs)

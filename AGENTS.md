@@ -112,9 +112,9 @@ These are observed failures, not generic advice.
   `tests/conformance/*` goldens, pass the differential lock, and test both consumers;
   `packages/editor/AGENTS.md` owns the procedure.
 - **M8 — Generated-file edit.** Edit the registered source of truth and regenerate; never hand-edit
-  `GAPS.md`, `ToolbarSpec.*`/`TitleSpec.*`, uniffi bindings/JNI libs, or the **bundled**
+  `ToolbarSpec.*`/`TitleSpec.*`, uniffi bindings/JNI libs, or the **bundled**
   `editor.html` — the root `editor.html` IS the hand-written source. Regenerate with
-  `just spec-gaps` / `just toolbar-spec` / `just title-spec` / `scripts/build-rust-ios.sh` (and its
+  `just toolbar-spec` / `just title-spec` / `scripts/build-rust-ios.sh` (and its
   android sibling) / `vite build --config vite.editor.config.ts`.
 - **M9 — Stale FFI bindings.** Rebuild Rust bindings (`just build-rust-ios` /
   `just build-rust-android`) before native testing. `just *-native` does; direct Xcode/Gradle
@@ -201,10 +201,10 @@ requires `scripts/win-vm/`.
 ## 10. Behavioral spec — source of truth
 
 `docs/spec/` states cross-platform behavior once. Read/update the area file with behavior; record
-divergence as an inline `> **Gap:**` note, then `just spec-gaps` and commit the regenerated
-`GAPS.md` (`just spec-gaps-check` fails on staleness). `docs/spec/README.md` owns the line
-conventions (one behavior per line, platform tags, `→ path` authority refs);
-`docs/spec/AGENTS.md` and `/spec-sync` own the verification workflow.
+divergence as an inline `> **Gap:**` note in that same file — the notes are the source of truth and
+there is no generated index, so list them with `rg '> \*\*Gap' docs/spec/`.
+`docs/spec/README.md` owns the line conventions (one behavior per line, platform tags, `→ path`
+authority refs); `docs/spec/AGENTS.md` and `/spec-sync` own the verification workflow.
 
 ## 11. When uncertain
 

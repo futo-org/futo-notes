@@ -172,9 +172,9 @@ AGENTS.md + `codebase-organization.md` read.
 
 ## Step 6 — Conflicts
 
-- **Generated files** (`docs/spec/GAPS.md`, `ToolbarSpec.*`, `TitleSpec.*`,
+- **Generated files** (`ToolbarSpec.*`, `TitleSpec.*`, `BridgeSpec.*`,
   bindings): never hand-merge. Take either side, run the generator
-  (`node scripts/spec-gaps.mjs --write`, `just toolbar-spec`, …), commit the
+  (`just toolbar-spec`, `just title-spec`, `just bridge-spec`, …), commit the
   regenerated output. Hand-merging a generated file is M8.
 - **AGENTS.md / spec prose**: taking "ours" silently reverts corrections that
   landed while the branch sat. Diff main's version since the merge base and
@@ -281,10 +281,10 @@ author's MR yourself; put the recommendation in a comment.
 ## Run the whole gate in the worktree, not a subset
 
 Before declaring a branch green, the floor is **`pnpm run check:arch-gate:portable`
-plus `just spec-gaps-check toolbar-spec-check title-spec-check`** — the portable
-arch gate does NOT include those three, and backlog MRs churn spec gaps
-constantly. `just check` is the real gate when time allows. Hand-picking two or
-three gates is how a branch gets called green and then fails its pipeline.
+plus `just toolbar-spec-check title-spec-check`** — the portable arch gate does
+NOT include those two. `just check` is the real gate when time allows.
+Hand-picking two or three gates is how a branch gets called green and then fails
+its pipeline.
 
 ## Local commands can have real side effects
 
