@@ -6,6 +6,16 @@ export type GauntletSemanticKind =
 export interface SourceSelection {
   anchor: number;
   head?: number;
+  rich?: {
+    anchor: RichTextPoint;
+    head?: RichTextPoint;
+  };
+}
+
+export interface RichTextPoint {
+  text: string;
+  offset: number;
+  atomBoundary?: 'before' | 'after';
 }
 
 export type EditorIntentAction =

@@ -60,7 +60,10 @@ function enterCases(construct: InlineConstruct): SplitTortureCase[] {
   return splitOffsets.map((offset, index) => ({
     id: `${construct.id}/enter-mid-span-${index === 0 ? 'early' : 'late'}`,
     initialSource: source,
-    selection: { anchor: contentStart + offset },
+    selection: {
+      anchor: contentStart + offset,
+      rich: { anchor: { text: inner, offset } },
+    },
     action: { type: 'enter' },
     intent: intent(
       construct,
@@ -83,7 +86,16 @@ function backspaceCases(construct: InlineConstruct): SplitTortureCase[] {
     return {
       id: `${construct.id}/backspace-join-${index === 0 ? 'blocks' : 'lines'}`,
       initialSource: `${first}${separator}${second}`,
-      selection: { anchor: first.length + separator.length },
+      selection: {
+        anchor: first.length + separator.length,
+        rich: {
+          anchor: {
+            text: 'beta',
+            offset: 0,
+            ...(construct.kind === 'wikilink' ? { atomBoundary: 'before' as const } : {}),
+          },
+        },
+      },
       action: { type: 'backspace' },
       intent: intent(construct, ['alphabeta'], ['alphabeta'], 'joined-contiguous'),
     };
@@ -102,7 +114,14 @@ function pasteCases(construct: InlineConstruct): SplitTortureCase[] {
     {
       id: `${construct.id}/paste-across-opening-boundary`,
       initialSource: source,
-      selection: { anchor: prefix.length - 2, head: contentStart + 6 },
+      selection: {
+        anchor: prefix.length - 2,
+        head: contentStart + 6,
+        rich: {
+          anchor: { text: prefix, offset: prefix.length - 2 },
+          head: { text: inner, offset: 6 },
+        },
+      },
       action: { type: 'paste', text: 'GAMMA' },
       intent: intent(
         construct,
@@ -114,7 +133,14 @@ function pasteCases(construct: InlineConstruct): SplitTortureCase[] {
     {
       id: `${construct.id}/paste-across-closing-boundary`,
       initialSource: source,
-      selection: { anchor: contentEnd - 4, head: contentEnd + construct.close.length + 2 },
+      selection: {
+        anchor: contentEnd - 4,
+        head: contentEnd + construct.close.length + 2,
+        rich: {
+          anchor: { text: inner, offset: inner.length - 4 },
+          head: { text: suffix, offset: 2 },
+        },
+      },
       action: { type: 'paste', text: 'GAMMA' },
       intent: intent(
         construct,
@@ -136,7 +162,10 @@ function markerEdgeCases(construct: InlineConstruct): SplitTortureCase[] {
     {
       id: `${construct.id}/type-at-opening-marker-edge`,
       initialSource: source,
-      selection: { anchor: contentStart },
+      selection: {
+        anchor: contentStart,
+        rich: { anchor: { text: inner, offset: 0 } },
+      },
       action: { type: 'insert-text', text: 'X' },
       intent: intent(
         construct,
@@ -148,7 +177,10 @@ function markerEdgeCases(construct: InlineConstruct): SplitTortureCase[] {
     {
       id: `${construct.id}/type-at-closing-marker-edge`,
       initialSource: source,
-      selection: { anchor: contentStart + inner.length },
+      selection: {
+        anchor: contentStart + inner.length,
+        rich: { anchor: { text: inner, offset: inner.length } },
+      },
       action: { type: 'insert-text', text: 'X' },
       intent: intent(
         construct,
