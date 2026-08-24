@@ -14,13 +14,14 @@ function shard(index: number, count = 2): ForeignSweepShardReport {
   sweep.notesPlanned = selectedRecords;
   sweep.notesParsed = selectedRecords;
   const config: ForeignSweepRunConfig = {
-    semanticsVersion: 'foreign-preservation-v2',
+    semanticsVersion: 'foreign-preservation-v3',
     candidate: 'candidate',
     candidateRevision: 'candidate-revision',
     adapterRevision: 'adapter-sha',
     corpusSha256: 'corpus-sha',
     expectedRecords: 3,
     maxNotes: null,
+    artifactCapture: 'off-retry-on-failure',
     shardCount: count,
     selection: 'zero-based-record-ordinal-modulo',
     blocks: 'lezer-markdown-gfm-top-level-v1',

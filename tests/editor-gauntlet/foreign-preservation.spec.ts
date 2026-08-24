@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
 
 import { Cm6GauntletAdapter } from './cm6Adapter';
+import { gauntletArtifactCapture } from './artifactCapture';
 import { ForeignCorpusLoader, sha256File } from './foreignCorpus';
 import {
   expectedSelectedRecords,
@@ -49,7 +50,7 @@ test('current CM6 preserves foreign files', async ({ page }) => {
     sha256File(path.resolve('tests/editor-gauntlet/cm6Adapter.ts')),
   ]);
   const config: ForeignSweepRunConfig = {
-    semanticsVersion: 'foreign-preservation-v2',
+    semanticsVersion: 'foreign-preservation-v3',
     candidate: adapter.name,
     candidateRevision:
       process.env.EDITOR_GAUNTLET_CANDIDATE_REVISION ??
@@ -58,6 +59,7 @@ test('current CM6 preserves foreign files', async ({ page }) => {
     corpusSha256,
     expectedRecords: expectedRecords ?? 0,
     maxNotes: maxNotes ?? null,
+    artifactCapture: gauntletArtifactCapture(),
     shardCount,
     selection: 'zero-based-record-ordinal-modulo',
     blocks: 'lezer-markdown-gfm-top-level-v1',

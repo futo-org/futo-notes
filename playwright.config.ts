@@ -1,8 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 import { webPort } from './scripts/lib/slot.mjs';
+import { gauntletArtifactCapture } from './tests/editor-gauntlet/artifactCapture';
 
 const isCI = !!process.env.CI;
 const baseURL = `http://localhost:${webPort()}`;
+const artifactCapture = gauntletArtifactCapture();
 
 // Sanitised: this becomes a path segment, so anything that could escape
 // test-results/ is stripped rather than trusted.
@@ -38,9 +40,9 @@ export default defineConfig({
     baseURL,
     // retries: 0 means 'on-first-retry' never fires — retain evidence for
     // every failure instead so a red CI run leaves a trace/video behind.
-    trace: 'retain-on-failure',
-    video: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    trace: artifactCapture === 'off-retry-on-failure' ? 'off' : 'retain-on-failure',
+    video: artifactCapture === 'off-retry-on-failure' ? 'off' : 'retain-on-failure',
+    screenshot: artifactCapture === 'off-retry-on-failure' ? 'off' : 'only-on-failure',
   },
   projects: [
     {

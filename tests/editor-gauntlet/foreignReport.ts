@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { ForeignCorpusAccounting, ForeignCorpusShard } from './foreignCorpus';
+import type { GauntletArtifactCapture } from './artifactCapture';
 import {
   emptyForeignSweepResult,
   type ForeignSweepFailureStage,
@@ -8,13 +9,14 @@ import {
 } from './foreignPreservation';
 
 export interface ForeignSweepRunConfig {
-  semanticsVersion: 'foreign-preservation-v2';
+  semanticsVersion: 'foreign-preservation-v3';
   candidate: string;
   candidateRevision: string;
   adapterRevision: string;
   corpusSha256: string;
   expectedRecords: number;
   maxNotes: number | null;
+  artifactCapture: GauntletArtifactCapture;
   shardCount: number;
   selection: 'zero-based-record-ordinal-modulo';
   blocks: 'lezer-markdown-gfm-top-level-v1';

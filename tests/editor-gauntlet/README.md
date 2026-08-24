@@ -45,6 +45,7 @@ modulo shards. Each process needs its own dev port, Playwright run ID, and repor
 FUTO_DEV_PORT=5400 PW_RUN_ID=foreign-0 \
   EDITOR_GAUNTLET_CORPUS=~/Developer/futo-notes-ml/dataset/notes_corpus.jsonl.gz \
   EDITOR_GAUNTLET_EXPECTED_RECORDS=30995 \
+  EDITOR_GAUNTLET_ARTIFACT_CAPTURE=off-retry-on-failure \
   EDITOR_GAUNTLET_SHARD_COUNT=4 EDITOR_GAUNTLET_SHARD_INDEX=0 \
   EDITOR_GAUNTLET_REPORT_PATH=tests/editor-gauntlet/local/foreign-0.json \
   pnpm run test:editor-gauntlet:foreign
@@ -64,6 +65,10 @@ balance. The run definition is a content-derived config fingerprint shared by ev
 per-process `PW_RUN_ID` is deliberately excluded. Aggregate `wallMs` is the maximum shard duration,
 not a misleading sum. A completed shard report is therefore resumable evidence; rerun only missing
 shards.
+The exhaustive mode disables Playwright video/trace/screenshots because encoding hours of green
+interaction distorts the measurement. If a shard lacks its custom JSON report or has a hard
+infrastructure failure, rerun that shard once with artifact capture unset for diagnosis, then rerun
+it in `off-retry-on-failure` mode so its fingerprint matches the aggregate.
 Playwright traces can contain editor state and ordinal case IDs, so `test-results/` and
 `playwright-report/` remain denied by the root `.gitignore` alongside this directory's denied
 `local/` and `generated/` evidence paths.
