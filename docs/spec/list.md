@@ -144,6 +144,17 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   to a dead screen. A note open above such a folder stays open; only where Back
   lands changes. _(Android)_ → AppNavigation.kt `rebaseFolderRoutes` /
   `pruneFolderRoutes`, AppNavStackTest.kt / AppNavigationTest.kt
+
+> **Gap:** the sync-pull half of the line above is undermined by a pre-existing
+> shared-store bug on every platform: `refresh_external_changes`
+> (`crates/futo-notes-store`) never calls `prune_empty_parents` for a pulled
+> note-move's vacated source directory, so a folder deleted on one client
+> survives as an empty ghost folder on every peer that syncs the deletion — the
+> nav stack then "correctly" keeps routes for a directory that should no longer
+> exist (observed on Android in MR !265 QA: Back from an open note landed on
+> the ghost, not the nearest truly-surviving ancestor). Fix belongs in
+> `refresh_external_changes`, mirroring the local `delete_folder_with` /
+> move-workflow pruning.
 - `NotesStore.noteCount(under:)` exists on iOS but is only used for delete
   confirmation text, never surfaced as a per-folder count. → NoteListView.swift
 - **Tauri** keeps its own model: a **tabbed folder tree** sidebar (files / tags /
