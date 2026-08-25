@@ -32,8 +32,7 @@ flag gaps the codebase suggests have been implemented.
 
 - [list.md:53](list.md#L53) — _(Android)_ A **sync live pull** that creates or re-ranks a note while the list is composed at the top still relies on LazyListState key anchoring, so the remotely-changed row can land above the viewport until the user drags. Same anchoring class as the local-edit invisibility bug fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem` on the FAB path and a pop-time re-pin in `AppNavigator.goBack()`); the `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt `reloadAsync`, AppNavigation.kt `AppNavigator.goBack`
 - [list.md:87](list.md#L87) — Tauri desktop sidebar note rows show the **title only** — no body preview at all. The single-line, markdown-opaque `make_preview` snippet appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar rows. The rich multi-line preview is native-only (iOS + Android) for now.
-- [list.md:148](list.md#L148) — the sync-pull half of the line above is undermined by a pre-existing shared-store bug on every platform: `refresh_external_changes` (`crates/futo-notes-store`) never calls `prune_empty_parents` for a pulled note-move's vacated source directory, so a folder deleted on one client survives as an empty ghost folder on every peer that syncs the deletion — the nav stack then "correctly" keeps routes for a directory that should no longer exist (observed on Android in MR !265 QA: Back from an open note landed on the ghost, not the nearest truly-surviving ancestor). Fix belongs in `refresh_external_changes`, mirroring the local `delete_folder_with` / move-workflow pruning.
-- [list.md:412](list.md#L412) — a single isolated frame can still paint the spacer when the scroll jumps further than the virtual window's lead — measured 5 lone frames in ~1,300 native window captures, never two in a row. → docs/perf/tab-switch-baseline.md
+- [list.md:408](list.md#L408) — a single isolated frame can still paint the spacer when the scroll jumps further than the virtual window's lead — measured 5 lone frames in ~1,300 native window captures, never two in a row. → docs/perf/tab-switch-baseline.md
 
 ## nav.md
 
@@ -50,4 +49,4 @@ flag gaps the codebase suggests have been implemented.
 - [sync.md:1148](sync.md#L1148) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 - [sync.md:1152](sync.md#L1152) — The desktop scheduler's own triggers are not distinguishable in the record. Launch, poll, resume and local-save all reach Rust through the one `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be told apart from a user pressing "Sync now"; only the live loop's four triggers are recorded faithfully.
 
-_24 gaps._
+_23 gaps._
