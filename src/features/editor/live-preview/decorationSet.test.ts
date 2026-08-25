@@ -36,16 +36,17 @@ describe('createDecorationSet', () => {
   // decorations are applied inside a per-decoration guard that warns and skips.
   // Any position-dependent inspection (line lookups included) has to tolerate an
   // out-of-range position rather than throw out of the shared setup step.
-  it('does not abort the whole build on one out-of-range decoration', () => {
+  it('drops an out-of-range decoration without aborting the whole build', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const view = viewWith('hello world');
 
-    const classes = classesIn(view, [
+    const decorations: PendingDecoration[] = [
       { from: 500, to: 520, value: { replace: true } },
       { from: 0, to: 5, value: { class: 'cm-md-test' } },
-    ]);
+    ];
 
-    expect(classes).toEqual(['cm-md-test']);
+    expect(classesIn(view, decorations)).toEqual(['cm-md-test']);
+    expect(createDecorationSet(view, decorations, 0).size).toBe(1);
   });
 
   it('drops a replacing decoration that would cover a line break', () => {
