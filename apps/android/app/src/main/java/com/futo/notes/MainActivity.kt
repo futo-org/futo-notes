@@ -344,13 +344,17 @@ class MainActivity : ComponentActivity() {
             availableFolderPaths = s.folders,
         ) { screen, navigator, noteListState ->
             when (screen) {
-                is Screen.List -> NoteListScreen(
+                is Screen.Folder -> NoteListScreen(
                     store = s,
                     state = noteListState,
+                    folder = screen.path,
                     onOpenNote = navigator::openNote,
                     onCreate = navigator::openCreatedNote,
+                    onOpenFolder = navigator::openFolder,
+                    onFolderMoved = navigator::followFolderMove,
                     onOpenSearch = navigator::openSearch,
                     onOpenSettings = navigator::openSettings,
+                    onBack = navigator::goBack,
                 )
                 is Screen.Editor -> NoteEditorScreen(
                     store = s,
