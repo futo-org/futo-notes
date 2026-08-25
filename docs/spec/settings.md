@@ -13,9 +13,9 @@
 
 ## Native shells
 
-Both native shells have a full Settings surface (Android: drawer → Settings;
-iOS: nav-bar gear → Settings sheet — the cloud button still opens the Sync
-sheet directly). Verified on emulator + simulator 2026-06-09. →
+Both native shells have a full Settings surface (Android: note-list top-bar
+gear → Settings; iOS: nav-bar gear → Settings sheet — the cloud button still
+opens the Sync sheet directly). Verified on emulator + simulator 2026-06-09. →
 SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 
 - **Sync** group: a single **"Self-hosted sync"** entry — a cloud icon, the

@@ -91,6 +91,25 @@ internal suspend fun <T> runMutationTransaction(
     }
 }
 
+/**
+ * The immediate child folders of [of] ("" = the vault root), derived from the
+ * engine's FLAT list of full folder paths by one prefix filter — the Android
+ * twin of iOS `NotesStore.subfolders(of:)`. Pure + top-level so the folder-list
+ * derivation is unit-testable without an FFI handle.
+ *
+ * No sorting happens here: `folders` arrives from a Rust `BTreeSet`, so it is
+ * already alphabetical and every ancestor path is present (a `"A/B"` entry is
+ * always accompanied by `"A"`), which is what makes every folder reachable by
+ * tapping down one level at a time.
+ */
+internal fun immediateSubfolders(folders: List<String>, of: String): List<String> {
+    val prefix = if (of.isEmpty()) "" else "$of/"
+    return folders.filter { path ->
+        path.startsWith(prefix) &&
+            path.drop(prefix.length).let { it.isNotEmpty() && !it.contains('/') }
+    }
+}
+
 /** The open editor's unsaved-draft derivation — the ONE definition of "is there
  *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
  *  LIVE [noteId] (so it re-keys by construction after a rename) whenever the body
@@ -770,12 +789,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     private suspend fun <T> withCore(block: () -> T): T = withVaultAccess(block)
 
     /** Immediate child folders of `folder` ("" = root). */
-    fun subfolders(of: String): List<String> {
-        val prefix = if (of.isEmpty()) "" else "$of/"
-        return folders.filter { path ->
-            path.startsWith(prefix) && path.drop(prefix.length).let { it.isNotEmpty() && !it.contains('/') }
-        }
-    }
+    fun subfolders(of: String): List<String> = immediateSubfolders(folders, of)
 
     /** Notes whose parent folder is exactly `folder`. */
     fun notesIn(folder: String): List<NoteItem> = notes.filter { it.folder == folder }
