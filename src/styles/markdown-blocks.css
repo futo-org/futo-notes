@@ -142,6 +142,15 @@
   align-items: center;
 }
 
+.cm-line.cm-md-hr-line {
+  height: 50px;
+  min-height: 0;
+  line-height: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  overflow: visible;
+}
+
 .cm-md-hr-widget > div {
   flex: 1;
   border-top: 1px solid var(--color-border);

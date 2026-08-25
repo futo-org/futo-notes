@@ -191,6 +191,61 @@ test.describe('editor height map', () => {
     }
   });
 
+  test('a table with wrapping cells estimates from what it rendered', async ({ page }) => {
+    const wrapping = [
+      'intro',
+      '',
+      '| Platform | Notes |',
+      '| --- | --- |',
+      '| desktop | a cell long enough that it has to wrap onto several lines, which no ' +
+        'per-row constant can predict |',
+      '',
+      'tail',
+      '',
+    ].join('\n');
+    await openNote(page, 'Wrapping table', wrapping);
+
+    const before = await page.evaluate(() => {
+      const view = (window as unknown as { __cmGetView: () => any }).__cmGetView();
+      const element = document.querySelector('.sf-table') as HTMLElement;
+      const block = view.lineBlockAt(view.posAtDOM(element));
+      return {
+        rendered: element.getBoundingClientRect().height,
+        estimated: block.widget?.estimatedHeight ?? null,
+      };
+    });
+
+    expect(
+      before.rendered,
+      'the cell must actually wrap for this to mean anything',
+    ).toBeGreaterThan(140);
+
+    // Force the field to build fresh widgets over the same table markdown by
+    // editing a different line, then read what the new widget would reserve.
+    await page.evaluate(() => {
+      const view = (window as unknown as { __cmGetView: () => any }).__cmGetView();
+      const line = view.state.doc.line(view.state.doc.lines - 1);
+      view.dispatch({ changes: { from: line.to, insert: '!' } });
+    });
+    await settleHeightMap(page);
+
+    const after = await page.evaluate(() => {
+      const view = (window as unknown as { __cmGetView: () => any }).__cmGetView();
+      const element = document.querySelector('.sf-table') as HTMLElement;
+      const block = view.lineBlockAt(view.posAtDOM(element));
+      return {
+        rendered: element.getBoundingClientRect().height,
+        estimated: block.widget?.estimatedHeight ?? null,
+      };
+    });
+
+    expect(
+      Math.abs((after.estimated as number) - after.rendered),
+      `a wrapped table renders ${after.rendered}px and now estimates ${after.estimated}px ` +
+        `(the per-row guess alone gave ${before.estimated}px)`,
+    ).toBeLessThanOrEqual(2);
+  });
+
   test('a horizontal rule line measures the height the widget estimates', async ({ page }) => {
     await openNote(page, 'Rule estimate', WIDGET_HEAVY_NOTE);
 
@@ -212,6 +267,44 @@ test.describe('editor height map', () => {
         'block-level widget between the two cm-widgetBuffer elements adds two stray line boxes',
     ).toBe(HORIZONTAL_RULE_ESTIMATED_HEIGHT);
     expect(rule.block, "CM6's height map for that line").toBe(HORIZONTAL_RULE_ESTIMATED_HEIGHT);
+  });
+
+  test('the rule keeps that height whatever font metrics a shell uses', async ({ page }) => {
+    await openNote(page, 'Rule metrics', WIDGET_HEAVY_NOTE);
+
+    const measureRuleLine = () =>
+      page.evaluate(() => {
+        const widget = document.querySelector('.cm-md-hr-widget') as HTMLElement;
+        return (widget.closest('.cm-line') as HTMLElement).getBoundingClientRect().height;
+      });
+
+    for (const metrics of ['line-height: 120px', 'font-size: 40px']) {
+      await page.addStyleTag({
+        content: `.cm-content, .cm-content .cm-line { ${metrics} !important; }`,
+      });
+      await settleHeightMap(page);
+      expect(await measureRuleLine(), `the rule's line under \`${metrics}\``).toBe(
+        HORIZONTAL_RULE_ESTIMATED_HEIGHT,
+      );
+    }
+  });
+
+  test('a revealed rule line keeps a normal text height', async ({ page }) => {
+    await openNote(page, 'Rule revealed', WIDGET_HEAVY_NOTE);
+
+    const revealed = await page.evaluate(() => {
+      const view = (window as unknown as { __cmGetView: () => any }).__cmGetView();
+      const lineNumber = view.state.doc.toString().split('\n').indexOf('---') + 1;
+      view.focus();
+      view.dispatch({ selection: { anchor: view.state.doc.line(lineNumber).from + 1 } });
+      const at = view.domAtPos(view.state.doc.line(lineNumber).from);
+      const node = at.node.nodeType === 1 ? at.node : at.node.parentElement;
+      const line = (node as HTMLElement).closest('.cm-line') as HTMLElement;
+      return { text: line.textContent, height: line.getBoundingClientRect().height };
+    });
+
+    expect(revealed.text, 'the caret on the rule line reveals its source').toBe('---');
+    expect(revealed.height, 'the revealed source keeps a normal text height').toBeGreaterThan(10);
   });
 
   test("clicking a table's spacing band puts the caret on the neighbouring line", async ({

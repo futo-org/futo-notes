@@ -124,8 +124,7 @@ export function attachTableControls({ root, table, mutateTable }: AttachTableCon
       }),
     );
 
-    const header = root.querySelectorAll('thead th')[column] as HTMLElement | undefined;
-    if (header) controls.style.left = `${header.offsetLeft}px`;
+    controls.dataset.col = String(column);
     root.appendChild(controls);
   });
 
@@ -153,12 +152,49 @@ export function attachTableControls({ root, table, mutateTable }: AttachTableCon
       }),
     );
 
-    const tableRow = root.querySelectorAll('tbody tr')[row] as HTMLElement | undefined;
-    if (tableRow) controls.style.top = `${tableRow.offsetTop}px`;
     root.appendChild(controls);
   });
 
   attachTableDropHandlers(root, mutateTable);
+}
+
+/**
+ * Place the hover tabs against the rows and columns they act on. Deliberately
+ * NOT done while building: `attachTableControls` runs inside `toDOM`, where the
+ * widget is still detached and every offset reads 0, so every tab stacked at the
+ * table's top-left corner. Called when the tabs are about to become visible, and
+ * again while they are visible and the table scrolls sideways.
+ *
+ * Measured from `getBoundingClientRect`, not `offsetTop`/`offsetLeft`: those are
+ * layout-relative so they ignore `scrollLeft`, and for a `tr` under
+ * `border-collapse: collapse` offsetTop reads ~8px short, which used to leave the
+ * tab hanging above its row.
+ */
+export function positionTableControls(root: HTMLElement): void {
+  const scroller = root.querySelector<HTMLElement>('.sf-table__scroll');
+  const rootRect = root.getBoundingClientRect();
+  const scrollerRect = scroller?.getBoundingClientRect();
+  const headers = root.querySelectorAll<HTMLElement>('thead th');
+  const bodyRows = root.querySelectorAll<HTMLElement>('tbody tr');
+
+  root.querySelectorAll<HTMLElement>('.sf-table__col-controls').forEach((controls) => {
+    const header = headers[Number.parseInt(controls.dataset.col ?? '-1', 10)];
+    if (!header) return;
+    const headerRect = header.getBoundingClientRect();
+    controls.style.left = `${headerRect.left - rootRect.left}px`;
+    const offScreen =
+      !!scrollerRect &&
+      (headerRect.left < scrollerRect.left - 1 || headerRect.left > scrollerRect.right);
+    controls.style.visibility = offScreen ? 'hidden' : '';
+  });
+
+  root.querySelectorAll<HTMLElement>('.sf-table__row-controls').forEach((controls) => {
+    const row = bodyRows[Number.parseInt(controls.dataset.row ?? '-1', 10)];
+    if (!row) return;
+    const rowRect = row.getBoundingClientRect();
+    const centred = (rowRect.height - controls.getBoundingClientRect().height) / 2;
+    controls.style.top = `${rowRect.top - rootRect.top + centred}px`;
+  });
 }
 
 export function updateTableControlAlignments(root: HTMLElement, table: ParsedTable): void {

@@ -4,7 +4,11 @@ import { parseMarkdownTable } from './tableModel';
 import type { ParsedTable } from './tableModel';
 import { addRow, serialize, setCellContent } from './tableOperations';
 import { setTableFocusEffect } from '../editorUX/selectionToolbar';
-import { attachTableControls, updateTableControlAlignments } from './tableControls';
+import {
+  attachTableControls,
+  positionTableControls,
+  updateTableControlAlignments,
+} from './tableControls';
 import { createTableCellNavigation } from './tableCellNavigation';
 
 const SYNC_DEBOUNCE_MS = 180;
@@ -12,6 +16,25 @@ const SYNC_DEBOUNCE_MS = 180;
 const TABLE_VERTICAL_PADDING = 16;
 const TABLE_BORDER_HEIGHT = 2;
 const TABLE_ROW_HEIGHT = 44;
+
+// A per-row guess cannot describe a table whose cells wrap, and CM6 sizes a block
+// it has not measured from `estimatedHeight` alone. So each table records what it
+// actually rendered to, keyed by its markdown, and a later widget over the same
+// markdown estimates from that instead of the guess. Capped because a long note
+// holds many distinct tables; oldest out first.
+const MEASURED_HEIGHT_LIMIT = 128;
+const measuredHeightsBySource = new Map<string, number>();
+
+function rememberMeasuredHeight(sourceText: string, height: number): void {
+  if (!(height > 0)) return;
+  if (!measuredHeightsBySource.has(sourceText)) {
+    if (measuredHeightsBySource.size >= MEASURED_HEIGHT_LIMIT) {
+      const oldest = measuredHeightsBySource.keys().next().value;
+      if (oldest !== undefined) measuredHeightsBySource.delete(oldest);
+    }
+  }
+  measuredHeightsBySource.set(sourceText, height);
+}
 
 function cellTextFromElement(el: HTMLElement): string {
   return (el.textContent ?? '').replace(/\r?\n/g, ' ');
@@ -67,7 +90,16 @@ export class TableEditorWidget extends WidgetType {
     this.dom = root;
     this.attachHoverCoordination(root);
     this.attachSpacingBandCaretPlacement(root);
+    this.observeRenderedHeight(root);
     return root;
+  }
+
+  private observeRenderedHeight(root: HTMLElement): void {
+    if (typeof ResizeObserver === 'undefined') return;
+    this.heightObserver = new ResizeObserver(() => {
+      rememberMeasuredHeight(this.sourceText, root.getBoundingClientRect().height);
+    });
+    this.heightObserver.observe(root);
   }
 
   private attachSpacingBandCaretPlacement(root: HTMLElement): void {
@@ -99,6 +131,7 @@ export class TableEditorWidget extends WidgetType {
   }
 
   private showControlsTimer: number | null = null;
+  private heightObserver: ResizeObserver | null = null;
 
   private attachHoverCoordination(root: HTMLElement): void {
     const scheduleHide = () => {
@@ -111,10 +144,14 @@ export class TableEditorWidget extends WidgetType {
     const show = () => {
       if (this.showControlsTimer != null) window.clearTimeout(this.showControlsTimer);
       this.showControlsTimer = null;
+      positionTableControls(root);
       root.classList.add('sf-table--show-controls');
     };
 
     root.addEventListener('pointerenter', show);
+    root.querySelector('.sf-table__scroll')?.addEventListener('scroll', () => {
+      if (root.classList.contains('sf-table--show-controls')) positionTableControls(root);
+    });
     root.addEventListener('pointerleave', (e) => {
       const next = e.relatedTarget as Node | null;
       if (next && root.contains(next)) return;
@@ -359,11 +396,15 @@ export class TableEditorWidget extends WidgetType {
   }
 
   get estimatedHeight(): number {
+    const measured = measuredHeightsBySource.get(this.sourceText);
+    if (measured !== undefined) return Math.round(measured);
     const renderedRows = this.table.rows.length + 1;
     return TABLE_VERTICAL_PADDING + TABLE_BORDER_HEIGHT + renderedRows * TABLE_ROW_HEIGHT;
   }
 
   destroy(): void {
+    this.heightObserver?.disconnect();
+    this.heightObserver = null;
     if (this.pendingSyncTimer != null) {
       window.clearTimeout(this.pendingSyncTimer);
       this.pendingSyncTimer = null;

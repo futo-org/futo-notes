@@ -90,13 +90,11 @@
 .sf-table__row-controls {
   position: absolute;
   left: -44px;
-  transform: translateY(4px);
 }
 
 .sf-table__col-controls {
   position: absolute;
   top: -26px;
-  transform: translateX(4px);
 }
 
 .sf-table__row-controls button,

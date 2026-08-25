@@ -232,17 +232,37 @@ width: 100% }`. The widget then shares one line box with the buffers instead of
 forcing anonymous block boxes around them, and the line measures exactly 50 —
 `estimatedHeight`, the rendered `.cm-line`, and `lineBlockAt().height` all agree.
 
-**Known limit, deliberately not fixed.** This holds only while the 50px widget is
-the tallest thing in the line box. Raise the editor's line-height past 50 and the
-line strut wins again; raise the font-size and the `height: 1em` widget buffers do
-(measured: 54.5px at a 30px font, 88.5px at 64px). Neither is near any shipping
-shell's metrics, so the fix above is the whole of it. Pinning the line's own box
-does close it — a `cm-md-hr-line` line decoration with `height: 50px;
-line-height: 0 !important` measured exactly 50 under line-height 25/60/120px and
-font-size 18/30/64px — but that costs a new decoration in the hot path plus a
-carve-out so the revealed `---` source is not flattened, which is more machinery
-than a hypothetical is worth. Revisit only if a shell actually sets a line-height
-near 50.
+**That alone was not enough.** It holds only while the 50px widget is the tallest
+thing in the line box. Raise the editor's line-height past 50 and the line strut
+wins again; raise the font-size and the `height: 1em` widget buffers do (measured:
+54.5px at a 30px font, 88.5px at 64px). A shell with different metrics would
+silently reopen the bug, so the rule's line owns its own box.
+`decorateHorizontalRule` also emits a line decoration, `cm-md-hr-line`, styled
+like the code-fence lines above it:
+
+```css
+.cm-line.cm-md-hr-line {
+  height: 50px;
+  min-height: 0;
+  line-height: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  overflow: visible;
+}
+```
+
+`line-height: 0` removes the strut, the pinned `height` caps the buffers, and
+`overflow: visible` keeps them hit-testable for caret placement. Measured at 50px
+exactly under line-height 25/60/120px and font-size 18/30/64px.
+
+The `!important` is load-bearing: `markdown.css` is imported into
+`layer(components)`, and an `!important` declaration inside a cascade layer beats
+an unlayered one — which is what lets this override whatever a shell sets.
+
+`HorizontalRule` is block-reveal-sensitive, so `decorateHorizontalRule` runs only
+when the widget is rendered. A caret on the rule's line reveals the `---` source
+and the class is absent, so the flattening never applies to real text — there is a
+test for exactly that.
 
 Visible side effect: the vertical band around a `---` shrinks by ~61px, from 111
 to the 50 the CSS always intended.
