@@ -32,7 +32,7 @@ class AppNavigationBackTest {
         compose.setContent {
             AppNavigation(hasBootstrapped = true, availableFolderPaths = emptyList()) { screen, navigator, _ ->
                 when (screen) {
-                    Screen.List -> Button(
+                    is Screen.Folder -> Button(
                         onClick = navigator::openSettings,
                         modifier = Modifier.testTag("open-settings"),
                     ) { Text("Settings") }
