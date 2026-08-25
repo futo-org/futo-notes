@@ -1,320 +1,323 @@
 # Implementation plan — Find in note (issue #26)
 
-Implements the spec landed by MR !235: `docs/spec/editor.md` → "Find in note", plus
-the Ctrl/Cmd+F and Ctrl/Cmd+G lines in `docs/spec/tabs.md`. Read the spec first;
-this plan does not restate the behavior, it says where each rule lands in the
-code and in what order.
+Implements the spec proposed in MR !235 (`docs/spec/editor.md` → "Find in note",
+plus the Ctrl/Cmd+F and Ctrl/Cmd+G lines in `docs/spec/tabs.md`), **amended by
+the maintainer's 2026-08-25 decision: the find bar UI is NATIVE on iOS and
+Android** (SwiftUI / Compose), not the web panel inside the WebView — the web
+bar looked bad on mobile. The shared editor bundle still owns every behavior;
+the native bars are dumb chrome driven over the bridge. Phase 0 amends the
+!235 spec text to match before any code lands (M19 — spec first).
 
 Branch: `feat/find-in-note` (worktree `.claude/worktrees/feat-find-in-note`),
-based on `docs/spec-find-in-note` so the spec is present while implementing.
-Rebase onto `main` once !235 merges.
+based on `docs/spec-find-in-note`. Rebase onto `main` once !235 merges.
 
-**Hand-off from cross-note search is descoped** (MR !235). `docs/spec/search.md`
-and every result-open path stay untouched. Replace is out of scope. `find` is
-not a formatting-toolbar item, so `packages/editor/src/toolbar.ts` and its
-generated native specs are untouched and `just toolbar-spec` is never run.
+## 0. Where the worktree actually is (2026-08-25)
 
----
+An **uncommitted web-panel implementation already exists in this worktree** —
+it is the version whose mobile bar looked bad and prompted the native pivot.
+Inventory:
 
-## 1. The architectural call: a CodeMirror panel, not shell chrome
+- `src/features/editor/find/` is complete: engine (`findState.ts`,
+  `findMatches.ts`, `findDecorations.ts`), the reveal fix (freeze calls live in
+  `findExtension.ts`'s lifecycle), the web bar (`findPanel.ts`), and tests.
+- Desktop wiring is done: shortcuts, `EditorApi`, `MarkdownEditor.svelte`
+  exports, `noteHistory` interplay.
+- The native shells each carry a ~5-line menu item dispatching `exec("find")`,
+  `find` was added to `TOOLBAR_EXEC`, and `bridge.ts`'s `exec` doc comment was
+  loosened to cover non-toolbar ids.
+- `@codemirror/search 6.7.1` (exact pin) is in `package.json` + lockfile.
+- `docs/spec/editor.md`/`tabs.md`/`GAPS.md` and the `scripts/spec-gaps.mjs`
+  probe were already reworked toward "implemented".
 
-The find bar is a **CM6 top panel** (`showPanel` from `@codemirror/view`)
-rendered by the shared editor, not a Svelte component in either host's chrome.
+**The pivot keeps the engine and desktop wholesale.** What it replaces is
+delivery on mobile: `findPanel` must be excluded under `nativeShell`
+(`findExtension.ts:81` currently includes it unconditionally), the
+`exec("find")` route dies (remove the `TOOLBAR_EXEC` entry and both menu
+`onClick`s; the bridge doc-comment loosening reverts with it), and the native
+bars + v8 contract are new work. Line numbers cited below are from the
+committed base and may drift a few lines against the working tree.
 
-This is what makes "one implementation" fall out for free rather than being a
-rule someone has to remember:
-
-- `src/features/editor/MarkdownEditor.svelte` is mounted by **both** hosts —
-  desktop through `src/app/components/NoteWorkspace.svelte:125`, and the
-  native shells through `src/editor-embed/main.ts:51`, which loads the same
-  component into `editor.html`. Anything inside the editor's own extension list
-  is automatically on desktop, iOS, and Android with zero per-shell work
-  (AGENTS §4, M6/M10).
-- `MarkdownEditor.svelte` renders exactly one bare `<div>`, and `editor.html:117`
-  documents that contract ("MarkdownEditor.svelte mounts a single wrapper `<div>`
-  inside `#editor`"). A sibling bar element would change that DOM shape and the
-  embed CSS that targets it. A panel lives _inside_ `.cm-editor`, so the shape
-  is unchanged.
-- A top panel is pinned to the top of the scroller by construction — which is
-  the spec's placement rule — and CM6 already accounts for panel height when
-  computing `scrollIntoView`. Stepping to a match therefore cannot scroll it
-  underneath the bar. Hand-rolled chrome would have to reproduce that.
-- Both shells already keep the editor viewport above the keyboard inset
-  (Android via `imePadding()` on the editor `Column`,
-  `NoteEditorScreen.kt:~710`), so the "keyboard never covers the bar" rule needs
-  no new native layout code.
-
-Follow the house pattern for editor-internal UI — pure state module + DOM
-renderer, mirroring `editorUX/slashMenuState.ts` + `editorUX/slashMenuRenderer.ts`
-and `editorUX/selectionToolbar.ts`. Plain DOM, not a mounted Svelte component:
-that is what every existing in-editor surface does, and it keeps the logic
-unit-testable without a component harness.
-
-New files, all under `src/features/editor/find/`:
-
-| File                 | Contents                                                                                                                                                         |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `findState.ts`       | `StateField` (query, current match index, open flag), `StateEffect`s, and the commands `openFind`, `closeFind`, `stepFind(+1/-1)`, `setFindQuery`. Pure, no DOM. |
-| `findMatches.ts`     | Match computation over the doc via `@codemirror/search` `SearchCursor`; count, current-index resolution, wrap arithmetic. Pure.                                  |
-| `findDecorations.ts` | `ViewPlugin` painting all-match and current-match decorations over the **viewport range only**.                                                                  |
-| `findPanel.ts`       | The `showPanel` renderer: query input, count readout, prev/next/close buttons, its keymap.                                                                       |
-| `findExtension.ts`   | Assembles the above into one `Extension` for `createMarkdownEditorRuntime`.                                                                                      |
-| `*.test.ts`          | Co-located vitest, per `codebase-organization.md`.                                                                                                               |
+**Still descoped** (unchanged from !235): hand-off from cross-note search,
+replace, and a formatting-toolbar button. `docs/spec/search.md`,
+`packages/editor/src/toolbar.ts`, and the generated toolbar specs stay
+untouched.
 
 ---
 
-## 2. Sharp edges found in the code (read before writing anything)
+## 1. Ownership split: shared engine, three thin bars
 
-These are the things that will bite. Each one is a real property of this
-codebase, not a generic caution.
+The M6 line does not move: **matching, current-match tracking, stepping with
+wrap, highlight decorations, and the reveal of hidden markdown all live in the
+shared editor bundle.** What changes is only who renders the four-control bar:
 
-### 2.1 Nothing reveals hidden markdown while the query field has focus — CRITICAL
+| Platform | Bar UI                                                                                                    | Drives the engine via                     |
+| -------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Desktop  | CM6 top panel (`showPanel`) inside the editor — desktop is entirely web, there is no "more native" option | direct calls into `findState.ts` commands |
+| iOS      | SwiftUI bar in `NoteEditorView.swift`, between the title chrome and the `EditorWebView`                   | bridge (`FutoEditorApi` find methods)     |
+| Android  | Compose bar in `NoteEditorScreen.kt`, above the WebView in the editor `Column`                            | bridge (same methods)                     |
 
-`live-preview/selectionReveal.ts:34` —
+The native bars contain **zero find logic**: no matching, no count arithmetic,
+no wrap decisions. They hold exactly (a) the query string the user is typing,
+(b) the last `{current, total}` the engine reported, and (c) visibility. Every
+keystroke in the query field is forwarded to the engine; every count shown is
+one the engine sent back. A native bar that computes anything is an M6
+violation.
 
-```ts
-export function getCursorLinesForReveal(hasFocus, ranges, doc): Set<number> {
-  if (!hasFocus) return new Set();
-  ...
-}
-```
+Shared-side layout, all under `src/features/editor/find/`:
 
-Every reveal path (`shouldRevealMarkdownSyntax`, `selectionTouchesRange`,
-`shouldSkipBlockDecorations`) gates on the editor having DOM focus. The find
-bar's query input takes focus away from `.cm-content`, so `view.hasFocus` goes
-false and **no line reveals its source** — directly breaking the spec's "the
-CURRENT match is always visible on screen" rule for any match inside hidden
-syntax, which is the single most subtle behavior in the whole spec.
+| File                 | Contents                                                                                                                                                                                                    |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `findState.ts`       | `StateField` (active flag, query, current index), `StateEffect`s, commands `openFind` / `closeFind` / `setFindQuery` / `stepFind(±1)`. Pure, no DOM.                                                        |
+| `findMatches.ts`     | Match computation via `@codemirror/search` `SearchCursor`; count, current-index resolution, wrap arithmetic. Pure.                                                                                          |
+| `findDecorations.ts` | `ViewPlugin` painting all-match + current-match decorations over `view.visibleRanges` only.                                                                                                                 |
+| `findPanel.ts`       | Desktop-only `showPanel` bar (house pattern: plain-DOM renderer like `editorUX/slashMenuRenderer.ts`). Excluded when `nativeShell` — the flag already exists in `createMarkdownEditorRuntime.ts`'s options. |
+| `findExtension.ts`   | Assembles the extension; `nativeShell` drops the panel, keeps everything else.                                                                                                                              |
+| `*.test.ts`          | Co-located vitest.                                                                                                                                                                                          |
 
-The hook already exists and currently has **no production caller**:
-`freezeSelectionReveal(hasFocus, ranges)` / `clearSelectionRevealFreeze()` /
-`setSuppressSelectionReveal(true)` in the same file, exercised only by
-`liveMarkdownTransform.reveal.test.ts:61`. It was built for exactly this shape
-of problem — UI outside the editor holding focus while the document should keep
-rendering as though the caret were live.
+### What going native bought (verified in the code, not assumed)
 
-Plan: while the find bar is open, freeze the reveal at the current match's range
-and suppress the focus-derived reveal, refreshing the freeze on every step and
-clearing it on close. Prove it with a test that asserts a match inside
-`[label](url)` reveals its source with `view.hasFocus === false` — that test
-should be written **first**, because it is the one that fails without this
-mechanism and passes silently in a naive implementation that only ever tests
-with the editor focused.
+- **iOS toolbar stacking — dissolved.** The formatting toolbar is the
+  keyboard's `inputAccessoryView`, swizzled onto the private `WKContentView`
+  and keyed on WebView focus (`EditorWebView.swift:616`:
+  `futo_overrideInputAccessoryView(focused ? toolbarAccessory : nil)`). A web
+  query field inside the WebView keeps `focused == true`, so the formatting
+  toolbar would have stayed docked while typing a query — a spec violation the
+  web-panel plan would have needed a new bridge signal to fix. A native
+  `TextField` becomes first responder, the WKContentView resigns, `.focus`
+  fires false, the accessory nils itself. Free.
+- **Android toolbar stacking — dissolved.** `NoteEditorScreen.kt:839` shows the
+  formatting toolbar only while `host.editorFocused && WindowInsets.isImeVisible`.
+  Native find field focus → `editorFocused` false → toolbar hides. Free.
+- **Android system Back — dissolved.** The bar is now shell state, so the
+  `BackHandler` at `NoteEditorScreen.kt:418` can consume Back while it is
+  visible with no bridge round-trip and no desync risk. The web-panel plan
+  needed an outbound `findState` message for this alone.
+- **Keyboard safety — free.** Both bars sit at the top of the editor area in
+  layouts the shells already keep above the keyboard inset.
 
-### 2.2 Android system Back needs to know the bar is open → BRIDGE_VERSION 8 → **stop and ask**
+### What it costs
 
-`NoteEditorScreen.kt:418` has a single `BackHandler {}`. The spec says Back with
-the bar open dismisses the bar, not the screen. The shell cannot know: the bar
-lives inside the WebView, and it can close from inside (the X button) without
-the shell hearing about it. Tracking a shell-side flag set when the shell sends
-`exec("find")` desynchronizes the first time the user taps X, and then one Back
-press gets silently swallowed.
+- **A bidirectional bridge contract** (§2.2) — larger than the web panel's
+  would have been, and chatty: query updates flow in per keystroke, counts flow
+  out per recompute. Acceptable: both are tiny payloads on an existing
+  `evaluateJavaScript`/`postMessage` path that already carries full document
+  text on every edit.
+- **Two bar implementations to keep visually honest.** Mitigated by the bars
+  being genuinely dumb (see above) and by the spec pinning the strings. To keep
+  the count wording from drifting, the outbound message carries the
+  **preformatted display label** ("3 of 17" / "No matches") alongside the raw
+  `{current, total}` — one string formatter, in the bundle. Check whether
+  `scripts/drift-check.mjs` flags the two bars; if it does, register the pair
+  with the rationale "dumb renderers of a bridge-owned engine, strings supplied
+  by the bundle".
 
-The correct fix is an additive outbound message (`findState`, carrying
-open/closed) in `packages/editor/src/bridge.ts` `OUTBOUND_MESSAGE_TYPES:310`.
-That is a `BRIDGE_VERSION` bump to **8**, and the version history at
-`bridge.ts:20-55` shows the precedent exactly: v4, v5, and v6 are each one
-additive outbound message with the note "a host that doesn't handle it just
-drops the message".
+---
 
-**AGENTS §11.6 makes any `BRIDGE_VERSION` change stop-and-ask.** Do not write
-this until it is approved. Both native hosts move together (M10) and
-`just bridge-spec` must regenerate `apps/ios/Sources/Editor/GeneratedContracts/BridgeSpec.swift`
-and its Kotlin sibling (M8), with `just bridge-spec-check` green.
+## 2. Sharp edges (read before writing anything)
 
-Phase 4 is structured so everything else ships without this. If it is refused,
-the fallback is Android-only: keep Back exiting the screen and record a
-`> **Gap:**` in `editor.md` — never a shell-side guess at the bar's state.
+### 2.1 Nothing reveals hidden markdown while the WebView is unfocused — CRITICAL, now central
 
-### 2.3 `exec` ids are documented as toolbar-manifest ids
+`live-preview/selectionReveal.ts:34` gates every reveal path on editor DOM
+focus (`if (!hasFocus) return new Set()`). With a native bar this is no longer
+an edge case — **the WebView is unfocused for the entire find interaction**,
+so without a fix, no match inside hidden syntax (`[label](url)`, emphasis
+markers, wikilink brackets) ever reveals its source, breaking the spec's
+"current match is always visible" rule — its most subtle line.
 
-`bridge.ts:125` says "`commandId` is the id of an `exec` item in the toolbar
-manifest", and `toolbar.ts:17-22` says the same from the other side. The spec
-decided `find` is dispatched over `exec` but is **not** a manifest item, so both
-doc comments need one sentence: `exec` takes a shared command id from
-`TOOLBAR_EXEC`, of which the manifest's `exec` items are a subset.
+The hook exists and has no production caller: `freezeSelectionReveal(hasFocus,
+ranges)` / `clearSelectionRevealFreeze()` / `setSuppressSelectionReveal(true)`
+in the same file, exercised only by `liveMarkdownTransform.reveal.test.ts:61`.
+While find is active, freeze the reveal at the current match's range, refresh
+on every step/query change, clear on `closeFind`. Write the failing test
+**first**: a match inside `[label](url)` must reveal with
+`view.hasFocus === false`. A naive implementation passes every test written
+with the editor focused and ships broken.
 
-This is a comment change, not a contract change — a new accepted id is
-backward-compatible (an older host simply never sends it, and
-`createFutoEditorApi.ts:151` already warns and ignores unknown ids). No version
-bump for this part, separate from 2.2.
+### 2.2 The bridge contract — BRIDGE_VERSION 8
 
-### 2.4 Find state clears on note switch — for free, but verify
+The maintainer's native-bar decision entails the bridge change, answering the
+AGENTS §11.6 stop-and-ask (2026-08-25). The shape:
 
-`noteHistory.ts:57` restores via `EditorState.fromJSON(..., FIELDS)` where
-`FIELDS` covers only the history field, and `openNote` swaps the whole state
-through `swapEditorState`. A find `StateField` is therefore re-initialized to
-closed whenever a note is opened or a desktop tab is switched back to — which is
-exactly the spec's rule. Do not add teardown code for it; add a test that pins
-the behavior so a later change to `FIELDS` cannot silently start restoring a
-stale bar.
+**Inbound** (new `FutoEditorApi` methods, style-matched to
+`setContent`/`setTheme`):
 
-Watch `resetHistory()` (`MarkdownEditor.svelte:~190`): it also swaps state, and
-the embed calls it on every `initialize`/`setContent` from the host — i.e. every
-native note open. Same desired outcome, different trigger. Test both.
+- `openFind()` — mark find active, freeze-reveal machinery arms; the engine
+  immediately posts a match report for the current (possibly remembered) query.
+- `setFindQuery(query: string)` — recompute; post a report.
+- `stepFind(delta: number)` — move current match, scroll it into view, reveal;
+  post a report. No-op when inactive or zero matches.
+- `closeFind()` — clear highlights, restore reveal, leave the selection on the
+  current match.
 
-### 2.5 `@codemirror/search` is a new dependency — dedupe or the editor goes blank
+**Outbound** (one new message in `OUTBOUND_MESSAGE_TYPES`,
+`packages/editor/src/bridge.ts:310`):
 
-Absent from `package.json` and from the lockfile. Add it to the **root**
-`package.json` (the editor package has no runtime deps of its own), and pin it
-the way its neighbours are pinned — `@codemirror/state` is `6.7.1` and
-`@codemirror/view` is `6.43.6`, both exact, not caret.
+- `findMatches` — `{ current, total, label }` where `label` is the preformatted
+  count string (§1). Posted on every recompute while active, throttled with the
+  count-may-lag-a-frame allowance the spec grants (M5).
 
-M22: a duplicate `@codemirror/*` copy in the tree renders CM6 blank in a
-WebView. After installing, run `pnpm why @codemirror/state` and confirm a single
-version, then check the editor actually still renders on a device before
-believing any green unit run.
+`BRIDGE_VERSION` 7 → 8 with a history entry in the v4–v6 style
+(`bridge.ts:20-55`): additive — a v7 host never calls the methods and drops the
+message. Both hosts move in the same commit (M10); `just bridge-spec`
+regenerates `BridgeSpec.swift`/`.kt` (M8) and both hosts' `BridgeCoverageTest`s
+must handle the new outbound type; `just bridge-spec-check` green.
 
-### 2.6 The desktop accelerators are `window` listeners with no focus guard
+Note `exec('find')` is **dead** in this design: desktop opens its panel
+in-process, native shells call `openFind()` directly. The working tree's
+`TOOLBAR_EXEC` `find` entry and the `exec("find")` menu dispatches are removed
+in Phase 1. The !235 spec text saying find is "dispatched over `exec`" is
+amended in Phase 0.
 
-`registerNotesShellShortcuts.ts` binds on `window` and none of the existing
-accelerators guard against focus being in a text input. That is harmless for
-Ctrl+P/N/T/W, but Ctrl+F is a key people expect inside _any_ field. Add the
-guard for the new keys only — do not retrofit the existing ones in this branch
-(unrelated behavior change).
+### 2.3 Native bar state must die with the note, not just the screen
 
-The Home-tab no-op falls out of `EditorApi` being absent/inactive; assert it
-rather than assuming.
+The engine side clears for free: `noteHistory.ts:57` restores only the history
+field and `openNote`/`resetHistory` swap whole states, so the find
+`StateField` re-initializes to inactive on every note open — pin with a test.
+But the **native bar's own visibility is shell state** and must be closed by
+the shell on note switch/screen exit, or the bar shows over a note the engine
+isn't finding in. iOS: the bar is per-`NoteEditorView`, dies with the screen.
+Android: same screen-scoped state; also decide rotation — `rememberSaveable`
+for query + visibility satisfies the spec's rotation-survival line, and the
+retained WebView keeps the engine state consistent. On reattach after process
+death, don't restore the bar (the engine forgot too).
+
+### 2.4 `@codemirror/search` is new — dedupe or the editor goes blank
+
+Absent from `package.json` and the lockfile. Add to the **root** `package.json`
+with an exact pin like its neighbours (`@codemirror/state` `6.7.1`,
+`@codemirror/view` `6.43.6`). M22: a duplicate `@codemirror/*` renders CM6
+blank in a WebView — after install, `pnpm why @codemirror/state` must show one
+version, and Phase 1's device check is not optional.
+
+### 2.5 Desktop accelerators are `window` listeners with no focus guard
+
+`registerNotesShellShortcuts.ts` binds on `window`; none of the existing keys
+guard against focus in a text input. Harmless for Ctrl+P/N/T/W; not for
+Ctrl+F/G. Guard the new keys only — do not retrofit the old ones here.
+Home-tab no-op falls out of the editor being absent; assert it.
 
 ---
 
 ## 3. Phases
 
-Each phase is one commit, `type(scope): imperative summary`, and each is
-independently reviewable. Phase 1 is the whole feature on desktop; 2–4 are
-per-shell entry points.
+One commit each, `type(scope): imperative summary`, independently reviewable.
 
-### Phase 0 — dependency and skeleton
+### Phase 0 — amend the spec (in MR !235, still open)
 
-`build(editor): add @codemirror/search for find-in-note`
+`docs(spec): find-in-note bars are native on mobile`
 
-- Add `@codemirror/search` (exact pin) to root `package.json`; `pnpm install`.
-- Verify the dedupe (2.5).
-- No behavior yet.
+Rewrite the affected `editor.md` lines: the shared bundle owns matching,
+stepping, highlights, count strings, and reveal; the bar is the editor's own
+top panel on desktop and native shell chrome on iOS/Android, driven by the
+find methods of the bridge (v8, listed as part of the proposal); invocation is
+no longer `exec`. Keep every behavioral line (literal matching, source-text
+matching, body-only, wrap, rotation, Back, never-stack) — only the rendering
+owner changes. The working tree already reworked `editor.md`/`tabs.md`/`GAPS.md`
+and the spec-gaps probe toward the web-panel version — rewrite those edits for
+the native wording rather than layering on top. `just spec-gaps` +
+`spec-gaps-check`; push to !235.
 
-**Verify:** `pnpm why @codemirror/state`, `just build`.
+### Phase 1 — land the engine + desktop, strip the mobile web bar
 
-### Phase 1 — the shared find surface
+`feat(editor): find in note engine and desktop panel`
 
-`feat(editor): find in note`
+Mostly triage of what already exists in the working tree, not new writing:
 
-1. `findMatches.ts` + tests: case-insensitive literal substring over the doc
-   (`SearchCursor` with a normalized comparator), count, current-index, wrap.
-   Cover the spec's own examples — `cat` finds `concatenate`; `"Aug "` with the
-   trailing space matches only `Aug` + space; zero matches.
-2. `findState.ts` + tests: field, effects, `openFind` / `closeFind` /
-   `stepFind` / `setFindQuery`. Open seeds from the selection when non-empty,
-   else the previous query. `stepFind` on a closed bar is a no-op; on zero
-   matches it is a no-op.
-3. `findDecorations.ts`: all-match + current-match decorations, computed over
-   `view.visibleRanges` only. M5 — this runs on document change, so it must not
-   scan the whole document per keystroke in a large note; scan the viewport for
-   painting and keep the total count on a debounced pass (the spec explicitly
-   permits the count to lag an edit by a frame).
-4. **The reveal fix (2.1)** and its focus-less test.
-5. `findPanel.ts`: the bar via `showPanel`. Query field, `"3 of 17"` /
-   `"No matches"`, prev/next/close. Panel-local keymap: Enter → next,
-   Shift-Enter → previous, Escape → close and return focus to the editor with
-   the selection on the current match.
-6. `findExtension.ts`, wired into `createMarkdownEditorRuntime.ts`'s extension
-   array next to `slashMenu` / `wikilinkAutocomplete`.
-7. `find: openFind` added to `TOOLBAR_EXEC` in
-   `src/features/editor/markdownToolbar.ts:25`, plus the two doc-comment
-   corrections from 2.3.
+1. **Keep:** the whole engine, the desktop panel, desktop keys, `EditorApi` and
+   `MarkdownEditor.svelte` wiring, tests, the `@codemirror/search` pin (run the
+   2.4 dedupe check before trusting it).
+2. **Change:** exclude `findPanel` under `nativeShell` in `findExtension.ts:81`
+   — the flag already reaches `createMarkdownEditorRuntime.ts`.
+3. **Revert:** the `find` entry in `TOOLBAR_EXEC`, both native shells' menu
+   `onClick: exec("find")` diffs (the menu items themselves return in Phases
+   3/4 wired to `openFind()`), and the `bridge.ts` `exec` doc-comment
+   loosening.
+4. **Audit before adopting:** the existing tests against the spec's own cases
+   (`cat` finds `concatenate`; `"Aug "` trailing-space; zero matches), the
+   focus-less reveal test (2.1 — it must assert `view.hasFocus === false`),
+   M5 viewport-only painting in `findDecorations.ts`, and the note-switch
+   clearing test (2.3, engine half). Inherited code is reviewed, not presumed.
 
-**Verify:** `just test-unit`, `just test-editor`, `just check`, plus a
-Playwright spec (`tests/find-in-note.spec.ts`) covering open → type → count →
-step → wrap → Escape, and the reveal-while-unfocused case.
+**Verify:** `just test-unit`, `just test-editor`, `just check`, new
+`tests/find-in-note.spec.ts` (open → type → count → step → wrap → Escape;
+reveal-while-unfocused; Home-tab no-op), real desktop app per `/verify`
+(M24 — `scripts/qa-target.mjs` only).
 
-### Phase 2 — desktop invocation
+### Phase 2 — bridge v8
 
-`feat(desktop): bind Ctrl/Cmd+F and Ctrl/Cmd+G to find in note`
+`feat(editor): find-in-note bridge contract (BRIDGE_VERSION 8)`
 
-- Extend `NotesShellShortcutDeps` with `openFind` and `stepFind(direction)`;
-  bind `f`, `g`, and `Shift+g` with the focus guard from 2.6.
-- Extend the frozen `EditorApi` in `NoteWorkspace.svelte:17` with `openFind`
-  and `stepFind`, exported from `MarkdownEditor.svelte`, bound through
-  `NotesShell.svelte:391`'s existing `bind:editorApi={editor}`.
-- Ctrl/Cmd+F with the bar open refocuses and selects the query; on a Home tab it
-  does nothing; Ctrl/Cmd+G with the bar closed does nothing.
+The contract from 2.2: four inbound methods in `bridge.ts` +
+`createFutoEditorApi.ts`, `findMatches` outbound, version history entry, bump,
+`just bridge-spec` regeneration for both hosts, both `BridgeCoverageTest`s.
+No native UI yet — this commit is the contract and its generated artifacts.
 
-**Verify:** `src/AGENTS.md` chain (§7.1) + the Playwright spec extended to the
-accelerators; drive the real desktop app per `/verify` — never OS-level input
-(M24, `scripts/qa-target.mjs` only).
+**Verify:** `packages/editor` tests, `just bridge-spec-check`, `just check`.
 
-### Phase 3 — iOS invocation
+### Phase 3 — iOS native bar
 
-`feat(ios): add Find in note to the editor overflow menu`
+`feat(ios): native find-in-note bar`
 
-- One `Button`/`Label("Find in note", systemImage: "magnifyingglass")` in the
-  existing `Menu` at `NoteEditorView.swift:244`, above the `Divider()`.
-- Add `func exec(_ commandId: String)` to `EditorHost`
-  (`EditorWebView.swift`) beside `blur()`/`setNotes()`, reusing the
-  `jsLiteral` + `evaluateJavaScript` form already at line 737. No find logic in
-  Swift (M6).
+- SwiftUI bar (query `TextField`, count label, prev/next/close) in
+  `NoteEditorView.swift`, shown by a "Find in note" item
+  (`magnifyingglass`) in the existing `Menu` at `:244`, above the `Divider()`.
+- `EditorHost` (`EditorWebView.swift`) gains thin wrappers calling the v8
+  methods, same `jsLiteral` + `evaluateJavaScript` form as `:737`, and routes
+  `findMatches` in `userContentController` to the bar's state.
+- Bar dies with the screen (2.3); count text is the bundle's `label`, verbatim.
 
-**Verify:** `apps/ios/AGENTS.md` chain (§7.6) — `just build-rust-ios` first
-(M9), then `just test-ios-native` and `just ios-native` on a claimed pooled
-simulator (`just qa-claim ios`). Confirm on-device that the bar sits above the
-keyboard and that the formatting toolbar does not stack with it.
+**Verify:** §7.6 chain — `just build-rust-ios` (M9), `just test-ios-native`,
+`just ios-native` on a claimed pooled simulator; on-device: formatting
+accessory absent while the find field is focused, match stepping reveals
+hidden syntax, keyboard never covers the bar.
 
-### Phase 4 — Android invocation (+ the Back rule, gated)
+### Phase 4 — Android native bar
 
-`feat(android): add Find in note to the editor overflow menu`
+`feat(android): native find-in-note bar`
 
-- One `DropdownMenuItem("Find in note")` in the `DropdownMenu` at
-  `NoteEditorScreen.kt:679`, calling the existing `exec(...)`
-  (`EditorWebView.kt:634`).
-- **Gated on 2.2's approval:** the `findState` outbound message, `BRIDGE_VERSION`
-  → 8 with a history entry in the same style as v4–v6, `just bridge-spec`
-  regeneration for both hosts, and the `BackHandler` at `NoteEditorScreen.kt:418`
-  consuming Back while the bar is open. If not approved, ship the menu item
-  alone and record the Back divergence as a `> **Gap:**`.
+- Compose bar above the WebView in `NoteEditorScreen.kt`'s editor `Column`;
+  "Find in note" `DropdownMenuItem` in the `DropdownMenu` at `:679`; thin
+  `EditorWebView.kt` wrappers beside `exec` (`:634`); `findMatches` routed to
+  bar state.
+- `BackHandler` (`:418`) consumes Back while the bar is visible — plain shell
+  state now, no bridge involvement.
+- `rememberSaveable` query/visibility for rotation (2.3).
 
-**Verify:** `apps/android/AGENTS.md` chain (§7.7) — `just build-rust-android`
-(M9), `just test-android-native`, `just android-native` on a claimed pooled
-emulator; `just bridge-spec-check` if the bridge moved.
+**Verify:** §7.7 chain — `just build-rust-android` (M9),
+`just test-android-native`, `just android-native` on a claimed pooled emulator;
+on-device: formatting toolbar hidden while the find field is focused, Back
+dismisses bar then screen.
 
 ### Phase 5 — spec closure
 
 `docs(spec): record find-in-note as implemented`
 
-- Remove the proposal `> **Gap:**` from `editor.md` "Find in note" and the
-  sibling in `tabs.md` only for behavior that actually shipped; keep a gap for
-  anything a phase left divergent (Android Back, or the interactive-table reveal
-  if it does not land).
-- Delete the closure probe added in !235 from `scripts/spec-gaps.mjs` — it fires
-  on `@codemirror/search` entering `package.json`, which Phase 0 does, so it will
-  go off on the first run otherwise.
-- `just spec-gaps` + `just spec-gaps-check`, per `/spec-sync`.
+Remove the proposal `> **Gap:**`s (editor.md + tabs.md) for what shipped; keep
+a gap for any divergence (e.g. the interactive-table answer, §4). Delete !235's
+closure probe from `scripts/spec-gaps.mjs` — it fires on `@codemirror/search`
+entering `package.json`, which Phase 1 does. `just spec-gaps` +
+`spec-gaps-check` per `/spec-sync`.
 
 ---
 
 ## 4. Open question carried from !235
 
-**Widget-replaced regions** (question 4, still open). The spec requires stepping
-to a match inside an interactive table's source to reveal that source the way
-placing the caret there does. `table/tableEditorWidget.ts` replaces the range
-with a widget and moves the selection itself (`:35`,
-`this.view.dispatch({ selection: ... })`), so a find step landing inside a table
-may be re-captured by the widget rather than revealing source.
-
-Resolve this during Phase 1 with a real test against the table widget before
-writing the panel — the answer may be "the table widget wins and a match inside
-a table is reached by exiting the widget first", which would be a spec
-amendment, not a bug. Do not guess; if the behavior cannot be made to match the
-spec cheaply, record the divergence as a gap and raise it rather than quietly
-loosening the spec line (M19, AGENTS §11.5).
+**Widget-replaced regions** (question 4). `table/tableEditorWidget.ts:35`
+dispatches its own selection when the widget takes focus, so a find step
+landing inside an interactive table's source may be re-captured by the widget
+instead of revealing source. Resolve in Phase 1 with a real test before the
+panel exists; if matching the spec is not cheap, record the divergence as a
+gap and raise it — never quietly loosen the spec line (M19, AGENTS §11.5).
 
 ---
 
 ## 5. Approval gates
 
-Per AGENTS §11, stop and ask before:
-
-1. Bumping `BRIDGE_VERSION` to 8 / adding the `findState` outbound message (2.2).
-2. Amending the spec's intent if the interactive-table answer forces it (§4) —
-   closing a gap is fine, changing specified behavior is not.
+1. ~~BRIDGE_VERSION 8~~ — **decided 2026-08-25**: the maintainer chose native
+   bars, which entails the bridge change; the exact contract shape (2.2) lands
+   for review in Phase 2's MR rather than as a fresh stop-and-ask.
+2. Amending spec intent if the interactive-table answer forces it (§4) — still
+   stop-and-ask.
 
 Everything else is reversible in-repo work: proceed.
 
@@ -322,7 +325,6 @@ Everything else is reversible in-repo work: proceed.
 
 ## 6. Pre-merge
 
-`just check` at minimum; `just prepush` before pushing, since this touches the
-editor hot path, both native shells, and (conditionally) the bridge. Report the
-commands and their real results (M18, M11) — a partially-run chain is reported
-as partially run.
+`just check` minimum; `just prepush` before pushing — this touches the editor
+hot path, the bridge, and both native shells. Report commands and real results
+(M18, M11); a partially-run chain is reported as partially run.
