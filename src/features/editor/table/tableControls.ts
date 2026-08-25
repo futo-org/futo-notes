@@ -124,7 +124,6 @@ export function attachTableControls({ root, table, mutateTable }: AttachTableCon
       }),
     );
 
-    controls.dataset.col = String(column);
     root.appendChild(controls);
   });
 
@@ -158,18 +157,6 @@ export function attachTableControls({ root, table, mutateTable }: AttachTableCon
   attachTableDropHandlers(root, mutateTable);
 }
 
-/**
- * Place the hover tabs against the rows and columns they act on. Deliberately
- * NOT done while building: `attachTableControls` runs inside `toDOM`, where the
- * widget is still detached and every offset reads 0, so every tab stacked at the
- * table's top-left corner. Called when the tabs are about to become visible, and
- * again while they are visible and the table scrolls sideways.
- *
- * Measured from `getBoundingClientRect`, not `offsetTop`/`offsetLeft`: those are
- * layout-relative so they ignore `scrollLeft`, and for a `tr` under
- * `border-collapse: collapse` offsetTop reads ~8px short, which used to leave the
- * tab hanging above its row.
- */
 export function positionTableControls(root: HTMLElement): void {
   const scroller = root.querySelector<HTMLElement>('.sf-table__scroll');
   const rootRect = root.getBoundingClientRect();

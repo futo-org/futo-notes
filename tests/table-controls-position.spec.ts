@@ -109,6 +109,41 @@ test.describe('table hover controls', () => {
     );
   });
 
+  test('tabs stay aligned after a row is added while they are showing @webkit-pointer', async ({
+    page,
+  }) => {
+    await openTableNote(page);
+    const before = await readTabOffsets(page);
+    expectAllAligned(before.rowOffsets, 'row tabs start aligned');
+
+    await page.evaluate(() => {
+      const add = document.querySelector(
+        '.sf-table__row-controls [aria-label="Add row below"]',
+      ) as HTMLElement;
+      add.click();
+    });
+    await page.waitForFunction(
+      () => document.querySelectorAll('.sf-table tbody tr').length === 4,
+      null,
+      { timeout: 5000 },
+    );
+    await page.waitForTimeout(200);
+
+    const stillShowing = await page.evaluate(() =>
+      document.querySelector('.sf-table')!.classList.contains('sf-table--show-controls'),
+    );
+    expect(stillShowing, 'the tabs are still visible, so no new pointerenter fires').toBe(true);
+
+    const after = await readTabOffsets(page);
+    expect(after.rowCount, 'the row landed').toBe(4);
+    expect(after.rowOffsets.length, 'one tab per body row').toBe(4);
+    expectAllAligned(after.rowOffsets, 'every row tab must still be centred on its own row');
+    expectAllAligned(
+      after.visibleColumnOffsets,
+      'every on-screen column tab must still start at its column edge',
+    );
+  });
+
   test('column tabs follow their column when a wide table is scrolled sideways', async ({
     page,
   }) => {

@@ -18,7 +18,7 @@ compensation code.
 CM6 sizes any line that is currently scrolled out of view from an **estimated**
 height (a `HeightMapGap`). For a line replaced by a widget, that estimate comes
 from the widget's `estimatedHeight` getter — **not** the height oracle (so
-forcing a full document parse/measure on load does _not_ fix it; verified
+forcing a full document parse/measure on load does *not* fix it; verified
 empirically).
 
 `HorizontalRuleWidget.estimatedHeight` returned **18**, but the widget actually
@@ -35,13 +35,13 @@ tracks `.cm-scroller.scrollTop` per frame and counts direction reversals.
 Hot-swapping just `editor.html` into the installed `.app` (no Xcode/Rust
 rebuild) gave a fast measure loop.
 
-| Scenario                                      | worst reversal (`maxRev`)                                |
-| --------------------------------------------- | -------------------------------------------------------- |
-| With `---`, before fix                        | up to **235px**                                          |
-| `---` removed                                 | ~31px                                                    |
+| Scenario | worst reversal (`maxRev`) |
+|---|---|
+| With `---`, before fix | up to **235px** |
+| `---` removed | ~31px |
 | Full-document premeasure (oracle calibration) | still ~142px — **no help** (widget estimate, not oracle) |
-| With `---`, after fix                         | ~29px (== the no-HR floor)                               |
-| After fix, slow/normal scroll                 | **0 reversals, maxFrame 4px**                            |
+| With `---`, after fix | ~29px (== the no-HR floor) |
+| After fix, slow/normal scroll | **0 reversals, maxFrame 4px** |
 
 The ~30px residual on hard flings is CM6's inherent wrapped-line gap estimation
 (present with or without the rule) and is not visible at normal scroll speeds.
@@ -55,13 +55,17 @@ adjacent line and make measured ≠ estimated):
 - `live-preview/widgets.ts`: `HorizontalRuleWidget.estimatedHeight = 50`
   (`HR_WIDGET_HEIGHT`); drop the inline margin/border styles.
 - `markdown-blocks.css`: `.cm-md-hr-widget { height: 50px; display: flex;
-align-items: center }` with the rule on the inner `> div`.
+  align-items: center }` with the rule on the inner `> div`.
 
 ## Guard
 
-`tests/editor-height-map.spec.ts` → "a horizontal rule line measures the height
-the widget estimates" asserts the widget element, the `.cm-line` holding it, and
-`lineBlockAt().height` are all 50.
+`tests/editor-height-map.spec.ts` → "every rule line measures the height the
+widget estimates, under any font metrics" asserts, for the plain, quoted and
+indented forms and under line-height 120px and font-size 40px, that the widget,
+the `.cm-line` holding it and `lineBlockAt().height` are all 50, that the line
+overflows neither vertically nor horizontally, that the widget is not pushed down
+inside its line, and that the rule still spans it. It runs on WebKit as well as
+Chromium (`@webkit-pointer`).
 
 The original guard here — `tests/markdown-rendering.spec.ts` "horizontal rule
 rendered height matches its CM6 estimate" — asserted only the `.cm-md-hr-widget`
@@ -104,11 +108,11 @@ re-pin the scroll anchor → a visible jolt on a touch-momentum scroller):
 The earlier `scrollJumpGuard` mitigation for #2 was **wrong twice over** and has
 been removed:
 
-- It only reverted _reversals_ (`nd !== dir`). The actual user-reported jank is a
+- It only reverted *reversals* (`nd !== dir`). The actual user-reported jank is a
   **forward** correction — a long paragraph above/at the fold measures taller, so
-  the anchor moves _down_ and `diff > 0` _while scrolling down_. Same direction as
+  the anchor moves *down* and `diff > 0` *while scrolling down*. Same direction as
   the scroll → the guard never fired.
-- Worse, the guard _itself_ wrote `scrollTop` mid-scroll. On iOS, **any**
+- Worse, the guard *itself* wrote `scrollTop` mid-scroll. On iOS, **any**
   programmatic `scrollTop` write cancels the in-flight touch momentum — so the
   guard (and CM6's own correction) made the scroll "jump forward and **stop**,"
   with no bounce. That exact triple — jump forward, dead-stop, no bounce, worse
@@ -118,7 +122,7 @@ been removed:
 
 The premise "CM6 re-gaps far-away lines so premeasure doesn't help" was **false**.
 Reading `@codemirror/view` source: a measured line (`HeightMapText`) keeps its
-height and is _only_ reverted to an estimate when the **document** changes that
+height and is *only* reverted to an estimate when the **document** changes that
 range (`HeightMapText.updateHeight` re-estimates only if `force || outdated`;
 `applyChanges` rebuilds only edited ranges). Scrolling away never re-gaps. So the
 height map is **monotonically accurate** once measured — and there is no facet to
@@ -152,15 +156,15 @@ Android edge stretch), no scroll-chaining to the host. Unit-tested in
 iOS and Android native shells run the **same** `editor.html` bundle in a
 prewarmed, app-lifetime WebView where **CM6 owns its own scroller**. So the bug,
 and the fix, are identical on both — there is no platform-specific scroll code to
-write. Only the _magnitude_ differs, because it's driven by each engine's font
+write. Only the *magnitude* differs, because it's driven by each engine's font
 metrics. Measured with a real-fling correction counter (hook the scroller's
 `scrollTop` SETTER — native momentum updates scrollTop internally and bypasses the
-JS setter, so any JS write _during_ a fling is necessarily a CM6 correction):
+JS setter, so any JS write *during* a fling is necessarily a CM6 correction):
 
-| Platform                            | warm OFF (baseline)           | warm ON (fixed) |
-| ----------------------------------- | ----------------------------- | --------------- |
-| iOS simulator                       | 2 corrections, max ~200px     | **0**           |
-| Android emulator (Chromium WebView) | **7 corrections, max 1436px** | **0**           |
+| Platform | warm OFF (baseline) | warm ON (fixed) |
+|---|---|---|
+| iOS simulator | 2 corrections, max ~200px | **0** |
+| Android emulator (Chromium WebView) | **7 corrections, max 1436px** | **0** |
 
 On Android the cold height map under-estimated the doc by ~700px (9525 → 10247px
 after warming), producing a single **1436px** correction mid-fling — a violent
@@ -178,7 +182,7 @@ This is a recurring trap. Internalize these:
 1. **It's the WebView editor (CM6), not native scroll code.** Both mobile shells
    embed the shared web editor; native scroll containers aren't involved.
 2. **"Jumps and stops, no bounce, worse on harder flicks" == a programmatic
-   `scrollTop` write killing native momentum.** On iOS _and_ Android Chromium
+   `scrollTop` write killing native momentum.** On iOS *and* Android Chromium
    WebView, ANY JS write to a scroller's `scrollTop` during an active touch/fling
    cancels the in-flight momentum. Never write `scrollTop` mid-scroll. The dead
    `scrollJumpGuard` violated this — don't reintroduce that pattern.
@@ -187,11 +191,11 @@ This is a recurring trap. Internalize these:
    re-measures and writes `scrollTop += diff` to keep its anchor. There is no facet
    to disable that write.
 4. **The fix is to make the estimate moot: warm the whole height map up front.**
-   Measured heights persist (CM6 only re-gaps on a _document edit_), so one walk
+   Measured heights persist (CM6 only re-gaps on a *document edit*), so one walk
    per load/width-change/font-load is durable. Move the viewport with
    `scrollIntoView`, not `scrollTop`. Re-warm on anything that re-flows wrap width.
 5. **Measure with the `scrollTop`-setter hook + real flings**, not `grew` (total
-   scrollHeight delta). Corrections are driven by _local_ re-measurement near the
+   scrollHeight delta). Corrections are driven by *local* re-measurement near the
    scroll position and can be huge (1436px) even when the whole-doc total nets to
    ~0 — so a "grew ≈ 0" reading does NOT mean "no jank." Count the setter writes
    during an actual fling.
@@ -232,32 +236,58 @@ width: 100% }`. The widget then shares one line box with the buffers instead of
 forcing anonymous block boxes around them, and the line measures exactly 50 —
 `estimatedHeight`, the rendered `.cm-line`, and `lineBlockAt().height` all agree.
 
-**That alone was not enough.** It holds only while the 50px widget is the tallest
-thing in the line box. Raise the editor's line-height past 50 and the line strut
-wins again; raise the font-size and the `height: 1em` widget buffers do (measured:
-54.5px at a 30px font, 88.5px at 64px). A shell with different metrics would
-silently reopen the bug, so the rule's line owns its own box.
-`decorateHorizontalRule` also emits a line decoration, `cm-md-hr-line`, styled
-like the code-fence lines above it:
+**Making it inline was not enough.** It held only while the 50px widget was the
+tallest thing in the line box *and* nothing else shared the line. Four separate
+things broke it, each measured:
+
+- Raise the editor's line-height past 50 and the line strut wins again.
+- Put anything else on the rule's line — a hidden blockquote marker (`> ---`) or
+  the 1-3 leading spaces CommonMark allows (`   ---`) — and a 100%-wide widget no
+  longer fits beside it, so the line **wraps** and the rule lands 18px down.
+- Force it not to wrap and the same 100% width instead overflows the text column
+  sideways: 14px for `> ---`, 29px for `> > ---`, and the whole editor gains a
+  horizontal scroll range.
+- Raise the font-size and the `height: 1em` widget buffers grow past the widget,
+  spilling 15px out of the line at a 40px font.
+
+Every one of those is a symptom of the rule sharing an inline formatting context
+with its siblings. So the fix is to remove the line boxes entirely — make the
+rule's line a flex container and let the rule flex into whatever space is left:
 
 ```css
-.cm-line.cm-md-hr-line {
+.cm-md-hr-widget {
   height: 50px;
-  min-height: 0;
-  line-height: 0 !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  overflow: visible;
+  flex: 1;              /* was: no flex, width from the line box */
+  display: flex;
+  align-items: center;
+}
+
+.cm-line.cm-md-hr-line {
+  display: flex !important;
 }
 ```
 
-`line-height: 0` removes the strut, the pinned `height` caps the buffers, and
-`overflow: visible` keeps them hit-testable for caret placement. Measured at 50px
-exactly under line-height 25/60/120px and font-size 18/30/64px.
+There are no line boxes in a flex container, so there is no strut to zero, nothing
+to wrap, no baseline to sit on, and no 100% width to overflow — the four failures
+above all disappear at once, and `line-height`, `white-space`, `vertical-align`
+and the buffer heights stop mattering. `.cm-md-hr-widget` keeps main's
+`display: flex`; the only change to it is `flex: 1`.
 
-The `!important` is load-bearing: `markdown.css` is imported into
-`layer(components)`, and an `!important` declaration inside a cascade layer beats
-an unlayered one — which is what lets this override whatever a shell sets.
+The `!important` is load-bearing, and not for specificity: CodeMirror injects
+`.cm-line { display: block }` from its own StyleModule **unlayered**, while
+`markdown.css` is imported into `layer(components)` — and an unlayered declaration
+beats a layered one whatever its specificity. Without `!important` the line stays
+`display: block`, the widget is not a flex item, and `flex: 1` leaves it 0px wide.
+All three declarations are red-proofed: remove any one and
+`tests/editor-height-map.spec.ts` fails.
+
+There is deliberately **no** pinned `height` on the line. An earlier attempt had
+one, and it was worse than useless: it clamped the line's rect to 50px, so the
+rect agreed with `estimatedHeight` while the content inside overflowed by 15-18px
+— the same "the box we measure is not the box we paint" defect this document is
+about, and it made the guard vacuous. The line measures 50px because its content
+is 50px, and the test asserts `scrollHeight == clientHeight` and
+`scrollWidth == clientWidth` so it cannot be fooled again.
 
 `HorizontalRule` is block-reveal-sensitive, so `decorateHorizontalRule` runs only
 when the widget is rendered. A caret on the rule's line reveals the `---` source
@@ -267,11 +297,12 @@ test for exactly that.
 Visible side effect: the vertical band around a `---` shrinks by ~61px, from 111
 to the 50 the CSS always intended.
 
-Two rules follow, and `tests/editor-height-map.spec.ts` enforces both:
+Three rules follow, and `tests/editor-height-map.spec.ts` enforces all three:
 
 - A widget's spacing is **padding, never margin** — margins sit outside the box
   CM6 measures.
 - An **inline** replace widget must not be block-level, or CM6's widget buffers
   cost two extra line boxes.
-- A widget whose height is a fixed number must not let the line's own metrics
-  decide the line box, or the number is only right at one font setting.
+- A widget whose height is a fixed number must not share an inline formatting
+  context with anything, or the line's metrics and its siblings decide the box
+  instead — and the number is only right at one font setting, on one note.

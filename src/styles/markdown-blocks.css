@@ -137,18 +137,13 @@
  * momentum scrolling. See docs/learnings/hr-scroll-jank.md. */
 .cm-md-hr-widget {
   height: 50px;
-  width: 100%;
-  display: inline-flex;
+  flex: 1;
+  display: flex;
   align-items: center;
 }
 
 .cm-line.cm-md-hr-line {
-  height: 50px;
-  min-height: 0;
-  line-height: 0 !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  overflow: visible;
+  display: flex !important;
 }
 
 .cm-md-hr-widget > div {

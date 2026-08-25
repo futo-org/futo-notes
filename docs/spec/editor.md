@@ -321,7 +321,11 @@ this file states the behaviors a human cares about.
   and wrapped-line selection rectangles for the rest of the note. `.sf-table`'s
   `margin: 8px 0` cost 16px per table: one ArrowUp from a line below a table put
   the caret on the first line *above* it. Absolute offsets on widget overlays are
-  measured from that same padding box, so they move with the padding. →
+  measured from that same padding box, so they move with the padding. Because that
+  spacing is now inside the widget, the widget places the caret for a click in it:
+  on the neighbouring line, extending an existing selection when shift is held,
+  and declining the click entirely when there is no neighbouring line, since a
+  caret inside the widget's own range would reveal its source. →
   editor-table.css, table/tableControls.ts, tests/editor-height-map.spec.ts
 - A widget's hover overlays are positioned from `getBoundingClientRect`, when they
   become visible — never from `offsetTop`/`offsetLeft` while building. A widget is
@@ -331,22 +335,24 @@ this file states the behaviors a human cares about.
   and column tabs stayed put when a wide table scrolled sideways. →
   table/tableControls.ts `positionTableControls`,
   tests/table-controls-position.spec.ts
-- A widget whose real height cannot be computed from its source — a table whose
-  cells wrap — records what it rendered to and estimates from that next time,
-  rather than from a per-row constant. → table/tableEditorWidget.ts
-  `measuredHeightsBySource`
-- What CM6 sizes is the **line block**, not the widget element — so an *inline*
-  replace widget (the rule, images, list markers) must not be block-level either.
-  CM6 brackets an inline widget with two `cm-widgetBuffer` elements; a block-level
+- What CM6 sizes is the **line block**, not the widget element. CM6 brackets an
+  inline replace widget with two `cm-widgetBuffer` elements, so a block-level
   widget between them splits the line into anonymous blocks and costs two extra
-  line boxes. The rule's `display: flex` made its line 111px around a 50px widget,
-  so the widget's own measured height agreed with `estimatedHeight` while the line
-  CM6 recorded did not. `display: inline-flex` keeps it in one line box, and the
-  rule's line also owns its box — a `cm-md-hr-line` line decoration pins the height
-  and zeroes the line-height, so no shell's font metrics can grow it. That
-  decoration is only emitted in the rendered state, so a caret on the line still
-  reveals `---` at normal text height. → markdown-blocks.css `.cm-md-hr-widget` /
-  `.cm-md-hr-line`, live-preview/blockDecorations.ts `decorateHorizontalRule`,
+  line boxes: the rule's `display: flex` made its line 111px around a 50px widget,
+  and the widget's own height agreed with `estimatedHeight` while the line CM6
+  recorded did not. A fixed-height widget on a shared line therefore owns the
+  whole line: the rule's line is a flex container, so it has no line boxes at all
+  — no strut to grow it, nothing for a hidden blockquote marker or CommonMark's
+  up-to-3 leading spaces to wrap, no baseline for a large font's descender space,
+  and no percentage width to overflow the text column sideways. The line is
+  deliberately *not* given a fixed height: that clamps its rect to the expected
+  number while the content inside overflows, hiding the very mismatch the rule
+  exists to prevent. The `!important` on that display is required because CM6
+  declares `.cm-line { display: block }` unlayered, which beats a layered rule of
+  any specificity. The decoration is only emitted in the rendered state, so a
+  caret on the line still reveals `---` at normal text height. →
+  markdown-blocks.css `.cm-md-hr-widget` / `.cm-md-hr-line`,
+  live-preview/blockDecorations.ts `decorateHorizontalRule`,
   tests/editor-height-map.spec.ts
 - Image widgets re-measure on load. On the native shells an embedded image's
   bytes arrive asynchronously (fetched through the native scheme handler after

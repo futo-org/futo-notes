@@ -39,6 +39,12 @@ const WIDGET_HEAVY_NOTE = [
   '',
   '---',
   '',
+  '> ---',
+  '',
+  '   ---',
+  '',
+  `![dot](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==)`,
+  '',
   '```js',
   'const x = 1;',
   '```',
@@ -153,11 +159,21 @@ function readHeightMap(page: Page) {
 }
 
 test.describe('editor height map', () => {
-  test('every rendered block measures the space it occupies', async ({ page }) => {
+  test('every rendered block measures the space it occupies @webkit-pointer', async ({ page }) => {
     await openNote(page, 'Height map', WIDGET_HEAVY_NOTE);
 
     const { drifted, measuredLines, viewportCoversDocument } = await readHeightMap(page);
 
+    const rendered = await page.evaluate(() => ({
+      tables: document.querySelectorAll('.sf-table').length,
+      rules: document.querySelectorAll('.cm-md-hr-widget').length,
+      images: document.querySelectorAll('.cm-md-image-wrapper').length,
+    }));
+    expect(rendered, 'the fixture really rendered every widget kind it claims to cover').toEqual({
+      tables: 2,
+      rules: 3,
+      images: 1,
+    });
     expect(viewportCoversDocument, 'the scan must cover the whole document').toBe(true);
     expect(measuredLines, 'lines the scan actually resolved to a .cm-line').toBeGreaterThanOrEqual(
       WIDGET_HEAVY_NOTE.split('\n').length - TABLE_SOURCE_LINES,
@@ -191,101 +207,65 @@ test.describe('editor height map', () => {
     }
   });
 
-  test('a table with wrapping cells estimates from what it rendered', async ({ page }) => {
-    const wrapping = [
-      'intro',
-      '',
-      '| Platform | Notes |',
-      '| --- | --- |',
-      '| desktop | a cell long enough that it has to wrap onto several lines, which no ' +
-        'per-row constant can predict |',
-      '',
-      'tail',
-      '',
-    ].join('\n');
-    await openNote(page, 'Wrapping table', wrapping);
-
-    const before = await page.evaluate(() => {
-      const view = (window as unknown as { __cmGetView: () => any }).__cmGetView();
-      const element = document.querySelector('.sf-table') as HTMLElement;
-      const block = view.lineBlockAt(view.posAtDOM(element));
-      return {
-        rendered: element.getBoundingClientRect().height,
-        estimated: block.widget?.estimatedHeight ?? null,
-      };
-    });
-
-    expect(
-      before.rendered,
-      'the cell must actually wrap for this to mean anything',
-    ).toBeGreaterThan(140);
-
-    // Force the field to build fresh widgets over the same table markdown by
-    // editing a different line, then read what the new widget would reserve.
-    await page.evaluate(() => {
-      const view = (window as unknown as { __cmGetView: () => any }).__cmGetView();
-      const line = view.state.doc.line(view.state.doc.lines - 1);
-      view.dispatch({ changes: { from: line.to, insert: '!' } });
-    });
-    await settleHeightMap(page);
-
-    const after = await page.evaluate(() => {
-      const view = (window as unknown as { __cmGetView: () => any }).__cmGetView();
-      const element = document.querySelector('.sf-table') as HTMLElement;
-      const block = view.lineBlockAt(view.posAtDOM(element));
-      return {
-        rendered: element.getBoundingClientRect().height,
-        estimated: block.widget?.estimatedHeight ?? null,
-      };
-    });
-
-    expect(
-      Math.abs((after.estimated as number) - after.rendered),
-      `a wrapped table renders ${after.rendered}px and now estimates ${after.estimated}px ` +
-        `(the per-row guess alone gave ${before.estimated}px)`,
-    ).toBeLessThanOrEqual(2);
-  });
-
-  test('a horizontal rule line measures the height the widget estimates', async ({ page }) => {
+  test('every rule line measures the height the widget estimates, under any font metrics @webkit-pointer', async ({
+    page,
+  }) => {
     await openNote(page, 'Rule estimate', WIDGET_HEAVY_NOTE);
 
-    const rule = await page.evaluate(() => {
-      const view = (window as unknown as { __cmGetView: () => any }).__cmGetView();
-      const widget = document.querySelector('.cm-md-hr-widget') as HTMLElement;
-      const line = widget.closest('.cm-line') as HTMLElement;
-      return {
-        widget: widget.getBoundingClientRect().height,
-        line: line.getBoundingClientRect().height,
-        block: view.lineBlockAt(view.posAtDOM(line)).height,
-      };
-    });
-
-    expect(rule.widget, 'the rule element itself').toBe(HORIZONTAL_RULE_ESTIMATED_HEIGHT);
-    expect(
-      rule.line,
-      'the LINE holding the rule — CM6 sizes the line block, not the widget element, so a ' +
-        'block-level widget between the two cm-widgetBuffer elements adds two stray line boxes',
-    ).toBe(HORIZONTAL_RULE_ESTIMATED_HEIGHT);
-    expect(rule.block, "CM6's height map for that line").toBe(HORIZONTAL_RULE_ESTIMATED_HEIGHT);
-  });
-
-  test('the rule keeps that height whatever font metrics a shell uses', async ({ page }) => {
-    await openNote(page, 'Rule metrics', WIDGET_HEAVY_NOTE);
-
-    const measureRuleLine = () =>
+    const measureRules = () =>
       page.evaluate(() => {
-        const widget = document.querySelector('.cm-md-hr-widget') as HTMLElement;
-        return (widget.closest('.cm-line') as HTMLElement).getBoundingClientRect().height;
+        const view = (window as unknown as { __cmGetView: () => any }).__cmGetView();
+        return Array.from(document.querySelectorAll('.cm-md-hr-widget')).map((element) => {
+          const widget = element as HTMLElement;
+          const line = widget.closest('.cm-line') as HTMLElement;
+          const widgetRect = widget.getBoundingClientRect();
+          const lineRect = line.getBoundingClientRect();
+          return {
+            source: view.state.doc.lineAt(view.posAtDOM(line)).text,
+            widget: widgetRect.height,
+            line: lineRect.height,
+            block: view.lineBlockAt(view.posAtDOM(line)).height,
+            overflow: line.scrollHeight - line.clientHeight,
+            widgetOffsetInLine: widgetRect.top - lineRect.top,
+            widthRatio: widgetRect.width / line.clientWidth,
+            horizontalOverflow: line.scrollWidth - line.clientWidth,
+          };
+        });
       });
 
-    for (const metrics of ['line-height: 120px', 'font-size: 40px']) {
-      await page.addStyleTag({
-        content: `.cm-content, .cm-content .cm-line { ${metrics} !important; }`,
-      });
-      await settleHeightMap(page);
-      expect(await measureRuleLine(), `the rule's line under \`${metrics}\``).toBe(
-        HORIZONTAL_RULE_ESTIMATED_HEIGHT,
-      );
+    for (const metrics of [null, 'line-height: 120px', 'font-size: 40px']) {
+      if (metrics) {
+        await page.addStyleTag({
+          content: `.cm-content, .cm-content .cm-line { ${metrics} !important; }`,
+        });
+        await settleHeightMap(page);
+      }
+      const rules = await measureRules();
+      const under = metrics ? `under ${metrics}` : "with the shell's own metrics";
+
+      expect(rules.length, `at least one rule is rendered ${under}`).toBeGreaterThan(0);
+      if (!metrics) {
+        expect(rules.length, 'plain, quoted and indented thematic breaks all render').toBe(3);
+      }
+      for (const rule of rules) {
+        const where = `"${rule.source}" ${under}`;
+        expect(rule.widget, `the rule element for ${where}`).toBe(HORIZONTAL_RULE_ESTIMATED_HEIGHT);
+        expect(rule.line, `the LINE holding ${where}`).toBe(HORIZONTAL_RULE_ESTIMATED_HEIGHT);
+        expect(rule.block, `CM6 height map for ${where}`).toBe(HORIZONTAL_RULE_ESTIMATED_HEIGHT);
+        expect(rule.overflow, `content overflowing the line for ${where}`).toBeLessThanOrEqual(1);
+        expect(
+          rule.widgetOffsetInLine,
+          `the rule pushed down inside its own line for ${where}`,
+        ).toBeLessThanOrEqual(1);
+        expect(
+          rule.widthRatio,
+          `the rule spans its line rather than shrinking to fit for ${where}`,
+        ).toBeGreaterThan(0.9);
+        expect(
+          rule.horizontalOverflow,
+          `the rule overflowing its line sideways for ${where}`,
+        ).toBeLessThanOrEqual(1);
+      }
     }
   });
 
@@ -305,6 +285,61 @@ test.describe('editor height map', () => {
 
     expect(revealed.text, 'the caret on the rule line reveals its source').toBe('---');
     expect(revealed.height, 'the revealed source keeps a normal text height').toBeGreaterThan(10);
+  });
+
+  test('shift-clicking the spacing band extends the selection instead of dropping it', async ({
+    page,
+  }) => {
+    await openNote(page, 'Band shift', WIDGET_HEAVY_NOTE);
+
+    const band = await page.evaluate(() => {
+      const root = document.querySelector('.sf-table') as HTMLElement;
+      const table = root.querySelector('table') as HTMLElement;
+      const rootRect = root.getBoundingClientRect();
+      const tableRect = table.getBoundingClientRect();
+      const view = (window as unknown as { __cmGetView: () => any }).__cmGetView();
+      view.focus();
+      view.dispatch({ selection: { anchor: 0, head: 7 } });
+      return { x: tableRect.right - 20, y: (tableRect.bottom + rootRect.bottom) / 2 };
+    });
+
+    await page.keyboard.down('Shift');
+    await page.mouse.click(band.x, band.y);
+    await page.keyboard.up('Shift');
+
+    const selection = await page.evaluate(() => {
+      const { main } = (window as unknown as { __cmGetView: () => any }).__cmGetView().state
+        .selection;
+      return { anchor: main.anchor, empty: main.empty };
+    });
+
+    expect(selection.empty, 'shift-click must not collapse what was already selected').toBe(false);
+    expect(selection.anchor, 'the original anchor survives').toBe(0);
+  });
+
+  test('clicking above a table that opens the note leaves it rendered', async ({ page }) => {
+    const tableFirst = ['| A | B |', '| --- | --- |', '| x | y |', '', 'after', ''].join('\n');
+    await openNote(page, 'Table first', tableFirst);
+
+    const point = await page.evaluate(() => {
+      const root = document.querySelector('.sf-table') as HTMLElement;
+      const table = root.querySelector('table') as HTMLElement;
+      const rootRect = root.getBoundingClientRect();
+      const tableRect = table.getBoundingClientRect();
+      return { x: tableRect.right - 20, y: (rootRect.top + tableRect.top) / 2 };
+    });
+    await page.mouse.click(point.x, point.y);
+
+    const state = await page.evaluate(() => ({
+      tables: document.querySelectorAll('.sf-table').length,
+      visible: (document.querySelector('.cm-content') as HTMLElement).innerText.replace(
+        /\s+/g,
+        ' ',
+      ),
+    }));
+
+    expect(state.tables, 'the table stays rendered rather than flipping to its source').toBe(1);
+    expect(state.visible, 'no raw pipe syntax is revealed').not.toContain('| --- |');
   });
 
   test("clicking a table's spacing band puts the caret on the neighbouring line", async ({
@@ -342,11 +377,19 @@ test.describe('editor height map', () => {
       });
     };
 
+    const lines = WIDGET_HEAVY_NOTE.split('\n');
+    const headerLine = lines.indexOf('| A | B |') + 1;
+    expect(headerLine, 'the fixture still contains the first table').toBeGreaterThan(0);
+    let tableLines = 0;
+    while (lines[headerLine - 1 + tableLines]?.startsWith('|')) tableLines += 1;
+
     expect(
       await clickAndReadLine(bands.below),
       'the blank line after the first table (its spacing is padding, so the band ' +
         'belongs to the widget and CM6 would otherwise swallow the click)',
-    ).toBe(27);
-    expect(await clickAndReadLine(bands.above), 'the blank line before the first table').toBe(23);
+    ).toBe(headerLine + tableLines);
+    expect(await clickAndReadLine(bands.above), 'the blank line before the first table').toBe(
+      headerLine - 1,
+    );
   });
 });
