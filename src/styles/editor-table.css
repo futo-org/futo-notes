@@ -2,7 +2,7 @@
 
 .sf-table {
   display: block;
-  margin: 8px 0;
+  padding: 8px 0;
   position: relative;
   font-family: var(--font-sans);
 }
@@ -95,7 +95,7 @@
 
 .sf-table__col-controls {
   position: absolute;
-  top: -34px;
+  top: -26px;
   transform: translateX(4px);
 }
 

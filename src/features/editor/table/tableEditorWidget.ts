@@ -9,6 +9,10 @@ import { createTableCellNavigation } from './tableCellNavigation';
 
 const SYNC_DEBOUNCE_MS = 180;
 
+const TABLE_VERTICAL_PADDING = 16;
+const TABLE_BORDER_HEIGHT = 2;
+const TABLE_ROW_HEIGHT = 44;
+
 function cellTextFromElement(el: HTMLElement): string {
   return (el.textContent ?? '').replace(/\r?\n/g, ' ');
 }
@@ -62,7 +66,36 @@ export class TableEditorWidget extends WidgetType {
 
     this.dom = root;
     this.attachHoverCoordination(root);
+    this.attachSpacingBandCaretPlacement(root);
     return root;
+  }
+
+  private attachSpacingBandCaretPlacement(root: HTMLElement): void {
+    root.addEventListener('mousedown', (event) => {
+      if (event.target !== root) return;
+      const view = this.view;
+      const range = this.currentRange();
+      if (!view || !range) return;
+      event.preventDefault();
+
+      const tableElement = root.querySelector('table');
+      const clickedAbove = tableElement
+        ? event.clientY < tableElement.getBoundingClientRect().top
+        : false;
+      const { doc } = view.state;
+      const firstLine = doc.lineAt(range.from);
+      const lastLine = doc.lineAt(range.to);
+      const anchor = clickedAbove
+        ? firstLine.number > 1
+          ? doc.line(firstLine.number - 1).to
+          : range.from
+        : lastLine.number < doc.lines
+          ? doc.line(lastLine.number + 1).from
+          : range.to;
+
+      view.dispatch({ selection: { anchor } });
+      view.focus();
+    });
   }
 
   private showControlsTimer: number | null = null;
@@ -326,9 +359,8 @@ export class TableEditorWidget extends WidgetType {
   }
 
   get estimatedHeight(): number {
-    const headerHeight = 44;
-    const rowHeight = 40;
-    return headerHeight + this.table.rows.length * rowHeight + 16;
+    const renderedRows = this.table.rows.length + 1;
+    return TABLE_VERTICAL_PADDING + TABLE_BORDER_HEIGHT + renderedRows * TABLE_ROW_HEIGHT;
   }
 
   destroy(): void {
