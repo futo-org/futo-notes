@@ -312,6 +312,28 @@ this file states the behaviors a human cares about.
   content itself has a definite height and any later change re-measures (see the
   image-widget rules below); a pinned `height` is not required, and for
   width-constrained content it is actively wrong. → docs/learnings/hr-scroll-jank.md
+- A block widget spaces itself with **padding, never margin**. CM6 measures a
+  block with `getBoundingClientRect().height`, which excludes margins, so a
+  margin makes the height map short by that much for every line below the widget
+  — cumulatively, once per widget. `posAtCoords` picks its block from the height
+  map before refining inside it against the DOM, so that shortfall breaks click
+  placement, arrow motion, Cmd-Backspace/Cmd-arrow line boundaries, drag-select
+  and wrapped-line selection rectangles for the rest of the note. `.sf-table`'s
+  `margin: 8px 0` cost 16px per table: one ArrowUp from a line below a table put
+  the caret on the first line *above* it. Absolute offsets on widget overlays are
+  measured from that same padding box, so they move with the padding. →
+  editor-table.css, table/tableControls.ts, tests/editor-height-map.spec.ts
+- What CM6 sizes is the **line block**, not the widget element — so an *inline*
+  replace widget (the rule, images, list markers) must not be block-level either.
+  CM6 brackets an inline widget with two `cm-widgetBuffer` elements; a block-level
+  widget between them splits the line into anonymous blocks and costs two extra
+  line boxes. The rule's `display: flex` made its line 111px around a 50px widget,
+  so the widget's own measured height agreed with `estimatedHeight` while the line
+  CM6 recorded did not. `display: inline-flex` keeps it in one line box, which holds
+  as long as the 50px widget stays the tallest thing in it — an editor line-height
+  over 50px, or a font-size large enough to grow the `1em` widget buffers, would
+  reopen it. No shell is near either. → markdown-blocks.css `.cm-md-hr-widget`,
+  live-preview/widgets.ts, tests/editor-height-map.spec.ts
 - Image widgets re-measure on load. On the native shells an embedded image's
   bytes arrive asynchronously (fetched through the native scheme handler after
   the widget's first paint), so its real height is unknown when CM6 first
