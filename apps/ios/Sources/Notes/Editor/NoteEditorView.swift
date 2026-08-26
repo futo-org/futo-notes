@@ -983,8 +983,14 @@ private struct FindInNoteBar: View {
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(.secondary)
 
+                // A find query is matched literally against note text, so the
+                // keyboard must not shape it: autocapitalization turned typed
+                // "example" into "Example" on device, and autocorrect can
+                // silently rewrite a query into one that matches nothing.
                 TextField("Find", text: $query)
                     .textFieldStyle(.plain)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                     .focused($fieldFocused)
                     .submitLabel(.search)
                     .onSubmit { onStep(1) }
