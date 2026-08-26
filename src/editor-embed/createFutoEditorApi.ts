@@ -20,11 +20,15 @@ import { desktopLocalization } from '$shared/localization';
 
 export interface EmbeddedEditorHandle {
   blur: () => void;
+  closeFind: () => void;
   focus: () => void;
   getContent: () => string;
   getView: () => EditorView | null;
   refreshDecorations: () => void;
   resetHistory: () => void;
+  openFind: () => void;
+  setFindQuery: (query: string) => void;
+  stepFind: (direction: 1 | -1) => void;
   setContent: (text: string, options?: SetEditorContentOptions) => void;
   warmScroll: () => { grew: number; steps: number } | null;
 }
@@ -151,6 +155,22 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     },
     setImageBaseUrl(base: string): void {
       boot.setImageBaseUrl(base);
+    },
+    openFind(): void {
+      editor.openFind();
+    },
+    setFindQuery(query: string): void {
+      editor.setFindQuery(query);
+    },
+    stepFind(delta: number): void {
+      if (delta !== -1 && delta !== 1) {
+        console.warn(`FutoEditor.stepFind: expected -1 or 1, received '${delta}', ignoring`);
+        return;
+      }
+      editor.stepFind(delta);
+    },
+    closeFind(): void {
+      editor.closeFind();
     },
     exec(commandId: string): void {
       const run = TOOLBAR_EXEC[commandId];

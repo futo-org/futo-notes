@@ -21,49 +21,105 @@ interface FrozenSelectionReveal {
   ranges: readonly SelectionRange[];
 }
 
-interface SelectionRevealValue {
+/**
+ * Independent owners of a reveal freeze. A pointer gesture and find can each
+ * hold one at the same time, so they get their own layer instead of sharing a
+ * slot: with one slot, a click's settle cleared the freeze that was holding the
+ * current find match's markdown syntax revealed. The higher priority wins.
+ */
+export type SelectionRevealOwner = 'pointer' | 'find';
+
+const OWNER_PRIORITY: Record<SelectionRevealOwner, number> = { pointer: 0, find: 1 };
+
+interface SelectionRevealLayer {
   frozen: FrozenSelectionReveal | null;
   suppressed: boolean;
 }
 
-/** Freezes markdown selection reveal at the current selection until the pointer gesture settles. */
-export const freezeMarkdownSelectionReveal = StateEffect.define<FrozenSelectionReveal>();
+type SelectionRevealLayers = Partial<Record<SelectionRevealOwner, SelectionRevealLayer>>;
 
-/** Clears a markdown selection reveal snapshot after a pointer gesture settles. */
-export const clearMarkdownSelectionReveal = StateEffect.define<null>();
+interface SelectionRevealValue {
+  layers: SelectionRevealLayers;
+  /** The highest-priority owner's snapshot, or null when no owner holds one. */
+  frozen: FrozenSelectionReveal | null;
+  /** True when ANY owner suppresses selection-driven rebuilding. */
+  suppressed: boolean;
+}
 
-/** Suppresses selection-driven decoration rebuilding while a desktop pointer drag is active. */
-export const suppressMarkdownSelectionReveal = StateEffect.define<boolean>();
+function layerEntries(
+  layers: SelectionRevealLayers,
+): [SelectionRevealOwner, SelectionRevealLayer][] {
+  return Object.entries(layers) as [SelectionRevealOwner, SelectionRevealLayer][];
+}
 
-/** Per-editor markdown selection reveal state shared by live preview and pointer interactions. */
+function resolveLayers(layers: SelectionRevealLayers): SelectionRevealValue {
+  let frozen: FrozenSelectionReveal | null = null;
+  let winningPriority = -1;
+  let suppressed = false;
+
+  for (const [owner, layer] of layerEntries(layers)) {
+    suppressed ||= layer.suppressed;
+    if (layer.frozen && OWNER_PRIORITY[owner] > winningPriority) {
+      frozen = layer.frozen;
+      winningPriority = OWNER_PRIORITY[owner];
+    }
+  }
+  return { layers, frozen, suppressed };
+}
+
+/** Freezes markdown selection reveal at the given selection until that owner releases it. */
+export const freezeMarkdownSelectionReveal = StateEffect.define<{
+  owner: SelectionRevealOwner;
+  snapshot: FrozenSelectionReveal;
+}>();
+
+/** Clears one owner's markdown selection reveal snapshot. */
+export const clearMarkdownSelectionReveal = StateEffect.define<SelectionRevealOwner>();
+
+/** Suppresses selection-driven decoration rebuilding on behalf of one owner. */
+export const suppressMarkdownSelectionReveal = StateEffect.define<{
+  owner: SelectionRevealOwner;
+  suppressed: boolean;
+}>();
+
+/** Per-editor markdown selection reveal state shared by live preview, pointer interactions, and find. */
 export const markdownSelectionRevealState = StateField.define<SelectionRevealValue>({
-  create: () => ({ frozen: null, suppressed: false }),
+  create: () => resolveLayers({}),
   update(value, transaction) {
-    let frozen = value.frozen;
-    let suppressed = value.suppressed;
+    const next: SelectionRevealLayers = { ...value.layers };
     let changed = false;
 
-    if (frozen && transaction.docChanged) {
-      frozen = {
-        ...frozen,
-        ranges: frozen.ranges.map((range) => range.map(transaction.changes)),
-      };
+    function patch(owner: SelectionRevealOwner, fields: Partial<SelectionRevealLayer>): void {
+      const current = next[owner] ?? { frozen: null, suppressed: false };
+      const merged = { ...current, ...fields };
+      if (merged.frozen === current.frozen && merged.suppressed === current.suppressed) return;
       changed = true;
+      if (merged.frozen || merged.suppressed) next[owner] = merged;
+      else delete next[owner];
+    }
+
+    if (transaction.docChanged) {
+      for (const [owner, layer] of layerEntries(value.layers)) {
+        if (!layer.frozen) continue;
+        patch(owner, {
+          frozen: {
+            ...layer.frozen,
+            ranges: layer.frozen.ranges.map((range) => range.map(transaction.changes)),
+          },
+        });
+      }
     }
 
     for (const effect of transaction.effects) {
       if (effect.is(freezeMarkdownSelectionReveal)) {
-        frozen = effect.value;
-        changed = true;
+        patch(effect.value.owner, { frozen: effect.value.snapshot });
       } else if (effect.is(clearMarkdownSelectionReveal)) {
-        frozen = null;
-        changed = true;
+        patch(effect.value, { frozen: null });
       } else if (effect.is(suppressMarkdownSelectionReveal)) {
-        suppressed = effect.value;
-        changed = true;
+        patch(effect.value.owner, { suppressed: effect.value.suppressed });
       }
     }
-    return changed ? { frozen, suppressed } : value;
+    return changed ? resolveLayers(next) : value;
   },
 });
 

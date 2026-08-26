@@ -9,6 +9,7 @@ vi.mock('$features/notes/notes.svelte', () => ({
 }));
 
 import SearchPopup from './SearchPopup.svelte';
+import { isSearchPopupFindShortcut } from './searchPopupShortcuts';
 
 function makeNote(id: string, preview = ''): NotePreview {
   return {
@@ -149,5 +150,39 @@ describe('SearchPopup', () => {
     const panel = target.querySelector('.search-panel') as HTMLElement;
     panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['f', 'g'])('claims Ctrl+%s so the note editor cannot act behind the popup', (key) => {
+    mountPopup();
+    const input = target.querySelector('.search-input') as HTMLInputElement;
+    const windowKeydown = vi.fn();
+    window.addEventListener('keydown', windowKeydown);
+    const event = new KeyboardEvent('keydown', {
+      key,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(windowKeydown).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(input);
+    window.removeEventListener('keydown', windowKeydown);
+  });
+
+  it('preserves the macOS Control+F caret-forward binding', () => {
+    const chord = {
+      key: 'f',
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+    };
+
+    expect(isSearchPopupFindShortcut(chord, true)).toBe(false);
+    expect(isSearchPopupFindShortcut(chord, false)).toBe(true);
+    expect(isSearchPopupFindShortcut({ ...chord, ctrlKey: false, metaKey: true }, true)).toBe(true);
   });
 });

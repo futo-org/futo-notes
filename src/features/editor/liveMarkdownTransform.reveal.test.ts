@@ -59,16 +59,45 @@ describe('live markdown selection reveal', () => {
     let state = revealState();
     state = state.update({
       effects: [
-        freezeMarkdownSelectionReveal.of(createSelectionRevealSnapshot(true, [{ from: 3, to: 3 }])),
-        suppressMarkdownSelectionReveal.of(true),
+        freezeMarkdownSelectionReveal.of({
+          owner: 'pointer',
+          snapshot: createSelectionRevealSnapshot(true, [{ from: 3, to: 3 }]),
+        }),
+        suppressMarkdownSelectionReveal.of({ owner: 'pointer', suppressed: true }),
       ],
     }).state;
 
     expect(selectionTouchesRange(state, true, [{ from: 8, to: 10 }], 2, 4)).toBe(true);
     expect(selectionTouchesRange(state, true, [{ from: 8, to: 10 }], 8, 10)).toBe(false);
 
-    state = state.update({ effects: clearMarkdownSelectionReveal.of(null) }).state;
+    state = state.update({ effects: clearMarkdownSelectionReveal.of('pointer') }).state;
     expect(selectionTouchesRange(state, true, [{ from: 8, to: 10 }], 8, 10)).toBe(false);
+  });
+
+  it("keeps find's freeze when a pointer gesture clears its own", () => {
+    let state = revealState();
+    state = state.update({
+      effects: [
+        freezeMarkdownSelectionReveal.of({
+          owner: 'find',
+          snapshot: createSelectionRevealSnapshot(true, [{ from: 3, to: 3 }]),
+        }),
+        freezeMarkdownSelectionReveal.of({
+          owner: 'pointer',
+          snapshot: createSelectionRevealSnapshot(true, [{ from: 8, to: 10 }]),
+        }),
+      ],
+    }).state;
+
+    // Find outranks the pointer while both hold a freeze.
+    expect(selectionTouchesRange(state, true, [], 2, 4)).toBe(true);
+    expect(selectionTouchesRange(state, true, [], 8, 10)).toBe(false);
+
+    state = state.update({ effects: clearMarkdownSelectionReveal.of('pointer') }).state;
+    expect(selectionTouchesRange(state, true, [], 2, 4)).toBe(true);
+
+    state = state.update({ effects: clearMarkdownSelectionReveal.of('find') }).state;
+    expect(selectionTouchesRange(state, true, [], 2, 4)).toBe(false);
   });
 
   it('skips block and inline decorations only for the active cursor context', () => {

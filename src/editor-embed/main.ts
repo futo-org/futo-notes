@@ -21,6 +21,7 @@ import { resolveWikilink } from '$shared/note/wikilinks';
 import { hasNativeHost, pickImageInBrowser } from './hostBridge';
 import { installNativeImagePaste } from './installNativeImagePaste';
 import { warmEditorFonts } from './warmEditorFonts';
+import type { FindMatchReport } from '../features/editor/find/findMatches';
 import {
   createFutoEditorApi,
   type EmbeddedEditorHandle,
@@ -64,6 +65,9 @@ const editor = mount(MarkdownEditor, {
     onfocuschange: (focused: boolean) => {
       if (!nativeToolbar) toolbar?.setFocused(focused);
       post({ type: 'focus', focused });
+    },
+    onfindmatches: ({ query, current, total, label }: FindMatchReport) => {
+      post({ type: 'findMatches', query, current, total, label });
     },
     oncursorcontext: (ctx: { onListLine: boolean }) => {
       if (!nativeToolbar) toolbar?.setCursorContext(ctx.onListLine);

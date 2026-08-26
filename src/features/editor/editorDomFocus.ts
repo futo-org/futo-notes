@@ -32,8 +32,9 @@ export interface EditorFocusProbe {
  * note dispositions).
  */
 export function editorHasDomFocus(view: EditorFocusProbe, isIOSHost: boolean): boolean {
-  if (view.hasFocus) return true;
   const activeElement = document.activeElement;
+  if (activeElement?.closest('[data-editor-body-focus="false"]')) return false;
+  if (view.hasFocus) return true;
   const domFocusIsInsideEditor =
     activeElement === view.contentDOM || view.dom.contains(activeElement);
   if (!domFocusIsInsideEditor) return false;

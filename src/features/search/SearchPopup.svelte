@@ -3,6 +3,7 @@
   import { search } from '$features/notes/notes.svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
   import { localizedText } from '$shared/localization';
+  import { isSearchPopupFindShortcut } from './searchPopupShortcuts';
 
   interface Props {
     onclose: () => void;
@@ -67,6 +68,13 @@
   // Escape is not handled here: the shared dialog stack (use:dismissable on the
   // overlay) closes the top-most overlay wherever focus happens to be.
   function handleKeydown(event: KeyboardEvent): void {
+    if (isSearchPopupFindShortcut(event)) {
+      // This popup owns the active text-entry surface. Claim the chord so the
+      // window shortcuts cannot drive the note's find bar behind the overlay.
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       selectedIndex = Math.min(selectedIndex + 1, results.length - 1);

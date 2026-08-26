@@ -1,7 +1,7 @@
 import { acceptCompletion, completionKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { Compartment, EditorState } from '@codemirror/state';
-import { keymap, drawSelection, EditorView, type ViewUpdate } from '@codemirror/view';
+import { keymap, drawSelection, EditorView, panels, type ViewUpdate } from '@codemirror/view';
 
 import { isIOS } from '$lib/platform';
 import { openExternalUrl } from '$lib/platform/openExternalUrl';
@@ -26,11 +26,15 @@ import { selectionToolbar } from './editorUX/selectionToolbar';
 import { slashMenu } from './editorUX/slashMenu';
 import { wikilinkAutocomplete } from './wikilinkAutocomplete';
 import { localizedCodeMirrorPhrases } from './editorLocalization';
+import { findExtension } from './find/findExtension';
+import type { FindMatchReport } from './find/findMatches';
 
 interface CreateMarkdownEditorRuntimeOptions {
+  bottomPanelContainer?: HTMLElement | null;
   getOnChange: () => ((content: string) => void) | undefined;
   getOnCursorContext: () => ((context: { onListLine: boolean }) => void) | undefined;
   getOnFocusChange: () => ((focused: boolean) => void) | undefined;
+  getOnFindMatches: () => ((report: FindMatchReport) => void) | undefined;
   getOnOpenUrl: () => ((url: string) => void) | undefined;
   getView: () => EditorView | null;
   nativeShell: boolean;
@@ -56,6 +60,9 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
 
   const extensions = [
     localizationCompartment.of(EditorState.phrases.of(localizedCodeMirrorPhrases())),
+    ...(options.bottomPanelContainer
+      ? [panels({ bottomContainer: options.bottomPanelContainer })]
+      : []),
     drawSelection(),
     cursorMotionKeymap,
     listContinuationKeymap,
@@ -78,6 +85,11 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
     ...(options.nativeShell ? [] : selectionToolbar),
     slashMenu,
     wikilinkAutocomplete(),
+    findExtension({
+      nativeShell: options.nativeShell,
+      onQueryFocus: () => options.getOnFocusChange()?.(false),
+      onMatches: (report) => options.getOnFindMatches()?.(report),
+    }),
     imagePasteHandler,
     editorPointerInteractions({
       profile: pointerProfile,

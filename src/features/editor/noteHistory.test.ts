@@ -1,11 +1,29 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { EditorState } from '@codemirror/state';
+import { EditorState, StateEffect } from '@codemirror/state';
 import { history, undo, undoDepth } from '@codemirror/commands';
 
-import { createNoteHistoryStore, restoreState, type StoredNoteHistory } from './noteHistory';
+import {
+  createNoteHistoryStore,
+  createResetEditorState,
+  restoreState,
+  type StoredNoteHistory,
+} from './noteHistory';
+import { findState, openFindEffect } from './find/findState';
 
 const extensions = [history()];
+const testScrollEffect = StateEffect.define<null>();
+
+function openFindOn(state: EditorState, query: string): EditorState {
+  return state.update({
+    effects: openFindEffect.of({
+      query,
+      anchor: state.selection.main.from,
+      returnSelection: state.selection,
+      returnScroll: testScrollEffect.of(null),
+    }),
+  }).state;
+}
 
 function open(text: string, stored?: StoredNoteHistory): EditorState {
   return restoreState(text, extensions, stored);
@@ -25,6 +43,37 @@ function undoOn(state: EditorState): EditorState {
 }
 
 describe('per-note undo history', () => {
+  it('does not restore find state when switching notes', () => {
+    const findExtensions = [history(), findState];
+    let state = restoreState('cat', findExtensions, undefined);
+    state = openFindOn(state, 'cat');
+    const store = createNoteHistoryStore();
+    store.save('a', state);
+
+    const restored = restoreState('cat', findExtensions, store.take('a'));
+
+    expect(restored.field(findState)).toEqual({
+      open: false,
+      query: '',
+      matches: [],
+      currentIndex: -1,
+      anchor: 0,
+      returnSelection: null,
+      returnScroll: null,
+    });
+  });
+
+  it('resets find state even when there is no undo history to discard', () => {
+    const findExtensions = [history(), findState];
+    let state = restoreState('cat', findExtensions, undefined);
+    state = openFindOn(state, 'cat');
+    expect(undoDepth(state)).toBe(0);
+
+    const reset = createResetEditorState(state.doc, state.selection, findExtensions);
+
+    expect(reset.field(findState).open).toBe(false);
+  });
+
   it('does not carry one note history into another', () => {
     const store = createNoteHistoryStore();
 

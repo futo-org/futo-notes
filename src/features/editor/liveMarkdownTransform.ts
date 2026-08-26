@@ -10,10 +10,14 @@ export {
   setLocalImageBaseUrl,
 } from './live-preview/images';
 export {
+  clearMarkdownSelectionReveal,
+  createSelectionRevealSnapshot,
+  freezeMarkdownSelectionReveal,
   getCursorLinesForReveal,
   isBlockRevealSensitive,
   isInlineRevealSensitive,
   isMarkdownSelectionRevealSuppressed,
+  markdownSelectionRevealState,
   selectionIntersectsRange,
   selectionTouchesRange,
   selectionWithinMarkerRange,
@@ -22,7 +26,9 @@ export {
   shouldRevealMarkdownSyntax,
   shouldSkipBlockDecorations,
   shouldSkipInlineDecorations,
+  suppressMarkdownSelectionReveal,
   type SelectionRangeLike,
+  type SelectionRevealOwner,
 } from './live-preview/selectionReveal';
 
 export { liveMarkdownRefresh } from './live-preview/refreshEffect';

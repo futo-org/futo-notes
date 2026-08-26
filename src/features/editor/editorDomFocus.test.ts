@@ -68,6 +68,14 @@ describe('editorHasDomFocus', () => {
     expect(editorHasDomFocus(probe, false)).toBe(true);
   });
 
+  it('reports find-panel focus as body blur so native formatting chrome hides', () => {
+    const { probe, widget } = fixture(false);
+    widget.dataset.editorBodyFocus = 'false';
+    widget.focus();
+    withDocumentFocus(false);
+    expect(editorHasDomFocus(probe, true)).toBe(false);
+  });
+
   it('reports blur for an editor widget once the document lost focus', () => {
     const { probe, widget } = fixture(false);
     widget.focus();

@@ -6,7 +6,6 @@
     type Extension,
     type SelectionRange,
   } from '@codemirror/state';
-  import { redoDepth, undoDepth } from '@codemirror/commands';
   import { onMount } from 'svelte';
   import { preloadImages, liveMarkdownRefresh } from './liveMarkdownTransform';
   import { getImageWebPath } from '$features/images/imageFiles';
@@ -21,16 +20,25 @@
   import type { EditorLinkGesture } from './interactions/editorPointerInteractions';
   import { EditorScrollAnchoring } from './interactions/scrollAnchoring';
   import { createMarkdownEditorRuntime } from './createMarkdownEditorRuntime';
-  import { createNoteHistoryStore, restoreState } from './noteHistory';
+  import { createNoteHistoryStore, createResetEditorState, restoreState } from './noteHistory';
   import { swapEditorState } from './swapEditorState';
   import { desktopLocalization } from '$shared/localization';
+  import {
+    closeFind as runCloseFind,
+    openFind as runOpenFind,
+    setFindQuery as runSetFindQuery,
+    stepFind as runStepFind,
+  } from './find/findState';
+  import type { FindMatchReport } from './find/findMatches';
 
   interface Props {
     content?: string;
     onchange?: (content: string) => void;
     onfocuschange?: (focused: boolean) => void;
+    onfindmatches?: (report: FindMatchReport) => void;
     oncompositionend?: () => void;
     oncursorcontext?: (ctx: { onListLine: boolean }) => void;
+    bottomPanelContainer?: HTMLElement | null;
     scrollParent?: HTMLElement | null;
     nativeShell?: boolean;
     onopenlink: (title: string, gesture: EditorLinkGesture) => void;
@@ -46,8 +54,10 @@
     content = '',
     onchange,
     onfocuschange,
+    onfindmatches,
     oncompositionend,
     oncursorcontext,
+    bottomPanelContainer = null,
     scrollParent = null,
     nativeShell = false,
     onopenlink,
@@ -69,10 +79,12 @@
   onMount(() => {
     preloadImages(content, hasFileSystem ? getImageWebPath : undefined, () => view);
     const runtime = createMarkdownEditorRuntime({
+      bottomPanelContainer,
       nativeShell,
       getView: () => view,
       getOnChange: () => onchange,
       getOnFocusChange: () => onfocuschange,
+      getOnFindMatches: () => onfindmatches,
       getOnCursorContext: () => oncursorcontext,
       getOnOpenUrl: () => onopenurl,
       openWikilink: (title, gesture) => onopenlink(title, gesture),
@@ -192,11 +204,7 @@
     const exts = extensions;
     if (!v || !exts) return;
     openNoteId = null;
-    if (undoDepth(v.state) === 0 && redoDepth(v.state) === 0) return;
-    swapEditorState(
-      v,
-      EditorState.create({ doc: v.state.doc, selection: v.state.selection, extensions: exts }),
-    );
+    swapEditorState(v, createResetEditorState(v.state.doc, v.state.selection, exts));
   }
 
   export function setContent(text: string, options: SetEditorContentOptions = {}): void {
@@ -234,6 +242,22 @@
       view.contentDOM.blur();
       view.dom.blur();
     }
+  }
+
+  export function openFind(): void {
+    if (view) runOpenFind(view);
+  }
+
+  export function stepFind(direction: 1 | -1): void {
+    if (view) runStepFind(view, direction);
+  }
+
+  export function setFindQuery(query: string): void {
+    if (view) runSetFindQuery(view, query);
+  }
+
+  export function closeFind(): void {
+    if (view) runCloseFind(view, false, true);
   }
 
   export function getContent(): string | undefined {

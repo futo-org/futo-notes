@@ -118,7 +118,7 @@ describe('cycleHeading selection safety', () => {
 });
 
 describe('TOOLBAR_EXEC registry', () => {
-  it('implements exactly the exec ids in the toolbar manifest', () => {
+  it('implements exactly every toolbar exec id', () => {
     expect(Object.keys(TOOLBAR_EXEC).sort()).toEqual([...TOOLBAR_EXEC_IDS].sort());
   });
 

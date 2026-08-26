@@ -22,6 +22,8 @@
     forgetNoteHistory: (noteIds: readonly string[]) => void;
     focus: () => void;
     blur: () => void;
+    openFind: () => void;
+    stepFind: (direction: 1 | -1) => void;
     getContent: () => string | undefined;
     hasFocus: () => boolean;
     isComposing: () => boolean;
@@ -58,6 +60,7 @@
 
   let editorFocused = $state(false);
   let tagBarEl: HTMLElement | undefined = $state(undefined);
+  let findPanelHost: HTMLDivElement | undefined = $state(undefined);
 
   function handleFocusChange(focused: boolean): void {
     editorFocused = focused;
@@ -136,9 +139,14 @@
     {notes}
   />
 
+  <!-- Created before MarkdownEditor mounts so CodeMirror can target it, then
+       flex-ordered after the editor as the pane's bottom-docked panel host. -->
+  <div class="editor-find-panel-host" bind:this={findPanelHost}></div>
+
   <div class="editor-container">
     <MarkdownEditor
       bind:this={editorApi}
+      bottomPanelContainer={findPanelHost}
       content={session.content}
       scrollParent={noteBodyEl ?? null}
       onchange={(content) => session.debouncedSave(content)}

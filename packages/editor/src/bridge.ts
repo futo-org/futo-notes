@@ -52,8 +52,11 @@
  *      order (see `hostBoot.ts`). A v6 host would configure a v7 bundle only
  *      partially, and a v7 host's single `initialize` means nothing to a v6
  *      bundle, so both native hosts move together (M10).
+ * - 8: native find-in-note bars (openFind/setFindQuery/stepFind/closeFind;
+ *      findMatches outbound message). Additive — a v7 host never calls the new
+ *      methods and simply drops the new report.
  */
-export const BRIDGE_VERSION = 7 as const;
+export const BRIDGE_VERSION = 8 as const;
 
 /** Editor color theme. */
 export type EditorTheme = 'light' | 'dark';
@@ -121,6 +124,14 @@ export interface FutoEditorApi {
    * `futo-asset:///`, Android passes `file://<notesRoot>/`.
    */
   setImageBaseUrl(base: string): void;
+  /** Activate find and immediately report matches for the remembered query. */
+  openFind(): void;
+  /** Replace the active literal query and recompute matches. */
+  setFindQuery(query: string): void;
+  /** Step by exactly -1 or +1 while find is active. */
+  stepFind(delta: number): void;
+  /** Deactivate find, clear highlights, and restore the pre-find selection and viewport. */
+  closeFind(): void;
   /**
    * Run a shared toolbar command by manifest id (a NATIVE toolbar button was
    * tapped). `commandId` is the id of an `exec` item in the toolbar manifest
@@ -283,6 +294,20 @@ export interface OpenUrlMessage {
 }
 
 /**
+ * Emitted after each active find recomputation or step. `current` is one-based
+ * (zero only when there are no matches); `label` is the canonical display text
+ * native bars render verbatim so count wording cannot drift across shells.
+ */
+export interface FindMatchesMessage {
+  type: 'findMatches';
+  /** Canonical active query, including a selection-seeded query on open. */
+  query: string;
+  current: number;
+  total: number;
+  label: string;
+}
+
+/**
  * Editor → host messages, posted to the host's `futoBridge` message handler.
  * Discriminated on `type`.
  */
@@ -294,6 +319,7 @@ export type FutoEditorOutboundMessage =
   | FocusMessage
   | OpenNoteMessage
   | OpenUrlMessage
+  | FindMatchesMessage
   | PickImageMessage
   | CursorContextMessage
   | SaveImageDataMessage
@@ -316,6 +342,7 @@ export const OUTBOUND_MESSAGE_TYPES = [
   'focus',
   'openNote',
   'openUrl',
+  'findMatches',
   'pickImage',
   'cursorContext',
   'saveImageData',

@@ -1,4 +1,10 @@
-import { EditorState, type EditorStateConfig, type Extension } from '@codemirror/state';
+import {
+  EditorState,
+  type EditorSelection,
+  type EditorStateConfig,
+  type Extension,
+  type Text,
+} from '@codemirror/state';
 import { historyField } from '@codemirror/commands';
 
 // Serialized rather than whole EditorStates: keeping states would retain every visited
@@ -26,6 +32,14 @@ const MAX_NOTES = 20;
 const MAX_BYTES = 4 * 1024 * 1024;
 
 const FIELDS = { history: historyField };
+
+export function createResetEditorState(
+  doc: string | Text,
+  selection: EditorSelection,
+  extensions: Extension,
+): EditorState {
+  return EditorState.create({ doc, selection, extensions });
+}
 
 function captureState(state: EditorState): StoredNoteHistory {
   const json = state.toJSON(FIELDS) as { history: unknown; selection: unknown };
