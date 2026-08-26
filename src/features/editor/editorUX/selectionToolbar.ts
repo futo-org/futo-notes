@@ -3,6 +3,7 @@ import type { Tooltip } from '@codemirror/view';
 import { StateEffect, StateField } from '@codemirror/state';
 import type { EditorState } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
+import { findState, openFindEffect } from '../find/findState';
 import { toggleBold, toggleItalic, toggleStrikethrough } from '../markdownToolbar';
 import { toggleCodeInline, toggleLink } from './linkCommand';
 import { renderIcon } from './icons';
@@ -32,7 +33,19 @@ export function isInsideCode(state: EditorState, pos: number): boolean {
   return false;
 }
 
+/**
+ * Find moves a REAL selection onto each match it steps to, which would pop the
+ * formatting bubble over the text on every step and leave it following the
+ * stepping. The bubble is for a selection the user made, so it stays down for
+ * the whole find session. → docs/spec/editor.md (Find in note)
+ */
+function isFindActive(state: EditorState): boolean {
+  return state.field(findState, false)?.open === true;
+}
+
 function shouldShow(state: EditorState): boolean {
+  if (isFindActive(state)) return false;
+
   const sel = state.selection.main;
   if (sel.empty) return false;
 
@@ -126,15 +139,19 @@ const selectionToolbarField = StateField.define<Tooltip | null>({
     return buildTooltip(state);
   },
   update(value, tr) {
-    if (
-      !tr.docChanged &&
-      !tr.selection &&
-      !tr.reconfigured &&
-      !tr.effects.some((e) => e.is(setTableFocusEffect))
-    ) {
-      return value;
-    }
-    return buildTooltip(tr.state);
+    // Opening find has to hide the bubble even when it moves no selection.
+    // CLOSING it deliberately does not rebuild: Escape leaves the selection on
+    // the match (editor.md), and rebuilding there would pop the bubble for a
+    // selection find placed, not one the user made. The next selection the user
+    // makes rebuilds normally.
+    // `tr.reconfigured` catches an interface-language change: the bubble's
+    // labels come from the catalog, so a reconfigure has to rebuild them.
+    const rebuild =
+      tr.docChanged ||
+      tr.selection ||
+      tr.reconfigured ||
+      tr.effects.some((e) => e.is(setTableFocusEffect) || e.is(openFindEffect));
+    return rebuild ? buildTooltip(tr.state) : value;
   },
   provide: (f) => showTooltip.from(f),
 });

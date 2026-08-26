@@ -121,6 +121,37 @@ test.describe('Find in note', () => {
     await expect(page.locator('.cm-find-match-current')).toHaveText('hidden');
   });
 
+  // Stepping moves a real selection, so the formatting bubble used to pop over
+  // the text on every step, follow the stepping, and outlive the bar (Escape
+  // leaves the selection on the match by spec).
+  test('keeps the selection toolbar down while find owns the selection', async ({ page }) => {
+    await openNewNote(page);
+    await setBody(page, 'cat one\ncat two\ncat three');
+    const bubble = page.locator('.sf-selection-toolbar');
+
+    await page.keyboard.press('Control+f');
+    await page.locator('.cm-find-query').fill('cat');
+    await expect(page.locator('.cm-find-count')).toHaveText(/of 3$/);
+    await expect(bubble).toHaveCount(0);
+
+    await page.locator('.cm-find-query').press('Enter');
+    await expect(page.locator('.cm-find-match-current')).toHaveCount(1);
+    await expect(bubble).toHaveCount(0);
+
+    // Escape leaves the selection on the match — the bubble must not appear for
+    // a selection find placed.
+    await page.locator('.cm-find-query').press('Escape');
+    await expect(page.locator('.cm-find-panel')).toHaveCount(0);
+    await expect(bubble).toHaveCount(0);
+
+    // A selection the user makes afterwards is ordinary again.
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Shift+ArrowRight');
+    await expect(bubble).toHaveCount(1);
+  });
+
   test('does nothing on the Home tab', async ({ page }) => {
     await page.goto('/#/');
     await page.waitForLoadState('domcontentloaded');
