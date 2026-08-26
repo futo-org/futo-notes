@@ -90,6 +90,10 @@ struct NoteEditorView: View {
     /// and blocks the rename. Rendered in danger red under the title field.
     @State private var titleWarning: LocalizedMessage?
     @State private var titleWarningTask: Task<Void, Never>?
+    @State private var findVisible = false
+    @State private var findQuery = ""
+    @State private var findLabel = "0"
+    @State private var editorAttachment: Int?
 
     /// Whether this editor is the visible top of the stack. With wikilink pushes
     /// several editors coexist; only the visible one may drive the single shared
@@ -214,9 +218,32 @@ struct NoteEditorView: View {
                 },
                 onOpenNote: { id in
                     openLinkedNote(id)
+                },
+                onFindMatches: { report in
+                    findQuery = report.query
+                    findLabel = report.label
+                },
+                onAttachmentChange: { editorAttachment = $0
                 }
             )
             .ignoresSafeArea(.container, edges: .bottom)
+        }
+        // A sibling at the bottom of the VStack can still extend into the
+        // keyboard-covered region when the WebView ignores the container's
+        // bottom safe area. A safe-area inset participates in SwiftUI's
+        // keyboard avoidance and keeps the complete bar above the IME.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if findVisible {
+                FindInNoteBar(
+                    query: $findQuery,
+                    label: findLabel,
+                    onQueryChange: { EditorHost.shared.setFindQuery($0) },
+                    onStep: { EditorHost.shared.stepFind($0) },
+                    onClose: { dismissFind() }
+                )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            }
         }
         // Swipe-back. Sits INSIDE the allowsHitTesting gate below, so an
         // in-flight mutation disables the swipe exactly as it disables the Back
@@ -248,6 +275,12 @@ struct NoteEditorView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button {
+                        findVisible = true
+                        EditorHost.shared.openFind()
+                    } label: {
+                        Label("Find in note", systemImage: "magnifyingglass")
+                    }
                     Button {
                         renameField = splitId(id: noteId).title
                         showRename = true
@@ -291,6 +324,7 @@ struct NoteEditorView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("More")
                 .tint(Theme.primary)
                 .disabled(interactionLocked)
             }
@@ -377,6 +411,7 @@ struct NoteEditorView: View {
             // Presenting the centered delete confirmation covers this view but
             // is not navigation. Preserve its save chain and draft ownership.
             guard !showDeleteConfirm else { return }
+            closeFind()
             // Covered (a wikilink pushed a new editor) or popped: no longer the
             // visible editor, so it must stop driving the shared WebView.
             isVisible = false
@@ -416,6 +451,24 @@ struct NoteEditorView: View {
             if shouldReleaseDraft { store.releaseDraftOwnership(token: draftToken) }
             draftToken = 0
         }
+    }
+
+    private func closeFind() {
+        findVisible = false
+        if let editorAttachment,
+            EditorHost.shared.isCurrentAttachment(editorAttachment)
+        {
+            EditorHost.shared.closeFind()
+        }
+    }
+
+    /// The close control belongs to the visible editor, so it must always close
+    /// that editor's find engine. Lifecycle cleanup above stays token-gated: an
+    /// off-screen view disappearing after a linked note adopted the shared
+    /// WebView must not close find in the newer owner.
+    private func dismissFind() {
+        findVisible = false
+        EditorHost.shared.closeFind()
     }
 
     /// The inputs the draft derivation depends on, bundled so a single
@@ -901,6 +954,85 @@ struct NoteEditorView: View {
             }
             return true
         }
+    }
+}
+
+private struct FindInNoteBar: View {
+    @Binding var query: String
+    let label: String
+    let onQueryChange: (String) -> Void
+    let onStep: (Int) -> Void
+    let onClose: () -> Void
+
+    @FocusState private var fieldFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: onClose) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 46, height: 46)
+                    .foregroundStyle(.white)
+                    .background(Theme.primary, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close find")
+
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                TextField("Find", text: $query)
+                    .textFieldStyle(.plain)
+                    .focused($fieldFocused)
+                    .submitLabel(.search)
+                    .onSubmit { onStep(1) }
+                    .onChange(of: query) { _, value in onQueryChange(value) }
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard press.modifiers.contains(.shift) else { return .ignored }
+                        onStep(-1)
+                        return .handled
+                    }
+                    .accessibilityLabel("Find in note")
+
+                Text(label)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear find query")
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 46)
+            .background(Theme.surface, in: Capsule())
+
+            HStack(spacing: 0) {
+                Button { onStep(-1) } label: {
+                    Image(systemName: "chevron.up")
+                        .frame(width: 42, height: 46)
+                }
+                .accessibilityLabel("Previous match")
+
+                Button { onStep(1) } label: {
+                    Image(systemName: "chevron.down")
+                        .frame(width: 42, height: 46)
+                }
+                .accessibilityLabel("Next match")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .background(Theme.surface, in: Capsule())
+        }
+        .task { fieldFocused = true }
     }
 }
 

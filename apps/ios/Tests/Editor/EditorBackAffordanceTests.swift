@@ -68,4 +68,21 @@ struct EditorBackAffordanceTests {
             "The back-swipe must route through requestNavigation, not pop navPath directly"
         )
     }
+
+    @Test("the visible find close control always closes the shared engine")
+    func findCloseIsNotBlockedByLifecycleOwnership() throws {
+        let source = try editorViewSource()
+        #expect(
+            source.contains("onClose: { dismissFind() }"),
+            "The native close control must use the visible-editor dismissal path"
+        )
+
+        let dismiss = try #require(source.range(of: "private func dismissFind()"))
+        let dismissBody = source[dismiss.upperBound...].prefix(240)
+        #expect(dismissBody.contains("EditorHost.shared.closeFind()"))
+        #expect(
+            !dismissBody.contains("isCurrentAttachment"),
+            "A user dismisses the visible editor; only off-screen lifecycle cleanup is ownership-gated"
+        )
+    }
 }
