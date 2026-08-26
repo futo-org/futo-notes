@@ -234,6 +234,17 @@ test.describe('Find in note — current match clearance', () => {
     );
   }
 
+  function expectClear(geometry: MatchGeometry, label: string): void {
+    const covered = Math.round(geometry.matchBottom - geometry.barTop);
+    expect(
+      geometry.matchBottom,
+      `${label}: revealed ${covered}px under the find bar`,
+    ).toBeLessThanOrEqual(geometry.barTop + 0.5);
+    expect(geometry.matchTop, `${label}: revealed above the pane top`).toBeGreaterThanOrEqual(
+      geometry.paneTop - 0.5,
+    );
+  }
+
   test('reveals every stepped match above the docked bar', async ({ page }) => {
     await openNewNote(page);
     const lines: string[] = [];
@@ -266,5 +277,46 @@ test.describe('Find in note — current match clearance', () => {
     }
 
     expect(covered, `matches revealed under the find bar:\n${covered.join('\n')}`).toEqual([]);
+  });
+
+  // The reveal of hidden markdown lands a relayout AFTER the scroll that
+  // revealed the match: CodeMirror scrolls to where the URL sits while the
+  // live preview still hides it, then the line reveals, reflows, and drops the
+  // match back under the bar (QA measured 25px with the bar's height already
+  // subtracted). Reaching the match by STEPPING is what orders it that way.
+  test('keeps a match inside link markup clear after its reveal reflows the line', async ({
+    page,
+  }) => {
+    await openNewNote(page);
+    const lines = ['# Find in note', '', 'This example note demonstrates find end to end.', ''];
+    for (let index = 0; index < 3; index += 1) lines.push(filler(index), '');
+    lines.push(
+      'Stepping past the last example wraps back around to the first one.',
+      '',
+      '## Hidden markdown source',
+      '',
+      'A match can also live inside markdown that live preview normally hides —',
+      'for instance in the URL of [the project site](https://example.com/find),',
+      'where the word is part of the link target, not its label.',
+      '',
+    );
+    for (let index = 3; index < 33; index += 1) lines.push(filler(index), '');
+    await setBody(page, lines.join('\n'));
+
+    await page.keyboard.press('Control+f');
+    await page.locator('.cm-find-query').fill('example');
+    const count = page.locator('.cm-find-count');
+    await expect(count).toHaveText('1 of 3');
+
+    // Step onto the URL match from the match just above it: a short scroll,
+    // so the line is already on screen with the URL still hidden when
+    // CodeMirror reads the coordinates it scrolls to.
+    await page.locator('.cm-find-query').press('Enter');
+    await expect(count).toHaveText('2 of 3');
+    await page.locator('.cm-find-query').press('Enter');
+    await expect(count).toHaveText('3 of 3');
+    await expect(page.locator('.cm-content')).toContainText('https://example.com/find');
+
+    expectClear(await currentMatchGeometry(page), 'match inside link markup');
   });
 });

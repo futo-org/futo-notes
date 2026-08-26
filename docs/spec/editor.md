@@ -854,6 +854,11 @@ unchanged by it.
   and the shell declares nothing; _(Android)_ the bar is a layout sibling above
   the WebView, so the viewport is never covered and no inset is declared.
   → setFindOverlayInset, findScrollMargin, NoteEditorView.swift, NoteEditorScreen.kt
+- Revealing a match inside hidden markdown moves it after the scroll: the
+  source appears, the line reflows, and the match can land back under the bar.
+  The engine re-measures the current match once that relayout settles and
+  re-reveals it, so a match ends up visible wherever the reflow put it.
+  → checkFindReveal
 - _(desktop)_ the selection toolbar does not show for find's own selections:
   it stays down while the bar is open, and for the selection find leaves
   behind after Escape; the next selection the user makes shows it normally.

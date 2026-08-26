@@ -219,6 +219,46 @@ export function findScrollMargin(
   return bottom > 0 ? { bottom } : null;
 }
 
+/** Where the current match sits relative to the area a reveal may use. */
+export interface FindRevealCheck {
+  /** True when the match hangs below the overlay or above the scrollport. */
+  readonly clipped: boolean;
+  readonly match: FindMatch;
+}
+
+/**
+ * Re-measure the current match against the reveal area, AFTER the reveal.
+ *
+ * CodeMirror computes its scroll from the coordinates a position has at the
+ * moment it scrolls — but a match inside markdown the live preview hides (a
+ * `[label](url)` URL) only takes its real place once the line reveals, which
+ * is a relayout later. The line then reflows downward and drops the match back
+ * under the overlay the scroll had just cleared. The engine therefore re-reads
+ * the match after the relayout and re-reveals it (findExtension), which is
+ * platform-independent: every host whose bar overlays the pane needs it.
+ *
+ * Reads layout, so it belongs in a `requestMeasure` read — never inside an
+ * update, where CodeMirror refuses layout reads. `null` means there is nothing
+ * to judge yet (find closed, no current match, or the match is not rendered).
+ */
+export function checkFindReveal(
+  view: EditorView,
+  panelDom: HTMLElement | null = null,
+): FindRevealCheck | null {
+  const value = view.state.field(findState, false);
+  const match = value?.open ? value.matches[value.currentIndex] : undefined;
+  if (!match) return null;
+  const start = view.coordsAtPos(match.from);
+  const end = view.coordsAtPos(match.to);
+  if (!start || !end) return null;
+  const port = scrollportRect(view);
+  const margin = findScrollMargin(view, panelDom)?.bottom ?? 0;
+  const clipped =
+    Math.max(start.bottom, end.bottom) > port.bottom - margin + 0.5 ||
+    Math.min(start.top, end.top) < port.top - 0.5;
+  return { clipped, match };
+}
+
 export function setFindQuery(view: EditorView, query: string): boolean {
   if (!view.state.field(findState).open) return false;
   view.dispatch({ effects: setFindQueryEffect.of(query) });
