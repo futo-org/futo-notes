@@ -14,6 +14,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import java.util.UUID
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +39,63 @@ import kotlin.coroutines.resume
  */
 internal fun isInAppEditorNavigation(scheme: String?): Boolean =
     scheme.equals("file", ignoreCase = true)
+
+internal data class FindMatchesReport(
+    val query: String,
+    val current: Int,
+    val total: Int,
+    val label: String,
+)
+
+internal fun decodeFindMatches(msg: JSONObject): FindMatchesReport? {
+    if (!msg.has("query") || !msg.has("current") || !msg.has("total") || !msg.has("label")) {
+        return null
+    }
+    return FindMatchesReport(
+        query = msg.optString("query"),
+        current = msg.optInt("current"),
+        total = msg.optInt("total"),
+        label = msg.optString("label"),
+    )
+}
+
+/**
+ * Rejects an engine echo for an older native query. Android's EditText may
+ * still have an active composing span when a bridge message arrives; applying
+ * an older query there would replace the user's in-progress IME text.
+ */
+internal class FindReportGate {
+    private var isOpen = false
+    private var expectedQuery: String? = null
+
+    fun opened() {
+        isOpen = true
+        expectedQuery = null
+    }
+
+    fun queryChanged(query: String) {
+        isOpen = true
+        expectedQuery = query
+    }
+
+    fun closed() {
+        isOpen = false
+        expectedQuery = null
+    }
+
+    fun accepts(report: FindMatchesReport): Boolean {
+        if (!isOpen) return false
+        val expected = expectedQuery
+        if (expected != null && report.query != expected) return false
+        expectedQuery = report.query
+        return true
+    }
+}
+
+internal fun isCurrentFindReportOwner(
+    postedAttachmentGeneration: Long,
+    currentAttachment: EditorAttachmentToken?,
+): Boolean = currentAttachment?.generation == postedAttachmentGeneration
 
 /**
  * Compose host for the embedded markdown editor — the Android counterpart of
@@ -82,6 +140,7 @@ internal fun EditorWebView(
     onOpenNote: (String) -> Unit = {},
     onPickImage: (String) -> Unit = {},
     onSaveImageData: (String, String) -> Unit = { _, _ -> },
+    onFindMatches: (FindMatchesReport) -> Unit = {},
     onReady: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -112,6 +171,7 @@ internal fun EditorWebView(
             onOpenNote,
             onPickImage,
             onSaveImageData,
+            onFindMatches,
         )
         attachment = token
         host.setTheme(theme)
@@ -169,6 +229,7 @@ class EditorHost private constructor(appContext: Context) {
     private var onOpenNote: (String) -> Unit = {}
     private var onPickImage: (String) -> Unit = {}
     private var onSaveImageData: (String, String) -> Unit = { _, _ -> }
+    private var onFindMatches: (FindMatchesReport) -> Unit = {}
     private var autoFocus = false
 
     // Reactive inputs for the NATIVE Compose toolbar (EditorToolbar.kt), fed by
@@ -205,6 +266,9 @@ class EditorHost private constructor(appContext: Context) {
     private var currentImageBaseUrl: String? = null
 
     private val attachments = EditorAttachmentGate()
+    private val findReportGate = FindReportGate()
+    @Volatile
+    private var bridgeAttachmentGeneration = -1L
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -212,12 +276,16 @@ class EditorHost private constructor(appContext: Context) {
         @JavascriptInterface
         fun postMessage(json: String) {
             val msg = runCatching { JSONObject(json) }.getOrNull() ?: return
-            main.post { handle(msg) }
+            val postedAttachmentGeneration = bridgeAttachmentGeneration
+            main.post { handle(msg, postedAttachmentGeneration) }
         }
     }
 
     private val appContext = appContext
     private var localization: Localization? = null
+
+    /** Stable across rotation, fresh after process death. */
+    val processToken: String = UUID.randomUUID().toString()
 
     /** Bumped each time [webView] is rebuilt after a renderer-process death, so
      *  the [EditorWebView] composable re-adopts the fresh instance (key()). */
@@ -364,7 +432,7 @@ class EditorHost private constructor(appContext: Context) {
         recreations++
     }
 
-    private fun handle(msg: JSONObject) {
+    private fun handle(msg: JSONObject, postedAttachmentGeneration: Long) {
         when (msg.optString("type")) {
             // The page is alive but shows nothing until it is configured. Hand
             // it this shell's whole intent in one call; the bundle owns the
@@ -428,6 +496,16 @@ class EditorHost private constructor(appContext: Context) {
             // Cursor moved on/off a list line — drives Indent/Outdent
             // visibility in the native toolbar (deduped editor-side).
             "cursorContext" -> onListLine = msg.optBoolean("onListLine")
+            "findMatches" -> decodeFindMatches(msg)?.let { report ->
+                if (
+                    isCurrentFindReportOwner(
+                        postedAttachmentGeneration,
+                        attachments.current(),
+                    ) && findReportGate.accepts(report)
+                ) {
+                    onFindMatches(report)
+                }
+            }
             // User tapped a RESOLVED wikilink — id is the target note's id
             // (vault-relative path sans .md) [editor.md:77].
             "openNote" -> onOpenNote(msg.optString("id"))
@@ -502,14 +580,17 @@ class EditorHost private constructor(appContext: Context) {
         onOpenNote: (String) -> Unit = {},
         onPickImage: (String) -> Unit = {},
         onSaveImageData: (String, String) -> Unit = { _, _ -> },
+        onFindMatches: (FindMatchesReport) -> Unit = {},
     ): EditorAttachmentToken {
         this.onChange = onChange
         this.onReady = onReady
         this.onOpenNote = onOpenNote
         this.onPickImage = onPickImage
         this.onSaveImageData = onSaveImageData
+        this.onFindMatches = onFindMatches
         this.autoFocus = autoFocus
         val token = attachments.attach()
+        bridgeAttachmentGeneration = token.generation
         if (isReady) {
             onReady()
             if (autoFocus) focusEditor()
@@ -521,11 +602,13 @@ class EditorHost private constructor(appContext: Context) {
     internal fun detach(token: EditorAttachmentToken) {
         if (!attachments.permits(token)) return
         attachments.detach(token)
+        bridgeAttachmentGeneration = -1L
         onChange = {}
         onReady = {}
         onOpenNote = {}
         onPickImage = {}
         onSaveImageData = { _, _ -> }
+        onFindMatches = {}
         autoFocus = false
         // Leaving the editor screen detaches the WebView without a blur event;
         // clear the flag so a reopened note doesn't flash a stale toolbar.
@@ -656,11 +739,29 @@ class EditorHost private constructor(appContext: Context) {
             capture.run()
         }
 
-    /** Run a shared toolbar command (TOOLBAR_EXEC in markdownToolbar.ts) by
-     *  manifest id — how the native toolbar's Exec items dispatch (bridge v3).
-     *  Editing semantics stay single-source in TS; Kotlin never reimplements. */
+    /** Run a shared editor command (TOOLBAR_EXEC in markdownToolbar.ts). */
     fun exec(commandId: String) {
         eval("window.FutoEditor && window.FutoEditor.exec(${JSONObject.quote(commandId)});")
+    }
+
+    fun openFind() {
+        findReportGate.opened()
+        eval("window.FutoEditor && window.FutoEditor.openFind();")
+    }
+
+    fun setFindQuery(query: String) {
+        findReportGate.queryChanged(query)
+        eval("window.FutoEditor && window.FutoEditor.setFindQuery(${JSONObject.quote(query)});")
+    }
+
+    fun stepFind(delta: Int) {
+        if (delta != -1 && delta != 1) return
+        eval("window.FutoEditor && window.FutoEditor.stepFind($delta);")
+    }
+
+    fun closeFind() {
+        findReportGate.closed()
+        eval("window.FutoEditor && window.FutoEditor.closeFind();")
     }
 
     /** Blur the editor — drops the soft keyboard and (via the resulting focus
