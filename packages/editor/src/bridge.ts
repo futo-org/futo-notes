@@ -52,17 +52,15 @@
  *      order (see `hostBoot.ts`). A v6 host would configure a v7 bundle only
  *      partially, and a v7 host's single `initialize` means nothing to a v6
  *      bundle, so both native hosts move together (M10).
- * - 8: native find-in-note bars (openFind/setFindQuery/stepFind/closeFind;
- *      findMatches outbound message). Additive — a v7 host never calls the new
- *      methods and simply drops the new report.
- *
- * Pending, deliberately UNVERSIONED for now: `setFindOverlayInset` (below)
- * joined the v8 find surface without a version bump. Every entry above bumped
- * even for an additive method, so precedent points at a v9 — but
- * `BRIDGE_VERSION` is a stop-and-ask change (root AGENTS.md §11.6), and the
- * method is safe unversioned: no host is required to call it, and a bundle
- * that predates it is only driven by a host that never does. Whoever owns the
- * next bump should fold this line into a `9:` entry.
+ * - 8: native find-in-note bars (openFind/setFindQuery/stepFind/closeFind/
+ *      setFindOverlayInset; findMatches outbound message). Additive — a v7
+ *      host never calls the new methods and simply drops the new report.
+ *      `setFindOverlayInset` joined this entry before v8 ever shipped (both
+ *      halves land in the same MR), so it needs no v9 of its own: the bump
+ *      precedent protects shipped hosts, and no host/bundle pair with a
+ *      narrower v8 exists. Optional even within v8 — a host that never calls
+ *      it gets overlay 0, correct for non-overlaying bars (Android's sibling
+ *      layout).
  */
 export const BRIDGE_VERSION = 8 as const;
 
