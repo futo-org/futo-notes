@@ -50,11 +50,11 @@ The M6 line does not move: **matching, current-match tracking, stepping with
 wrap, highlight decorations, and the reveal of hidden markdown all live in the
 shared editor bundle.** What changes is only who renders the four-control bar:
 
-| Platform | Bar UI                                                                                                    | Drives the engine via                     |
-| -------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Desktop  | CM6 top panel (`showPanel`) inside the editor — desktop is entirely web, there is no "more native" option | direct calls into `findState.ts` commands |
-| iOS      | SwiftUI bar in `NoteEditorView.swift`, between the title chrome and the `EditorWebView`                   | bridge (`FutoEditorApi` find methods)     |
-| Android  | Compose bar in `NoteEditorScreen.kt`, above the WebView in the editor `Column`                            | bridge (same methods)                     |
+| Platform | Bar UI                                                                                                                | Drives the engine via                     |
+| -------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Desktop  | Full-width CM6 bottom panel (`showPanel`) inside the editor — desktop is entirely web, with no native shell option | direct calls into `findState.ts` commands |
+| iOS      | SwiftUI bar in `NoteEditorView.swift`, below the `EditorWebView` and immediately above the keyboard                  | bridge (`FutoEditorApi` find methods)     |
+| Android  | Compose bar in `NoteEditorScreen.kt`, below the WebView and inside the keyboard-inset `Column`                       | bridge (same methods)                     |
 
 The native bars contain **zero find logic**: no matching, no count arithmetic,
 no wrap decisions. They hold exactly (a) the query string the user is typing,
@@ -67,7 +67,7 @@ Shared-side layout, all under `src/features/editor/find/`:
 
 | File                 | Contents                                                                                                                                                                                                    |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `findState.ts`       | `StateField` (active flag, query, current index), `StateEffect`s, commands `openFind` / `closeFind` / `setFindQuery` / `stepFind(±1)`. Pure, no DOM.                                                        |
+| `findState.ts`       | `StateField` (active flag, query, current index, native return selection/scroll snapshot), `StateEffect`s, commands `openFind` / `closeFind` / `setFindQuery` / `stepFind(±1)`.                         |
 | `findMatches.ts`     | Match computation via `@codemirror/search` `SearchCursor`; count, current-index resolution, wrap arithmetic. Pure.                                                                                          |
 | `findDecorations.ts` | `ViewPlugin` painting all-match + current-match decorations over `view.visibleRanges` only.                                                                                                                 |
 | `findPanel.ts`       | Desktop-only `showPanel` bar (house pattern: plain-DOM renderer like `editorUX/slashMenuRenderer.ts`). Excluded when `nativeShell` — the flag already exists in `createMarkdownEditorRuntime.ts`'s options. |
@@ -92,8 +92,8 @@ Shared-side layout, all under `src/features/editor/find/`:
   `BackHandler` at `NoteEditorScreen.kt:418` can consume Back while it is
   visible with no bridge round-trip and no desync risk. The web-panel plan
   needed an outbound `findState` message for this alone.
-- **Keyboard safety — free.** Both bars sit at the top of the editor area in
-  layouts the shells already keep above the keyboard inset.
+- **Keyboard docking.** Both native bars occupy the bottom slot in layouts the
+  shells already keep above the keyboard inset.
 
 ### What it costs
 
@@ -105,7 +105,7 @@ Shared-side layout, all under `src/features/editor/find/`:
 - **Two bar implementations to keep visually honest.** Mitigated by the bars
   being genuinely dumb (see above) and by the spec pinning the strings. To keep
   the count wording from drifting, the outbound message carries the
-  **preformatted display label** ("3 of 17" / "No matches") alongside the raw
+  **preformatted display label** ("3 of 17" / "0") alongside the raw
   `{current, total}` — one string formatter, in the bundle. Check whether
   `scripts/drift-check.mjs` flags the two bars; if it does, register the pair
   with the rationale "dumb renderers of a bridge-owned engine, strings supplied
@@ -146,8 +146,9 @@ AGENTS §11.6 stop-and-ask (2026-08-25). The shape:
 - `setFindQuery(query: string)` — recompute; post a report.
 - `stepFind(delta: number)` — move current match, scroll it into view, reveal;
   post a report. No-op when inactive or zero matches.
-- `closeFind()` — clear highlights, restore reveal, leave the selection on the
-  current match.
+- `closeFind()` — clear highlights and restore reveal; the native bridge path
+  also restores the selection and viewport captured before find opened, while
+  the desktop panel keeps its specified current-match selection.
 
 **Outbound** (one new message in `OUTBOUND_MESSAGE_TYPES`,
 `packages/editor/src/bridge.ts:310`):
@@ -208,14 +209,14 @@ One commit each, `type(scope): imperative summary`, independently reviewable.
 
 Rewrite the affected `editor.md` lines: the shared bundle owns matching,
 stepping, highlights, count strings, and reveal; the bar is the editor's own
-top panel on desktop and native shell chrome on iOS/Android, driven by the
-find methods of the bridge (v8, listed as part of the proposal); invocation is
-no longer `exec`. Keep every behavioral line (literal matching, source-text
-matching, body-only, wrap, rotation, Back, never-stack) — only the rendering
-owner changes. The working tree already reworked `editor.md`/`tabs.md`/`GAPS.md`
-and the spec-gaps probe toward the web-panel version — rewrite those edits for
-the native wording rather than layering on top. `just spec-gaps` +
-`spec-gaps-check`; push to !235.
+full-width bottom panel on desktop and keyboard-docked native shell chrome on
+iOS/Android, driven by the find methods of the bridge (v8, listed as part of
+the proposal); invocation is no longer `exec`. Keep every behavioral line
+(literal matching, source-text matching, body-only, wrap, rotation, Back,
+never-stack) — only the rendering owner changes. The working tree already
+reworked `editor.md`/`tabs.md`/`GAPS.md` and the spec-gaps probe toward the
+web-panel version — rewrite those edits for the native wording rather than
+layering on top. `just spec-gaps` + `spec-gaps-check`; push to !235.
 
 ### Phase 1 — land the engine + desktop, strip the mobile web bar
 
@@ -275,7 +276,7 @@ hidden syntax, keyboard never covers the bar.
 
 `feat(android): native find-in-note bar`
 
-- Compose bar above the WebView in `NoteEditorScreen.kt`'s editor `Column`;
+- Compose bar below the WebView in `NoteEditorScreen.kt`'s keyboard-inset editor `Column`;
   "Find in note" `DropdownMenuItem` in the `DropdownMenu` at `:679`; thin
   `EditorWebView.kt` wrappers beside `exec` (`:634`); `findMatches` routed to
   bar state.
