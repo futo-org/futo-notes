@@ -1,5 +1,12 @@
+/* CM6's PanelGroup.syncClasses() copies the view's theme classes (ͼ1, ͼ2, …)
+ * straight onto our custom panel host, and the base theme's `&` rule is
+ * `position: relative !important; display: flex !important`. Unlayered CM6 CSS
+ * plus !important outranks anything here, so without !important of our own the
+ * host reverts to static flow and the find bar scrolls off the bottom of the
+ * pane on any note taller than the editor (tests/find-in-note.spec.ts covers
+ * it). Do not "clean these up". */
 .editor-find-panel-host {
-  position: sticky;
+  position: sticky !important;
   bottom: 0;
   z-index: 300;
   order: 1;
@@ -8,7 +15,7 @@
 }
 
 .editor-find-panel-host:empty {
-  display: none;
+  display: none !important;
 }
 
 .cm-find-panel {

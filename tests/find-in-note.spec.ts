@@ -64,6 +64,48 @@ test.describe('Find in note', () => {
     await expect(page.locator('.cm-find-panel')).toHaveCount(0);
   });
 
+  // Regression: CodeMirror's PanelGroup.syncClasses() copies the view's theme
+  // classes onto our custom panel host, and CM6's base theme carries
+  // `position: relative !important` — which beat the host's `position: sticky`
+  // and let the whole find bar scroll off the bottom of the pane. The first
+  // test's fixture is too short to scroll the pane, so it never saw this.
+  test('stays docked to the pane bottom in a note tall enough to scroll', async ({ page }) => {
+    await openNewNote(page);
+    await setBody(
+      page,
+      Array.from({ length: 120 }, (_, index) => `paragraph ${index} cat`).join('\n\n'),
+    );
+
+    const paneScrolls = await page.locator('.note-body').evaluate((pane) => {
+      return pane.scrollHeight > pane.clientHeight + 1;
+    });
+    expect(paneScrolls).toBe(true);
+
+    await page.keyboard.press('Control+f');
+    await expect(page.locator('.cm-find-query')).toBeFocused();
+
+    const placement = async (): Promise<{ panelBottom: number; paneBottom: number }> =>
+      page.locator('.cm-find-panel').evaluate((panel) => {
+        const pane = document.querySelector('.note-body');
+        if (!pane) throw new Error('editor pane is unavailable');
+        return {
+          panelBottom: panel.getBoundingClientRect().bottom,
+          paneBottom: pane.getBoundingClientRect().bottom,
+        };
+      });
+
+    const atTop = await placement();
+    expect(atTop.panelBottom).toBe(atTop.paneBottom);
+
+    await page.locator('.note-body').evaluate((pane) => {
+      pane.scrollTop = Math.floor((pane.scrollHeight - pane.clientHeight) / 2);
+    });
+    await expect(page.locator('.cm-find-panel')).toBeVisible();
+
+    const afterScroll = await placement();
+    expect(afterScroll.panelBottom).toBe(afterScroll.paneBottom);
+  });
+
   test('reveals a source-markdown match while the query owns focus', async ({ page }) => {
     await openNewNote(page);
     await setBody(page, '[label](hidden-target)');
