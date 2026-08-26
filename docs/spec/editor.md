@@ -875,10 +875,13 @@ unchanged by it.
   no find state crosses a note boundary or persists in `.app-config.json`.
 - _(desktop)_ Escape closes the bar and returns focus to the editor with the
   selection left on the current match.
-- _(Android)_ System Back with the bar open dismisses the bar, not the screen;
-  the next Back exits normally. _(iOS)_ the X closes the bar; the editor's
-  exit chrome (back chevron / edge swipe) exits the note as usual, taking the
-  bar with the screen.
+- _(Android)_ System Back with the bar open dismisses the bar, not the screen:
+  that first Back is consumed by find. Dismissal returns focus to the editor
+  body with the soft keyboard still up, so an intervening Back may be consumed
+  by the IME (standard Android behavior) before a Back exits the note. →
+  NoteEditorScreen.kt `findBackAction`
+- _(iOS)_ the X closes the bar; the editor's exit chrome (back chevron / edge
+  swipe) exits the note as usual, taking the bar with the screen.
 - _(iOS/Android)_ Closing the find bar clears every match highlight and restores
   the editor selection and viewport from before find opened.
 - _(iOS/Android)_ the soft keyboard can never cover the bar: it is docked
