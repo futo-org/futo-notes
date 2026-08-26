@@ -60,6 +60,7 @@ describe('per-note undo history', () => {
       anchor: 0,
       returnSelection: null,
       returnScroll: null,
+      bottomOverlayPx: 0,
     });
   });
 

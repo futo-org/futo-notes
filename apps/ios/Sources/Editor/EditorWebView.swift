@@ -617,6 +617,18 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             "window.FutoEditor && window.FutoEditor.openFind();", completionHandler: nil)
     }
 
+    /// Report how much of the editor viewport the shell's own chrome covers, so
+    /// find reveals the current match above it. The find bar is a
+    /// `.safeAreaInset` over a WebView that ignores the container's bottom safe
+    /// area, so without this a match stepped to from above lands underneath the
+    /// bar (docs/spec/editor.md: the current match is always visible).
+    func setFindOverlayInset(_ bottomOverlayPx: CGFloat) {
+        let px = Int(max(0, bottomOverlayPx).rounded())
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.setFindOverlayInset(\(px));",
+            completionHandler: nil)
+    }
+
     func setFindQuery(_ query: String) {
         webView.evaluateJavaScript(
             "window.FutoEditor && window.FutoEditor.setFindQuery(\(jsLiteral(query)));",

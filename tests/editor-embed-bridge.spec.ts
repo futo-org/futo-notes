@@ -54,6 +54,7 @@ interface FakeHostWindow extends Window {
     insertImage(filename: string): void;
     setImageBaseUrl(base: string): void;
     openFind(): void;
+    setFindOverlayInset(px: number): void;
     setFindQuery(query: string): void;
     stepFind(delta: number): void;
     closeFind(): void;
@@ -417,6 +418,78 @@ test('native find methods report counts, step, and close without mounting the we
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.closeFind());
   await flushFrames(page);
   await expect(page.locator('.cm-find-match')).toHaveCount(0);
+});
+
+// The native shells draw their find bar OVER the editor's bottom strip (iOS
+// docks it in a `.safeAreaInset` above a WebView that ignores the container's
+// bottom safe area), so a match revealed flush with the viewport bottom lands
+// UNDERNEATH the bar — docs/spec/editor.md requires the CURRENT match to be
+// visible. The host declares that overlay's height; the engine keeps the
+// reveal clear of it. A host that never declares one is unaffected.
+async function findGeometry(page: Page): Promise<{ matchBottom: number; viewportBottom: number }> {
+  return page.evaluate(() => {
+    const match = document.querySelector('.cm-find-match-current');
+    const scroller = document.querySelector('.cm-scroller');
+    if (!match || !scroller) throw new Error('no current match on screen');
+    return {
+      matchBottom: match.getBoundingClientRect().bottom,
+      viewportBottom: scroller.getBoundingClientRect().bottom,
+    };
+  });
+}
+
+const OVERLAY_TEST_DOC = Array.from({ length: 200 }, (_, index) =>
+  index === 80 || index === 81 ? `needle ${index}` : `line ${index}`,
+).join('\n');
+
+test('a declared host overlay keeps a stepped match clear of the bottom strip', async ({
+  page,
+}) => {
+  const overlayPx = 120;
+  await hostSetContent(page, OVERLAY_TEST_DOC);
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.openFind());
+  await page.evaluate(
+    (px) => (window as unknown as FakeHostWindow).FutoEditor.setFindOverlayInset(px),
+    overlayPx,
+  );
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setFindQuery('needle'),
+  );
+  await flushFrames(page);
+
+  // Forward to the match below the fold — the exact QA repro.
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.stepFind(1));
+  await flushFrames(page);
+
+  const geometry = await findGeometry(page);
+  expect(geometry.matchBottom).toBeLessThanOrEqual(geometry.viewportBottom - overlayPx);
+});
+
+test('declaring the overlay after find opened re-reveals the current match', async ({ page }) => {
+  const overlayPx = 120;
+  await hostSetContent(page, OVERLAY_TEST_DOC);
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+
+  // A host whose bar has not been measured yet: find opens and reveals a match
+  // flush with the bottom edge, under the bar the host is laying out.
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.openFind());
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setFindQuery('needle'),
+  );
+  await flushFrames(page);
+  const before = await findGeometry(page);
+  expect(before.matchBottom).toBeGreaterThan(before.viewportBottom - overlayPx);
+
+  await page.evaluate(
+    (px) => (window as unknown as FakeHostWindow).FutoEditor.setFindOverlayInset(px),
+    overlayPx,
+  );
+  await flushFrames(page);
+
+  const after = await findGeometry(page);
+  expect(after.matchBottom).toBeLessThanOrEqual(after.viewportBottom - overlayPx);
 });
 
 test('native close restores the selection and viewport from before find opened', async ({

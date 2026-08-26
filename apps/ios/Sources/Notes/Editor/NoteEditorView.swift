@@ -93,6 +93,13 @@ struct NoteEditorView: View {
     @State private var findVisible = false
     @State private var findQuery = ""
     @State private var findLabel = "0"
+    // How much of the editor viewport the find bar covers, and the two global
+    // edges it is derived from. The WebView ignores the container's bottom safe
+    // area, so the bar (a `.safeAreaInset`) is drawn OVER it — the shared find
+    // engine has to know that strip's height to reveal a match above it.
+    @State private var editorBottomGlobalY: CGFloat = 0
+    @State private var findBarTopGlobalY: CGFloat = 0
+    @State private var findOverlayInset: CGFloat = 0
     @State private var editorAttachment: Int?
 
     /// Whether this editor is the visible top of the stack. With wikilink pushes
@@ -226,6 +233,17 @@ struct NoteEditorView: View {
                 onAttachmentChange: { editorAttachment = $0
                 }
             )
+            // Measured INSIDE ignoresSafeArea: that is the WebView's RENDERED
+            // bottom (the window's edge, or the keyboard's top when the IME is
+            // up). Measured outside, SwiftUI reports the pre-expansion layout
+            // frame instead — which shrinks by exactly the bar's height when the
+            // bar appears and would report an overlay of zero.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .global).maxY
+            } action: { bottom in
+                editorBottomGlobalY = bottom
+                publishFindOverlayInset()
+            }
             .ignoresSafeArea(.container, edges: .bottom)
         }
         // A sibling at the bottom of the VStack can still extend into the
@@ -243,6 +261,12 @@ struct NoteEditorView: View {
                 )
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.frame(in: .global).minY
+                } action: { top in
+                    findBarTopGlobalY = top
+                    publishFindOverlayInset()
+                }
             }
         }
         // Swipe-back. Sits INSIDE the allowsHitTesting gate below, so an
@@ -277,6 +301,10 @@ struct NoteEditorView: View {
                 Menu {
                     Button {
                         findVisible = true
+                        // Re-measure for this presentation: the bar has not been
+                        // laid out yet, so the inset arrives a frame later and
+                        // the engine re-reveals the current match against it.
+                        findOverlayInset = 0
                         EditorHost.shared.openFind()
                     } label: {
                         Label("Find in note", systemImage: "magnifyingglass")
@@ -451,6 +479,19 @@ struct NoteEditorView: View {
             if shouldReleaseDraft { store.releaseDraftOwnership(token: draftToken) }
             draftToken = 0
         }
+    }
+
+    /// Publish the strip of the editor viewport the find bar covers: everything
+    /// from the bar's top edge down to the WebView's bottom edge (the bar sits
+    /// above the home-indicator inset the WebView also extends into). Only while
+    /// the bar is up, and only when the measurement actually moved — the engine
+    /// latches the value, so this is one call per presentation or resize.
+    private func publishFindOverlayInset() {
+        guard findVisible else { return }
+        let inset = max(0, editorBottomGlobalY - findBarTopGlobalY)
+        guard abs(inset - findOverlayInset) >= 0.5 else { return }
+        findOverlayInset = inset
+        EditorHost.shared.setFindOverlayInset(inset)
     }
 
     private func closeFind() {

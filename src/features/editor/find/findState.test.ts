@@ -6,9 +6,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   closeFind,
+  findScrollMargin,
   findState,
   openFind,
   scanFindResults,
+  setFindOverlayInset,
   setFindQuery,
   stepFind,
 } from './findState';
@@ -60,6 +62,7 @@ describe('find state commands', () => {
       anchor: 0,
       returnSelection: null,
       returnScroll: null,
+      bottomOverlayPx: 0,
     });
 
     openFind(view);
@@ -122,5 +125,46 @@ describe('find state commands', () => {
     expect(view.state.field(findState)).toMatchObject({ matches: [], currentIndex: -1 });
     scanFindResults(view, false);
     expect(view.state.field(findState).matches).toEqual([{ from: 8, to: 11 }]);
+  });
+});
+
+describe('host overlay inset (docs/spec/editor.md — the current match is always visible)', () => {
+  it('reports no scroll margin until a host declares an overlay', () => {
+    const view = setup();
+    expect(findScrollMargin(view.state)).toBeNull();
+
+    openFind(view);
+    expect(findScrollMargin(view.state)).toBeNull();
+  });
+
+  it('keeps the declared overlay out of the reveal area while find is open', () => {
+    const view = setup();
+    openFind(view);
+
+    expect(setFindOverlayInset(view, 62)).toBe(true);
+    expect(findScrollMargin(view.state)).toEqual({ bottom: 62 });
+  });
+
+  it('latches the overlay across close so the next open reveals correctly', () => {
+    const view = setup();
+    openFind(view);
+    setFindOverlayInset(view, 62);
+    closeFind(view);
+
+    // Closed: the margin is inert, but the measured height is remembered — the
+    // host's bar does not change size between opens, so it never re-reports.
+    expect(findScrollMargin(view.state)).toBeNull();
+    expect(view.state.field(findState).bottomOverlayPx).toBe(62);
+
+    openFind(view);
+    expect(findScrollMargin(view.state)).toEqual({ bottom: 62 });
+  });
+
+  it('ignores a repeat of the height it already holds', () => {
+    const view = setup();
+    openFind(view);
+    setFindOverlayInset(view, 62);
+
+    expect(setFindOverlayInset(view, 62)).toBe(false);
   });
 });

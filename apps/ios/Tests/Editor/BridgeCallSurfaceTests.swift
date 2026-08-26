@@ -21,7 +21,7 @@ struct BridgeCallSurfaceTests {
         "initialize", "setContent", "getContent", "focus", "setTheme", "setLanguage", "setNotes",
         "applyExternalContent", "insertImage", "setImageBaseUrl",
         "exec", "blur", "setNativeToolbar",
-        "openFind", "setFindQuery", "stepFind", "closeFind",
+        "openFind", "setFindQuery", "stepFind", "closeFind", "setFindOverlayInset",
     ]
 
     private static func editorSource() -> String? {
@@ -64,8 +64,8 @@ struct BridgeCallSurfaceTests {
         )
     }
 
-    @Test("documented set matches the 17-method FutoEditorApi contract")
+    @Test("documented set matches the 18-method FutoEditorApi contract")
     func documentedSetMatchesContract() {
-        #expect(Self.documentedMethods.count == 17)
+        #expect(Self.documentedMethods.count == 18)
     }
 }

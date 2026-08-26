@@ -1,5 +1,5 @@
 import type { Extension, StateEffect } from '@codemirror/state';
-import { ViewPlugin, type ViewUpdate } from '@codemirror/view';
+import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 
 import {
   clearMarkdownSelectionReveal,
@@ -12,7 +12,7 @@ import {
 import { findDecorations } from './findDecorations';
 import { createFindMatchReport, type FindMatchReport } from './findMatches';
 import { findPanel } from './findPanel';
-import { findState, scanFindResults, setFindQueryEffect } from './findState';
+import { findScrollMargin, findState, scanFindResults, setFindQueryEffect } from './findState';
 
 class FindLifecycle {
   private scanFrame = 0;
@@ -125,6 +125,11 @@ export function findExtension(options: FindExtensionOptions = {}): Extension {
     markdownSelectionRevealState,
     findState,
     ...(options.nativeShell ? [] : [findPanel(options.onQueryFocus)]),
+    // Host chrome (the native find bars) can cover the editor's bottom strip;
+    // every find reveal has to clear it, or the current match hides under the
+    // bar the user is stepping with. Desktop's find panel is a CM6 panel and
+    // shrinks the scroller itself, so it reports no overlay.
+    EditorView.scrollMargins.of((view) => findScrollMargin(view.state)),
     findDecorations,
     lifecycle,
   ];

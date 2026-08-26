@@ -55,6 +55,14 @@
  * - 8: native find-in-note bars (openFind/setFindQuery/stepFind/closeFind;
  *      findMatches outbound message). Additive — a v7 host never calls the new
  *      methods and simply drops the new report.
+ *
+ * Pending, deliberately UNVERSIONED for now: `setFindOverlayInset` (below)
+ * joined the v8 find surface without a version bump. Every entry above bumped
+ * even for an additive method, so precedent points at a v9 — but
+ * `BRIDGE_VERSION` is a stop-and-ask change (root AGENTS.md §11.6), and the
+ * method is safe unversioned: no host is required to call it, and a bundle
+ * that predates it is only driven by a host that never does. Whoever owns the
+ * next bump should fold this line into a `9:` entry.
  */
 export const BRIDGE_VERSION = 8 as const;
 
@@ -126,6 +134,23 @@ export interface FutoEditorApi {
   setImageBaseUrl(base: string): void;
   /** Activate find and immediately report matches for the remembered query. */
   openFind(): void;
+  /**
+   * Declare the height, in CSS px, of host chrome drawn OVER the editor's
+   * bottom edge, so find keeps the CURRENT match clear of it (docs/spec/
+   * editor.md requires the current match to be visible). iOS docks its find bar
+   * in a `.safeAreaInset` above a WebView that ignores the container's bottom
+   * safe area, so the bar covers the strip a match would otherwise be revealed
+   * into. Android does NOT call this: its bar is a sibling in the editor
+   * Column above a weighted WebView, so the WebView never extends underneath
+   * it — an inset there would scroll matches away from the bar for no reason.
+   *
+   * Optional and latched: a host that never calls it gets 0 — exactly the
+   * pre-existing reveal — and a host that does reports only when its bar's
+   * measured height changes, not on every open. Declaring it while find is
+   * already open re-reveals the current match against the new margin, which is
+   * what lets a shell report a height it only learns after laying the bar out.
+   */
+  setFindOverlayInset(bottomOverlayPx: number): void;
   /** Replace the active literal query and recompute matches. */
   setFindQuery(query: string): void;
   /** Step by exactly -1 or +1 while find is active. */

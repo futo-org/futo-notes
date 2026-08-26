@@ -26,6 +26,7 @@
   import {
     closeFind as runCloseFind,
     openFind as runOpenFind,
+    setFindOverlayInset as runSetFindOverlayInset,
     setFindQuery as runSetFindQuery,
     stepFind as runStepFind,
   } from './find/findState';
@@ -250,6 +251,10 @@
 
   export function stepFind(direction: 1 | -1): void {
     if (view) runStepFind(view, direction);
+  }
+
+  export function setFindOverlayInset(bottomOverlayPx: number): void {
+    if (view) runSetFindOverlayInset(view, bottomOverlayPx);
   }
 
   export function setFindQuery(query: string): void {

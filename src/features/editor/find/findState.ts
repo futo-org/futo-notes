@@ -1,4 +1,4 @@
-import { EditorSelection, StateEffect, StateField } from '@codemirror/state';
+import { EditorSelection, StateEffect, StateField, type EditorState } from '@codemirror/state';
 import { EditorView, type Command } from '@codemirror/view';
 
 import {
@@ -16,6 +16,12 @@ export interface FindStateValue {
   anchor: number;
   returnSelection: EditorSelection | null;
   returnScroll: StateEffect<unknown> | null;
+  /**
+   * Height, in CSS px, of host chrome drawn OVER the editor's bottom edge —
+   * the native find bars (see {@link setFindOverlayInset}). 0 means nothing
+   * covers the viewport, which is every host that never reports one.
+   */
+  bottomOverlayPx: number;
 }
 
 export const openFindEffect = StateEffect.define<{
@@ -32,6 +38,7 @@ export const setFindResultsEffect = StateEffect.define<{
   anchor?: number;
 }>();
 export const requestFindFocusEffect = StateEffect.define<null>();
+export const setFindOverlayInsetEffect = StateEffect.define<number>();
 
 const initialFindState: FindStateValue = {
   open: false,
@@ -41,6 +48,7 @@ const initialFindState: FindStateValue = {
   anchor: 0,
   returnSelection: null,
   returnScroll: null,
+  bottomOverlayPx: 0,
 };
 
 export const findState = StateField.define<FindStateValue>({
@@ -73,6 +81,8 @@ export const findState = StateField.define<FindStateValue>({
         next = { ...next, query: effect.value, matches: [], currentIndex: -1 };
       } else if (effect.is(setFindResultsEffect)) {
         next = { ...next, ...effect.value };
+      } else if (effect.is(setFindOverlayInsetEffect)) {
+        next = { ...next, bottomOverlayPx: effect.value };
       }
     }
     return next;
@@ -129,6 +139,47 @@ export function closeFind(view: EditorView, returnFocus = false, restoreOrigin =
   });
   if (returnFocus) view.focus();
   return true;
+}
+
+/**
+ * Report the height, in CSS px, of host chrome drawn OVER the editor's bottom
+ * edge — the native find bars, which the shells dock above the keyboard on top
+ * of a WebView that extends underneath them. Without it a match revealed flush
+ * with the viewport bottom lands under the bar, and docs/spec/editor.md
+ * requires the CURRENT match to be visible.
+ *
+ * The value is latched, so a host reports it once per size change rather than
+ * on every open, and it stays put across close. Declaring it while find is
+ * already open re-reveals the current match against the new margin: a shell
+ * only learns its bar's height once the bar has been laid out, which is a
+ * frame after the `openFind` that made it appear.
+ */
+export function setFindOverlayInset(view: EditorView, bottomOverlayPx: number): boolean {
+  const value = view.state.field(findState);
+  const next = Number.isFinite(bottomOverlayPx) ? Math.max(0, bottomOverlayPx) : 0;
+  if (next === value.bottomOverlayPx) return false;
+  const current = value.open ? value.matches[value.currentIndex] : undefined;
+  view.dispatch({
+    effects: [
+      setFindOverlayInsetEffect.of(next),
+      ...(current
+        ? [EditorView.scrollIntoView(EditorSelection.range(current.from, current.to))]
+        : []),
+    ],
+  });
+  return true;
+}
+
+/**
+ * The bottom scroll margin CodeMirror's reveal must respect while find is
+ * open. Registered on `EditorView.scrollMargins` by the find extension, so
+ * every find reveal — open, query change, and each step — clears the host's
+ * overlay. `null` (no host overlay) is exactly the pre-existing behavior.
+ */
+export function findScrollMargin(state: EditorState): { bottom: number } | null {
+  const value = state.field(findState, false);
+  if (!value?.open || value.bottomOverlayPx <= 0) return null;
+  return { bottom: value.bottomOverlayPx };
 }
 
 export function setFindQuery(view: EditorView, query: string): boolean {

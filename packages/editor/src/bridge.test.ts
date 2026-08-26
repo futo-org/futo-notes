@@ -55,7 +55,7 @@ describe('futoBridge contract', () => {
     ]);
   });
 
-  it('FutoEditorApi surface is the seventeen host-callable methods', () => {
+  it('FutoEditorApi surface is the eighteen host-callable methods', () => {
     // A structural stand-in proves the shape compiles; the real impl lives in
     // src/editor-embed/main.ts.
     const api: FutoEditorApi = {
@@ -71,6 +71,7 @@ describe('futoBridge contract', () => {
       insertImage: () => {},
       setImageBaseUrl: () => {},
       openFind: () => {},
+      setFindOverlayInset: () => {},
       setFindQuery: () => {},
       stepFind: () => {},
       closeFind: () => {},
@@ -88,6 +89,7 @@ describe('futoBridge contract', () => {
       'insertImage',
       'openFind',
       'setContent',
+      'setFindOverlayInset',
       'setFindQuery',
       'setImageBaseUrl',
       'setLanguage',

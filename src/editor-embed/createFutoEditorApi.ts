@@ -27,6 +27,7 @@ export interface EmbeddedEditorHandle {
   refreshDecorations: () => void;
   resetHistory: () => void;
   openFind: () => void;
+  setFindOverlayInset: (bottomOverlayPx: number) => void;
   setFindQuery: (query: string) => void;
   stepFind: (direction: 1 | -1) => void;
   setContent: (text: string, options?: SetEditorContentOptions) => void;
@@ -158,6 +159,15 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     },
     openFind(): void {
       editor.openFind();
+    },
+    setFindOverlayInset(bottomOverlayPx: number): void {
+      if (typeof bottomOverlayPx !== 'number' || !Number.isFinite(bottomOverlayPx)) {
+        console.warn(
+          `FutoEditor.setFindOverlayInset: expected a finite height, received '${bottomOverlayPx}', ignoring`,
+        );
+        return;
+      }
+      editor.setFindOverlayInset(Math.max(0, bottomOverlayPx));
     },
     setFindQuery(query: string): void {
       editor.setFindQuery(query);
