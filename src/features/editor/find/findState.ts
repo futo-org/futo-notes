@@ -1,4 +1,4 @@
-import { EditorSelection, StateEffect, StateField, type EditorState } from '@codemirror/state';
+import { EditorSelection, StateEffect, StateField } from '@codemirror/state';
 import { EditorView, type Command } from '@codemirror/view';
 
 import {
@@ -171,15 +171,52 @@ export function setFindOverlayInset(view: EditorView, bottomOverlayPx: number): 
 }
 
 /**
+ * The visible box, in viewport px, the editor actually scrolls in —
+ * `cm-scroller` when the editor scrolls itself, otherwise the pane the shell
+ * scrolls it inside of. Mirrors the ancestor walk CodeMirror's own
+ * `scrollRectIntoView` performs.
+ */
+function scrollportRect(view: EditorView): { top: number; bottom: number } {
+  for (let element: HTMLElement | null = view.scrollDOM; element; element = element.parentElement) {
+    if (element.scrollHeight > element.clientHeight) {
+      const { top } = element.getBoundingClientRect();
+      return { top, bottom: top + element.clientHeight };
+    }
+  }
+  return { top: 0, bottom: view.dom.ownerDocument.defaultView?.innerHeight ?? 0 };
+}
+
+/**
+ * How much of that scrollport the editor's OWN find panel paints over. The
+ * desktop bar is sticky-docked inside the scrolling pane, so it covers the
+ * bottom strip rather than shrinking it — exactly the geometry the native bars
+ * declare through {@link setFindOverlayInset}, only measurable from here. A
+ * bar laid out below the scrollport overlaps by 0 and changes nothing.
+ */
+function measurePanelOverlay(view: EditorView, panelDom: HTMLElement | null): number {
+  if (!panelDom?.isConnected) return 0;
+  const panel = panelDom.getBoundingClientRect();
+  if (panel.height <= 0) return 0;
+  return Math.max(0, Math.min(scrollportRect(view).bottom, panel.bottom) - panel.top);
+}
+
+/**
  * The bottom scroll margin CodeMirror's reveal must respect while find is
  * open. Registered on `EditorView.scrollMargins` by the find extension, so
- * every find reveal — open, query change, and each step — clears the host's
- * overlay. `null` (no host overlay) is exactly the pre-existing behavior.
+ * every find reveal — open, query change, and each step — clears whatever
+ * covers the pane's bottom strip: the height a native host declared, the
+ * desktop panel's own measured height, whichever is larger. Measured on every
+ * read rather than latched, so a window resize needs no re-declaration.
+ * `null` (nothing covering the viewport) is exactly the pre-find behavior.
  */
-export function findScrollMargin(state: EditorState): { bottom: number } | null {
-  const value = state.field(findState, false);
-  if (!value?.open || value.bottomOverlayPx <= 0) return null;
-  return { bottom: value.bottomOverlayPx };
+export function findScrollMargin(
+  view: EditorView,
+  panelDom: HTMLElement | null = null,
+): { bottom: number } | null {
+  const value = view.state.field(findState, false);
+  if (!value?.open) return null;
+  const bottom = Math.max(value.bottomOverlayPx, measurePanelOverlay(view, panelDom));
+  return bottom > 0 ? { bottom } : null;
 }
 
 export function setFindQuery(view: EditorView, query: string): boolean {

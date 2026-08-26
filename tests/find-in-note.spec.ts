@@ -160,3 +160,111 @@ test.describe('Find in note', () => {
     await expect(page.locator('.cm-find-panel')).toHaveCount(0);
   });
 });
+
+// The desktop find bar is `position: sticky; bottom: 0` INSIDE the scrolling
+// pane, so it paints over the bottom strip of the scrollport instead of
+// shrinking it. Nothing asserted that the match the user stepped to actually
+// landed above the bar: a QA sweep of 10 matches in an 800x600 window found 7
+// revealed under it (9-69px) and one wholly off screen.
+// → docs/spec/editor.md "Find in note"
+test.describe('Find in note — current match clearance', () => {
+  test.use({ viewport: { width: 800, height: 600 } });
+
+  /**
+   * A paragraph long enough to wrap several times, like the notes people
+   * actually search: CodeMirror estimates the height of lines it has not
+   * measured, so a pane full of wrapped paragraphs relayouts once the scroll
+   * brings them into view.
+   */
+  const filler = (index: number): string =>
+    `Paragraph ${String(index).padStart(3, '0')} — ${'notes cursor paragraph document '.repeat(7)}and one more clause to finish the line.`;
+
+  interface MatchGeometry {
+    matchTop: number;
+    matchBottom: number;
+    barTop: number;
+    paneTop: number;
+  }
+
+  /**
+   * Resolve once the current match's rect has held still for three frames:
+   * the reveal of hidden markdown relayouts a frame after the scroll, and a
+   * fixed wait would either flake or read the pre-reflow position.
+   */
+  async function currentMatchGeometry(page: Page): Promise<MatchGeometry> {
+    return page.evaluate(
+      () =>
+        new Promise<MatchGeometry>((resolve, reject) => {
+          let previous = '';
+          let stable = 0;
+          let frames = 0;
+          const tick = (): void => {
+            const match = document.querySelector('.cm-find-match-current');
+            const bar = document.querySelector('.editor-find-panel-host');
+            const pane = document.querySelector('.note-body');
+            if (!bar || !pane) {
+              reject(new Error('find bar or editor pane is unavailable'));
+              return;
+            }
+            const rect = match?.getBoundingClientRect();
+            const key = rect ? `${rect.top}:${rect.bottom}` : 'none';
+            stable = key === previous ? stable + 1 : 0;
+            previous = key;
+            if (stable >= 3) {
+              if (!rect) {
+                reject(new Error('no current match is rendered'));
+                return;
+              }
+              resolve({
+                matchTop: rect.top,
+                matchBottom: rect.bottom,
+                barTop: bar.getBoundingClientRect().top,
+                paneTop: pane.getBoundingClientRect().top,
+              });
+              return;
+            }
+            if (++frames > 180) {
+              reject(new Error('current match never settled'));
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+  }
+
+  test('reveals every stepped match above the docked bar', async ({ page }) => {
+    await openNewNote(page);
+    const lines: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      for (let pad = 0; pad < 6; pad += 1) lines.push(filler(index * 10 + pad));
+      lines.push(`marker ${index} example line`);
+    }
+    await setBody(page, lines.join('\n\n'));
+
+    await page.keyboard.press('Control+f');
+    await page.locator('.cm-find-query').fill('example');
+    const count = page.locator('.cm-find-count');
+    await expect(count).toHaveText(/of 10$/);
+
+    // One full cycle plus the wrap back to the first match, which lands its
+    // own scroll: the sweep has to see where that one settles too.
+    const covered: string[] = [];
+    for (let step = 0; step <= 10; step += 1) {
+      const label = (await count.textContent()) ?? '';
+      const geometry = await currentMatchGeometry(page);
+      if (
+        geometry.matchBottom > geometry.barTop + 0.5 ||
+        geometry.matchTop < geometry.paneTop - 0.5
+      )
+        covered.push(
+          `${label}: match ${Math.round(geometry.matchTop)}..${Math.round(geometry.matchBottom)}, bar top ${Math.round(geometry.barTop)}`,
+        );
+      await page.locator('.cm-find-query').press('Enter');
+      await expect(count).not.toHaveText(label);
+    }
+
+    expect(covered, `matches revealed under the find bar:\n${covered.join('\n')}`).toEqual([]);
+  });
+});

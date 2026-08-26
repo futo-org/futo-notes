@@ -86,7 +86,6 @@ export function createFindPanel(onQueryFocus?: () => void): PanelConstructor {
   };
 }
 
-export function findPanel(onQueryFocus?: () => void) {
-  const panel = createFindPanel(onQueryFocus);
+export function findPanel(panel: PanelConstructor) {
   return showPanel.from(findState, (value) => (value.open ? panel : null));
 }

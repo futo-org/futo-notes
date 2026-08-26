@@ -845,13 +845,15 @@ unchanged by it.
   cross-note search's job (search.md indexes them).
 - Every match is highlighted; the current match is visually distinct from the
   rest and is scrolled into view when stepped to.
-- A shell whose find bar overlays the editor viewport declares the bar's
-  rendered height to the engine, which keeps the scrolled-to current match
-  clear of that strip — so "scrolled into view" means visibly on screen, never
-  under the bar. _(iOS)_ the bar overlays the WebView's bottom edge and
-  declares its height; _(Android)_ the bar is a layout sibling above the
-  WebView, so the viewport is never covered and no inset is declared.
-  → setFindOverlayInset, NoteEditorView.swift, NoteEditorScreen.kt
+- A find bar that overlays the editor viewport keeps the scrolled-to current
+  match clear of the strip it covers — so "scrolled into view" means visibly on
+  screen, never under the bar. One engine rule, two ways of learning the
+  height: _(iOS)_ the bar overlays the WebView's bottom edge and declares its
+  rendered height to the engine; _(desktop)_ the bar is docked over the bottom
+  of the editor's own scrolling pane, so the engine measures that panel itself
+  and the shell declares nothing; _(Android)_ the bar is a layout sibling above
+  the WebView, so the viewport is never covered and no inset is declared.
+  → setFindOverlayInset, findScrollMargin, NoteEditorView.swift, NoteEditorScreen.kt
 - _(desktop)_ the selection toolbar does not show for find's own selections:
   it stays down while the bar is open, and for the selection find leaves
   behind after Escape; the next selection the user makes shows it normally.

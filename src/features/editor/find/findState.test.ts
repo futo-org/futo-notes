@@ -131,10 +131,10 @@ describe('find state commands', () => {
 describe('host overlay inset (docs/spec/editor.md — the current match is always visible)', () => {
   it('reports no scroll margin until a host declares an overlay', () => {
     const view = setup();
-    expect(findScrollMargin(view.state)).toBeNull();
+    expect(findScrollMargin(view)).toBeNull();
 
     openFind(view);
-    expect(findScrollMargin(view.state)).toBeNull();
+    expect(findScrollMargin(view)).toBeNull();
   });
 
   it('keeps the declared overlay out of the reveal area while find is open', () => {
@@ -142,7 +142,7 @@ describe('host overlay inset (docs/spec/editor.md — the current match is alway
     openFind(view);
 
     expect(setFindOverlayInset(view, 62)).toBe(true);
-    expect(findScrollMargin(view.state)).toEqual({ bottom: 62 });
+    expect(findScrollMargin(view)).toEqual({ bottom: 62 });
   });
 
   it('latches the overlay across close so the next open reveals correctly', () => {
@@ -153,11 +153,11 @@ describe('host overlay inset (docs/spec/editor.md — the current match is alway
 
     // Closed: the margin is inert, but the measured height is remembered — the
     // host's bar does not change size between opens, so it never re-reports.
-    expect(findScrollMargin(view.state)).toBeNull();
+    expect(findScrollMargin(view)).toBeNull();
     expect(view.state.field(findState).bottomOverlayPx).toBe(62);
 
     openFind(view);
-    expect(findScrollMargin(view.state)).toEqual({ bottom: 62 });
+    expect(findScrollMargin(view)).toEqual({ bottom: 62 });
   });
 
   it('ignores a repeat of the height it already holds', () => {
@@ -166,5 +166,47 @@ describe('host overlay inset (docs/spec/editor.md — the current match is alway
     setFindOverlayInset(view, 62);
 
     expect(setFindOverlayInset(view, 62)).toBe(false);
+  });
+
+  // Desktop declares nothing: its bar is the engine's own panel, docked over
+  // the pane's scrollport, so the margin comes from measuring that panel.
+  // jsdom reports no scrollable ancestor, so the scrollport is the window.
+  function panelAt(top: number, height: number): HTMLElement {
+    const panel = document.createElement('div');
+    panel.getBoundingClientRect = () =>
+      ({ top, bottom: top + height, height }) as unknown as DOMRect;
+    document.body.append(panel);
+    return panel;
+  }
+
+  it('measures a local panel that covers the scrollport bottom', () => {
+    const view = setup();
+    openFind(view);
+    const panel = panelAt(window.innerHeight - 44, 44);
+
+    expect(findScrollMargin(view, panel)).toEqual({ bottom: 44 });
+    panel.remove();
+  });
+
+  it('ignores a local panel laid out below the scrollport', () => {
+    const view = setup();
+    openFind(view);
+    const panel = panelAt(window.innerHeight + 10, 44);
+
+    expect(findScrollMargin(view, panel)).toBeNull();
+    panel.remove();
+  });
+
+  it('takes the larger of the declared inset and the measured panel', () => {
+    const view = setup();
+    openFind(view);
+    const panel = panelAt(window.innerHeight - 44, 44);
+
+    setFindOverlayInset(view, 62);
+    expect(findScrollMargin(view, panel)).toEqual({ bottom: 62 });
+
+    setFindOverlayInset(view, 10);
+    expect(findScrollMargin(view, panel)).toEqual({ bottom: 44 });
+    panel.remove();
   });
 });

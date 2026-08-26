@@ -1,5 +1,5 @@
 import type { Extension, StateEffect } from '@codemirror/state';
-import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
+import { EditorView, ViewPlugin, getPanel, type ViewUpdate } from '@codemirror/view';
 
 import {
   clearMarkdownSelectionReveal,
@@ -11,7 +11,7 @@ import {
 } from '../liveMarkdownTransform';
 import { findDecorations } from './findDecorations';
 import { createFindMatchReport, type FindMatchReport } from './findMatches';
-import { findPanel } from './findPanel';
+import { createFindPanel, findPanel } from './findPanel';
 import { findScrollMargin, findState, scanFindResults, setFindQueryEffect } from './findState';
 
 class FindLifecycle {
@@ -21,7 +21,7 @@ class FindLifecycle {
   private reportKey: string | null = null;
 
   constructor(
-    private readonly view: import('@codemirror/view').EditorView,
+    private readonly view: EditorView,
     private readonly onMatches?: (report: FindMatchReport) => void,
   ) {
     this.syncReveal();
@@ -120,16 +120,20 @@ interface FindExtensionOptions {
 }
 
 export function findExtension(options: FindExtensionOptions = {}): Extension {
+  const panel = options.nativeShell ? null : createFindPanel(options.onQueryFocus);
+  const panelDom = (view: EditorView): HTMLElement | null =>
+    panel ? (getPanel(view, panel)?.dom ?? null) : null;
   const lifecycle = ViewPlugin.define((view) => new FindLifecycle(view, options.onMatches));
   return [
     markdownSelectionRevealState,
     findState,
-    ...(options.nativeShell ? [] : [findPanel(options.onQueryFocus)]),
-    // Host chrome (the native find bars) can cover the editor's bottom strip;
-    // every find reveal has to clear it, or the current match hides under the
-    // bar the user is stepping with. Desktop's find panel is a CM6 panel and
-    // shrinks the scroller itself, so it reports no overlay.
-    EditorView.scrollMargins.of((view) => findScrollMargin(view.state)),
+    ...(panel ? [findPanel(panel)] : []),
+    // Whatever covers the editor's bottom strip has to stay out of the reveal
+    // area, or the current match hides under the bar the user is stepping
+    // with. The native bars declare their height over the bridge; desktop's
+    // panel is docked over the pane's own scrollport, so the engine measures
+    // that one itself instead of asking the shell to report it.
+    EditorView.scrollMargins.of((view) => findScrollMargin(view, panelDom(view))),
     findDecorations,
     lifecycle,
   ];
