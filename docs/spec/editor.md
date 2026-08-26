@@ -10,10 +10,11 @@ this file states the behaviors a human cares about.
 - The native shells load the bundle ONCE, pre-warmed at app start, and it shows
   nothing until it is configured: the page posts `ready`, and the shell's only
   correct reply is a single `FutoEditor.initialize(configJson)` carrying its
-  whole intent — bridge version, theme, the open note's markdown, the note
-  universe, the local-image base URL, whether the shell renders its own toolbar,
-  and the note body's inline inset. The bundle applies them in ONE order it
-  owns (layout, toolbar and theme before any text; image base and note universe
+  whole intent — bridge version, theme, effective language, the open note's
+  markdown, the note universe, the local-image base URL, whether the shell
+  renders its own toolbar, and the note body's inline inset. The bundle applies
+  them in ONE order it owns (layout, toolbar and theme before any text; image
+  base and note universe
   before the content so images size and wikilinks resolve on the first render;
   the note text last), then posts `initialized`. _(iOS/Android)_ →
   packages/editor/src/hostBoot.ts, bridge.ts v7, EditorWebView.swift
@@ -95,6 +96,22 @@ this file states the behaviors a human cares about.
   supported Android 9/10 device can still fall below the Chromium floor above and
   get the update-WebView notice. _(Android)_ → apps/android/app/build.gradle.kts
 
+## Localization
+
+- The editor receives the host's effective language during initialization and
+  whenever it changes. It reconfigures FUTO-authored labels, accessibility text,
+  and CodeMirror phrases without reloading the note or changing its content. →
+  [localization.md](localization.md)
+- Editor UI text resolves through the shared language catalog. The toolbar
+  manifest carries semantic localization paths instead of English labels, and
+  generated Swift and Kotlin toolbar specifications carry those paths without
+  changing command identity, order, visibility, icons, or behavior. →
+  [localization.md](localization.md), packages/editor/src/toolbar.ts,
+  scripts/gen-toolbar-spec.ts
+
+> **Gap:** The editor does not yet receive the effective language, resolve its UI
+> text through the catalog, or carry localization paths in the toolbar manifest.
+
 ## Live preview
 
 - Markdown markers (`*`, `#`, ` ``` `, `[[`, `]]`, …) are hidden on lines that
@@ -108,10 +125,10 @@ this file states the behaviors a human cares about.
   link node, `![](\n)` one image node — and CodeMirror forbids a view plugin
   from replacing a line break, so hiding those markers threw
   `RangeError: Decorations that replace line breaks may not be specified via
-  plugins` mid-render and the editor kept showing the previously opened note.
+plugins` mid-render and the editor kept showing the previously opened note.
   Opening such a note threw, and so did typing or pasting the same text and then
   moving the caret off it. Both paths now render the syntax rather than hiding
-  it; a link whose *text* wraps across lines (`[a\nb](c)`) still hides normally.
+  it; a link whose _text_ wraps across lines (`[a\nb](c)`) still hides normally.
   → live-preview/decorationSet.ts `replacementCrossesLineBreak`,
   live-preview/inlineDecorations.ts `decorateLink`,
   liveMarkdownTransform.decorations.test.ts,

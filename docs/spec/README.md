@@ -32,6 +32,7 @@ satisfy it yet — that's what makes gaps visible.
 | [editor.md](editor.md) | The Markdown editor (shared CodeMirror 6 WebView) |
 | [editor-visual.md](editor-visual.md) | Markdown editor appearance and layout |
 | [list.md](list.md) | Note list, home feed, folder browsing, note/folder ops |
+| [localization.md](localization.md) | UI language catalogs, selection, lookup, fallback, and formatting |
 | [nav.md](nav.md) | Navigation / screen stack |
 | [tabs.md](tabs.md) | Desktop multi-tab + keyboard shortcuts |
 | [search.md](search.md) | Search |

@@ -131,8 +131,8 @@ These are observed failures, not generic advice.
 - **M13 — Untested tag job.** Exercise tag-gated work before tagging, propagate secrets into nested
   VMs, and upload caches `when: always`. Use `/ci-doctor`.
 - **M14 — Missing release dependency.** Every new test job enters `release:gate.needs` in the same
-  commit or it cannot block publication. One deliberate exception: `test:audit` is non-blocking by
-  design (docs/architecture-gates.md).
+  commit or it cannot block publication. Deliberate exceptions: `test:audit` and
+  `test:localization-audit` are non-blocking by design (docs/architecture-gates.md).
 - **M15 — Loosening instead of diagnosing.** Wait on conditions, not sleeps; avoid exact
   cross-platform UI strings. A second timeout bump means stop and root-cause.
 - **M16 — Landed artifacts/debugging.** Gitignore generated paths before building, inspect status,

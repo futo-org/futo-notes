@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FUTO Notes language catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "language", "messages"],
+  "properties": {
+    "$schema": {
+      "const": "./catalog.schema.json"
+    },
+    "language": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nativeName", "direction", "aliases"],
+      "properties": {
+        "nativeName": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "direction": {
+          "enum": ["ltr", "rtl"]
+        },
+        "aliases": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/languageTag"
+          }
+        }
+      }
+    },
+    "messages": {
+      "$ref": "#/$defs/messageGroup"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][A-Za-z0-9]*$"
+    },
+    "languageTag": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9]{0,7}(?:-[A-Za-z0-9]{1,8})*$"
+    },
+    "nonEmptyText": {
+      "type": "string",
+      "pattern": "^(?!\\s)(?![\\s\\S]*[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\uD800-\\uDFFF\\uFFFE\\uFFFF])[\\s\\S]*\\S$"
+    },
+    "message": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        {
+          "$ref": "#/$defs/pluralMessage"
+        },
+        {
+          "$ref": "#/$defs/messageGroup"
+        }
+      ]
+    },
+    "messageGroup": {
+      "type": "object",
+      "not": {
+        "anyOf": [
+          {
+            "required": ["plural"]
+          },
+          {
+            "required": ["variants"]
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/message"
+      }
+    },
+    "pluralMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plural", "variants"],
+      "properties": {
+        "plural": {
+          "$ref": "#/$defs/identifier"
+        },
+        "variants": {
+          "type": "object",
+          "minProperties": 1,
+          "required": ["other"],
+          "propertyNames": {
+            "pattern": "^(?:=0|=[1-9][0-9]*|zero|one|two|few|many|other)$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/nonEmptyText"
+          }
+        }
+      }
+    }
+  }
+}

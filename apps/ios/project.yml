@@ -1,6 +1,7 @@
 name: FutoNotesNative
 options:
   bundleIdPrefix: com.futo.notes
+  preGenCommand: node ../../scripts/generate-native-language-resources.mjs --ios
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
@@ -39,6 +40,13 @@ targets:
       # may reference when linked into the app.
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework
+    postBuildScripts:
+      - name: Generate configuration-specific localized Info.plist strings
+        script: |
+          node "${SRCROOT}/../../scripts/generate-native-language-resources.mjs" \
+            --ios-built-resources \
+            "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}" \
+            "${CONFIGURATION}"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes
@@ -121,6 +129,9 @@ targets:
       # Shared cross-shell fixture, referenced in place (never copied): the
       # validateServerURL conformance test loads it from the bundle.
       - path: ../../tests/conformance/server-url.json
+        buildPhase: resources
+      - path: ../../tests/localization/cases.json
+        name: localization-cases.json
         buildPhase: resources
     dependencies:
       - target: FutoNotesNative

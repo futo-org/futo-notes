@@ -1,0 +1,115 @@
+{
+  "$schema": "./catalog.schema.json",
+  "language": {
+    "nativeName": "简体中文",
+    "direction": "ltr",
+    "aliases": []
+  },
+  "messages": {
+    "app": {
+      "android": {
+        "displayName": "FUTO 笔记",
+        "debugDisplayName": "FUTO 笔记开发版"
+      },
+      "ios": {
+        "displayName": "FUTO 笔记",
+        "debugDisplayName": "FUTO 笔记开发版"
+      }
+    },
+    "settings": {
+      "language": {
+        "heading": "语言",
+        "systemOption": "跟随系统",
+        "ios": {
+          "openSystemSettings": "打开 iOS 设置"
+        }
+      }
+    },
+    "permissions": {
+      "ios": {
+        "cameraUsageDescription": "拍摄照片并将其添加到笔记中。",
+        "photoLibraryUsageDescription": "将照片图库中的照片添加到笔记中。"
+      }
+    },
+    "units": {
+      "fileSize": {
+        "byte": "{value} B",
+        "kilobyte": "{value} KB",
+        "megabyte": "{value} MB",
+        "gigabyte": "{value} GB",
+        "terabyte": "{value} TB"
+      }
+    },
+    "time": {
+      "relative": {
+        "now": "刚刚",
+        "past": {
+          "minute": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}分钟前"
+            }
+          },
+          "hour": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}小时前"
+            }
+          },
+          "day": {
+            "plural": "count",
+            "variants": {
+              "=1": "昨天",
+              "other": "{count}天前"
+            }
+          },
+          "month": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}个月前"
+            }
+          },
+          "year": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}年前"
+            }
+          }
+        },
+        "future": {
+          "minute": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}分钟后"
+            }
+          },
+          "hour": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}小时后"
+            }
+          },
+          "day": {
+            "plural": "count",
+            "variants": {
+              "=1": "明天",
+              "other": "{count}天后"
+            }
+          },
+          "month": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}个月后"
+            }
+          },
+          "year": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}年后"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -9,6 +9,15 @@
   the Linux desktop theme, so it is not the source of truth for Auto. →
   SettingsScreen.kt (SharedPreferences `theme_mode`) _(Android)_;
   theme.ts / createAppBootstrap.svelte.ts / SettingsScreen.svelte _(Tauri)_
+- **Language** follows [localization.md](localization.md). Desktop and Android
+  provide a System-first language dropdown and apply changes immediately. iOS
+  provides a row that opens the app's system Settings instead of an in-app
+  dropdown. The selection is local to the device and never syncs.
+
+> **Gap:** The language controls, persistence, and immediate application described
+> here are not wired into any Settings surface yet; only the shared localization
+> foundation exists.
+
 - The app version is shown.
 
 ## Native shells
@@ -34,6 +43,10 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   `futo.themeMode` / Android SharedPreferences `theme_mode`; survives relaunch —
   verified via the crash-test relaunch). → Theme.swift `appearanceOverride`
   _(iOS)_
+- **Language**: Android's dropdown reads and writes the operating system's
+  per-app language setting. iOS's row opens the app's system Settings, where the
+  operating system owns selection. Draft settlement and restoration follow the
+  platform rules in [localization.md](localization.md).
 - **Storage**: a notes-directory path readout. On Android, **Storage location**
   opens the picker as a Settings sub-screen — Back or its **Cancel** button
   returns to Settings and changes nothing (see nav.md). Changing Device/App
@@ -142,7 +155,7 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 - The grant the chooser issues carries no document-`delete` permission, which the
   vault does not need: creating, atomically replacing, renaming and unlinking notes
   and folders all work through the granted directory. That permission governs deleting
-  the *document entry*, which the app never does.
+  the _document entry_, which the app never does.
 - Every path shown for a sandboxed vault — in Storage and in the change
   confirmation — is the folder the user actually picked, resolved back through
   `Documents.Info`, never `/run/user/<uid>/doc/<id>/…`. Asking for that name is
@@ -158,7 +171,7 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   toasts "Notes folder unavailable — choose a folder in Settings", and the
   Storage section explains it ("This folder is no longer reachable. Choose it
   again, or reset to the default location.") and keeps both **Change directory**
-  and **Reset to default** usable. `isCustom` is read from the vault's *location*,
+  and **Reset to default** usable. `isCustom` is read from the vault's _location_,
   never from a successful vault read, so **Reset to default** cannot be hidden by
   the failure it is there to undo. → `vault_location::VAULT_UNAVAILABLE`,
   StorageSettingsSection.svelte
@@ -182,6 +195,10 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   (keyring unavailable or forgotten), a "Vault password — required after
   restart" field appears for on-demand re-entry (see sync.md). →
   SyncSettingsSection.svelte, createSyncSettings.svelte.ts
+- **Language**: a System-first dropdown applies the language immediately and
+  persists it locally. System is resolved at launch and foreground entry; save
+  failure and removed-language behavior follow
+  [localization.md](localization.md).
 - **Issue reporting**: a "Share crash reports" toggle (anonymous crash logs), a
   nested **"Send crashes automatically"** option, and a **"Report an issue"**
   link that opens `https://github.com/futo-org/futo-notes/issues`; see app.md

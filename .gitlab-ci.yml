@@ -571,6 +571,32 @@ test:audit:
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
+test:localization-audit:
+  stage: test
+  needs: []
+  allow_failure: true
+  cache:
+    - !reference [.cache-pnpm, cache]
+  script:
+    - pnpm install --frozen-lockfile --prefer-offline
+    - pnpm run audit:languages
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - languages/**/*
+        - scripts/language-catalogs.mjs
+        - package.json
+        - pnpm-lock.yaml
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - languages/**/*
+        - scripts/language-catalogs.mjs
+        - package.json
+        - pnpm-lock.yaml
+        - .gitlab-ci.yml
+
 test:e2e:smoke:
   stage: test
   cache:
@@ -1104,6 +1130,9 @@ test:cross-platform-sync:android:
         - apps/android/**/*
         - crates/futo-notes-ffi/**/*
         - Cargo.lock
+        - languages/**/*
+        - tests/localization/**/*
+        - scripts/generate-native-language-resources.mjs
         - scripts/build-rust-android.sh
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
@@ -1535,6 +1564,9 @@ build:android-native:
         - apps/android/**/*
         - crates/futo-notes-ffi/**/*
         - Cargo.lock
+        - languages/**/*
+        - tests/localization/**/*
+        - scripts/generate-native-language-resources.mjs
         - scripts/build-rust-android.sh
         - scripts/ci-android-instrumentation.sh
         - scripts/ci-android-emulator.sh
@@ -1612,6 +1644,9 @@ test:ios-native:
         # builds the same xcframework + app and runs the Swift tests on top.
         - crates/futo-notes-ffi/**/*
         - Cargo.lock
+        - languages/**/*
+        - tests/localization/**/*
+        - scripts/generate-native-language-resources.mjs
         - tests/conformance/**/*
         - packages/editor/src/bridge.ts
         - scripts/build-rust-ios.sh
@@ -1948,7 +1983,8 @@ release:gate:
   stage: verify
   needs:
     # EVERY test job that runs on tag pipelines must be listed here, except
-    # test:audit, which is allow_failure and non-blocking by design. With
+    # test:audit and test:localization-audit, which are allow_failure and
+    # non-blocking by design. With
     # DAG `needs`, release/publish:ios run as soon as their needs succeed —
     # a failed test job NOT in this list does not stop the publish (this
     # nearly shipped v1.4.0 twice: once past a failed test:e2e:rest, once

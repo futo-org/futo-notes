@@ -1,0 +1,123 @@
+{
+  "$schema": "./catalog.schema.json",
+  "language": {
+    "nativeName": "English",
+    "direction": "ltr",
+    "aliases": []
+  },
+  "messages": {
+    "app": {
+      "android": {
+        "displayName": "FUTO Notes",
+        "debugDisplayName": "FUTO Notes Dev"
+      },
+      "ios": {
+        "displayName": "FUTO Notes",
+        "debugDisplayName": "FUTO Notes Dev"
+      }
+    },
+    "settings": {
+      "language": {
+        "heading": "Language",
+        "systemOption": "System",
+        "ios": {
+          "openSystemSettings": "Open iOS Settings"
+        }
+      }
+    },
+    "permissions": {
+      "ios": {
+        "cameraUsageDescription": "Take a photo and attach it to a note.",
+        "photoLibraryUsageDescription": "Attach photos from your library to notes."
+      }
+    },
+    "units": {
+      "fileSize": {
+        "byte": "{value} B",
+        "kilobyte": "{value} KB",
+        "megabyte": "{value} MB",
+        "gigabyte": "{value} GB",
+        "terabyte": "{value} TB"
+      }
+    },
+    "time": {
+      "relative": {
+        "now": "Just now",
+        "past": {
+          "minute": {
+            "plural": "count",
+            "variants": {
+              "one": "{count} minute ago",
+              "other": "{count} minutes ago"
+            }
+          },
+          "hour": {
+            "plural": "count",
+            "variants": {
+              "one": "{count} hour ago",
+              "other": "{count} hours ago"
+            }
+          },
+          "day": {
+            "plural": "count",
+            "variants": {
+              "=1": "Yesterday",
+              "other": "{count} days ago"
+            }
+          },
+          "month": {
+            "plural": "count",
+            "variants": {
+              "one": "{count} month ago",
+              "other": "{count} months ago"
+            }
+          },
+          "year": {
+            "plural": "count",
+            "variants": {
+              "one": "{count} year ago",
+              "other": "{count} years ago"
+            }
+          }
+        },
+        "future": {
+          "minute": {
+            "plural": "count",
+            "variants": {
+              "one": "In {count} minute",
+              "other": "In {count} minutes"
+            }
+          },
+          "hour": {
+            "plural": "count",
+            "variants": {
+              "one": "In {count} hour",
+              "other": "In {count} hours"
+            }
+          },
+          "day": {
+            "plural": "count",
+            "variants": {
+              "=1": "Tomorrow",
+              "other": "In {count} days"
+            }
+          },
+          "month": {
+            "plural": "count",
+            "variants": {
+              "one": "In {count} month",
+              "other": "In {count} months"
+            }
+          },
+          "year": {
+            "plural": "count",
+            "variants": {
+              "one": "In {count} year",
+              "other": "In {count} years"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -134,6 +134,47 @@
       }
     },
     {
+      "concept": "language-catalog-runtime",
+      "description": "Shared JSON catalog behavior implemented in the web, Android, and iOS shells. Platform locale engines remain native, while all three adapters execute tests/localization/cases.json for matching, messages, plurals, file sizes, and relative time.",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "src/shared/localization/localization.ts",
+          "pattern": "export function createLocalizationModule"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/localization/Localization.kt",
+          "pattern": "class Localization private constructor"
+        },
+        {
+          "location": "apps/ios/Sources/Localization/Localization.swift",
+          "pattern": "final class Localization"
+        }
+      ],
+      "locks": [
+        {
+          "path": "tests/localization/cases.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "src/shared/localization/localization.test.ts",
+          "kind": "test"
+        },
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/localization/LocalizationTest.kt",
+          "kind": "test"
+        },
+        {
+          "path": "apps/android/app/src/androidTest/java/com/futo/notes/localization/AndroidLocalizationTest.kt",
+          "kind": "platform test"
+        },
+        {
+          "path": "apps/ios/Tests/Localization/LocalizationTests.swift",
+          "kind": "test"
+        }
+      ]
+    },
+    {
       "concept": "notes-root-triplet",
       "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
       "lockStatus": "unlocked",

@@ -14,6 +14,16 @@ if (hasReleaseKeystore) {
     releaseKeystoreProperties.load(FileInputStream(releaseKeystorePropertiesFile))
 }
 
+val repositoryRootDirectory = rootProject.file("../..")
+val generatedLocalizationDirectory = layout.buildDirectory.dir("generated/localization")
+val generateLocalizationResources = tasks.register<Exec>("generateLocalizationResources") {
+    inputs.dir(repositoryRootDirectory.resolve("languages"))
+    inputs.file(repositoryRootDirectory.resolve("scripts/generate-native-language-resources.mjs"))
+    outputs.dir(generatedLocalizationDirectory)
+    workingDir(repositoryRootDirectory)
+    commandLine("node", "scripts/generate-native-language-resources.mjs", "--android")
+}
+
 android {
     namespace = "com.futo.notes"
     // compileSdk 36 is the floor required by the modernized androidx stack.
@@ -44,7 +54,7 @@ android {
         targetSdk = 36
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
-        manifestPlaceholders["appLabel"] = "FUTO Notes"
+        manifestPlaceholders["appLabel"] = "@string/app_name"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -62,7 +72,7 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".dev"
-            manifestPlaceholders["appLabel"] = "FUTO Notes Dev"
+            manifestPlaceholders["appLabel"] = "@string/app_name_debug"
         }
 
         release {
@@ -132,8 +142,21 @@ android {
         compose = true
         buildConfig = true
     }
+    sourceSets {
+        getByName("main") {
+            res.srcDir(generatedLocalizationDirectory.map { it.dir("res") })
+            assets.srcDir(generatedLocalizationDirectory.map { it.dir("assets") })
+        }
+        getByName("androidTest") {
+            assets.srcDir(repositoryRootDirectory.resolve("tests/localization"))
+        }
+    }
     // libfuto_notes_ffi.so per-ABI is staged by scripts/build-rust-android.sh.
     // editor.html is staged into src/main/assets by the same flow (see README).
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(generateLocalizationResources)
 }
 
 dependencies {
