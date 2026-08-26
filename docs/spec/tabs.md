@@ -43,11 +43,10 @@ shells are single-document. → TabsStrip.svelte, tabsStore.svelte.ts
 - Ctrl/Cmd+F — find in the open note; Ctrl/Cmd+G / Ctrl/Cmd+Shift+G — step to
   the next/previous match while the find bar is open, from anywhere in the
   window (behavior owned by [editor.md](editor.md) "Find in note"; contrast
-  Ctrl/Cmd+P, which searches across notes). Both keys are unclaimed by any
-  current shortcut.
-  > **Gap:** proposed, not bound today — registerNotesShellShortcuts.ts has no
-  > `f` or `g` accelerator (2026-08-18; issue #26 — the whole surface is the
-  > proposal gap in editor.md "Find in note").
+  Ctrl/Cmd+P, which searches across notes). A focused surface that claims the
+  chord first keeps it; in particular, Ctrl/Cmd+F does not open note-find
+  behind the cross-note search popup. → registerNotesShellShortcuts.ts,
+  SearchPopup.svelte
 - Ctrl+Tab / Ctrl+Shift+Tab — next/previous tab (Ctrl+PageDown / Ctrl+PageUp
   as fallback; Cmd+Alt+Right/Left on macOS).
 - Ctrl/Cmd+1…9 — jump to tab N; 9 always jumps to the last tab.

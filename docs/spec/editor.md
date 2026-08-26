@@ -784,47 +784,43 @@ independent: this one is opened by its own affordance and seeded only from the
 editor's own selection or the previous query, and cross-note search is
 unchanged by it.
 
-> **Gap:** the entire Find in note surface in this section is a PROPOSAL — none
-> of it is implemented on any platform as of 2026-08-18: `@codemirror/search`
-> is not a dependency (absent even from pnpm-lock.yaml), no shell binds
-> Ctrl/Cmd+F (registerNotesShellShortcuts.ts stops at P/N/T/W/1–9), and neither
-> native editor screen has a find affordance. Recorded from
-> https://github.com/futo-org/futo-notes/issues/26; these lines are the agreed
-> behavior for whoever implements it, and this note (plus its sibling in
-> tabs.md) comes out only as the behavior lands.
-
-- **One implementation.** All find behavior — matching, the highlight
-  decorations, current-match tracking, next/previous stepping with wrap, the
-  match count, and the find bar UI itself — lives in the shared editor bundle,
-  rendered inside the editor WebView on all three platforms. Shells contribute
-  ONLY an invocation affordance; there is never a Swift/Kotlin/shell-Svelte
-  copy of the matching or a per-shell find bar. The matching machinery is
-  `@codemirror/search` (`SearchQuery`/`SearchCursor` + match decorations — an
-  established library over a custom scanner); the stock CM6 panel UI is not
-  used, the bar is ours.
-- Opening find is a shared editor command dispatched exactly like a toolbar
-  command: native chrome calls the existing `FutoEditor.exec` bridge method
-  with a shared command id (`find`), whose behavior lives beside `TOOLBAR_EXEC`
-  in markdownToolbar.ts — no new bridge message and no BRIDGE_VERSION change
-  for invocation. `find` is NOT a button in the scrollable formatting toolbar:
-  that toolbar stays formatting-only, so the toolbar manifest
-  (packages/editor/src/toolbar.ts) and its generated native specs are
-  untouched. The overflow menu is the only mobile entry point.
+- **One engine, thin platform bars.** All find behavior — matching, highlight
+  decorations, current-match tracking, next/previous stepping with wrap, count
+  arithmetic and count wording, and hidden-source reveal — lives in the shared
+  editor bundle. Desktop renders that engine's full-width CM6 bottom panel.
+  iOS and Android render native SwiftUI/Compose bars because the web panel is
+  not native-quality mobile chrome; those bars only forward
+  query/open/step/close actions and render the bundle's
+  `{query, current, total, label}` report verbatim. They never scan text,
+  compute a count, or decide a wrap. The matching machinery uses
+  `@codemirror/search` `SearchCursor` — an established library over a custom
+  scanner — while the visual bars are ours.
+- Native chrome drives the engine through the bridge-v8 `openFind`,
+  `setFindQuery`, `stepFind`, and `closeFind` methods and receives `findMatches`
+  reports. Find is NOT an `exec` command or a button in the scrollable formatting
+  toolbar: that toolbar stays formatting-only, so the toolbar manifest
+  (packages/editor/src/toolbar.ts) and its generated native specs are untouched.
+  The overflow menu is the only mobile entry point.
 - _(desktop)_ Ctrl/Cmd+F opens the find bar for the active tab's note, query
   field autofocused — pre-filled with the editor's selection when one exists,
   otherwise with the previous query, selected either way. Ctrl/Cmd+F with the
   bar already open refocuses and selects the query. A Home tab has no
   document, so it does nothing there. The accelerator is recorded in tabs.md's
-  shortcut list; the key is unclaimed today. → registerNotesShellShortcuts.ts
+  shortcut list. → registerNotesShellShortcuts.ts
 - _(iOS/Android)_ "Find in note" is an entry in the editor screen's existing
   overflow menu (Android's ⋮ DropdownMenu, iOS's ellipsis-circle Menu), so it
-  is reachable while reading with the keyboard down. The item dispatches the
-  shared open-find command over `exec`. → NoteEditorScreen.kt actions,
-  NoteEditorView.swift toolbar Menu
-- The bar renders pinned to the top of the editor viewport (below native
-  title/app-bar chrome) and shows: the query field, a live match count
-  ("3 of 17"; "No matches" at zero), next and previous buttons, and a close
-  (X) button.
+  is reachable while reading with the keyboard down. The item shows the native
+  bar and calls the shared engine's `openFind` bridge method. →
+  NoteEditorScreen.kt actions, NoteEditorView.swift toolbar Menu
+- The desktop bar spans the bottom of the editor, like Firefox's find bar. On
+  iOS and Android it spans the bottom of the editor viewport, immediately above
+  the virtual keyboard while the query field is focused. The bar shows: the
+  query field, a live match count ("3 of 17"; "0" at zero), next and previous
+  buttons, and a completion control. Android uses a single flat, divided bar in
+  the platform browser style: query, count, previous, next, then close; its count
+  turns red and its step buttons disable at zero matches. iOS uses a leading
+  checkmark to close, a search capsule with its count inline, and a separate
+  previous/next capsule; desktop keeps its compact full-width panel.
 - Matching is **case-insensitive literal substring** — no case toggle, no
   whole-word, no regex in v1 (the simplest behavior meeting #26; toggles can
   join the same bar later without breaking anything here). Literal means find
@@ -860,8 +856,8 @@ unchanged by it.
   Stepping wraps past either end (the count shows the wrapped position; there
   is no separate wrap indicator), and with zero matches every step is a no-op.
   Ctrl/Cmd+G with the bar closed does nothing — it never reopens find. Both G
-  accelerators are unclaimed today and are recorded in tabs.md's shortcut
-  list. → registerNotesShellShortcuts.ts
+  accelerators are recorded in tabs.md's shortcut list. →
+  registerNotesShellShortcuts.ts
 - Editing while the bar is open keeps it open: matches, highlights, and the
   count recompute against the new text. Apart from the two stepping
   accelerators above, find claims no keys in the note body — Enter,
@@ -872,22 +868,24 @@ unchanged by it.
   edit by a frame.
 - Find state is per open note view: the query and current match survive while
   the note stays on screen — including device rotation on the native shells
-  (the retained WebView keeps the bar; the OS may drop the soft keyboard) —
-  and closing the bar, switching desktop tabs, or leaving the note clears the
-  highlights and the state. Nothing about find persists (no `.app-config.json`
-  field).
+  (Android saves the bar's query/visibility and the retained WebView keeps the
+  engine state; the OS may drop the soft keyboard) — and closing the bar,
+  switching desktop tabs, or leaving the note clears active highlights. A
+  closed bar may remember its previous query for the next open on the same note;
+  no find state crosses a note boundary or persists in `.app-config.json`.
 - _(desktop)_ Escape closes the bar and returns focus to the editor with the
   selection left on the current match.
 - _(Android)_ System Back with the bar open dismisses the bar, not the screen;
   the next Back exits normally. _(iOS)_ the X closes the bar; the editor's
   exit chrome (back chevron / edge swipe) exits the note as usual, taking the
   bar with the screen.
-- _(iOS/Android)_ the soft keyboard can never cover the bar: it is pinned to
-  the top of the editor viewport, which both shells already keep above the
-  keyboard inset, and it never docks to the keyboard. While the find query
-  field is focused the formatting toolbar does not show — that toolbar is
-  editor-body-focus chrome (## Markdown toolbar), and the two bars never
-  stack.
+- _(iOS/Android)_ Closing the find bar clears every match highlight and restores
+  the editor selection and viewport from before find opened.
+- _(iOS/Android)_ the soft keyboard can never cover the bar: it is docked
+  immediately above the keyboard by the shell's keyboard-safe layout.
+  While the native find query field is focused the WebView is unfocused, so the
+  formatting toolbar does not show — that toolbar is editor-body-focus chrome
+  (## Markdown toolbar), and the two bars never stack.
 - **Hand-off from cross-note search is out of scope.** Opening a note from a
   search result (desktop popup, Android SearchScreen, iOS inline list search)
   opens the note exactly as it does today: at its normal position, with no
