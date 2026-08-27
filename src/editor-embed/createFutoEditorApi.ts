@@ -26,6 +26,10 @@ export interface EmbeddedEditorHandle {
   resetHistory: () => void;
   setContent: (text: string, options?: SetEditorContentOptions) => void;
   warmScroll: () => { grew: number; steps: number } | null;
+  /* Editors with no CodeMirror view (the Milkdown spike) run toolbar commands
+   * themselves instead of through TOOLBAR_EXEC. */
+  exec?: (commandId: string) => boolean;
+  insertMarkdown?: (text: string) => void;
 }
 
 export interface EmbeddedToolbarHandle {
@@ -131,6 +135,12 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       editor.setContent(markdown, EXTERNAL_CONTENT_OPTS);
     },
     insertImage(filename: string): void {
+      const insertMarkdown = `![](${filename})\n`;
+      if (editor.insertMarkdown) {
+        editor.insertMarkdown(insertMarkdown);
+        preloadImages(insertMarkdown, undefined, () => editor.getView());
+        return;
+      }
       const view = editor.getView();
       if (!view) return;
       const position = view.state.selection.main.head;
@@ -146,6 +156,7 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       boot.setImageBaseUrl(base);
     },
     exec(commandId: string): void {
+      if (editor.exec?.(commandId)) return;
       const run = TOOLBAR_EXEC[commandId];
       if (!run) {
         console.warn(`FutoEditor.exec: unknown command id '${commandId}', ignoring`);

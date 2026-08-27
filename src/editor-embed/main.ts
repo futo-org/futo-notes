@@ -13,6 +13,7 @@
 import { mount } from 'svelte';
 import '../styles/app.css';
 import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
+import MilkdownEditor from '$features/editor/MilkdownEditor.svelte';
 import type { EditorLinkGesture } from '$features/editor/interactions/editorPointerInteractions';
 import EmbedToolbar from './EmbedToolbar.svelte';
 import { BRIDGE_VERSION, postToHost, type FutoEditorApi } from '@futo-notes/editor';
@@ -49,13 +50,23 @@ let nativeToolbar = false;
 
 let lastPostedOnListLine: boolean | null = null;
 
-const editor = mount(MarkdownEditor, {
+/* SPIKE: Milkdown is the default embedded editor. Load editor.html?cm to get the
+ * shipping CodeMirror live-preview editor back. Both are statically imported so
+ * the bundle keeps its ES2020 target (no top-level await). */
+const useCodeMirror = new URLSearchParams(window.location.search).has('cm');
+const EmbeddedEditor = (useCodeMirror ? MarkdownEditor : MilkdownEditor) as typeof MarkdownEditor;
+
+const editor = mount(EmbeddedEditor, {
   target,
   props: {
     content: '',
     nativeShell: true,
     onchange: (_content: string) => {
-      if (suppressNextChange) {
+      // The one-shot flag exists because CodeMirror reports the host's own
+      // setContent as a change. Milkdown's markdownUpdated is debounced 200ms,
+      // so MilkdownEditor suppresses its load echo internally instead — reading
+      // the flag here too would swallow the user's FIRST real edit.
+      if (useCodeMirror && suppressNextChange) {
         suppressNextChange = false;
         return;
       }
@@ -97,6 +108,7 @@ toolbar = mount(EmbedToolbar, {
   target: toolbarTarget,
   props: {
     getView: () => editor.getView(),
+    onexec: (commandId: string) => editor.exec?.(commandId) ?? false,
     onpickimage: (source: 'camera' | 'library') => {
       if (hasNativeHost()) {
         post({ type: 'pickImage', source });

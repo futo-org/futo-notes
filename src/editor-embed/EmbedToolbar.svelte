@@ -39,11 +39,14 @@
 
   interface Props {
     getView: () => EditorView | null;
+    /* Editors with no CodeMirror view (the Milkdown spike) run the command
+     * themselves; returns false when they don't support it. */
+    onexec?: (commandId: string) => boolean;
     onpickimage: (source: 'camera' | 'library') => void;
     ondismiss: () => void;
   }
 
-  let { getView, onpickimage, ondismiss }: Props = $props();
+  let { getView, onexec, onpickimage, ondismiss }: Props = $props();
 
   function icon(item: ToolbarItem): Component {
     const c = ICONS[item.lucide];
@@ -60,6 +63,7 @@
     } else if (action.kind === 'pickImage') {
       onpickimage(action.source);
     } else {
+      if (onexec?.(item.id)) return;
       const view = getView();
       if (view) TOOLBAR_EXEC[item.id]?.(view);
     }
