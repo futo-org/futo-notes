@@ -5,7 +5,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -56,6 +55,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -152,11 +153,13 @@ internal fun NoteListScreen(
                         Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = c.textSecondary)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = if (scrolled) c.surface else Color.Transparent,
-                    scrolledContainerColor = c.surface,
-                ),
-                modifier = if (scrolled) Modifier.border(width = 1.dp, color = c.border) else Modifier,
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface),
+                modifier = if (scrolled) Modifier.drawWithContent {
+                    drawContent()
+                    val stroke = 1.dp.toPx()
+                    val y = size.height - stroke / 2
+                    drawLine(c.border, Offset(0f, y), Offset(size.width, y), stroke)
+                } else Modifier,
             )
         },
         floatingActionButton = {

@@ -71,8 +71,8 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   subtitled "Tap + to add a note or folder." _(Tauri: "Nothing here yet".)_ The
   empty state waits for the first scan (`hasBootstrapped`) so a cold start never
   flashes it (M1). → NoteListView.swift, NoteListScreen.kt `EmptyState`
-- The top bar is transparent at rest and gains a surface fill + bottom border
-  once the list is scrolled. _(Android)_
+- The top bar carries the page surface, and gains a bottom hairline once the
+  list is scrolled. _(Android)_ → NoteListScreen.kt
 - Each note row shows a **rich, multi-line** body preview rather than raw
   markdown: line breaks are preserved (up to 3 lines), heading/quote markers are
   stripped, task items render as ☐/☑, bullets as •, tables and rules are
