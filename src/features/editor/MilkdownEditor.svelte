@@ -15,7 +15,13 @@
    * opening a note can never rewrite it on disk.
    */
   import { onMount } from 'svelte';
-  import { Editor, defaultValueCtx, editorViewCtx, rootCtx } from '@milkdown/kit/core';
+  import {
+    Editor,
+    defaultValueCtx,
+    editorViewCtx,
+    editorViewOptionsCtx,
+    rootCtx,
+  } from '@milkdown/kit/core';
   import {
     commonmark,
     liftListItemCommand,
@@ -587,6 +593,22 @@
             class: 'milkdown-drop-indicator',
           });
 
+          /* Red squiggles off. `editorViewOptionsCtx` is Milkdown's sanctioned
+           * hook into the ProseMirror `DirectEditorProps` (they are spread
+           * straight into `new EditorView(...)`), so the attributes land on the
+           * contenteditable through ProseMirror's own render instead of a DOM
+           * mutation WebKit's DOMObserver would fight. `autocapitalize` is
+           * deliberately NOT set: the ask is to drop the underlines, not to
+           * change how typing behaves. CM6 has its own path and is untouched. */
+          ctx.update(editorViewOptionsCtx, (prev) => ({
+            ...prev,
+            attributes: {
+              ...(typeof prev.attributes === 'object' ? prev.attributes : {}),
+              spellcheck: 'false',
+              autocorrect: 'off',
+            },
+          }));
+
           const listeners = ctx.get(listenerCtx);
           listeners.markdownUpdated((_ctx, markdown) => {
             liveMarkdown = markdown;
@@ -863,7 +885,12 @@
 
 <!-- The click handler is attached in onMount (see handleClick): it fires on
      ProseMirror-generated children, which the markup never sees. -->
-<div class="futo-milkdown" bind:this={container}></div>
+<!-- `mobile-dnd` is the ONE mechanism that tells the stylesheet the ⠿ gutter
+     handle does not exist for this instance, so the left padding can drop back
+     to match the right (see the .ProseMirror padding rule below). It is driven
+     by the SAME `useMobileBlockDnd` gate that swaps the plugin, so the gutter
+     and the thing that needs the gutter can never disagree. -->
+<div class="futo-milkdown" class:mobile-dnd={useMobileBlockDnd} bind:this={container}></div>
 
 <style>
   .futo-milkdown {
@@ -909,6 +936,20 @@
     -webkit-text-size-adjust: 100%;
     word-wrap: break-word;
     white-space: pre-wrap;
+  }
+
+  /* …and NONE of that applies without a handle. Under the iOS long-press path
+   * (useMobileBlockDnd -> .mobile-dnd on the container) the block itself is
+   * the handle, so there is nothing to keep clear of the back-swipe strip and
+   * the 54px gutter is pure dead offset — the user's "gutter on the left is
+   * still there, everything is still offset". Drop it back to the right side's
+   * 18px. Nothing else depends on the 54px: `contentColumnX` measures the
+   * column's centre, and the task-list ☐ glyph is outdented into the LIST's
+   * own 1.4em padding (li[data-checked]::before, left: -1.15em), not into this
+   * one, so it still lands clear of the edge at 18px. Three classes, so it
+   * beats the base rule above regardless of source order. */
+  :global(.futo-milkdown.mobile-dnd .ProseMirror) {
+    padding-left: calc(18px + env(safe-area-inset-left));
   }
 
   :global(.futo-milkdown .ProseMirror > * + *) {
