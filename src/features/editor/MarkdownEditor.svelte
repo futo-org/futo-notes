@@ -34,6 +34,14 @@
     nativeShell?: boolean;
     onopenlink: (title: string, gesture: EditorLinkGesture) => void;
     onopenurl?: (url: string) => void;
+    /* Milkdown-only (see MilkdownEditor.svelte's onformatstate); declared here
+     * only so editor-embed/main.ts can mount either editor from one props
+     * object. CodeMirror never calls it — no native toolbar active-state. */
+    onformatstate?: (active: string[]) => void;
+    /* Milkdown-only (see MilkdownEditor.svelte's onhaptic, iOS long-press
+     * block-drag path); declared here for the same reason as onformatstate.
+     * CodeMirror never calls it. */
+    onhaptic?: (kind: 'lift' | 'drop') => void;
   }
 
   type DevelopmentEditorWindow = typeof window & {

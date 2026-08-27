@@ -52,6 +52,19 @@
  *      order (see `hostBoot.ts`). A v6 host would configure a v7 bundle only
  *      partially, and a v7 host's single `initialize` means nothing to a v6
  *      bundle, so both native hosts move together (M10).
+ *
+ * `formatState` (Notion-style native toolbar active-state, milkdown spike —
+ * see {@link FormatStateMessage}) is additive and ships WITHOUT a version
+ * bump: it is emitted only by the Milkdown editor on the `spike/milkdown-editor`
+ * branch, and a host that doesn't handle it just drops the message (no
+ * highlighting, exactly today's behavior). Bumping BRIDGE_VERSION needs
+ * explicit sign-off (root AGENTS.md §11) — do not do it as part of this spike.
+ *
+ * `haptic` (Notion-style mobile block-drag feedback, milkdown spike — see
+ * {@link HapticMessage}) ships the SAME way: additive, no version bump,
+ * emitted only by the Milkdown editor's iOS long-press block-drag path
+ * (`mobileBlockDnd.ts`). A host without a case for it just drops the message
+ * (no haptic, exactly today's behavior).
  */
 export const BRIDGE_VERSION = 7 as const;
 
@@ -282,6 +295,44 @@ export interface OpenUrlMessage {
 }
 
 /**
+ * Emitted deduped (only when the set actually changes) on every selection
+ * change and content change, and again right after a native toolbar tap runs
+ * its command (so a tap reflects immediately rather than waiting for the next
+ * selection event). Drives Notion-style active-state highlighting on the
+ * NATIVE keyboard toolbar — the iOS host tints the matching button. `active`
+ * is the subset of toolbar-manifest exec ids (`TOOLBAR_EXEC_IDS` in
+ * toolbar.ts, e.g. `'bold'`, `'heading'`, `'task-list'`) that cover the
+ * current cursor/selection; a task-list item never reports `'bullet-list'`
+ * even though it is schema-nested inside one, so the two buttons don't both
+ * light up.
+ *
+ * Milkdown-spike only (`MilkdownEditor.svelte`) and iOS-only for now —
+ * Android has no consumer and the shipping CodeMirror editor (`?cm`) never
+ * emits it; both are exempt, not gaps. See {@link BRIDGE_VERSION}'s doc
+ * comment for why this ships without a version bump.
+ */
+export interface FormatStateMessage {
+  type: 'formatState';
+  active: string[];
+}
+
+/**
+ * Emitted by the iOS long-press mobile block-drag path (`mobileBlockDnd.ts`,
+ * milkdown spike) at the two moments the interaction wants tactile feedback:
+ * `'lift'` when a ~330-350ms hold picks the block up (the moment it visibly
+ * scales/shadows), and `'drop'` when a release COMMITS an actual reorder as
+ * one transaction. A release back at the source position is a true no-op
+ * (no transaction, no history entry) and posts no `'drop'` — see the module
+ * doc comment there. iOS-only for now: Android and desktop never construct
+ * this plugin, so neither ever emits this message; a host without a case for
+ * it (Android) just drops it, same as `formatState`.
+ */
+export interface HapticMessage {
+  type: 'haptic';
+  kind: 'lift' | 'drop';
+}
+
+/**
  * Editor → host messages, posted to the host's `futoBridge` message handler.
  * Discriminated on `type`.
  */
@@ -296,7 +347,9 @@ export type FutoEditorOutboundMessage =
   | PickImageMessage
   | CursorContextMessage
   | SaveImageDataMessage
-  | PasteClipboardImageMessage;
+  | PasteClipboardImageMessage
+  | FormatStateMessage
+  | HapticMessage;
 
 /**
  * Every `type` value {@link FutoEditorOutboundMessage} can carry. Consumed by
@@ -319,6 +372,8 @@ export const OUTBOUND_MESSAGE_TYPES = [
   'cursorContext',
   'saveImageData',
   'pasteClipboardImage',
+  'formatState',
+  'haptic',
 ] as const;
 
 // Distributive-conditional mutual-extends trick for exact type equality —

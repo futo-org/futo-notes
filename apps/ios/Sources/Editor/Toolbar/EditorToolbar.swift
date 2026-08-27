@@ -39,6 +39,11 @@ extension View {
 final class EditorToolbarState: ObservableObject {
     /// Cursor is on a list line — shows the Indent/Outdent items.
     @Published var onListLine = false
+    /// Toolbar-manifest ids active at the cursor/selection (bridge
+    /// `formatState`, milkdown spike, iOS-only) — drives the Notion-style
+    /// highlighted button state below. Empty on hosts/editors that never send
+    /// `formatState` (the shipping CodeMirror editor), so no button lights up.
+    @Published var activeFormats: Set<String> = []
 }
 
 /// Native SwiftUI rendering of the shared toolbar manifest
@@ -230,14 +235,33 @@ struct EditorToolbarView: View {
             .padding(.horizontal, 4)
     }
 
+    /// Notion-style active highlight (bridge `formatState`, milkdown spike,
+    /// iOS-only): a rounded-rect fill INSET inside the button's own frame, not
+    /// the whole capsule, plus an accent-tinted icon — so it reads correctly
+    /// nested inside the glass capsule background. Only `.exec` items can be
+    /// active (their id is a toolbar-manifest command id); the dismiss button
+    /// is rendered through this same helper but its id ("dismiss") never
+    /// appears in `activeFormats`, so it is unaffected by construction.
     private func button(for item: ToolbarItemSpec, foreground: Color = .primary) -> some View {
-        Button {
+        let isActive = state.activeFormats.contains(item.id)
+        return Button {
             perform(item)
         } label: {
             Image(systemName: item.sfSymbol)
                 .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(foreground)
+                // Theme.primary, not Color.accentColor: there is no AccentColor
+                // asset, so accentColor falls back to iOS system blue — and a
+                // view-root `.tint()` does not retarget an explicit
+                // Color.accentColor reference.
+                .foregroundStyle(isActive ? Theme.primary : foreground)
                 .frame(width: ToolbarMetrics.buttonWidth, height: ToolbarMetrics.buttonHeight)
+                .background {
+                    if isActive {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Theme.primary.opacity(0.15))
+                            .padding(4)
+                    }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

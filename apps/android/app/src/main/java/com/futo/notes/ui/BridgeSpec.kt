@@ -27,5 +27,7 @@ object BridgeSpec {
         "cursorContext",
         "saveImageData",
         "pasteClipboardImage",
+        "formatState",
+        "haptic",
     )
 }

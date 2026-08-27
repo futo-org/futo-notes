@@ -99,6 +99,17 @@ const editor = mount(EmbeddedEditor, {
         window.open(url, '_blank', 'noopener,noreferrer');
       }
     },
+    // Milkdown-only (see MilkdownEditor.svelte); the CodeMirror path (`?cm`)
+    // never calls this prop, so it simply never posts formatState.
+    onformatstate: (active: string[]) => {
+      post({ type: 'formatState', active });
+    },
+    // Milkdown-only, iOS long-press block-drag path (see
+    // MilkdownEditor.svelte / mobileBlockDnd.ts); the CodeMirror path (`?cm`)
+    // and every non-iOS environment never call this prop.
+    onhaptic: (kind: 'lift' | 'drop') => {
+      post({ type: 'haptic', kind });
+    },
   },
 }) as unknown as EmbeddedEditorHandle;
 

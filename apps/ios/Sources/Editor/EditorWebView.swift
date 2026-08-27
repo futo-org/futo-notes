@@ -113,6 +113,10 @@ final class EditorCompletionQueue {
 ///   { type: 'cursorContext', onListLine: <bool> }
 ///   { type: 'saveImageData', data: <base64>, ext: <string> }   (v4)
 ///   { type: 'pasteClipboardImage' }                            (v5)
+///   { type: 'formatState', active: [<toolbar id>] }   (milkdown spike, unversioned —
+///     see bridge.ts's BRIDGE_VERSION doc comment; drives toolbar highlighting below)
+///   { type: 'haptic', kind: 'lift' | 'drop' }          (milkdown spike, unversioned,
+///     iOS-only — the long-press mobile block-drag path; drives UIImpactFeedbackGenerator below)
 ///
 /// The markdown toolbar is NATIVE on iOS: EditorHost installs
 /// EditorToolbarAccessory as the keyboard's inputAccessoryView (so it docks
@@ -311,6 +315,14 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// Reactive inputs for the NATIVE markdown toolbar (bridge v3
     /// cursorContext drives Indent/Outdent visibility).
     let toolbarState = EditorToolbarState()
+
+    /// iOS long-press mobile block-drag haptics (milkdown spike — bridge
+    /// 'haptic'). Two generators (not one reused instance) so `.medium`
+    /// (lift) and `.light` (drop) each stay primed for their own style;
+    /// `prepare()` ahead of `impactOccurred()` minimizes the click's latency,
+    /// re-primed immediately after firing for the next lift/drop.
+    private let liftHapticFeedback = UIImpactFeedbackGenerator(style: .medium)
+    private let dropHapticFeedback = UIImpactFeedbackGenerator(style: .light)
     /// The native toolbar, installed as the keyboard's inputAccessoryView via
     /// futo_overrideInputAccessoryView. Lazy: the closure captures self.
     private lazy var toolbarAccessory = EditorToolbarAccessory(
@@ -367,6 +379,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         wv.navigationDelegate = self
 
         loadEditor()
+
+        // Prime both haptic generators ahead of the first lift/drop — see
+        // the property doc comment.
+        liftHapticFeedback.prepare()
+        dropHapticFeedback.prepare()
     }
 
     /// Load the bundled editor into the WebView. Used at init and again to
@@ -612,6 +629,27 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // Deduped by the embed — drives Indent/Outdent visibility in the
             // native toolbar.
             toolbarState.onListLine = (body["onListLine"] as? Bool) ?? false
+        case .formatState:
+            // Milkdown spike, iOS-only — Notion-style active-state highlight
+            // on the matching toolbar button(s). Deduped by the embed.
+            toolbarState.activeFormats = Set(body["active"] as? [String] ?? [])
+        case .haptic:
+            // Milkdown spike, iOS-only — the long-press mobile block-drag
+            // path posts this on lift and on a COMMITTED drop (never on a
+            // drop-at-source no-op or a cancel). The simulator has no
+            // haptics hardware; this log is the proof of receipt there.
+            let kind = (body["kind"] as? String) ?? ""
+            switch kind {
+            case "lift":
+                liftHapticFeedback.impactOccurred()
+                liftHapticFeedback.prepare()
+            case "drop":
+                dropHapticFeedback.impactOccurred()
+                dropHapticFeedback.prepare()
+            default:
+                break
+            }
+            EditorHost.logger.info("haptic received: \(kind, privacy: .public)")
         case .openNote:
             // User tapped a RESOLVED wikilink — the bound note view navigates.
             if let id = body["id"] as? String {

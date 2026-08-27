@@ -24,6 +24,8 @@ class BridgeCoverageTest {
             // fallback exists only for WebViews (iOS WKWebView) that hide the
             // bitmap from the JS paste event.
             "pasteClipboardImage" to "Android never receives it by design (bridge.ts:199-202)",
+            "formatState" to "toolbar highlighting is iOS-only in the milkdown spike; Android ignores it",
+            "haptic" to "haptics are iOS-only in the milkdown spike",
         )
     }
 
