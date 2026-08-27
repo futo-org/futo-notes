@@ -20,14 +20,18 @@ export interface PlatformStorage {
   listAppData(dir: string): Promise<string[]>;
   listDirFiles(): Promise<DirFileEntry[]>;
   deleteFile(filename: string): Promise<void>;
-  saveImage(sourcePath: string): Promise<string>;
   saveImageBytes?(data: ArrayBuffer, ext: string): Promise<string>;
   getImageUrl(filename: string): Promise<string>;
   getAppVersion(): Promise<string>;
 }
 
+export interface PickedImage {
+  bytes: ArrayBuffer;
+  extension: string;
+}
+
 export interface NativeCapabilities {
-  pickImage?(): Promise<string | null>;
+  pickImages?(options?: { limit?: number }): Promise<PickedImage[]>;
 }
 
 export interface PlatformFS extends PlatformStorage, NativeCapabilities {

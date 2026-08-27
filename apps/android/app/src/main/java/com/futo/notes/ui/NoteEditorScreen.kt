@@ -608,7 +608,8 @@ fun NoteEditorScreen(
     // message (kept for older bundles).
     val pickImage: (String) -> Unit = { source ->
         val attachment = host.currentAttachment()
-        val handle: (Uri?) -> Unit = { uri ->
+        val handle: (List<Uri>) -> Unit = { uris ->
+            val uri = uris.firstOrNull()
             if (uri != null && attachment != null) {
                 saveImageForAttachment(attachment, "Unsupported image type") { root ->
                     saveImageIntoVault(context.contentResolver, root, uri)
@@ -617,7 +618,7 @@ fun NoteEditorScreen(
         }
         when (source) {
             "camera" -> imagePicker?.captureCamera(handle)
-            else -> imagePicker?.pickLibrary(handle)
+            else -> imagePicker?.pickLibrary(callback = handle)
         }
     }
 

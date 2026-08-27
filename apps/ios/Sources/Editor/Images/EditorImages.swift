@@ -152,6 +152,11 @@ enum VaultImages {
 
 // MARK: - Native pickers
 
+struct PickedImage {
+    let data: Data
+    let ext: String
+}
+
 /// Presents the native image pickers for the bridge's `pickImage` message.
 /// 'library' → PHPickerViewController (images only, no permission prompt);
 /// 'camera' → UIImagePickerController(.camera), gracefully falling back to the
@@ -163,16 +168,17 @@ enum ImagePicker {
     /// picker delegates are weak). Single picker at a time.
     private static var activeDelegate: AnyObject?
 
-    /// Completion delivers raw image bytes + a preferred file extension on the
-    /// main thread, or nil data when the user cancelled.
-    static func present(source: String, completion: @escaping (Data?, String) -> Void) {
+    /// Completion is delivered on the main thread.
+    static func present(
+        source: String, limit: Int = 1, completion: @escaping ([PickedImage]) -> Void
+    ) {
         guard let top = topViewController() else {
-            completion(nil, "jpg")
+            completion([])
             return
         }
-        let finish: (Data?, String) -> Void = { data, ext in
+        let finish: ([PickedImage]) -> Void = { images in
             activeDelegate = nil
-            completion(data, ext)
+            completion(images)
         }
         if source == "camera", UIImagePickerController.isSourceTypeAvailable(.camera) {
             let delegate = CameraDelegate(completion: finish)
@@ -185,7 +191,9 @@ enum ImagePicker {
             // 'library' — or camera requested but unavailable (simulator).
             var config = PHPickerConfiguration()
             config.filter = .images
-            config.selectionLimit = 1
+            config.selectionLimit = max(1, limit)
+            // `.default` reports results in library order, not tap order.
+            config.selection = .ordered
             let delegate = LibraryDelegate(completion: finish)
             activeDelegate = delegate
             let picker = PHPickerViewController(configuration: config)
@@ -210,30 +218,43 @@ enum ImagePicker {
 /// PHPicker delegate: prefer the original bytes (keeps format) for formats we
 /// recognize; otherwise re-encode through UIImage as JPEG.
 private final class LibraryDelegate: NSObject, PHPickerViewControllerDelegate {
-    private let completion: (Data?, String) -> Void
+    private let completion: ([PickedImage]) -> Void
 
-    init(completion: @escaping (Data?, String) -> Void) {
+    init(completion: @escaping ([PickedImage]) -> Void) {
         self.completion = completion
     }
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        guard let provider = results.first?.itemProvider else {
-            completion(nil, "jpg")  // cancelled
+        guard !results.isEmpty else {
+            completion([])  // cancelled
             return
         }
-        if let (typeId, ext) = preferredType(for: provider) {
-            provider.loadDataRepresentation(forTypeIdentifier: typeId) { data, _ in
-                DispatchQueue.main.async {
-                    if let data {
-                        self.completion(data, ext)
-                    } else {
-                        self.loadAsJpeg(provider)
-                    }
-                }
+        let slots = PickedImageSlots(count: results.count)
+        let group = DispatchGroup()
+        for (index, result) in results.enumerated() {
+            group.enter()
+            load(result.itemProvider) { image in
+                slots.put(image, at: index)
+                group.leave()
             }
-        } else {
-            loadAsJpeg(provider)
+        }
+        group.notify(queue: .main) { [completion] in
+            completion(slots.ordered())
+        }
+    }
+
+    private func load(_ provider: NSItemProvider, _ done: @escaping (PickedImage?) -> Void) {
+        guard let (typeId, ext) = preferredType(for: provider) else {
+            loadAsJpeg(provider, done)
+            return
+        }
+        provider.loadDataRepresentation(forTypeIdentifier: typeId) { [weak self] data, _ in
+            if let data {
+                done(PickedImage(data: data, ext: ext))
+            } else {
+                self?.loadAsJpeg(provider, done) ?? done(nil)
+            }
         }
     }
 
@@ -260,17 +281,39 @@ private final class LibraryDelegate: NSObject, PHPickerViewControllerDelegate {
         }
     }
 
-    private func loadAsJpeg(_ provider: NSItemProvider) {
+    private func loadAsJpeg(_ provider: NSItemProvider, _ done: @escaping (PickedImage?) -> Void) {
         guard provider.canLoadObject(ofClass: UIImage.self) else {
-            completion(nil, "jpg")
+            done(nil)
             return
         }
         provider.loadObject(ofClass: UIImage.self) { object, _ in
-            let data = (object as? UIImage)?.jpegData(compressionQuality: 0.9)
-            DispatchQueue.main.async {
-                self.completion(data, "jpg")
+            guard let data = (object as? UIImage)?.jpegData(compressionQuality: 0.9) else {
+                done(nil)
+                return
             }
+            done(PickedImage(data: data, ext: "jpg"))
         }
+    }
+}
+
+final class PickedImageSlots {
+    private let lock = NSLock()
+    private var slots: [PickedImage?]
+
+    init(count: Int) {
+        slots = Array(repeating: nil, count: count)
+    }
+
+    func put(_ image: PickedImage?, at index: Int) {
+        lock.lock()
+        slots[index] = image
+        lock.unlock()
+    }
+
+    func ordered() -> [PickedImage] {
+        lock.lock()
+        defer { lock.unlock() }
+        return slots.compactMap { $0 }
     }
 }
 
@@ -278,9 +321,9 @@ private final class LibraryDelegate: NSObject, PHPickerViewControllerDelegate {
 private final class CameraDelegate: NSObject, UIImagePickerControllerDelegate,
     UINavigationControllerDelegate
 {
-    private let completion: (Data?, String) -> Void
+    private let completion: ([PickedImage]) -> Void
 
-    init(completion: @escaping (Data?, String) -> Void) {
+    init(completion: @escaping ([PickedImage]) -> Void) {
         self.completion = completion
     }
 
@@ -289,12 +332,16 @@ private final class CameraDelegate: NSObject, UIImagePickerControllerDelegate,
         didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
     ) {
         picker.dismiss(animated: true)
-        let image = info[.originalImage] as? UIImage
-        completion(image?.jpegData(compressionQuality: 0.9), "jpg")
+        guard let data = (info[.originalImage] as? UIImage)?.jpegData(compressionQuality: 0.9)
+        else {
+            completion([])
+            return
+        }
+        completion([PickedImage(data: data, ext: "jpg")])
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
-        completion(nil, "jpg")
+        completion([])
     }
 }

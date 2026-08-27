@@ -5,11 +5,13 @@ import { getFS } from '$lib/platform';
 import { registerLocalImageUrl } from '../liveMarkdownTransform';
 
 export async function insertImageFromFile(view: EditorView): Promise<void> {
-  const sourcePath = await getFS().pickImage?.();
-  if (!sourcePath) return;
-
   const fs = getFS();
-  const filename = await fs.saveImage(sourcePath);
+  if (!fs.saveImageBytes) return;
+
+  const [picked] = (await fs.pickImages?.({ limit: 1 })) ?? [];
+  if (!picked) return;
+
+  const filename = await fs.saveImageBytes(picked.bytes, picked.extension);
   registerLocalImageUrl(filename, await fs.getImageUrl(filename));
 
   const position = view.state.selection.main.head;

@@ -14,9 +14,6 @@ export const webFS: PlatformFS = {
     return [];
   },
   async deleteFile(_filename: string): Promise<void> {},
-  async saveImage(_sourcePath: string): Promise<string> {
-    throw new Error('Image saving not available in web mode');
-  },
   async getImageUrl(_filename: string): Promise<string> {
     throw new Error('Image URLs not available in web mode');
   },

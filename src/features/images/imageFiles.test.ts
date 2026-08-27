@@ -122,10 +122,7 @@ describe('listImageFiles', () => {
   it('returns only image files', async () => {
     await testFS.writeNote('some-note', '# A note');
 
-    const tmpImage = path.join(os.tmpdir(), 'test-photo.png');
-    fs.writeFileSync(tmpImage, 'fake-png-data');
-    await testFS.saveImage(tmpImage);
-    fs.unlinkSync(tmpImage);
+    fs.writeFileSync(path.join(testFS.root, 'test-photo.png'), 'fake-png-data');
 
     const images = await listImageFiles();
     expect(images).toHaveLength(1);
@@ -134,17 +131,9 @@ describe('listImageFiles', () => {
   });
 
   it('sorts by mtime descending', async () => {
-    const tmp1 = path.join(os.tmpdir(), 'older.png');
-    const tmp2 = path.join(os.tmpdir(), 'newer.jpg');
-    fs.writeFileSync(tmp1, 'data-1');
-    fs.writeFileSync(tmp2, 'data-2');
-
-    await testFS.saveImage(tmp1);
+    fs.writeFileSync(path.join(testFS.root, 'older.png'), 'data-1');
     await new Promise((r) => setTimeout(r, 50));
-    await testFS.saveImage(tmp2);
-
-    fs.unlinkSync(tmp1);
-    fs.unlinkSync(tmp2);
+    fs.writeFileSync(path.join(testFS.root, 'newer.jpg'), 'data-2');
 
     const images = await listImageFiles();
     expect(images).toHaveLength(2);
@@ -155,10 +144,7 @@ describe('listImageFiles', () => {
 
 describe('deleteImage', () => {
   it('deletes an existing image', async () => {
-    const tmp = path.join(os.tmpdir(), 'to-delete.png');
-    fs.writeFileSync(tmp, 'image-data');
-    await testFS.saveImage(tmp);
-    fs.unlinkSync(tmp);
+    fs.writeFileSync(path.join(testFS.root, 'to-delete.png'), 'image-data');
 
     let images = await listImageFiles();
     expect(images.some((i) => i.filename === 'to-delete.png')).toBe(true);
