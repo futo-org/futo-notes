@@ -5,7 +5,9 @@ import { EditorView, type DecorationSet } from '@codemirror/view';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMarkdownLanguageSupport } from '../codeMirrorMarkdown';
+import { desktopLocalization } from '$shared/localization';
 import { interactiveTableEditor, tableFocusSyncEffect } from './interactiveTableEditor';
+import { refreshTableControlLabels } from './tableControls';
 import { TableEditorWidget } from './tableEditorWidget';
 
 const { actualSyntaxTree, iterateCalls, syntaxTreeMock } = vi.hoisted(() => ({
@@ -61,6 +63,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  desktopLocalization.setSelectedLanguageTag(null);
   for (const view of views) view.destroy();
   views.length = 0;
   vi.restoreAllMocks();
@@ -139,6 +142,19 @@ function getTableDecorations(view: EditorView): TableDecoration[] {
 }
 
 describe('interactiveTableEditor', () => {
+  it('refreshes table control accessibility labels when the language changes', () => {
+    const view = setupEditor(TABLE);
+    const dragColumn = view.dom.querySelector<HTMLButtonElement>(
+      '[data-table-control-action="dragColumn"]',
+    );
+    expect(dragColumn?.getAttribute('aria-label')).toBe('Drag column');
+
+    desktopLocalization.setSelectedLanguageTag('zh-Hans');
+    refreshTableControlLabels(view.dom);
+
+    expect(dragColumn?.getAttribute('aria-label')).toBe('拖动列');
+  });
+
   it('seeds a fresh state unfocused, so a state swap has to hand it the view answer', () => {
     const view = setupEditor(TABLE);
     view.focus();

@@ -16,6 +16,7 @@ import {
 } from '$features/editor/editorContentSync';
 import { setNotesUniverse } from '$features/notes/notes.svelte';
 import type { NotePreview } from '$shared/types/note';
+import { desktopLocalization } from '$shared/localization';
 
 export interface EmbeddedEditorHandle {
   blur: () => void;
@@ -67,6 +68,9 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
   // The page-level effects the boot sequence drives. `hostBoot` decides WHEN
   // each runs and whether it runs at all; these only know HOW.
   const effects: EditorHostEffects = {
+    applyLanguage(languageTag: string): void {
+      desktopLocalization.setSelectedLanguageTag(languageTag);
+    },
     applyContentPadding(px: number): void {
       // editor-native-layout.css reads this; the shells only supply the value.
       document.documentElement.style.setProperty('--futo-cm-pad-inline', `${px}px`);
@@ -122,6 +126,9 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     },
     setTheme(theme: EditorTheme): void {
       boot.setTheme(theme);
+    },
+    setLanguage(languageTag: string): void {
+      boot.setLanguage(languageTag);
     },
     setNotes(notesJson: string): void {
       boot.setNotes(notesJson);

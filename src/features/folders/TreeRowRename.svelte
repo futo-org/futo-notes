@@ -14,6 +14,7 @@
   import { onMount, tick, untrack } from 'svelte';
 
   import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
+  import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
 
   interface Props {
     /** Name to seed the field with (the current leaf). */
@@ -22,7 +23,7 @@
     label: string;
     testId: string;
     /** Commit. Returns an error message to keep the field open, or null on success. */
-    onsubmit: (value: string) => Promise<string | null> | string | null;
+    onsubmit: (value: string) => Promise<LocalizedMessage | null> | LocalizedMessage | null;
     /** Leave rename mode (success or cancel). */
     onclose: () => void;
   }
@@ -31,7 +32,7 @@
 
   // Seeded once: the field owns the text from the moment it opens.
   let value = $state(untrack(() => initialValue));
-  let error = $state<string | null>(null);
+  let error = $state<LocalizedMessage | null>(null);
   let isSubmitting = $state(false);
   let input: HTMLInputElement | undefined = $state();
 
@@ -52,9 +53,10 @@
       }
       error = failure;
       showGlobalToast(failure);
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Rename failed';
-      showGlobalToast(error);
+    } catch {
+      console.warn('Inline rename failed');
+      error = { path: 'common.errors.renameFailed' };
+      showGlobalToast({ path: 'common.errors.renameFailed' });
     } finally {
       isSubmitting = false;
     }
@@ -97,7 +99,7 @@
     disabled={isSubmitting}
     aria-label={label}
     aria-invalid={error !== null}
-    title={error ?? label}
+    title={error ? resolveLocalizedMessage(error) : label}
     autocomplete="off"
     autocapitalize="none"
     spellcheck="false"

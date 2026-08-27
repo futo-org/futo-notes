@@ -2,6 +2,7 @@
   import type { CrashReport } from './crashHandler';
   import { keyboard } from '$features/editor/keyboard.svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
+  import { localizedText } from '$shared/localization';
   import './crashReportDialog.css';
 
   interface Props {
@@ -63,13 +64,12 @@
     use:dismissable={{ ondismiss: handleDiscard }}
   >
     <div class="crash-header">
-      <h2 class="crash-title">Crash Report</h2>
+      <h2 class="crash-title">{localizedText('crashReporting.heading')}</h2>
     </div>
 
     <div class="crash-content">
       <p class="crash-message">
-        The app crashed{reportCount > 1 ? ` (${reportCount} reports)` : ''}. Send a report to help
-        us fix it?
+        {localizedText('crashReporting.desktopPrompt', { count: reportCount })}
       </p>
 
       {#if firstReport}
@@ -80,23 +80,25 @@
           }}
         >
           <span class="crash-toggle-arrow" class:open={showDetails}>&#9656;</span>
-          View report
+          {localizedText('crashReporting.viewReport')}
         </button>
 
         {#if showDetails}
           <div class="crash-details">
-            <div class="crash-detail-label">Error</div>
+            <div class="crash-detail-label">{localizedText('crashReporting.details.error')}</div>
             <pre class="crash-detail-value">{firstReport.error}</pre>
             {#if firstReport.stack}
-              <div class="crash-detail-label">Stack</div>
+              <div class="crash-detail-label">{localizedText('crashReporting.details.stack')}</div>
               <pre class="crash-detail-value">{firstReport.stack}</pre>
             {/if}
-            <div class="crash-detail-label">Type</div>
+            <div class="crash-detail-label">{localizedText('crashReporting.details.type')}</div>
             <pre class="crash-detail-value">{firstReport.type}</pre>
-            <div class="crash-detail-label">Platform</div>
+            <div class="crash-detail-label">{localizedText('crashReporting.details.platform')}</div>
             <pre class="crash-detail-value">{firstReport.platform} | {firstReport.app_version}</pre>
             <button class="crash-copy-btn" onclick={handleCopyReport}>
-              {copyFeedback ? 'Copied!' : 'Copy report'}
+              {copyFeedback
+                ? localizedText('crashReporting.copied')
+                : localizedText('crashReporting.copyReport')}
             </button>
           </div>
         {/if}
@@ -109,26 +111,30 @@
         }}
       >
         <span class="crash-toggle-arrow" class:open={showContext}>&#9656;</span>
-        What were you doing?
+        {localizedText('crashReporting.activityPrompt')}
       </button>
 
       {#if showContext}
         <textarea
           class="crash-textarea"
-          placeholder="Optional: describe what you were doing when the crash happened"
+          placeholder={localizedText('crashReporting.optionalDescriptionPlaceholder')}
           bind:value={userDescription}
           rows="3"></textarea>
       {/if}
 
       <label class="crash-checkbox-row">
         <input type="checkbox" bind:checked={alwaysSend} />
-        <span>Send crashes automatically</span>
+        <span>{localizedText('crashReporting.sendAutomatically')}</span>
       </label>
     </div>
 
     <div class="crash-actions">
-      <button class="crash-btn crash-btn-secondary" onclick={handleDiscard}>Don't Send</button>
-      <button class="crash-btn crash-btn-primary" onclick={handleSend}>Send Report</button>
+      <button class="crash-btn crash-btn-secondary" onclick={handleDiscard}
+        >{localizedText('crashReporting.dontSend')}</button
+      >
+      <button class="crash-btn crash-btn-primary" onclick={handleSend}
+        >{localizedText('crashReporting.sendReport')}</button
+      >
     </div>
   </div>
 </div>

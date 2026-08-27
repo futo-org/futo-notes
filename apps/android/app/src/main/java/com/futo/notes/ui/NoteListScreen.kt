@@ -66,6 +66,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
+import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.shouldCompleteNoteAction
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
@@ -100,6 +102,7 @@ internal fun NoteListScreen(
     onBack: () -> Unit,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = state.scrollStateFor(folder)
@@ -122,7 +125,7 @@ internal fun NoteListScreen(
 
     val subfolders = store.subfolders(folder)
     val notes = store.notesIn(folder)
-    val title = if (isRoot) "Notes" else folder.substringAfterLast('/')
+    val title = if (isRoot) localization.localizedText("notes.heading") else folder.substringAfterLast('/')
 
     Scaffold(
         containerColor = c.surface,
@@ -136,7 +139,7 @@ internal fun NoteListScreen(
                         IconButton(onClick = onBack) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
+                                contentDescription = localization.localizedText("common.actions.back"),
                                 tint = c.textSecondary,
                             )
                         }
@@ -146,15 +149,27 @@ internal fun NoteListScreen(
                     // New folder, created in THIS folder — the secondary create
                     // action; the FAB is the primary one. [list.md]
                     IconButton(onClick = { newFolderDialog = true }) {
-                        Icon(Icons.Filled.CreateNewFolder, contentDescription = "New folder", tint = c.textSecondary)
+                        Icon(
+                            Icons.Filled.CreateNewFolder,
+                            contentDescription = localization.localizedText("folders.newFolder"),
+                            tint = c.textSecondary,
+                        )
                     }
                     IconButton(onClick = onOpenSearch) {
-                        Icon(Icons.Filled.Search, contentDescription = "Search", tint = c.textSecondary)
+                        Icon(
+                            Icons.Filled.Search,
+                            contentDescription = localization.localizedText("search.heading"),
+                            tint = c.textSecondary,
+                        )
                     }
                     // Settings lived at the bottom of the removed drawer; it is
                     // now a top-bar gear on every folder screen, mirroring iOS.
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = c.textSecondary)
+                        Icon(
+                            Icons.Filled.Settings,
+                            contentDescription = localization.localizedText("settings.heading"),
+                            tint = c.textSecondary,
+                        )
                     }
                 },
                 modifier = if (scrolled) Modifier.drawWithContent {
@@ -208,7 +223,7 @@ internal fun NoteListScreen(
                             NoteMutationOutcome.Failed ->
                                 Toast.makeText(
                                     context,
-                                    "Couldn't create note. Try again.",
+                                    localization.localizedText("notes.errors.createFailed"),
                                     Toast.LENGTH_SHORT,
                                 ).show()
                         }
@@ -220,7 +235,10 @@ internal fun NoteListScreen(
                 shape = RoundedCornerShape(FutoRadius.lg),
                 modifier = Modifier.padding(2.dp).graphicsLayer { scaleX = scale; scaleY = scale },
             ) {
-                Icon(Icons.Filled.Add, contentDescription = "New note")
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = localization.localizedText("notes.newNote"),
+                )
             }
         },
     ) { padding ->
@@ -253,17 +271,22 @@ internal fun NoteListScreen(
                         )
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(
-                                text = { Text("Rename") },
+                                text = { Text(localization.localizedText("common.actions.rename")) },
                                 leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null, tint = c.textSecondary) },
                                 onClick = { menu = false; renameFolderTarget = child },
                             )
                             DropdownMenuItem(
-                                text = { Text("Move to Folder…") },
+                                text = { Text(localization.localizedText("folders.actions.moveToFolderEllipsis")) },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },
                                 onClick = { menu = false; moveFolderTarget = child },
                             )
                             DropdownMenuItem(
-                                text = { Text("Delete folder", color = c.danger) },
+                                text = {
+                                    Text(
+                                        localization.localizedText("folders.actions.deleteFolder"),
+                                        color = c.danger,
+                                    )
+                                },
                                 leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },
                                 onClick = { menu = false; confirmDeleteFolder = child },
                             )
@@ -281,12 +304,12 @@ internal fun NoteListScreen(
                         )
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(
-                                text = { Text("Move to Folder…") },
+                                text = { Text(localization.localizedText("notes.actions.moveToFolderEllipsis")) },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },
                                 onClick = { menu = false; moveTarget = note.id },
                             )
                             DropdownMenuItem(
-                                text = { Text("Delete") },
+                                text = { Text(localization.localizedText("common.actions.delete")) },
                                 leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },
                                 onClick = { menu = false; deleteTarget = note.id },
                             )
@@ -299,19 +322,23 @@ internal fun NoteListScreen(
 
     deleteTarget?.let { id ->
         ConfirmDialog(
-            title = "Delete this note?",
-            body = "This action cannot be undone.",
-            confirmLabel = "Delete",
+            title = localization.localizedText("notes.delete.thisNoteQuestion"),
+            body = localization.localizedText("notes.delete.recoverableWarning"),
+            confirmLabel = localization.localizedText("common.actions.delete"),
             onConfirm = {
                 deleteTarget = null
                 scope.launch {
                     val outcome = store.delete(id)
                     if (shouldCompleteNoteAction(outcome)) {
-                        Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            localization.localizedText("notes.deleted"),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     } else {
                         Toast.makeText(
                             context,
-                            "Couldn't delete note. It remains in your notes.",
+                            localization.localizedText("notes.errors.deleteFailed"),
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
@@ -333,13 +360,20 @@ internal fun NoteListScreen(
                             moveTarget = null
                             Toast.makeText(
                                 context,
-                                "Moved to ${destination.ifEmpty { "Root" }}",
+                                if (destination.isEmpty()) {
+                                    localization.localizedText("notes.movedToRoot")
+                                } else {
+                                    localization.localizedText(
+                                        "notes.movedTo",
+                                        mapOf("destination" to destination),
+                                    )
+                                },
                                 Toast.LENGTH_SHORT,
                             ).show()
                         }
                         NoteMutationOutcome.Failed -> Toast.makeText(
                             context,
-                            "Couldn't move note. It remains in its current folder.",
+                            localization.localizedText("notes.errors.moveFailed"),
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
@@ -359,7 +393,7 @@ internal fun NoteListScreen(
                     } else {
                         Toast.makeText(
                             context,
-                            "Couldn't create folder. Try again.",
+                            localization.localizedText("folders.errors.createFailed"),
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
@@ -375,8 +409,8 @@ internal fun NoteListScreen(
             parent = parent,
             store = store,
             initialName = target.substringAfterLast('/'),
-            title = "Rename folder",
-            confirmLabel = "Rename",
+            title = localization.localizedText("folders.renameHeading"),
+            confirmLabel = localization.localizedText("common.actions.rename"),
             excludePath = target,
             onCreate = { newPath ->
                 renameFolderTarget = null
@@ -384,9 +418,17 @@ internal fun NoteListScreen(
                     val finalFolder = store.renameFolder(target, newPath)
                     if (finalFolder != null) {
                         onFolderMoved(target, finalFolder)
-                        Toast.makeText(context, "Folder renamed", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            localization.localizedText("folders.renamed"),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     } else {
-                        Toast.makeText(context, "Couldn't rename folder", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            localization.localizedText("folders.errors.renameFailed"),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             },
@@ -397,7 +439,10 @@ internal fun NoteListScreen(
     moveFolderTarget?.let { target ->
         FolderPickerSheet(
             store = store,
-            title = "Move \"${target.substringAfterLast('/')}\"",
+            title = localization.localizedText(
+                "folders.moveNamedHeading",
+                mapOf("folderName" to target.substringAfterLast('/')),
+            ),
             excludePaths = listOf(target),
             allowCreate = false,
             onDismiss = { moveFolderTarget = null },
@@ -409,13 +454,20 @@ internal fun NoteListScreen(
                         onFolderMoved(target, finalFolder)
                         Toast.makeText(
                             context,
-                            "Moved to ${destination.ifEmpty { "Root" }}",
+                            if (destination.isEmpty()) {
+                                localization.localizedText("folders.movedToRoot")
+                            } else {
+                                localization.localizedText(
+                                    "folders.movedTo",
+                                    mapOf("destination" to destination),
+                                )
+                            },
                             Toast.LENGTH_SHORT,
                         ).show()
                     } else {
                         Toast.makeText(
                             context,
-                            "Couldn't move folder — nothing was changed",
+                            localization.localizedText("folders.errors.moveFailed"),
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
@@ -426,9 +478,9 @@ internal fun NoteListScreen(
 
     confirmDeleteFolder?.let { target ->
         ConfirmDialog(
-            title = "Delete this folder?",
-            body = "Notes inside it will be moved to the parent folder.",
-            confirmLabel = "Delete",
+            title = localization.localizedText("folders.delete.thisFolderQuestion"),
+            body = localization.localizedText("folders.delete.moveNotesWarning"),
+            confirmLabel = localization.localizedText("common.actions.delete"),
             onConfirm = {
                 confirmDeleteFolder = null
                 scope.launch {
@@ -439,9 +491,18 @@ internal fun NoteListScreen(
                     // it — no explicit pop needed here.
                     val moved = store.deleteFolder(target)
                     if (moved != null) {
-                        Toast.makeText(context, folderDeletedToast(moved), Toast.LENGTH_SHORT).show()
+                        val message = folderDeletedMessage(moved)
+                        Toast.makeText(
+                            context,
+                            localization.localizedText(message.path, message.arguments),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     } else {
-                        Toast.makeText(context, "Couldn't delete folder — nothing was changed", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            localization.localizedText("folders.errors.deleteFailed"),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             },
@@ -453,8 +514,10 @@ internal fun NoteListScreen(
 /** Toast body for a MOVE-UP folder delete [list.md]. Pluralizes the
  *  moved-note count ("moved 1 note" / "moved N notes") — pinned by
  *  FolderDeleteToastTest. */
-internal fun folderDeletedToast(moved: UInt): String =
-    "Folder deleted; moved $moved " + if (moved == 1u) "note" else "notes"
+internal fun folderDeletedMessage(moved: UInt): LocalizedMessage = LocalizedMessage(
+    "folders.delete.movedNotes",
+    mapOf("count" to moved.toLong()),
+)
 
 /** Rank changes re-pin only an at-top viewport; the four-pixel allowance
  *  absorbs overscroll settling without disturbing deep scrolls [list.md]. */
@@ -475,6 +538,7 @@ private fun FolderCard(
     onLongClick: () -> Unit,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     val name = path.substringAfterLast('/')
     val interaction = remember { MutableInteractionSource() }
     val scale = pressScale(interaction, pressedScale = 0.99f)
@@ -495,7 +559,12 @@ private fun FolderCard(
             )
             // A stable, path-qualified description so automation can find one
             // folder row among several with the same leaf name.
-            .semantics { contentDescription = "Folder $path" },
+            .semantics {
+                contentDescription = localization.localizedText(
+                    "folders.rowAccessibilityLabel",
+                    mapOf("folderName" to path),
+                )
+            },
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -529,6 +598,7 @@ private fun FolderCard(
 @Composable
 private fun EmptyState(isRoot: Boolean) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
@@ -544,13 +614,15 @@ private fun EmptyState(isRoot: Boolean) {
             }
             Spacer(Modifier.height(16.dp))
             Text(
-                if (isRoot) "No notes yet" else "Empty folder",
+                localization.localizedText(
+                    if (isRoot) "notes.list.rootEmptyHeading" else "notes.list.folderEmptyHeading",
+                ),
                 style = FutoType.title,
                 color = c.textPrimary,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Tap + to add a note.",
+                localization.localizedText("notes.list.android.emptyActionHint"),
                 style = FutoType.small,
                 color = c.textTertiary,
             )

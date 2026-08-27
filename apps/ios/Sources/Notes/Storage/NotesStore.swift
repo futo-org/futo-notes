@@ -219,12 +219,12 @@ final class NotesStore: ObservableObject {
     /// user should notice but that don't warrant a dialog — e.g. a peer deleting
     /// the note you had open. Auto-clears after a few seconds. This is the iOS
     /// equivalent of the desktop `showGlobalToast` / Android `Toast`.
-    @Published var transientMessage: String?
+    @Published var transientMessage: LocalizedMessage?
     private var transientMessageTask: Task<Void, Never>?
 
     /// Show `message` as the transient banner for ~3.5 s (a later call replaces
     /// the current one and restarts the timer).
-    func showTransient(_ message: String) {
+    func showTransient(_ message: LocalizedMessage) {
         transientMessageTask?.cancel()
         transientMessage = message
         transientMessageTask = Task { @MainActor in
@@ -479,7 +479,7 @@ final class NotesStore: ObservableObject {
             return .committed(())
         } catch {
             print("write failed for \(id): \(error)")
-            showTransient("Couldn't save note. Your changes are still pending.")
+            showTransient(LocalizedMessage("notes.save.failedPending"))
             return .failed
         }
     }

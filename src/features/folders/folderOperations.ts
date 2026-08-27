@@ -5,8 +5,8 @@ import {
   MAX_FOLDER_DEPTH,
   MAX_TITLE_LENGTH,
   validateFolderName,
-  type FilenameIssueKind,
 } from '$lib/rules';
+import type { LocalizedMessage } from '$shared/localization';
 
 import {
   openFolderAndAncestors,
@@ -17,7 +17,7 @@ import {
 export interface CreateFolderResult {
   ok: boolean;
   path?: string;
-  error?: string;
+  error?: LocalizedMessage;
 }
 
 function folderDepth(path: string): number {
@@ -27,41 +27,56 @@ function folderDepth(path: string): number {
     .filter(Boolean).length;
 }
 
-function folderOperationError(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+function folderOperationError(diagnostic: string, fallback: LocalizedMessage): LocalizedMessage {
+  console.warn(diagnostic);
+  return fallback;
 }
 
 // The shared rules are written for note titles ("That character can't be used
 // in a note title"), because `validateFolderName` layers on `validateTitle`.
 // Naming the surface is the caller's job, so the manifest stays generic and a
 // folder dialog never tells the user they broke a *note title* rule.
-const FOLDER_NAME_MESSAGES: Partial<Record<FilenameIssueKind, string>> = {
-  empty: 'Folder name cannot be empty',
-  forbidden_chars: "That character can't be used in a folder name",
-  leading_dots: 'Folder name cannot start with a dot',
-  trailing_dots: 'Folder name cannot end with a dot',
-  too_long: `Folder name cannot exceed ${MAX_TITLE_LENGTH} characters`,
-};
-
 /** The first shared-rule violation in `name`, worded for a folder. */
-export function validateFolderNameForDisplay(name: string): string | null {
+export function validateFolderNameForDisplay(name: string): LocalizedMessage | null {
   const issue = validateFolderName(name)[0];
   if (!issue) return null;
-  return FOLDER_NAME_MESSAGES[issue.kind] ?? issue.message;
+  switch (issue.kind) {
+    case 'empty':
+      return { path: 'folders.validation.empty' };
+    case 'forbidden_chars':
+      return { path: 'folders.validation.forbiddenCharacter' };
+    case 'leading_dots':
+      return { path: 'folders.validation.leadingDot' };
+    case 'trailing_dots':
+      return { path: 'folders.validation.trailingDot' };
+    case 'too_long':
+      return {
+        path: 'folders.validation.tooLong',
+        arguments: { maxLength: MAX_TITLE_LENGTH },
+      };
+    case 'reserved_name':
+      return { path: 'folders.validation.reservedName', arguments: { folderName: name } };
+    case 'case_collision':
+      return { path: 'folders.duplicateName' };
+    case 'depth_exceeded':
+      return { path: 'folders.validation.tooDeep', arguments: { maxDepth: MAX_FOLDER_DEPTH } };
+  }
 }
 
 export function validateNewFolderName(
   parentPath: string,
   name: string,
   siblings: Iterable<string>,
-): string | null {
+): LocalizedMessage | null {
   const nameError = validateFolderNameForDisplay(name);
   if (nameError) return nameError;
   if (hasCaseInsensitiveSiblingCollision(name, siblings)) {
-    return 'A folder with this name already exists';
+    return { path: 'folders.duplicateName' };
   }
   const path = parentPath ? `${parentPath}/${name}` : name;
-  if (folderDepth(path) > MAX_FOLDER_DEPTH) return `Folder depth cannot exceed ${MAX_FOLDER_DEPTH}`;
+  if (folderDepth(path) > MAX_FOLDER_DEPTH) {
+    return { path: 'folders.validation.tooDeep', arguments: { maxDepth: MAX_FOLDER_DEPTH } };
+  }
   return null;
 }
 
@@ -80,8 +95,13 @@ export async function createFolder(
     _applyLocalMutation(mutation);
     openFolderAndAncestors(path);
     return { ok: true, path };
-  } catch (cause) {
-    return { ok: false, error: folderOperationError(cause, 'Failed to create folder') };
+  } catch {
+    return {
+      ok: false,
+      error: folderOperationError('Folder creation failed', {
+        path: 'folders.errors.createFailed',
+      }),
+    };
   }
 }
 
@@ -91,13 +111,16 @@ export async function renameOrMoveFolder(
   siblings: Iterable<string>,
 ): Promise<{
   ok: boolean;
-  error?: string;
+  error?: LocalizedMessage;
   renames?: LocalNoteRename[];
   finalFolder?: string;
 }> {
   if (fromPath === toPath) return { ok: true };
   if (folderDepth(toPath) > MAX_FOLDER_DEPTH) {
-    return { ok: false, error: `Folder depth cannot exceed ${MAX_FOLDER_DEPTH}` };
+    return {
+      ok: false,
+      error: { path: 'folders.validation.tooDeep', arguments: { maxDepth: MAX_FOLDER_DEPTH } },
+    };
   }
 
   const components = toPath.split('/');
@@ -107,7 +130,13 @@ export async function renameOrMoveFolder(
   }
   const newName = components[components.length - 1] ?? '';
   if (hasCaseInsensitiveSiblingCollision(newName, siblings)) {
-    return { ok: false, error: `A folder named "${newName}" already exists at this level` };
+    return {
+      ok: false,
+      error: {
+        path: 'folders.validation.duplicateAtLevel',
+        arguments: { folderName: newName },
+      },
+    };
   }
 
   try {
@@ -117,8 +146,13 @@ export async function renameOrMoveFolder(
     const finalFolder = mutation.finalFolder ?? toPath;
     rebaseOpenFolders(fromPath, finalFolder);
     return { ok: true, renames: mutation.renamed, finalFolder };
-  } catch (cause) {
-    return { ok: false, error: folderOperationError(cause, 'Failed to rename folder') };
+  } catch {
+    return {
+      ok: false,
+      error: folderOperationError('Folder rename failed', {
+        path: 'folders.errors.renameFailed',
+      }),
+    };
   }
 }
 
@@ -137,7 +171,7 @@ export async function renameFolderInPlace(
   siblings: Iterable<string>,
 ): Promise<{
   ok: boolean;
-  error?: string;
+  error?: LocalizedMessage;
   renames?: LocalNoteRename[];
   finalFolder?: string;
 }> {
@@ -157,7 +191,7 @@ export async function moveFolder(
   destinationParent: string,
 ): Promise<{
   ok: boolean;
-  error?: string;
+  error?: LocalizedMessage;
   renames?: LocalNoteRename[];
   finalFolder?: string;
 }> {
@@ -168,21 +202,29 @@ export async function moveFolder(
     const finalFolder = mutation.finalFolder ?? fromPath;
     rebaseOpenFolders(fromPath, finalFolder);
     return { ok: true, renames: mutation.renamed, finalFolder };
-  } catch (cause) {
-    return { ok: false, error: folderOperationError(cause, 'Failed to move folder') };
+  } catch {
+    return {
+      ok: false,
+      error: folderOperationError('Folder move failed', { path: 'folders.errors.moveFailed' }),
+    };
   }
 }
 
 export async function deleteFolder(
   path: string,
-): Promise<{ ok: boolean; error?: string; renames?: LocalNoteRename[] }> {
+): Promise<{ ok: boolean; error?: LocalizedMessage; renames?: LocalNoteRename[] }> {
   try {
     const mutation = await (await getLocalNoteStore()).deleteFolder(path);
     const { _applyLocalMutation } = await import('$features/notes/notes.svelte');
     _applyLocalMutation(mutation);
     removeOpenFolderTree(path);
     return { ok: true, renames: mutation.renamed };
-  } catch (cause) {
-    return { ok: false, error: folderOperationError(cause, 'Failed to delete folder') };
+  } catch {
+    return {
+      ok: false,
+      error: folderOperationError('Folder deletion failed', {
+        path: 'folders.errors.deleteFailed',
+      }),
+    };
   }
 }

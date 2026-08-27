@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
+import type { AppPreferences } from '$shared/state/appState';
 
 // M1 render gate: every dependency hangs forever so the test proves the shell
 // gate cannot be waiting on any of them. (Factories are hoisted, so the
@@ -10,9 +11,17 @@ vi.mock('$features/system/updateChecker.svelte', () => ({
 vi.mock('$features/sync/syncServiceE2ee', () => ({
   initSyncPassword: vi.fn(() => new Promise(() => {})),
 }));
-vi.mock('$shared/state/appState', () => ({
+const preferenceMocks = vi.hoisted(() => ({
   loadPreferences: vi.fn(() => new Promise(() => {})),
-  getCachedPreferences: vi.fn(() => ({ appearance: { theme: 'auto' } })),
+  saveSelectedLanguageTag: vi.fn(() => Promise.resolve()),
+}));
+vi.mock('$shared/state/appState', () => ({
+  loadPreferences: preferenceMocks.loadPreferences,
+  saveSelectedLanguageTag: preferenceMocks.saveSelectedLanguageTag,
+  getCachedPreferences: vi.fn(() => ({
+    appearance: { theme: 'auto' },
+    language: { selectedLanguageTag: null },
+  })),
 }));
 vi.mock('$features/notes/notes.svelte', () => ({
   initNotes: vi.fn(() => new Promise(() => {})),
@@ -37,6 +46,7 @@ vi.mock('$features/system/theme', () => ({
   watchSystemThemeTauri: themeMocks.watchSystemThemeTauri,
 }));
 
+import { desktopLocalization } from '$shared/localization';
 import { createAppBootstrap } from './createAppBootstrap.svelte';
 
 const never = () => new Promise<never>(() => {});
@@ -46,6 +56,7 @@ describe('createAppBootstrap (M1 render gate)', () => {
     const bootstrap = createAppBootstrap({
       initializeCrashReporting: vi.fn(never),
       installDevelopmentHooks: vi.fn(),
+      showToast: vi.fn(),
     });
 
     expect(bootstrap.initialized).toBe(false);
@@ -62,6 +73,7 @@ describe('createAppBootstrap (M1 render gate)', () => {
     const bootstrap = createAppBootstrap({
       initializeCrashReporting: vi.fn(() => Promise.reject(new Error('collector down'))),
       installDevelopmentHooks: vi.fn(),
+      showToast: vi.fn(),
     });
 
     const stop = bootstrap.start();
@@ -74,11 +86,11 @@ describe('createAppBootstrap (M1 render gate)', () => {
   });
 
   it('forwards the OS-reported theme so auto follows the desktop theme on Linux', () => {
-    // getCachedPreferences() is mocked to { appearance: { theme: 'auto' } }.
     themeMocks.applyThemePreference.mockClear();
     const bootstrap = createAppBootstrap({
       initializeCrashReporting: vi.fn(never),
       installDevelopmentHooks: vi.fn(),
+      showToast: vi.fn(),
     });
 
     const stop = bootstrap.start();
@@ -89,6 +101,87 @@ describe('createAppBootstrap (M1 render gate)', () => {
     // webview's matchMedia can't see it, so this override must reach applyThemePreference.
     themeMocks.fireSystemThemeChange('dark');
     expect(themeMocks.applyThemePreference).toHaveBeenLastCalledWith('auto', 'dark');
+
+    stop();
+  });
+
+  it('refreshes System language when the window returns to the foreground', () => {
+    const refreshSystemLanguage = vi.spyOn(desktopLocalization, 'refreshSystemLanguage');
+    const bootstrap = createAppBootstrap({
+      initializeCrashReporting: vi.fn(never),
+      installDevelopmentHooks: vi.fn(),
+      showToast: vi.fn(),
+    });
+
+    const stop = bootstrap.start();
+    window.dispatchEvent(new Event('focus'));
+    expect(refreshSystemLanguage).toHaveBeenCalledOnce();
+
+    stop();
+    window.dispatchEvent(new Event('focus'));
+    expect(refreshSystemLanguage).toHaveBeenCalledOnce();
+    refreshSystemLanguage.mockRestore();
+  });
+
+  it('does not replace a language selected while preferences are loading', async () => {
+    let resolvePreferences = (_preferences: AppPreferences) => {};
+    preferenceMocks.loadPreferences.mockImplementationOnce(
+      () =>
+        new Promise<AppPreferences>((resolve) => {
+          resolvePreferences = resolve;
+        }),
+    );
+    preferenceMocks.saveSelectedLanguageTag.mockClear();
+    desktopLocalization.setSelectedLanguageTag(null);
+    const bootstrap = createAppBootstrap({
+      initializeCrashReporting: vi.fn(never),
+      installDevelopmentHooks: vi.fn(),
+      showToast: vi.fn(),
+    });
+
+    const stop = bootstrap.start();
+    await vi.waitFor(() => expect(preferenceMocks.loadPreferences).toHaveBeenCalled());
+    desktopLocalization.setSelectedLanguageTag('zh-Hans');
+    resolvePreferences({
+      appearance: { theme: 'auto' },
+      language: { selectedLanguageTag: 'en' },
+      crashReporting: { enabled: true, alwaysSend: false },
+      updates: { enabled: true },
+      sync: { serverUrl: '', token: '', lastSyncedAt: null, lastError: '' },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(desktopLocalization.selectedLanguageTag).toBe('zh-Hans');
+    expect(desktopLocalization.effectiveLanguage.tag).toBe('zh-Hans');
+    expect(preferenceMocks.saveSelectedLanguageTag).not.toHaveBeenCalled();
+
+    stop();
+    desktopLocalization.setSelectedLanguageTag(null);
+  });
+
+  it('corrects an unavailable stored language to System and reports save failure', async () => {
+    preferenceMocks.loadPreferences.mockResolvedValueOnce({
+      appearance: { theme: 'auto' },
+      language: { selectedLanguageTag: 'fr' },
+      crashReporting: { enabled: true, alwaysSend: false },
+      updates: { enabled: true },
+      sync: { serverUrl: '', token: '', lastSyncedAt: null, lastError: '' },
+    });
+    preferenceMocks.saveSelectedLanguageTag.mockRejectedValueOnce(new Error('disk unavailable'));
+    const showToast = vi.fn();
+    const bootstrap = createAppBootstrap({
+      initializeCrashReporting: vi.fn(never),
+      installDevelopmentHooks: vi.fn(),
+      showToast,
+    });
+
+    const stop = bootstrap.start();
+
+    await vi.waitFor(() => {
+      expect(preferenceMocks.saveSelectedLanguageTag).toHaveBeenCalledWith(null);
+      expect(showToast).toHaveBeenCalledWith({ path: 'settings.language.saveFailed' });
+    });
 
     stop();
   });

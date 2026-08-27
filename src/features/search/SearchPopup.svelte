@@ -2,6 +2,7 @@
   import type { SearchResultItem } from '$shared/types/search';
   import { search } from '$features/notes/notes.svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
+  import { localizedText } from '$shared/localization';
 
   interface Props {
     onclose: () => void;
@@ -111,13 +112,13 @@
         bind:this={inputEl}
         type="text"
         class="search-input"
-        placeholder="Search notes..."
+        placeholder={localizedText('search.placeholder')}
         bind:value={query}
       />
       {#if query}
         <button
           class="search-clear"
-          aria-label="Clear search"
+          aria-label={localizedText('search.clearAccessibilityLabel')}
           onclick={() => {
             query = '';
             inputEl?.focus();
@@ -170,7 +171,7 @@
         </button>
       {:else}
         {#if query}
-          <div class="search-empty">No notes found</div>
+          <div class="search-empty">{localizedText('search.noNotesFound')}</div>
         {/if}
       {/each}
     </div>

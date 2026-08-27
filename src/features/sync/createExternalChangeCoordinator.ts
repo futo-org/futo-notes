@@ -9,12 +9,13 @@ import {
 } from './syncServiceE2ee';
 import { createWatcherBatch } from './watcherBatch';
 import type { WriteSuppressor } from '$lib/platform/writeSuppression';
+import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
 
 interface ExternalChangeDependencies {
   followRename: (fromId: string, toId: string) => void;
   session: NoteSession;
   notifySaved: () => void;
-  showToast: (message: string) => void;
+  showToast: (message: ToastMessage) => void;
   writeSuppressor: WriteSuppressor;
 }
 
@@ -167,14 +168,14 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
         dependencies.session.rebaseSavedContent(disposition.base);
         dependencies.session.resumeDraftPersistence();
         if (disposition.reason === 'peerDeleted') {
-          dependencies.showToast('Open note was deleted; keeping local draft');
+          dependencies.showToast({ path: 'notes.save.openNoteDeletedKeepingDraft' });
           result.keptDraftId = id;
         }
         break;
       case 'close':
         pendingReconcile = null;
         dependencies.session.cancelAndClear();
-        dependencies.showToast('Note was deleted');
+        dependencies.showToast({ path: 'notes.deletedElsewhere' });
         break;
     }
     return result;

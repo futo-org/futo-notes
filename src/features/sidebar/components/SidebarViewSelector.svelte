@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { localizedText } from '$shared/localization';
+
   export type SidebarView = 'notes' | 'tags' | 'images';
 
   interface Props {
@@ -12,7 +14,7 @@
 <div class="sidebar-view-toggle">
   <button
     class:active={selected === 'notes'}
-    aria-label="Notes view"
+    aria-label={localizedText('sidebar.views.notesAccessibilityLabel')}
     onclick={() => onselect('notes')}
   >
     <svg
@@ -31,7 +33,7 @@
   </button>
   <button
     class:active={selected === 'tags'}
-    aria-label="Tags view"
+    aria-label={localizedText('sidebar.views.tagsAccessibilityLabel')}
     onclick={() => onselect('tags')}
   >
     <svg
@@ -50,7 +52,7 @@
   </button>
   <button
     class:active={selected === 'images'}
-    aria-label="Images view"
+    aria-label={localizedText('sidebar.views.imagesAccessibilityLabel')}
     onclick={() => onselect('images')}
   >
     <svg

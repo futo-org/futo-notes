@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
+import com.futo.notes.localization.Localization
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -35,7 +36,10 @@ const val MAX_PICKED_IMAGES = 3
  * Must be constructed during Activity onCreate: ActivityResult contracts have
  * to register before the activity is started.
  */
-class ImagePicker(private val activity: ComponentActivity) {
+class ImagePicker(
+    private val activity: ComponentActivity,
+    private val localization: () -> Localization,
+) {
     private var onPicked: ((List<Uri>) -> Unit)? = null
     private var cameraUri: Uri? = null
 
@@ -85,7 +89,11 @@ class ImagePicker(private val activity: ComponentActivity) {
             onPicked = null
             cameraUri = null
             android.util.Log.w("ImagePicker", "no camera activity for IMAGE_CAPTURE", e)
-            Toast.makeText(activity, "No camera app available", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                activity,
+                localization().localizedText("editor.images.cameraUnavailable"),
+                Toast.LENGTH_LONG,
+            ).show()
             callback(emptyList())
         }
     }

@@ -1,20 +1,23 @@
-import { bundledLanguageCatalogs } from './bundledLanguageCatalogs';
-import { createLocalizationModule } from './localization';
+import { desktopLocalization } from './desktopLocalization.svelte';
+import type { LocalizationArguments } from './localization';
 
-const requestedLanguageTags =
-  typeof navigator === 'undefined' ? ['en'] : Array.from(navigator.languages);
-const regionalNumberFormat = new Intl.NumberFormat().resolvedOptions();
-const localizationModule = createLocalizationModule({
-  catalogs: bundledLanguageCatalogs,
-  requestedLanguageTags,
-  regionalLanguageTag: regionalNumberFormat.locale,
-  regionalNumberingSystem: regionalNumberFormat.numberingSystem,
-});
+export interface LocalizedMessage {
+  readonly path: string;
+  readonly arguments?: LocalizationArguments;
+}
 
-export const effectiveLanguage = localizationModule.effectiveLanguage;
-export const availableLanguages = localizationModule.availableLanguages;
-export const localizedText = localizationModule.localizedText;
-export const localizedFileSize = localizationModule.localizedFileSize;
-export const localizedRelativeTime = localizationModule.localizedRelativeTime;
+export { createDesktopLocalization, desktopLocalization } from './desktopLocalization.svelte';
+
+export const localizedText = desktopLocalization.localizedText;
+export const localizedFileSize = desktopLocalization.localizedFileSize;
+export const localizedRelativeTime = desktopLocalization.localizedRelativeTime;
+
+export function resolveLocalizedMessage(message: LocalizedMessage): string {
+  return desktopLocalization.localizedText(message.path, message.arguments);
+}
 
 export type { Language, LocalizationArguments } from './localization';
+export type {
+  DesktopLocalization,
+  DesktopLocalizationDependencies,
+} from './desktopLocalization.svelte';

@@ -3,10 +3,28 @@ package com.futo.notes.storage
 import android.content.Context
 import android.content.SharedPreferences
 import com.futo.notes.Prefs
+import com.futo.notes.localization.LocalizedMessage
+
+internal enum class StorageRecoveryFailure {
+    GENERIC_FAILURE,
+    SOURCE_UNAVAILABLE,
+    PREFERENCE_SAVE_FAILED,
+    JOURNAL_UPDATE_FAILED,
+}
+
+internal fun storageRecoveryMessage(failure: StorageRecoveryFailure): LocalizedMessage =
+    LocalizedMessage(
+        when (failure) {
+            StorageRecoveryFailure.GENERIC_FAILURE -> "storage.android.recoveryFailed"
+            StorageRecoveryFailure.SOURCE_UNAVAILABLE -> "storage.android.recoverySourceUnavailable"
+            StorageRecoveryFailure.PREFERENCE_SAVE_FAILED -> "storage.android.recoverySaveFailed"
+            StorageRecoveryFailure.JOURNAL_UPDATE_FAILED -> "storage.android.recoveryRecordFailed"
+        },
+    )
 
 internal data class StorageStartupRecovery(
     val startup: NotesStorage.Startup?,
-    val error: String?,
+    val failure: StorageRecoveryFailure?,
 )
 
 /**
@@ -26,8 +44,7 @@ internal fun recoverStorageStartup(
     val pending = journal.read().getOrElse {
         return StorageStartupRecovery(
             startup = null,
-            error =
-                "The previous storage move could not be recovered. Both note folders were retained.",
+            failure = StorageRecoveryFailure.GENERIC_FAILURE,
         )
     }
     val savedMode = preferences.getString(Prefs.STORAGE_MODE, null)
@@ -40,8 +57,7 @@ internal fun recoverStorageStartup(
                 StorageRootState.UNAVAILABLE ->
                     return StorageStartupRecovery(
                         startup = null,
-                        error =
-                            "The previous notes folder cannot be inspected. Reconnect its storage and restart.",
+                        failure = StorageRecoveryFailure.SOURCE_UNAVAILABLE,
                     )
                 StorageRootState.ABSENT -> Unit
             }
@@ -55,8 +71,7 @@ internal fun recoverStorageStartup(
         if (!preferenceReady) {
             return StorageStartupRecovery(
                 startup = null,
-                error =
-                    "The recovered notes folder could not be saved. Both note folders were retained.",
+                failure = StorageRecoveryFailure.PREFERENCE_SAVE_FAILED,
             )
         }
 
@@ -89,8 +104,7 @@ internal fun recoverStorageStartup(
         if (journalUpdated.isFailure) {
             return StorageStartupRecovery(
                 startup = null,
-                error =
-                    "The recovered storage state could not be recorded. Both note folders were retained.",
+                failure = StorageRecoveryFailure.JOURNAL_UPDATE_FAILED,
             )
         }
         recovery.activeMode.name
@@ -104,6 +118,6 @@ internal fun recoverStorageStartup(
                     NotesStorage.looksLikeExistingVault(NotesStorage.internalRoot(context)),
                 deviceModeSupported = NotesStorage.deviceModeSupported(),
             ),
-        error = null,
+        failure = null,
     )
 }

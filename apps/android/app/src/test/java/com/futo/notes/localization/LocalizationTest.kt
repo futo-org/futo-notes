@@ -73,17 +73,7 @@ class LocalizationTest {
             val testCase = matchingCases.getJSONObject(index)
             val availableTags = testCase.getJSONArray("availableLanguageTags").strings()
             val sources = availableTags.associateWith { tag ->
-                catalogSources[tag] ?: JSONObject()
-                    .put("\$schema", "./catalog.schema.json")
-                    .put(
-                        "language",
-                        JSONObject()
-                            .put("nativeName", tag)
-                            .put("direction", "ltr")
-                            .put("aliases", org.json.JSONArray()),
-                    )
-                    .put("messages", JSONObject())
-                    .toString()
+                catalogSources[tag] ?: syntheticCatalog(tag, tag)
             }
             val localization = Localization.fromCatalogSources(
                 sources,
@@ -96,14 +86,32 @@ class LocalizationTest {
     }
 
     @Test
+    fun availableLanguagesAreOrderedByEnglishName() {
+        val localization = Localization.fromCatalogSources(
+            mapOf(
+                "en" to syntheticCatalog("English", "English"),
+                "de" to syntheticCatalog("German", "Deutsch"),
+            ),
+            FixtureLocalizationRules,
+            listOf("en"),
+            null,
+        )
+
+        assertEquals(listOf("en", "de"), localization.availableLanguages.map { it.tag })
+    }
+
+    @Test
     fun invalidCatalogMetadataIsSkipped() {
+        val invalidEnglishName = JSONObject(catalogSources.getValue("zh-Hans")).apply {
+            getJSONObject("language").put("englishName", "\u0000")
+        }
         val invalidNativeName = JSONObject(catalogSources.getValue("zh-Hans")).apply {
             getJSONObject("language").put("nativeName", "\u0000")
         }
         val invalidAlias = JSONObject(catalogSources.getValue("zh-Hans")).apply {
             getJSONObject("language").put("aliases", org.json.JSONArray().put(42))
         }
-        for (invalidCatalog in listOf(invalidNativeName, invalidAlias)) {
+        for (invalidCatalog in listOf(invalidEnglishName, invalidNativeName, invalidAlias)) {
             val diagnostics = mutableListOf<String>()
             val localization = Localization.fromCatalogSources(
                 catalogSources + ("zh-Hans" to invalidCatalog.toString()),
@@ -179,6 +187,7 @@ class LocalizationTest {
                 .put(
                     "language",
                     JSONObject()
+                        .put("englishName", "Simplified Chinese")
                         .put("nativeName", "简体中文")
                         .put("direction", "ltr")
                         .put("aliases", org.json.JSONArray()),
@@ -222,6 +231,7 @@ class LocalizationTest {
                 .put(
                     "language",
                     JSONObject()
+                        .put("englishName", "Simplified Chinese")
                         .put("nativeName", "简体中文")
                         .put("direction", "ltr")
                         .put("aliases", org.json.JSONArray()),
@@ -275,6 +285,19 @@ class LocalizationTest {
             testCase.optString("regionalNumberingSystem").takeIf(String::isNotEmpty),
             currentTimeMillis = { now },
         )
+
+    private fun syntheticCatalog(englishName: String, nativeName: String): String = JSONObject()
+        .put("\$schema", "./catalog.schema.json")
+        .put(
+            "language",
+            JSONObject()
+                .put("englishName", englishName)
+                .put("nativeName", nativeName)
+                .put("direction", "ltr")
+                .put("aliases", org.json.JSONArray()),
+        )
+        .put("messages", JSONObject())
+        .toString()
 }
 
 private fun org.json.JSONArray.strings(): List<String> =

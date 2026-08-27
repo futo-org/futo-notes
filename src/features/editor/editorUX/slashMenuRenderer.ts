@@ -3,6 +3,7 @@ import type { PluginValue, ViewUpdate } from '@codemirror/view';
 import { EDITOR_COMMANDS, filterCommands, type EditorCommand } from './commands';
 import { renderIcon } from './icons';
 import { commitSlashCommand, getSlashQuery, slashMenuField } from './slashMenuState';
+import { localizedText } from '$shared/localization';
 
 export function computeMenuPlacement(
   anchor: { top: number; bottom: number; left: number },
@@ -31,7 +32,7 @@ class SlashMenuRenderer implements PluginValue {
     this.dom = document.createElement('div');
     this.dom.className = 'sf-slash-menu';
     this.dom.setAttribute('role', 'listbox');
-    this.dom.setAttribute('aria-label', 'Insert block');
+    this.dom.setAttribute('aria-label', localizedText('editor.slashMenu.heading'));
     this.dom.style.display = 'none';
 
     this.listElement = document.createElement('div');
@@ -40,7 +41,7 @@ class SlashMenuRenderer implements PluginValue {
 
     this.emptyElement = document.createElement('div');
     this.emptyElement.className = 'sf-slash-menu__empty';
-    this.emptyElement.textContent = 'No matching blocks';
+    this.emptyElement.textContent = localizedText('editor.slashMenu.noMatches');
     this.emptyElement.style.display = 'none';
     this.dom.appendChild(this.emptyElement);
 
@@ -95,6 +96,8 @@ class SlashMenuRenderer implements PluginValue {
     // textContent = '' (not replaceChildren) to clear: replaceChildren is
     // Chromium 86, and the editor must run on older Android WebViews (github#8).
     this.listElement.textContent = '';
+    this.dom.setAttribute('aria-label', localizedText('editor.slashMenu.heading'));
+    this.emptyElement.textContent = localizedText('editor.slashMenu.noMatches');
     if (!this.filteredCommands.length) {
       this.listElement.style.display = 'none';
       this.emptyElement.style.display = '';
@@ -126,12 +129,12 @@ class SlashMenuRenderer implements PluginValue {
     text.className = 'sf-slash-menu__text';
     const label = document.createElement('div');
     label.className = 'sf-slash-menu__label';
-    label.textContent = command.label;
+    label.textContent = localizedText(command.labelPath);
     text.appendChild(label);
-    if (command.hint) {
+    if (command.hintPath) {
       const hint = document.createElement('div');
       hint.className = 'sf-slash-menu__hint';
-      hint.textContent = command.hint;
+      hint.textContent = localizedText(command.hintPath);
       text.appendChild(hint);
     }
     item.appendChild(text);

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 struct Language: Equatable, Sendable {
     let tag: String
@@ -6,18 +7,40 @@ struct Language: Equatable, Sendable {
     let direction: String
 }
 
-private enum TemplateToken {
+struct LocalizedMessage {
+    let path: String
+    let arguments: [String: Any]
+
+    init(_ path: String, arguments: [String: Any] = [:]) {
+        self.path = path
+        self.arguments = arguments
+    }
+}
+
+private struct LocalizationEnvironmentKey: EnvironmentKey {
+    static let defaultValue = Localization.system()
+}
+
+extension EnvironmentValues {
+    var localization: Localization {
+        get { self[LocalizationEnvironmentKey.self] }
+        set { self[LocalizationEnvironmentKey.self] = newValue }
+    }
+}
+
+enum TemplateToken {
     case text(String)
     case placeholder(String)
 }
 
-private enum CatalogMessage {
+enum CatalogMessage {
     case plain([TemplateToken])
     case plural(argument: String, variants: [String: [TemplateToken]])
 }
 
-private struct RuntimeCatalog {
+struct RuntimeCatalog {
     let tag: String
+    let englishName: String
     let nativeName: String
     let direction: String
     let aliases: [String]
@@ -41,31 +64,19 @@ final class Localization {
     private var reportedDiagnostics: Set<String> = []
 
     static func system(
-        bundle: Bundle = .main,
         requestedLanguageTags: [String] = Locale.preferredLanguages,
         regionalLanguageTag: String = Locale.current.identifier,
         regionalNumberingSystem: Locale.NumberingSystem = Locale.current.numberingSystem
     ) -> Localization {
-        var catalogData: [String: Data] = [:]
-        if let url = bundle.url(forResource: "LanguageCatalogs", withExtension: "json"),
-            let data = try? Data(contentsOf: url),
-            let catalogs = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        {
-            for (languageTag, catalog) in catalogs {
-                if let data = try? JSONSerialization.data(withJSONObject: catalog) {
-                    catalogData[languageTag] = data
-                }
-            }
-        }
         return Localization(
-            catalogData: catalogData,
+            runtimeCatalogs: GeneratedLanguageCatalogs.catalogs,
             requestedLanguageTags: requestedLanguageTags,
             regionalLanguageTag: regionalLanguageTag,
             regionalNumberingSystem: regionalNumberingSystem
         )
     }
 
-    init(
+    convenience init(
         catalogData: [String: Data],
         requestedLanguageTags: [String],
         regionalLanguageTag: String?,
@@ -92,9 +103,27 @@ final class Localization {
             }
             return catalog
         }
+        self.init(
+            runtimeCatalogs: catalogs,
+            requestedLanguageTags: requestedLanguageTags,
+            regionalLanguageTag: regionalLanguageTag,
+            regionalNumberingSystem: regionalNumberingSystem,
+            currentTimeMillis: currentTimeMillis,
+            reportDiagnostic: reportDiagnostic
+        )
+    }
+
+    init(
+        runtimeCatalogs: [RuntimeCatalog],
+        requestedLanguageTags: [String],
+        regionalLanguageTag: String?,
+        regionalNumberingSystem: Locale.NumberingSystem? = nil,
+        currentTimeMillis: @escaping () -> Double = { Date().timeIntervalSince1970 * 1_000 },
+        reportDiagnostic: @escaping (String) -> Void = { NSLog("%@", $0) }
+    ) {
         let selectedCatalog = Self.selectCatalog(
             requestedLanguageTags: requestedLanguageTags,
-            catalogs: catalogs
+            catalogs: runtimeCatalogs
         )
         let effectiveLanguage = selectedCatalog.map {
             Language(tag: $0.tag, nativeName: $0.nativeName, direction: $0.direction)
@@ -104,22 +133,25 @@ final class Localization {
             regionalLanguageTag: regionalLanguageTag,
             regionalNumberingSystem: regionalNumberingSystem
         )
-        let availableLanguages = catalogs
-            .map { Language(tag: $0.tag, nativeName: $0.nativeName, direction: $0.direction) }
+        let availableLanguages = runtimeCatalogs
             .sorted {
-                $0.nativeName.compare(
-                    $1.nativeName,
+                let englishNameOrder = $0.englishName.compare(
+                    $1.englishName,
                     options: [],
                     range: nil,
-                    locale: Locale(identifier: formatLanguageTag)
-                ) == .orderedAscending
+                    locale: Locale(identifier: "en")
+                )
+                return englishNameOrder == .orderedSame
+                    ? $0.tag < $1.tag
+                    : englishNameOrder == .orderedAscending
             }
+            .map { Language(tag: $0.tag, nativeName: $0.nativeName, direction: $0.direction) }
         self.effectiveLanguage = effectiveLanguage
         self.availableLanguages = availableLanguages
         self.formatLanguageTag = formatLanguageTag
         self.messageCatalogs = Self.fallbackCatalogs(
             selectedCatalog: selectedCatalog,
-            catalogs: catalogs
+            catalogs: runtimeCatalogs
         )
         self.currentTimeMillis = currentTimeMillis
         self.reportDiagnostic = reportDiagnostic
@@ -154,36 +186,57 @@ final class Localization {
     }
 
     func localizedFileSize(_ bytes: Int64) -> String {
-        let units: [(String, Int64)] = [
-            ("byte", 1),
-            ("kilobyte", 1_000),
-            ("megabyte", 1_000_000),
-            ("gigabyte", 1_000_000_000),
-            ("terabyte", 1_000_000_000_000),
-        ]
-        let selectedUnit = units.last(where: { bytes >= $0.1 }) ?? units[0]
-        let value = (Double(bytes) / Double(selectedUnit.1) * 10).rounded() / 10
-        return localizedText("units.fileSize.\(selectedUnit.0)", arguments: ["value": value])
+        if bytes >= 1_000_000_000_000 {
+            let value = (Double(bytes) / 1_000_000_000_000 * 10).rounded() / 10
+            return localizedText("units.fileSize.terabyte", arguments: ["value": value])
+        }
+        if bytes >= 1_000_000_000 {
+            let value = (Double(bytes) / 1_000_000_000 * 10).rounded() / 10
+            return localizedText("units.fileSize.gigabyte", arguments: ["value": value])
+        }
+        if bytes >= 1_000_000 {
+            let value = (Double(bytes) / 1_000_000 * 10).rounded() / 10
+            return localizedText("units.fileSize.megabyte", arguments: ["value": value])
+        }
+        if bytes >= 1_000 {
+            let value = (Double(bytes) / 1_000 * 10).rounded() / 10
+            return localizedText("units.fileSize.kilobyte", arguments: ["value": value])
+        }
+        return localizedText("units.fileSize.byte", arguments: ["value": bytes])
     }
 
     func localizedRelativeTime(_ timestampMillis: Double) -> String {
         let differenceSeconds = (timestampMillis - currentTimeMillis()) / 1_000
         let absoluteSeconds = abs(differenceSeconds)
         if absoluteSeconds < 60 { return localizedText("time.relative.now") }
-        let units: [(String, Double)] = [
-            ("year", 365 * 24 * 60 * 60),
-            ("month", 30 * 24 * 60 * 60),
-            ("day", 24 * 60 * 60),
-            ("hour", 60 * 60),
-            ("minute", 60),
-        ]
-        let selectedUnit = units.first(where: { absoluteSeconds >= $0.1 }) ?? units[units.count - 1]
-        let count = UInt64(floor(absoluteSeconds / selectedUnit.1))
-        let direction = differenceSeconds < 0 ? "past" : "future"
-        return localizedText(
-            "time.relative.\(direction).\(selectedUnit.0)",
-            arguments: ["count": count]
-        )
+        if absoluteSeconds >= 365 * 24 * 60 * 60 {
+            let count = UInt64(floor(absoluteSeconds / (365 * 24 * 60 * 60)))
+            return differenceSeconds < 0
+                ? localizedText("time.relative.past.year", arguments: ["count": count])
+                : localizedText("time.relative.future.year", arguments: ["count": count])
+        }
+        if absoluteSeconds >= 30 * 24 * 60 * 60 {
+            let count = UInt64(floor(absoluteSeconds / (30 * 24 * 60 * 60)))
+            return differenceSeconds < 0
+                ? localizedText("time.relative.past.month", arguments: ["count": count])
+                : localizedText("time.relative.future.month", arguments: ["count": count])
+        }
+        if absoluteSeconds >= 24 * 60 * 60 {
+            let count = UInt64(floor(absoluteSeconds / (24 * 60 * 60)))
+            return differenceSeconds < 0
+                ? localizedText("time.relative.past.day", arguments: ["count": count])
+                : localizedText("time.relative.future.day", arguments: ["count": count])
+        }
+        if absoluteSeconds >= 60 * 60 {
+            let count = UInt64(floor(absoluteSeconds / (60 * 60)))
+            return differenceSeconds < 0
+                ? localizedText("time.relative.past.hour", arguments: ["count": count])
+                : localizedText("time.relative.future.hour", arguments: ["count": count])
+        }
+        let count = UInt64(floor(absoluteSeconds / 60))
+        return differenceSeconds < 0
+            ? localizedText("time.relative.past.minute", arguments: ["count": count])
+            : localizedText("time.relative.future.minute", arguments: ["count": count])
     }
 
     private func renderTemplate(
@@ -343,8 +396,10 @@ final class Localization {
             root.count == 3,
             root["$schema"] as? String == "./catalog.schema.json",
             let language = root["language"] as? [String: Any],
-            language.count == 3,
+            language.count == 4,
             let messages = root["messages"] as? [String: Any],
+            let englishName = language["englishName"] as? String,
+            isValidCatalogText(englishName),
             let nativeName = language["nativeName"] as? String,
             isValidCatalogText(nativeName),
             let direction = language["direction"] as? String,
@@ -368,6 +423,7 @@ final class Localization {
         )
         return RuntimeCatalog(
             tag: languageTag,
+            englishName: englishName,
             nativeName: nativeName,
             direction: direction,
             aliases: canonicalAliases,

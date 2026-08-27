@@ -1,4 +1,5 @@
 import { renderIcon } from '../editorUX/icons';
+import { localizedText } from '$shared/localization';
 import type { ParsedTable, TableAlignment } from './tableModel';
 import {
   addColumn,
@@ -20,6 +21,34 @@ interface AttachTableControlsParams {
   mutateTable: (mutation: (table: ParsedTable) => ParsedTable) => void;
 }
 
+type TableControlAction =
+  | 'dragColumn'
+  | 'addColumnToRight'
+  | 'cycleAlignment'
+  | 'deleteColumn'
+  | 'dragRow'
+  | 'addRowBelow'
+  | 'deleteRow';
+
+function tableControlLabel(action: TableControlAction): string {
+  switch (action) {
+    case 'dragColumn':
+      return localizedText('editor.tableControls.dragColumn');
+    case 'addColumnToRight':
+      return localizedText('editor.tableControls.addColumnToRight');
+    case 'cycleAlignment':
+      return localizedText('editor.tableControls.cycleAlignment');
+    case 'deleteColumn':
+      return localizedText('editor.tableControls.deleteColumn');
+    case 'dragRow':
+      return localizedText('editor.tableControls.dragRow');
+    case 'addRowBelow':
+      return localizedText('editor.tableControls.addRowBelow');
+    case 'deleteRow':
+      return localizedText('editor.tableControls.deleteRow');
+  }
+}
+
 function alignmentIconName(alignment: TableAlignment): string {
   if (alignment === 'center') return 'AlignCenter';
   if (alignment === 'right') return 'AlignRight';
@@ -27,13 +56,14 @@ function alignmentIconName(alignment: TableAlignment): string {
 }
 
 function createControlButton(
-  label: string,
+  tableControlAction: TableControlAction,
   icon: Parameters<typeof renderIcon>[0],
   action: () => void,
 ): HTMLButtonElement {
   const button = document.createElement('button');
   button.type = 'button';
-  button.setAttribute('aria-label', label);
+  button.dataset.tableControlAction = tableControlAction;
+  button.setAttribute('aria-label', tableControlLabel(tableControlAction));
   button.innerHTML = renderIcon(icon);
   button.addEventListener('mousedown', (event) => event.preventDefault());
   button.addEventListener('click', action);
@@ -93,7 +123,7 @@ export function attachTableControls({ root, table, mutateTable }: AttachTableCon
     controls.className = 'sf-table__col-controls';
     controls.dataset.col = String(column);
 
-    const drag = createControlButton('Drag column', 'GripVertical', () => undefined);
+    const drag = createControlButton('dragColumn', 'GripVertical', () => undefined);
     drag.className = 'sf-table__drag';
     drag.draggable = true;
     drag.addEventListener('dragstart', (event) => {
@@ -102,13 +132,13 @@ export function attachTableControls({ root, table, mutateTable }: AttachTableCon
     });
     controls.appendChild(drag);
     controls.appendChild(
-      createControlButton('Add column to right', 'Plus', () => {
+      createControlButton('addColumnToRight', 'Plus', () => {
         mutateTable((current) => addColumn(current, column + 1));
       }),
     );
 
     const alignButton = createControlButton(
-      'Cycle alignment',
+      'cycleAlignment',
       alignmentIconName(table.alignments[column] ?? 'left'),
       () => {
         mutateTable((current) =>
@@ -119,7 +149,7 @@ export function attachTableControls({ root, table, mutateTable }: AttachTableCon
     alignButton.dataset.role = 'align';
     controls.appendChild(alignButton);
     controls.appendChild(
-      createControlButton('Delete column', 'Trash', () => {
+      createControlButton('deleteColumn', 'Trash', () => {
         mutateTable((current) => deleteColumn(current, column));
       }),
     );
@@ -132,7 +162,7 @@ export function attachTableControls({ root, table, mutateTable }: AttachTableCon
     controls.className = 'sf-table__row-controls';
     controls.dataset.row = String(row);
 
-    const drag = createControlButton('Drag row', 'GripVertical', () => undefined);
+    const drag = createControlButton('dragRow', 'GripVertical', () => undefined);
     drag.className = 'sf-table__drag';
     drag.draggable = true;
     drag.addEventListener('dragstart', (event) => {
@@ -141,12 +171,12 @@ export function attachTableControls({ root, table, mutateTable }: AttachTableCon
     });
     controls.appendChild(drag);
     controls.appendChild(
-      createControlButton('Add row below', 'Plus', () => {
+      createControlButton('addRowBelow', 'Plus', () => {
         mutateTable((current) => addRow(current, row + 1));
       }),
     );
     controls.appendChild(
-      createControlButton('Delete row', 'Trash', () => {
+      createControlButton('deleteRow', 'Trash', () => {
         mutateTable((current) => deleteRow(current, row));
       }),
     );
@@ -181,6 +211,23 @@ export function positionTableControls(root: HTMLElement): void {
     const rowRect = row.getBoundingClientRect();
     const centred = (rowRect.height - controls.getBoundingClientRect().height) / 2;
     controls.style.top = `${rowRect.top - rootRect.top + centred}px`;
+  });
+}
+
+export function refreshTableControlLabels(root: HTMLElement): void {
+  root.querySelectorAll<HTMLButtonElement>('[data-table-control-action]').forEach((button) => {
+    const action = button.dataset.tableControlAction;
+    if (
+      action === 'dragColumn' ||
+      action === 'addColumnToRight' ||
+      action === 'cycleAlignment' ||
+      action === 'deleteColumn' ||
+      action === 'dragRow' ||
+      action === 'addRowBelow' ||
+      action === 'deleteRow'
+    ) {
+      button.setAttribute('aria-label', tableControlLabel(action));
+    }
   });
 }
 

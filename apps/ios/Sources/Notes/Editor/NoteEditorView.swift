@@ -21,28 +21,30 @@ func resolvedRename(
 /// What the editor tells the user when an exit refuses to leave. Kept together
 /// so the three exits stay consistent about "your change is still pending" —
 /// the promise the session's drain-and-commit is there to keep.
-private enum ExitMessage {
-    static let navigateRenamePending =
-        "Couldn't rename note. Navigation is paused while your title remains pending."
-    static let navigateCaptureFailed =
-        "Couldn't read the latest note. Navigation is paused while your changes remain pending."
-    static let navigateSaveFailed =
-        "Couldn't save note. Navigation is paused while your changes remain pending."
-    static let moveCaptureFailed =
-        "Couldn't read the latest note. Move is paused while your changes remain pending."
-    static let moveSaveFailed =
-        "Couldn't save note. Move is paused while your changes remain pending."
-    static let moveFailed = "Couldn't move note. It remains in its current folder."
-    static let deleteCaptureFailed =
-        "Couldn't read the latest note. Delete is paused while your changes remain pending."
-    static let deleteSaveFailed =
-        "Couldn't save note. Delete is paused while your changes remain pending."
-    static let deleteFailed = "Couldn't delete note. It remains in your notes."
+private func titleValidationMessage(_ kind: String) -> LocalizedMessage? {
+    switch kind {
+    case "empty":
+        return LocalizedMessage("notes.title.empty")
+    case "forbidden_chars":
+        return LocalizedMessage("notes.title.forbiddenCharacter")
+    case "leading_dots":
+        return LocalizedMessage("notes.title.leadingDot")
+    case "trailing_dots":
+        return LocalizedMessage("notes.title.trailingDot")
+    case "too_long":
+        return LocalizedMessage(
+            "notes.title.tooLong",
+            arguments: ["maxLength": TitleSpec.maxLength]
+        )
+    default:
+        return nil
+    }
 }
 
 struct NoteEditorView: View {
     @EnvironmentObject private var store: NotesStore
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.localization) private var localization
 
     /// Current note id. Mutable because renaming changes the file path.
     @State private var noteId: String
@@ -86,7 +88,7 @@ struct NoteEditorView: View {
     /// Inline title-validation warning (desktop parity): a forbidden char shows
     /// a transient 2 s message; a dot/too-long/duplicate shows a persistent one
     /// and blocks the rename. Rendered in danger red under the title field.
-    @State private var titleWarning: String?
+    @State private var titleWarning: LocalizedMessage?
     @State private var titleWarningTask: Task<Void, Never>?
 
     /// Whether this editor is the visible top of the stack. With wikilink pushes
@@ -145,17 +147,20 @@ struct NoteEditorView: View {
             // Edits rename the file, debounced (scheduleRename). [list.md]
             TitleTextField(
                 text: $titleField,
+                placeholder: localization.localizedText("notes.untitledPlaceholder"),
                 onChange: { handleTitleChange($0) },
                 onForbidden: {
                     setTitleWarning(
-                        "That character can't be used in a note title", transient: true)
+                        LocalizedMessage("notes.title.forbiddenCharacter"),
+                        transient: true
+                    )
                 }
             )
             .padding(.horizontal, 20)
             .padding(.top, 4)
             .padding(.bottom, titleWarning == nil ? 6 : 2)
             if let warning = titleWarning {
-                Text(warning)
+                Text(localization.localizedText(warning.path, arguments: warning.arguments))
                     .font(.caption)
                     .foregroundStyle(Theme.danger)
                     .padding(.horizontal, 20)
@@ -166,6 +171,7 @@ struct NoteEditorView: View {
             EditorWebView(
                 content: content,
                 theme: theme,
+                localization: localization,
                 autoFocus: autoFocus,
                 onChange: { newContent in
                     // Data-loss guard: ignore editor change events until the off-main
@@ -246,26 +252,41 @@ struct NoteEditorView: View {
                         renameField = splitId(id: noteId).title
                         showRename = true
                     } label: {
-                        Label("Rename", systemImage: "pencil")
+                        Label(
+                            localization.localizedText("common.actions.rename"),
+                            systemImage: "pencil"
+                        )
                     }
                     Button {
                         prepareMove()
                     } label: {
-                        Label("Move to Folder…", systemImage: "folder")
+                        Label(
+                            localization.localizedText("notes.actions.moveToFolderEllipsis"),
+                            systemImage: "folder"
+                        )
                     }
                     Button {
                         UIPasteboard.general.string = store.notePath(noteId)
                     } label: {
-                        Label("Copy File Path", systemImage: "doc.on.doc")
+                        Label(
+                            localization.localizedText("notes.actions.copyFilePath"),
+                            systemImage: "doc.on.doc"
+                        )
                     }
                     ShareLink(item: content) {
-                        Label("Share", systemImage: "square.and.arrow.up")
+                        Label(
+                            localization.localizedText("notes.actions.share"),
+                            systemImage: "square.and.arrow.up"
+                        )
                     }
                     Divider()
                     Button(role: .destructive) {
                         presentWithoutAnimation { showDeleteConfirm = true }
                     } label: {
-                        Label("Delete Note", systemImage: "trash")
+                        Label(
+                            localization.localizedText("notes.actions.deleteNote"),
+                            systemImage: "trash"
+                        )
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -274,17 +295,19 @@ struct NoteEditorView: View {
                 .disabled(interactionLocked)
             }
         }
-        .alert("Rename note", isPresented: $showRename) {
-            TextField("Title", text: $renameField)
-            Button("Cancel", role: .cancel) {}
-            Button("Rename") { commitRename() }
+        .alert(localization.localizedText("notes.title.renameHeading"), isPresented: $showRename) {
+            TextField(localization.localizedText("notes.title.fieldLabel"), text: $renameField)
+            Button(localization.localizedText("common.actions.cancel"), role: .cancel) {}
+            Button(localization.localizedText("common.actions.rename")) { commitRename() }
         } message: {
-            Text("Enter a new name for this note.")
+            Text(localization.localizedText("notes.title.renamePrompt"))
         }
         .fullScreenCover(isPresented: $showDeleteConfirm) {
             DestructiveConfirmDialog(
-                message: "Delete this note? This action cannot be undone.",
-                destructiveLabel: "Delete Note",
+                message: localization.localizedText(
+                    "notes.delete.thisNoteRecoverableConfirmation"
+                ),
+                destructiveLabel: localization.localizedText("notes.actions.deleteNote"),
                 onCancel: {
                     presentWithoutAnimation { showDeleteConfirm = false }
                 },
@@ -447,7 +470,7 @@ struct NoteEditorView: View {
                 savedContent = content
                 noteId = parkedId
                 titleField = splitId(id: parkedId).title
-                store.showTransient("Conflicting edits saved to a copy")
+                store.showTransient(LocalizedMessage("notes.save.conflictCopy"))
             }
             return true
         }
@@ -520,7 +543,7 @@ struct NoteEditorView: View {
             outcome: await store.rename(oldId: noteId, newId: targetId)
         )
         guard resolution.isCommitted else {
-            store.showTransient("Couldn't rename note. Your title is still pending.")
+            store.showTransient(LocalizedMessage("notes.title.renameFailed"))
             return false
         }
         noteId = resolution.id
@@ -537,10 +560,10 @@ struct NoteEditorView: View {
         // field strips them.)
         let blocking = validateTitle(title: cleaned)
             .first(where: { $0.kind != "empty" && $0.kind != "forbidden_chars" })
-        if let issue = blocking {
-            setTitleWarning(issue.message, transient: false)
+        if let issue = blocking, let message = titleValidationMessage(issue.kind) {
+            setTitleWarning(message, transient: false)
         } else if isDuplicateTitle(cleaned) {
-            setTitleWarning("A note with this name already exists", transient: false)
+            setTitleWarning(LocalizedMessage("notes.title.duplicate"), transient: false)
         } else {
             clearTitleWarning()
         }
@@ -560,7 +583,7 @@ struct NoteEditorView: View {
     /// Show the inline title warning. `transient` messages (forbidden char)
     /// auto-hide after 2 s; persistent ones (dot/too-long/duplicate) stay until
     /// the title becomes legal.
-    private func setTitleWarning(_ message: String, transient: Bool) {
+    private func setTitleWarning(_ message: LocalizedMessage, transient: Bool) {
         titleWarningTask?.cancel()
         titleWarning = message
         guard transient else { return }
@@ -623,10 +646,9 @@ struct NoteEditorView: View {
                 savedContent = base
                 switch reason {
                 case .peerDeleted:
-                    store.showTransient(
-                        "Open note was deleted during sync; keeping local draft")
+                    store.showTransient(LocalizedMessage("notes.save.openNoteDeletedKeepingDraft"))
                 case .diverged:
-                    store.showTransient("Keeping your local edits")
+                    store.showTransient(LocalizedMessage("notes.save.localEditsKept"))
                 case .converged:
                     break
                 }
@@ -635,7 +657,7 @@ struct NoteEditorView: View {
             close: {
                 session.closeForExternalDelete()
                 savedContent = content
-                store.showTransient("Note was deleted during sync")
+                store.showTransient(LocalizedMessage("notes.deletedElsewhere"))
                 if !navPath.isEmpty { navPath.removeLast() }
             }
         )
@@ -702,11 +724,11 @@ struct NoteEditorView: View {
                 onFailed: { failure, _, _ in
                     switch failure {
                     case .title:
-                        store.showTransient(ExitMessage.navigateRenamePending)
+                        store.showTransient(LocalizedMessage("notes.navigation.renamePending"))
                     case .capture:
-                        store.showTransient(ExitMessage.navigateCaptureFailed)
+                        store.showTransient(LocalizedMessage("notes.navigation.captureFailed"))
                     case .body:
-                        store.showTransient(ExitMessage.navigateSaveFailed)
+                        store.showTransient(LocalizedMessage("notes.navigation.saveFailed"))
                     case .action:
                         break
                     }
@@ -773,11 +795,13 @@ struct NoteEditorView: View {
                 onFailed: { failure, _, _ in
                     switch failure {
                     case .capture:
-                        store.showTransient(ExitMessage.moveCaptureFailed)
+                        store.showTransient(LocalizedMessage("notes.move.captureFailed"))
                     case .body:
-                        store.showTransient(ExitMessage.moveSaveFailed)
+                        store.showTransient(LocalizedMessage("notes.move.saveFailed"))
                     case .action:
-                        if !session.isClosing { store.showTransient(ExitMessage.moveFailed) }
+                        if !session.isClosing {
+                            store.showTransient(LocalizedMessage("notes.errors.moveFailed"))
+                        }
                     case .title:
                         break
                     }
@@ -838,13 +862,13 @@ struct NoteEditorView: View {
                         presentWithoutAnimation { showDeleteConfirm = false }
                         publishDraft()
                         if content != savedContent { scheduleSave(content) }
-                        store.showTransient(ExitMessage.deleteCaptureFailed)
+                        store.showTransient(LocalizedMessage("notes.delete.captureFailed"))
                     case .body:
                         content = lateContent ?? attemptedBody ?? content
                         presentWithoutAnimation { showDeleteConfirm = false }
                         publishDraft()
                         scheduleSave(content)
-                        store.showTransient(ExitMessage.deleteSaveFailed)
+                        store.showTransient(LocalizedMessage("notes.delete.savePending"))
                     case .action:
                         if let lateContent {
                             content = lateContent
@@ -852,7 +876,7 @@ struct NoteEditorView: View {
                         }
                         presentWithoutAnimation { showDeleteConfirm = false }
                         publishDraft()
-                        store.showTransient(ExitMessage.deleteFailed)
+                        store.showTransient(LocalizedMessage("notes.errors.deleteFailed"))
                     case .title:
                         break
                     }
@@ -918,6 +942,7 @@ func isPlaceholderTitle(_ t: String) -> Bool {
 // `@testable import` cannot reach a private type.
 struct TitleTextField: UIViewRepresentable {
     @Binding var text: String
+    let placeholder: String
     var onChange: (String) -> Void
     /// A forbidden character was typed and stripped (drives the transient warning).
     var onForbidden: () -> Void = {}
@@ -926,7 +951,7 @@ struct TitleTextField: UIViewRepresentable {
         let tf = UITextField()
         tf.delegate = context.coordinator
         tf.text = text
-        tf.placeholder = "Untitled"
+        tf.placeholder = placeholder
         tf.font = .systemFont(ofSize: 22, weight: .semibold)
         tf.textColor = .label
         tf.returnKeyType = .done
@@ -943,6 +968,7 @@ struct TitleTextField: UIViewRepresentable {
 
     func updateUIView(_ uiView: UITextField, context: Context) {
         context.coordinator.parent = self
+        uiView.placeholder = placeholder
         // Adopt external title changes (a debounced/remote rename rewrote it)
         // WITHOUT stomping what the user is actively typing.
         if !uiView.isFirstResponder, uiView.text != text {

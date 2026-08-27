@@ -23,6 +23,128 @@
   border-color: var(--color-primary);
 }
 
+.settings-language-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-language-heading-icon {
+  flex: none;
+}
+
+.settings-language-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.settings-language-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 52px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+  text-align: start;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.settings-language-trigger:hover,
+.settings-language-trigger.open {
+  background: rgba(var(--ink-rgb), 0.04);
+}
+
+.settings-language-trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.settings-language-current {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-language-chevron {
+  flex: none;
+  color: var(--color-muted);
+  transition:
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.settings-language-chevron.open {
+  color: var(--color-primary);
+  transform: rotate(180deg);
+}
+
+.settings-language-options {
+  max-height: min(280px, 45vh);
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.settings-language-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  text-align: start;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-language-option:hover,
+.settings-language-option:focus-visible {
+  background: rgba(var(--ink-rgb), 0.05);
+}
+
+.settings-language-option:focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb), 0.5);
+  outline-offset: -2px;
+}
+
+.settings-language-option.selected {
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.settings-language-check {
+  flex: none;
+}
+
+@media (forced-colors: active) {
+  .settings-language-option.selected {
+    outline: 1px solid Highlight;
+    outline-offset: -1px;
+  }
+
+  .settings-language-trigger:focus,
+  .settings-language-option:focus {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+
 .settings-input-readonly {
   opacity: 0.7;
   cursor: pointer;

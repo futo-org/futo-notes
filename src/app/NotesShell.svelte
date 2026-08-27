@@ -17,6 +17,7 @@
   import { keyboard } from '$features/editor/keyboard.svelte';
   import { EXTERNAL_CONTENT_OPTS } from '$features/editor/editorContentSync';
   import { showGlobalToast, currentToastMessage } from '$shared/notifications/toastBus.svelte';
+  import { localizedText } from '$shared/localization';
 
   import DesktopTopBand from './components/DesktopTopBand.svelte';
   import NoteWorkspace, { type EditorApi } from './components/NoteWorkspace.svelte';
@@ -406,7 +407,7 @@
       {#if !isDesktop && sidebarCollapsed}
         <button
           class="sidebar-expand-fallback-btn"
-          aria-label="Expand sidebar"
+          aria-label={localizedText('sidebar.expandAccessibilityLabel')}
           onclick={toggleSidebar}
         >
           <svg

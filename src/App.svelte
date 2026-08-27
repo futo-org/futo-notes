@@ -9,7 +9,12 @@
   import UpdateBanner from '$features/system/UpdateBanner.svelte';
   import { createCrashReporting } from '$features/system/createCrashReporting.svelte';
   import { installExternalFileDropGuard } from '$features/system/externalFileDropGuard';
-  import { revealAppWindow } from '$lib/platform';
+  import {
+    revealAppWindow,
+    setApplicationMenuLabels,
+    setApplicationWindowTitle,
+  } from '$lib/platform';
+  import { desktopLocalization, localizedText } from '$shared/localization';
   import { currentToastMessage, showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
   const windowChrome = configureWindowChrome();
@@ -17,6 +22,7 @@
   const bootstrap = createAppBootstrap({
     initializeCrashReporting: crashReporting.initialize,
     installDevelopmentHooks,
+    showToast: showGlobalToast,
   });
 
   installExternalFileDropGuard();
@@ -36,6 +42,29 @@
   // DOM is the last signal available before the window goes on screen.
   $effect(() => {
     revealAppWindow();
+  });
+
+  $effect(() => {
+    desktopLocalization.effectiveLanguage.tag;
+    const applicationTitle = import.meta.env.DEV
+      ? localizedText('app.desktop.debugDisplayName')
+      : localizedText('app.name');
+    document.title = applicationTitle;
+    setApplicationWindowTitle(applicationTitle);
+    setApplicationMenuLabels({
+      file: localizedText('app.desktop.menu.file'),
+      edit: localizedText('app.desktop.menu.edit'),
+      view: localizedText('app.desktop.menu.view'),
+      window: localizedText('app.desktop.menu.window'),
+      settings: localizedText('app.desktop.menu.settings'),
+      newNote: localizedText('app.desktop.menu.newNote'),
+      newTab: localizedText('app.desktop.menu.newTab'),
+      reopenClosedTab: localizedText('app.desktop.menu.reopenClosedTab'),
+      searchNotes: localizedText('app.desktop.menu.searchNotes'),
+      closeTab: localizedText('app.desktop.menu.closeTab'),
+      closeWindow: localizedText('app.desktop.menu.closeWindow'),
+      toggleSidebar: localizedText('app.desktop.menu.toggleSidebar'),
+    });
   });
 
   $effect(() => {

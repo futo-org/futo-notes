@@ -1,5 +1,6 @@
 <script lang="ts">
   import TabsStrip from '$features/tabs/TabsStrip.svelte';
+  import { localizedText } from '$shared/localization';
   import type { NotePreview } from '$shared/types/note';
 
   interface Props {
@@ -18,7 +19,9 @@
   <div class="topband-chrome" data-tauri-drag-region>
     <button
       class="sidebar-toggle-btn"
-      aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      aria-label={sidebarCollapsed
+        ? localizedText('sidebar.expandAccessibilityLabel')
+        : localizedText('sidebar.collapseAccessibilityLabel')}
       aria-expanded={!sidebarCollapsed}
       onclick={ontoggle}
     >

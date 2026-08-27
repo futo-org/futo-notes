@@ -40,9 +40,7 @@ describe('createNotePersistence', () => {
 
     await expect(saveNote()).resolves.toBe(false);
 
-    expect(showTitleWarning).toHaveBeenCalledExactlyOnceWith(
-      'A note with this name already exists',
-    );
+    expect(showTitleWarning).toHaveBeenCalledExactlyOnceWith({ path: 'notes.title.duplicate' });
     expect(updateNote).not.toHaveBeenCalled();
   });
 

@@ -1,10 +1,10 @@
 # Localization — Spec
 
-> **Gap:** The catalog foundation, per-platform lookup and formatting modules,
-> native language metadata generation, and catalog checks exist. The shells do
-> not yet install localization as reactive application state, expose the language
-> controls, migrate their hard-coded UI text and errors, or localize the embedded
-> editor.
+> **Gap:** Shared UI text, user-facing errors, authored native-shell text, and the
+> embedded editor resolve from the catalogs on desktop, Android, and iOS. Android's
+> in-app language dropdown and iOS's system-Settings language row remain unwired.
+> The iOS adapter also uses Foundation plural rules rather than the specified
+> ICU4X operation through Rust FFI.
 
 ## Scope
 
@@ -19,7 +19,9 @@
   Notes must provide to an operating-system surface is sourced from the shared
   catalog and generated into that platform's required resource format.
 - Note content, filenames, note titles, tags, URLs, identifiers, protocols, test
-  and debug text, diagnostics, logs, and crash payloads are not translated.
+  data, diagnostics, logs, and crash payloads are not translated. Debug-only
+  controls and other authored application UI are localized; errors thrown by
+  those controls remain fixed English diagnostics.
 - Right-to-left language metadata mirrors application chrome. It does not change
   the direction of user-authored note content.
 
@@ -31,8 +33,8 @@
 - A catalog contains the exact root envelope and message shapes defined by
   [`languages/catalog.schema.json`](../../languages/catalog.schema.json).
   [`languages/README.md`](../../languages/README.md) is the authoring guide.
-- Catalog metadata consists only of `nativeName`, `direction`, and `aliases`.
-  `direction` is `ltr` or `rtl`. Aliases are explicit requested-tag overrides.
+- Catalog metadata consists only of `englishName`, `nativeName`, `direction`,
+  and `aliases`. `direction` is `ltr` or `rtl`. Aliases are explicit requested-tag overrides.
   Each alias receives the catalog's generated Android and iOS resources but does
   not become a separate in-app language choice.
 - Authored catalogs use nested objects. Call sites use literal, dot-separated
@@ -126,8 +128,9 @@
 ## Language selection
 
 - Language selection is local to one device and never syncs with notes.
-- System is the first choice. Other choices use each catalog's `nativeName`, sort
-  by that name with platform collation, and use no flag or translated exonym.
+- System is the first choice. Other choices display each catalog's `nativeName`
+  and sort by `englishName` with English platform collation. They use no flag or
+  translated exonym.
 - Changing language updates all visible application text immediately, including
   open dialogs, errors, accessibility text, and editor controls. It does not
   change note content, filenames, search behavior, or sort behavior.

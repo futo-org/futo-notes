@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import com.futo.notes.localization.LocalLocalization
 
 /**
  * Shown in place of the editor WebView when the engine can't run the bundle
@@ -43,12 +44,13 @@ import com.futo.notes.ui.theme.FutoType
 @Composable
 fun LegacyWebViewNotice(modifier: Modifier = Modifier) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     val context = LocalContext.current
     // The provider and its engine are fixed for the app's lifetime, so resolve
     // the wording once instead of on every recomposition.
-    val body = remember {
+    val message = remember {
         val provider = currentWebViewProvider()
-        editorEngineNoticeBody(
+        editorEngineNoticeMessage(
             chromiumMajor = parseChromiumMajorFromUserAgent(
                 runCatching { WebSettings.getDefaultUserAgent(context) }.getOrNull(),
             ),
@@ -70,14 +72,14 @@ fun LegacyWebViewNotice(modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            "Update Android System WebView",
+            localization.localizedText("editor.android.legacyWebView.heading"),
             style = FutoType.title,
             color = c.textPrimary,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            body,
+            localization.localizedText(message.path, message.arguments),
             style = FutoType.body,
             color = c.textSecondary,
             textAlign = TextAlign.Center,
@@ -89,7 +91,11 @@ fun LegacyWebViewNotice(modifier: Modifier = Modifier) {
             shape = RoundedCornerShape(FutoRadius.pill),
             modifier = Modifier.fillMaxWidth().height(52.dp),
         ) {
-            Text("Update WebView", style = FutoType.body, fontWeight = FontWeight.SemiBold)
+            Text(
+                localization.localizedText("editor.android.legacyWebView.updateAction"),
+                style = FutoType.body,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }

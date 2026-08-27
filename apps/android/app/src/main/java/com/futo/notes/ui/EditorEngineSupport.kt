@@ -2,6 +2,7 @@ package com.futo.notes.ui
 
 import android.content.pm.PackageInfo
 import android.webkit.WebView
+import com.futo.notes.localization.LocalizedMessage
 
 /**
  * Whether the editor's WebView engine can run the editor bundle — decided by
@@ -108,16 +109,24 @@ internal const val EDITOR_CHROMIUM_FLOOR_MAJOR = 80
  * plus the provider package so a support report identifies a vendor WebView).
  * Pure so the wording is unit-tested — the `StorageAdoptionMessage` pattern.
  */
-internal fun editorEngineNoticeBody(
+internal fun editorEngineNoticeMessage(
     chromiumMajor: Int?,
     providerName: String?,
     providerVersion: String?,
-): String = buildString {
-    append("The editor couldn't start in this device's WebView. ")
-    append("It needs a Chromium $EDITOR_CHROMIUM_FLOOR_MAJOR or newer engine")
-    if (chromiumMajor != null) append("; this one reports Chromium $chromiumMajor")
-    append(". ")
+): LocalizedMessage {
     val provider = listOfNotNull(providerName, providerVersion).joinToString(" ")
-    if (provider.isNotBlank()) append("WebView provider: $provider. ")
-    append("Update the System WebView from your app store, then reopen the note.")
+    val arguments = buildMap<String, Any> {
+        put("minimumVersion", EDITOR_CHROMIUM_FLOOR_MAJOR)
+        if (chromiumMajor != null) put("currentVersion", chromiumMajor)
+        if (provider.isNotBlank()) put("provider", provider)
+    }
+    return when {
+        chromiumMajor != null && provider.isNotBlank() ->
+            LocalizedMessage("editor.android.legacyWebView.body", arguments)
+        provider.isNotBlank() ->
+            LocalizedMessage("editor.android.legacyWebView.bodyWithoutVersion", arguments)
+        chromiumMajor != null ->
+            LocalizedMessage("editor.android.legacyWebView.bodyWithoutProvider", arguments)
+        else -> LocalizedMessage("editor.android.legacyWebView.bodyGeneric", arguments)
+    }
 }

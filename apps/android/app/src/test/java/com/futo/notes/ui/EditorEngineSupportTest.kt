@@ -115,14 +115,15 @@ class EditorEngineSupportTest {
 
     @Test
     fun `the notice names the floor, the engine, and the provider`() {
-        val body = editorEngineNoticeBody(
+        val message = editorEngineNoticeMessage(
             chromiumMajor = 66,
             providerName = "com.google.android.webview",
             providerVersion = "66.0.3359.158",
         )
-        assertTrue(body, body.contains("Chromium $EDITOR_CHROMIUM_FLOOR_MAJOR or newer"))
-        assertTrue(body, body.contains("reports Chromium 66"))
-        assertTrue(body, body.contains("com.google.android.webview 66.0.3359.158"))
+        assertEquals("editor.android.legacyWebView.body", message.path)
+        assertEquals(EDITOR_CHROMIUM_FLOOR_MAJOR, message.arguments["minimumVersion"])
+        assertEquals(66, message.arguments["currentVersion"])
+        assertEquals("com.google.android.webview 66.0.3359.158", message.arguments["provider"])
     }
 
     /**
@@ -157,13 +158,14 @@ class EditorEngineSupportTest {
 
     @Test
     fun `the notice omits what it could not read`() {
-        val body = editorEngineNoticeBody(
+        val message = editorEngineNoticeMessage(
             chromiumMajor = null,
             providerName = null,
             providerVersion = null,
         )
-        assertTrue(body, body.contains("Chromium $EDITOR_CHROMIUM_FLOOR_MAJOR or newer"))
-        assertFalse(body, body.contains("reports Chromium"))
-        assertFalse(body, body.contains("provider"))
+        assertEquals("editor.android.legacyWebView.bodyGeneric", message.path)
+        assertEquals(EDITOR_CHROMIUM_FLOOR_MAJOR, message.arguments["minimumVersion"])
+        assertFalse(message.arguments.containsKey("currentVersion"))
+        assertFalse(message.arguments.containsKey("provider"))
     }
 }

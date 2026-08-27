@@ -12,7 +12,7 @@ describe('toolbar manifest', () => {
       expect(item.lucide, item.id).toBeTruthy();
       expect(item.sfSymbol, item.id).toBeTruthy();
       expect(item.material, item.id).toBeTruthy();
-      expect(item.label, item.id).toBeTruthy();
+      expect(item.localizationPath, item.id).toMatch(/^editor\.toolbar\.[a-z][A-Za-z0-9]*$/);
     }
   });
 

@@ -1,7 +1,11 @@
+import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
+
+export type ToastMessage = string | LocalizedMessage;
+
 // The single app-wide toast: one message at a time, auto-dismiss (app.md).
 // App.svelte renders it; every feature emits through here.
-let message = $state('');
-let timer: number | null = null;
+let message = $state<ToastMessage | null>(null);
+let timer: ReturnType<typeof setTimeout> | null = null;
 
 // How long a toast stays up. Raised from 3s to 5s on 2026-09-02: a sync failure
 // toast is the only warning a user gets that their notes folder has gone
@@ -10,15 +14,17 @@ let timer: number | null = null;
 // rather than restating the number.
 export const TOAST_DURATION_MS = 5000;
 
-export function showGlobalToast(nextMessage: string): void {
+export function showGlobalToast(nextMessage: ToastMessage): void {
   if (timer !== null) clearTimeout(timer);
   message = nextMessage;
-  timer = window.setTimeout(() => {
-    message = '';
+  timer = globalThis.setTimeout(() => {
+    message = null;
     timer = null;
   }, TOAST_DURATION_MS);
 }
 
 export function currentToastMessage(): string {
-  return message;
+  if (message === null) return '';
+  if (typeof message === 'string') return message;
+  return resolveLocalizedMessage(message);
 }

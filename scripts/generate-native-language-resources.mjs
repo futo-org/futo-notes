@@ -1,12 +1,10 @@
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   rmdirSync,
   rmSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -23,6 +21,10 @@ const androidOutputDirectory = path.join(
 const iosResourcesDirectory = path.join(repositoryRoot, 'apps/ios/Resources');
 const iosManifestPath = path.join(iosResourcesDirectory, '.generated-language-directories.json');
 const iosCatalogsPath = path.join(iosResourcesDirectory, 'LanguageCatalogs.json');
+const iosRuntimeSourcePath = path.join(
+  repositoryRoot,
+  'apps/ios/Sources/GeneratedLocalization/GeneratedLanguageCatalogs.swift',
+);
 
 function canonicalLanguageTag(languageTag) {
   try {
@@ -68,6 +70,7 @@ export function discoverNativeLanguageCatalogs(directory = languagesDirectory) {
           !isRecord(value) ||
           value.$schema !== './catalog.schema.json' ||
           !isRecord(value.language) ||
+          typeof value.language.englishName !== 'string' ||
           typeof value.language.nativeName !== 'string' ||
           (value.language.direction !== 'ltr' && value.language.direction !== 'rtl') ||
           !Array.isArray(value.language.aliases) ||
@@ -78,7 +81,6 @@ export function discoverNativeLanguageCatalogs(directory = languagesDirectory) {
         return [
           {
             languageTag,
-            filePath: path.join(directory, entry.name),
             value,
             messages: flattenPlainMessages(value.messages),
           },
@@ -160,12 +162,193 @@ export function iosInfoPlistStrings(catalog, englishCatalog, debug = false) {
     .join('\n')}\n`;
 }
 
-export function iosRuntimeCatalogs(catalogs) {
-  return `${JSON.stringify(
-    Object.fromEntries(catalogs.map((catalog) => [catalog.languageTag, catalog.value])),
-    null,
-    2,
-  )}\n`;
+function flattenRuntimeMessages(messages) {
+  const flattened = [];
+
+  function visit(value, segments) {
+    const messagePath = segments.join('.');
+    if (typeof value === 'string' || (isRecord(value) && 'plural' in value)) {
+      flattened.push({ messagePath, value });
+      return;
+    }
+    if (!isRecord(value)) return;
+    for (const [segment, child] of Object.entries(value)) visit(child, [...segments, segment]);
+  }
+
+  visit(messages, []);
+  return flattened;
+}
+
+function templateTokens(template) {
+  const tokens = [];
+  let text = '';
+  let index = 0;
+
+  function flushText() {
+    if (!text) return;
+    tokens.push({ kind: 'text', value: text });
+    text = '';
+  }
+
+  while (index < template.length) {
+    const character = template[index];
+    const nextCharacter = template[index + 1];
+    if (character === '{' && nextCharacter === '{') {
+      text += '{';
+      index += 2;
+    } else if (character === '}' && nextCharacter === '}') {
+      text += '}';
+      index += 2;
+    } else if (character !== '{') {
+      text += character;
+      index += 1;
+    } else {
+      const closingIndex = template.indexOf('}', index + 1);
+      if (closingIndex === -1) throw new Error('Invalid localization template');
+      flushText();
+      tokens.push({ kind: 'placeholder', value: template.slice(index + 1, closingIndex) });
+      index = closingIndex + 1;
+    }
+  }
+  flushText();
+  return tokens;
+}
+
+function chunked(values, size) {
+  const chunks = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function kotlinString(value) {
+  return JSON.stringify(value).replaceAll('$', '\\$');
+}
+
+function kotlinTokens(template) {
+  return `listOf(${templateTokens(template)
+    .map((token) =>
+      token.kind === 'text'
+        ? `TemplateToken.Text(${kotlinString(token.value)})`
+        : `TemplateToken.Placeholder(${kotlinString(token.value)})`,
+    )
+    .join(', ')})`;
+}
+
+function kotlinMessage(value) {
+  if (typeof value === 'string') return `CatalogMessage.Plain(${kotlinTokens(value)})`;
+  const variants = Object.entries(value.variants)
+    .map(([selector, template]) => `${kotlinString(selector)} to ${kotlinTokens(template)}`)
+    .join(', ');
+  return `CatalogMessage.Plural(${kotlinString(value.plural)}, mapOf(${variants}))`;
+}
+
+export function androidRuntimeCatalogSource(catalogs) {
+  const catalogEntries = [];
+  const messageFunctions = [];
+  catalogs.forEach((catalog, catalogIndex) => {
+    const messageChunks = chunked(flattenRuntimeMessages(catalog.value.messages), 40);
+    const functionNames = messageChunks.map(
+      (_, chunkIndex) => `catalog${catalogIndex}Messages${chunkIndex}`,
+    );
+    catalogEntries.push(
+      `        RuntimeCatalog(\n` +
+        `            tag = ${kotlinString(catalog.languageTag)},\n` +
+        `            englishName = ${kotlinString(catalog.value.language.englishName)},\n` +
+        `            nativeName = ${kotlinString(catalog.value.language.nativeName)},\n` +
+        `            direction = ${kotlinString(catalog.value.language.direction)},\n` +
+        `            aliases = listOf(${catalog.value.language.aliases.map(kotlinString).join(', ')}),\n` +
+        `            messages = buildMap {\n${functionNames
+          .map((functionName) => `                putAll(${functionName}())`)
+          .join('\n')}\n` +
+        `            },\n` +
+        `        )`,
+    );
+    messageChunks.forEach((messageChunk, chunkIndex) => {
+      const entries = messageChunk
+        .map(
+          ({ messagePath, value }) =>
+            `        ${kotlinString(messagePath)} to ${kotlinMessage(value)}`,
+        )
+        .join(',\n');
+      messageFunctions.push(
+        `    private fun catalog${catalogIndex}Messages${chunkIndex}(): Map<String, CatalogMessage> = mapOf(\n${entries},\n    )`,
+      );
+    });
+  });
+  return (
+    `package com.futo.notes.localization\n\n` +
+    `internal object GeneratedLanguageCatalogs {\n` +
+    `    val catalogs: List<RuntimeCatalog> = listOf(\n${catalogEntries.join(',\n')}\n    )\n\n` +
+    `${messageFunctions.join('\n\n')}\n` +
+    `}\n`
+  );
+}
+
+function swiftString(value) {
+  return JSON.stringify(value);
+}
+
+function swiftTokens(template) {
+  return `[${templateTokens(template)
+    .map((token) =>
+      token.kind === 'text'
+        ? `.text(${swiftString(token.value)})`
+        : `.placeholder(${swiftString(token.value)})`,
+    )
+    .join(', ')}]`;
+}
+
+function swiftMessage(value) {
+  if (typeof value === 'string') return `.plain(${swiftTokens(value)})`;
+  const variants = Object.entries(value.variants)
+    .map(([selector, template]) => `${swiftString(selector)}: ${swiftTokens(template)}`)
+    .join(', ');
+  return `.plural(argument: ${swiftString(value.plural)}, variants: [${variants}])`;
+}
+
+export function iosRuntimeCatalogSource(catalogs) {
+  const catalogEntries = [];
+  const messageFunctions = [];
+  catalogs.forEach((catalog, catalogIndex) => {
+    const messageChunks = chunked(flattenRuntimeMessages(catalog.value.messages), 40);
+    const functionNames = messageChunks.map(
+      (_, chunkIndex) => `catalog${catalogIndex}Messages${chunkIndex}()`,
+    );
+    catalogEntries.push(
+      `        RuntimeCatalog(\n` +
+        `            tag: ${swiftString(catalog.languageTag)},\n` +
+        `            englishName: ${swiftString(catalog.value.language.englishName)},\n` +
+        `            nativeName: ${swiftString(catalog.value.language.nativeName)},\n` +
+        `            direction: ${swiftString(catalog.value.language.direction)},\n` +
+        `            aliases: [${catalog.value.language.aliases.map(swiftString).join(', ')}],\n` +
+        `            messages: mergeMessages([${functionNames.join(', ')}])\n` +
+        `        )`,
+    );
+    messageChunks.forEach((messageChunk, chunkIndex) => {
+      const entries = messageChunk
+        .map(
+          ({ messagePath, value }) => `        ${swiftString(messagePath)}: ${swiftMessage(value)}`,
+        )
+        .join(',\n');
+      messageFunctions.push(
+        `    private static func catalog${catalogIndex}Messages${chunkIndex}() -> [String: CatalogMessage] {\n        [\n${entries},\n        ]\n    }`,
+      );
+    });
+  });
+  return (
+    `import Foundation\n\n` +
+    `enum GeneratedLanguageCatalogs {\n` +
+    `    static let catalogs: [RuntimeCatalog] = [\n${catalogEntries.join(',\n')}\n    ]\n\n` +
+    `    private static func mergeMessages(_ groups: [[String: CatalogMessage]]) -> [String: CatalogMessage] {\n` +
+    `        var messages: [String: CatalogMessage] = [:]\n` +
+    `        for group in groups { messages.merge(group) { _, replacement in replacement } }\n` +
+    `        return messages\n` +
+    `    }\n\n` +
+    `${messageFunctions.join('\n\n')}\n` +
+    `}\n`
+  );
 }
 
 function generateAndroidResources(catalogs) {
@@ -173,13 +356,14 @@ function generateAndroidResources(catalogs) {
   if (!englishCatalog) throw new Error('Cannot generate Android language metadata without en.json');
   rmSync(androidOutputDirectory, { recursive: true, force: true });
   const xmlDirectory = path.join(androidOutputDirectory, 'res/xml');
-  const assetsDirectory = path.join(androidOutputDirectory, 'assets/languages');
+  const kotlinDirectory = path.join(androidOutputDirectory, 'kotlin/com/futo/notes/localization');
   mkdirSync(xmlDirectory, { recursive: true });
-  mkdirSync(assetsDirectory, { recursive: true });
+  mkdirSync(kotlinDirectory, { recursive: true });
   writeFileSync(path.join(xmlDirectory, 'locales_config.xml'), androidLocaleConfig(catalogs));
-  for (const catalog of catalogs) {
-    copyFileSync(catalog.filePath, path.join(assetsDirectory, `${catalog.languageTag}.json`));
-  }
+  writeFileSync(
+    path.join(kotlinDirectory, 'GeneratedLanguageCatalogs.kt'),
+    androidRuntimeCatalogSource(catalogs),
+  );
   for (const { languageTag, catalog } of nativeResourceCatalogs(catalogs)) {
     const valuesDirectoryName =
       languageTag === 'en' ? 'values' : `values-b+${languageTag.replaceAll('-', '+')}`;
@@ -206,7 +390,7 @@ function removePreviousIosResources() {
   for (const languageTag of previousIosLanguageTags()) {
     if (canonicalLanguageTag(languageTag) !== languageTag) continue;
     const directory = path.join(iosResourcesDirectory, `${languageTag}.lproj`);
-    unlinkSync(path.join(directory, 'InfoPlist.strings'), { force: true });
+    rmSync(path.join(directory, 'InfoPlist.strings'), { force: true });
     try {
       rmdirSync(directory);
     } catch {
@@ -232,7 +416,9 @@ function generateIosResources(catalogs) {
     iosManifestPath,
     `${JSON.stringify(resources.map(({ languageTag }) => languageTag))}\n`,
   );
-  writeFileSync(iosCatalogsPath, iosRuntimeCatalogs(catalogs));
+  rmSync(iosCatalogsPath, { force: true });
+  mkdirSync(path.dirname(iosRuntimeSourcePath), { recursive: true });
+  writeFileSync(iosRuntimeSourcePath, iosRuntimeCatalogSource(catalogs));
 }
 
 function generateBuiltIosInfoPlistStrings(catalogs, outputDirectory, configuration) {

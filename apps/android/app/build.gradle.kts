@@ -145,7 +145,7 @@ android {
     sourceSets {
         getByName("main") {
             res.srcDir(generatedLocalizationDirectory.map { it.dir("res") })
-            assets.srcDir(generatedLocalizationDirectory.map { it.dir("assets") })
+            java.srcDir(generatedLocalizationDirectory.map { it.dir("kotlin") })
         }
         getByName("androidTest") {
             assets.srcDir(repositoryRootDirectory.resolve("tests/localization"))

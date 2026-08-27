@@ -1,6 +1,6 @@
 # Simplified Chinese support
 
-Date: 2026-08-24  
+Date: 2026-08-24
 Scope: [GitHub issue #37](https://github.com/futo-org/futo-notes/issues/37), CodeMirror 6, and the current FUTO Notes architecture.
 
 ## Conclusion

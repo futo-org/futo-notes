@@ -11,8 +11,11 @@
     "language": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["nativeName", "direction", "aliases"],
+      "required": ["englishName", "nativeName", "direction", "aliases"],
       "properties": {
+        "englishName": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
         "nativeName": {
           "$ref": "#/$defs/nonEmptyText"
         },

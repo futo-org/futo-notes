@@ -11,9 +11,9 @@ vi.mock('$lib/platform', async () => {
 });
 
 // Capture toasts (K3 surfaces delete failures through showGlobalToast).
-const toastMock = vi.hoisted(() => ({ messages: [] as string[] }));
+const toastMock = vi.hoisted(() => ({ messages: [] as unknown[] }));
 vi.mock('$shared/notifications/toastBus.svelte', () => ({
-  showGlobalToast: (m: string) => toastMock.messages.push(m),
+  showGlobalToast: (message: unknown) => toastMock.messages.push(message),
   currentToastMessage: () => '',
 }));
 
@@ -98,6 +98,7 @@ function seedAppState(extra: Record<string, unknown>): string {
 
 const PREFS = {
   appearance: { theme: 'dark' as const },
+  language: { selectedLanguageTag: null },
   crashReporting: { enabled: true, alwaysSend: false },
   updates: { enabled: true },
   sync: { serverUrl: '', token: '', lastSyncedAt: null, lastError: '' },
@@ -404,7 +405,7 @@ describe('K3 — keyring deletion failure surfaces + retries', () => {
     await svc.disconnectE2ee();
 
     expect(toastMock.messages.length).toBe(1);
-    expect(toastMock.messages[0]).toMatch(/sync password/i);
+    expect(toastMock.messages[0]).toEqual({ path: 'sync.errors.forgetPasswordFailed' });
     const raw = await platform.testFS.readAppData('.app-state.json');
     expect(JSON.parse(raw!).pendingKeyringDeletion).toBe(true);
     expect(svc.hasStoredSyncPassword()).toBe(false); // in-memory cleared regardless

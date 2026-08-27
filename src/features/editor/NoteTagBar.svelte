@@ -3,6 +3,7 @@
   import { extractHeaderTagBlock, isValidTagName, normalizeTagName } from '$lib/rules';
   import { getAllTagNames } from '$features/tags/noteTags';
   import type { NotePreview } from '$shared/types/note';
+  import { localizedText } from '$shared/localization';
 
   interface Props {
     content: string;
@@ -184,7 +185,11 @@
   {#each tags as tag}
     <span class="tag-pill">
       <span class="tag-pill-name">{tag.replace(/^#/, '')}</span>
-      <button class="tag-pill-remove" aria-label="Remove tag {tag}" onclick={() => removeTag(tag)}>
+      <button
+        class="tag-pill-remove"
+        aria-label={localizedText('editor.tags.removeAccessibilityLabel', { tagName: tag })}
+        onclick={() => removeTag(tag)}
+      >
         <svg
           width="12"
           height="12"
@@ -206,7 +211,7 @@
       <input
         type="text"
         class="tag-input"
-        placeholder="tag name"
+        placeholder={localizedText('editor.tags.inputPlaceholder')}
         bind:value={inputValue}
         bind:this={inputEl}
         onkeydown={handleInputKeydown}
@@ -238,13 +243,17 @@
                 addTag(createName);
               }}
             >
-              Create #{createName}
+              {localizedText('editor.tags.createTag', { tagName: createName })}
             </button>
           {/if}
         </div>
       {/if}
     </div>
   {:else}
-    <button class="tag-add-btn" aria-label="Add tag" onclick={startAdding}>+ Tag</button>
+    <button
+      class="tag-add-btn"
+      aria-label={localizedText('editor.tags.addTag')}
+      onclick={startAdding}>{localizedText('editor.tags.addTagShort')}</button
+    >
   {/if}
 </div>

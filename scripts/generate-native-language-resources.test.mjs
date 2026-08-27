@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   androidAppNameStrings,
   androidLocaleConfig,
+  androidRuntimeCatalogSource,
   discoverNativeLanguageCatalogs,
   iosInfoPlistStrings,
-  iosRuntimeCatalogs,
+  iosRuntimeCatalogSource,
   nativeResourceCatalogs,
 } from './generate-native-language-resources.mjs';
 
@@ -102,9 +103,25 @@ describe('native language resources', () => {
     );
   });
 
-  it('bundles every runtime catalog for Apple without scanning unrelated resources', () => {
-    const runtimeCatalogs = JSON.parse(iosRuntimeCatalogs(discoverNativeLanguageCatalogs()));
-    expect(Object.keys(runtimeCatalogs)).toEqual(['en', 'zh-Hans']);
-    expect(runtimeCatalogs['zh-Hans'].messages.settings.language.heading).toBe('语言');
+  it('generates in-memory Android catalogs without asset reads or JSON parsing', () => {
+    const source = androidRuntimeCatalogSource(discoverNativeLanguageCatalogs());
+
+    expect(source).toContain('tag = "en"');
+    expect(source).toContain('tag = "zh-Hans"');
+    expect(source).toContain('"settings.language.heading" to CatalogMessage.Plain');
+    expect(source).toContain('CatalogMessage.Plural("count"');
+    expect(source).not.toContain('JSONObject');
+    expect(source).not.toContain('assets');
+  });
+
+  it('generates in-memory Apple catalogs without bundle reads or JSON parsing', () => {
+    const source = iosRuntimeCatalogSource(discoverNativeLanguageCatalogs());
+
+    expect(source).toContain('tag: "en"');
+    expect(source).toContain('tag: "zh-Hans"');
+    expect(source).toContain('"settings.language.heading": .plain');
+    expect(source).toContain('.plural(argument: "count"');
+    expect(source).not.toContain('JSONSerialization');
+    expect(source).not.toContain('Bundle');
   });
 });

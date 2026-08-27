@@ -40,7 +40,7 @@ function swiftItem(item: ToolbarItem, indent: string): string {
   return (
     `${indent}ToolbarItemSpec(\n` +
     `${indent}    id: ${swiftString(item.id)},\n` +
-    `${indent}    label: ${swiftString(item.label)},\n` +
+    `${indent}    localizationPath: ${swiftString(item.localizationPath)},\n` +
     `${indent}    sfSymbol: ${swiftString(item.sfSymbol)},\n` +
     `${indent}    onlyOnListLine: ${item.when === 'onListLine'},\n` +
     `${indent}    action: ${swiftAction(item)}\n` +
@@ -79,7 +79,7 @@ function renderSwiftFile(): string {
     'struct ToolbarItemSpec: Identifiable, Equatable {',
     '    let id: String',
     "    /// Accessibility label — same text as the web toolbar's aria-label.",
-    '    let label: String',
+    '    let localizationPath: String',
     '    let sfSymbol: String',
     '    /// Only visible while the cursor is on a list line (bridge cursorContext).',
     '    let onlyOnListLine: Bool',
@@ -120,7 +120,7 @@ function kotlinItem(item: ToolbarItem, indent: string): string {
   return (
     `${indent}ToolbarItemSpec(\n` +
     `${indent}    id = ${kotlinString(item.id)},\n` +
-    `${indent}    label = ${kotlinString(item.label)},\n` +
+    `${indent}    localizationPath = ${kotlinString(item.localizationPath)},\n` +
     `${indent}    material = ${kotlinString(item.material)},\n` +
     `${indent}    onlyOnListLine = ${item.when === 'onListLine'},\n` +
     `${indent}    action = ${kotlinAction(item)},\n` +
@@ -158,7 +158,7 @@ function renderKotlinFile(): string {
     'data class ToolbarItemSpec(',
     '    val id: String,',
     "    /** Accessibility label — same text as the web toolbar's aria-label. */",
-    '    val label: String,',
+    '    val localizationPath: String,',
     '    /** Material Symbols name; EditorToolbar.kt maps it to an ImageVector. */',
     '    val material: String,',
     '    /** Only visible while the cursor is on a list line (bridge cursorContext). */',

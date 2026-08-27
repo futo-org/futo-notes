@@ -1,5 +1,6 @@
 import { acceptCompletion, completionKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { Compartment, EditorState } from '@codemirror/state';
 import { keymap, drawSelection, EditorView, type ViewUpdate } from '@codemirror/view';
 
 import { isIOS } from '$lib/platform';
@@ -15,6 +16,7 @@ import {
 } from './interactions/editorPointerInteractions';
 import { EditorScrollAnchoring } from './interactions/scrollAnchoring';
 import { interactiveTableEditor } from './table/interactiveTableEditor';
+import { refreshTableControlLabels } from './table/tableControls';
 import { imagePasteHandler } from './imagePaste';
 import { listContinuationKeymap, orderedListRenumber } from './listContinuation';
 import { autoLinkHighlight } from './links/autolinks';
@@ -23,6 +25,7 @@ import { isListLine, toggleBold, toggleItalic, toggleStrikethrough } from './mar
 import { selectionToolbar } from './editorUX/selectionToolbar';
 import { slashMenu } from './editorUX/slashMenu';
 import { wikilinkAutocomplete } from './wikilinkAutocomplete';
+import { localizedCodeMirrorPhrases } from './editorLocalization';
 
 interface CreateMarkdownEditorRuntimeOptions {
   getOnChange: () => ((content: string) => void) | undefined;
@@ -41,6 +44,7 @@ function hostSeesFocus(view: EditorView): boolean {
 
 export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntimeOptions) {
   let changeAnimationFrame = 0;
+  const localizationCompartment = new Compartment();
   const pointerProfile: EditorPointerProfile = !options.nativeShell
     ? isIOS
       ? 'browser-ios'
@@ -51,6 +55,7 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
   const scrollAnchoring = new EditorScrollAnchoring(options.nativeShell);
 
   const extensions = [
+    localizationCompartment.of(EditorState.phrases.of(localizedCodeMirrorPhrases())),
     drawSelection(),
     cursorMotionKeymap,
     listContinuationKeymap,
@@ -88,6 +93,7 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
       onWindowBlur: () => options.getOnFocusChange()?.(false),
     }),
     EditorView.contentAttributes.of({
+      dir: 'ltr',
       autocorrect: 'on',
       autocapitalize: 'sentences',
       spellcheck: 'false',
@@ -145,5 +151,13 @@ export function createMarkdownEditorRuntime(options: CreateMarkdownEditorRuntime
     scrollAnchoring,
     destroy,
     editorHasDomFocus: hostSeesFocus,
+    refreshLocalization(view: EditorView): void {
+      view.dispatch({
+        effects: localizationCompartment.reconfigure(
+          EditorState.phrases.of(localizedCodeMirrorPhrases()),
+        ),
+      });
+      refreshTableControlLabels(view.dom);
+    },
   };
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { openExternalUrl } from '$lib/platform/openExternalUrl';
+  import { localizedText } from '$shared/localization';
 
   const ISSUE_TRACKER_URL = 'https://github.com/futo-org/futo-notes/issues';
 
@@ -14,7 +15,7 @@
 </script>
 
 <section class="settings-section">
-  <h3 class="settings-section-title">Issue Reporting</h3>
+  <h3 class="settings-section-title">{localizedText('settings.sections.issueReporting')}</h3>
   <div
     class="settings-toggle-row settings-issue-first-row"
     onclick={ontoggleenabled}
@@ -23,10 +24,10 @@
     onkeydown={(event) => event.key === 'Enter' && ontoggleenabled()}
   >
     <span class="settings-toggle-text">
-      <span class="settings-btn-label">Share crash reports</span>
-      <span class="settings-btn-desc"
-        >Help improve FUTO Notes by sharing anonymous crash logs when they occur</span
+      <span class="settings-btn-label"
+        >{localizedText('settings.issueReporting.shareCrashReports')}</span
       >
+      <span class="settings-btn-desc">{localizedText('settings.issueReporting.shareHelp')}</span>
     </span>
     <div class="settings-switch" class:on={enabled}><div class="settings-switch-thumb"></div></div>
   </div>
@@ -39,8 +40,12 @@
       onkeydown={(event) => event.key === 'Enter' && ontogglealwayssend()}
     >
       <span class="settings-toggle-text">
-        <span class="settings-btn-label">Send crashes automatically</span>
-        <span class="settings-btn-desc">Send reports without asking each time</span>
+        <span class="settings-btn-label"
+          >{localizedText('settings.issueReporting.sendAutomatically')}</span
+        >
+        <span class="settings-btn-desc"
+          >{localizedText('settings.issueReporting.sendWithoutAsking')}</span
+        >
       </span>
       <div class="settings-switch" class:on={alwaysSend}>
         <div class="settings-switch-thumb"></div>
@@ -52,8 +57,10 @@
     onclick={() => openExternalUrl(ISSUE_TRACKER_URL)}
   >
     <span class="settings-btn-text">
-      <span class="settings-btn-label">Report an issue</span>
-      <span class="settings-btn-desc">Open the GitHub issue tracker</span>
+      <span class="settings-btn-label">{localizedText('settings.issueReporting.reportIssue')}</span>
+      <span class="settings-btn-desc"
+        >{localizedText('settings.issueReporting.openGitHubIssueTracker')}</span
+      >
     </span>
     <span class="settings-external-icon" aria-hidden="true">↗</span>
   </button>

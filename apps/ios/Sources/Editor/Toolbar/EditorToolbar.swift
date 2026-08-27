@@ -41,6 +41,20 @@ final class EditorToolbarState: ObservableObject {
     @Published var onListLine = false
 }
 
+@MainActor
+final class EditorToolbarLocalization: ObservableObject {
+    @Published private(set) var localization: Localization
+
+    init(_ localization: Localization) {
+        self.localization = localization
+    }
+
+    func update(_ localization: Localization) {
+        guard self.localization !== localization else { return }
+        self.localization = localization
+    }
+}
+
 /// Native SwiftUI rendering of the shared toolbar manifest
 /// (ToolbarSpec.swift — GENERATED from packages/editor/src/toolbar.ts, the
 /// single source of truth for items/order/labels/visibility across all three
@@ -52,6 +66,7 @@ final class EditorToolbarState: ObservableObject {
 /// markdownToolbar.ts commands the web toolbar runs.
 struct EditorToolbarView: View {
     @ObservedObject var state: EditorToolbarState
+    @ObservedObject var toolbarLocalization: EditorToolbarLocalization
     /// Dispatch the tapped item — exec over the bridge, native image picker,
     /// or blur (dismiss).
     let perform: (ToolbarItemSpec) -> Void
@@ -241,7 +256,7 @@ struct EditorToolbarView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(item.label)
+        .accessibilityLabel(toolbarLocalization.localization.localizedText(item.localizationPath))
     }
 }
 
@@ -262,11 +277,22 @@ struct EditorToolbarView: View {
 /// (#F2F2F2/#171717) did here. Spec: docs/spec/editor.md → "Markdown toolbar".
 final class EditorToolbarAccessory: UIInputView {
     private let hosting: UIHostingController<EditorToolbarView>
+    private let toolbarLocalization: EditorToolbarLocalization
 
     @MainActor
-    init(state: EditorToolbarState, perform: @escaping (ToolbarItemSpec) -> Void) {
+    init(
+        state: EditorToolbarState,
+        localization: Localization,
+        perform: @escaping (ToolbarItemSpec) -> Void
+    ) {
+        let toolbarLocalization = EditorToolbarLocalization(localization)
+        self.toolbarLocalization = toolbarLocalization
         hosting = UIHostingController(
-            rootView: EditorToolbarView(state: state, perform: perform))
+            rootView: EditorToolbarView(
+                state: state,
+                toolbarLocalization: toolbarLocalization,
+                perform: perform
+            ))
         // CRITICAL — the content must fill the accessory's own bounds. In the
         // keyboard's window the bottom safe-area inset is the home-indicator gap
         // (~34pt), which UIHostingController feeds into the hosted content by
@@ -292,6 +318,11 @@ final class EditorToolbarAccessory: UIInputView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    @MainActor
+    func updateLocalization(_ localization: Localization) {
+        toolbarLocalization.update(localization)
     }
 
     /// The keyboard window sizes the accessory from this (width is imposed).

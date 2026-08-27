@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
 import com.futo.notes.ui.components.imeTargetVisible
 import com.futo.notes.ui.theme.FutoRadius
@@ -43,6 +44,7 @@ fun CrashReportDialog(
     onDontSend: () -> Unit,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     // Read here (activity window) — the dialog window's insets lie (github#23).
     val imeVisible = imeTargetVisible()
     var showReport by remember { mutableStateOf(false) }
@@ -52,19 +54,32 @@ fun CrashReportDialog(
     AlertDialog(
         onDismissRequest = onDontSend,
         containerColor = c.surface,
-        title = { Text("Crash Report", style = FutoType.title, color = c.textPrimary) },
+        title = {
+            Text(
+                localization.localizedText("crashReporting.heading"),
+                style = FutoType.title,
+                color = c.textPrimary,
+            )
+        },
         text = {
             Column {
                 // The dialog is its own window — the app-root install (#24)
                 // can't reach its focus manager.
                 ClearFocusOnImeDismiss(imeVisible)
                 Text(
-                    "FUTO Notes crashed last time it ran. Send the report so it can be fixed?",
+                    localization.localizedText("crashReporting.prompt"),
                     style = FutoType.small,
                     color = c.textSecondary,
                 )
                 TextButton(onClick = { showReport = !showReport }) {
-                    Text(if (showReport) "Hide report" else "View report", color = c.textAccent)
+                    Text(
+                        if (showReport) {
+                            localization.localizedText("crashReporting.hideReport")
+                        } else {
+                            localization.localizedText("crashReporting.viewReport")
+                        },
+                        color = c.textAccent,
+                    )
                 }
                 if (showReport) {
                     Surface(color = c.surfaceSunken, shape = RoundedCornerShape(FutoRadius.sm)) {
@@ -85,23 +100,31 @@ fun CrashReportDialog(
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
-                    label = { Text("What were you doing? (optional)") },
+                    label = {
+                        Text(localization.localizedText("crashReporting.activityPromptOptional"))
+                    },
                     shape = RoundedCornerShape(FutoRadius.md),
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = always, onCheckedChange = { always = it })
-                    Text("Send crashes automatically", style = FutoType.small, color = c.textSecondary)
+                    Text(
+                        localization.localizedText("crashReporting.sendAutomatically"),
+                        style = FutoType.small,
+                        color = c.textSecondary,
+                    )
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = { onSend(note.trim().ifEmpty { null }, always) }) {
-                Text("Send", color = c.textAccent)
+                Text(localization.localizedText("common.actions.send"), color = c.textAccent)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDontSend) { Text("Don't Send", color = c.textSecondary) }
+            TextButton(onClick = onDontSend) {
+                Text(localization.localizedText("crashReporting.dontSend"), color = c.textSecondary)
+            }
         },
     )
 }

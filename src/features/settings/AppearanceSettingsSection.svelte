@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ThemePreference } from '$features/system/theme';
+  import { localizedText } from '$shared/localization';
 
   interface Props {
     preference: ThemePreference;
@@ -10,18 +11,32 @@
 </script>
 
 <section class="settings-section">
-  <h3 class="settings-section-title">Appearance</h3>
+  <h3 class="settings-section-title">{localizedText('settings.sections.appearance')}</h3>
   <div class="settings-card">
-    <div class="settings-segmented" role="tablist" aria-label="Theme">
-      {#each ['auto', 'dark', 'light'] as theme}
-        <button
-          class="settings-segment"
-          class:active={preference === theme}
-          onclick={() => onchange(theme as ThemePreference)}
-          aria-pressed={preference === theme}>{theme[0].toUpperCase() + theme.slice(1)}</button
-        >
-      {/each}
+    <div
+      class="settings-segmented"
+      role="tablist"
+      aria-label={localizedText('settings.appearance.theme')}
+    >
+      <button
+        class="settings-segment"
+        class:active={preference === 'auto'}
+        onclick={() => onchange('auto')}
+        aria-pressed={preference === 'auto'}>{localizedText('settings.appearance.auto')}</button
+      >
+      <button
+        class="settings-segment"
+        class:active={preference === 'dark'}
+        onclick={() => onchange('dark')}
+        aria-pressed={preference === 'dark'}>{localizedText('settings.appearance.dark')}</button
+      >
+      <button
+        class="settings-segment"
+        class:active={preference === 'light'}
+        onclick={() => onchange('light')}
+        aria-pressed={preference === 'light'}>{localizedText('settings.appearance.light')}</button
+      >
     </div>
-    <p class="settings-btn-desc settings-hint">Auto follows your system theme.</p>
+    <p class="settings-btn-desc settings-hint">{localizedText('settings.appearance.autoHint')}</p>
   </div>
 </section>

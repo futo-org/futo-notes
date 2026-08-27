@@ -1,5 +1,6 @@
 <script lang="ts">
   import { idLeaf } from '$lib/platform/pathSafety';
+  import { localizedText, type LocalizedMessage } from '$shared/localization';
 
   import type { NoteNode } from './folderTree';
   import TreeRowRename from './TreeRowRename.svelte';
@@ -11,7 +12,10 @@
     renameRequest?: { id: string; nonce: number } | null;
     onselect: (event: MouseEvent) => void;
     oncontextmenu: (event: MouseEvent) => void;
-    onrename?: (id: string, newTitle: string) => Promise<string | null> | string | null;
+    onrename?: (
+      id: string,
+      newTitle: string,
+    ) => Promise<LocalizedMessage | null> | LocalizedMessage | null;
     ondragstart: (event: DragEvent) => void;
     ondragend: () => void;
     ondragover: (event: DragEvent) => void;
@@ -69,7 +73,7 @@
   >
     <TreeRowRename
       initialValue={idLeaf(node.note.title)}
-      label="Note title"
+      label={localizedText('notes.title.fieldAccessibilityLabel')}
       testId="note-rename-input"
       onsubmit={(value) => onrename?.(node.note.id, value) ?? null}
       onclose={() => {

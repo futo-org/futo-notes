@@ -14,9 +14,10 @@
   provides a row that opens the app's system Settings instead of an in-app
   dropdown. The selection is local to the device and never syncs.
 
-> **Gap:** The language controls, persistence, and immediate application described
-> here are not wired into any Settings surface yet; only the shared localization
-> foundation exists.
+> **Gap:** Desktop's language control, persistence, and immediate application are
+> wired. Android's dropdown and iOS's system-Settings link are not yet wired into
+> their Settings surfaces; their existing UI still resolves the effective system
+> or per-app language reactively.
 
 - The app version is shown.
 
@@ -198,7 +199,8 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 - **Language**: a System-first dropdown applies the language immediately and
   persists it locally. System is resolved at launch and foreground entry; save
   failure and removed-language behavior follow
-  [localization.md](localization.md).
+  [localization.md](localization.md). → `desktopLocalization.svelte.ts`,
+  `LanguageSettingsSection.svelte`, `createAppBootstrap.svelte.ts`
 - **Issue reporting**: a "Share crash reports" toggle (anonymous crash logs), a
   nested **"Send crashes automatically"** option, and a **"Report an issue"**
   link that opens `https://github.com/futo-org/futo-notes/issues`; see app.md

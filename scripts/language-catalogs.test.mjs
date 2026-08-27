@@ -23,10 +23,10 @@ function temporaryCatalogDirectory() {
   return directory;
 }
 
-function catalog(nativeName, messages, aliases = []) {
+function catalog(englishName, nativeName, messages, aliases = []) {
   return {
     $schema: './catalog.schema.json',
-    language: { nativeName, direction: 'ltr', aliases },
+    language: { englishName, nativeName, direction: 'ltr', aliases },
     messages,
   };
 }
@@ -49,11 +49,11 @@ describe('language catalogs', () => {
     const directory = temporaryCatalogDirectory();
     writeFileSync(
       path.join(directory, 'en.json'),
-      JSON.stringify(catalog('English', { notes: { title: 'Title {noteTitle}' } })),
+      JSON.stringify(catalog('English', 'English', { notes: { title: 'Title {noteTitle}' } })),
     );
     writeFileSync(
       path.join(directory, 'ZH_hans.json'),
-      '{"$schema":"./catalog.schema.json","language":{"nativeName":"简体中文","nativeName":"中文","direction":"ltr","aliases":["en"]},"messages":{"notes":{"title":"标题 {otherTitle"}}}',
+      '{"$schema":"./catalog.schema.json","language":{"englishName":"Simplified Chinese","nativeName":"简体中文","nativeName":"中文","direction":"ltr","aliases":["en"]},"messages":{"notes":{"title":"标题 {otherTitle"}}}',
     );
     writeFileSync(path.join(directory, 'fr.json'), '{');
 
@@ -79,11 +79,11 @@ describe('language catalogs', () => {
     const directory = temporaryCatalogDirectory();
     writeFileSync(
       path.join(directory, 'en.json'),
-      JSON.stringify(catalog('English', { save: 'Save' })),
+      JSON.stringify(catalog('English', 'English', { save: 'Save' })),
     );
     writeFileSync(
       path.join(directory, 'fr.json'),
-      JSON.stringify(catalog('Français', { save: 'Enregistrer {name}' })),
+      JSON.stringify(catalog('French', 'Français', { save: 'Enregistrer {name}' })),
     );
 
     const validation = validateLanguageCatalogs({
@@ -100,11 +100,11 @@ describe('language catalogs', () => {
     const directory = temporaryCatalogDirectory();
     writeFileSync(
       path.join(directory, 'en.json'),
-      JSON.stringify(catalog('English', { save: 'Save' })),
+      JSON.stringify(catalog('English', 'English', { save: 'Save' })),
     );
     writeFileSync(
       path.join(directory, 'fr.json'),
-      JSON.stringify(catalog('Français', { extra: 'Supprimer {name}' })),
+      JSON.stringify(catalog('French', 'Français', { extra: 'Supprimer {name}' })),
     );
 
     const validation = validateLanguageCatalogs({
@@ -122,7 +122,7 @@ describe('language catalogs', () => {
     writeFileSync(
       path.join(directory, 'en.json'),
       JSON.stringify(
-        catalog('English', {
+        catalog('English', 'English', {
           notes: {
             count: {
               plural: 'count',
@@ -135,7 +135,7 @@ describe('language catalogs', () => {
     writeFileSync(
       path.join(directory, 'zh-Hans.json'),
       JSON.stringify(
-        catalog('简体中文', {
+        catalog('Simplified Chinese', '简体中文', {
           notes: {
             count: {
               plural: 'count',
@@ -158,7 +158,7 @@ describe('language catalogs', () => {
     const directory = temporaryCatalogDirectory();
     writeFileSync(
       path.join(directory, 'en.json'),
-      JSON.stringify(catalog('English', { app: { displayName: 'FUTO\u0000 Notes' } })),
+      JSON.stringify(catalog('English', 'English', { app: { displayName: 'FUTO\u0000 Notes' } })),
     );
 
     const validation = validateLanguageCatalogs({
@@ -175,11 +175,11 @@ describe('language catalogs', () => {
     const directory = temporaryCatalogDirectory();
     writeFileSync(
       path.join(directory, 'en.json'),
-      JSON.stringify(catalog('English', { save: 'Save', cancel: 'Cancel {name}' })),
+      JSON.stringify(catalog('English', 'English', { save: 'Save', cancel: 'Cancel {name}' })),
     );
     writeFileSync(
       path.join(directory, 'fr.json'),
-      JSON.stringify(catalog('Français', { save: 'Save', extra: 'Supplément' })),
+      JSON.stringify(catalog('French', 'Français', { save: 'Save', extra: 'Supplément' })),
     );
     const validation = validateLanguageCatalogs({
       languagesDirectory: directory,

@@ -36,11 +36,9 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
         void vaultStatus()
           .then((status) => {
             if (!status.available) return;
-            showGlobalToast('External file changes will not be detected until you restart');
+            showGlobalToast({ path: 'system.watcherUnavailable' });
           })
-          .catch(() =>
-            showGlobalToast('External file changes will not be detected until you restart'),
-          );
+          .catch(() => showGlobalToast({ path: 'system.watcherUnavailable' }));
       },
     ),
   );
@@ -53,9 +51,10 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
   void vaultStatus()
     .then((status) => {
       if (!status.available) {
-        showGlobalToast(
-          `Can't find your vault folder at ${status.displayPath}. Please reconfigure in settings.`,
-        );
+        showGlobalToast({
+          path: 'system.notesFolderUnavailable',
+          arguments: { folderPath: status.displayPath },
+        });
       }
     })
     .catch((error) => console.warn('Failed to read vault status:', error));

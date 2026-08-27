@@ -9,8 +9,8 @@ file shape is defined in [`catalog.schema.json`](catalog.schema.json).
 
 1. Create or edit one UTF-8 JSON file named with its canonical BCP 47 language
    tag, such as `en.json` or `zh-Hans.json`.
-2. Keep `$schema` set to `./catalog.schema.json` and provide `nativeName`,
-   `direction`, and `aliases`.
+2. Keep `$schema` set to `./catalog.schema.json` and provide `englishName`,
+   `nativeName`, `direction`, and `aliases`.
 3. Put translated UI text below `messages`. Catalog objects are nested; call
    sites use the equivalent dot-separated path.
 4. Run `pnpm run check:languages`. It reports all invalid catalog files and
@@ -36,6 +36,7 @@ not put implementation logic in the fixture.
 {
   "$schema": "./catalog.schema.json",
   "language": {
+    "englishName": "English",
     "nativeName": "English",
     "direction": "ltr",
     "aliases": []
@@ -64,11 +65,12 @@ not put implementation logic in the fixture.
 }
 ```
 
-The filename is the language tag. Do not repeat it inside the file. `nativeName`
-is the name shown to speakers of that language. `direction` is `ltr` or `rtl`.
-`aliases` contains only deliberate requested-tag overrides and can be empty.
-An alias selects this catalog at runtime and receives the same generated Android
-and iOS resources; it does not create another in-app language choice.
+The filename is the language tag. Do not repeat it inside the file. `englishName`
+is the English name used to sort the language list. `nativeName` is the name
+shown to speakers of that language. `direction` is `ltr` or `rtl`. `aliases`
+contains only deliberate requested-tag overrides and can be empty. An alias
+selects this catalog at runtime and receives the same generated Android and iOS
+resources; it does not create another in-app language choice.
 
 ## Paths
 

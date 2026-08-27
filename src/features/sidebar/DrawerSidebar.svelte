@@ -10,6 +10,7 @@
   import SidebarImageView from './SidebarImageView.svelte';
   import SidebarTagView from './SidebarTagView.svelte';
   import { createSidebarFolderWorkflows } from './createSidebarFolderWorkflows.svelte';
+  import { localizedText, resolveLocalizedMessage } from '$shared/localization';
 
   interface Props {
     notes: NotePreview[];
@@ -115,7 +116,7 @@
         <circle cx="11" cy="11" r="8" />
         <line x1="21" y1="21" x2="16.65" y2="16.65" />
       </svg>
-      Search
+      {localizedText('search.heading')}
     </button>
   </div>
 
@@ -152,7 +153,7 @@
       class="sidebar-resize-handle"
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize sidebar"
+      aria-label={localizedText('sidebar.resizeAccessibilityLabel')}
       onpointerdown={startResize}
       onpointermove={moveResize}
       onpointerup={endResize}
@@ -164,8 +165,8 @@
 {#if workflows.isCreateFolderOpen}
   <CreateFolderModal
     title={workflows.createFolderParent
-      ? `New folder in "${workflows.createFolderParent}"`
-      : 'New folder'}
+      ? localizedText('folders.newFolderIn', { folderName: workflows.createFolderParent })
+      : localizedText('folders.createHeading')}
     onsubmit={workflows.submitCreateFolder}
     validate={workflows.validateCreateFolder}
     oncancel={workflows.closeCreateFolder}
@@ -183,7 +184,7 @@
 
 {#if workflows.folderPicker}
   <FolderPickerModal
-    title={workflows.folderPicker.title}
+    title={resolveLocalizedMessage(workflows.folderPicker.title)}
     {notes}
     excludePaths={workflows.folderPicker.excludePaths}
     onpick={workflows.folderPicker.onpick}

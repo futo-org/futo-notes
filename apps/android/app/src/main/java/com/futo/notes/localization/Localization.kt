@@ -1,6 +1,5 @@
 package com.futo.notes.localization
 
-import android.content.Context
 import android.content.res.Resources
 import android.icu.text.NumberingSystem
 import android.icu.util.ULocale
@@ -31,12 +30,12 @@ internal interface LocalizationRules {
     fun compare(languageTag: String, left: String, right: String): Int
 }
 
-private sealed interface TemplateToken {
+internal sealed interface TemplateToken {
     data class Text(val value: String) : TemplateToken
     data class Placeholder(val name: String) : TemplateToken
 }
 
-private sealed interface CatalogMessage {
+internal sealed interface CatalogMessage {
     data class Plain(val template: List<TemplateToken>) : CatalogMessage
     data class Plural(
         val pluralArgument: String,
@@ -44,8 +43,9 @@ private sealed interface CatalogMessage {
     ) : CatalogMessage
 }
 
-private data class RuntimeCatalog(
+internal data class RuntimeCatalog(
     val tag: String,
+    val englishName: String,
     val nativeName: String,
     val direction: String,
     val aliases: List<String>,
@@ -75,10 +75,11 @@ class Localization private constructor(
     } ?: Language("en", "English", "ltr")
 
     val availableLanguages = catalogs
-        .map { Language(it.tag, it.nativeName, it.direction) }
         .sortedWith { left, right ->
-            rules.compare(formatLanguageTag, left.nativeName, right.nativeName)
+            val englishNameOrder = rules.compare("en", left.englishName, right.englishName)
+            englishNameOrder.takeIf { it != 0 } ?: left.tag.compareTo(right.tag)
         }
+        .map { Language(it.tag, it.nativeName, it.direction) }
 
     fun localizedText(path: String, arguments: Map<String, Any> = emptyMap()): String {
         for (catalog in messageCatalogs) {
@@ -112,33 +113,67 @@ class Localization private constructor(
     }
 
     fun localizedFileSize(bytes: Long): String {
-        val units = listOf(
-            "byte" to 1L,
-            "kilobyte" to 1_000L,
-            "megabyte" to 1_000_000L,
-            "gigabyte" to 1_000_000_000L,
-            "terabyte" to 1_000_000_000_000L,
-        )
-        val selectedUnit = units.lastOrNull { bytes >= it.second } ?: units.first()
-        val value = kotlin.math.floor(bytes.toDouble() / selectedUnit.second * 10.0 + 0.5) / 10.0
-        return localizedText("units.fileSize.${selectedUnit.first}", mapOf("value" to value))
+        if (bytes >= 1_000_000_000_000L) {
+            val value = kotlin.math.floor(bytes.toDouble() / 1_000_000_000_000L * 10.0 + 0.5) / 10.0
+            return localizedText("units.fileSize.terabyte", mapOf("value" to value))
+        }
+        if (bytes >= 1_000_000_000L) {
+            val value = kotlin.math.floor(bytes.toDouble() / 1_000_000_000L * 10.0 + 0.5) / 10.0
+            return localizedText("units.fileSize.gigabyte", mapOf("value" to value))
+        }
+        if (bytes >= 1_000_000L) {
+            val value = kotlin.math.floor(bytes.toDouble() / 1_000_000L * 10.0 + 0.5) / 10.0
+            return localizedText("units.fileSize.megabyte", mapOf("value" to value))
+        }
+        if (bytes >= 1_000L) {
+            val value = kotlin.math.floor(bytes.toDouble() / 1_000L * 10.0 + 0.5) / 10.0
+            return localizedText("units.fileSize.kilobyte", mapOf("value" to value))
+        }
+        return localizedText("units.fileSize.byte", mapOf("value" to bytes))
     }
 
     fun localizedRelativeTime(timestampMillis: Long): String {
         val differenceSeconds = (timestampMillis - currentTimeMillis()) / 1_000.0
         val absoluteSeconds = kotlin.math.abs(differenceSeconds)
         if (absoluteSeconds < 60) return localizedText("time.relative.now")
-        val units = listOf(
-            "year" to 365L * 24 * 60 * 60,
-            "month" to 30L * 24 * 60 * 60,
-            "day" to 24L * 60 * 60,
-            "hour" to 60L * 60,
-            "minute" to 60L,
-        )
-        val selectedUnit = units.first { absoluteSeconds >= it.second }
-        val count = kotlin.math.floor(absoluteSeconds / selectedUnit.second).toLong()
-        val direction = if (differenceSeconds < 0) "past" else "future"
-        return localizedText("time.relative.$direction.${selectedUnit.first}", mapOf("count" to count))
+        if (absoluteSeconds >= 365L * 24 * 60 * 60) {
+            val count = kotlin.math.floor(absoluteSeconds / (365L * 24 * 60 * 60)).toLong()
+            return if (differenceSeconds < 0) {
+                localizedText("time.relative.past.year", mapOf("count" to count))
+            } else {
+                localizedText("time.relative.future.year", mapOf("count" to count))
+            }
+        }
+        if (absoluteSeconds >= 30L * 24 * 60 * 60) {
+            val count = kotlin.math.floor(absoluteSeconds / (30L * 24 * 60 * 60)).toLong()
+            return if (differenceSeconds < 0) {
+                localizedText("time.relative.past.month", mapOf("count" to count))
+            } else {
+                localizedText("time.relative.future.month", mapOf("count" to count))
+            }
+        }
+        if (absoluteSeconds >= 24L * 60 * 60) {
+            val count = kotlin.math.floor(absoluteSeconds / (24L * 60 * 60)).toLong()
+            return if (differenceSeconds < 0) {
+                localizedText("time.relative.past.day", mapOf("count" to count))
+            } else {
+                localizedText("time.relative.future.day", mapOf("count" to count))
+            }
+        }
+        if (absoluteSeconds >= 60L * 60) {
+            val count = kotlin.math.floor(absoluteSeconds / (60L * 60)).toLong()
+            return if (differenceSeconds < 0) {
+                localizedText("time.relative.past.hour", mapOf("count" to count))
+            } else {
+                localizedText("time.relative.future.hour", mapOf("count" to count))
+            }
+        }
+        val count = kotlin.math.floor(absoluteSeconds / 60L).toLong()
+        return if (differenceSeconds < 0) {
+            localizedText("time.relative.past.minute", mapOf("count" to count))
+        } else {
+            localizedText("time.relative.future.minute", mapOf("count" to count))
+        }
     }
 
     private fun renderTemplate(
@@ -220,10 +255,8 @@ class Localization private constructor(
     }
 
     companion object {
-        fun fromAssets(
-            context: Context,
-            requestedLanguageTags: List<String> = context.resources.configuration.locales
-                .let { locales -> (0 until locales.size()).map { locales[it].toLanguageTag() } },
+        fun system(
+            requestedLanguageTags: List<String>,
             regionalLanguageTag: String = Resources.getSystem().configuration.locales[0]
                 .toLanguageTag(),
             regionalNumberingSystem: String = NumberingSystem.getInstance(
@@ -232,21 +265,27 @@ class Localization private constructor(
             reportDiagnostic: (String) -> Unit = { message ->
                 android.util.Log.e("FutoNotesLocalization", message)
             },
+        ): Localization = fromGeneratedCatalogs(
+            requestedLanguageTags,
+            regionalLanguageTag,
+            regionalNumberingSystem,
+            reportDiagnostic = reportDiagnostic,
+        )
+
+        internal fun fromGeneratedCatalogs(
+            requestedLanguageTags: List<String>,
+            regionalLanguageTag: String?,
+            regionalNumberingSystem: String? = null,
+            currentTimeMillis: () -> Long = System::currentTimeMillis,
+            reportDiagnostic: (String) -> Unit = {},
         ): Localization {
-            val catalogSources = context.assets.list("languages").orEmpty()
-                .filter { it.endsWith(".json") }
-                .associate { fileName ->
-                    fileName.removeSuffix(".json") to context.assets.open("languages/$fileName")
-                        .bufferedReader()
-                        .use { it.readText() }
-                }
-            return fromCatalogSources(
-                catalogSources,
+            return Localization(
+                GeneratedLanguageCatalogs.catalogs,
                 AndroidLocalizationRules,
                 requestedLanguageTags,
                 regionalLanguageTag,
                 regionalNumberingSystem,
-                System::currentTimeMillis,
+                currentTimeMillis,
                 reportDiagnostic,
             )
         }
@@ -296,11 +335,13 @@ class Localization private constructor(
             }
             val language = root.optJSONObject("language") ?: return null
             val messages = root.optJSONObject("messages") ?: return null
-            if (language.length() != 3) return null
+            if (language.length() != 4) return null
+            val englishName = language.opt("englishName") as? String ?: return null
             val nativeName = language.opt("nativeName") as? String ?: return null
             val direction = language.opt("direction") as? String ?: return null
             val aliasesValue = language.optJSONArray("aliases") ?: return null
             if (
+                !isValidCatalogText(englishName) ||
                 !isValidCatalogText(nativeName) ||
                 direction !in setOf("ltr", "rtl")
             ) {
@@ -314,7 +355,14 @@ class Localization private constructor(
             }
             val flattenedMessages = mutableMapOf<String, CatalogMessage>()
             flattenMessages(languageTag, messages, emptyList(), flattenedMessages, report)
-            return RuntimeCatalog(languageTag, nativeName, direction, aliases, flattenedMessages)
+            return RuntimeCatalog(
+                languageTag,
+                englishName,
+                nativeName,
+                direction,
+                aliases,
+                flattenedMessages,
+            )
         }
 
         private fun flattenMessages(

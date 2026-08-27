@@ -170,10 +170,15 @@ describe('Tauri adapter public contract', () => {
     native.open.mockResolvedValueOnce('/tmp/photo.png');
     native.readFile.mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
 
-    expect(await tauriFS.pickImages!({ limit: 1 })).toEqual([
+    expect(await tauriFS.pickImages!({ limit: 1, filterName: 'Images' })).toEqual([
       { bytes: expect.any(ArrayBuffer), extension: 'png' },
     ]);
-    expect(native.open).toHaveBeenCalledWith(expect.objectContaining({ multiple: false }));
+    expect(native.open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        multiple: false,
+        filters: [{ name: 'Images', extensions: expect.any(Array) }],
+      }),
+    );
     expect(await tauriFS.getAppVersion()).toBe('1.2.3');
   });
 
@@ -182,7 +187,7 @@ describe('Tauri adapter public contract', () => {
     native.open.mockResolvedValueOnce(['/tmp/a.png', '/tmp/b.jpg', '/tmp/c.webp', '/tmp/d.gif']);
     native.readFile.mockResolvedValue(new Uint8Array([9]));
 
-    const picked = await tauriFS.pickImages!({ limit: 3 });
+    const picked = await tauriFS.pickImages!({ limit: 3, filterName: 'Images' });
 
     expect(picked.map((image) => image.extension)).toEqual(['png', 'jpg', 'webp']);
     expect(native.open).toHaveBeenCalledWith(expect.objectContaining({ multiple: true }));
@@ -193,7 +198,7 @@ describe('Tauri adapter public contract', () => {
     native.open.mockResolvedValueOnce(['/Users/a.b/photo', '/tmp/shot.PNG', '/tmp/.png']);
     native.readFile.mockResolvedValue(new Uint8Array([7]));
 
-    const picked = await tauriFS.pickImages!({ limit: 3 });
+    const picked = await tauriFS.pickImages!({ limit: 3, filterName: 'Images' });
 
     expect(picked.map((image) => image.extension)).toEqual(['jpg', 'png', 'jpg']);
   });
@@ -203,7 +208,7 @@ describe('Tauri adapter public contract', () => {
     native.open.mockResolvedValueOnce('/tmp/payload.exe');
     native.readFile.mockClear();
 
-    await expect(tauriFS.pickImages!({ limit: 1 })).rejects.toThrow('disallowed image extension');
+    await expect(tauriFS.pickImages!({ limit: 1, filterName: 'Images' })).rejects.toThrow('disallowed image extension');
     expect(native.readFile).not.toHaveBeenCalled();
   });
 

@@ -1,13 +1,22 @@
 import { clearDragHoverExpanded } from '$features/folders/folderExpansion.svelte';
 import { getEmptyFolders } from '$features/folders/emptyFolders.svelte';
 import { deleteFolder, moveFolder, renameFolderInPlace } from '$features/folders/folderOperations';
-import { folderDeleteWarning, noteDeleteWarning } from '$features/notes/deleteConfirmation';
+import {
+  folderDeleteConfirmation,
+  noteDeleteIsPermanent,
+} from '$features/notes/deleteConfirmation';
 import { pickNoteForAction } from '$features/notes/noteActionTarget';
 import { deleteNote, getAllNotes, moveNote } from '$features/notes/notes.svelte';
 import { idLeaf, idParent } from '$lib/platform/pathSafety';
 import { validateTitle } from '$lib/rules';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
+import {
+  localizedText,
+  resolveLocalizedMessage,
+  type LocalizedMessage,
+} from '$shared/localization';
+import { titleValidationMessage } from '$features/notes/titleValidationMessage';
 
 interface SidebarMutationOptions {
   getActiveNoteId: () => string | null;
@@ -67,12 +76,12 @@ export async function renameSidebarFolder(
   path: string,
   newName: string,
   options: SidebarMutationOptions,
-): Promise<string | null> {
+): Promise<LocalizedMessage | null> {
   const parent = idParent(path);
   const siblings = collectSiblingFolders(parent).filter((name) => name !== idLeaf(path));
   return runWithActiveNoteLockIfInFolder(path, options, async () => {
     const result = await renameFolderInPlace(path, newName, siblings);
-    if (!result.ok) return result.error ?? 'Failed to rename';
+    if (!result.ok) return result.error ?? { path: 'folders.errors.renameFailed' };
     options.onNoteIdsRenamed(result.renames ?? []);
     retargetActiveNote(result.renames, options);
     return null;
@@ -90,19 +99,19 @@ export async function renameSidebarNote(
   noteId: string,
   newTitle: string,
   options: SidebarMutationOptions,
-): Promise<string | null> {
+): Promise<LocalizedMessage | null> {
   const trimmed = newTitle.trim();
   if (trimmed === idLeaf(noteId)) return null;
 
   const issue = validateTitle(trimmed)[0];
-  if (issue) return issue.message;
+  if (issue) return titleValidationMessage(issue.kind);
 
   const parent = idParent(noteId);
   const newId = parent ? `${parent}/${trimmed}` : trimmed;
   const collides = getAllNotes().some(
     (note) => note.id !== noteId && note.id.toLowerCase() === newId.toLowerCase(),
   );
-  if (collides) return 'A note with this name already exists';
+  if (collides) return { path: 'notes.title.duplicate' };
 
   try {
     const pick = pickNoteForAction(noteId);
@@ -110,7 +119,7 @@ export async function renameSidebarNote(
     // its pending rename has landed (same reasoning as moveSidebarNote).
     return await options.runWithActiveNoteLock(async () => {
       const fromId = pick.resolve();
-      if (!fromId) return 'That note is no longer available';
+      if (!fromId) return { path: 'notes.unavailable' };
       const targetId = parent ? `${parent}/${trimmed}` : trimmed;
       const renamingActiveNote = options.getActiveNoteId() === fromId;
       const result = await moveNote(fromId, targetId);
@@ -120,8 +129,9 @@ export async function renameSidebarNote(
       }
       return null;
     });
-  } catch (error) {
-    return error instanceof Error ? error.message : 'Rename failed';
+  } catch {
+    console.warn('Failed to rename sidebar note');
+    return { path: 'notes.errors.renameFailed' };
   }
 }
 
@@ -136,7 +146,7 @@ export async function moveSidebarNote(
     // pending rename has landed.
     await options.runWithActiveNoteLock(async () => {
       const fromId = pick.resolve();
-      if (!fromId) return showGlobalToast('That note is no longer available');
+      if (!fromId) return showGlobalToast({ path: 'notes.unavailable' });
       const newId = target ? `${target}/${idLeaf(fromId)}` : idLeaf(fromId);
       if (newId === fromId) return;
       const movingActiveNote = options.getActiveNoteId() === fromId;
@@ -145,10 +155,15 @@ export async function moveSidebarNote(
       if (movingActiveNote) {
         options.onActiveNoteMoved(fromId, result.id, idLeaf(result.id));
       }
-      showGlobalToast(target ? `Moved to ${target}` : 'Moved to Notes');
+      showGlobalToast(
+        target
+          ? { path: 'notes.movedTo', arguments: { destination: target } }
+          : { path: 'notes.movedToNotes' },
+      );
     });
-  } catch (error) {
-    showGlobalToast(error instanceof Error ? error.message : 'Move failed');
+  } catch {
+    console.warn('Failed to move sidebar note');
+    showGlobalToast({ path: 'notes.errors.moveFailed' });
   }
 }
 
@@ -157,14 +172,21 @@ export async function confirmDeleteSidebarNote(
   options: SidebarMutationOptions,
 ): Promise<void> {
   try {
-    const confirmed = await confirmDialog(
-      `Delete note "${idLeaf(id)}"? ${await noteDeleteWarning()}`,
-      { title: 'Delete note', kind: 'warning' },
-    );
+    const confirmation = (await noteDeleteIsPermanent())
+      ? localizedText('notes.delete.namedNotePermanentConfirmation', {
+          noteTitle: idLeaf(id),
+        })
+      : localizedText('notes.delete.namedNoteRecoverableConfirmation', {
+          noteTitle: idLeaf(id),
+        });
+    const confirmed = await confirmDialog(confirmation, {
+      title: localizedText('notes.delete.heading'),
+      kind: 'warning',
+    });
     if (!confirmed) return;
   } catch (error) {
     console.warn('[delete-note] confirmation dialog failed:', error);
-    showGlobalToast('Unable to show confirmation dialog');
+    showGlobalToast({ path: 'notes.errors.confirmationUnavailable' });
     return;
   }
 
@@ -172,14 +194,15 @@ export async function confirmDeleteSidebarNote(
     const pick = pickNoteForAction(id);
     await options.runWithActiveNoteLock(async () => {
       const deleteId = pick.resolve();
-      if (!deleteId) return showGlobalToast('That note is no longer available');
+      if (!deleteId) return showGlobalToast({ path: 'notes.unavailable' });
       await deleteNote(deleteId);
       if (options.getActiveNoteId() === deleteId) options.onActiveNoteDeleted();
       options.onNoteIdsDeleted([deleteId]);
-      showGlobalToast('Note deleted');
+      showGlobalToast({ path: 'notes.deleted' });
     });
-  } catch (error) {
-    showGlobalToast(error instanceof Error ? error.message : 'Delete failed');
+  } catch {
+    console.warn('Failed to delete sidebar note');
+    showGlobalToast({ path: 'notes.errors.deleteFailed' });
   }
 }
 
@@ -188,14 +211,17 @@ export async function confirmDeleteSidebarFolder(
   options: SidebarMutationOptions,
 ): Promise<void> {
   try {
-    const confirmed = await confirmDialog(await folderDeleteWarning(), {
-      title: 'Delete folder',
-      kind: 'warning',
-    });
+    const confirmed = await confirmDialog(
+      resolveLocalizedMessage(await folderDeleteConfirmation()),
+      {
+        title: localizedText('folders.delete.heading'),
+        kind: 'warning',
+      },
+    );
     if (!confirmed) return;
   } catch (error) {
     console.warn('[delete-folder] confirmation dialog failed:', error);
-    showGlobalToast('Unable to show confirmation dialog');
+    showGlobalToast({ path: 'folders.errors.confirmationUnavailable' });
     return;
   }
 
@@ -205,7 +231,7 @@ export async function confirmDeleteSidebarFolder(
     // failure, rewrites backlinks, then removes the remaining folder tree.
     const result = await deleteFolder(path);
     if (!result.ok) {
-      showGlobalToast(result.error ?? 'Failed to delete folder');
+      showGlobalToast(result.error ?? { path: 'folders.errors.deleteFailed' });
       return;
     }
     options.onNoteIdsRenamed(result.renames ?? []);
@@ -220,8 +246,8 @@ export async function confirmDeleteSidebarFolder(
     const movedCount = result.renames?.length ?? 0;
     showGlobalToast(
       movedCount > 0
-        ? `Folder deleted; moved ${movedCount} note${movedCount === 1 ? '' : 's'}`
-        : 'Folder deleted',
+        ? { path: 'folders.delete.movedNotes', arguments: { count: movedCount } }
+        : { path: 'folders.deleted' },
     );
   });
 }
@@ -258,12 +284,12 @@ export async function moveSidebarFolder(
   await runWithActiveNoteLockIfInFolder(folderPath, options, async () => {
     const result = await moveFolder(folderPath, targetPath);
     if (!result.ok) {
-      showGlobalToast(result.error ?? 'Failed to move folder');
+      showGlobalToast(result.error ?? { path: 'folders.errors.moveFailed' });
       return;
     }
     options.onNoteIdsRenamed(result.renames ?? []);
     retargetActiveNote(result.renames, options);
-    showGlobalToast(`Moved to ${targetPath}`);
+    showGlobalToast({ path: 'folders.movedTo', arguments: { destination: targetPath } });
     clearDragHoverExpanded();
   });
 }
@@ -277,12 +303,12 @@ export async function moveSidebarFolderToRoot(
   await runWithActiveNoteLockIfInFolder(folderPath, options, async () => {
     const result = await moveFolder(folderPath, '');
     if (!result.ok) {
-      showGlobalToast(result.error ?? 'Failed to move folder');
+      showGlobalToast(result.error ?? { path: 'folders.errors.moveFailed' });
       return;
     }
     options.onNoteIdsRenamed(result.renames ?? []);
     retargetActiveNote(result.renames, options);
-    showGlobalToast('Moved to Notes');
+    showGlobalToast({ path: 'folders.movedToNotes' });
     clearDragHoverExpanded();
   });
 }

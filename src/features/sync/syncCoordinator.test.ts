@@ -94,11 +94,11 @@ describe('syncCoordinator', () => {
       coord.destroy();
     });
 
-    it('shows "Syncing..." status message on sync start', () => {
+    it('shows the syncing status message on sync start', () => {
       const onStatusMessage = vi.fn();
       const coord = createSyncCoordinator(makeDeps(), makeUI({ onStatusMessage }));
       coord.onSyncStateChange(true);
-      expect(onStatusMessage).toHaveBeenCalledWith('Syncing...');
+      expect(onStatusMessage).toHaveBeenCalledWith({ path: 'sync.status.syncing' });
       coord.destroy();
     });
 
@@ -136,7 +136,7 @@ describe('syncCoordinator', () => {
 
       onStatusMessage.mockClear();
       coord.onSyncStateChange(true);
-      expect(onStatusMessage).toHaveBeenCalledWith('Syncing...');
+      expect(onStatusMessage).toHaveBeenCalledWith({ path: 'sync.status.syncing' });
 
       coord.destroy();
     });
@@ -159,12 +159,13 @@ describe('syncCoordinator', () => {
       const onStatusMessage = vi.fn();
       const coord = createSyncCoordinator(makeDeps(), makeUI({ onStatusMessage }));
 
-      coord.setStatusWithTimeout('Synced 25 notes', 3000);
-      expect(onStatusMessage).toHaveBeenCalledWith('Synced 25 notes');
+      const message = { path: 'sync.status.syncing' };
+      coord.setStatusWithTimeout(message, 3000);
+      expect(onStatusMessage).toHaveBeenCalledWith(message);
 
       onStatusMessage.mockClear();
       vi.advanceTimersByTime(3000);
-      expect(onStatusMessage).toHaveBeenCalledWith('');
+      expect(onStatusMessage).toHaveBeenCalledWith(null);
 
       coord.destroy();
     });
@@ -173,12 +174,12 @@ describe('syncCoordinator', () => {
       const onStatusMessage = vi.fn();
       const coord = createSyncCoordinator(makeDeps(), makeUI({ onStatusMessage }));
 
-      coord.setStatusWithTimeout('Synced 25 notes', 3000);
+      coord.setStatusWithTimeout({ path: 'sync.status.syncing' }, 3000);
       coord.onSyncStateChange(true);
 
       onStatusMessage.mockClear();
       vi.advanceTimersByTime(3000);
-      expect(onStatusMessage).not.toHaveBeenCalledWith('');
+      expect(onStatusMessage).not.toHaveBeenCalledWith(null);
 
       coord.destroy();
     });

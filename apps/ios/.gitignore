@@ -14,6 +14,7 @@ Resources/editor.html
 Resources/*.lproj/InfoPlist.strings
 Resources/.generated-language-directories.json
 Resources/LanguageCatalogs.json
+Sources/GeneratedLocalization/
 
 # Rust UniFFI core build artifacts (regenerate via build-rust-ios.sh):
 # the xcframework (static libs) and the generated Swift bindings.

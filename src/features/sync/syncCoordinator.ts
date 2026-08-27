@@ -1,4 +1,5 @@
 import type { WatcherBatch } from './watcherBatch';
+import type { LocalizedMessage } from '$shared/localization';
 
 export interface SyncCoordinatorDeps {
   watcherBatch: WatcherBatch;
@@ -9,7 +10,7 @@ export interface SyncCoordinatorDeps {
 }
 
 export interface SyncCoordinatorUI {
-  onStatusMessage: (msg: string) => void;
+  onStatusMessage: (message: LocalizedMessage | null) => void;
   onIndicatorChange: (visible: boolean) => void;
   onOfflineChange: (offline: boolean) => void;
 }
@@ -21,7 +22,7 @@ export interface SyncCoordinator {
   onOfflineChange: (offline: boolean) => void;
   getSyncStartEditVersion: () => number;
   getLiveSyncStartEditVersion: () => number;
-  setStatusWithTimeout: (msg: string, ms: number) => void;
+  setStatusWithTimeout: (message: LocalizedMessage, milliseconds: number) => void;
   destroy: () => void;
 }
 
@@ -54,7 +55,7 @@ export function createSyncCoordinator(
         clearTimeout(syncStatusClearTimer);
         syncStatusClearTimer = null;
       }
-      ui.onStatusMessage('Syncing...');
+      ui.onStatusMessage({ path: 'sync.status.syncing' });
       if (syncIndicatorTimer !== null) {
         clearTimeout(syncIndicatorTimer);
         syncIndicatorTimer = null;
@@ -84,16 +85,16 @@ export function createSyncCoordinator(
     return liveSyncStartEditVersion;
   }
 
-  function setStatusWithTimeout(msg: string, ms: number): void {
+  function setStatusWithTimeout(message: LocalizedMessage, milliseconds: number): void {
     if (syncStatusClearTimer !== null) {
       clearTimeout(syncStatusClearTimer);
       syncStatusClearTimer = null;
     }
-    ui.onStatusMessage(msg);
+    ui.onStatusMessage(message);
     syncStatusClearTimer = window.setTimeout(() => {
-      ui.onStatusMessage('');
+      ui.onStatusMessage(null);
       syncStatusClearTimer = null;
-    }, ms);
+    }, milliseconds);
   }
 
   function destroy(): void {

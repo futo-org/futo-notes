@@ -23,6 +23,7 @@
   import { createMarkdownEditorRuntime } from './createMarkdownEditorRuntime';
   import { createNoteHistoryStore, restoreState } from './noteHistory';
   import { swapEditorState } from './swapEditorState';
+  import { desktopLocalization } from '$shared/localization';
 
   interface Props {
     content?: string;
@@ -62,6 +63,7 @@
   let editorOwnsContent = false;
 
   let scrollAnchoring: EditorScrollAnchoring | null = null;
+  let refreshLocalization: ((editorView: EditorView) => void) | null = null;
 
   onMount(() => {
     preloadImages(content, hasFileSystem ? getImageWebPath : undefined, () => view);
@@ -79,6 +81,7 @@
     });
     const currentScrollAnchoring = runtime.scrollAnchoring;
     scrollAnchoring = currentScrollAnchoring;
+    refreshLocalization = runtime.refreshLocalization;
 
     extensions = runtime.extensions;
     const v = new EditorView({
@@ -119,12 +122,18 @@
     return () => {
       runtime.destroy();
       if (scrollAnchoring === currentScrollAnchoring) scrollAnchoring = null;
+      refreshLocalization = null;
       noteHistory.clear();
       extensions = null;
       openNoteId = null;
       view?.destroy();
       view = null;
     };
+  });
+
+  $effect(() => {
+    desktopLocalization.effectiveLanguage.tag;
+    if (view && refreshLocalization) refreshLocalization(view);
   });
 
   $effect(() => {

@@ -91,11 +91,11 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
     },
 
     async pickImages(options) {
-      const limit = Math.max(1, options?.limit ?? 1);
+      const limit = Math.max(1, options.limit ?? 1);
       const { open } = await import('@tauri-apps/plugin-dialog');
       const picked = await open({
         multiple: limit > 1,
-        filters: [{ name: 'Images', extensions: [...IMAGE_EXTENSIONS] }],
+        filters: [{ name: options.filterName, extensions: [...IMAGE_EXTENSIONS] }],
       });
       const paths = typeof picked === 'string' ? [picked] : (picked ?? []);
       const images: PickedImage[] = [];

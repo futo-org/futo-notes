@@ -64,6 +64,8 @@ import com.futo.notes.saveImageDataIntoVault
 import com.futo.notes.saveImageIntoVault
 import com.futo.notes.shouldCompleteNoteAction
 import com.futo.notes.shouldContinueDeleteAfterEditorWrite
+import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.components.TopBar
@@ -99,6 +101,18 @@ private val UNTITLED_PLACEHOLDER = Regex("""^Untitled(-\d+)?$""")
 
 internal fun isPlaceholderTitle(title: String): Boolean = UNTITLED_PLACEHOLDER.matches(title)
 
+private fun titleValidationMessage(kind: String): LocalizedMessage? = when (kind) {
+    "empty" -> LocalizedMessage("notes.title.empty")
+    "forbidden_chars" -> LocalizedMessage("notes.title.forbiddenCharacter")
+    "leading_dots" -> LocalizedMessage("notes.title.leadingDot")
+    "trailing_dots" -> LocalizedMessage("notes.title.trailingDot")
+    "too_long" -> LocalizedMessage(
+        "notes.title.tooLong",
+        mapOf("maxLength" to TitleSpec.maxLength),
+    )
+    else -> null
+}
+
 private fun SyncSummary.affectsOpenNote(id: String): Boolean =
     id in updatedIds ||
         id in deletedIds ||
@@ -133,6 +147,7 @@ fun NoteEditorScreen(
     imagePicker: ImagePicker? = null,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val focusManager = LocalFocusManager.current
@@ -158,7 +173,7 @@ fun NoteEditorScreen(
     // Inline title-validation warning (desktop parity): forbidden char → transient
     // 2 s; dot/too-long/duplicate → persistent + blocks the rename. Shown in
     // danger red under the title field.
-    var titleWarning by remember(initialNoteId) { mutableStateOf<String?>(null) }
+    var titleWarning by remember(initialNoteId) { mutableStateOf<LocalizedMessage?>(null) }
     var warningJob by remember { mutableStateOf<Job?>(null) }
     // CRITICAL: never block the editor's first frame on a disk read. Start empty
     // and load the note body off the main thread; the WebView mounts immediately
@@ -205,14 +220,14 @@ fun NoteEditorScreen(
                         savedContent = snapshot
                         Toast.makeText(
                             context,
-                            "Conflicting edits saved to a copy",
+                            localization.localizedText("notes.save.conflictCopy"),
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
 
                     null -> Toast.makeText(
                         context,
-                        "Couldn't save note. Your changes are still pending.",
+                        localization.localizedText("notes.save.failedPending"),
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -285,13 +300,13 @@ fun NoteEditorScreen(
                         when (disposition.reason) {
                             KeepDraftReason.PEER_DELETED -> Toast.makeText(
                                 context,
-                                "This note was deleted elsewhere. Your draft is still open.",
+                                localization.localizedText("notes.save.peerDeletedDraftOpen"),
                                 Toast.LENGTH_SHORT,
                             ).show()
 
                             KeepDraftReason.DIVERGED -> Toast.makeText(
                                 context,
-                                "This note changed elsewhere. Your draft is still open.",
+                                localization.localizedText("notes.save.peerChangedDraftOpen"),
                                 Toast.LENGTH_SHORT,
                             ).show()
 
@@ -306,7 +321,11 @@ fun NoteEditorScreen(
                         // buffer clean before navigation so onDispose cannot
                         // recreate a peer-deleted note.
                         savedContent = content
-                        Toast.makeText(context, "Note deleted elsewhere", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            localization.localizedText("notes.deletedElsewhere"),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                         onBack()
                     }
                 }
@@ -378,7 +397,7 @@ fun NoteEditorScreen(
                     if (attachment != null && host.isCurrentAttachment(attachment)) {
                         Toast.makeText(
                             context,
-                            "Couldn't save note. Your changes are still pending.",
+                            localization.localizedText("notes.save.failedPending"),
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
@@ -389,7 +408,7 @@ fun NoteEditorScreen(
 
     fun saveImageForAttachment(
         attachment: EditorAttachmentToken,
-        failureMessage: String,
+        failureMessage: LocalizedMessage,
         save: (File) -> String?,
     ) {
         scope.launch {
@@ -409,7 +428,11 @@ fun NoteEditorScreen(
                 )
             }
             if (name == null && host.isCurrentAttachment(attachment)) {
-                Toast.makeText(context, failureMessage, Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    localization.localizedText(failureMessage.path, failureMessage.arguments),
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
         }
     }
@@ -525,7 +548,7 @@ fun NoteEditorScreen(
                 android.util.Log.e("NoteEditor", "open-note reconciliation failed", e)
                 Toast.makeText(
                     context,
-                    "Couldn't refresh the open note. Your draft is still open.",
+                    localization.localizedText("notes.save.refreshFailedDraftOpen"),
                     Toast.LENGTH_SHORT,
                 ).show()
             }
@@ -574,7 +597,7 @@ fun NoteEditorScreen(
                     if (outcome === NoteMutationOutcome.Failed) {
                         Toast.makeText(
                             context,
-                            "Couldn't save note. Your changes are still pending.",
+                            localization.localizedText("notes.save.failedPending"),
                             Toast.LENGTH_SHORT,
                         ).show()
                         return@runWork
@@ -593,7 +616,7 @@ fun NoteEditorScreen(
                 if (!titleCommit.isCommitted) {
                     Toast.makeText(
                         context,
-                        "Couldn't rename note. Your title is still pending.",
+                        localization.localizedText("notes.title.renameFailed"),
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -610,7 +633,10 @@ fun NoteEditorScreen(
         val handle: (List<Uri>) -> Unit = { uris ->
             val uri = uris.firstOrNull()
             if (uri != null && attachment != null) {
-                saveImageForAttachment(attachment, "Unsupported image type") { root ->
+                saveImageForAttachment(
+                    attachment,
+                    LocalizedMessage("editor.images.unsupportedType"),
+                ) { root ->
                     saveImageIntoVault(context.contentResolver, root, uri)
                 }
             }
@@ -628,7 +654,10 @@ fun NoteEditorScreen(
     val saveImageData: (String, String) -> Unit = { base64, ext ->
         val attachment = host.currentAttachment()
         if (attachment != null) {
-            saveImageForAttachment(attachment, "Couldn't paste image") { root ->
+            saveImageForAttachment(
+                attachment,
+                LocalizedMessage("editor.images.pasteFailed"),
+            ) { root ->
                 val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
                 saveImageDataIntoVault(root, bytes, ext)
             }
@@ -657,7 +686,11 @@ fun NoteEditorScreen(
                         enabled = !interactionLocked,
                         onClick = { navigateAfterSaving(onBack) },
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = localization.localizedText("common.actions.back"),
+                            tint = c.textSecondary,
+                        )
                     }
                 },
                 actions = {
@@ -667,32 +700,49 @@ fun NoteEditorScreen(
                             putExtra(Intent.EXTRA_TITLE, titleValue.text)
                             putExtra(Intent.EXTRA_TEXT, content)
                         }
-                        context.startActivity(Intent.createChooser(share, "Share note"))
+                        context.startActivity(
+                            Intent.createChooser(
+                                share,
+                                localization.localizedText("notes.shareChooserTitle"),
+                            ),
+                        )
                     }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Share", tint = c.textSecondary)
+                        Icon(
+                            Icons.Filled.Share,
+                            contentDescription = localization.localizedText("notes.actions.share"),
+                            tint = c.textSecondary,
+                        )
                     }
                     var menu by remember { mutableStateOf(false) }
                     IconButton(enabled = !interactionLocked, onClick = { menu = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = c.textSecondary)
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = localization.localizedText("notes.actions.moreAccessibilityLabel"),
+                            tint = c.textSecondary,
+                        )
                     }
                     // Overflow parity with the list rows [list.md:62].
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
-                            text = { Text("Move to folder…") },
+                            text = { Text(localization.localizedText("notes.actions.moveToFolderEllipsis")) },
                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },
                             onClick = { menu = false; showMoveSheet = true },
                         )
                         DropdownMenuItem(
-                            text = { Text("Copy file path") },
+                            text = { Text(localization.localizedText("notes.actions.copyFilePath")) },
                             leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = c.textSecondary) },
                             onClick = {
                                 menu = false
                                 clipboard.setText(AnnotatedString("${store.rootPath}/$noteId.md"))
-                                Toast.makeText(context, "Path copied", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(
+                                    context,
+                                    localization.localizedText("notes.pathCopied"),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("Delete note") },
+                            text = { Text(localization.localizedText("notes.actions.deleteNote")) },
                             leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },
                             onClick = { menu = false; confirmDelete = true },
                         )
@@ -727,7 +777,7 @@ fun NoteEditorScreen(
                         else TextFieldValue(capped, TextRange(minOf(v.selection.end, capped.length)))
                     if (forbidden) {
                         // Transient warning (auto-hide after 2 s).
-                        titleWarning = "That character can't be used in a note title"
+                        titleWarning = LocalizedMessage("notes.title.forbiddenCharacter")
                         warningJob?.cancel()
                         warningJob = scope.launch { delay(2000); titleWarning = null }
                     } else {
@@ -740,8 +790,8 @@ fun NoteEditorScreen(
                                 tgt != noteId && store.notes.any { it.id == tgt }
                             }
                         }
-                        titleWarning = blocking?.message
-                            ?: if (dup) "A note with this name already exists" else null
+                        titleWarning = blocking?.let { titleValidationMessage(it.kind) }
+                            ?: if (dup) LocalizedMessage("notes.title.duplicate") else null
                     }
                 },
                 singleLine = true,
@@ -751,14 +801,18 @@ fun NoteEditorScreen(
                     .onFocusChanged { titleFocused = it.isFocused },
                 decorationBox = { inner ->
                     if (titleValue.text.isEmpty()) {
-                        Text("Untitled", style = FutoType.h3.copy(fontWeight = FontWeight.SemiBold), color = c.textMuted)
+                        Text(
+                            localization.localizedText("notes.untitledPlaceholder"),
+                            style = FutoType.h3.copy(fontWeight = FontWeight.SemiBold),
+                            color = c.textMuted,
+                        )
                     }
                     inner()
                 },
             )
-            titleWarning?.let { w ->
+            titleWarning?.let { warning ->
                 Text(
-                    w,
+                    localization.localizedText(warning.path, warning.arguments),
                     style = FutoType.caption,
                     color = c.danger,
                     modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 2.dp),
@@ -774,6 +828,7 @@ fun NoteEditorScreen(
                 } else {
                     EditorWebView(
                         content = content,
+                        languageTag = localization.effectiveLanguage.tag,
                         // Quick capture: a brand-new note (autoFocus) opens with the
                         // BODY focused — keyboard on the editor, not the title field —
                         // so the first keystrokes are the note, not its name. Opening
@@ -858,9 +913,9 @@ fun NoteEditorScreen(
 
     if (confirmDelete) {
         ConfirmDialog(
-            title = "Delete this note?",
-            body = "This action cannot be undone.",
-            confirmLabel = "Delete",
+            title = localization.localizedText("notes.delete.thisNoteQuestion"),
+            body = localization.localizedText("notes.delete.recoverableWarning"),
+            confirmLabel = localization.localizedText("common.actions.delete"),
             onConfirm = {
                 confirmDelete = false
                 session.end(
@@ -904,7 +959,11 @@ fun NoteEditorScreen(
                             // Mark clean only after delete commits, so onDispose
                             // cannot recreate the deleted note from its dirty draft.
                             savedContent = content
-                            Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                context,
+                                localization.localizedText("notes.deleted"),
+                                Toast.LENGTH_SHORT,
+                            ).show()
                             onBack()
                         }
 
@@ -912,9 +971,9 @@ fun NoteEditorScreen(
                             Toast.makeText(
                                 context,
                                 if (failure == EditorExitFailure.BODY) {
-                                    "Couldn't save note. Delete is paused while your changes remain pending."
+                                    localization.localizedText("notes.delete.savePending")
                                 } else {
-                                    "Couldn't delete note. It remains in your notes."
+                                    localization.localizedText("notes.errors.deleteFailed")
                                 },
                                 Toast.LENGTH_SHORT,
                             ).show()
@@ -959,7 +1018,7 @@ fun NoteEditorScreen(
                             if (writeOutcome === NoteMutationOutcome.Failed) {
                                 Toast.makeText(
                                     context,
-                                    "Couldn't save note. Your changes are still pending.",
+                                    localization.localizedText("notes.save.failedPending"),
                                     Toast.LENGTH_SHORT,
                                 ).show()
                                 return false
@@ -985,7 +1044,14 @@ fun NoteEditorScreen(
                             showMoveSheet = false
                             Toast.makeText(
                                 context,
-                                "Moved to ${folder.ifEmpty { "Root" }}",
+                                if (folder.isEmpty()) {
+                                    localization.localizedText("notes.movedToRoot")
+                                } else {
+                                    localization.localizedText(
+                                        "notes.movedTo",
+                                        mapOf("destination" to folder),
+                                    )
+                                },
                                 Toast.LENGTH_SHORT,
                             ).show()
                         }
@@ -996,7 +1062,7 @@ fun NoteEditorScreen(
                             if (failure == EditorExitFailure.REJECTED) return
                             Toast.makeText(
                                 context,
-                                "Couldn't move note. It remains in its current folder.",
+                                localization.localizedText("notes.errors.moveFailed"),
                                 Toast.LENGTH_SHORT,
                             ).show()
                         }

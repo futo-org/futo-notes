@@ -223,9 +223,9 @@ describe('engine-owned open-note disposition', () => {
     expect(result.keptDraftId).toBe('active');
     expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('base');
     expect(bundle.session.resumeDraftPersistence).toHaveBeenCalledOnce();
-    expect(bundle.showToast).toHaveBeenCalledExactlyOnceWith(
-      'Open note was deleted; keeping local draft',
-    );
+    expect(bundle.showToast).toHaveBeenCalledExactlyOnceWith({
+      path: 'notes.save.openNoteDeletedKeepingDraft',
+    });
     bundle.coordinator.stop();
   });
 

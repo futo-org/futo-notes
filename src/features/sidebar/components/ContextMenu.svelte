@@ -2,9 +2,10 @@
   import { onMount } from 'svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
   import { portal } from '$shared/dom/portal';
+  import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
 
   export interface MenuItem {
-    label: string;
+    label: LocalizedMessage;
     onclick: () => void;
     destructive?: boolean;
   }
@@ -50,13 +51,13 @@
   style="left: {x}px; top: {y}px"
   role="menu"
 >
-  {#each items as item (item.label)}
+  {#each items as item (`${item.label.path}:${JSON.stringify(item.label.arguments ?? {})}`)}
     <button
       type="button"
       role="menuitem"
       class="menu-item"
       class:destructive={item.destructive}
-      onclick={() => handleItemClick(item)}>{item.label}</button
+      onclick={() => handleItemClick(item)}>{resolveLocalizedMessage(item.label)}</button
     >
   {/each}
 </div>

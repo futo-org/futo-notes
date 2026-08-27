@@ -37,6 +37,7 @@ type CatalogMessage =
 
 interface RuntimeCatalog {
   readonly tag: string;
+  readonly englishName: string;
   readonly nativeName: string;
   readonly direction: 'ltr' | 'rtl';
   readonly aliases: readonly string[];
@@ -52,6 +53,7 @@ interface LocaleParts {
 const pathSegmentPattern = /^[a-z][A-Za-z0-9]*$/;
 const exactPluralPattern = /^=(?:0|[1-9][0-9]*)$/;
 const pluralCategories = new Set(['zero', 'one', 'two', 'few', 'many', 'other']);
+const englishLanguageNameCollator = new Intl.Collator('en');
 
 function canonicalLanguageTag(languageTag: string): string | null {
   try {
@@ -229,15 +231,18 @@ function parseCatalog(
     Object.keys(value).length !== 3 ||
     value.$schema !== './catalog.schema.json' ||
     !isRecord(value.language) ||
-    Object.keys(value.language).length !== 3 ||
+    Object.keys(value.language).length !== 4 ||
     !isRecord(value.messages)
   ) {
     return null;
   }
+  const englishName = value.language.englishName;
   const nativeName = value.language.nativeName;
   const direction = value.language.direction;
   const aliases = value.language.aliases;
   if (
+    typeof englishName !== 'string' ||
+    !isValidCatalogText(englishName) ||
     typeof nativeName !== 'string' ||
     !isValidCatalogText(nativeName) ||
     (direction !== 'ltr' && direction !== 'rtl') ||
@@ -257,6 +262,7 @@ function parseCatalog(
 
   return {
     tag: languageTag,
+    englishName,
     nativeName,
     direction,
     aliases: canonicalAliases,
@@ -380,17 +386,11 @@ function renderTemplate(
     .join('');
 }
 
-export function createLocalizationModule(options: LocalizationModuleOptions): LocalizationModule {
-  const reportedDiagnostics = new Set<string>();
-  const reportDiagnostic =
-    options.reportDiagnostic ?? ((message: string) => console.error(message));
-  const report = (key: string, message: string): void => {
-    if (reportedDiagnostics.has(key)) return;
-    reportedDiagnostics.add(key);
-    reportDiagnostic(message);
-  };
-
-  const catalogs = Object.entries(options.catalogs)
+function parseRuntimeCatalogs(
+  options: LocalizationModuleOptions,
+  report: (key: string, message: string) => void,
+): RuntimeCatalog[] {
+  return Object.entries(options.catalogs)
     .map(([languageTag, value]) => {
       const catalog = parseCatalog(languageTag, value, report);
       if (!catalog) {
@@ -402,6 +402,19 @@ export function createLocalizationModule(options: LocalizationModuleOptions): Lo
       return catalog;
     })
     .filter((catalog): catalog is RuntimeCatalog => catalog !== null);
+}
+
+export function createLocalizationModule(options: LocalizationModuleOptions): LocalizationModule {
+  const reportedDiagnostics = new Set<string>();
+  const reportDiagnostic =
+    options.reportDiagnostic ?? ((message: string) => console.error(message));
+  const report = (key: string, message: string): void => {
+    if (reportedDiagnostics.has(key)) return;
+    reportedDiagnostics.add(key);
+    reportDiagnostic(message);
+  };
+
+  const catalogs = parseRuntimeCatalogs(options, report);
 
   const selection = selectCatalog(options.requestedLanguageTags, catalogs);
   const selectedCatalog = selection.catalog;
@@ -418,15 +431,21 @@ export function createLocalizationModule(options: LocalizationModuleOptions): Lo
     options.regionalNumberingSystem,
   );
   const numberFormatter = new Intl.NumberFormat(formatLanguageTag, { maximumFractionDigits: 3 });
-  const languageCollator = new Intl.Collator(formatLanguageTag);
   const messageCatalogs = fallbackCatalogs(selectedCatalog, catalogs);
   const availableLanguages = catalogs
+    .slice()
+    .sort((left, right) => {
+      const englishNameOrder = englishLanguageNameCollator.compare(
+        left.englishName,
+        right.englishName,
+      );
+      return englishNameOrder || englishLanguageNameCollator.compare(left.tag, right.tag);
+    })
     .map<Language>((catalog) => ({
       tag: catalog.tag,
       nativeName: catalog.nativeName,
       direction: catalog.direction,
-    }))
-    .sort((left, right) => languageCollator.compare(left.nativeName, right.nativeName));
+    }));
 
   function localizedText(messagePath: string, argumentsMap: LocalizationArguments = {}): string {
     for (const catalog of messageCatalogs) {
@@ -481,19 +500,23 @@ export function createLocalizationModule(options: LocalizationModuleOptions): Lo
   }
 
   function localizedFileSize(bytes: number): string {
-    const units = [
-      ['byte', 1],
-      ['kilobyte', 1_000],
-      ['megabyte', 1_000_000],
-      ['gigabyte', 1_000_000_000],
-      ['terabyte', 1_000_000_000_000],
-    ] as const;
-    let selectedUnit: (typeof units)[number] = units[0];
-    for (const unit of units) {
-      if (bytes >= unit[1]) selectedUnit = unit;
+    if (bytes >= 1_000_000_000_000) {
+      const value = Math.round((bytes / 1_000_000_000_000) * 10) / 10;
+      return localizedText('units.fileSize.terabyte', { value });
     }
-    const value = Math.round((bytes / selectedUnit[1]) * 10) / 10;
-    return localizedText(`units.fileSize.${selectedUnit[0]}`, { value });
+    if (bytes >= 1_000_000_000) {
+      const value = Math.round((bytes / 1_000_000_000) * 10) / 10;
+      return localizedText('units.fileSize.gigabyte', { value });
+    }
+    if (bytes >= 1_000_000) {
+      const value = Math.round((bytes / 1_000_000) * 10) / 10;
+      return localizedText('units.fileSize.megabyte', { value });
+    }
+    if (bytes >= 1_000) {
+      const value = Math.round((bytes / 1_000) * 10) / 10;
+      return localizedText('units.fileSize.kilobyte', { value });
+    }
+    return localizedText('units.fileSize.byte', { value: bytes });
   }
 
   function localizedRelativeTime(timestamp: number): string {
@@ -501,18 +524,34 @@ export function createLocalizationModule(options: LocalizationModuleOptions): Lo
     const absoluteSeconds = Math.abs(differenceSeconds);
     if (absoluteSeconds < 60) return localizedText('time.relative.now');
 
-    const units = [
-      ['year', 365 * 24 * 60 * 60],
-      ['month', 30 * 24 * 60 * 60],
-      ['day', 24 * 60 * 60],
-      ['hour', 60 * 60],
-      ['minute', 60],
-    ] as const;
-    const selectedUnit =
-      units.find((unit) => absoluteSeconds >= unit[1]) ?? units[units.length - 1];
-    const count = Math.floor(absoluteSeconds / selectedUnit[1]);
-    const direction = differenceSeconds < 0 ? 'past' : 'future';
-    return localizedText(`time.relative.${direction}.${selectedUnit[0]}`, { count });
+    if (absoluteSeconds >= 365 * 24 * 60 * 60) {
+      const count = Math.floor(absoluteSeconds / (365 * 24 * 60 * 60));
+      return differenceSeconds < 0
+        ? localizedText('time.relative.past.year', { count })
+        : localizedText('time.relative.future.year', { count });
+    }
+    if (absoluteSeconds >= 30 * 24 * 60 * 60) {
+      const count = Math.floor(absoluteSeconds / (30 * 24 * 60 * 60));
+      return differenceSeconds < 0
+        ? localizedText('time.relative.past.month', { count })
+        : localizedText('time.relative.future.month', { count });
+    }
+    if (absoluteSeconds >= 24 * 60 * 60) {
+      const count = Math.floor(absoluteSeconds / (24 * 60 * 60));
+      return differenceSeconds < 0
+        ? localizedText('time.relative.past.day', { count })
+        : localizedText('time.relative.future.day', { count });
+    }
+    if (absoluteSeconds >= 60 * 60) {
+      const count = Math.floor(absoluteSeconds / (60 * 60));
+      return differenceSeconds < 0
+        ? localizedText('time.relative.past.hour', { count })
+        : localizedText('time.relative.future.hour', { count });
+    }
+    const count = Math.floor(absoluteSeconds / 60);
+    return differenceSeconds < 0
+      ? localizedText('time.relative.past.minute', { count })
+      : localizedText('time.relative.future.minute', { count });
   }
 
   return {

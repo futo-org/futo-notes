@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.BuildConfig
+import com.futo.notes.localization.Localization
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONObject
@@ -70,6 +71,7 @@ internal fun isInAppEditorNavigation(scheme: String?): Boolean =
 internal fun EditorWebView(
     content: String,
     theme: String,
+    languageTag: String,
     autoFocus: Boolean,
     onChange: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -92,6 +94,7 @@ internal fun EditorWebView(
     // the incoming screen's content even when reconciliation itself was fenced.
     if (attachment?.let(host::isCurrentAttachment) == true) {
         host.setTheme(theme)
+        host.setLanguage(languageTag)
         host.setContent(content)
         if (notesJson != null) host.setNotes(notesJson)
         if (imageBaseUrl != null) host.setImageBaseUrl(imageBaseUrl)
@@ -112,6 +115,7 @@ internal fun EditorWebView(
         )
         attachment = token
         host.setTheme(theme)
+        host.setLanguage(languageTag)
         host.setContent(content)
         if (notesJson != null) host.setNotes(notesJson)
         if (imageBaseUrl != null) host.setImageBaseUrl(imageBaseUrl)
@@ -188,8 +192,10 @@ class EditorHost private constructor(appContext: Context) {
     // the same gate for the same reason; the right way to retire both is to
     // stop pushing from a composition body, not to delete the compares.
     private var currentTheme: String? = null
+    private var currentLanguageTag: String? = null
     private var lastPushedContent: String? = null
     private var desiredTheme: String = "light"
+    private var desiredLanguageTag: String = "en"
     private var desiredContent: String = ""
     // Note universe + image base (bridge v2). The notes JSON can be large, so
     // dedupe holds only its hash, not the string.
@@ -211,6 +217,7 @@ class EditorHost private constructor(appContext: Context) {
     }
 
     private val appContext = appContext
+    private var localization: Localization? = null
 
     /** Bumped each time [webView] is rebuilt after a renderer-process death, so
      *  the [EditorWebView] composable re-adopts the fresh instance (key()). */
@@ -376,6 +383,7 @@ class EditorHost private constructor(appContext: Context) {
                 // between sending the config and this reply; each of these is
                 // deduped and so a no-op when it hasn't.
                 setTheme(desiredTheme)
+                setLanguage(desiredLanguageTag)
                 setContent(desiredContent)
                 desiredImageBaseUrl?.let { setImageBaseUrl(it) }
                 desiredNotesJson?.let { setNotes(it) }
@@ -394,11 +402,19 @@ class EditorHost private constructor(appContext: Context) {
                         "native expects v$hostVersion — rebuild the editor bundle",
                 )
                 if (BuildConfig.DEBUG) {
-                    Toast.makeText(
-                        appContext,
-                        "Bridge version mismatch: editor v$bundleVersion vs native v$hostVersion",
-                        Toast.LENGTH_LONG,
-                    ).show()
+                    localization?.let {
+                        Toast.makeText(
+                            appContext,
+                            it.localizedText(
+                                "editor.android.bridgeVersionMismatch",
+                                mapOf(
+                                    "editorVersion" to bundleVersion.toString(),
+                                    "nativeVersion" to hostVersion.toString(),
+                                ),
+                            ),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
                 }
             }
             "change" -> {
@@ -450,6 +466,7 @@ class EditorHost private constructor(appContext: Context) {
         val config = JSONObject().apply {
             put("bridgeVersion", BridgeSpec.BRIDGE_VERSION)
             put("theme", desiredTheme)
+            put("languageTag", desiredLanguageTag)
             put("content", desiredContent)
             // The markdown toolbar is native Compose here (EditorToolbar.kt),
             // so the embed must keep its own web toolbar hidden [editor.md].
@@ -464,6 +481,7 @@ class EditorHost private constructor(appContext: Context) {
         // Record what the config carries, so the catch-up on `initialized`
         // re-pushes only what actually moved while it was in flight.
         currentTheme = desiredTheme
+        currentLanguageTag = desiredLanguageTag
         lastPushedContent = desiredContent
         lastNotesJsonHash = desiredNotesJson?.hashCode()
         currentImageBaseUrl = desiredImageBaseUrl
@@ -527,6 +545,16 @@ class EditorHost private constructor(appContext: Context) {
     fun setTheme(theme: String) {
         desiredTheme = theme
         if (isReady && theme != currentTheme) pushTheme(theme)
+    }
+
+    fun setLanguage(languageTag: String) {
+        desiredLanguageTag = languageTag
+        if (isReady && languageTag != currentLanguageTag) pushLanguage(languageTag)
+    }
+
+    fun setLocalization(localization: Localization) {
+        this.localization = localization
+        setLanguage(localization.effectiveLanguage.tag)
     }
 
     /** Feed the note universe (wikilink resolution/autocomplete) — a JSON
@@ -668,6 +696,14 @@ class EditorHost private constructor(appContext: Context) {
     private fun pushTheme(theme: String) {
         currentTheme = theme
         eval("window.FutoEditor && window.FutoEditor.setTheme(${JSONObject.quote(theme)});")
+    }
+
+    private fun pushLanguage(languageTag: String) {
+        currentLanguageTag = languageTag
+        eval(
+            "window.FutoEditor && window.FutoEditor.setLanguage && " +
+                "window.FutoEditor.setLanguage(${JSONObject.quote(languageTag)});",
+        )
     }
 
     private fun pushNotes(notesJson: String) {

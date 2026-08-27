@@ -9,8 +9,10 @@
   import { confirmDialog } from '$shared/dialogs/confirmDialog';
   import { dismissable } from '$shared/dialogs/dismissable';
   import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
+  import { desktopLocalization, localizedText } from '$shared/localization';
   import {
     getCachedPreferences,
+    saveSelectedLanguageTag,
     savePreferences,
     type AppPreferences,
   } from '$shared/state/appState';
@@ -20,6 +22,7 @@
   import DangerSettingsSection from './DangerSettingsSection.svelte';
   import DevSyncErrorSettingsSection from './DevSyncErrorSettingsSection.svelte';
   import IssueReportingSettingsSection from './IssueReportingSettingsSection.svelte';
+  import LanguageSettingsSection from './LanguageSettingsSection.svelte';
   import StorageSettingsSection from './StorageSettingsSection.svelte';
   import SyncSettingsSection from './SyncSettingsSection.svelte';
   import UpdatesSettingsSection from './UpdatesSettingsSection.svelte';
@@ -45,13 +48,23 @@
   }: Props = $props();
 
   let preferences = $state<AppPreferences>(copyPreferences(getCachedPreferences()));
-  let notesDirectory = $state(isTauri ? 'Loading…' : 'In-memory test vault');
+  let notesDirectoryPath = $state('');
+  let notesDirectoryState = $state<'loading' | 'memory' | 'path' | 'error'>(
+    isTauri ? 'loading' : 'memory',
+  );
   let isCustomDirectory = $state(false);
   let vaultAvailable = $state(true);
   let resetting = $state(false);
-  let resetError = $state('');
+  let resetFailed = $state(false);
   let updateSupported = $state(false);
   const sync = createSyncSettings();
+
+  const notesDirectory = $derived.by(() => {
+    if (notesDirectoryState === 'loading') return localizedText('settings.storage.loading');
+    if (notesDirectoryState === 'memory') return localizedText('settings.storage.memoryVault');
+    if (notesDirectoryState === 'error') return localizedText('settings.storage.unableToRead');
+    return notesDirectoryPath;
+  });
 
   const updateLocked = $derived(
     updateChecker.phase === 'downloading' ||
@@ -62,6 +75,7 @@
   function copyPreferences(source: AppPreferences): AppPreferences {
     return {
       appearance: { ...source.appearance },
+      language: { ...source.language },
       crashReporting: { ...source.crashReporting },
       updates: { ...source.updates },
       sync: { ...source.sync },
@@ -77,7 +91,18 @@
   }
 
   async function persistPreferences(): Promise<void> {
+    preferences.language.selectedLanguageTag = desktopLocalization.selectedLanguageTag;
     await savePreferences(copyPreferences(preferences));
+  }
+
+  async function changeLanguage(selectedLanguageTag: string | null): Promise<void> {
+    const acceptedLanguageTag = desktopLocalization.setSelectedLanguageTag(selectedLanguageTag);
+    preferences.language.selectedLanguageTag = acceptedLanguageTag;
+    try {
+      await saveSelectedLanguageTag(acceptedLanguageTag);
+    } catch {
+      showGlobalToast({ path: 'settings.language.saveFailed' });
+    }
   }
 
   function changeTheme(theme: AppPreferences['appearance']['theme']): void {
@@ -116,27 +141,28 @@
       // document-portal grant is minted by `setNotesDir` below, so a cancelled
       // dialog leaves nothing behind.
       const confirmed = await confirmDialog(
-        `Move your notes directory to:\n${await vaultDisplayPath(selected)}\n\nExisting notes in the current directory will NOT be moved. The app will restart.`,
-        { title: 'Change notes directory', kind: 'warning' },
+        localizedText('settings.dialogs.changeDirectoryConfirmation', {
+          directory: await vaultDisplayPath(selected),
+        }),
+        { title: localizedText('settings.dialogs.changeDirectoryTitle'), kind: 'warning' },
       );
       if (!confirmed) return;
       await setNotesDir(selected);
       await restartForNewVault();
-    } catch (error) {
+    } catch {
       // Picking a folder and having nothing happen is the worst outcome here, and
       // every step above can fail: an unusable grant, a folder that cannot be
       // created, a refused relaunch.
-      showGlobalToast(
-        `Could not use that folder: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      console.warn('Failed to change notes directory');
+      showGlobalToast({ path: 'settings.storage.useFolderFailed' });
     }
   }
 
   async function resetNotesDirectory(): Promise<void> {
     if (!isTauri) return;
     const confirmed = await confirmDialog(
-      'Reset notes directory to the default location?\n\nThe app will restart.',
-      { title: 'Reset notes directory', kind: 'warning' },
+      localizedText('settings.dialogs.resetDirectoryConfirmation'),
+      { title: localizedText('settings.dialogs.resetDirectoryTitle'), kind: 'warning' },
     );
     if (!confirmed) return;
     await setNotesDir(null);
@@ -152,18 +178,19 @@
   }
 
   async function confirmFullReset(): Promise<void> {
-    const confirmed = await confirmDialog(
-      'Permanently delete all notes and app data? This cannot be undone.',
-      { title: 'Full reset', kind: 'warning' },
-    );
+    const confirmed = await confirmDialog(localizedText('settings.danger.confirmation'), {
+      title: localizedText('settings.danger.fullReset'),
+      kind: 'warning',
+    });
     if (!confirmed) return;
 
     resetting = true;
-    resetError = '';
+    resetFailed = false;
     try {
       await onreset();
-    } catch (error) {
-      resetError = error instanceof Error ? error.message : String(error);
+    } catch {
+      console.error('Full reset failed');
+      resetFailed = true;
       resetting = false;
     }
   }
@@ -175,12 +202,13 @@
     // when the user needs it.
     void vaultStatus()
       .then((status) => {
-        notesDirectory = status.displayPath;
+        notesDirectoryPath = status.displayPath;
+        notesDirectoryState = 'path';
         isCustomDirectory = status.isCustom;
         vaultAvailable = status.available;
       })
       .catch((error) => {
-        notesDirectory = 'Unable to read notes directory';
+        notesDirectoryState = 'error';
         console.warn('Failed to read notes directory:', error);
       });
   }
@@ -217,8 +245,12 @@
   >
     <div class="settings-scroll">
       <header class="settings-header">
-        <h2 class="settings-title">Settings</h2>
-        <button class="settings-close" aria-label="Close settings" onclick={close}>×</button>
+        <h2 class="settings-title">{localizedText('settings.heading')}</h2>
+        <button
+          class="settings-close"
+          aria-label={localizedText('settings.closeAccessibilityLabel')}
+          onclick={close}>×</button
+        >
       </header>
 
       <div class="settings-content">
@@ -232,6 +264,11 @@
         <AppearanceSettingsSection
           preference={preferences.appearance.theme}
           onchange={changeTheme}
+        />
+        <LanguageSettingsSection
+          selectedLanguageTag={desktopLocalization.selectedLanguageTag}
+          languages={desktopLocalization.availableLanguages}
+          onchange={(selectedLanguageTag) => void changeLanguage(selectedLanguageTag)}
         />
         <SyncSettingsSection
           {sync}
@@ -256,7 +293,9 @@
           <DevSyncErrorSettingsSection simulate={onsimulatesync} />
         {/if}
         <DangerSettingsSection {resetting} onreset={() => void confirmFullReset()} />
-        <div class="settings-version">FUTO Notes v{getAppVersion()}</div>
+        <div class="settings-version">
+          {localizedText('settings.about.versionLine', { version: getAppVersion() })}
+        </div>
       </div>
     </div>
 
@@ -267,13 +306,13 @@
         oncancel={sync.cancelConnect}
       />
     {:else if resetting}
-      <BlockingSettingsOverlay phase="Deleting all notes…" />
-    {:else if resetError}
+      <BlockingSettingsOverlay phase={localizedText('settings.danger.deleting')} />
+    {:else if resetFailed}
       <BlockingSettingsOverlay
         phase=""
-        error={`Full reset failed: ${resetError}`}
+        error={localizedText('settings.danger.failed')}
         oncancel={() => {
-          resetError = '';
+          resetFailed = false;
         }}
       />
     {/if}

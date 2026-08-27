@@ -95,6 +95,7 @@ export interface FutoEditorApi {
   focus(): void;
   /** Switch the editor theme. */
   setTheme(theme: EditorTheme): void;
+  setLanguage(languageTag: string): void;
   /**
    * Populate the editor's note universe — a JSON-serialized
    * {@link BridgeNote}`[]` (JS↔native can only pass strings). Feeds the

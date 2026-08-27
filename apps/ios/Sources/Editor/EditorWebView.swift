@@ -125,6 +125,7 @@ struct EditorWebView: UIViewRepresentable {
     let content: String
     /// "light" or "dark".
     let theme: String
+    let localization: Localization
     /// Focus the editor + raise the keyboard once ready (brand-new note only).
     var autoFocus: Bool = false
     /// Called when the web page posts a content change.
@@ -145,7 +146,7 @@ struct EditorWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> EditorContainerView {
         let coord = context.coordinator
         coord.sync(
-            content: content, theme: theme, autoFocus: autoFocus,
+            content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
             onReady: onReady, onOpenNote: onOpenNote)
         let container = EditorContainerView()
@@ -162,7 +163,7 @@ struct EditorWebView: UIViewRepresentable {
     func updateUIView(_ uiView: EditorContainerView, context: Context) {
         let coord = context.coordinator
         coord.sync(
-            content: content, theme: theme, autoFocus: autoFocus,
+            content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
             onReady: onReady, onOpenNote: onOpenNote)
         // Only the VISIBLE editor drives the shared WebView. Gating on `window`
@@ -171,7 +172,11 @@ struct EditorWebView: UIViewRepresentable {
         // live-sync `$notes` publish re-renders a stacked-but-hidden editor.
         guard uiView.window != nil else { return }
         coord.adoptIfNeeded()
-        EditorHost.shared.updateDesired(content: content, theme: theme)
+        EditorHost.shared.updateDesired(
+            content: content,
+            theme: theme,
+            localization: localization
+        )
     }
 
     static func dismantleUIView(_ uiView: EditorContainerView, coordinator: Coordinator) {
@@ -196,6 +201,7 @@ struct EditorWebView: UIViewRepresentable {
 
         private var content = ""
         private var theme = "light"
+        private var localization = Localization.system()
         private var autoFocus = false
         private var onChange: (String) -> Void = { _ in }
         private var onFocusChange: (Bool) -> Void = { _ in }
@@ -203,7 +209,7 @@ struct EditorWebView: UIViewRepresentable {
         private var onOpenNote: ((String) -> Void)?
 
         func sync(
-            content: String, theme: String, autoFocus: Bool,
+            content: String, theme: String, localization: Localization, autoFocus: Bool,
             onChange: @escaping (String) -> Void,
             onFocusChange: @escaping (Bool) -> Void,
             onReady: (() -> Void)?,
@@ -211,6 +217,7 @@ struct EditorWebView: UIViewRepresentable {
         ) {
             self.content = content
             self.theme = theme
+            self.localization = localization
             self.autoFocus = autoFocus
             self.onChange = onChange
             self.onFocusChange = onFocusChange
@@ -233,7 +240,7 @@ struct EditorWebView: UIViewRepresentable {
             container.addSubview(host.webView)
             // Point the host at THIS note before (re)binding so attach's re-push
             // shows this note's text, not whatever note last drove the host.
-            host.updateDesired(content: content, theme: theme)
+            host.updateDesired(content: content, theme: theme, localization: localization)
             // autoFocus / onReady fire only on the FIRST adopt: a re-adopt on
             // Back must not re-pop the keyboard or re-run the ready hook.
             token = host.attach(
@@ -296,6 +303,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     // a view update, not to delete the compares.
     private var currentTheme: String?
     private var desiredTheme = "light"
+    private var currentLanguageTag: String?
+    private var desiredLocalization = Localization.system()
+    private var desiredLanguageTag: String { desiredLocalization.effectiveLanguage.tag }
     private var desiredContent = ""
     /// The last content we pushed in, so we don't re-push our own echoes.
     private var lastPushedContent: String?
@@ -314,7 +324,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// The native toolbar, installed as the keyboard's inputAccessoryView via
     /// futo_overrideInputAccessoryView. Lazy: the closure captures self.
     private lazy var toolbarAccessory = EditorToolbarAccessory(
-        state: toolbarState
+        state: toolbarState,
+        localization: desiredLocalization
     ) { [weak self] item in
         self?.performToolbarAction(item)
     }
@@ -381,8 +392,14 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         if let url = editorFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
+            let message = desiredLocalization.localizedText("editor.ios.bundleMissing")
+            let escapedMessage = message
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
             webView.loadHTMLString(
-                "<html><body><p>editor.html not found in bundle</p></body></html>",
+                "<html><body><p>\(escapedMessage)</p></body></html>",
                 baseURL: nil
             )
         }
@@ -414,6 +431,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // content always lands even if the host was last showing it.
         lastPushedContent = nil
         if isReady {
+            pushLanguage(desiredLanguageTag)
             pushTheme(desiredTheme)
             pushContent(desiredContent)
             onReady?()
@@ -438,12 +456,28 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         autoFocus = false
     }
 
-    func updateDesired(content: String, theme: String) {
+    func updateDesired(content: String, theme: String, localization: Localization) {
         desiredContent = content
         desiredTheme = theme
+        desiredLocalization = localization
+        toolbarAccessory.updateLocalization(localization)
+        let languageTag = localization.effectiveLanguage.tag
         guard isReady else { return }
+        if languageTag != currentLanguageTag { pushLanguage(languageTag) }
         if theme != currentTheme { pushTheme(theme) }
         if content != lastPushedContent { pushContent(content) }
+    }
+
+    func setLocalization(_ localization: Localization) {
+        desiredLocalization = localization
+        toolbarAccessory.updateLocalization(localization)
+        let languageTag = localization.effectiveLanguage.tag
+        if editorFileURL == nil {
+            loadEditor()
+            return
+        }
+        guard isReady, languageTag != currentLanguageTag else { return }
+        pushLanguage(languageTag)
     }
 
     /// Host → editor: the note universe ([{id,title,modifiedMs,tags}] JSON) for
@@ -580,7 +614,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // The desired state can have moved (a sync adopt, a theme flip)
             // between sending the config and this reply; each of these is
             // deduped and so a no-op when it hasn't.
-            updateDesired(content: desiredContent, theme: desiredTheme)
+            updateDesired(
+                content: desiredContent,
+                theme: desiredTheme,
+                localization: desiredLocalization
+            )
             if let json = desiredNotesJson { setNotes(json) }
             onReady?()
             if autoFocus { startAutoFocus() }
@@ -833,6 +871,14 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
+    private func pushLanguage(_ languageTag: String) {
+        currentLanguageTag = languageTag
+        let js =
+            "window.FutoEditor && window.FutoEditor.setLanguage && "
+            + "window.FutoEditor.setLanguage(\(jsLiteral(languageTag)));"
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
     private func pushNotes(_ json: String) {
         lastPushedNotesJson = json
         let js = "window.FutoEditor && window.FutoEditor.setNotes(\(jsLiteral(json)));"
@@ -851,6 +897,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var config: [String: Any] = [
             "bridgeVersion": BridgeSpec.version,
             "theme": desiredTheme,
+            "languageTag": desiredLanguageTag,
             "content": desiredContent,
             // The markdown toolbar is a native keyboard accessory here, so the
             // embed must keep its own web toolbar hidden.
@@ -874,6 +921,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // Record what the config carries, so the catch-up on `initialized`
         // re-pushes only what actually moved while it was in flight.
         currentTheme = desiredTheme
+        currentLanguageTag = desiredLanguageTag
         lastPushedContent = desiredContent
         lastPushedNotesJson = desiredNotesJson
 

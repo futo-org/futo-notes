@@ -1,6 +1,7 @@
 import type { EditorView } from '@codemirror/view';
 
 import { getFS } from '$lib/platform';
+import { localizedText } from '$shared/localization';
 
 import { registerLocalImageUrl } from '../liveMarkdownTransform';
 
@@ -8,7 +9,11 @@ export async function insertImageFromFile(view: EditorView): Promise<void> {
   const fs = getFS();
   if (!fs.saveImageBytes) return;
 
-  const [picked] = (await fs.pickImages?.({ limit: 1 })) ?? [];
+  const [picked] =
+    (await fs.pickImages?.({
+      limit: 1,
+      filterName: localizedText('editor.images.filePickerFilter'),
+    })) ?? [];
   if (!picked) return;
 
   const filename = await fs.saveImageBytes(picked.bytes, picked.extension);

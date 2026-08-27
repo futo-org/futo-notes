@@ -1,6 +1,6 @@
 # App localization architecture
 
-Date: 2026-08-26  
+Date: 2026-08-26
 Status: accepted contract; foundation implemented
 
 The earlier platform-native catalog proposal is superseded. FUTO Notes will use

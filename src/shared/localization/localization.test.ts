@@ -15,7 +15,12 @@ function minimalCatalog(languageTag: string): unknown {
   if (languageTag === 'zh-Hans') return simplifiedChineseCatalog;
   return {
     $schema: './catalog.schema.json',
-    language: { nativeName: languageTag, direction: 'ltr', aliases: [] },
+    language: {
+      englishName: languageTag,
+      nativeName: languageTag,
+      direction: 'ltr',
+      aliases: [],
+    },
     messages: {},
   };
 }
@@ -63,21 +68,30 @@ describe('localization language matching', () => {
     expect(module.effectiveLanguage.tag).toBe('zh-Hans');
   });
 
-  it('skips catalogs with invalid control text in their metadata', () => {
-    const reportDiagnostic = vi.fn();
-    const invalidChinese = structuredClone(simplifiedChineseCatalog);
-    invalidChinese.language.nativeName = '\u0000';
-    const module = createLocalizationModule({
-      catalogs: { en: englishCatalog, 'zh-Hans': invalidChinese },
-      requestedLanguageTags: ['zh-Hans'],
-      reportDiagnostic,
-    });
+  it('orders available languages by their English names', () => {
+    const module = localization('zh-Hans', 'zh-CN');
 
-    expect(module.effectiveLanguage.tag).toBe('en');
-    expect(reportDiagnostic).toHaveBeenCalledWith(
-      'Localization catalog error: language=zh-Hans path=catalog type=invalid-catalog',
-    );
+    expect(module.availableLanguages.map((language) => language.tag)).toEqual(['en', 'zh-Hans']);
   });
+
+  it.each(['englishName', 'nativeName'] as const)(
+    'skips catalogs with invalid control text in %s',
+    (metadataField) => {
+      const reportDiagnostic = vi.fn();
+      const invalidChinese = structuredClone(simplifiedChineseCatalog);
+      invalidChinese.language[metadataField] = '\u0000';
+      const module = createLocalizationModule({
+        catalogs: { en: englishCatalog, 'zh-Hans': invalidChinese },
+        requestedLanguageTags: ['zh-Hans'],
+        reportDiagnostic,
+      });
+
+      expect(module.effectiveLanguage.tag).toBe('en');
+      expect(reportDiagnostic).toHaveBeenCalledWith(
+        'Localization catalog error: language=zh-Hans path=catalog type=invalid-catalog',
+      );
+    },
+  );
 });
 
 describe('localizedText', () => {
@@ -116,7 +130,12 @@ describe('localizedText', () => {
       catalogs: {
         en: {
           $schema: './catalog.schema.json',
-          language: { nativeName: 'English', direction: 'ltr', aliases: [] },
+          language: {
+            englishName: 'English',
+            nativeName: 'English',
+            direction: 'ltr',
+            aliases: [],
+          },
           messages: { example: 'Write {{count}} beside {value}' },
         },
       },
@@ -151,7 +170,12 @@ describe('localizedText', () => {
       catalogs: {
         en: {
           $schema: './catalog.schema.json',
-          language: { nativeName: 'English', direction: 'ltr', aliases: [] },
+          language: {
+            englishName: 'English',
+            nativeName: 'English',
+            direction: 'ltr',
+            aliases: [],
+          },
           messages: { example: '{constructor} {toString}' },
         },
       },
