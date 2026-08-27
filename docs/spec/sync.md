@@ -87,10 +87,6 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
   `Synced — ↑a ↓b ✕c ⚠d`, and Tauri desktop previously showed `Synced: N
 uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   SyncManager.kt / SyncManager.swift `describe`, syncManager.svelte.ts _(desktop)_
-  - **Exemption:** the "no counts" rule covers _success_ reporting only. A
-    **failure** count/status (e.g. "3 changes couldn't reach the server (HTTP
-    500)") is a distinct, actionable signal and IS surfaced — see the
-    per-item failure bullet below.
   - **Desktop has a SINGLE completion reporter.** All sync-outcome feedback
     (the "Sync complete" toast, the failure indicator/toast, the large-sync
     banner) is decided in ONE place — the sync manager's `handleSyncComplete`,

@@ -85,3 +85,37 @@ test('desktop language picker keeps visible keyboard focus in forced colors', as
   await expect(selectedLanguageOption).toHaveCSS('outline-style', 'solid');
   await expect(selectedLanguageOption).toHaveCSS('outline-width', '2px');
 });
+
+test('desktop language selection preserves live markdown decorations', async ({ page }) => {
+  const table = `| Header 1 | Header 2 |
+|----------|----------|
+| Cell 1   | Cell 2   |
+
+More text`;
+  await page.goto('/#/note/new');
+  await page.waitForSelector('.cm-content');
+  await page.waitForFunction(() => typeof (window as any).__cmGetView === 'function');
+  await page.evaluate((content) => {
+    const editorView = (window as any).__cmGetView?.();
+    if (!editorView) throw new Error('CM EditorView not found');
+    editorView.dispatch({
+      changes: { from: 0, to: editorView.state.doc.length, insert: content },
+      selection: { anchor: content.length },
+    });
+  }, table);
+  await page.locator('.title-input').click();
+  await page.locator('.title-input').blur();
+
+  const renderedTable = page.locator('.sf-table');
+  await expect(renderedTable).toBeVisible();
+  await page.locator('.sidebar-settings-btn').click();
+  await page.locator('.settings-language-trigger').click();
+  await page.getByRole('option', { name: '简体中文' }).click();
+
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-Hans');
+  await expect(renderedTable).toBeVisible();
+  await expect(page.locator('[data-table-control-action="dragColumn"]').first()).toHaveAttribute(
+    'aria-label',
+    '拖动列',
+  );
+});

@@ -308,7 +308,7 @@ test.describe('Folder support', () => {
 
     await page.locator('[data-folder-path="Work"]').first().click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'New Folder' }).click();
-    await expect(page.locator('.modal-title')).toHaveText('New folder in "Work"');
+    await expect(page.locator('.modal-title')).toHaveText('New folder in “Work”');
     await page.getByTestId('create-folder-input').fill('Plans');
     await page.getByTestId('create-folder-confirm').click();
     await expect(page.locator('[data-folder-path="Work/Plans"]').first()).toBeVisible();

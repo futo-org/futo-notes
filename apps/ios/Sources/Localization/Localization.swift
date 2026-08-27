@@ -85,7 +85,7 @@ final class Localization {
         reportDiagnostic: @escaping (String) -> Void = { NSLog("%@", $0) }
     ) {
         var catalogProblems: Set<String> = []
-        let catalogs = catalogData.compactMap { languageTag, data in
+        let catalogs: [RuntimeCatalog] = catalogData.compactMap { languageTag, data in
             guard let catalog = Self.parseCatalog(
                 languageTag: languageTag,
                 data: data,

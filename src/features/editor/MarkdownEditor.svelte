@@ -64,6 +64,7 @@
 
   let scrollAnchoring: EditorScrollAnchoring | null = null;
   let refreshLocalization: ((editorView: EditorView) => void) | null = null;
+  let editorLanguageTag = desktopLocalization.effectiveLanguage.tag;
 
   onMount(() => {
     preloadImages(content, hasFileSystem ? getImageWebPath : undefined, () => view);
@@ -132,7 +133,9 @@
   });
 
   $effect(() => {
-    desktopLocalization.effectiveLanguage.tag;
+    const languageTag = desktopLocalization.effectiveLanguage.tag;
+    if (languageTag === editorLanguageTag) return;
+    editorLanguageTag = languageTag;
     if (view && refreshLocalization) refreshLocalization(view);
   });
 
