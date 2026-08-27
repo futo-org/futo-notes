@@ -11,6 +11,15 @@
 > file-over-app promise: the user's markdown file stays authoritative, and the
 > app never tells them their markdown is formatted weird.
 >
+> **Update 2026-08-27: the Tier-3 "diff discipline" criterion (§1) and the §4
+> rejection-without-probe of Milkdown/Lexical are SUPERSEDED by
+> `docs/adr/0002-roundtrip-normalization-accepted.md` (Justin) — round-trip
+> normalization is now acceptable, so tree-owned editors are back on the
+> table. Do not cite this doc to block that work. Tiers 1–2 (never refuse,
+> never warn — extended by the ADR to never LOSE content) still bind, as does
+> the ADR's one-serializer-everywhere rule. The verdicts and measurements
+> below remain valid historical evidence under the criteria as they stood.**
+>
 > This is a sibling of `docs/plan/editor-decision.md` (the native-vs-CM6
 > decision, DEFERRED 2026-07-17 — CM6 ships everywhere for now). This doc does
 > NOT reopen that decision. Approach 5 below overlaps with it; if Approach 5

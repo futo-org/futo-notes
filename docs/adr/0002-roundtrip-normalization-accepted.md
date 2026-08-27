@@ -3,8 +3,8 @@
 The editor contract historically required byte fidelity ("diff discipline"): saving changed only
 the bytes the user actually touched, and untouched content stayed byte-exact — marker style
 (`__` vs `**`, `1)` vs `1.`), whitespace, escapes, CRLF. That requirement was the fixed Tier-3
-criterion of the rich-text bake-off (`docs/plan/rich-text-editor-bakeoff.md`, branch
-`five-editor-bakeoff`) and the stated reason tree-owned editors (TipTap, Milkdown, Lexical) were
+criterion of the rich-text bake-off (`docs/plan/rich-text-editor-bakeoff.md`) and the stated
+reason tree-owned editors (TipTap, Milkdown, Lexical) were
 rejected without a probe: parse → tree → serialize re-spells syntax (`- item` → `* item`,
 `*em*` → `_em_`) and rewrites the whole file on the first edit. The bake-off's P4 probe proved
 the tension is representational, not engineering effort — crossing bold/italic intervals have no
@@ -54,5 +54,5 @@ devices, while a *tree* CRDT (y-prosemirror family) makes the markdown file a pr
 churn disappears from sync entirely. That decision must land before a normalizing editor ships.
 
 Origin: Milkdown evaluation discussion (https://milkdown.dev/), 2026-08-27. Prior art:
-`docs/plan/rich-text-editor-bakeoff.md` and `docs/plan/p1-zero-visible-syntax.md` (branch
+`docs/plan/rich-text-editor-bakeoff.md`, `docs/plan/p1-zero-visible-syntax.md` (branch
 `five-editor-bakeoff`), `docs/plan/editor-decision.md`, spike branch `spike/milkdown-editor`.
