@@ -24,6 +24,11 @@ diff/sync churn.
   weird" in any wording, and normalization must never DROP or mangle content. Re-spelling
   syntax is accepted; losing constructs the editor's schema doesn't own (raw HTML, wikilinks,
   footnotes, frontmatter) is not, and needs corpus-level proof per candidate.
+  **Amended 2026-08-28 (Justin):** the corpus proof is a **tracked scorecard, not a release
+  gate** — zero data loss is the ideal to drive toward (known loss classes get root-caused and
+  fixed as ordinary work), but a small measured residue does not block shipping. The census runs
+  over both the foreign corpus and Justin's real vault (locally; results never committed). See
+  `docs/plan/milkdown-transition.md` §3.
 - **Opening a note never rewrites it.** Only a real user edit may trigger the normalized save;
   browse-and-close leaves the file byte-exact. The Milkdown spike's load-echo guard (compare
   emitted markdown against the serialization of the doc as loaded; hand back the host's original
@@ -52,6 +57,9 @@ substrate. The substrate choice is load-bearing: a *text* CRDT over the markdown
 whole-file normalization into a delete-and-reinsert that steamrolls concurrent edits from other
 devices, while a *tree* CRDT (y-prosemirror family) makes the markdown file a projection and the
 churn disappears from sync entirely. That decision must land before a normalizing editor ships.
+**Resolved 2026-08-28:** the substrate is decided — tree CRDT, Yjs family (ADR-0003), with the
+editor shipping first on existing file sync. The editor choice and execution plan now live in
+`docs/plan/milkdown-transition.md`.
 
 Origin: Milkdown evaluation discussion (https://milkdown.dev/), 2026-08-27. Prior art:
 `docs/plan/rich-text-editor-bakeoff.md`, `docs/plan/p1-zero-visible-syntax.md` (branch
