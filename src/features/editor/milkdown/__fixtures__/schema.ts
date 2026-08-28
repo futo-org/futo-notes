@@ -45,7 +45,14 @@ export const testSchema = new Schema({
     // `code: true` and `marks: ''` mirror the preset's code_block: nothing
     // inside a fence is markup, which is what the tag scanner keys off.
     code_block: { group: 'block', content: 'text*', marks: '', code: true },
-    image: { group: 'inline', inline: true, attrs: { src: { default: '' } } },
+    // `atom` + the alt/title attrs mirror the commonmark preset's image node,
+    // which the vault-image node view reads.
+    image: {
+      inline: true,
+      group: 'inline',
+      atom: true,
+      attrs: { src: { default: '' }, alt: { default: '' }, title: { default: '' } },
+    },
     hardbreak: { group: 'inline', inline: true },
     text: { group: 'inline' },
   },

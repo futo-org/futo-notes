@@ -39,6 +39,8 @@ import {
   type VisualDiffResult,
 } from './visualDiff.ts';
 import { writeVisualReport } from './visualReport.ts';
+import { sampleCorpusScenarios, type CorpusSampleResult } from './corpus/sample.ts';
+import { summarizeCorpusRound } from './corpus/summary.ts';
 import type { DriverEvent, DriverState } from '../driver/protocol.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -52,6 +54,7 @@ const OBSIDIAN_CONFIG_DIR = path.join(
 const FACTORY_VAULT_ID = 'fac701ffac701ff0';
 const DEV_URL = `http://localhost:${webPort()}`;
 const REPORT_OUT = path.join(REPO, 'factory/captures/last-run.json');
+const CORPUS_REPORT_OUT = path.join(REPO, 'factory/captures/corpus-summary.json');
 const SOCKET_PATH = path.join(REPO, 'factory/captures/daemon.sock');
 
 // ---------------------------------------------------------------------------
@@ -69,16 +72,35 @@ interface RunOptions {
   reload?: boolean; // re-load pages before running (watch mode)
   visual?: boolean; // capture screenshots + run pixel diff (slow)
   visualOnly?: boolean; // restrict to the curated visual scenario set
+  corpus?: string; // local/external JSONL(.gz), never copied into tracked source
+  corpusSample?: number;
+  corpusSeed?: number;
+  corpusMaxLines?: number;
+  corpusMaxChars?: number;
 }
 
 function parseRunOptions(argv = process.argv): RunOptions {
+  const corpus = argv.includes('--corpus') ? argv[argv.indexOf('--corpus') + 1] : undefined;
   return {
     filter: argv.includes('--filter') ? argv[argv.indexOf('--filter') + 1] : undefined,
     max: argv.includes('--max') ? parseInt(argv[argv.indexOf('--max') + 1], 10) : undefined,
     noMoves: argv.includes('--no-moves'),
     reload: argv.includes('--reload'),
-    visual: argv.includes('--visual') || argv.includes('--visual-only'),
+    visual: argv.includes('--visual') || argv.includes('--visual-only') || corpus !== undefined,
     visualOnly: argv.includes('--visual-only'),
+    corpus,
+    corpusSample: argv.includes('--corpus-sample')
+      ? parseInt(argv[argv.indexOf('--corpus-sample') + 1], 10)
+      : 24,
+    corpusSeed: argv.includes('--corpus-seed')
+      ? parseInt(argv[argv.indexOf('--corpus-seed') + 1], 10)
+      : 20260824,
+    corpusMaxLines: argv.includes('--corpus-max-lines')
+      ? parseInt(argv[argv.indexOf('--corpus-max-lines') + 1], 10)
+      : 120,
+    corpusMaxChars: argv.includes('--corpus-max-chars')
+      ? parseInt(argv[argv.indexOf('--corpus-max-chars') + 1], 10)
+      : 8_000,
   };
 }
 
@@ -213,6 +235,15 @@ type ProgressEvent =
   | { type: 'summary'; summary: ReturnType<typeof summarize>; reportPath: string }
   | { type: 'log'; message: string };
 
+interface FactoryScenario {
+  name: string;
+  markdown: string;
+  complexity: number;
+  cursor?: SpecCase['cursor'];
+  start_cursor?: SpecCase['start_cursor'];
+  moves?: SpecCase['moves'];
+}
+
 async function runOneRound(
   env: Env,
   opts: RunOptions,
@@ -223,18 +254,23 @@ async function runOneRound(
     await openFutoNotesPage(env.page);
   }
 
-  let cases = loadAndFilterCases({
-    max: opts.max ?? Number.MAX_SAFE_INTEGER,
-    filter: opts.filter,
-    noMoves: opts.noMoves,
-  });
-  if (opts.visualOnly) {
+  const corpusSample = opts.corpus ? await loadCorpusRound(opts) : null;
+  let cases: FactoryScenario[] = corpusSample
+    ? corpusSample.scenarios.map((scenario) => ({ ...scenario, cursor: null }))
+    : loadAndFilterCases({
+        max: opts.max ?? Number.MAX_SAFE_INTEGER,
+        filter: opts.filter,
+        noMoves: opts.noMoves,
+      });
+  if (opts.visualOnly && !corpusSample) {
     cases = cases.filter((c) => VISUAL_SCENARIO_NAMES.has(c.name));
   }
 
+  const shouldCaptureVisuals = opts.visual || corpusSample !== null;
+
   // Inject the neutral theme on both pages once per round so SF and OB
   // render the same source with the same chrome.
-  if (opts.visual) {
+  if (shouldCaptureVisuals) {
     try {
       await injectNeutralTheme(env.page);
     } catch {}
@@ -272,7 +308,7 @@ async function runOneRound(
       // Phase-1 visual oracle: pixel diff between SF and OB
       // screenshots. Runs only when --visual is set; saves PNGs and
       // appends a `visual-divergence` only when drift exceeds tolerance.
-      if (opts.visual && ob && env.obsidianPage) {
+      if (shouldCaptureVisuals && ob && env.obsidianPage) {
         const sfPath = await captureEditorScreenshot(env.page, c.name, 'sf');
         const obPath = await captureEditorScreenshot(env.obsidianPage, c.name, 'ob');
         if (sfPath && obPath) {
@@ -333,9 +369,25 @@ async function runOneRound(
   mkdirSync(path.dirname(REPORT_OUT), { recursive: true });
   writeFileSync(REPORT_OUT, JSON.stringify({ summary, reports }, null, 2));
 
-  if (opts.visual && visualResults.length > 0) {
+  if (shouldCaptureVisuals && visualResults.length > 0) {
     const reportPath = writeVisualReport(visualResults);
     onEvent({ type: 'log', message: `visual report: ${path.relative(REPO, reportPath)}` });
+  }
+
+  if (corpusSample) {
+    const aggregate = summarizeCorpusRound({
+      seed: opts.corpusSeed ?? 20260824,
+      requestedSampleSize: opts.corpusSample ?? 24,
+      scenarios: corpusSample.scenarios,
+      sampleStats: corpusSample.stats,
+      reports,
+      visualResults,
+    });
+    writeFileSync(CORPUS_REPORT_OUT, JSON.stringify(aggregate, null, 2));
+    onEvent({
+      type: 'log',
+      message: `aggregate corpus report: ${path.relative(REPO, CORPUS_REPORT_OUT)}`,
+    });
   }
 
   onEvent({ type: 'summary', summary, reportPath: REPORT_OUT });
@@ -602,7 +654,7 @@ function loadAndFilterCases({
   max: number;
   filter?: string;
   noMoves?: boolean;
-}): SpecCase[] {
+}): FactoryScenario[] {
   const all = loadSpecCases(getCasesDir());
   let usable = all.filter(
     (c) => !!c.markdown && (c.cursor !== undefined || c.start_cursor !== undefined),
@@ -614,7 +666,40 @@ function loadAndFilterCases({
   return filtered.slice(0, max);
 }
 
-function scenarioToEvents(c: SpecCase): DriverEvent[] {
+async function loadCorpusRound(opts: RunOptions): Promise<CorpusSampleResult> {
+  const corpusPath = path.resolve(opts.corpus!);
+  assertCorpusInputIsLocalOnly(corpusPath);
+  const size = opts.corpusSample ?? 24;
+  const seed = opts.corpusSeed ?? 20260824;
+  const maxBodyLines = opts.corpusMaxLines ?? 120;
+  const maxBodyChars = opts.corpusMaxChars ?? 8_000;
+  if (!Number.isInteger(size) || size <= 0) throw new Error('--corpus-sample must be positive');
+  if (!Number.isInteger(seed)) throw new Error('--corpus-seed must be an integer');
+  if (!Number.isInteger(maxBodyLines) || maxBodyLines <= 0) {
+    throw new Error('--corpus-max-lines must be positive');
+  }
+  if (!Number.isInteger(maxBodyChars) || maxBodyChars <= 0) {
+    throw new Error('--corpus-max-chars must be positive');
+  }
+  return sampleCorpusScenarios(corpusPath, { size, seed, maxBodyLines, maxBodyChars });
+}
+
+function assertCorpusInputIsLocalOnly(corpusPath: string): void {
+  const relative = path.relative(REPO, corpusPath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return;
+  const normalized = relative.split(path.sep).join('/');
+  if (
+    normalized.startsWith('factory/corpus-local/') ||
+    normalized.startsWith('factory/captures/')
+  ) {
+    return;
+  }
+  throw new Error(
+    'corpus input inside this repository must live under gitignored factory/corpus-local/ or factory/captures/',
+  );
+}
+
+function scenarioToEvents(c: FactoryScenario): DriverEvent[] {
   const evs: DriverEvent[] = [];
   const cursor = c.start_cursor ?? c.cursor;
   if (cursor) {

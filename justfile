@@ -520,6 +520,42 @@ remote-android *flags:
   node scripts/remote-test.mjs {{flags}} build-android-native
   node scripts/remote-test.mjs {{flags}} test-android-native
 
+# ── Editor gauntlet (the permanent editor regression suite) ──
+# Candidate-neutral: the matrix and oracles live behind EditorGauntletAdapter,
+# with one adapter per editor. `gauntlet-cm6*` drives the shipping CodeMirror
+# editor through the dev server; `gauntlet-milkdown*` drives the SAME
+# single-file editor.html the native shells ship (it builds the bundle first),
+# which is where Milkdown lives during the transition.
+# Reports land in tests/editor-gauntlet/local/ (gitignored). Full details,
+# including corpus sharding: tests/editor-gauntlet/README.md.
+
+# The 56-case split-torture matrix against Milkdown, scored against the ledger.
+gauntlet-milkdown:
+  pnpm run test:editor-gauntlet:milkdown
+
+# Milkdown performance floor: hard budgets at real-note sizes, no cliff above.
+gauntlet-milkdown-perf:
+  pnpm run test:editor-gauntlet:milkdown:perf
+
+# Read ~/Developer/futo-notes-ml/NOTICE.md first, then point it at a corpus:
+#   EDITOR_GAUNTLET_CORPUS=~/Developer/futo-notes-ml/dataset/sample.jsonl \
+#     EDITOR_GAUNTLET_CORPUS_LIMIT=100 just gauntlet-milkdown-foreign
+# Milkdown foreign-corpus sweep (never-refuse/never-warn/never-lose).
+gauntlet-milkdown-foreign *args:
+  pnpm run test:editor-gauntlet:milkdown:foreign {{args}}
+
+# The same three against the shipping CodeMirror editor, for comparison.
+gauntlet-cm6:
+  pnpm run test:editor-gauntlet:cm6
+
+# CodeMirror performance floor (a hard open budget at every size).
+gauntlet-cm6-perf:
+  pnpm run test:editor-gauntlet:perf
+
+# CodeMirror foreign-corpus sweep, on the original byte-fidelity bar.
+gauntlet-cm6-foreign *args:
+  pnpm run test:editor-gauntlet:foreign {{args}}
+
 # Factory: compare our editor to Obsidian's, scenario by scenario.
 # See factory/AGENTS.md.
 factory-judge *args:
@@ -555,6 +591,12 @@ factory-down:
 # Claude Code to "review the visual report" for an LLM-judge pass.
 factory-visual *args:
   pnpm exec tsx factory/judge/run.ts run --no-moves --visual-only {{args}}
+
+# Deterministic, construct-stratified bounded notes through the existing
+# structural + neutral-theme visual oracles. Requires a running factory daemon.
+# Detailed source-bearing captures stay below factory/captures/ (gitignored).
+factory-corpus-visual corpus sample="24" seed="20260824" *args:
+  pnpm exec tsx factory/judge/run.ts run --no-moves --corpus {{corpus}} --corpus-sample {{sample}} --corpus-seed {{seed}} {{args}}
 
 factory-summary:
   @node -e "const r = require('./factory/captures/last-run.json'); \

@@ -845,12 +845,85 @@ EditorWebView.swift, EditorWebView.kt
   end-to-end on the Android emulator 2026-06-22. When the WebView hides the
   bitmap from the JS paste event (no File — WKWebView/WebKitGTK), the embed
   instead posts the payload-less `pasteClipboardImage` message (bridge contract
-  v5) and the host reads the image off the native clipboard. → editor-embed/main.ts
-  `handleNativeImagePaste`, bridge.ts `SaveImageDataMessage` /
+  v5) and the host reads the image off the native clipboard. → editor-embed/
+  `installNativeImagePaste.ts`, bridge.ts `SaveImageDataMessage` /
   `PasteClipboardImageMessage` (contract v5), EditorWebView.kt + ImagePicker.kt
   `saveImageDataIntoVault` (Android), EditorWebView.swift `saveImageData` +
   `clipboardImageData` + EditorImages.swift `VaultImages.save` (iOS),
   fs_paste_clipboard_image (Tauri), tests/editor-embed-bridge.spec.ts
+- In the WYSIWYG editor a vault image is a ProseMirror node whose rendered
+  `<img src>` is resolved for display only; the node's own `src` — what gets
+  serialized — stays the bare vault reference the note holds. Opening a note
+  with an image therefore leaves the file byte-identical, and an edit elsewhere
+  in the note still writes `![](image-…ext)`, never the shell's `futo-asset://`
+  or `asset://` URL. → milkdown/vaultImageView.ts, features/images/
+  vaultImageSrc.ts, tests/editor-embed-milkdown.spec.ts
+- A vault image whose URL cannot be resolved yet renders as nothing rather than
+  a broken-image glyph, and resolves itself as soon as the URL arrives — the
+  host may call `setImageBaseUrl` after `setContent`, and a per-file resolution
+  is asynchronous, neither of which is accompanied by a document change.
+  → milkdown/vaultImageView.ts, features/images/vaultImageSrc.ts
+  `onVaultImageSrcChange`
+- The two hosts resolve a vault image two different ways, and the WYSIWYG editor
+  asks per image RENDERED rather than scanning the document, so a large note
+  only pays for the images someone looks at (M5). The native shells serve the
+  whole vault off one host-registered base URL and need nothing per file
+  _(native shells)_; Tauri desktop has no base URL and resolves each file
+  through `PlatformFS.getImageUrl`, which the editor installs at mount as the
+  per-file resolver _(desktop)_. A file that will not resolve — it has not
+  synced in yet — is retried by a later render rather than remembered as
+  failed. → features/images/vaultImageUrlResolver.ts, features/images/
+  vaultImageSrc.ts `requestVaultImageUrl`; the CodeMirror equivalent is
+  `preloadImages(text, getImageWebPath, …)` in MarkdownEditor.svelte
+- Clipboard image paste in the WYSIWYG editor claims the paste through
+  ProseMirror's `handlePaste` and captures it through the sink for the host it
+  is running in: the `saveImageData` / `pasteClipboardImage` bridge messages on
+  the native shells (the host writes the file and calls `insertImage` back), or
+  `PlatformFS` on Tauri desktop. Which pastes count as an image is the same
+  decision for both editors (`classifyImagePaste`), and a claimed image paste
+  never also lands as pasted content. A paste carrying plain text is left to the
+  editor. → milkdown/imagePasteSink.ts, imagePaste.ts `classifyImagePaste`,
+  tests/editor-embed-milkdown.spec.ts
+- An image destination containing a space needs its CommonMark spelling
+  (`![](<my photo.png>)`) in the WYSIWYG editor; the bare `![](my photo.png)`
+  is not an image in CommonMark and renders as text. Every filename the app
+  itself generates is space-free, so this only reaches notes written elsewhere.
+  → shared/media/imageFiles.ts `createImageFilename`,
+  tests/editor-embed-milkdown.spec.ts
+  > **Gap:** an image destination that is ALREADY percent-encoded in the file
+  > (`![](my%20photo.png)`, as some other editors write it) does not render.
+  > _(native shells)_ the base-URL branch encodes it a second time
+  > (`my%2520photo.png`); this is the shared resolver, so both editor engines
+  > behave the same way there. _(desktop)_ it fails differently — per-file
+  > resolution looks for a file literally named `my%20photo.png`. Fixing it has
+  > to agree with the iOS `futo-asset://` scheme handler and the Android asset
+  > loader on who decodes, so it is tracked rather than patched in the resolver.
+  > → features/images/vaultImageSrc.ts `resolveVaultImageSrc`
+
+  Verified on a real Android device (moto g play 2023, WebView 140) and the iOS
+  26.5 simulator, 2026-08-28: a vault-relative image renders and decodes, and
+  opening the note leaves it byte-identical on disk. Android also verified
+  end-to-end for paste — the host wrote the file and `insertImage` put
+  `![](image-…png)` in the note.
+  > **Gap:** the WYSIWYG image behaviors above are live only where the WYSIWYG
+  > editor is mounted, which today is the native shells' embedded editor. The
+  > desktop app still mounts the CodeMirror editor directly, so on desktop the
+  > CodeMirror image lines earlier in this section are what users get until the
+  > three-platform swap. → docs/plan/milkdown-transition.md §7,
+  > src/editor-embed/main.ts
+
+- iOS clipboard image paste is covered at the bundle seam and, for the shared
+  decision and bridge sink, end-to-end against the real Android host.
+  > **Gap:** iOS clipboard image paste is unverified on a simulator — nothing in
+  > `simctl` or `axe` can put an image UTI on the simulator pasteboard
+  > (`simctl pbcopy` writes stdin as text), so ⌘V cannot reach the image path
+  > there. The shared decision and the bridge sink are covered at the bundle
+  > seam and end-to-end against the real Android host; what is unproven is
+  > specifically whether WKWebView exposes the bitmap on the paste event, which
+  > is what the `pasteClipboardImage` fallback exists for. Needs a physical
+  > device or a host-pasteboard sync.
+  > → tests/editor-embed-milkdown.spec.ts, EditorWebView.swift `clipboardImageData`
+
 - A delayed native picker/clipboard completion belongs to the editor attachment
   generation that started it. Detaching, deleting, or adopting another note
   invalidates the completion, so it cannot insert Markdown into a different

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { IMAGE_EXTENSIONS, isImageFilename } from './images';
+import { IMAGE_EXTENSIONS, imageReferenceMarkdown, isImageFilename } from './images';
 
 describe('isImageFilename', () => {
   it('accepts every supported image extension', () => {
@@ -25,5 +25,15 @@ describe('isImageFilename', () => {
   it('accepts machine-generated image filenames', () => {
     expect(isImageFilename('1234567890-abc.jpg')).toBe(true);
     expect(isImageFilename('1742345678901-xk7.png')).toBe(true);
+  });
+});
+
+describe('imageReferenceMarkdown', () => {
+  it('writes a linkless image reference with a trailing newline', () => {
+    expect(imageReferenceMarkdown('image-1712.png')).toBe('![](image-1712.png)\n');
+  });
+
+  it('leaves a filename with spaces exactly as the vault stores it', () => {
+    expect(imageReferenceMarkdown('my photo.png')).toBe('![](my photo.png)\n');
   });
 });

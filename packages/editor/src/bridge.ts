@@ -416,16 +416,37 @@ export interface AndroidFutoBridgeHost {
  * host. Both native shells receive the SAME message shapes.
  */
 export function postToHost(message: FutoEditorOutboundMessage): void {
-  const w = globalThis as unknown as {
-    webkit?: { messageHandlers?: { futoBridge?: IosFutoBridgeHost } };
-    futoBridge?: AndroidFutoBridgeHost;
-  };
-  const ios = w.webkit?.messageHandlers?.futoBridge;
+  const { ios, android } = bridgeHosts();
   if (ios) {
     ios.postMessage(message);
     return;
   }
-  if (w.futoBridge && typeof w.futoBridge.postMessage === 'function') {
-    w.futoBridge.postMessage(JSON.stringify(message));
-  }
+  if (android) android.postMessage(JSON.stringify(message));
+}
+
+/**
+ * Whether a native host is listening at all — i.e. whether {@link postToHost}
+ * reaches anyone. The bundle also runs with no host (Playwright, the
+ * factory judge, `pnpm run dev` in a browser), and behavior that only makes
+ * sense with a host to answer it — image paste hands the bytes to the shell and
+ * waits for `insertImage` back — must not be armed there.
+ */
+export function hasNativeBridgeHost(): boolean {
+  const { ios, android } = bridgeHosts();
+  return Boolean(ios ?? android);
+}
+
+function bridgeHosts(): {
+  ios: IosFutoBridgeHost | undefined;
+  android: AndroidFutoBridgeHost | undefined;
+} {
+  const w = globalThis as unknown as {
+    webkit?: { messageHandlers?: { futoBridge?: IosFutoBridgeHost } };
+    futoBridge?: AndroidFutoBridgeHost;
+  };
+  const android = w.futoBridge;
+  return {
+    ios: w.webkit?.messageHandlers?.futoBridge,
+    android: android && typeof android.postMessage === 'function' ? android : undefined,
+  };
 }

@@ -1,9 +1,8 @@
 {
-  "_comment": "Files outside src/lib/platform/** allowed to import '@tauri-apps/*' directly (architecture-hardening.md F29 / L2-4 gate 2 — lint:platform only greps for removed Electron/Capacitor strings, it does not enforce this). This is a RATCHET: the goal is zero entries over time. Removing an entry (the file grew a platform/ shim, or no longer needs direct access) is always welcome and expected. Adding one should be rare and considered at MR time. A frozen entry that stops importing '@tauri-apps' fails the gate as stale — delete it.",
+  "_comment": "Files outside src/lib/platform/** allowed to import '@tauri-apps/*' directly (architecture-hardening.md F29 / L2-4 gate 2 \u2014 lint:platform only greps for removed Electron/Capacitor strings, it does not enforce this). This is a RATCHET: the goal is zero entries over time. Removing an entry (the file grew a platform/ shim, or no longer needs direct access) is always welcome and expected. Adding one should be rare and considered at MR time. A frozen entry that stops importing '@tauri-apps' fails the gate as stale \u2014 delete it.",
   "allowed": [
     "src/app/components/TitleBar.svelte",
     "src/app/startNativeShell.ts",
-    "src/features/editor/imagePaste.ts",
     "src/features/settings/SettingsScreen.svelte",
     "src/features/sync/autoSyncV2.ts",
     "src/features/sync/syncManager.svelte.ts",

@@ -168,10 +168,39 @@ pnpm exec tsx factory/judge/run.ts down                  # client shutdown
 --headed                    # show Obsidian + chromium windows
 --visual                    # capture screenshots + run pixel diff (slow; opt-in)
 --visual-only               # restrict to VISUAL_SCENARIO_NAMES (implies --visual)
+--corpus <jsonl-or-jsonl.gz> # anonymous, construct-stratified bounded notes (implies --visual)
+--corpus-sample <N>          # total notes across non-empty construct buckets (default 24)
+--corpus-seed <N>            # deterministic reservoir seed (default 20260824)
+--corpus-max-lines <N>       # exclude larger notes rather than truncating constructs (default 120)
+--corpus-max-chars <N>       # exclude larger notes rather than truncating constructs (default 8000)
 ```
 
 Exit code (one-shot and `factory-run`): `0` if `satisfaction === 1`, `1`
 otherwise, `2` on infra error.
+
+### Local corpus visual census
+
+Read the corpus repository's `NOTICE.md` before use. Corpus mode reads only `body` and `pii_flag`,
+skips records flagged for PII, assigns anonymous scenario names, and never carries dataset titles,
+URLs, or IDs into output. External corpus paths are preferred. If an input is copied into this
+checkout, it must be below the explicitly gitignored `factory/corpus-local/` directory.
+
+```bash
+just factory-up
+just factory-corpus-visual \
+  ~/Developer/futo-notes-ml/dataset/notes_corpus.jsonl.gz 24 20260824
+just factory-down
+```
+
+The detailed `last-run.json`, screenshot pairs, visual HTML, scratch Obsidian vault, and aggregate
+<!-- check-agent-docs: ignore-next-line -->
+`corpus-summary.json` all live below gitignored `factory/captures/`. Only the aggregate report is
+safe to quote: it contains sample/population counts and buckets, never source. Its unit is an intact
+note under explicit size bounds; oversized notes are excluded and counted, never truncated through
+a block construct. The sample is stratified rather than prevalence-weighted,
+and a parity divergence does not by itself prove which editor is wrong. Cross-runtime font
+rasterization also makes the visual drift buckets noisy; human inspection is required before calling
+a pair a product mis-render.
 
 ### How the daemon works
 

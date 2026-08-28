@@ -1,8 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 import { webPort } from './scripts/lib/slot.mjs';
+import { gauntletArtifactCapture } from './tests/editor-gauntlet/artifactCapture';
 
 const isCI = !!process.env.CI;
 const baseURL = `http://localhost:${webPort()}`;
+const artifactCapture = gauntletArtifactCapture();
 
 // Sanitised: this becomes a path segment, so anything that could escape
 // test-results/ is stripped rather than trusted.
@@ -13,7 +15,15 @@ export default defineConfig({
   // Runner-specific tests stay out of the default Playwright suite: the
   // editor-embed harness has its own config, and Vitest unit files install a
   // matcher runtime that conflicts with Playwright's.
-  testIgnore: ['**/editor-embed-*.spec.ts', '**/*.test.mjs'],
+  testIgnore: [
+    '**/editor-embed-*.spec.ts',
+    '**/*.test.mjs',
+    'editor-gauntlet/**/*.test.ts',
+    // The Milkdown gauntlet adapter drives the built editor.html bundle over
+    // file://, so it runs under playwright.editor-gauntlet.config.ts (which
+    // builds that bundle) rather than against this config's dev server.
+    'editor-gauntlet/milkdown-*.spec.ts',
+  ],
   timeout: isCI ? 90000 : 30000,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
@@ -38,9 +48,9 @@ export default defineConfig({
     baseURL,
     // retries: 0 means 'on-first-retry' never fires — retain evidence for
     // every failure instead so a red CI run leaves a trace/video behind.
-    trace: 'retain-on-failure',
-    video: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    trace: artifactCapture === 'off-retry-on-failure' ? 'off' : 'retain-on-failure',
+    video: artifactCapture === 'off-retry-on-failure' ? 'off' : 'retain-on-failure',
+    screenshot: artifactCapture === 'off-retry-on-failure' ? 'off' : 'only-on-failure',
   },
   projects: [
     {
