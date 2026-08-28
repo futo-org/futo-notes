@@ -640,11 +640,16 @@ test:e2e:editor-embed:
       changes:
         - src/editor-embed/**/*
         - src/features/editor/**/*
+        # The embed inlines app.css, so a stylesheet change can turn these
+        # specs red (they assert rendered geometry and computed token colours).
+        - src/styles/**/*
         - packages/editor/**/*
         - editor.html
         - vite.editor.config.ts
         - tests/editor-embed-bridge.spec.ts
         - tests/editor-embed-milkdown.spec.ts
+        - tests/editor-embed-milkdown-wikilinks.spec.ts
+        - tests/editor-embed-milkdown-parity.spec.ts
         - tests/lib/editorEmbedHost.ts
         - tests/editorEmbedBundle.ts
         - playwright.editor-embed.config.ts

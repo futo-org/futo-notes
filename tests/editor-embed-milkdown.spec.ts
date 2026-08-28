@@ -36,10 +36,11 @@ import {
  * (native toolbar highlighting) and `haptic` (the iOS long-press block drag).
  *
  * NOT here, deliberately: toolbar command parity (#104), wikilinks (#101),
- * images (#103), tags/checkboxes/fences (#102). Those are open parity tickets
- * with their own acceptance criteria — the transition plan's §4 bucket 1 — and
- * writing failing assertions for them here would just be a second copy of the
- * backlog.
+ * images (#103). Those are open parity tickets with their own acceptance
+ * criteria — the transition plan's §4 bucket 1 — and writing failing
+ * assertions for them here would just be a second copy of the backlog. Tags,
+ * task checkboxes and fence highlighting (#102) have landed and have their own
+ * file, `editor-embed-milkdown-parity.spec.ts`.
  *
  * Real user input only: Playwright keyboard/mouse, and CDP `Input.dispatch-
  * TouchEvent` for the long-press drag (a genuine browser touch stream, not DOM
@@ -237,8 +238,16 @@ test('applyExternalContent adopts differing content without a change echo', asyn
  * from a DOM Range over the text node — the paragraph's own box is the full
  * content column, so dividing its width by the character count aims far past
  * the end of a short line.
+ *
+ * Waits for `document.fonts.ready` first: the embed warms Barlow
+ * asynchronously (`warmEditorFonts.ts`), and a swap landing between the
+ * measurement and the click moves every character's x-position, so the click
+ * lands on a different character. Observed as an intermittent red on
+ * "applyExternalContent with unchanged content preserves the selection" —
+ * 3 of 3 on a loaded machine, then 25 of 25 green.
  */
 async function clickCaretInto(page: Page, chars: number): Promise<void> {
+  await page.evaluate(() => document.fonts.ready);
   const point = await page.evaluate((offset) => {
     const text = document.querySelector('.ProseMirror > p')?.firstChild;
     if (!text) throw new Error('no paragraph text node');

@@ -55,17 +55,21 @@ just gauntlet-cm6-perf
 ### Where Milkdown stands (recorded 2026-08-28, desktop chromium)
 
 **Split torture: 36 of 56.** The 20 failures are three families, all in
-`milkdown-split-torture.baseline.json` with a reason each: no wikilink node yet (8, bucket-1 parity
-scope), a caret on a mark boundary types outside the mark (7, ProseMirror mark inclusivity), and
-pasted text inherits the mark of the range it replaced (4). Zero of 56 undos are byte-for-byte
+`milkdown-split-torture.baseline.json` with a reason each: the wikilink is an atom node (8), a caret
+on a mark boundary types outside the mark (7, ProseMirror mark inclusivity), and pasted text
+inherits the mark of the range it replaced (4).
+
+The wikilink family is not a defect — the link survives every one of those eight cases intact. An
+atom has no inside, so a case written to split a construct mid-span has no answer in this editor;
+the caret resolves to an edge and the matrix records what happens instead. Treat those eight as a
+question for the §4 parity audit, not a bug list. Zero of 56 undos are byte-for-byte
 identical — every one adds a trailing newline. That is normalize-once, which is why undo is checked
 for loss rather than for bytes, and the count is in the report as the scorecard (plan D4).
 
-**Performance floor: fails, and the report says exactly where.** On one desktop chromium run:
-open misses the 1 s budget at 10,000 lines (1395 ms), and synchronous keystroke p95 misses 16 ms at
-50,000 lines (80 ms) and 10 MiB (37 ms). Absolute numbers move 20-40% between runs on the same
-machine, so read them as a magnitude, not a measurement — the report file holds each run's exact
-figures.
+**Performance floor: fails, and the report says exactly where.** Open misses the 1 s budget at
+10,000 lines, and synchronous keystroke p95 misses 16 ms at 50,000 lines and 10 MiB. Absolute
+numbers move 20-40% between runs on the same machine, so read the report file for a given run's
+figures rather than quoting a constant.
 
 What the run does NOT show is a cliff: per-line open cost at 50k is 1.4x the 10k cost and per-byte
 cost at 10 MiB is 0.3x the 1 MiB cost, so the scaling claim behind the transition holds. The gap is

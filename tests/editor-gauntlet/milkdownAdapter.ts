@@ -67,6 +67,7 @@ interface ProseViewLike {
   dispatch(tr: unknown): void;
   focus(): void;
   posAtDOM(node: Node, offset: number): number;
+  nodeDOM(pos: number): Node | null;
   dom: HTMLElement;
 }
 
@@ -164,17 +165,32 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
         const doc = view.state.doc;
 
         /**
-         * The document's rendered text between two positions, as (position,
-         * text) runs. A leaf that is not text — a line break above all — counts
-         * as the single character the markdown source spells, so a caret after
-         * a soft break does not drift one place right.
+         * The document's rendered text between two positions, as runs.
+         *
+         * A run's TEXT LENGTH and its POSITION SPAN are not the same number,
+         * and conflating them is the whole difficulty here. A text node of ten
+         * characters spans ten positions; a wikilink chip renders ten
+         * characters ("alpha beta", from its attrs, through a node view) and
+         * spans exactly ONE. Counting its rendered text as positions put every
+         * caret after it nine places too far right, which showed up as a paste
+         * swallowing the rest of the line rather than as an error.
+         *
+         * Reading the atom's DOM is still necessary: without it the construct
+         * is invisible here and every case anchored to its text dies as a
+         * harness failure instead of producing a measurement.
          */
-        const runs = (from: number, to: number): Array<{ pos: number; text: string }> => {
-          const collected: Array<{ pos: number; text: string }> = [];
+        const runs = (from: number, to: number): Run[] => {
+          const collected: Run[] = [];
           if (to <= from) return collected;
           doc.nodesBetween(from, to, (node, pos) => {
-            if (node.isText) collected.push({ pos, text: node.text ?? '' });
-            else if (node.isLeaf) collected.push({ pos, text: '\n' });
+            if (node.isText) {
+              collected.push({ pos, text: node.text ?? '', span: node.nodeSize, atom: false });
+            } else if (node.isLeaf) {
+              // A non-atom leaf is a line break: one character, one position.
+              const dom = node.isAtom ? view.nodeDOM(pos) : null;
+              const text = dom?.textContent || '\n';
+              collected.push({ pos, text, span: node.nodeSize, atom: Boolean(dom) });
+            }
             return !node.isLeaf;
           });
           return collected;
@@ -183,46 +199,40 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
         /**
          * The position `offset` rendered characters into a run list.
          *
-         * An offset that lands exactly on a run boundary resolves to the START
-         * of the FOLLOWING run, not the end of the one before it. Inside a
-         * paragraph the two are the same ProseMirror position, but across a
-         * paragraph break they are not — and "the caret at the start of the
-         * second paragraph" is what a case asking to backspace two blocks
-         * together means. Taking the earlier one put the caret at the end of
-         * the first paragraph, where backspace deletes a letter instead.
+         * Two rules earn their place:
+         *
+         * - An offset landing exactly on a run boundary resolves to the START
+         *   of the FOLLOWING run. Inside a paragraph those are the same
+         *   position; across a paragraph break they are not, and "the caret at
+         *   the start of the second paragraph" is what a case asking to
+         *   backspace two blocks together means. Taking the earlier one put the
+         *   caret at the end of the first paragraph, where backspace deletes a
+         *   letter instead.
+         * - An offset landing INSIDE an atom resolves to one of its edges,
+         *   because an atom has no inside to put a caret in. `atomSide` picks
+         *   which; "before" is the default. A case that asked to split the
+         *   construct in half has no answer in this editor, and an edge is the
+         *   honest place to record what it does instead.
          */
         const positionInRuns = (
-          collected: Array<{ pos: number; text: string }>,
+          collected: Run[],
           offset: number,
           fallback: number,
+          atomSide?: 'before' | 'after',
         ): number => {
           let remaining = offset;
           for (const [index, run] of collected.entries()) {
             const isLast = index === collected.length - 1;
             if (remaining < run.text.length || (isLast && remaining === run.text.length)) {
-              return run.pos + remaining;
+              if (!run.atom) return run.pos + remaining;
+              if (remaining === 0) return run.pos;
+              return atomSide === 'after' || remaining >= run.text.length
+                ? run.pos + run.span
+                : run.pos;
             }
             remaining -= run.text.length;
           }
           return fallback;
-        };
-
-        /** The atom node containing `pos`, if the caret is inside one. */
-        const atomAround = (pos: number): { from: number; to: number } | null => {
-          let found: { from: number; to: number } | null = null;
-          doc.nodesBetween(
-            Math.max(0, pos - 1),
-            Math.min(doc.content.size, pos + 1),
-            (node, at) => {
-              if (found) return false;
-              if (node.isAtom && !node.isText && at < pos && pos < at + node.nodeSize) {
-                found = { from: at, to: at + node.nodeSize };
-                return false;
-              }
-              return true;
-            },
-          );
-          return found;
         };
 
         const positionFor = (point: typeof anchorPoint): number => {
@@ -239,17 +249,12 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
             if (found < 0) {
               throw new Error(`milkdown gauntlet: rendered text lacks the anchor: ${point.text}`);
             }
-            resolved = positionInRuns(collected, found + point.offset, doc.content.size);
-            // `atomBoundary` asks for the edge of an atom rather than a place
-            // inside it. Milkdown renders none of these constructs as an atom
-            // today (a wikilink node is bucket-1 parity work), so this is
-            // normally a no-op — but honouring it means the day one appears,
-            // the case is placed as it asked instead of landing inside a node
-            // with no inside.
-            if (point.atom) {
-              const atom = atomAround(resolved);
-              if (atom) resolved = point.atom === 'before' ? atom.from : atom.to;
-            }
+            resolved = positionInRuns(
+              collected,
+              found + point.offset,
+              doc.content.size,
+              point.atom,
+            );
           } else {
             if (doc.childCount === 0) return 0;
             const index = Math.max(0, Math.min(point.blockIndex, doc.childCount - 1));

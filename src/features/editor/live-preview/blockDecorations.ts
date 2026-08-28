@@ -139,7 +139,10 @@ function codeLineClass(params: {
     isClosing,
     cursorInBlock,
   } = params;
-  let cssClass = 'cm-md-code-block';
+  // `futo-code-tokens` is the class the shared fenced-code palette keys off
+  // (src/styles/code-tokens.css); the Milkdown editor marks its own fences
+  // with the same one.
+  let cssClass = 'cm-md-code-block futo-code-tokens';
   if ((isOpening || isClosing) && !cursorInBlock) {
     cssClass += ' cm-md-code-block-fence';
     if (isOpening) cssClass += ' cm-md-code-block-opening-fence';

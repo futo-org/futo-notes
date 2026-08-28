@@ -31,6 +31,21 @@ import {
 declare global {
   interface Window {
     FutoEditor?: FutoEditorApi;
+    /**
+     * The editor engine came up — the Android WebView gate's whole question
+     * (EditorEngineSupport.kt `ENGINE_PROBE_JS`, drift-registry
+     * `editor-mounted-global`). A plain global rather than a futoBridge
+     * message for the same reason as `__futoEngineUnsupported` in editor.html:
+     * it answers for the case where the bundle is what went wrong, and a
+     * message would bump BRIDGE_VERSION and oblige both hosts (M10) for a
+     * signal only Android reads.
+     *
+     * `window.FutoEditor` used to stand in for this. It cannot: Milkdown's
+     * `Editor.make().create()` is async, so the host API is published — and
+     * `ready` posted — whether or not the engine came up behind it. A Chromium
+     * 83 WebView showed a blank pane with no notice.
+     */
+    __futoEditorMounted?: boolean;
   }
 }
 
@@ -111,6 +126,9 @@ const editor = mount(EmbeddedEditor, {
     // and every non-iOS environment never call this prop.
     onhaptic: (kind: 'lift' | 'drop') => {
       post({ type: 'haptic', kind });
+    },
+    onenginemounted: () => {
+      window.__futoEditorMounted = true;
     },
   },
 }) as unknown as EmbeddedEditorHandle;

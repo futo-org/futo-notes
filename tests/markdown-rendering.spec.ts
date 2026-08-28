@@ -649,6 +649,35 @@ test.describe('Code Blocks', () => {
         .first(),
     ).toBeVisible();
 
+    // The token palette moved to the shared src/styles/code-tokens.css, keyed
+    // on `.futo-code-tokens` so the Milkdown editor inherits the same colours.
+    // Assert the colour actually LANDS here, not just that the token classes
+    // exist: the selector lost a class of specificity in that move, and only a
+    // real browser can say whether the rule still wins.
+    // Every code line carries the shared class (the opening/closing fence
+    // lines are collapsed while blurred, so this counts rather than looks).
+    expect(await page.locator('.cm-md-code-block.futo-code-tokens').count()).toBeGreaterThan(0);
+    const [tokenColor, expected] = await page.evaluate(() => {
+      const token = document.querySelector('.cm-md-code-block .tok-string');
+      const root = getComputedStyle(document.documentElement);
+      return [
+        token ? getComputedStyle(token).color : null,
+        root.getPropertyValue('--syntax-string').trim(),
+      ];
+    });
+    expect(expected).not.toBe('');
+    expect(tokenColor).not.toBeNull();
+    // Same colour, whatever notation getComputedStyle reports it in.
+    const asRgb = await page.evaluate((value) => {
+      const probe = document.createElement('span');
+      probe.style.color = value;
+      document.body.appendChild(probe);
+      const resolved = getComputedStyle(probe).color;
+      probe.remove();
+      return resolved;
+    }, expected);
+    expect(tokenColor).toBe(asRgb);
+
     const blockBox = await page
       .locator('.cm-md-code-block:not(.cm-md-code-block-fence)')
       .first()

@@ -65,10 +65,19 @@ this file states the behaviors a human cares about.
   tests/editor-embed-bridge.spec.ts (legacy WebView tests)
 - The editor needs a System WebView engine of **Chromium 80 or newer**: the
   bundle targets ES2020, an `editor.html` `String.prototype.replaceAll` shim
-  covers Chromium 80–84 (Svelte 5's runtime would otherwise throw), and the
+  covers Chromium 80–84 (Svelte 5's runtime would otherwise throw), an
+  `editor.html` `Array.prototype.at` shim covers Chromium 80–91
+  (`@milkdown/transformer` calls it on every parse and every serialize), and the
   editor uses `textContent = ''` rather than `Element.replaceChildren` (Chromium 86) in its own DOM code so tables and the slash menu work down to the floor
   too. _(Android)_ → editor.html, slashMenuRenderer.ts, tableEditorWidget.ts,
-  vite.editor.config.ts
+  wikilink/autocomplete.ts, vite.editor.config.ts
+- The floor is a property of the **built bundle**, not of the syntax target: a
+  dependency reaching for a newer built-in method parses fine and throws at
+  runtime, which is how `Element.replaceChildren` (Chromium 86) once shipped
+  inside a bundle declaring Chromium 80. Every post-floor built-in the bundle
+  uses is either shimmed in `editor.html` — proved by deleting it and running the
+  editor without it — or fails the bundle audit. _(Android)_ → editor.html,
+  tests/editor-embed-webview-floor.spec.ts
 - Whether an engine is supported is decided by **capability, never by a version
   number**: the page reports what it couldn't parse and whether the editor
   mounted, and the shell reads that. A WebView `versionName` is never consulted —
@@ -76,6 +85,21 @@ this file states the behaviors a human cares about.
   Chromium), so a version floor rejects working engines. _(Android)_ →
   editor.html, EditorEngineSupport.kt, EditorWebView.kt,
   tests/editor-embed-bridge.spec.ts (engine preflight tests)
+- "The editor mounted" means the EDITOR ENGINE came up, reported by the bundle on
+  `window.__futoEditorMounted` — not that the host API exists and not that the
+  bridge `initialize` round-trip returned. Milkdown creates its editor
+  asynchronously, so both of those are true while the engine is failing behind
+  them: on a Chromium 83 WebView that showed a blank editor pane and no notice.
+  _(Android)_ → src/editor-embed/main.ts, EditorEngineSupport.kt `ENGINE_PROBE_JS`,
+  EditorWebView.kt, tests/editor-embed-webview-floor.spec.ts
+
+  > **Gap:** the engine gate answers "can this WebView run the editor", and
+  > reports the mount before the first document is parsed — deliberately, so a
+  > large note on a slow phone can't be mistaken for an unsupported WebView. An
+  > engine that mounts and then throws inside a later parse or serialize
+  > therefore still shows a blank editor pane with no notice. The break this
+  > work found (`@milkdown/transformer`'s `Array.prototype.at`) happens to fail
+  > at mount as well, so it is caught; a parse-only failure would not be.
 - A note whose editor can't run shows the native "update Android System WebView"
   notice in place of a blank editor pane — when the engine reported a missing
   capability, never produced a mounted editor, or there is no WebView provider at
@@ -140,6 +164,12 @@ this file states the behaviors a human cares about.
   extends past the rendered row, off-text placement uses the logical line end
   rather than entering the hidden markup. → interactions/pointerHitTest.ts
   `lineHitBesidePoint`, tests/editor-ux.spec.ts, tests/wikilinks.spec.ts
+  > **Gap:** in the **Milkdown** editor the native embed now mounts by default
+  > there is no hidden trailing syntax to place a caret beside: a wikilink is a
+  > single atom node whose source `[[…]]` never appears on screen. The line is
+  > CodeMirror-shaped and is bucket-2 renegotiation input for the transition's
+  > spec MR, not a defect to fix. _(native shells)_ →
+  > docs/plan/milkdown-transition.md, src/features/editor/milkdown/wikilink/
 - Arrow up/down moves by visual row on wrapped lines and skips block widgets. →
   markdown-spec/cases/10-cursor-reveal
 - Pressing Enter in a continued list item scrolls the new item into view. →
@@ -347,6 +377,20 @@ this file states the behaviors a human cares about.
   code or a fenced block. → markdown-spec/cases/09-tags, 13-adversarial
 - Tags dedup case-insensitively (`#Project` + `#project` → one `#project`).
 - A leading header tag block is recognized and hidden when the cursor is away.
+  > **Gap:** the Milkdown editor (the native shells' embedded editor on the
+  > `feat/milkdown-editor` branch) recognizes the block but does NOT hide it.
+  > A ProseMirror node rendered `display: none` cannot be reached by caret or
+  > click, so hiding it would leave the note's tags uneditable — and on the
+  > native shells, which have no tag bar, invisible as well; a Backspace at the
+  > start of the following paragraph would also silently join an unseen block.
+  > The block renders as text with its tags decorated instead — which also
+  > suspends the two lines that depend on the block being hidden (the tag bar's
+  > blank space, and the refusal to press into a note that is only hidden tag
+  > markup); both are desktop surfaces, and desktop still mounts the CodeMirror
+  > editor. The desktop swap is where this editor and the tag bar first meet and
+  > is where this is settled. _(native shells, Milkdown only)_
+  > → src/features/editor/milkdown/tagDecorations.ts,
+  > docs/plan/milkdown-transition.md "T5 outcome"
 
 ## Tag bar _(desktop)_
 
@@ -425,6 +469,14 @@ native shells edit tags as text in the body, which is not a gap.
   AppNavigation.kt `AppNavigator.openNote` (push),
   NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`,
   tests/editor-embed-bridge.spec.ts
+  > **Gap:** in the **Milkdown** editor a broken wikilink cannot be edited in
+  > place, so "a broken wikilink still focuses, so it can be edited" above is
+  > CodeMirror-shaped. The link is one atom node; its tap is deliberately left
+  > unconsumed so the chip can be SELECTED and replaced or deleted, which is
+  > the WYSIWYG answer to repairing a dead link. Bucket-2 renegotiation input
+  > for the transition's spec MR, not a defect to fix. _(native shells)_ →
+  > src/features/editor/milkdown/wikilink/node.ts, MilkdownEditor.svelte
+  > `consumesTap`, tests/editor-embed-milkdown-wikilinks.spec.ts
 - Native Back and resolved-wikilink navigation wait for every admitted editor
   mutation, capture the latest live CM6 body, and persist-or-park a dirty
   snapshot through the Rust draft workflow before changing the navigation
