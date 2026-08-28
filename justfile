@@ -444,6 +444,22 @@ test-e2e-rest:
 test-cross-platform:
   pnpm run test:cross-platform
 
+# Prove progressive open's one load-bearing claim: parsing a note in top-level
+# chunks and appending them produces the SAME document as parsing it whole
+# (docs/plan/milkdown-transition.md §5, issue #105). Drives the REAL editor.html
+# over a corpus of real notes at the finest cut granularity the planner allows,
+# and exits non-zero on a single divergence. NOT in `check`/CI: the corpus is
+# real user notes and lives outside this repo. Committed result:
+# docs/evidence/milkdown-chunk-census.md.
+#   just chunk-census                        # full corpus, ~2 min
+#   just chunk-census --limit 2000           # a quick pass
+#   just chunk-census --corpus <path.jsonl>  # somewhere else
+# `--dump-divergences <path>` writes the offending notes for triage; that file
+# carries note TEXT, so keep it out of the repo.
+# Prove a chunked parse equals a whole-document parse, over a real note corpus.
+chunk-census *args:
+  node scripts/milkdown-chunk-census.mjs {{args}}
+
 test-markdown-spec:
   pnpm run test:markdown-spec
 

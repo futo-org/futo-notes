@@ -19,6 +19,10 @@ import EmbedToolbar from './EmbedToolbar.svelte';
 import { BRIDGE_VERSION, postToHost, type FutoEditorApi } from '@futo-notes/editor';
 import { getAllNotes } from '../features/notes/notes.svelte';
 import { resolveWikilink } from '$shared/note/wikilinks';
+import {
+  installChunkCensusHook,
+  type ChunkCensusEditor,
+} from '$features/editor/milkdown/chunkCensusHook';
 import { hasNativeHost, pickImageInBrowser } from './hostBridge';
 import { installNativeImagePaste } from './installNativeImagePaste';
 import { warmEditorFonts } from './warmEditorFonts';
@@ -55,7 +59,8 @@ let lastPostedOnListLine: boolean | null = null;
  * CodeMirror live-preview editor back, and that switch dies with CM6 at the
  * swap. Both are statically imported so the bundle keeps its ES2020 target
  * (no top-level await). */
-const useCodeMirror = new URLSearchParams(window.location.search).has('cm');
+const query = new URLSearchParams(window.location.search);
+const useCodeMirror = query.has('cm');
 const EmbeddedEditor = (useCodeMirror ? MarkdownEditor : MilkdownEditor) as typeof MarkdownEditor;
 
 const editor = mount(EmbeddedEditor, {
@@ -152,6 +157,10 @@ const futoEditor = createFutoEditorApi({
 window.FutoEditor = futoEditor;
 
 warmEditorFonts(() => editor.warmScroll());
+
+/* Chunk-equivalence census (chunkCensusHook.ts). `?census` is not a URL any
+ * shell loads — the native hosts open the bundle with no query string at all. */
+if (query.has('census')) installChunkCensusHook(editor as unknown as ChunkCensusEditor);
 
 (window as unknown as { __scrollDiag?: () => unknown }).__scrollDiag = () => editor.warmScroll();
 

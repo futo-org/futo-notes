@@ -41,9 +41,16 @@ function markActive(
     const marks = storedMarks ?? selection.$from.marks();
     return markType.isInSet(marks) !== undefined;
   }
-  // `view.state.doc` is safe even when `selection` is newer than `view.state`:
-  // a pure selection-move transaction never touches the doc, so the stale and
-  // fresh docs are the same object.
+  /* `view.state.doc` may be one transaction behind `selection` — see
+   * `computeActiveFormats`. That is harmless for a pure selection move (same
+   * doc), but a doc-CHANGING transaction that also moves the caret can put this
+   * range past the end of the doc it is about to be measured on, and
+   * `rangeHasMark` THROWS on an out-of-range position rather than returning
+   * false. Measured: 78 of 31k corpus notes crashed the editor here when
+   * progressive open started appending content behind the caret. Inactive is
+   * the right answer — the transaction the view is about to adopt fires its own
+   * update, and that one reports against a document that contains the range. */
+  if (to > view.state.doc.content.size) return false;
   return view.state.doc.rangeHasMark(from, to, markType);
 }
 

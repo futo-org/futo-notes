@@ -31,6 +31,7 @@
     defaultValueCtx,
     editorViewCtx,
     editorViewOptionsCtx,
+    parserCtx,
     rootCtx,
   } from '@milkdown/kit/core';
   import { commonmark } from '@milkdown/kit/preset/commonmark';
@@ -55,6 +56,18 @@
   import { computeActiveFormats } from './formatState';
   import { createHandleBlockDrag, type HandleBlockDrag } from './handleBlockDrag';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
+  import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
+  import {
+    OPEN_COMPLETE_MEASURE,
+    OPEN_INTERACTIVE_MEASURE,
+    appendChunkContent,
+    isEffectivelyEmpty,
+    markOpenStart,
+    measureOpen,
+    scheduleIdleSlice,
+    startProgressiveLoad,
+    type ProgressiveLoad,
+  } from './progressiveLoad';
   import { createToolbarExec } from './toolbarExec';
 
   interface Props {
@@ -123,6 +136,31 @@
   let pendingContent: string | null = null;
   let onListLine: boolean | null = null;
 
+  /* The in-flight progressive open, if this note was large enough to stream
+   * (progressiveLoad.ts). Null the rest of the time, which is every note in an
+   * ordinary vault. */
+  let progressive: ProgressiveLoad | null = null;
+  /* Drives the loading affordance over the streaming tail. `$state` because it
+   * is read by the template. */
+  let streamingTail = $state(false);
+  /* Undo depth when the current progressive load started — the baseline the
+   * "did the user type while the tail was streaming?" question is asked
+   * against. A plain `undoDepth > 0` test would be wrong: the host calls
+   * `resetHistory()` after every setContent/initialize (so the baseline is
+   * usually 0), but `applyExternalContent` — a remote sync update — does NOT,
+   * and there the user's earlier history is still on the stack. Reading that as
+   * an edit would make adopting a sync update rewrite a large note on disk,
+   * which ADR-0002 forbids. `resetHistory()` below keeps this in step. */
+  let historyBaselineDepth = 0;
+  /* Set at load completion, consumed by the next change notification — see the
+   * markdownUpdated listener for the stale-snapshot it defends against. */
+  let listenerSnapshotMayBeStale = false;
+  /* Whether the last load gave up on chunking mid-flight and reloaded the note
+   * whole. Reported by `censusLoad` so the equivalence census cannot score a
+   * fallback as proof that a chunked parse matched a whole one — it would be
+   * comparing a whole parse against a whole parse. */
+  let abortedToWholeDocument = false;
+
   /* Notion-style block drag handle. BlockProvider (from Milkdown's block
    * plugin) owns rendering/positioning the ⠿ handle and the native HTML5 drag
    * mechanics; we just feed it a DOM node and, on touch where there is no
@@ -189,6 +227,11 @@
    */
   function emitFormatState(selectionOverride?: ProseSelection): void {
     if (!onformatstate) return;
+    /* A streaming progressive open moves the selection with every chunk it
+     * appends, and there is no toolbar tap behind any of it — recomputing
+     * would be per-chunk work on the load path for a highlight nobody asked
+     * for. The completion path emits once, for the finished document. */
+    if (progressive?.loading) return;
     const view = pmView();
     if (!view) return;
     const selection = selectionOverride ?? view.state.selection;
@@ -278,10 +321,32 @@
           }));
 
           const listeners = ctx.get(listenerCtx);
-          listeners.markdownUpdated((_ctx, markdown) => {
-            liveMarkdown = markdown;
+          listeners.markdownUpdated((_ctx, reported) => {
+            /* `reported` is @milkdown/plugin-listener's serialization of the
+             * document as it stood in the transaction that STARTED the 200 ms
+             * debounce (`latestTr.doc`), not the live one — and the plugin
+             * skips `addToHistory: false` transactions entirely, which is
+             * exactly what a streamed chunk append is. So the first callback
+             * after a progressive open can carry the note as it stood
+             * MID-STREAM: a truncated document, arriving one debounce window
+             * after the save lock lifted. Re-read the live document for that
+             * one callback rather than trust it. */
             rewriteImageSrcs();
             emitFormatState();
+            /* SAVE LOCK (CRITICAL — progressiveLoad.ts): while the tail is
+             * streaming the document is a PREFIX of the note. Reporting it as a
+             * change is how a slow open truncates a file, and `liveMarkdown`
+             * must not take a prefix either — `setContent` dedupes against it.
+             * An edit made in this window is not lost: finishProgressiveLoad()
+             * releases it against the complete document. */
+            if (progressive?.loading) return;
+
+            let markdown = reported;
+            if (listenerSnapshotMayBeStale) {
+              listenerSnapshotMayBeStale = false;
+              markdown = readSerialized() ?? reported;
+            }
+            liveMarkdown = markdown;
             // The debounced echo of host content we just loaded — not an edit.
             if (externalSerialization !== null && markdown === externalSerialization) return;
             // A genuine user edit: the host's copy is no longer authoritative.
@@ -385,6 +450,8 @@
 
     return () => {
       disposed = true;
+      progressive?.cancel();
+      progressive = null;
       container.removeEventListener('click', handleClick);
       pmView()?.dom.removeEventListener('scroll', handleBlockScroll);
       handleDrag?.destroy();
@@ -406,13 +473,174 @@
     }
   }
 
-  function applyExternal(text: string): void {
+  /** Loads the whole document in one parse — what every ordinary note does. */
+  function applyWholeDocument(text: string): void {
     if (!editor) return;
     editor.action(replaceAll(text));
     hostMarkdown = text;
     liveMarkdown = text;
     externalSerialization = readSerialized() ?? text;
     rewriteImageSrcs();
+  }
+
+  /**
+   * Parses one streamed chunk and appends it. Returns false if the parse
+   * failed, which aborts the stream back to a whole-document load rather than
+   * silently dropping the rest of the note.
+   */
+  /**
+   * Mounts the first chunk, replacing whatever the editor held.
+   *
+   * Guarded exactly like every later chunk: a first chunk the plugin chain eats
+   * would otherwise be dropped silently, and it is the one the user is looking
+   * at. `replaceAll` parses inside Milkdown and reports nothing, so the check is
+   * on the document it produced.
+   */
+  function applyFirstChunk(markdown: string): boolean {
+    if (!editor) return false;
+    editor.action(replaceAll(markdown));
+    if (markdown.trim() === '') return true;
+    const view = pmView();
+    return view !== null && !isEffectivelyEmpty(view.state.doc);
+  }
+
+  function appendParsedChunk(markdown: string): boolean {
+    const view = pmView();
+    if (!editor || !view) return false;
+    try {
+      const parsed = editor.ctx.get(parserCtx)(markdown);
+      if (!parsed) return false;
+      // Real markdown that parses to nothing has been eaten by the plugin
+      // chain; appending it would drop that slice of the note.
+      if (markdown.trim() !== '' && isEffectivelyEmpty(parsed)) return false;
+      appendChunkContent(view, parsed);
+      return true;
+    } catch (error) {
+      console.warn('MilkdownEditor: chunk parse failed', error);
+      return false;
+    }
+  }
+
+  /**
+   * Whether the user has made an undoable change since the current load began.
+   *
+   * Every user edit is history-recorded — that is what the history plugin is
+   * for — while the editor's own housekeeping is not: the preset re-stamps
+   * heading ids in a 125-step transaction after content lands, which a
+   * "any document change that isn't ours" test misreads as typing, and which
+   * would then rewrite every large note on open.
+   */
+  function editedSinceLoadStart(): boolean {
+    const view = pmView();
+    return view ? undoDepth(view.state) > historyBaselineDepth : false;
+  }
+
+  /**
+   * The tail is in. Release the save lock, and with it any edit the user made
+   * into the first viewport while the rest was still arriving.
+   */
+  function finishProgressiveLoad(): void {
+    streamingTail = false;
+    listenerSnapshotMayBeStale = true;
+    measureOpen(OPEN_COMPLETE_MEASURE);
+    rewriteImageSrcs();
+    emitFormatState();
+
+    const complete = readSerialized();
+    liveMarkdown = complete;
+    /* Set even in the edited branch: it makes the listener's trailing debounced
+     * callback — which is about to arrive carrying exactly this text — an echo
+     * rather than a second, duplicate `change`. */
+    externalSerialization = complete;
+
+    if (!editedSinceLoadStart()) return;
+    // The host's bytes are no longer what the document says.
+    hostMarkdown = null;
+    if (complete !== null) onchange?.(complete);
+  }
+
+  /**
+   * Loads host content into the editor, progressively when the note is large
+   * enough to be worth it (docs/plan/milkdown-transition.md §5).
+   *
+   * Progressive means the FIRST chunk is mounted synchronously — the user is
+   * looking at a real, editable first viewport within one frame — and the rest
+   * streams in idle slices. `markdownChunks.ts` guarantees the cuts are safe;
+   * everything that could leak a half-loaded document (the `change`
+   * notification, `getContent`) is locked until the last chunk lands.
+   */
+  function applyExternal(text: string, chunkOptions?: MarkdownChunkOptions): void {
+    if (!editor) return;
+    progressive?.cancel();
+    progressive = null;
+    streamingTail = false;
+    abortedToWholeDocument = false;
+    markOpenStart();
+
+    const plan = planMarkdownChunks(text, chunkOptions);
+    if (!plan.chunked) {
+      applyWholeDocument(text);
+      measureOpen(OPEN_INTERACTIVE_MEASURE);
+      measureOpen(OPEN_COMPLETE_MEASURE);
+      return;
+    }
+
+    hostMarkdown = text;
+    liveMarkdown = text;
+    /* No serialization of this document exists yet — it is still a prefix. The
+     * save lock, not this field, is what protects the streaming window. */
+    externalSerialization = null;
+
+    /* A chunk the editor would not take. Nothing about progressive open is
+     * worth risking content for: throw the partial document away and load the
+     * note exactly the way it loaded before this feature existed. An edit made
+     * into the first viewport during the streaming window is discarded with it
+     * — vanishingly rare (it needs a note whose chunks the plugin chain eats
+     * AND a keystroke inside a sub-second window) and strictly better than
+     * appending a chunk that lost part of the note. */
+    let index = 0;
+    const abortToWholeDocument = (): void => {
+      abortedToWholeDocument = true;
+      progressive?.cancel();
+      progressive = null;
+      streamingTail = false;
+      applyWholeDocument(text);
+      measureOpen(OPEN_COMPLETE_MEASURE);
+    };
+
+    const load = startProgressiveLoad({
+      chunks: plan.chunks,
+      applyChunk: (markdown) => {
+        if (abortedToWholeDocument) return;
+        const applied = index === 0 ? applyFirstChunk(markdown) : appendParsedChunk(markdown);
+        index += 1;
+        if (!applied) abortToWholeDocument();
+      },
+      scheduleIdle: scheduleIdleSlice,
+      onComplete: () => {
+        if (abortedToWholeDocument) return;
+        finishProgressiveLoad();
+      },
+    });
+
+    /* Chunk 0 is applied inside `startProgressiveLoad`, so an abort there ran
+     * before `progressive` existed and could not cancel the load it is part of.
+     * Everything else is already settled by `abortToWholeDocument`. */
+    if (abortedToWholeDocument) {
+      load.cancel();
+      measureOpen(OPEN_INTERACTIVE_MEASURE);
+      return;
+    }
+
+    progressive = load;
+    streamingTail = load.loading;
+    // After chunk 0: its `replaceAll` is itself an undoable transaction, and
+    // the host's `resetHistory()` (which drops this back to 0) only runs once
+    // this returns.
+    const view = pmView();
+    historyBaselineDepth = view ? undoDepth(view.state) : 0;
+    rewriteImageSrcs();
+    measureOpen(OPEN_INTERACTIVE_MEASURE);
   }
 
   /* Tapping a task-list marker toggles it (Milkdown renders the checkbox state
@@ -482,6 +710,19 @@
   }
 
   export function getContent(): string | undefined {
+    /* SAVE LOCK (CRITICAL — docs/plan/milkdown-transition.md §5). A document
+     * that is still streaming is a PREFIX of the note, and this method is one
+     * of exactly two ways content leaves the editor (the other is the `change`
+     * message, locked in the listener above). Neither branch below can return
+     * a prefix. */
+    if (progressive?.loading) {
+      /* Untouched since the open: the host's own bytes ARE the whole note, and
+       * they are exactly what is on disk. The correct answer, and free. */
+      if (!editedSinceLoadStart()) return hostMarkdown ?? '';
+      /* Edited: the only answer carrying both the edit and the tail costs the
+       * rest of the parse. Pay it rather than hand back a prefix. */
+      progressive.finishNow();
+    }
     const live = readSerialized();
     if (live === null) return hostMarkdown ?? liveMarkdown ?? '';
     // Only hand back the host's original bytes while the document is still
@@ -542,11 +783,43 @@
    * setContent.
    */
   export function resetHistory(): void {
+    // Whatever this does to the stack, the stack is empty afterwards.
+    historyBaselineDepth = 0;
     const view = pmView();
     if (!view) return;
     const { state } = view;
     if (undoDepth(state) === 0 && redoDepth(state) === 0) return;
     view.dispatch(state.tr.setMeta(HISTORY_KEY, { historyState: emptyHistoryState(state.schema) }));
+  }
+
+  /**
+   * Loads `text` with explicit chunk options and returns Milkdown's
+   * serialization of the resulting document, plus the plan that produced it.
+   *
+   * The ONLY consumer is the chunk-equivalence census
+   * (`scripts/milkdown-chunk-census.mjs`), which proves the claim progressive
+   * open rests on: a chunked parse of a note produces the same document as a
+   * whole-document parse of it. That comparison cannot go through the bridge,
+   * because the bridge deliberately never hands out a serialization of an
+   * unedited note — that IS the load-echo guard. `src/editor-embed/main.ts`
+   * installs it only for `editor.html?census`, a URL no shell ever loads.
+   *
+   * Read-only with respect to the host: it never posts a message and never
+   * touches `hostMarkdown` beyond what a normal load does.
+   */
+  export function censusLoad(
+    text: string,
+    chunkOptions: MarkdownChunkOptions,
+  ): { markdown: string | null; chunked: boolean; chunks: number; aborted: boolean } {
+    const plan = planMarkdownChunks(text, chunkOptions);
+    applyExternal(text, chunkOptions);
+    progressive?.finishNow();
+    return {
+      markdown: readSerialized(),
+      chunked: plan.chunked,
+      chunks: plan.chunks.length,
+      aborted: abortedToWholeDocument,
+    };
   }
 
   /** CodeMirror-only warm-up; there is no height map to warm here. */
@@ -582,7 +855,18 @@
      to match the right (see the .ProseMirror padding rule below). It is driven
      by the SAME `useMobileBlockDnd` gate that swaps the plugin, so the gutter
      and the thing that needs the gutter can never disagree. -->
-<div class="futo-milkdown" class:mobile-dnd={useMobileBlockDnd} bind:this={container}></div>
+<div class="futo-milkdown" class:mobile-dnd={useMobileBlockDnd} bind:this={container}>
+  <!-- The streaming tail of a large note (progressiveLoad.ts). Absolutely
+       positioned so it never enters the editor's layout, and rendered inside
+       the container the same way the block-drag ghost is. `polite` rather than
+       `assertive`: it is reassurance, not an interruption of typing. -->
+  {#if streamingTail}
+    <div class="milkdown-stream-tail" role="status" aria-live="polite">
+      <span class="milkdown-stream-tail-dot" aria-hidden="true"></span>
+      Loading the rest of this note…
+    </div>
+  {/if}
+</div>
 
 <style>
   .futo-milkdown {
@@ -839,5 +1123,54 @@
 
   :global(.futo-milkdown .milkdown-touch-drop-indicator--visible) {
     opacity: 1;
+  }
+  /* Streaming-tail affordance. Pinned to the bottom of the editor rather than
+     placed at the end of the document: the document end is thousands of lines
+     away while the tail streams, so a marker there would be invisible — which
+     is the opposite of an affordance. */
+  .milkdown-stream-tail {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5em;
+    padding: 0.4em 0.75em;
+    /* env(safe-area-inset-bottom): the native shells run the editor edge to
+       edge, so on a home-indicator phone a plain `bottom: 0` sits under it. */
+    padding-bottom: calc(0.4em + env(safe-area-inset-bottom, 0px));
+    pointer-events: none;
+    font-size: 0.8125rem;
+    color: var(--color-muted, #6b7280);
+    background: linear-gradient(to top, var(--color-bg, #fff) 60%, transparent);
+  }
+
+  .milkdown-stream-tail-dot {
+    width: 0.5em;
+    height: 0.5em;
+    border-radius: 50%;
+    background: currentColor;
+    animation: milkdown-stream-tail-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes milkdown-stream-tail-pulse {
+    0%,
+    100% {
+      opacity: 0.25;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  /* A pulsing dot next to text that says the same thing is decoration, and
+     `prefers-reduced-motion` users have asked for none of it. */
+  @media (prefers-reduced-motion: reduce) {
+    .milkdown-stream-tail-dot {
+      animation: none;
+      opacity: 0.6;
+    }
   }
 </style>
