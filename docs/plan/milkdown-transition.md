@@ -76,10 +76,17 @@ What the review changed:
 - **`markActive` said one thing and did another.** Its comment claimed a mark must cover every
   character of a range; it used `rangeHasMark`, which is "occurs anywhere". "Anywhere" is correct —
   it matches what `toggleMark` will do to that selection — so the comment was fixed, not the code.
-- **Decomposition.** `MilkdownEditor.svelte` 1,152 -> 842 lines (574 script + 268 style, which stays
-  with the component). Extracted into `src/features/editor/milkdown/`: `blockMove.ts`,
+- **The ⠿ gutter handle was dead for one commit, and a test caught it.** The first fix for the undo
+  bug rebuilt the EditorState; `EditorState.create` copies the plugin array, so `view.updateState`
+  destroyed every plugin view, and @milkdown/plugin-block's BlockProvider — which parents its handle
+  outside the ProseMirror DOM and only appends on its first `update()` — never put it back.
+  `resetHistory` now sets the history plugin's state through the `historyKey` meta its own undo/redo
+  commands use, touching nothing else.
+- **Decomposition.** `MilkdownEditor.svelte` 1,152 -> 838 lines (570 script + 268 style, which
+  stays with the component). Extracted into `src/features/editor/milkdown/`: `blockMove.ts`,
   `handleBlockDrag.ts` (the ⠿ touch fallback), `formatState.ts`, `caretContext.ts`,
-  `toolbarExec.ts`, alongside the moved `blockDragGeometry.ts` and `mobileBlockDnd.ts`.
+  `toolbarExec.ts`, `blockDragMode.ts`, alongside the moved `blockDragGeometry.ts` and
+  `mobileBlockDnd.ts`.
 - **Tests where there were none.** `tests/editor-embed-milkdown.spec.ts` (24 cases) drives the real
   `editor.html` bundle: the load-echo guard over markdown Milkdown would normalize, the undo
   boundary, the change contract, `formatState`, and the long-press block drag through real CDP touch
@@ -87,6 +94,12 @@ What the review changed:
 - **The CodeMirror contract suite now pins `?cm`.** Making Milkdown the default engine had silently
   turned `editor-embed-bridge.spec.ts` red (33 of 50), most of it CM6-specific DOM and
   markdown-source assertions. It loads `CM6_EDITOR_URL` and dies with CM6 at the swap.
+
+A second review pass (standards axis) then fixed: a CI `changes:` list that did not name the new
+spec files, so an MR touching only them dropped `test:e2e:editor-embed` to manual + allow_failure
+(M11 class); a platform branch inside a component (`isIOS` in `MilkdownEditor.svelte`, now
+`blockDragMode.ts` — src/AGENTS.md forbids the former); two comments citing rules that do not exist;
+and the duplication the two drag paths had re-grown around auto-scroll and target resolution.
 
 Recorded, not fixed here:
 
