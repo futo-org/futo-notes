@@ -117,6 +117,9 @@ export function detectTextLoss(
   after: string,
   options: TextLossOptions = {},
 ): TextLossReport {
+  if (options.absorbable !== undefined && options.absorbable.length !== 1) {
+    throw new Error('detectTextLoss: absorbable must be exactly one character');
+  }
   const remaining = countTokens(textTokens(after));
   const lostTokens: string[] = [];
   let lostTokenCount = 0;
@@ -142,4 +145,18 @@ export function detectTextLoss(
   }
 
   return { lostTokens, lostTokenCount };
+}
+
+/**
+ * How many distinct lost words a report keeps as evidence. Enough to recognise
+ * a pattern, small enough that a corpus-wide run stays readable.
+ */
+export const LOST_TOKEN_SAMPLE_LIMIT = 50;
+
+/** Adds `tokens` to `samples` in place, de-duplicated and capped. */
+export function collectLostTokenSamples(samples: string[], tokens: readonly string[]): void {
+  for (const token of tokens) {
+    if (samples.length >= LOST_TOKEN_SAMPLE_LIMIT) return;
+    if (!samples.includes(token)) samples.push(token);
+  }
 }

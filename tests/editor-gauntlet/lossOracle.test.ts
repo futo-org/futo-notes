@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { detectTextLoss, textTokens } from './lossOracle';
+import {
+  LOST_TOKEN_SAMPLE_LIMIT,
+  collectLostTokenSamples,
+  detectTextLoss,
+  textTokens,
+} from './lossOracle';
 
 describe('textTokens', () => {
   it('drops block markers so a bullet style change is not loss', () => {
@@ -78,5 +83,26 @@ describe('detectTextLoss', () => {
     const before = 'item item\n';
     const after = 'xitem xitem\n';
     expect(detectTextLoss(before, after, { absorbable: 'x' }).lostTokens).toEqual(['item']);
+  });
+});
+
+describe('collectLostTokenSamples', () => {
+  it('de-duplicates and caps, so a corpus-wide run stays readable', () => {
+    const samples: string[] = [];
+    collectLostTokenSamples(samples, ['a', 'b', 'a']);
+    collectLostTokenSamples(samples, ['b', 'c']);
+    expect(samples).toEqual(['a', 'b', 'c']);
+
+    collectLostTokenSamples(
+      samples,
+      Array.from({ length: 200 }, (_, index) => `word-${index}`),
+    );
+    expect(samples).toHaveLength(LOST_TOKEN_SAMPLE_LIMIT);
+  });
+});
+
+describe('detectTextLoss options', () => {
+  it('refuses an absorbable that is not exactly one character', () => {
+    expect(() => detectTextLoss('a', 'a', { absorbable: 'xy' })).toThrow(/one character/);
   });
 });

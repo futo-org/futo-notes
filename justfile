@@ -537,10 +537,10 @@ gauntlet-milkdown:
 gauntlet-milkdown-perf:
   pnpm run test:editor-gauntlet:milkdown:perf
 
-# Milkdown foreign-corpus preservation sweep (never-refuse/never-warn/never-lose).
 # Read ~/Developer/futo-notes-ml/NOTICE.md first, then point it at a corpus:
 #   EDITOR_GAUNTLET_CORPUS=~/Developer/futo-notes-ml/dataset/sample.jsonl \
 #     EDITOR_GAUNTLET_CORPUS_LIMIT=100 just gauntlet-milkdown-foreign
+# Milkdown foreign-corpus sweep (never-refuse/never-warn/never-lose).
 gauntlet-milkdown-foreign *args:
   pnpm run test:editor-gauntlet:milkdown:foreign {{args}}
 
@@ -548,9 +548,11 @@ gauntlet-milkdown-foreign *args:
 gauntlet-cm6:
   pnpm run test:editor-gauntlet:cm6
 
+# CodeMirror performance floor (a hard open budget at every size).
 gauntlet-cm6-perf:
   pnpm run test:editor-gauntlet:perf
 
+# CodeMirror foreign-corpus sweep, on the original byte-fidelity bar.
 gauntlet-cm6-foreign *args:
   pnpm run test:editor-gauntlet:foreign {{args}}
 

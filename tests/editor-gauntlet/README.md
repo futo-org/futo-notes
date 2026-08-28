@@ -61,17 +61,32 @@ pasted text inherits the mark of the range it replaced (4). Zero of 56 undos are
 identical — every one adds a trailing newline. That is normalize-once, which is why undo is checked
 for loss rather than for bytes, and the count is in the report as the scorecard (plan D4).
 
-**Performance floor: fails, and the report says exactly where.** Open misses the 1 s budget at real
-note sizes (10k lines: 1872 ms; 1 MiB adversarial: 5516 ms), and synchronous keystroke p95 misses
-16 ms above them (50k lines: 60 ms; 10 MiB: 57 ms). What it does NOT show is a cliff: per-line open
-cost at 50k is 1.4x the 10k cost and per-byte cost at 10 MiB is 0.3x the 1 MiB cost, so the scaling
-claim behind the transition holds. The gap is that progressive open (plan §5 / D7) is not built —
-the editor parses and mounts the whole document before it is interactive, and the budget is defined
-against time-to-interactive-first-viewport. Adding the perf probe's
-`content-visibility` stylesheet to the live page does not close it (10k-line open 1752 ms), so that
-rule is not the missing piece for open cost.
+**Performance floor: fails, and the report says exactly where.** On one desktop chromium run:
+open misses the 1 s budget at 10,000 lines (1395 ms), and synchronous keystroke p95 misses 16 ms at
+50,000 lines (80 ms) and 10 MiB (37 ms). Absolute numbers move 20-40% between runs on the same
+machine, so read them as a magnitude, not a measurement — the report file holds each run's exact
+figures.
 
-The floor is asserted, not ledgered: five numbers you read directly, where a stale perf ledger
+What the run does NOT show is a cliff: per-line open cost at 50k is 1.4x the 10k cost and per-byte
+cost at 10 MiB is 0.3x the 1 MiB cost, so the scaling claim behind the transition holds. The gap is
+that progressive open (plan §5 / D7) is not built — the editor parses and mounts the whole document
+before it is interactive. Adding the perf probe's `content-visibility` stylesheet to the live page
+does not close it, so that rule is a keystroke-layout lever, not an open-cost one.
+
+Two things about how the floor is judged, both deliberate:
+
+- **The open gate measures time-to-fully-loaded, and the plan budgets
+  time-to-interactive-first-viewport.** Those are the same number today, because there is no
+  progressive open and therefore no earlier milestone to measure. Time-to-fully-loaded is an upper
+  bound: beating it certainly beats the budget, missing it does not certainly miss it. Re-point the
+  gate when the first-viewport milestone exists.
+- **The adversarial fixtures carry no absolute open budget.** The plan states the note-size
+  population in lines (corpus max 19,295; vault max 13,876), so it has nothing to say about a
+  1 MiB TipTap-benchmark-shaped document. That fixture is measured and reported, and it earns its
+  place by anchoring the 10 MiB linearity check — a per-byte comparison needs a smaller reading from
+  the same generator.
+
+The floor is asserted, not ledgered: three numbers you read directly, where a stale perf ledger
 would rot and a noisy one would flake.
 
 ### The CM6 baseline

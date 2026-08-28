@@ -1,12 +1,9 @@
 import type { EditorGauntletAdapter } from './types';
-import { detectTextLoss } from './lossOracle';
+import { collectLostTokenSamples, detectTextLoss } from './lossOracle';
 import { markdownBlockRanges } from './markdownStructure';
 
 /** The one character every isolated edit types. */
 export const SWEEP_INSERTED_TEXT = 'x';
-
-/** How many distinct lost words a report keeps as evidence. */
-const LOST_TOKEN_SAMPLE_LIMIT = 50;
 
 export interface ForeignNote {
   /** Corpus position only; never a title, hash, URL, or other source identifier. */
@@ -229,10 +226,7 @@ export async function runForeignPreservationSweep(
       if (loss.lostTokenCount > 0) {
         result.lossyEdits += 1;
         result.lostTokenEvents += loss.lostTokenCount;
-        for (const token of loss.lostTokens) {
-          if (result.lostTokenSamples.length >= LOST_TOKEN_SAMPLE_LIMIT) break;
-          if (!result.lostTokenSamples.includes(token)) result.lostTokenSamples.push(token);
-        }
+        collectLostTokenSamples(result.lostTokenSamples, loss.lostTokens);
       }
 
       const expected =

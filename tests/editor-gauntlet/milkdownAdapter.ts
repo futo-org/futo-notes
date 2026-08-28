@@ -66,6 +66,7 @@ interface ProseViewLike {
   };
   dispatch(tr: unknown): void;
   focus(): void;
+  posAtDOM(node: Node, offset: number): number;
   dom: HTMLElement;
 }
 
@@ -75,6 +76,7 @@ interface ProseNodeLike {
   nodeSize: number;
   isText: boolean;
   isLeaf: boolean;
+  isAtom: boolean;
   text?: string;
   child(index: number): ProseNodeLike;
   resolve(pos: number): unknown;
@@ -98,12 +100,13 @@ interface ProseTransactionLike {
  */
 type CaretPoint =
   | { kind: 'block'; blockIndex: number; textOffset: number }
-  | { kind: 'text'; text: string; offset: number };
+  | { kind: 'text'; text: string; offset: number; atom?: 'before' | 'after' };
 
 export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
   readonly name = 'milkdown';
   private context: BrowserContext | null = null;
-  private page: Page | null = null;
+  /** Exposed so a red-proof spec can reach the page it is driving. */
+  private livePage: Page | null = null;
   private pageErrors: string[] = [];
   private consoleErrors: string[] = [];
   private openedSource = '';
@@ -118,7 +121,7 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
   async dispose(): Promise<void> {
     await this.context?.close();
     this.context = null;
-    this.page = null;
+    this.livePage = null;
   }
 
   async open(source: string, _caseId: string): Promise<void> {
@@ -204,6 +207,24 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
           return fallback;
         };
 
+        /** The atom node containing `pos`, if the caret is inside one. */
+        const atomAround = (pos: number): { from: number; to: number } | null => {
+          let found: { from: number; to: number } | null = null;
+          doc.nodesBetween(
+            Math.max(0, pos - 1),
+            Math.min(doc.content.size, pos + 1),
+            (node, at) => {
+              if (found) return false;
+              if (node.isAtom && !node.isText && at < pos && pos < at + node.nodeSize) {
+                found = { from: at, to: at + node.nodeSize };
+                return false;
+              }
+              return true;
+            },
+          );
+          return found;
+        };
+
         const positionFor = (point: typeof anchorPoint): number => {
           let resolved: number;
           if (point.kind === 'text') {
@@ -219,6 +240,16 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
               throw new Error(`milkdown gauntlet: rendered text lacks the anchor: ${point.text}`);
             }
             resolved = positionInRuns(collected, found + point.offset, doc.content.size);
+            // `atomBoundary` asks for the edge of an atom rather than a place
+            // inside it. Milkdown renders none of these constructs as an atom
+            // today (a wikilink node is bucket-1 parity work), so this is
+            // normally a no-op — but honouring it means the day one appears,
+            // the case is placed as it asked instead of landing inside a node
+            // with no inside.
+            if (point.atom) {
+              const atom = atomAround(resolved);
+              if (atom) resolved = point.atom === 'before' ? atom.from : atom.to;
+            }
           } else {
             if (doc.childCount === 0) return 0;
             const index = Math.max(0, Math.min(point.blockIndex, doc.childCount - 1));
@@ -279,13 +310,22 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
     return observations;
   }
 
+  /**
+   * Flush the shell's pending change, then snapshot.
+   *
+   * `refused` means what it means for CodeMirror — the edit did not become
+   * saveable — but the shape is different here, and getting it wrong makes the
+   * sweep's "never refuse" line unfalsifiable. There is no throwing save path
+   * to catch: the embed's only route from an edit to the file is the debounced
+   * `change` post. So a refusal is exactly that route failing — no new change
+   * arrived, and the editor is holding content the shell has never been told
+   * about. That is the #105 debounce risk, and it is silent otherwise: the
+   * sweep would compare the note against an unchanged file and see no loss.
+   */
   async save(): Promise<EditorSnapshot> {
-    let refused = false;
-    try {
-      await this.flushChange();
-    } catch {
-      refused = true;
-    }
+    const delivered = await this.flushChange();
+    const content = await this.readContent();
+    const refused = !delivered && content !== this.persistedSource;
     return this.snapshot(refused);
   }
 
@@ -356,7 +396,7 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
   // ---- internals --------------------------------------------------------- //
 
   private async ensurePage(): Promise<Page> {
-    if (this.page) return this.page;
+    if (this.livePage) return this.livePage;
     const context = await this.browser.newContext({ hasTouch: true });
     await context.addInitScript(installFakeAndroidHost);
     const page = await context.newPage();
@@ -372,13 +412,18 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
       Boolean((window as unknown as MilkdownWindow).__futoProseMirrorView?.()),
     );
     this.context = context;
-    this.page = page;
+    this.livePage = page;
     return page;
   }
 
+  /** The live page, for a spec that needs to reach past the adapter's surface. */
+  get page(): Page {
+    return this.requirePage();
+  }
+
   private requirePage(): Page {
-    if (!this.page) throw new Error('milkdown gauntlet: open() has not run yet');
-    return this.page;
+    if (!this.livePage) throw new Error('milkdown gauntlet: open() has not run yet');
+    return this.livePage;
   }
 
   private waitForTwoFrames(): Promise<void> {
@@ -396,7 +441,7 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
    * wrong one are the same bug to the person whose note it is, so a timeout
    * here is not an error — the stale `shellSource` it produces is the finding.
    */
-  private async flushChange(): Promise<void> {
+  private async flushChange(): Promise<boolean> {
     const page = this.requirePage();
     // Wait for a change NEWER than the one already on disk. Waiting for "any
     // change" makes every save after the first return instantly with the
@@ -417,26 +462,30 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
         .filter((message) => message.type === 'change')
         .map((message) => message.content as string),
     );
-    if (changes.length > this.consumedChanges) {
-      this.persistedSource = changes[changes.length - 1]!;
-      this.consumedChanges = changes.length;
-    }
+    if (changes.length <= this.consumedChanges) return false;
+    this.persistedSource = changes[changes.length - 1]!;
+    this.consumedChanges = changes.length;
+    return true;
   }
 
   private resolvePoint(offset: number, rich?: RichTextPoint): CaretPoint {
-    // `atomBoundary` is for a candidate that renders the construct as an atom
-    // node with no inside. Milkdown has no wikilink node yet (that is bucket-1
-    // parity work), so every construct here is ordinary text and the boundary
-    // resolves the same way either side.
-    if (rich) return { kind: 'text', text: rich.text, offset: rich.offset };
+    if (rich) {
+      return { kind: 'text', text: rich.text, offset: rich.offset, atom: rich.atomBoundary };
+    }
     return { kind: 'block', ...resolveSourceOffset(this.openedSource, offset) };
+  }
+
+  private readContent(): Promise<string> {
+    return this.requirePage().evaluate(() =>
+      (window as unknown as MilkdownWindow).FutoEditor.getContent(),
+    );
   }
 
   private async snapshot(refused = false): Promise<EditorSnapshot> {
     const page = this.requirePage();
     const [driverState, content, shellSource] = await Promise.all([
       this.readDriverState(),
-      page.evaluate(() => (window as unknown as MilkdownWindow).FutoEditor.getContent()),
+      this.readContent(),
       page.evaluate(() => {
         const changes = (window as unknown as MilkdownWindow).__msgs.filter(
           (message) => message.type === 'change',
@@ -488,11 +537,25 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
       ];
 
       const decorations: DecoratedRange[] = [];
-      const nowhere = { line: 0, ch: 0, pos: 0 };
+      /**
+       * ProseMirror positions are absolute document offsets, which is the
+       * `pos` field the protocol says to use "when line/ch is ambiguous" — and
+       * in a node tree line/ch is not merely ambiguous, it does not exist.
+       * Those two stay 0 and every consumer here reads `pos`.
+       */
+      const at = (element: Element, side: 0 | 1): DecoratedRange['from'] => {
+        let pos = 0;
+        try {
+          pos = view?.posAtDOM(element, side) ?? 0;
+        } catch {
+          pos = 0;
+        }
+        return { line: 0, ch: 0, pos };
+      };
       const push = (element: Element, kind: DecoratedRange['kind']): void => {
         decorations.push({
-          from: nowhere,
-          to: nowhere,
+          from: at(element, 0),
+          to: at(element, 1),
           kind,
           replaced: false,
           classes: Array.from(element.classList),

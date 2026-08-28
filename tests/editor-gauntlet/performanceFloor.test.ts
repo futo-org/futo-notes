@@ -10,7 +10,7 @@ import {
 
 function result(overrides: Partial<PerformanceResult>): PerformanceResult {
   return {
-    fixture: '10k-lines',
+    fixture: '10000-lines',
     lines: 10_000,
     bytes: 500_000,
     openMs: 500,
@@ -22,21 +22,36 @@ function result(overrides: Partial<PerformanceResult>): PerformanceResult {
 }
 
 describe('MILKDOWN_FLOOR_FIXTURES', () => {
-  it('hard-gates open only at sizes real notes reach', () => {
+  it('hard-gates open only at the line sizes the plan says real notes reach', () => {
     const hard = MILKDOWN_FLOOR_FIXTURES.filter((f) => f.openPolicy.kind === 'hard');
-    expect(hard.map((f) => f.name)).toEqual(['1k-lines', '10k-lines', '1mb-adversarial']);
+    expect(hard.map((f) => f.name)).toEqual(['1000-lines', '10000-lines']);
+    expect(hard.every((f) => f.unit === 'lines')).toBe(true);
   });
 
-  it('gives every linear-open fixture a hard-gated reference of the same shape', () => {
+  it('leaves the adversarial fixtures without an absolute open budget', () => {
+    const adversarial = MILKDOWN_FLOOR_FIXTURES.filter((f) => f.name.endsWith('-adversarial'));
+    expect(adversarial.map((f) => f.openPolicy.kind)).toEqual(['measured', 'linear']);
+  });
+
+  it('gives every linear-open fixture a known reference measured in the same unit', () => {
     for (const fixture of MILKDOWN_FLOOR_FIXTURES) {
       if (fixture.openPolicy.kind !== 'linear') continue;
       const reference = MILKDOWN_FLOOR_FIXTURES.find(
         (other) => other.name === fixture.openPolicy.reference,
       );
       expect(reference, `${fixture.name} names a known reference`).toBeDefined();
-      expect(reference!.openPolicy.kind).toBe('hard');
       expect(reference!.unit).toBe(fixture.unit);
+      expect(reference!.openPolicy.kind, 'a reference is never itself a linear check').not.toBe(
+        'linear',
+      );
     }
+  });
+
+  it('reports a measured-only fixture without gating its open time', () => {
+    const violations = evaluatePerformanceFloor(only('1mb-adversarial'), [
+      result({ fixture: '1mb-adversarial', bytes: 1_048_576, openMs: 5_516 }),
+    ]);
+    expect(violations).toEqual([]);
   });
 });
 
@@ -52,9 +67,9 @@ function only(...names: string[]): FloorFixture[] {
 describe('evaluatePerformanceFloor', () => {
   it('passes a run that meets every budget', () => {
     const violations = evaluatePerformanceFloor(MILKDOWN_FLOOR_FIXTURES, [
-      result({ fixture: '1k-lines', lines: 1_000, bytes: 50_000, openMs: 60 }),
-      result({ fixture: '10k-lines', openMs: 500 }),
-      result({ fixture: '50k-lines', lines: 50_000, bytes: 2_500_000, openMs: 2_600 }),
+      result({ fixture: '1000-lines', lines: 1_000, bytes: 50_000, openMs: 60 }),
+      result({ fixture: '10000-lines', openMs: 500 }),
+      result({ fixture: '50000-lines', lines: 50_000, bytes: 2_500_000, openMs: 2_600 }),
       result({ fixture: '1mb-adversarial', lines: 5_000, bytes: 1_048_576, openMs: 700 }),
       result({ fixture: '10mb-adversarial', lines: 50_000, bytes: 10_485_760, openMs: 7_500 }),
     ]);
@@ -62,40 +77,44 @@ describe('evaluatePerformanceFloor', () => {
   });
 
   it('fails a hard-gated fixture that misses the open budget', () => {
-    const violations = evaluatePerformanceFloor(only('10k-lines'), [
-      result({ fixture: '10k-lines', openMs: PERFORMANCE_BUDGET.openMs + 1 }),
+    const violations = evaluatePerformanceFloor(only('10000-lines'), [
+      result({ fixture: '10000-lines', openMs: PERFORMANCE_BUDGET.openMs + 1 }),
     ]);
     expect(violations).toEqual([
-      { fixture: '10k-lines', kind: 'open-budget', detail: '1001ms exceeds the 1000ms budget' },
+      {
+        fixture: '10000-lines',
+        kind: 'open-budget',
+        detail: 'time-to-fully-loaded 1001ms exceeds the 1000ms open budget',
+      },
     ]);
   });
 
   it('does not apply the open budget above real-note sizes', () => {
-    const violations = evaluatePerformanceFloor(only('10k-lines', '50k-lines'), [
-      result({ fixture: '10k-lines', openMs: 500 }),
-      result({ fixture: '50k-lines', lines: 50_000, bytes: 2_500_000, openMs: 2_600 }),
+    const violations = evaluatePerformanceFloor(only('10000-lines', '50000-lines'), [
+      result({ fixture: '10000-lines', openMs: 500 }),
+      result({ fixture: '50000-lines', lines: 50_000, bytes: 2_500_000, openMs: 2_600 }),
     ]);
     expect(violations).toEqual([]);
   });
 
   it('fails a linear-open fixture whose per-unit cost cliffs above its reference', () => {
-    const violations = evaluatePerformanceFloor(only('10k-lines', '50k-lines'), [
-      result({ fixture: '10k-lines', openMs: 500 }),
-      result({ fixture: '50k-lines', lines: 50_000, bytes: 2_500_000, openMs: 30_000 }),
+    const violations = evaluatePerformanceFloor(only('10000-lines', '50000-lines'), [
+      result({ fixture: '10000-lines', openMs: 500 }),
+      result({ fixture: '50000-lines', lines: 50_000, bytes: 2_500_000, openMs: 30_000 }),
     ]);
     expect(violations).toHaveLength(1);
-    expect(violations[0]).toMatchObject({ fixture: '50k-lines', kind: 'open-cliff' });
+    expect(violations[0]).toMatchObject({ fixture: '50000-lines', kind: 'open-cliff' });
   });
 
   it('fails when a linear-open fixture has no reference measurement to compare against', () => {
-    const violations = evaluatePerformanceFloor(only('50k-lines'), [
-      result({ fixture: '50k-lines', lines: 50_000, bytes: 2_500_000, openMs: 2_600 }),
+    const violations = evaluatePerformanceFloor(only('50000-lines'), [
+      result({ fixture: '50000-lines', lines: 50_000, bytes: 2_500_000, openMs: 2_600 }),
     ]);
     expect(violations).toEqual([
       {
-        fixture: '50k-lines',
+        fixture: '50000-lines',
         kind: 'missing-reference',
-        detail: 'no 10k-lines measurement to compare against',
+        detail: 'no 10000-lines measurement to compare against',
       },
     ]);
   });

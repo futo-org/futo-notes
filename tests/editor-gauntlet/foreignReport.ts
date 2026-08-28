@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import type { ForeignCorpusAccounting, ForeignCorpusShard } from './foreignCorpus';
 import type { GauntletArtifactCapture } from './artifactCapture';
+import { collectLostTokenSamples } from './lossOracle';
 import {
   emptyForeignSweepResult,
   type ForeignSweepFailureStage,
@@ -58,9 +59,6 @@ export interface ForeignSweepAggregateReport {
   sweep: ForeignSweepResult;
 }
 
-/** Matches the per-shard cap in foreignPreservation.ts. */
-const LOST_TOKEN_SAMPLE_LIMIT = 50;
-
 const FAILURE_STAGES: ForeignSweepFailureStage[] = [
   'parse',
   'caret-open',
@@ -102,10 +100,7 @@ function addSweep(total: ForeignSweepResult, part: ForeignSweepResult): void {
   total.outsideBlockRewrites += part.outsideBlockRewrites;
   total.lossyEdits += part.lossyEdits;
   total.lostTokenEvents += part.lostTokenEvents;
-  for (const token of part.lostTokenSamples) {
-    if (total.lostTokenSamples.length >= LOST_TOKEN_SAMPLE_LIMIT) break;
-    if (!total.lostTokenSamples.includes(token)) total.lostTokenSamples.push(token);
-  }
+  collectLostTokenSamples(total.lostTokenSamples, part.lostTokenSamples);
   total.hardFailures.parseNotes += part.hardFailures.parseNotes;
   total.hardFailures.uneditableEdits += part.hardFailures.uneditableEdits;
   total.hardFailures.budgetExceededOperations += part.hardFailures.budgetExceededOperations;

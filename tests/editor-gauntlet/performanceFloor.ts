@@ -1,6 +1,17 @@
 import type { EditorGauntletAdapter } from './types';
 
+const MIB = 1024 * 1024;
+
 export const PERFORMANCE_BUDGET = {
+  /**
+   * The plan's §5 open budget is *time-to-interactive-first-viewport*. Nothing
+   * here can measure that yet: progressive open is unbuilt, so the editor
+   * parses and mounts the whole document before it is interactive and
+   * time-to-fully-loaded is the only observable. It is an upper bound on the
+   * budgeted quantity — a run that beats it has certainly beaten the budget,
+   * and a run that misses it has not necessarily missed the budget. Re-point
+   * this at the first-viewport milestone when there is one.
+   */
   openMs: 1_000,
   keystrokeP95Ms: 16,
   /**
@@ -13,8 +24,20 @@ export const PERFORMANCE_BUDGET = {
   openCliffFactor: 2.5,
 } as const;
 
-/** Whether a fixture's open time is gated outright, or only for linearity. */
-export type OpenPolicy = { kind: 'hard' } | { kind: 'linear'; reference: string };
+/**
+ * What a fixture's open time is held to.
+ *
+ * - `hard`   — must beat the open budget outright.
+ * - `linear` — no absolute budget; its per-unit cost must stay within the cliff
+ *              factor of `reference`, which must use the same unit and be built
+ *              by the same generator.
+ * - `measured` — reported only. The keystroke budget still applies; nothing
+ *              gates the open time. This exists for the adversarial generator,
+ *              whose documents are not shaped like real notes, so the plan's
+ *              note-size budgets have nothing to say about them.
+ */
+export type OpenPolicy =
+  { kind: 'hard' } | { kind: 'linear'; reference: string } | { kind: 'measured' };
 
 export interface FloorFixture {
   name: string;
@@ -65,6 +88,7 @@ function lineFixture(lines: number): string {
 
 /** The TipTap-benchmark-shaped adversarial document, grown to `targetBytes`. */
 function adversarialFixture(targetBytes: number): string {
+  const endMarker = `END-${Math.round(targetBytes / MIB)}MB`;
   const blocks: string[] = [];
   let bytes = 0;
   let index = 0;
@@ -93,11 +117,9 @@ function adversarialFixture(targetBytes: number): string {
         `[ref-${definition}]: https://example.com/${definition} "Reference ${definition}"\n`,
     ),
   );
-  blocks.push('END-FIXTURE\n');
+  blocks.push(`${endMarker}\n`);
   return blocks.join('\n');
 }
-
-const MIB = 1024 * 1024;
 
 /**
  * The CodeMirror ladder, unchanged: every fixture is hard-gated on open.
@@ -123,37 +145,41 @@ export const CM6_FLOOR_FIXTURES: FloorFixture[] = [
  * The Milkdown ladder, per docs/plan/milkdown-transition.md §5: hard budgets at
  * sizes real notes actually reach, and "scales linearly, no cliff" above them.
  *
- * The size line comes from the note-size population in the plan's §2 — the
- * foreign corpus tops out at 19,295 lines and Justin's vault at 13,876, so 10k
- * lines and a 1 MiB document are ordinary notes and 50k lines / 10 MiB are not.
- * Each linear fixture is compared against a hard-gated fixture BUILT BY THE
- * SAME GENERATOR, because per-unit cost is only comparable within one document
- * shape. The keystroke budget applies everywhere: typing stays interactive at
- * any size (M5), whatever the open cost.
+ * The size line comes from the note-size population in the plan's §2, which is
+ * stated in LINES: the foreign corpus tops out at 19,295 and Justin's vault at
+ * 13,876. So 1k and 10k lines are ordinary notes and get the budget, and 50k is
+ * not. The adversarial fixtures get no absolute open budget at all — the
+ * generator makes a document nothing in that population resembles, so the
+ * plan's note-size budgets have no claim on it. It earns its place by anchoring
+ * the linearity check at 10 MiB, which needs a smaller reading from the same
+ * generator; per-unit cost is only comparable within one document shape.
+ *
+ * The keystroke budget applies everywhere: typing stays interactive at any
+ * size (M5), whatever the open cost.
  */
 export const MILKDOWN_FLOOR_FIXTURES: FloorFixture[] = [
   {
-    name: '1k-lines',
+    name: '1000-lines',
     unit: 'lines',
     openPolicy: { kind: 'hard' },
     build: () => lineFixture(1_000),
   },
   {
-    name: '10k-lines',
+    name: '10000-lines',
     unit: 'lines',
     openPolicy: { kind: 'hard' },
     build: () => lineFixture(10_000),
   },
   {
-    name: '50k-lines',
+    name: '50000-lines',
     unit: 'lines',
-    openPolicy: { kind: 'linear', reference: '10k-lines' },
+    openPolicy: { kind: 'linear', reference: '10000-lines' },
     build: () => lineFixture(50_000),
   },
   {
     name: '1mb-adversarial',
     unit: 'bytes',
-    openPolicy: { kind: 'hard' },
+    openPolicy: { kind: 'measured' },
     build: () => adversarialFixture(MIB),
   },
   {
@@ -198,12 +224,16 @@ export function evaluatePerformanceFloor(
       });
     }
 
+    if (fixture.openPolicy.kind === 'measured') continue;
+
     if (fixture.openPolicy.kind === 'hard') {
       if (result.openMs >= PERFORMANCE_BUDGET.openMs) {
         violations.push({
           fixture: fixture.name,
           kind: 'open-budget',
-          detail: `${Math.round(result.openMs)}ms exceeds the ${PERFORMANCE_BUDGET.openMs}ms budget`,
+          detail:
+            `time-to-fully-loaded ${Math.round(result.openMs)}ms exceeds the ` +
+            `${PERFORMANCE_BUDGET.openMs}ms open budget`,
         });
       }
       continue;

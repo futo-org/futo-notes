@@ -26,6 +26,10 @@ import { runForeignPreservationSweep } from './foreignPreservation';
  *
  *   never refuse the edit · never warn · never lose text
  *
+ * "Refuse" needs a definition for an editor that cannot refuse anything: here
+ * it is the edit failing to reach the shell at all, which is the only way an
+ * edit can be made and still be unsaveable.
+ *
  * The rewrite counters are still computed and still in the report. They are
  * evidence about how much normalization the corpus provokes, which is the
  * normalize-once scorecard (plan D4). They are not pass conditions, and this
@@ -175,9 +179,17 @@ test('milkdown preserves foreign files', async ({ browser }) => {
   });
 
   // ---- the loss-only bar --------------------------------------------------- //
+  // `refusals` is a real signal for this adapter, not a formality: it counts
+  // edits the shell was never told about, which is otherwise invisible — the
+  // file would still hold the note unchanged and the loss check would see
+  // nothing. milkdown-adapter.spec.ts is the standing proof that it fires.
   expect.soft(result.refusals, 'never refuse: no edit may be refused').toBe(0);
   expect.soft(result.editsWithWarnings, 'never warn: no edit may surface a warning').toBe(0);
-  expect.soft(result.exactOnlyNotes, 'rich editing must remain available').toBe(0);
+  // No `exactOnlyNotes` line. Milkdown has no exact-only fallback mode, so the
+  // adapter reports 'rich' for every note and the assertion could never fail —
+  // a gate that cannot go red is worse than no gate (M11). If a candidate with
+  // a read-only fallback ever appears, it belongs back in its spec.
+
   expect
     .soft(
       { lossyEdits: result.lossyEdits, lostWords: result.lostTokenSamples },
