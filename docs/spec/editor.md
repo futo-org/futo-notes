@@ -798,12 +798,29 @@ EditorWebView.swift, EditorWebView.kt
   > loader on who decodes, so it is tracked rather than patched in the resolver.
   > → features/images/vaultImageSrc.ts `resolveVaultImageSrc`
 
+  Verified on a real Android device (moto g play 2023, WebView 140) and the iOS
+  26.5 simulator, 2026-08-28: a vault-relative image renders and decodes, and
+  opening the note leaves it byte-identical on disk. Android also verified
+  end-to-end for paste — the host wrote the file and `insertImage` put
+  `![](image-…png)` in the note.
   > **Gap:** the WYSIWYG image behaviors above are live only where the WYSIWYG
   > editor is mounted, which today is the native shells' embedded editor. The
   > desktop app still mounts the CodeMirror editor directly, so on desktop the
   > CodeMirror image lines earlier in this section are what users get until the
   > three-platform swap. → docs/plan/milkdown-transition.md §7,
   > src/editor-embed/main.ts
+
+- iOS clipboard image paste is covered at the bundle seam and, for the shared
+  decision and bridge sink, end-to-end against the real Android host.
+  > **Gap:** iOS clipboard image paste is unverified on a simulator — nothing in
+  > `simctl` or `axe` can put an image UTI on the simulator pasteboard
+  > (`simctl pbcopy` writes stdin as text), so ⌘V cannot reach the image path
+  > there. The shared decision and the bridge sink are covered at the bundle
+  > seam and end-to-end against the real Android host; what is unproven is
+  > specifically whether WKWebView exposes the bitmap on the paste event, which
+  > is what the `pasteClipboardImage` fallback exists for. Needs a physical
+  > device or a host-pasteboard sync.
+  > → tests/editor-embed-milkdown.spec.ts, EditorWebView.swift `clipboardImageData`
 
 - A delayed native picker/clipboard completion belongs to the editor attachment
   generation that started it. Detaching, deleting, or adopting another note
