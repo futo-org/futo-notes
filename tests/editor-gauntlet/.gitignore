@@ -1,0 +1,6 @@
+# Corpus-derived inputs and reports are local-only. Keep the directory entry
+# so tools have a predictable target, but deny every artifact below it.
+generated/*
+local/*
+!generated/.gitkeep
+!local/.gitkeep

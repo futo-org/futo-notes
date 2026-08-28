@@ -11,3 +11,9 @@ captures/last-run.json
 # `factory-visual` run.
 captures/screenshots/
 captures/visual-report.html
+captures/corpus-summary.json
+captures/corpus-manual-review.json
+
+# Optional corpus inputs copied into this checkout. External absolute paths are
+# preferred; this directory exists as the explicit local-only in-repo boundary.
+corpus-local/

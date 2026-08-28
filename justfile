@@ -556,6 +556,12 @@ factory-down:
 factory-visual *args:
   pnpm exec tsx factory/judge/run.ts run --no-moves --visual-only {{args}}
 
+# Deterministic, construct-stratified bounded notes through the existing
+# structural + neutral-theme visual oracles. Requires a running factory daemon.
+# Detailed source-bearing captures stay below factory/captures/ (gitignored).
+factory-corpus-visual corpus sample="24" seed="20260824" *args:
+  pnpm exec tsx factory/judge/run.ts run --no-moves --corpus {{corpus}} --corpus-sample {{sample}} --corpus-seed {{seed}} {{args}}
+
 factory-summary:
   @node -e "const r = require('./factory/captures/last-run.json'); \
     console.log(JSON.stringify(r.summary, null, 2)); \
