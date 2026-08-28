@@ -51,6 +51,13 @@ export function changedRanges(tr: { mapping: Mapping }): Array<[number, number]>
  *
  * `set` must already be mapped through the transaction; this only replaces
  * what changed. Callers pass `blocksIn` to say which blocks they own.
+ *
+ * REQUIREMENT ON `blocksIn`: the blocks it returns must not contain one
+ * another. Rebuilding a block clears its whole range first, so a block nested
+ * inside another would have its decorations cleared by the parent's rebuild and
+ * never put back. Textblocks and fenced code blocks satisfy this for free; task
+ * items do not, and `taskCheckbox.ts` returns only outermost items with a
+ * `decorate` that covers their whole subtree.
  */
 export function repaintBlocks(
   set: DecorationSet,

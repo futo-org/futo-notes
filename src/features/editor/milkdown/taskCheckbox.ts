@@ -105,36 +105,61 @@ function renderCheckbox(checked: boolean, view: ProseView, getPos: () => number 
   return wrapper;
 }
 
-/** Every task item in `[from, to]`, with its position. */
+/**
+ * The OUTERMOST task items in `[from, to]`, with their positions — never one
+ * inside another.
+ *
+ * That "never one inside another" is the point, and it is what `repaintBlocks`
+ * requires: it clears a block's entire range before rebuilding it, so if one
+ * block's range could contain another's, editing the parent would clear the
+ * child's checkbox and re-add only the parent's. Task items are the one nesting
+ * case among this editor's decorators — textblocks and fences cannot contain
+ * each other. `decorateTaskItem` covers the whole subtree in exchange.
+ */
 export function taskItemsIn(doc: ProseNode, from: number, to: number): PositionedBlock[] {
   const out: PositionedBlock[] = [];
   doc.nodesBetween(from, to, (node, pos) => {
-    // Keep descending: a task list nests inside its parent item.
-    if (isTaskItem(node)) out.push({ node, pos });
-    return true;
+    if (!isTaskItem(node)) return true;
+    out.push({ node, pos });
+    // Stop: anything nested inside belongs to this item, not beside it.
+    return false;
   });
   return out;
 }
 
-/** The checkbox widget for one task item. */
-function decorateTaskItem(node: ProseNode, pos: number): Decoration[] {
+/** One task item's checkbox widget. */
+function checkboxFor(node: ProseNode, pos: number): Decoration {
   const checked = node.attrs.checked === true;
-  return [
-    Decoration.widget(
-      checkboxPos(node, pos),
-      (view, getPos) => renderCheckbox(checked, view, getPos),
-      {
-        // `side: -1` puts it before the item's first character. The key
-        // carries the state so ProseMirror redraws the widget when it flips
-        // instead of reusing a box with the wrong tick in it.
-        side: -1,
-        key: `futo-task-${checked}`,
-        // Events inside the widget are the widget's, never the document's.
-        stopEvent: () => true,
-        ignoreSelection: true,
-      },
-    ),
-  ];
+  return Decoration.widget(
+    checkboxPos(node, pos),
+    (view, getPos) => renderCheckbox(checked, view, getPos),
+    {
+      // `side: -1` puts it before the item's first character. The key
+      // carries the state so ProseMirror redraws the widget when it flips
+      // instead of reusing a box with the wrong tick in it.
+      side: -1,
+      key: `futo-task-${checked}`,
+      // Events inside the widget are the widget's, never the document's.
+      stopEvent: () => true,
+      ignoreSelection: true,
+    },
+  );
+}
+
+/**
+ * Checkbox widgets for a task item AND every task item nested inside it — the
+ * counterpart to `taskItemsIn` returning only outermost items. Bounded by the
+ * item being rebuilt, never by the document.
+ */
+function decorateTaskItem(node: ProseNode, pos: number): Decoration[] {
+  const out = [checkboxFor(node, pos)];
+  node.descendants((child, offset) => {
+    // `offset` is relative to the start of this item's CONTENT, so the child
+    // sits at `pos + 1 + offset` in the document.
+    if (isTaskItem(child)) out.push(checkboxFor(child, pos + 1 + offset));
+    return true;
+  });
+  return out;
 }
 
 export function taskCheckboxDecorations(doc: ProseNode): DecorationSet {

@@ -227,6 +227,13 @@ Tags, task checkboxes, and fenced-code highlighting, on branch
   (114 KB minified) next to the ones we already ship. `blockDecorations.ts` is the ~40 lines they
   are replaced with: map the existing set through the transaction, rebuild only the blocks the
   transaction's own steps touched. Tags and highlighting both run on it (M5).
+- Found by the review round, third time: moving `taskCheckbox` onto `repaintBlocks` broke NESTED
+  task items. `repaintBlocks` clears a block's whole range before rebuilding it, and a task item's
+  range contains any task item nested inside it — so typing in the parent's own paragraph cleared
+  the child's checkbox and re-added only the parent's. Two checkboxes before the keystroke, one
+  after. `blocksIn` must return blocks that do not contain one another, which textblocks and fences
+  satisfy for free and task items do not; `taskItemsIn` now returns only OUTERMOST items and
+  `decorateTaskItem` covers their whole subtree. The requirement is written into `repaintBlocks`.
 - Found by the review round, after the first commit — the M5 rule bit twice more. `repaintBlocks`
   fixed the per-keystroke cost of REBUILDING decorations, but the fence highlighter also put one
   node decoration per fence on the document to carry a CSS class, and a node decoration spanning a

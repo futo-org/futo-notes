@@ -81,13 +81,25 @@ describe('taskCheckboxDecorations', () => {
     expect(keyOf(doc(list(item(false, 'x'))))).not.toBe(keyOf(doc(list(item(true, 'x')))));
   });
 
-  it('finds task items nested inside another item', () => {
-    const outer = s.nodes.list_item.create(
-      { checked: false },
-      s.nodes.paragraph.create(null, s.text('outer')),
-    );
-    const d = doc(list(outer), list(item(true, 'inner')));
-    expect(taskCheckboxDecorations(d).find()).toHaveLength(2);
+  it('gives a task item nested inside another one its own widget', () => {
+    const parent = s.nodes.list_item.create({ checked: false }, [
+      s.nodes.paragraph.create(null, s.text('parent')),
+      s.nodes.bullet_list.create(null, item(true, 'child')),
+    ]);
+    expect(taskCheckboxDecorations(doc(list(parent))).find()).toHaveLength(2);
+  });
+
+  it('reports only the OUTERMOST task item, so no block contains another', () => {
+    // repaintBlocks clears a block's whole range; overlapping blocks would make
+    // the parent's rebuild delete the child's checkbox (see blockDecorations).
+    const parent = s.nodes.list_item.create({ checked: false }, [
+      s.nodes.paragraph.create(null, s.text('parent')),
+      s.nodes.bullet_list.create(null, item(true, 'child')),
+    ]);
+    const d = doc(list(parent));
+    const found = taskItemsIn(d, 0, d.content.size);
+    expect(found).toHaveLength(1);
+    expect(found[0].node.textContent).toContain('parent');
   });
 });
 
@@ -228,6 +240,28 @@ describe('the plugin', () => {
     expect(touched(state.tr.setNodeMarkup(last.pos, undefined, { checked: true })).size).toBe(1);
 
     expect(taskItemsIn(d, 0, d.content.size)).toHaveLength(500);
+  });
+
+  it("keeps a nested task item's checkbox when the parent item is edited", () => {
+    // A task item's range CONTAINS any task item nested inside it, and
+    // repaintBlocks clears a block's whole range before rebuilding it — so a
+    // child whose own position is outside the edited range is cleared and
+    // never re-added. Same class as the abutting-fence bug, one level down.
+    const child = s.nodes.bullet_list.create(null, item(false, 'child'));
+    const parent = s.nodes.list_item.create({ checked: false }, [
+      s.nodes.paragraph.create(null, s.text('parent')),
+      child,
+    ]);
+    let state = EditorState.create({
+      doc: doc(s.nodes.bullet_list.create(null, parent)),
+      plugins: [createTaskCheckboxPlugin()],
+    });
+    expect(decorationsOf(state).find()).toHaveLength(2);
+
+    // Type in the PARENT's own paragraph — the child is untouched by the edit.
+    state = state.apply(state.tr.insertText('!', 4));
+
+    expect(decorationsOf(state).find()).toHaveLength(2);
   });
 
   it('adds a widget when an edit turns a bullet into a task', () => {

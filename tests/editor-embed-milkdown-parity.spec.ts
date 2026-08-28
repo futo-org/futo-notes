@@ -188,6 +188,29 @@ test('every task item gets a checkbox and a plain bullet gets none', async ({ pa
   expect(await boxes.nth(1).isChecked()).toBe(true);
 });
 
+test('a nested task item keeps its checkbox when the parent is edited', async ({ page }) => {
+  await open(page, '- [ ] parent\n  - [ ] child\n');
+  await expect(page.locator('.ProseMirror .futo-task-checkbox input')).toHaveCount(2);
+
+  await page.locator('.ProseMirror li p').first().click();
+  await page.keyboard.type('!');
+  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+
+  await expect(page.locator('.ProseMirror .futo-task-checkbox input')).toHaveCount(2);
+  expect(await getContent(page)).toContain('[ ] child');
+});
+
+test('toggling a nested task item writes only its own checkbox', async ({ page }) => {
+  await open(page, '- [ ] parent\n  - [ ] child\n');
+  const { x, y } = await centerOf(page, '.futo-task-checkbox', 1);
+  await page.mouse.click(x, y);
+  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+
+  const saved = await getContent(page);
+  expect(saved).toContain('[ ] parent');
+  expect(saved).toContain('[x] child');
+});
+
 test('an uppercase `[X]` renders checked', async ({ page }) => {
   await open(page, '- [X] shouty\n');
   expect(await page.locator('.ProseMirror .futo-task-checkbox input').isChecked()).toBe(true);
