@@ -107,8 +107,12 @@
    * long-press-anywhere-on-the-block path replaces the ⠿ gutter handle ONLY
    * in the native iOS shell. Every other environment (desktop browser,
    * Android, and the shipping CodeMirror editor entirely) is unaffected.
-   * `$derived` (not a plain top-level read) so this stays wired to the
-   * `nativeShell` prop rather than a one-shot snapshot taken at mount. */
+   * `$derived` (not a plain top-level read) so the gutter CSS class and the
+   * tap handlers stay wired to the `nativeShell` prop rather than to a
+   * snapshot. Which PLUGIN gets mounted is still decided once, in onMount —
+   * the embed never flips `nativeShell` on a live editor, and swapping drag
+   * mechanisms under a mounted ProseMirror view is not something this
+   * supports. */
   const useMobileBlockDnd = $derived(nativeShell && (isIOS || forceMobileDndForTests()));
 
   let container: HTMLDivElement;
