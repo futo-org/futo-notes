@@ -6,16 +6,20 @@ import { defineConfig, devices } from '@playwright/test';
 // specs are never pulled into the dev-server-based `test:e2e:*` runs, which do
 // not build the native editor bundle.
 //
-// Two specs, one per editor engine the bundle ships while the Milkdown
+// The specs cover both editor engines the bundle ships while the Milkdown
 // transition is in flight (docs/plan/milkdown-transition.md):
-// `editor-embed-bridge` drives `editor.html?cm` (CodeMirror) and
-// `editor-embed-milkdown` drives the bare URL (Milkdown).
+// `editor-embed-bridge` drives `editor.html?cm` (CodeMirror) and the
+// `editor-embed-milkdown*` specs drive the bare URL (Milkdown), one per parity
+// surface. `testMatch` takes the whole `editor-embed-*` family on purpose —
+// naming the files one by one is how a new spec silently stops being run
+// (AGENTS.md M11), and the root playwright config already excludes exactly this
+// glob so the two configs cannot disagree about who owns a file.
 
 const isCI = !!process.env.CI;
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /editor-embed-(bridge|milkdown)\.spec\.ts/,
+  testMatch: /editor-embed-.+\.spec\.ts/,
   globalSetup: './tests/editorEmbedBundle.ts',
   timeout: isCI ? 90000 : 30000,
   fullyParallel: false,

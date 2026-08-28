@@ -127,6 +127,54 @@ Recorded, not fixed here:
   and background paths read `getContent()` directly, so this is a crash-window question, not a
   lost-work-on-exit one. Owned by **#105** (save semantics).
 
+### T4 outcome (#101, done)
+
+Branch `feat/milkdown-wikilinks`. Wikilinks work in the Milkdown editor:
+`src/features/editor/milkdown/wikilink/` — `syntax.ts` (micromark tokenizer +
+mdast from/to-markdown), `node.ts` (inline atom node + node view), `display.ts`
+(which of the shared index's two answers a rendering uses), `inputRule.ts`,
+`autocomplete.ts`. The survey that decided "build, don't adopt" is §3.8.
+
+- **The reason this was mandatory, measured**: unpatched, Milkdown serializes
+  `[[notes/alpha]]` as `\[\[notes/alpha]]`. Every link in a note breaks on its
+  first edit. Fences and code spans were already safe.
+- **`![[embed]]` was corrupted twice over** and needed a second construct.
+  micromark's `labelStartImage` claims the `![` pair at the `!`, leaving a lone
+  `[` that cannot open a wikilink — so the whole run escaped to `!\[\[embed]]`.
+  A lookahead construct at `!` now claims the `!` as plain text only when a real
+  wikilink follows (`effects.check` rewinds), leaving `![alt](url)` an image.
+- **Re-rendering never touches the document.** A host `setNotes` can flip a link
+  from broken to resolved; doing that through a transaction would make a host
+  call look like a user edit and normalize-save a note nobody touched. The node
+  views mutate their own DOM instead, and a test asserts no `change` is posted
+  and `getContent()` is unchanged.
+- **The chip is an ATOM**, because display and source deliberately differ —
+  `[[Projects/Roadmap]]` reads as "Roadmap" and a caret inside a shortened
+  rendering has no honest source position. Two existing spec lines describe the
+  CM6 model instead and are **bucket-2 renegotiation input**: "hidden trailing
+  syntax such as a wikilink's `]]`" (marker reveal near the caret), and "a broken
+  wikilink still focuses, so it can be edited" — in WYSIWYG a broken chip is
+  selected and replaced, not edited in place.
+- **One tap path for both link kinds.** The `touchend` leg exists because iOS
+  WebKit cancels the synthetic click after a prevented mousedown — which is just
+  as true of external links, so they share it rather than leaving the sibling on
+  the leg that dead-ends (M17).
+- **Accepted normalization, pinned by test**: `![[x]]` gains a `\!` on the first
+  real edit (mdast-util-to-markdown escapes `!` before `[` and its `unsafe` list
+  only grows), and literal `[[` that is not a wikilink is escaped the way a bare
+  `[` already is. Both are idempotent and neither touches a wikilink.
+- **Coverage**: 291 unit cases (differential vs `findWikilinks`, round trip,
+  display, autocomplete matching) and 22 embed-seam cases driving the real
+  `editor.html` with real keyboard and touch.
+- **Desktop** reaches all of this the moment it mounts the shared bundle (D9's
+  big-bang swap); it still mounts CM6 today, so "identical on all three shells"
+  holds by construction — one plugin set in the one engine wrapper — not by a
+  desktop-specific code path.
+- Fixed in passing: `clickCaretInto` in `editor-embed-milkdown.spec.ts` measured
+  a caret point without waiting for `document.fonts.ready`, so a Barlow swap
+  between the measurement and the click moved every character. Seen red 3/3 on a
+  loaded machine, green 25/25 after.
+
 ## 3. Compat plugin set (replaces the parked string guards)
 
 Home: `packages/editor/src/milkdown-compat/` (exact name at implementation time). Both hosts and
@@ -155,6 +203,40 @@ the corpus harness consume the same module — the ADR-0002 "one serializer" rul
    the spike). Target: the two real-loss classes at zero, zero new regressions, the 16
    uninvestigated `html_loss` notes dispositioned. Per D4 this is tracked, not gating — but the
    report is a required deliverable (`spike-notes` successor doc or `tests/` local artifact).
+
+## 3.8 Wikilink plugin — survey result (T4 / #101)
+
+The ticket required a survey before a line of plugin code: adopt a maintained
+extension if one fits, build only if none does. **None does — built.**
+Measured 2026-08-28 against Milkdown 7.22.1's own pipeline (remark 15, micromark
+4, mdast-util-from/to-markdown 2), on two requirements: serialize `[[target]]`
+back byte-for-byte, and tokenize exactly what `WIKILINK_RE` tokenizes.
+
+| candidate | downloads/mo | verdict |
+|---|---|---|
+| `remark-wiki-link@2.0.1` | 89k | Parses under micromark 4 despite stale declared deps, but ESCAPES `*`, `_`, `[`, `\` inside the target on serialize — `[[a_b_c]]` returns as `[[a\_b\_c]]` (9/26 byte diffs), and splits on its `:` alias divider (3/26 target mismatches). |
+| `@moritzrs/*-ofm-wikilink@0.0.1` | 5.7k | Obsidian semantics baked in: the node's value is the LAST path segment, `\|` and `#` split the target, `[[ x ]]` is rewritten to `[[x]]` (9/26 target mismatches). |
+| `@flowershow/remark-wiki-link@4.0.0` | 3.4k | Publishes no `dist/` — the tarball is LICENSE + README + package.json. Cannot be imported. |
+| `@portaljs/remark-wiki-link@1.2.0` | 2.4k | micromark 3 / mdast-util 1 generation; throws under Milkdown's pipeline (9/9). |
+| `remark-wikirefs@0.0.12-rm` | 0.7k | Same generation gap; throws (10/10). |
+| `mdast-util-wikilink-syntax@2.0.1` + `micromark-extension-wikilink-syntax@2.1.1` | 22 | Right generation, but parse-only — no `toMarkdown` export at all. 0 stars. |
+
+Two findings decide it beyond the numbers. Every candidate implements Obsidian's
+`[[target|alias]]` and `[[target#heading]]`, which `docs/spec/editor.md`
+explicitly rejects — our rules treat the whole inner text as the target and the
+Rust port pins that. And nothing on npm is version-current, maintained AND
+round-trip-safe: the popular one is four years stale, the current ones are
+single-author 0.0.x.
+
+Adopting any of them would have split the wikilink grammar in two, which is the
+failure mode that matters: the editor showing a chip the Rust rename rewriter
+will not rewrite (a rename silently breaks the link), or the rewriter rewriting
+text the editor showed as prose (a rename mangles the user's words).
+
+So `src/features/editor/milkdown/wikilink/` states the grammar a third time and
+`syntax.test.ts` locks it with a differential against `findWikilinks` — the same
+shape as the TS↔Rust rule differential — over 34 hand-picked edges plus an
+80-case cross-product. Registered in `scripts/drift-registry.json`.
 
 ## 4. Parity buckets (`docs/spec/editor.md`, ~155 behavior lines)
 

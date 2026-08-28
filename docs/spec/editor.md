@@ -140,6 +140,12 @@ this file states the behaviors a human cares about.
   extends past the rendered row, off-text placement uses the logical line end
   rather than entering the hidden markup. → interactions/pointerHitTest.ts
   `lineHitBesidePoint`, tests/editor-ux.spec.ts, tests/wikilinks.spec.ts
+  > **Gap:** in the **Milkdown** editor the native embed now mounts by default
+  > there is no hidden trailing syntax to place a caret beside: a wikilink is a
+  > single atom node whose source `[[…]]` never appears on screen. The line is
+  > CodeMirror-shaped and is bucket-2 renegotiation input for the transition's
+  > spec MR, not a defect to fix. _(native shells)_ →
+  > docs/plan/milkdown-transition.md, src/features/editor/milkdown/wikilink/
 - Arrow up/down moves by visual row on wrapped lines and skips block widgets. →
   markdown-spec/cases/10-cursor-reveal
 - Pressing Enter in a continued list item scrolls the new item into view. →
@@ -425,6 +431,14 @@ native shells edit tags as text in the body, which is not a gap.
   AppNavigation.kt `AppNavigator.openNote` (push),
   NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`,
   tests/editor-embed-bridge.spec.ts
+  > **Gap:** in the **Milkdown** editor a broken wikilink cannot be edited in
+  > place, so "a broken wikilink still focuses, so it can be edited" above is
+  > CodeMirror-shaped. The link is one atom node; its tap is deliberately left
+  > unconsumed so the chip can be SELECTED and replaced or deleted, which is
+  > the WYSIWYG answer to repairing a dead link. Bucket-2 renegotiation input
+  > for the transition's spec MR, not a defect to fix. _(native shells)_ →
+  > src/features/editor/milkdown/wikilink/node.ts, MilkdownEditor.svelte
+  > `consumesTap`, tests/editor-embed-milkdown-wikilinks.spec.ts
 - Native Back and resolved-wikilink navigation wait for every admitted editor
   mutation, capture the latest live CM6 body, and persist-or-park a dirty
   snapshot through the Rust draft workflow before changing the navigation

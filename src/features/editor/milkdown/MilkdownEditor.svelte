@@ -56,6 +56,8 @@
   import { createHandleBlockDrag, type HandleBlockDrag } from './handleBlockDrag';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
   import { createToolbarExec } from './toolbarExec';
+  import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
+  import { WIKILINK_BROKEN_CLASS } from './wikilink/display';
 
   interface Props {
     content?: string;
@@ -82,6 +84,7 @@
     onchange,
     onfocuschange,
     oncursorcontext,
+    onopenlink,
     onopenurl,
     onformatstate,
     nativeShell = false,
@@ -247,6 +250,8 @@
       liveMarkdown = content;
     }
     container.addEventListener('click', handleClick);
+    // Not passive: the handler must be able to preventDefault a link tap.
+    container.addEventListener('touchend', handleTouchEnd, { passive: false });
 
     void (async () => {
       let builder = Editor.make()
@@ -321,6 +326,7 @@
         })
         .use(commonmark)
         .use(gfm)
+        .use(wikilink)
         .use(history)
         .use(listener)
         .use(clipboard)
@@ -386,6 +392,7 @@
     return () => {
       disposed = true;
       container.removeEventListener('click', handleClick);
+      container.removeEventListener('touchend', handleTouchEnd);
       pmView()?.dom.removeEventListener('scroll', handleBlockScroll);
       handleDrag?.destroy();
       handleDrag = null;
@@ -415,6 +422,74 @@
     rewriteImageSrcs();
   }
 
+  /* ---- link taps --------------------------------------------------------- *
+   * Wikilinks and external links share ONE activation path on purpose. The
+   * reason they need a `touchend` leg at all is engine-specific and applies to
+   * both: on iOS WebKit a prevented mousedown cancels the synthetic click, so a
+   * click-only handler dead-ends there while Chromium double-fires
+   * (docs/spec/editor.md, "Wikilinks — navigation & integrity"). Splitting the
+   * two would have left external links on the leg that dead-ends. */
+
+  type EditorLink =
+    { kind: 'wikilink'; title: string; broken: boolean } | { kind: 'external'; url: string };
+
+  /** A wikilink chip is an anchor carrying the raw target; anything else with
+   * an href leaves the app. Neither is a plain caret placement. */
+  function linkAt(node: HTMLElement | null): EditorLink | null {
+    const anchor = node?.closest('a');
+    if (!anchor) return null;
+    const title = anchor.getAttribute(WIKILINK_TARGET_ATTR);
+    if (title !== null) {
+      return { kind: 'wikilink', title, broken: anchor.classList.contains(WIKILINK_BROKEN_CLASS) };
+    }
+    const href = anchor.getAttribute('href') ?? '';
+    return href ? { kind: 'external', url: href } : null;
+  }
+
+  /**
+   * A tap on a BROKEN wikilink must not be swallowed. The host may do nothing
+   * with it — the native embed posts `openNote` only for a resolved link, a
+   * recorded spec Gap — and preventing the default as well would leave a dead
+   * chip that can be neither followed nor repaired, since an atom node is
+   * fixed by SELECTING and replacing it, not by editing inside it. Letting
+   * ProseMirror have the event keeps the spec's intent ("a broken wikilink
+   * still focuses, so it can be edited") reachable in the WYSIWYG model.
+   */
+  function consumesTap(link: EditorLink): boolean {
+    return !(link.kind === 'wikilink' && link.broken);
+  }
+
+  const NEUTRAL_GESTURE: EditorLinkGesture = {
+    button: 0,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+  };
+
+  /* A touchend that activated a link suppresses its own synthetic click, but
+   * belt-and-braces: a WebView that emits one anyway must not open the note
+   * twice. */
+  let lastLinkActivationMs = 0;
+  const SYNTHETIC_CLICK_WINDOW_MS = 700;
+
+  function activateLink(link: EditorLink, gesture: EditorLinkGesture): void {
+    lastLinkActivationMs = Date.now();
+    /* Broken links are posted too: what happens next is the HOST's call —
+     * desktop opens an empty editor bound to the target text, the native embed
+     * drops it (a recorded spec Gap). The editor does not resolve here. */
+    if (link.kind === 'wikilink') onopenlink?.(link.title, gesture);
+    else onopenurl?.(link.url);
+  }
+
+  function handleTouchEnd(event: TouchEvent): void {
+    const link = linkAt(event.target as HTMLElement | null);
+    if (!link) return;
+    // Also stops WebKit turning the tap into a caret placement inside the chip.
+    if (consumesTap(link)) event.preventDefault();
+    activateLink(link, NEUTRAL_GESTURE);
+  }
+
   /* Tapping a task-list marker toggles it (Milkdown renders the checkbox state
    * as a `data-checked` attribute; the glyph itself is CSS). */
   function handleClick(event: MouseEvent): void {
@@ -424,12 +499,17 @@
     // BlockService already owns mousedown/dragstart on its own handle DOM.
     if (target.closest('.milkdown-block-handle')) return;
 
-    const anchor = target.closest('a');
-    if (anchor) {
-      const href = anchor.getAttribute('href') ?? '';
-      if (href) {
-        event.preventDefault();
-        onopenurl?.(href);
+    const link = linkAt(target);
+    if (link) {
+      if (consumesTap(link)) event.preventDefault();
+      if (Date.now() - lastLinkActivationMs > SYNTHETIC_CLICK_WINDOW_MS) {
+        activateLink(link, {
+          button: event.button === 1 ? 1 : 0,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+        });
       }
       return;
     }
@@ -513,8 +593,15 @@
     pmView()?.focus();
   }
 
+  /**
+   * Re-derive everything that depends on the HOST's state rather than the
+   * document: image base URL and the note universe. Reached from the bridge's
+   * `setNotes`/`setImageBaseUrl`, so it must not dispatch a transaction — that
+   * would make a host call look like a user edit and normalize-save the note.
+   */
   export function refreshDecorations(): void {
     rewriteImageSrcs();
+    refreshWikilinkViews(pmView());
   }
 
   /**

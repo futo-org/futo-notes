@@ -364,6 +364,32 @@
         "pattern": "md5[\\s\\S]{0,400}%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b|%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b[\\s\\S]{0,400}md5",
         "flags": "i"
       }
+    },
+    {
+      "concept": "wikilink-grammar",
+      "description": "What counts as a `[[wikilink]]`, stated twice in TypeScript: the scanner the rename rewriter mirrors (WIKILINK_RE / findWikilinks, itself a registered note-rules-ts-rust copy) and the micromark tokenizer the Milkdown editor parses with. They exist separately because a regex over raw text cannot be a micromark text construct; a disagreement is a data bug \u2014 the editor shows a chip the rewriter will not rewrite (a rename silently breaks the link), or the rewriter rewrites text the editor showed as prose. Why the tokenizer is hand-written rather than an adopted library: docs/plan/milkdown-transition.md \u00a73.8 (the #101 survey).",
+      "lockStatus": "locked",
+      "note": "LOCKED: syntax.test.ts asks both implementations the same corpus \u2014 34 hand-picked inline edges plus a 10\u00d78 target\u00d7frame cross-product \u2014 through a REAL Milkdown editor, and fails on any divergence. The one deliberate difference, wikilinks inside code spans and fences, is asserted separately: the editor is right there per docs/spec/editor.md, and the raw-text scanner has no notion of code.",
+      "copies": [
+        {
+          "location": "src/shared/note/wikilinks.ts",
+          "pattern": "export const WIKILINK_RE"
+        },
+        {
+          "location": "src/features/editor/milkdown/wikilink/syntax.ts",
+          "pattern": "const tokenizeWikilink"
+        }
+      ],
+      "locks": [
+        {
+          "path": "src/features/editor/milkdown/wikilink/syntax.test.ts",
+          "kind": "differential test"
+        },
+        {
+          "path": "tests/conformance/wikilinks.json",
+          "kind": "fixture"
+        }
+      ]
     }
   ]
 }
