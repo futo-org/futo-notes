@@ -330,6 +330,27 @@
       ]
     },
     {
+      "concept": "editor-mounted-global",
+      "description": "The name of the global the editor bundle sets once the EDITOR ENGINE is up (window.__futoEditorMounted, src/editor-embed/main.ts) and the Android host's probe program that reads it (EditorEngineSupport.kt ENGINE_PROBE_JS). Separate from editor-engine-unsupported-global because the two answer different questions from different files: the preflight verdict has to survive a bundle that failed to parse, so it lives in editor.html's ES5 script, while 'the engine came up' is only knowable inside the bundle. It exists at all because Milkdown creates its editor asynchronously: window.FutoEditor, which the probe used to read, is published by the module's top level whether or not the engine came up behind it, so a Chromium 83 WebView showed a blank pane the gate called healthy. Same M10 carve-out as its sibling: NOT a futoBridge message, because a message would bump BRIDGE_VERSION and oblige both native hosts for a signal only Android reads. A source-scan unit test holds the two spellings together.",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "src/editor-embed/main.ts",
+          "pattern": "window\\.__futoEditorMounted ="
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorEngineSupport.kt",
+          "pattern": "__futoEditorMounted"
+        }
+      ],
+      "locks": [
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorEngineSupportTest.kt",
+          "kind": "test"
+        }
+      ]
+    },
+    {
       "concept": "worktree-slot-derivation",
       "description": "Per-worktree slot (md5 of the repo root, mod 50) and the port map derived from it. ONE definition in scripts/lib/slot.mjs; every other consumer imports it or shells out to its CLI. Registered for the scan block, not to permit a duplicate: a slot addresses already-claimed pool devices and already-running sync servers, so a divergent copy repoints a live worktree at another's resources. scripts/lib/slot.test.mjs is listed as BOTH a copy and a lock on purpose: it holds a deliberate second implementation (legacySlot) whose only job is to assert parity.",
       "lockStatus": "locked",
@@ -364,6 +385,32 @@
         "pattern": "md5[\\s\\S]{0,400}%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b|%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b[\\s\\S]{0,400}md5",
         "flags": "i"
       }
+    },
+    {
+      "concept": "wikilink-grammar",
+      "description": "What counts as a `[[wikilink]]`, stated twice in TypeScript: the scanner the rename rewriter mirrors (WIKILINK_RE / findWikilinks, itself a registered note-rules-ts-rust copy) and the micromark tokenizer the Milkdown editor parses with. They exist separately because a regex over raw text cannot be a micromark text construct; a disagreement is a data bug \u2014 the editor shows a chip the rewriter will not rewrite (a rename silently breaks the link), or the rewriter rewrites text the editor showed as prose. Why the tokenizer is hand-written rather than an adopted library: docs/plan/milkdown-transition.md \u00a73.8 (the #101 survey).",
+      "lockStatus": "locked",
+      "note": "LOCKED: syntax.test.ts asks both implementations the same corpus \u2014 34 hand-picked inline edges plus a 10\u00d78 target\u00d7frame cross-product \u2014 through a REAL Milkdown editor, and fails on any divergence. The one deliberate difference, wikilinks inside code spans and fences, is asserted separately: the editor is right there per docs/spec/editor.md, and the raw-text scanner has no notion of code.",
+      "copies": [
+        {
+          "location": "src/shared/note/wikilinks.ts",
+          "pattern": "export const WIKILINK_RE"
+        },
+        {
+          "location": "src/features/editor/milkdown/wikilink/syntax.ts",
+          "pattern": "const tokenizeWikilink"
+        }
+      ],
+      "locks": [
+        {
+          "path": "src/features/editor/milkdown/wikilink/syntax.test.ts",
+          "kind": "differential test"
+        },
+        {
+          "path": "tests/conformance/wikilinks.json",
+          "kind": "fixture"
+        }
+      ]
     }
   ]
 }

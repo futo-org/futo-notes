@@ -2,6 +2,11 @@ import { autocompletion, startCompletion } from '@codemirror/autocomplete';
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete';
 import { EditorView } from '@codemirror/view';
 import { getAllNotes, getWikilinkIndex } from '$features/notes/notes.svelte';
+import {
+  OPEN_WIKILINK_RE,
+  wikilinkCandidates,
+  type WikilinkCandidate,
+} from './wikilinkSuggestions';
 
 export function makeApply(fullPath: string) {
   return (view: EditorView, _completion: Completion, from: number, to: number) => {
@@ -14,35 +19,22 @@ export function makeApply(fullPath: string) {
   };
 }
 
+/** A shared candidate as CodeMirror wants it; only `apply` is engine-specific. */
+function toCompletion(candidate: WikilinkCandidate): Completion {
+  return { label: candidate.label, detail: candidate.detail, apply: makeApply(candidate.id) };
+}
+
 function wikilinkCompletions(context: CompletionContext): CompletionResult | null {
-  const match = context.matchBefore(/\[\[[^\]]*$/);
+  // The SAME open-link pattern the Milkdown plugin uses — matchBefore anchors
+  // it at the caret for us.
+  const match = context.matchBefore(OPEN_WIKILINK_RE);
   if (!match) return null;
 
-  const query = match.text.slice(2); // text after [[
-  const allNotes = getAllNotes();
-  const wikilinks = getWikilinkIndex();
-
-  const buildCompletion = (id: string): Completion => {
-    const display = wikilinks.displaySuffix(id);
-    return {
-      label: display,
-      detail: display === id ? undefined : id,
-      apply: makeApply(id),
-    };
-  };
-
-  let options: Completion[];
-
-  if (query.trim()) {
-    const lowerQuery = query.toLocaleLowerCase();
-    options = allNotes
-      .filter((note) => note.id.toLocaleLowerCase().includes(lowerQuery))
-      .slice(0, 20)
-      .map((note) => buildCompletion(note.id));
-  } else {
-    options = allNotes.slice(0, 20).map((n) => buildCompletion(n.id));
-  }
-
+  const options = wikilinkCandidates(
+    match.text.slice(2), // text after [[
+    getAllNotes(),
+    getWikilinkIndex(),
+  ).map(toCompletion);
   if (options.length === 0) return null;
 
   return {

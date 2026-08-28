@@ -28,12 +28,18 @@ export const testSchema = new Schema({
       attrs: { checked: { default: null } },
     },
     horizontal_rule: { group: 'block' },
+    // `code: true` and `marks: ''` mirror the preset's code_block: nothing
+    // inside a fence is markup, which is what the tag scanner keys off.
+    code_block: { group: 'block', content: 'text*', marks: '', code: true },
+    image: { group: 'inline', inline: true, attrs: { src: { default: '' } } },
+    hardbreak: { group: 'inline', inline: true },
     text: { group: 'inline' },
   },
   marks: {
     strong: {},
     emphasis: {},
     strike_through: {},
+    inlineCode: { code: true },
     link: { attrs: { href: { default: '' } } },
   },
 });

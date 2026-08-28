@@ -32,6 +32,7 @@
     editorViewCtx,
     editorViewOptionsCtx,
     parserCtx,
+    remarkStringifyOptionsCtx,
     rootCtx,
   } from '@milkdown/kit/core';
   import { commonmark } from '@milkdown/kit/preset/commonmark';
@@ -49,6 +50,7 @@
   import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
   import type { Node as ProseNode, Schema as ProseSchema } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
+  import { withNarrowedAtxHashEscape } from '@futo-notes/editor';
   import { resolveImageSrc } from '../live-preview/images';
   import type { EditorLinkGesture } from '../interactions/editorPointerInteractions';
   import { resolveBlockDragMode } from './blockDragMode';
@@ -56,6 +58,7 @@
   import { computeActiveFormats } from './formatState';
   import { createHandleBlockDrag, type HandleBlockDrag } from './handleBlockDrag';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
+  import { codeHighlight } from './codeHighlight';
   import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
   import {
     OPEN_COMPLETE_MEASURE,
@@ -68,7 +71,11 @@
     startProgressiveLoad,
     type ProgressiveLoad,
   } from './progressiveLoad';
+  import { tagDecorations } from './tagDecorations';
+  import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
   import { createToolbarExec } from './toolbarExec';
+  import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
+  import { WIKILINK_BROKEN_CLASS } from './wikilink/display';
 
   interface Props {
     content?: string;
@@ -88,6 +95,14 @@
     /* Notion-style mobile block drag haptics (iOS long-press path only — see
      * bridge.ts HapticMessage / mobileBlockDnd.ts). */
     onhaptic?: (kind: MobileDndHapticKind) => void;
+    /* The editor engine is up and holding a document. Milkdown's
+     * `Editor.make().create()` is ASYNC, so Svelte's `mount()` returns long
+     * before this — and the Android WebView gate used to read the host API that
+     * mount() publishes as proof the engine works. On a Chromium 83 WebView
+     * that meant a blank pane and no "update System WebView" notice
+     * (docs/spec/editor.md; tests/editor-embed-webview-floor.spec.ts). This is
+     * the honest signal. */
+    onenginemounted?: () => void;
   }
 
   let {
@@ -95,10 +110,12 @@
     onchange,
     onfocuschange,
     oncursorcontext,
+    onopenlink,
     onopenurl,
     onformatstate,
     nativeShell = false,
     onhaptic,
+    onenginemounted,
   }: Props = $props();
 
   /* THE single gate: the Notion-style long-press-anywhere-on-the-block path
@@ -290,8 +307,10 @@
       liveMarkdown = content;
     }
     container.addEventListener('click', handleClick);
+    // Not passive: the handler must be able to preventDefault a link tap.
+    container.addEventListener('touchend', handleTouchEnd, { passive: false });
 
-    void (async () => {
+    (async () => {
       let builder = Editor.make()
         .config((ctx) => {
           ctx.set(rootCtx, container);
@@ -302,6 +321,25 @@
             width: 3,
             color: 'var(--color-primary, #f26b1f)',
             class: 'milkdown-drop-indicator',
+          });
+
+          /* Stop remark-stringify turning a note's leading `#tag` into `\#tag`
+           * on save, which silently un-tags it. See
+           * packages/editor/src/milkdown-compat/atxEscape.ts — Milkdown's own
+           * `text` handler is what gets wrapped, so its behavior is preserved
+           * and only the escape condition narrows. */
+          ctx.update(remarkStringifyOptionsCtx, (options) => {
+            // Milkdown always installs its own `text` handler, and this wraps
+            // that one rather than replacing it. If it ever stops, leaving the
+            // serializer alone is the safe answer here — and the regression is
+            // not silent: `editor-embed-milkdown-parity.spec.ts` asserts that
+            // saving a note does not escape its tags.
+            const text = options.handlers?.text;
+            if (!text) return options;
+            return {
+              ...options,
+              handlers: { ...options.handlers, text: withNarrowedAtxHashEscape(text) },
+            };
           });
 
           /* Red squiggles off. `editorViewOptionsCtx` is Milkdown's sanctioned
@@ -386,11 +424,15 @@
         })
         .use(commonmark)
         .use(gfm)
+        .use(wikilink)
         .use(history)
         .use(listener)
         .use(clipboard)
         .use(cursor)
-        .use(trailing);
+        .use(trailing)
+        .use(tagDecorations)
+        .use(taskCheckbox)
+        .use(codeHighlight);
 
       // THE single iOS gate (see useMobileBlockDnd above): the Notion-style
       // long-press-anywhere-on-the-block path REPLACES the ⠿ gutter handle
@@ -411,6 +453,11 @@
       }
 
       editor = created;
+      // Here, not after the chrome below and not after the first document is
+      // parsed: the question this answers is "can this WebView run the editor
+      // engine", and tying it to a parse would make a big note look like an
+      // unsupported WebView on a slow phone (the host's boot grace is 10 s).
+      onenginemounted?.();
       if (pendingContent !== null && pendingContent !== '') {
         applyExternal(pendingContent);
       }
@@ -446,13 +493,21 @@
         });
         handleDrag.attach(handleEl);
       }
-    })();
+    })().catch((error: unknown) => {
+      // An engine that cannot build the editor is the whole reason the WebView
+      // gate exists, and this used to be an unhandled rejection — invisible to
+      // everything. Swallowing it is still the right shape: onenginemounted
+      // never fired, so the host's probe keeps answering 'pending' and its
+      // grace period turns that into the update-WebView notice.
+      console.error('MilkdownEditor: the editor engine failed to start', error);
+    });
 
     return () => {
       disposed = true;
       progressive?.cancel();
       progressive = null;
       container.removeEventListener('click', handleClick);
+      container.removeEventListener('touchend', handleTouchEnd);
       pmView()?.dom.removeEventListener('scroll', handleBlockScroll);
       handleDrag?.destroy();
       handleDrag = null;
@@ -484,11 +539,6 @@
   }
 
   /**
-   * Parses one streamed chunk and appends it. Returns false if the parse
-   * failed, which aborts the stream back to a whole-document load rather than
-   * silently dropping the rest of the note.
-   */
-  /**
    * Mounts the first chunk, replacing whatever the editor held.
    *
    * Guarded exactly like every later chunk: a first chunk the plugin chain eats
@@ -504,6 +554,11 @@
     return view !== null && !isEffectivelyEmpty(view.state.doc);
   }
 
+  /**
+   * Parses one streamed chunk and appends it. Returns false if the parse
+   * failed, which aborts the stream back to a whole-document load rather than
+   * silently dropping the rest of the note.
+   */
   function appendParsedChunk(markdown: string): boolean {
     const view = pmView();
     if (!editor || !view) return false;
@@ -645,6 +700,77 @@
 
   /* Tapping a task-list marker toggles it (Milkdown renders the checkbox state
    * as a `data-checked` attribute; the glyph itself is CSS). */
+  /* ---- link taps --------------------------------------------------------- *
+   * Wikilinks and external links share ONE activation path on purpose. The
+   * reason they need a `touchend` leg at all is engine-specific and applies to
+   * both: on iOS WebKit a prevented mousedown cancels the synthetic click, so a
+   * click-only handler dead-ends there while Chromium double-fires
+   * (docs/spec/editor.md, "Wikilinks — navigation & integrity"). Splitting the
+   * two would have left external links on the leg that dead-ends. */
+
+  type EditorLink =
+    { kind: 'wikilink'; title: string; broken: boolean } | { kind: 'external'; url: string };
+
+  /** A wikilink chip is an anchor carrying the raw target; anything else with
+   * an href leaves the app. Neither is a plain caret placement. */
+  function linkAt(node: HTMLElement | null): EditorLink | null {
+    const anchor = node?.closest('a');
+    if (!anchor) return null;
+    const title = anchor.getAttribute(WIKILINK_TARGET_ATTR);
+    if (title !== null) {
+      return { kind: 'wikilink', title, broken: anchor.classList.contains(WIKILINK_BROKEN_CLASS) };
+    }
+    const href = anchor.getAttribute('href') ?? '';
+    return href ? { kind: 'external', url: href } : null;
+  }
+
+  /**
+   * A tap on a BROKEN wikilink must not be swallowed. The host may do nothing
+   * with it — the native embed posts `openNote` only for a resolved link, a
+   * recorded spec Gap — and preventing the default as well would leave a dead
+   * chip that can be neither followed nor repaired, since an atom node is
+   * fixed by SELECTING and replacing it, not by editing inside it. Letting
+   * ProseMirror have the event keeps the spec's intent ("a broken wikilink
+   * still focuses, so it can be edited") reachable in the WYSIWYG model.
+   */
+  function consumesTap(link: EditorLink): boolean {
+    return !(link.kind === 'wikilink' && link.broken);
+  }
+
+  const NEUTRAL_GESTURE: EditorLinkGesture = {
+    button: 0,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+  };
+
+  /* A touchend that activated a link suppresses its own synthetic click, but
+   * belt-and-braces: a WebView that emits one anyway must not open the note
+   * twice. */
+  let lastLinkActivationMs = 0;
+  const SYNTHETIC_CLICK_WINDOW_MS = 700;
+
+  function activateLink(link: EditorLink, gesture: EditorLinkGesture): void {
+    lastLinkActivationMs = Date.now();
+    /* Broken links are posted too: what happens next is the HOST's call —
+     * desktop opens an empty editor bound to the target text, the native embed
+     * drops it (a recorded spec Gap). The editor does not resolve here. */
+    if (link.kind === 'wikilink') onopenlink?.(link.title, gesture);
+    else onopenurl?.(link.url);
+  }
+
+  function handleTouchEnd(event: TouchEvent): void {
+    const link = linkAt(event.target as HTMLElement | null);
+    if (!link) return;
+    // Also stops WebKit turning the tap into a caret placement inside the chip.
+    if (consumesTap(link)) event.preventDefault();
+    activateLink(link, NEUTRAL_GESTURE);
+  }
+
+  /* Task checkboxes own their own taps — see taskCheckbox.ts, whose widget
+   * both draws the box and toggles it. This handler is only links and the
+   * tap-to-surface-the-drag-handle behavior. */
   function handleClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
     if (!target) return;
@@ -652,49 +778,24 @@
     // BlockService already owns mousedown/dragstart on its own handle DOM.
     if (target.closest('.milkdown-block-handle')) return;
 
-    const anchor = target.closest('a');
-    if (anchor) {
-      const href = anchor.getAttribute('href') ?? '';
-      if (href) {
-        event.preventDefault();
-        onopenurl?.(href);
+    const link = linkAt(target);
+    if (link) {
+      if (consumesTap(link)) event.preventDefault();
+      if (Date.now() - lastLinkActivationMs > SYNTHETIC_CLICK_WINDOW_MS) {
+        activateLink(link, {
+          button: event.button === 1 ? 1 : 0,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+        });
       }
       return;
-    }
-
-    const item = target.closest('li[data-checked]') as HTMLElement | null;
-    if (item) {
-      // The ::before glyph is outdented into the list's padding, so a tap on
-      // it lands left of the <li> box. Taps on the text itself must not
-      // toggle — fall through to the tap-shows-handle behavior below instead.
-      const rect = item.getBoundingClientRect();
-      if (event.clientX < rect.left) {
-        event.preventDefault();
-        toggleTaskItemAt(item);
-        return;
-      }
     }
 
     // No hover on mobile — surface the drag handle for whatever block was
     // tapped. Not applicable under the iOS long-press path (no handle).
     if (!useMobileBlockDnd) nudgeBlockHandle(event.clientY);
-  }
-
-  function toggleTaskItemAt(itemEl: HTMLElement): void {
-    const view = pmView();
-    if (!view) return;
-    const resolved = view.state.doc.resolve(view.posAtDOM(itemEl, 0));
-    for (let depth = resolved.depth; depth > 0; depth -= 1) {
-      const node = resolved.node(depth);
-      if (node.type.name !== 'list_item') continue;
-      view.dispatch(
-        view.state.tr.setNodeMarkup(resolved.before(depth), undefined, {
-          ...node.attrs,
-          checked: !node.attrs.checked,
-        }),
-      );
-      return;
-    }
   }
 
   // ---- handle consumed by src/editor-embed ------------------------------- //
@@ -754,8 +855,15 @@
     pmView()?.focus();
   }
 
+  /**
+   * Re-derive everything that depends on the HOST's state rather than the
+   * document: image base URL and the note universe. Reached from the bridge's
+   * `setNotes`/`setImageBaseUrl`, so it must not dispatch a transaction — that
+   * would make a host call look like a user edit and normalize-save the note.
+   */
   export function refreshDecorations(): void {
     rewriteImageSrcs();
+    refreshWikilinkViews(pmView());
   }
 
   /**
@@ -855,7 +963,15 @@
      to match the right (see the .ProseMirror padding rule below). It is driven
      by the SAME `useMobileBlockDnd` gate that swaps the plugin, so the gutter
      and the thing that needs the gutter can never disagree. -->
-<div class="futo-milkdown" class:mobile-dnd={useMobileBlockDnd} bind:this={container}>
+<!-- `--futo-checkbox-slot` is set here, from taskCheckbox.ts's own constant, so
+     the tap-target size the widget promises and the list padding that makes
+     room for it cannot drift apart. -->
+<div
+  class="futo-milkdown"
+  class:mobile-dnd={useMobileBlockDnd}
+  style="--futo-checkbox-slot: {CHECKBOX_SIZE_PX}px"
+  bind:this={container}
+>
   <!-- The streaming tail of a large note (progressiveLoad.ts). Absolutely
        positioned so it never enters the editor's layout, and rendered inside
        the container the same way the block-drag ghost is. `polite` rather than
@@ -920,9 +1036,9 @@
    * the 54px gutter is pure dead offset — the user's "gutter on the left is
    * still there, everything is still offset". Drop it back to the right side's
    * 18px. Nothing else depends on the 54px: `contentColumnX` measures the
-   * column's centre, and the task-list ☐ glyph is outdented into the LIST's
-   * own 1.4em padding (li[data-checked]::before, left: -1.15em), not into this
-   * one, so it still lands clear of the edge at 18px. Three classes, so it
+   * column's centre, and the task checkbox sits inside its own list ITEM's
+   * padding (taskCheckbox.ts, `.futo-task-checkbox` at `left: 0`), not in this
+   * gutter, so it still lands clear of the edge at 18px. Three classes, so it
    * beats the base rule above regardless of source order. */
   :global(.futo-milkdown.mobile-dnd .ProseMirror) {
     padding-left: calc(18px + env(safe-area-inset-left));
@@ -1001,20 +1117,56 @@
     margin: 0.15em 0;
   }
 
+  /* A task item gives its marker column to the checkbox, exactly as the
+   * CodeMirror editor does (listDecorations.ts CHECKBOX_SLOT): the item's own
+   * padding IS the slot, and the widget is positioned into it. That keeps the
+   * box inside the item's box — no negative offsets reaching back into the
+   * list's or the editor's padding, and so nothing that can drift into the
+   * 20px screen-edge strip iOS reserves for the back swipe (see the
+   * .ProseMirror padding comment).
+   *
+   * An ordered task list keeps its number: only the bullet is redundant once
+   * there is a checkbox. */
   :global(.futo-milkdown .ProseMirror li[data-checked]) {
-    list-style: none;
     position: relative;
+    padding-left: var(--futo-checkbox-slot);
   }
 
-  :global(.futo-milkdown .ProseMirror li[data-checked]::before) {
-    content: '☐';
+  :global(.futo-milkdown .ProseMirror ul > li[data-checked]) {
+    list-style: none;
+  }
+
+  /* The checkbox widget (taskCheckbox.ts). A fixed 28px in both axes that does
+   * NOT scale with the editor font — a minimum tap target that shrinks with the
+   * type size is not a minimum. Absolutely positioned, so its height can exceed
+   * the line box without moving anything. */
+  :global(.futo-milkdown .ProseMirror .futo-task-checkbox) {
     position: absolute;
-    left: -1.15em;
-    color: var(--color-muted, #737373);
+    left: 0;
+    top: 0;
+    width: var(--futo-checkbox-slot);
+    height: var(--futo-checkbox-slot);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
   }
 
-  :global(.futo-milkdown .ProseMirror li[data-checked='true']::before) {
-    content: '☑';
+  :global(.futo-milkdown .ProseMirror .futo-task-checkbox input) {
+    width: 17px;
+    height: 17px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--color-primary, #f26b1f);
+  }
+
+  /* `#tag` decoration (tagDecorations.ts). Colour only — no box, no
+   * background: the document holds a tag as plain text, so its glyphs must stay
+   * on the text baseline at the text's own advance width or typing inside a tag
+   * would shift the line. Same variable the CodeMirror editor's `.cm-md-tag`
+   * uses. */
+  :global(.futo-milkdown .ProseMirror .futo-tag) {
     color: var(--color-primary, #f26b1f);
   }
 

@@ -42,6 +42,11 @@
      * block-drag path); declared here for the same reason as onformatstate.
      * CodeMirror never calls it. */
     onhaptic?: (kind: 'lift' | 'drop') => void;
+    /* The editor engine is up and holding a document — what the Android
+     * WebView gate treats as a working engine (see MilkdownEditor.svelte's
+     * onenginemounted, which is where the distinction bites: CodeMirror's view
+     * is constructed synchronously here, so this fires during mount). */
+    onenginemounted?: () => void;
   }
 
   type DevelopmentEditorWindow = typeof window & {
@@ -59,6 +64,7 @@
     nativeShell = false,
     onopenlink,
     onopenurl,
+    onenginemounted,
   }: Props = $props();
 
   let container: HTMLDivElement;
@@ -99,6 +105,7 @@
 
     view = v;
     currentScrollAnchoring.attachView(v);
+    onenginemounted?.();
 
     if (!nativeShell) {
       requestAnimationFrame(() => {

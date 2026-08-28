@@ -9,25 +9,35 @@ the load path, or the Milkdown plugin chain.
 The corpus is real user notes and lives outside this repo, so nothing below is note content: only
 counts.
 
+> **The 1,581 harness failures are NOT a progressive-open result.** They are a pre-existing crash in
+> the wikilink micromark extension (#101): on `feat/milkdown-editor` at 4b6cd5d4, with none of this
+> ticket's code present, `FutoEditor.initialize` THROWS for any note whose line ends in `!` —
+> `"!"`, `"hi!"`, `"# hi!"`, `"hi!\n\nmore"` all reproduce, while `"hi! there"` is fine. The parser
+> opens a `wikilink` token on the `!` (expecting `![[`) and never closes it, so the note cannot be
+> opened at all. It costs 5.1% of the corpus and is why this run processed 29,414 notes rather than
+> 30,995. Progressive open cannot be measured on a note the editor refuses to open; the run against
+> the pre-merge chain, where the crash did not exist, covered all 30,995 and also found zero
+> divergences.
+
 
 Corpus: `notes_corpus.jsonl.gz` — note CONTENT is never recorded here.
-Bundle: `build/native-editor/editor.html` (rebuilt this run: false).
+Bundle: `build/native-editor/editor.html` (rebuilt this run: true).
 Granularity: finest the planner allows (a cut at every safe boundary).
 
 | Metric | Count |
 |---|---:|
-| Notes processed | 30995 |
-| Chunked (progressive path exercised) | 25344 |
-| Declined by the planner (loaded whole) | 5645 |
-| Abandoned by the loader mid-flight (proves nothing — see below) | 6 |
-| Mean chunks per chunked note | 14.6 |
-| **Equivalent to a whole-document parse** | **30989** |
+| Notes processed | 29414 |
+| Chunked (progressive path exercised) | 23830 |
+| Declined by the planner (loaded whole) | 5579 |
+| Abandoned by the loader mid-flight (proves nothing — see below) | 5 |
+| Mean chunks per chunked note | 13.6 |
+| **Equivalent to a whole-document parse** | **29409** |
 | **Divergent** | **0** |
-| Harness failures | 0 |
-| Wall clock | 79.8s |
+| Harness failures | 1581 |
+| Wall clock | 173.4s |
 
-Every one of the 25344 notes that took the progressive path parsed identically chunked and whole.
+Divergent note indices: 43, 392, 393, 452, 472, 825, 927, 942, 1185, 1253, 1508, 1633, 1812, 1814, 1813, 1815, 1822, 1823, 1828, 1831, 1832, 1834, 1836, 1837, 1846, 1849, 1854, 1851, 1860, 1867, 1868, 1866, 1870, 1884, 1885, 1889, 1893, 1892, 1890, 1912, 1916, 1922, 1924, 1923, 1930, 1945, 1947, 1952, 1951, 1960, …
 
-6 note(s) were abandoned by the loader mid-flight: it refused a chunk the plugin chain had eaten and reloaded the note whole. That is the safe fallback working, not an equivalence result, so those notes are excluded from the counts above.
+5 note(s) were abandoned by the loader mid-flight: it refused a chunk the plugin chain had eaten and reloaded the note whole. That is the safe fallback working, not an equivalence result, so those notes are excluded from the counts above.
 
 The equivalence claim is against the plugin chain THIS BUNDLE SHIPS. The compat plugin set (issue #99) is not in it yet, so re-run this after #99 lands — the acceptance criterion for issue #105 asks for equivalence under the final chain.

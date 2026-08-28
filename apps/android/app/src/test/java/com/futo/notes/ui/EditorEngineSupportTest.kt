@@ -23,10 +23,10 @@ class EditorEngineSupportTest {
     }
 
     /**
-     * The gate's "supported" signal. It has to be the MOUNT, not the bridge
-     * `initialized` handshake that follows it (EditorWebView's `engineBooted`):
-     * an engine that mounted the bundle runs the editor even if the config
-     * round-trip is broken, and must never earn the notice.
+     * The gate's "supported" signal. It has to be the EDITOR ENGINE coming up,
+     * not the bridge `initialized` handshake that follows it (EditorWebView's
+     * `engineBooted`): an engine holding a document runs the editor even if the
+     * config round-trip is broken, and must never earn the notice.
      */
     @Test
     fun `only a mounted bundle counts as booted`() {
@@ -126,33 +126,55 @@ class EditorEngineSupportTest {
     }
 
     /**
-     * The probe and the preflight name the same global in two languages with
+     * The probe names two globals that are spelled on the web side, with
      * nothing linking them at build time (scripts/drift-registry.json →
-     * `editor-engine-unsupported-global`), so rename one and the gate silently
-     * degrades to the grace-period path with every other suite still green.
-     * A SOURCE-SCAN, like [com.futo.notes.BridgeCoverageTest]: it proves the two
+     * `editor-engine-unsupported-global`, `editor-mounted-global`), so rename
+     * one and the gate silently degrades — to the grace-period path, or to
+     * never showing the notice at all — with every other suite still green.
+     * A SOURCE-SCAN, like [com.futo.notes.BridgeCoverageTest]: it proves the
      * spellings agree, not that the verdict is produced.
+     *
+     * They come from DIFFERENT files on purpose. The preflight verdict has to
+     * survive a bundle that failed to parse, so it lives in the ES5 script in
+     * `editor.html`; "the editor engine came up" is only knowable inside the
+     * bundle, so it is published by `src/editor-embed/main.ts`.
      */
     @Test
-    fun `the probe reads the global editor html publishes`() {
+    fun `the probe reads the globals the web side publishes`() {
         val globals = Regex("""window\.(__futo\w+)""")
             .findAll(ENGINE_PROBE_JS)
             .map { it.groupValues[1] }
             .toSet()
-        assertEquals(setOf("__futoEngineUnsupported"), globals)
+        assertEquals(setOf("__futoEditorMounted", "__futoEngineUnsupported"), globals)
 
-        val editorHtml = listOf("editor.html", "../../editor.html", "../../../editor.html")
-            .map(::File)
-            .firstOrNull { it.exists() }
-            ?: throw AssertionError("could not locate editor.html from cwd=${File(".").absolutePath}")
-        val source = editorHtml.readText()
-        for (global in globals) {
+        val publishers = mapOf(
+            "__futoEngineUnsupported" to "editor.html",
+            "__futoEditorMounted" to "src/editor-embed/main.ts",
+        )
+        assertEquals(
+            "every global the probe reads needs a named publisher",
+            globals,
+            publishers.keys,
+        )
+        for ((global, relative) in publishers) {
+            val file = repoFile(relative)
             assertTrue(
-                "${editorHtml.path} never assigns window.$global — the preflight and " +
-                    "ENGINE_PROBE_JS have drifted",
-                source.contains("window.$global ="),
+                "${file.path} never assigns window.$global — it and ENGINE_PROBE_JS have drifted",
+                file.readText().contains("window.$global ="),
             )
         }
+    }
+
+    /** Gradle runs tests from the app module, IDEs sometimes from the repo
+     *  root: walk up until the path resolves rather than guessing a depth. */
+    private fun repoFile(relative: String): File {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null) {
+            val candidate = File(dir, relative)
+            if (candidate.exists()) return candidate
+            dir = dir.parentFile
+        }
+        throw AssertionError("could not locate $relative from cwd=${File(".").absolutePath}")
     }
 
     @Test
