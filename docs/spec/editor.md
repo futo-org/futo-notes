@@ -70,7 +70,7 @@ this file states the behaviors a human cares about.
   (`@milkdown/transformer` calls it on every parse and every serialize), and the
   editor uses `textContent = ''` rather than `Element.replaceChildren` (Chromium 86) in its own DOM code so tables and the slash menu work down to the floor
   too. _(Android)_ → editor.html, slashMenuRenderer.ts, tableEditorWidget.ts,
-  vite.editor.config.ts
+  wikilink/autocomplete.ts, vite.editor.config.ts
 - The floor is a property of the **built bundle**, not of the syntax target: a
   dependency reaching for a newer built-in method parses fine and throws at
   runtime, which is how `Element.replaceChildren` (Chromium 86) once shipped

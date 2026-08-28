@@ -129,24 +129,29 @@ class SuggestionPopup {
   }
 
   render(state: SuggestionState, view: ProseView): void {
-    this.list.replaceChildren(
-      ...state.candidates.map((candidate, index) => {
-        const row = document.createElement('li');
-        row.setAttribute('role', 'option');
-        row.setAttribute('aria-selected', String(index === state.selected));
-        const label = document.createElement('span');
-        label.className = 'futo-wikilink-suggest-label';
-        label.textContent = candidate.label;
-        row.appendChild(label);
-        if (candidate.detail) {
-          const detail = document.createElement('span');
-          detail.className = 'futo-wikilink-suggest-detail';
-          detail.textContent = candidate.detail;
-          row.appendChild(detail);
-        }
-        return row;
-      }),
-    );
+    // textContent = '' + appendChild, not replaceChildren: that is Chromium 86
+    // and the editor's WebView floor is 80 (github#8, docs/spec/editor.md;
+    // tests/editor-embed-webview-floor.spec.ts audits the built bundle for
+    // exactly this). slashMenuRenderer.ts and tableEditorWidget.ts carry the
+    // same note — the last time this shipped, it crashed the slash menu and
+    // tables on Chromium 80-85.
+    this.list.textContent = '';
+    state.candidates.forEach((candidate, index) => {
+      const row = document.createElement('li');
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', String(index === state.selected));
+      const label = document.createElement('span');
+      label.className = 'futo-wikilink-suggest-label';
+      label.textContent = candidate.label;
+      row.appendChild(label);
+      if (candidate.detail) {
+        const detail = document.createElement('span');
+        detail.className = 'futo-wikilink-suggest-detail';
+        detail.textContent = candidate.detail;
+        row.appendChild(detail);
+      }
+      this.list.appendChild(row);
+    });
     if (!this.dom.isConnected) document.body.appendChild(this.dom);
     this.position(state, view);
     this.list.children[state.selected]?.scrollIntoView({ block: 'nearest' });
