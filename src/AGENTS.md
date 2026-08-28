@@ -13,7 +13,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **`features/notes/`** owns reactive note projection state. `notes.svelte.ts` holds `notesCache`, applies committed `LocalNoteMutation` results, and never predicts collision, relink, migration, or search behavior.
 - **`features/sync/`** owns the E2EE client, sync lifecycle, watcher batching, write suppression, and external-change coordination.
 - **`features/search/`** owns search presentation. The Rust local-note store owns the sole BM25 lifecycle.
-- **`features/images/`** owns image-file listing, deletion, and renderable vault URLs; sidebar and editor consume that boundary.
+- **`features/images/`** owns image-file listing, deletion, and renderable vault URLs; sidebar and editor consume that boundary. `vaultImageSrc.ts` is the single owner of the vault-filename -> loadable-URL mapping for BOTH editor engines (a host-registered base URL on the native shells, per-file `PlatformFS.getImageUrl` on desktop via `vaultImageUrlResolver.ts`), which is why it does not live under `features/editor/`: that directory's CodeMirror half goes away at the Milkdown swap.
 - **`lib/platform/`** is the platform boundary. Components and features use `PlatformFS`; native command details stay in the Tauri adapter.
 - **`shared/`** contains small, genuinely cross-feature contracts and named capabilities for async work, dialogs, DOM behavior, media rules, notifications, persisted state, and time formatting.
 - **`editor-embed/`** is the native web-editor boundary and implements the versioned `futoBridge` contract.
