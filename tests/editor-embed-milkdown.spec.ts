@@ -398,6 +398,49 @@ async function longPressDrag(
   await touch(cdp, 'touchEnd', to.x, to.y);
 }
 
+// ============================================================
+// The ⠿ gutter handle's touch drag (desktop browser + Android)
+// ============================================================
+
+// The other drag path. It shares `blockDragGeometry.ts` and `blockMove.ts`
+// with the long-press one, and this is the case that proves the sharing: the
+// handle path used to trust positions captured at pointerdown and insert a
+// re-fitted slice, so a heading dropped where it did not fit was silently
+// unwrapped into the surrounding paragraph.
+test('a touch drag on the ⠿ handle reorders the block', async ({ page }) => {
+  const cdp = await page.context().newCDPSession(page);
+  await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
+  await clearMessages(page);
+
+  // No hover on touch: a tap is what surfaces the handle for a block.
+  const alpha = await blockCenter(page, 'alpha');
+  await page.touchscreen.tap(alpha.x, alpha.y);
+  const handle = page.locator('.milkdown-block-handle[data-show="true"]');
+  await handle.waitFor({ state: 'attached' });
+  const handleBox = await handle.boundingBox();
+  if (!handleBox) throw new Error('no handle geometry');
+
+  const charlie = await blockCenter(page, 'charlie');
+  const from = { x: handleBox.x + handleBox.width / 2, y: handleBox.y + handleBox.height / 2 };
+  await touch(cdp, 'touchStart', from.x, from.y);
+  for (let step = 1; step <= 4; step += 1) {
+    await touch(
+      cdp,
+      'touchMove',
+      from.x + ((charlie.x - from.x) * step) / 4,
+      from.y + ((charlie.y + 4 - from.y) * step) / 4,
+    );
+    await page.waitForTimeout(16);
+  }
+  await touch(cdp, 'touchEnd', charlie.x, charlie.y + 4);
+
+  const changes = await waitForMessages(page, 'change');
+  const content = changes[changes.length - 1].content as string;
+  // Still a heading, and now last.
+  expect(content).toBe('bravo\n\ncharlie\n\n# alpha\n');
+  await cdp.detach();
+});
+
 // The long-press path is gated to the native iOS shell; `?forceMobileDnd` is
 // the test-only way in (headless Chromium can never be sniffed as iOS).
 const mobileDndTest = base.extend<{ page: Page; cdp: CDPSession }>({

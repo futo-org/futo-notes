@@ -42,11 +42,11 @@
   import { trailing } from '@milkdown/kit/plugin/trailing';
   import { block, BlockProvider } from '@milkdown/kit/plugin/block';
   import { getMarkdown, insert, replaceAll } from '@milkdown/kit/utils';
-  import { redoDepth, undoDepth } from '@milkdown/kit/prose/history';
-  import { EditorState } from '@milkdown/kit/prose/state';
+  import { history as proseHistory, redoDepth, undoDepth } from '@milkdown/kit/prose/history';
+  import { EditorState, type PluginKey } from '@milkdown/kit/prose/state';
   import type { EditorView as CodeMirrorView } from '@codemirror/view';
   import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-  import type { Node as ProseNode } from '@milkdown/kit/prose/model';
+  import type { Node as ProseNode, Schema as ProseSchema } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
   import { resolveImageSrc } from '../live-preview/images';
   import type { EditorLinkGesture } from '../interactions/editorPointerInteractions';
@@ -145,6 +145,16 @@
    * `view.dom.scrollTop` directly, which fires a native 'scroll' event that
    * would otherwise flicker the handle away mid-drag. */
   let scrollHideSuspended = false;
+
+  /* prosemirror-history keeps its PluginKey module-private, so take it off a
+   * throwaway instance of the very same plugin factory Milkdown's history
+   * plugin uses — exact identity, no name matching. */
+  const HISTORY_KEY = proseHistory().spec.key as PluginKey<unknown>;
+
+  /** The plugin state a freshly created history plugin starts with. */
+  function emptyHistoryState(schema: ProseSchema): unknown {
+    return HISTORY_KEY.getState(EditorState.create({ schema, plugins: [proseHistory()] }));
+  }
 
   function pmView(): ProseView | null {
     if (!editor) return null;
@@ -532,29 +542,27 @@
    * change that follows writes them to the current note's file. The first undo
    * after an open would also un-apply the load itself and leave the note empty.
    *
-   * prosemirror-history exposes no clear command, so this rebuilds the state
-   * around the live doc — the same move `replaceAll(md, true)` makes inside
-   * Milkdown's own utils, and the same one CodeMirror's `resetHistory` makes
-   * with `swapEditorState`. Plugin VIEWS survive (the plugin array is the same
-   * reference, so prosemirror-view updates rather than recreates them); only
-   * plugin STATE is reinitialized, which for our own plugins means an empty
-   * decoration set — never true mid-drag, since a note switch cannot happen
-   * with a finger down.
+   * prosemirror-history exposes no clear command, so this hands its plugin the
+   * initial state a fresh one would have, through the `historyKey` meta its own
+   * undo/redo commands use (`applyTransaction` returns `meta.historyState`
+   * verbatim). One empty transaction, nothing else touched.
+   *
+   * The obvious alternative — rebuilding the whole EditorState around the live
+   * doc, which is what `replaceAll(md, true)` and CodeMirror's `swapEditorState`
+   * do — is NOT usable here: `EditorState.create` builds a new plugin array, so
+   * `view.updateState` sees changed plugins and destroys every plugin view. The
+   * ⠿ block handle is parented outside the ProseMirror DOM by
+   * @milkdown/plugin-block's BlockProvider, and that teardown detaches it for
+   * good (BlockProvider only re-appends on a first `update()`, which it has
+   * already had). Measured: the handle stopped existing after the first host
+   * setContent.
    */
   export function resetHistory(): void {
     const view = pmView();
     if (!view) return;
     const { state } = view;
     if (undoDepth(state) === 0 && redoDepth(state) === 0) return;
-    view.updateState(
-      EditorState.create({
-        schema: state.schema,
-        doc: state.doc,
-        selection: state.selection,
-        storedMarks: state.storedMarks,
-        plugins: state.plugins,
-      }),
-    );
+    view.dispatch(state.tr.setMeta(HISTORY_KEY, { historyState: emptyHistoryState(state.schema) }));
   }
 
   /** CodeMirror-only warm-up; there is no height map to warm here. */
