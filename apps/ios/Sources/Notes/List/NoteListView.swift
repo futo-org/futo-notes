@@ -976,6 +976,7 @@ struct MoveFolderSheet: View {
 }
 
 struct NoteRow: View {
+    @Environment(\.localization) private var localization
     let note: NoteItem
     /// Whether to show the folder label (true in flat search results).
     var showFolder: Bool = false
@@ -987,7 +988,11 @@ struct NoteRow: View {
                     .font(.headline)
                     .lineLimit(1)
                 Spacer()
-                Text(note.modified, format: .relative(presentation: .named))
+                Text(
+                    localization.localizedRelativeTime(
+                        note.modified.timeIntervalSince1970 * 1_000
+                    )
+                )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

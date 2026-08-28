@@ -589,35 +589,17 @@
         "movingNotes": "正在移动笔记…",
         "openExistingHeading": "要打开其中已有的笔记吗？",
         "openExistingAction": "打开该文件夹",
-        "adoptionNoNotes": "该文件夹中已有文件，但没有笔记。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。",
-        "adoptionWithNotesToday": {
+        "adoption": {
           "plural": "destinationNotes",
           "variants": {
-            "other": "该文件夹中已有 {destinationNotes} 篇笔记，最后修改于今天。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。"
-          }
-        },
-        "adoptionWithNotesYesterday": {
-          "plural": "destinationNotes",
-          "variants": {
-            "other": "该文件夹中已有 {destinationNotes} 篇笔记，最后修改于昨天。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。"
-          }
-        },
-        "adoptionWithNotesDaysAgo": {
-          "plural": "destinationNotes",
-          "variants": {
-            "other": "该文件夹中已有 {destinationNotes} 篇笔记，最后修改于 {days} 天前。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。"
-          }
-        },
-        "adoptionWithNotesOverMonth": {
-          "plural": "destinationNotes",
-          "variants": {
-            "other": "该文件夹中已有 {destinationNotes} 篇笔记，最后修改于一个多月前。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。"
-          }
-        },
-        "adoptionWithNotes": {
-          "plural": "destinationNotes",
-          "variants": {
+            "=0": "该文件夹中已有文件，但没有笔记。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。",
             "other": "该文件夹中已有 {destinationNotes} 篇笔记。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。"
+          }
+        },
+        "adoptionWithLastChanged": {
+          "plural": "destinationNotes",
+          "variants": {
+            "other": "该文件夹中已有 {destinationNotes} 篇笔记。最后修改：{lastChanged}。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。"
           }
         },
         "saveInProgress": "一篇笔记或一张图片仍在保存中。请稍后再尝试更改存储位置。",

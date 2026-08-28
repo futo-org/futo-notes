@@ -591,40 +591,19 @@
         "movingNotes": "Moving notes…",
         "openExistingHeading": "Open the notes already there?",
         "openExistingAction": "Open that folder",
-        "adoptionNoNotes": "That folder already has files in it, but no notes.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
-        "adoptionWithNotesToday": {
+        "adoption": {
           "plural": "destinationNotes",
           "variants": {
-            "one": "That folder already has {destinationNotes} note and was last changed today.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
-            "other": "That folder already has {destinationNotes} notes and was last changed today.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}."
-          }
-        },
-        "adoptionWithNotesYesterday": {
-          "plural": "destinationNotes",
-          "variants": {
-            "one": "That folder already has {destinationNotes} note and was last changed yesterday.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
-            "other": "That folder already has {destinationNotes} notes and was last changed yesterday.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}."
-          }
-        },
-        "adoptionWithNotesDaysAgo": {
-          "plural": "destinationNotes",
-          "variants": {
-            "one": "That folder already has {destinationNotes} note and was last changed {days} days ago.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
-            "other": "That folder already has {destinationNotes} notes and was last changed {days} days ago.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}."
-          }
-        },
-        "adoptionWithNotesOverMonth": {
-          "plural": "destinationNotes",
-          "variants": {
-            "one": "That folder already has {destinationNotes} note and was last changed over a month ago.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
-            "other": "That folder already has {destinationNotes} notes and was last changed over a month ago.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}."
-          }
-        },
-        "adoptionWithNotes": {
-          "plural": "destinationNotes",
-          "variants": {
+            "=0": "That folder already has files in it, but no notes.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
             "one": "That folder already has {destinationNotes} note.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
             "other": "That folder already has {destinationNotes} notes.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}."
+          }
+        },
+        "adoptionWithLastChanged": {
+          "plural": "destinationNotes",
+          "variants": {
+            "one": "That folder already has {destinationNotes} note. Last changed: {lastChanged}.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
+            "other": "That folder already has {destinationNotes} notes. Last changed: {lastChanged}.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}."
           }
         },
         "saveInProgress": "A note or image is still being saved. Try changing storage again.",

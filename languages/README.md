@@ -98,6 +98,10 @@ numbers. Keep punctuation and the complete thought in the message. Do not use
 HTML, Markdown, styling, leading or trailing whitespace, or sentence fragments
 that a caller must join.
 
+A formatted value such as the result of `localizedRelativeTime` may be passed
+through a placeholder. It is inserted as plain text and is not evaluated as
+another catalog message.
+
 Use `{{` and `}}` for literal braces. `Write {{count}}` renders as
 `Write {count}`. Inserted values are never parsed again.
 

@@ -80,6 +80,9 @@
   exactly `plural` and `variants`.
 - Plain strings use `{lowerCamelCase}` placeholders. Arguments are strings or
   numbers. Inserted values are never parsed as templates.
+- A value returned by a localization formatter, such as
+  `localizedRelativeTime`, may be passed through a placeholder. It remains one
+  formatted value rather than a recursive message reference.
 - `{{` and `}}` write literal braces. For example, `Write {{count}}` renders as
   `Write {count}`.
 - Messages are plain text. They contain no HTML, Markdown, styling, leading or

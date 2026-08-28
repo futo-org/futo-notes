@@ -455,22 +455,24 @@ class MainActivity : ComponentActivity() {
         // copying. Both folders are named with what they hold so the user can
         // tell a current vault from a leftover one before committing.
         pendingStorageAdoption.value?.let { adoption ->
+            val currentLocalization = LocalLocalization.current
             val adoptionMessage = storageAdoptionMessage(
                 StorageAdoptionSummary(
                     destinationNotes = adoption.plan.notes,
-                    destinationLastModifiedMs = adoption.plan.lastModifiedMs,
+                    destinationLastModifiedMillis = adoption.plan.lastModifiedMs,
                     currentPath = notesRoot.path,
                     currentNotes = store.value?.notes?.size ?: 0,
-                    nowMs = System.currentTimeMillis(),
+                    currentTimeMillis = System.currentTimeMillis(),
                 ),
+                currentLocalization::localizedRelativeTime,
             )
             ConfirmDialog(
-                title = LocalLocalization.current.localizedText("storage.android.openExistingHeading"),
-                body = LocalLocalization.current.localizedText(
+                title = currentLocalization.localizedText("storage.android.openExistingHeading"),
+                body = currentLocalization.localizedText(
                     adoptionMessage.path,
                     adoptionMessage.arguments,
                 ),
-                confirmLabel = LocalLocalization.current.localizedText("storage.android.openExistingAction"),
+                confirmLabel = currentLocalization.localizedText("storage.android.openExistingAction"),
                 onConfirm = {
                     pendingStorageAdoption.value = null
                     adoptExistingStorage(adoption)

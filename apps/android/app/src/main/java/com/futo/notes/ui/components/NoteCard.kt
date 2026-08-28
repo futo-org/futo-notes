@@ -1,6 +1,5 @@
 package com.futo.notes.ui.components
 
-import android.text.format.DateUtils
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
@@ -30,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.futo.notes.NoteItem
+import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -54,8 +54,13 @@ fun NoteCard(
     onLongClick: (() -> Unit)? = null,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     val interaction = remember { MutableInteractionSource() }
     val scale = pressScale(interaction, pressedScale = 0.99f)
+    val localizedModifiedTime = note.modifiedMs
+        .takeIf { it > 0 }
+        ?.let(localization::localizedRelativeTime)
+        .orEmpty()
 
     Surface(
         shape = RoundedCornerShape(FutoRadius.md),
@@ -84,7 +89,7 @@ fun NoteCard(
                 )
                 Spacer(Modifier.size(8.dp))
                 Text(
-                    text = relativeTime(note.modifiedMs),
+                    text = localizedModifiedTime,
                     style = FutoType.caption,
                     color = c.textMuted,
                     maxLines = 1,
@@ -119,13 +124,4 @@ fun NoteCard(
             }
         }
     }
-}
-
-private fun relativeTime(timeMs: Long): String {
-    if (timeMs <= 0L) return ""
-    return DateUtils.getRelativeTimeSpanString(
-        timeMs,
-        System.currentTimeMillis(),
-        DateUtils.MINUTE_IN_MILLIS,
-    ).toString()
 }

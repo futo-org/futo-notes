@@ -4,34 +4,30 @@ import com.futo.notes.localization.LocalizedMessage
 
 data class StorageAdoptionSummary(
     val destinationNotes: Int,
-    val destinationLastModifiedMs: Long,
+    val destinationLastModifiedMillis: Long,
     val currentPath: String,
     val currentNotes: Int,
-    val nowMs: Long,
+    val currentTimeMillis: Long,
 )
 
-fun storageAdoptionMessage(summary: StorageAdoptionSummary): LocalizedMessage {
+fun storageAdoptionMessage(
+    summary: StorageAdoptionSummary,
+    localizedRelativeTime: (Long) -> String,
+): LocalizedMessage {
     val arguments = mapOf(
         "destinationNotes" to summary.destinationNotes,
         "currentNotes" to summary.currentNotes,
         "currentPath" to summary.currentPath,
     )
-    if (summary.destinationNotes == 0) {
-        return LocalizedMessage("storage.android.adoptionNoNotes", arguments)
-    }
-    if (summary.destinationLastModifiedMs <= 0 || summary.destinationLastModifiedMs > summary.nowMs) {
-        return LocalizedMessage("storage.android.adoptionWithNotes", arguments)
-    }
-    val days = (summary.nowMs - summary.destinationLastModifiedMs) / MILLIS_PER_DAY
-    return when {
-        days < 1 -> LocalizedMessage("storage.android.adoptionWithNotesToday", arguments)
-        days < 2 -> LocalizedMessage("storage.android.adoptionWithNotesYesterday", arguments)
-        days < 30 -> LocalizedMessage(
-            "storage.android.adoptionWithNotesDaysAgo",
-            arguments + ("days" to days),
+    val localizedLastChanged = summary.destinationLastModifiedMillis
+        .takeIf { summary.destinationNotes > 0 && it > 0 && it <= summary.currentTimeMillis }
+        ?.let(localizedRelativeTime)
+    return if (localizedLastChanged == null) {
+        LocalizedMessage("storage.android.adoption", arguments)
+    } else {
+        LocalizedMessage(
+            "storage.android.adoptionWithLastChanged",
+            arguments + ("lastChanged" to localizedLastChanged),
         )
-        else -> LocalizedMessage("storage.android.adoptionWithNotesOverMonth", arguments)
     }
 }
-
-private const val MILLIS_PER_DAY = 24 * 60 * 60 * 1000L

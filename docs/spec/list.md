@@ -11,9 +11,10 @@ The home screen: the vault root's folders and notes, folder browsing, and search
 - The feed shows the **three** most recently modified notes — the head of the
   engine-ordered note list (a slice; the shell holds no comparator of its
   own); card previews truncate to 60 characters. → forYou.ts
-- Relative times in the desktop UI (For You cards, images tab) use the
-  vocabulary just now / Nm ago / Nh ago / yesterday / Nd ago / Nmo ago /
-  Ny ago. → shared/time/formatRelativeTime.ts
+- Relative modified times in the desktop feed and images view and in Android
+  and iOS note rows resolve through each shell's catalog-backed
+  `localizedRelativeTime`. → shared/localization/localization.ts, Android
+  `localization/Localization.kt`, iOS `Localization/Localization.swift`
 - An empty vault shows a **"FUTO Notes"** heading. On mobile the subtitle reads
   "Create your first note to get started." with a **"Browse notes"** button
   (opens the drawer) and a **"Quick capture"** button below the feed area; on
@@ -359,7 +360,7 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   a `UIViewRepresentable` otherwise sizes itself to the text's natural width and
   drags the whole editor VStack — embedded web view included — with it; Android
   and desktop are pinned declaratively (`fillMaxWidth()`, `width: 100%`).
-  *(verified iOS simulator + Android emulator 2026-07-27)* →
+  _(verified iOS simulator + Android emulator 2026-07-27)_ →
   NoteEditorView.swift `TitleTextField`, TitleTextFieldLayoutTests,
   NoteEditorScreen.kt `BasicTextField`, NoteWorkspace.svelte `.title-input`
 - **The native title fields detect and reject illegal titles, matching desktop.**
