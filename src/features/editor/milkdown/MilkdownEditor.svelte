@@ -49,13 +49,17 @@
   import type { Node as ProseNode, Schema as ProseSchema } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
   import { imageReferenceMarkdown } from '@futo-notes/editor';
+  import {
+    installVaultImageUrlResolver,
+    uninstallVaultImageUrlResolver,
+  } from '$features/images/vaultImageUrlResolver';
+  import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
   import type { EditorLinkGesture } from '../interactions/editorPointerInteractions';
   import { resolveBlockDragMode } from './blockDragMode';
   import { editorView, enclosingListItem, isTaskItem } from './caretContext';
   import { computeActiveFormats } from './formatState';
   import { createHandleBlockDrag, type HandleBlockDrag } from './handleBlockDrag';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
-  import { createImagePasteHandler, resolveImagePasteSink } from './imagePasteSink';
   import { createToolbarExec } from './toolbarExec';
   import { vaultImageView } from './vaultImageView';
 
@@ -162,6 +166,9 @@
    * THIS host captures the bytes, and this component only inserts whatever
    * filename comes back. */
   let pasteHandler: ((event: ClipboardEvent) => boolean) | null = null;
+  /* Only true where this editor installed the per-file URL producer (Tauri
+   * desktop), so the teardown removes exactly what the mount added. */
+  let ownsImageUrlResolver = false;
 
   /* Sorted comma-joined snapshot of the last emitted format-state set, so
    * emitFormatState() below can dedupe without the caller tracking it. */
@@ -357,6 +364,9 @@
         sink: resolveImagePasteSink(),
         insertImage: (filename) => insertMarkdown(imageReferenceMarkdown(filename)),
       });
+      /* Where images resolve per file rather than off a host base URL (Tauri
+       * desktop), the node views need something to ask. */
+      ownsImageUrlResolver = installVaultImageUrlResolver();
 
       if (!useMobileBlockDnd) {
         const handleEl = document.createElement('div');
@@ -391,6 +401,10 @@
 
     return () => {
       disposed = true;
+      if (ownsImageUrlResolver) {
+        uninstallVaultImageUrlResolver();
+        ownsImageUrlResolver = false;
+      }
       container.removeEventListener('click', handleClick);
       pmView()?.dom.removeEventListener('scroll', handleBlockScroll);
       handleDrag?.destroy();

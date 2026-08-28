@@ -27,7 +27,11 @@ import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { NodeView } from '@milkdown/kit/prose/view';
 import { $view } from '@milkdown/kit/utils';
 
-import { onVaultImageSrcChange, resolveVaultImageSrc } from '$features/images/vaultImageSrc';
+import {
+  onVaultImageSrcChange,
+  requestVaultImageUrl,
+  resolveVaultImageSrc,
+} from '$features/images/vaultImageSrc';
 
 export class VaultImageNodeView implements NodeView {
   readonly dom: HTMLImageElement;
@@ -82,9 +86,15 @@ export class VaultImageNodeView implements NodeView {
 
     const resolved = resolveVaultImageSrc(source);
     if (!resolved) {
-      /* No base URL yet, or nothing registered for this filename. An unset src
-       * renders as nothing; the raw filename would render a broken-image glyph
-       * and then get replaced once the host catches up. */
+      /* No base URL, and nothing registered for this filename. On Tauri desktop
+       * that is the normal case — there is no base URL at all and each file
+       * resolves individually and asynchronously — so ask, and re-render when
+       * the answer lands (`requestVaultImageUrl` registers it, which notifies).
+       * It is a no-op on the native shells, where the base URL already answers.
+       */
+      requestVaultImageUrl(source);
+      /* An unset src renders as nothing; the raw vault filename would render a
+       * broken-image glyph and then get replaced once the URL arrives. */
       if (this.dom.hasAttribute('src')) this.dom.removeAttribute('src');
       return;
     }

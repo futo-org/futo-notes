@@ -2,12 +2,10 @@ import { StateEffect } from '@codemirror/state';
 import { EditorView, WidgetType } from '@codemirror/view';
 
 import {
-  clearVaultImageUrlCache,
   isRemoteImageSource,
   registerVaultImageUrl,
   registeredVaultImageUrl,
   resolveVaultImageSrc,
-  setVaultImageBaseUrl,
 } from '$features/images/vaultImageSrc';
 
 export const imageCacheUpdated = StateEffect.define<null>();
@@ -16,17 +14,11 @@ const MAX_IMAGE_HEIGHT = 300;
 const IMAGE_PATTERN = /!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g;
 const imageSizes = new Map<string, { width: number; height: number }>();
 
-/* The vault filename -> loadable URL mapping itself lives in
+/* The vault filename -> loadable URL mapping lives in
  * `features/images/vaultImageSrc.ts`, which both editor engines share and which
  * outlives this CodeMirror-only directory (docs/plan/milkdown-transition.md §7).
- * These names stay as the aliases the CM6 call sites and the
- * `liveMarkdownTransform` facade already use. */
-export {
-  clearVaultImageUrlCache as clearLocalImageUrlCache,
-  registerVaultImageUrl as registerLocalImageUrl,
-  resolveVaultImageSrc as resolveImageSrc,
-  setVaultImageBaseUrl as setLocalImageBaseUrl,
-};
+ * What is left here is CodeMirror's own image machinery: the height-map
+ * estimate cache and the widget. */
 
 export function preloadImages(
   markdown: string,

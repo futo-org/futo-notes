@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { looksLikeImagePaste, pasteImageIntoView } from './imagePaste';
-import { resolveImageSrc } from './liveMarkdownTransform';
+import { resolveVaultImageSrc } from '$features/images/vaultImageSrc';
 
 describe('looksLikeImagePaste', () => {
   const cd = (types: string[], opts: { itemsLen?: number; html?: string } = {}) =>
@@ -81,7 +81,7 @@ describe('pasteImageIntoView', () => {
       selection: { anchor: 20 },
     });
     expect(focus).toHaveBeenCalled();
-    expect(resolveImageSrc('pasted.png')).toBe('asset://pasted.png');
+    expect(resolveVaultImageSrc('pasted.png')).toBe('asset://pasted.png');
   });
 
   it('reports failures and does not dispatch editor changes', async () => {

@@ -9,7 +9,8 @@ import {
   type FutoEditorApi,
 } from '@futo-notes/editor';
 
-import { preloadImages, setLocalImageBaseUrl } from '$features/editor/liveMarkdownTransform';
+import { preloadImages } from '$features/editor/liveMarkdownTransform';
+import { setVaultImageBaseUrl } from '$features/images/vaultImageSrc';
 import { TOOLBAR_EXEC } from '$features/editor/markdownToolbar';
 import {
   EXTERNAL_CONTENT_OPTS,
@@ -86,7 +87,7 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
         ?.setAttribute('content', theme === 'dark' ? '#000000' : '#ffffff');
     },
     applyImageBaseUrl(base: string): void {
-      setLocalImageBaseUrl(base);
+      setVaultImageBaseUrl(base);
       preloadImages(editor.getContent(), undefined, () => editor.getView());
       editor.refreshDecorations();
     },

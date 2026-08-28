@@ -757,11 +757,22 @@ EditorWebView.swift, EditorWebView.kt
   or `asset://` URL. → milkdown/vaultImageView.ts, features/images/
   vaultImageSrc.ts, tests/editor-embed-milkdown.spec.ts
 - A vault image whose URL cannot be resolved yet renders as nothing rather than
-  a broken-image glyph, and resolves itself as soon as the host registers the
-  base URL or a per-file URL arrives — the host may call `setImageBaseUrl` after
-  `setContent`, and a desktop `getImageUrl` resolves asynchronously, neither of
-  which is accompanied by a document change. → milkdown/vaultImageView.ts,
-  features/images/vaultImageSrc.ts `onVaultImageSrcChange`
+  a broken-image glyph, and resolves itself as soon as the URL arrives — the
+  host may call `setImageBaseUrl` after `setContent`, and a per-file resolution
+  is asynchronous, neither of which is accompanied by a document change.
+  → milkdown/vaultImageView.ts, features/images/vaultImageSrc.ts
+  `onVaultImageSrcChange`
+- The two hosts resolve a vault image two different ways, and the WYSIWYG editor
+  asks per image RENDERED rather than scanning the document, so a large note
+  only pays for the images someone looks at (M5). The native shells serve the
+  whole vault off one host-registered base URL and need nothing per file
+  _(native shells)_; Tauri desktop has no base URL and resolves each file
+  through `PlatformFS.getImageUrl`, which the editor installs at mount as the
+  per-file resolver _(desktop)_. A file that will not resolve — it has not
+  synced in yet — is retried by a later render rather than remembered as
+  failed. → features/images/vaultImageUrlResolver.ts, features/images/
+  vaultImageSrc.ts `requestVaultImageUrl`; the CodeMirror equivalent is
+  `preloadImages(text, getImageWebPath, …)` in MarkdownEditor.svelte
 - Clipboard image paste in the WYSIWYG editor claims the paste through
   ProseMirror's `handlePaste` and captures it through the sink for the host it
   is running in: the `saveImageData` / `pasteClipboardImage` bridge messages on
@@ -774,15 +785,25 @@ EditorWebView.swift, EditorWebView.kt
 - An image destination containing a space needs its CommonMark spelling
   (`![](<my photo.png>)`) in the WYSIWYG editor; the bare `![](my photo.png)`
   is not an image in CommonMark and renders as text. Every filename the app
-  itself generates is space-free (`createImageFilename`), so this only reaches
-  notes written elsewhere.
+  itself generates is space-free, so this only reaches notes written elsewhere.
+  → shared/media/imageFiles.ts `createImageFilename`,
+  tests/editor-embed-milkdown.spec.ts
   > **Gap:** an image destination that is ALREADY percent-encoded in the file
-  > (`![](my%20photo.png)`, as some other editors write it) is percent-encoded
-  > again when resolved against the base URL, so it renders blank. Both editor
-  > engines share the resolver and both have this behavior. Fixing it has to
-  > agree with the iOS `futo-asset://` scheme handler and the Android asset
+  > (`![](my%20photo.png)`, as some other editors write it) does not render.
+  > _(native shells)_ the base-URL branch encodes it a second time
+  > (`my%2520photo.png`); this is the shared resolver, so both editor engines
+  > behave the same way there. _(desktop)_ it fails differently — per-file
+  > resolution looks for a file literally named `my%20photo.png`. Fixing it has
+  > to agree with the iOS `futo-asset://` scheme handler and the Android asset
   > loader on who decodes, so it is tracked rather than patched in the resolver.
   > → features/images/vaultImageSrc.ts `resolveVaultImageSrc`
+
+  > **Gap:** the WYSIWYG image behaviors above are live only where the WYSIWYG
+  > editor is mounted, which today is the native shells' embedded editor. The
+  > desktop app still mounts the CodeMirror editor directly, so on desktop the
+  > CodeMirror image lines earlier in this section are what users get until the
+  > three-platform swap. → docs/plan/milkdown-transition.md §7,
+  > src/editor-embed/main.ts
 
 - A delayed native picker/clipboard completion belongs to the editor attachment
   generation that started it. Detaching, deleting, or adopting another note

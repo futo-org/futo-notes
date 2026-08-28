@@ -1,8 +1,4 @@
-import {
-  hasNativeBridgeHost,
-  type AndroidFutoBridgeHost,
-  type IosFutoBridgeHost,
-} from '@futo-notes/editor';
+import type { AndroidFutoBridgeHost, IosFutoBridgeHost } from '@futo-notes/editor';
 
 declare global {
   interface Window {
@@ -10,10 +6,6 @@ declare global {
     futoBridge?: AndroidFutoBridgeHost;
   }
 }
-
-/** Re-exported under the embed's own name; the detection itself belongs to the
- * bridge contract, so there is exactly one copy of the window sniff. */
-export const hasNativeHost = hasNativeBridgeHost;
 
 export function pickImageInBrowser(
   source: 'camera' | 'library',

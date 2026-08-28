@@ -16,10 +16,15 @@ import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
 import MilkdownEditor from '$features/editor/milkdown/MilkdownEditor.svelte';
 import type { EditorLinkGesture } from '$features/editor/interactions/editorPointerInteractions';
 import EmbedToolbar from './EmbedToolbar.svelte';
-import { BRIDGE_VERSION, postToHost, type FutoEditorApi } from '@futo-notes/editor';
+import {
+  BRIDGE_VERSION,
+  hasNativeBridgeHost,
+  postToHost,
+  type FutoEditorApi,
+} from '@futo-notes/editor';
 import { getAllNotes } from '../features/notes/notes.svelte';
 import { resolveWikilink } from '$shared/note/wikilinks';
-import { hasNativeHost, pickImageInBrowser } from './hostBridge';
+import { pickImageInBrowser } from './hostBridge';
 import { installNativeImagePaste } from './installNativeImagePaste';
 import { warmEditorFonts } from './warmEditorFonts';
 import {
@@ -95,7 +100,7 @@ const editor = mount(EmbeddedEditor, {
       }
     },
     onopenurl: (url: string) => {
-      if (hasNativeHost()) {
+      if (hasNativeBridgeHost()) {
         post({ type: 'openUrl', url });
       } else {
         window.open(url, '_blank', 'noopener,noreferrer');
@@ -123,7 +128,7 @@ toolbar = mount(EmbedToolbar, {
     getView: () => editor.getView(),
     onexec: (commandId: string) => editor.exec?.(commandId) ?? false,
     onpickimage: (source: 'camera' | 'library') => {
-      if (hasNativeHost()) {
+      if (hasNativeBridgeHost()) {
         post({ type: 'pickImage', source });
       } else {
         pickImageInBrowser(source, (dataUrl) => {

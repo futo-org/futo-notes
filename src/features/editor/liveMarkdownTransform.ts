@@ -1,14 +1,7 @@
 import { ViewPlugin } from '@codemirror/view';
 import { LiveMarkdownPlugin } from './live-preview/LiveMarkdownPlugin';
 
-export {
-  clearLocalImageUrlCache,
-  imageCacheUpdated,
-  preloadImages,
-  registerLocalImageUrl,
-  resolveImageSrc,
-  setLocalImageBaseUrl,
-} from './live-preview/images';
+export { imageCacheUpdated, preloadImages } from './live-preview/images';
 export {
   getCursorLinesForReveal,
   isBlockRevealSensitive,

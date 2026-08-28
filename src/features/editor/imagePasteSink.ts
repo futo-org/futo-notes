@@ -1,8 +1,9 @@
 /*
- * Pasting an image into the Milkdown editor.
+ * Where a pasted image goes — the capture half of image paste, shared by both
+ * editor engines.
  *
- * Two hosts capture a pasted image two different ways, and the editor is the
- * same bundle in both, so the difference is a SINK chosen once at mount:
+ * Two hosts capture a pasted image two different ways, so the difference is a
+ * SINK, chosen once per host rather than branched on at every paste:
  *
  *   - Native shells (iOS/Android WebView) have no filesystem. The bytes go out
  *     over the bridge (`saveImageData`), the host writes them into the vault
@@ -16,7 +17,14 @@
  *     command reads it off the OS clipboard.
  *
  * WHICH pastes count as an image is not decided here — `classifyImagePaste` in
- * `../imagePaste.ts` owns that for both engines.
+ * `./imagePaste.ts` owns that, for both engines.
+ *
+ * Consumers: the Milkdown editor installs `createImagePasteHandler` as
+ * ProseMirror's `handlePaste` prop and inserts the filename itself
+ * (`milkdown/MilkdownEditor.svelte`); the CodeMirror editor inside a native
+ * shell wraps the same handler in a capturing document listener
+ * (`editor-embed/installNativeImagePaste.ts`), and on desktop reaches these
+ * same sinks through `imagePaste.ts` `handlePasteEvent`.
  */
 import {
   hasNativeBridgeHost,
@@ -24,11 +32,14 @@ import {
   type FutoEditorOutboundMessage,
 } from '@futo-notes/editor';
 
-import { getFS } from '$lib/platform';
-
 import { registerVaultImageUrl } from '$features/images/vaultImageSrc';
 
-import { classifyImagePaste, extFromMime, readFileAsBase64 } from '../imagePaste';
+import {
+  classifyImagePaste,
+  extFromMime,
+  readFileAsBase64,
+  resolveImagePasteFs,
+} from './imagePaste';
 
 export interface ImagePasteSink {
   /**
@@ -101,13 +112,20 @@ export function createVaultFsImagePasteSink(deps: VaultFsImagePasteDeps): ImageP
 interface ImagePasteHandlerOptions {
   /** Null when this host cannot capture images at all (a plain browser). */
   sink: ImagePasteSink | null;
-  insertImage: (filename: string) => void;
+  /**
+   * How to insert the captured filename. Omitted where the HOST inserts — a
+   * bridge sink always resolves to null and the native shell calls
+   * `FutoEditor.insertImage` back over the bridge.
+   */
+  insertImage?: (filename: string) => void;
   reportError?: (message: string, error: unknown) => void;
 }
 
 /**
- * Returns a paste handler for ProseMirror's `handlePaste` prop: true means the
- * paste was claimed as an image and the editor must not paste it as content.
+ * Returns a paste handler: true means the paste was claimed as an image and the
+ * editor must not also paste it as content. The signature matches ProseMirror's
+ * `handlePaste` prop, which is how the Milkdown editor installs it; a plain DOM
+ * `paste` listener can call it just as well.
  *
  * The claim is made SYNCHRONOUSLY — capture is async, and a paste event cannot
  * be prevented after the fact.
@@ -120,7 +138,7 @@ export function createImagePasteHandler(
   function capture(work: Promise<string | null>): void {
     void work
       .then((filename) => {
-        if (filename) insertImage(filename);
+        if (filename) insertImage?.(filename);
       })
       .catch((error: unknown) => reportError('Image paste failed:', error));
   }
@@ -159,17 +177,12 @@ export function createImagePasteHandler(
 export function resolveImagePasteSink(): ImagePasteSink | null {
   if (hasNativeBridgeHost()) return createBridgeImagePasteSink();
 
-  let fs: ReturnType<typeof getFS>;
-  try {
-    fs = getFS();
-  } catch {
-    return null;
-  }
-  if (!fs.saveImageBytes) return null;
+  const fs = resolveImagePasteFs();
+  if (!fs) return null;
 
   return createVaultFsImagePasteSink({
-    saveImageBytes: fs.saveImageBytes.bind(fs),
-    getImageUrl: fs.getImageUrl.bind(fs),
-    readClipboardImage: fs.pasteClipboardImage?.bind(fs),
+    saveImageBytes: fs.saveImageBytes,
+    getImageUrl: fs.getImageUrl,
+    readClipboardImage: fs.pasteClipboardImage,
   });
 }

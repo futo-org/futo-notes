@@ -1,7 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { imageReferenceMarkdown } from '@futo-notes/editor';
-import { getFS, isTauri } from '$lib/platform';
-import { registerLocalImageUrl } from './liveMarkdownTransform';
+import { getFS } from '$lib/platform';
+import { registerVaultImageUrl } from '$features/images/vaultImageSrc';
 
 const IMAGE_TYPES = [
   'image/png',
@@ -38,11 +38,33 @@ export function extFromMime(mime: string): string {
   return map[mime] ?? 'png';
 }
 
-type ImagePasteFS = {
+/** The subset of `PlatformFS` an image capture needs. */
+export type ImagePasteFS = {
   saveImageBytes: (data: ArrayBuffer, ext: string) => Promise<string>;
   getImageUrl: (filename: string) => Promise<string>;
   pasteClipboardImage?: () => Promise<string>;
 };
+
+/**
+ * The vault-writing FS for this host, with its methods bound, or null where
+ * images cannot be written at all (a plain browser: `pnpm run dev`, Playwright,
+ * the factory judge — `web.ts` has no `saveImageBytes` and its `getImageUrl`
+ * throws). Both engines' paste paths resolve it through here.
+ */
+export function resolveImagePasteFs(): ImagePasteFS | null {
+  let fs: ReturnType<typeof getFS>;
+  try {
+    fs = getFS();
+  } catch {
+    return null;
+  }
+  if (!fs.saveImageBytes) return null;
+  return {
+    saveImageBytes: fs.saveImageBytes.bind(fs),
+    getImageUrl: fs.getImageUrl.bind(fs),
+    pasteClipboardImage: fs.pasteClipboardImage?.bind(fs),
+  };
+}
 
 export function looksLikeImagePaste(
   clipboardData: Pick<DataTransfer, 'types' | 'items' | 'getData'>,
@@ -98,7 +120,7 @@ async function saveAndInsert(
 ): Promise<void> {
   const filename = await fs.saveImageBytes(buffer, ext);
   const webUrl = await fs.getImageUrl(filename);
-  registerLocalImageUrl(filename, webUrl);
+  registerVaultImageUrl(filename, webUrl);
 
   const pos = view.state.selection.main.head;
   const insert = imageReferenceMarkdown(filename);
@@ -129,7 +151,7 @@ async function pasteFromNativeClipboard(view: EditorView, fs: ImagePasteFS): Pro
   if (!fs.pasteClipboardImage) return;
   const filename = await fs.pasteClipboardImage();
   const webUrl = await fs.getImageUrl(filename);
-  registerLocalImageUrl(filename, webUrl);
+  registerVaultImageUrl(filename, webUrl);
 
   const pos = view.state.selection.main.head;
   const insert = imageReferenceMarkdown(filename);
@@ -144,32 +166,26 @@ export function handlePasteEvent(event: ClipboardEvent, view: EditorView): boole
   const clipboardData = event.clipboardData;
   if (!clipboardData) return false;
 
-  let fs: ReturnType<typeof getFS>;
-  try {
-    fs = getFS();
-  } catch {
-    return false;
-  }
+  const fs = resolveImagePasteFs();
+  if (!fs) return false;
 
-  if (!fs.saveImageBytes) return false;
+  /* The SAME decision the Milkdown editor makes (milkdown/vaultImageView.ts's
+   * sibling, imagePasteSink.ts) — only the capture and the insert differ. */
+  const action = classifyImagePaste(clipboardData);
 
-  const saveImageBytes = fs.saveImageBytes.bind(fs);
-  const getImageUrl = fs.getImageUrl.bind(fs);
-
-  const imageFile = getImageFile(clipboardData);
-  if (imageFile) {
+  if (action.kind === 'file') {
     event.preventDefault();
-    void pasteImageIntoView(view, imageFile, { saveImageBytes, getImageUrl });
+    void pasteImageIntoView(view, action.file, fs);
     return true;
   }
 
-  if (isTauri && looksLikeImagePaste(clipboardData)) {
+  /* A bitmap the paste event never exposed. Gated on the CAPABILITY rather than
+   * on `isTauri`: only the Tauri adapter has `pasteClipboardImage`, and
+   * suppressing the default paste for something we then cannot insert would
+   * lose the user's clipboard. */
+  if (action.kind === 'hiddenBitmap' && fs.pasteClipboardImage) {
     event.preventDefault();
-    void pasteFromNativeClipboard(view, {
-      saveImageBytes,
-      getImageUrl,
-      pasteClipboardImage: fs.pasteClipboardImage?.bind(fs),
-    }).catch((err) => {
+    void pasteFromNativeClipboard(view, fs).catch((err) => {
       console.error('Native clipboard image paste failed:', err);
     });
     return true;
