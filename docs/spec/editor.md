@@ -638,13 +638,45 @@ EditorWebView.swift, EditorWebView.kt
   with the caret in the URL slot; no dialog appears). → EmbedToolbar.svelte,
   markdownToolbar.ts `TOOLBAR_EXEC` `link`, editorUX/linkCommand.ts `toggleLink`,
   tests/editor-embed-bridge.spec.ts
+- In the WYSIWYG (Milkdown) engine Link toggles the link over the selection —
+  tapping it on an existing link unwraps it, keeping the text — and with NO
+  selection it arms the link for the text typed next, the equivalent of the
+  `[]()` scaffold in an editor that shows no markdown source to put a caret
+  into. → src/features/editor/milkdown/toolbarExec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+  > **Gap:** the WYSIWYG engine has no way to ENTER a link's URL, so a link the
+  > toolbar makes has an empty href (`[text]()`); the CodeMirror engine's URL
+  > slot has no WYSIWYG counterpart. Needs a link-editing affordance (Milkdown
+  > ships `@milkdown/kit/component/link-tooltip`), which is a UI surface of its
+  > own rather than a toolbar command, and has to coexist with the link-tap →
+  > `openUrl` behavior the native shells rely on.
+- Indent nests a list item under its PRECEDING SIBLING item, so it has no
+  effect on the first item of a list in the WYSIWYG engine — there is nothing
+  to nest under, and the note's bytes are left untouched. (The CodeMirror
+  engine indents the source line instead, which for a first item produces an
+  orphan-indented list.) → src/features/editor/milkdown/toolbarExec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
 - The toolbar SURFACE — items, order, grouping, accessibility labels,
   per-platform icons, visibility rules — is defined once in the
-  `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every
-  button is defined once in markdownToolbar.ts (`TOOLBAR_EXEC`). Toolbars
-  are dumb dispatchers: no platform restates the item list or reimplements
-  a command. → packages/editor/src/toolbar.ts, src/features/editor/markdownToolbar.ts,
-  tests/editor-embed-bridge.spec.ts
+  `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every button
+  is defined once PER EDITOR ENGINE — markdownToolbar.ts (`TOOLBAR_EXEC`) for
+  CodeMirror, milkdown/toolbarExec.ts for Milkdown — with the two held to the
+  same outcomes by their parity suites. Toolbars are dumb dispatchers: no
+  platform restates the item list or reimplements a command. → packages/editor/src/toolbar.ts, src/features/editor/markdownToolbar.ts,
+  src/features/editor/milkdown/toolbarExec.ts, tests/editor-embed-bridge.spec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Every toolbar highlights the commands ACTIVE at the caret: the editor posts
+  the covering manifest ids as `formatState` on every selection move and
+  immediately after a toolbar tap (plus on the debounced content change), and
+  each toolbar tints those buttons —
+  an accent-tinted icon on a rounded accent wash inset inside the button, the
+  same treatment on iOS, Android and the embed fallback. A task item reports
+  Task and never also Bullet, so the two never light up together. Only the
+  WYSIWYG (Milkdown) engine reports it; under CodeMirror no button lights up.
+  → packages/editor/src/bridge.ts `FormatStateMessage`,
+  src/features/editor/milkdown/formatState.ts, EditorToolbar.swift,
+  EditorToolbar.kt, EmbedToolbar.svelte,
+  tests/editor-embed-milkdown-toolbar.spec.ts
 - A block-format command classifies each selected line as plain, bullet,
   ordered, task, heading, or quote, then emits exactly one block prefix after
   the line's existing indentation. Tapping Bullet, Ordered, Task, or Quote on
@@ -654,11 +686,29 @@ EditorWebView.swift, EditorWebView.kt
   src/features/editor/toolbar/blockFormatting.ts,
   src/features/editor/toolbar/blockFormatting.test.ts,
   tests/editor-embed-bridge.spec.ts
+- The same one-prefix-per-line rule holds in the WYSIWYG (Milkdown) engine,
+  where the prefixes are document structure rather than text: a kind tapped
+  onto itself lifts the block clear of EVERY enclosing list or blockquote (so a
+  second Quote tap unwraps instead of nesting `> >`), and a conversion between
+  two list kinds retargets the enclosing list in place, leaving a nested item
+  nested. Markdown has no mixed bullet/ordered list, so Bullet/Ordered convert
+  the whole enclosing list; Task, which is a per-item checkbox, converts only
+  the items the selection touches. →
+  src/features/editor/milkdown/blockCommands.ts,
+  src/features/editor/milkdown/blockCommands.test.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
 - Heading follows its own per-line cycle: a non-heading becomes h1, then h1 →
   h2 → h3 → plain. A multi-line selection applies that transition separately
   to each line, like the other block-format commands. →
   src/features/editor/toolbar/blockFormatting.ts,
-  src/features/editor/toolbar/blockFormatting.test.ts
+  src/features/editor/toolbar/blockFormatting.test.ts,
+  src/features/editor/milkdown/blockCommands.ts
+- Bullet and task markers are written as `-`, never `*`, whichever engine
+  produced them — the toolbar, the editor's own serializer, and the corpus all
+  agree on one marker so an edit never churns a note's list markers. →
+  src/features/editor/toolbar/blockFormatting.ts,
+  src/features/editor/milkdown/MilkdownEditor.svelte `remarkStringifyOptionsCtx`,
+  tests/editor-embed-milkdown-toolbar.spec.ts
 - Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
   the host renders its own toolbar from a GENERATED copy of the manifest and
   drives the editor over the bridge — `exec(id)` runs the shared command,

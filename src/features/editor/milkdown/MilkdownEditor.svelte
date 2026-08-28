@@ -263,6 +263,20 @@
     onformatstate(active);
   }
 
+  /**
+   * Emits deduped `cursorContext` — Indent/Outdent visibility. Takes the same
+   * `selectionOverride` as `emitFormatState`, and for the same reason.
+   */
+  function emitCursorContext(selectionOverride?: ProseSelection): void {
+    const view = pmView();
+    if (!view) return;
+    const selection = selectionOverride ?? view.state.selection;
+    const inList = enclosingListItem(selection) !== null;
+    if (inList === onListLine) return;
+    onListLine = inList;
+    oncursorcontext?.({ onListLine: inList });
+  }
+
   const EXEC = createToolbarExec(() => editor);
 
   /* Task-list glyphs are painted via an outdented `::before` on the <li>
@@ -345,6 +359,13 @@
             };
           });
 
+          /* `-` for bullet markers, not remark-stringify's default `*`.
+           * The manifest's Bullet/Task buttons and the CodeMirror engine both
+           * emit `- `, and so does the overwhelming majority of the corpus, so
+           * `*` would make every edited note churn its list markers on the
+           * first save for no reason (ADR-0002 normalize-once). */
+          ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const }));
+
           /* Red squiggles off. `editorViewOptionsCtx` is Milkdown's sanctioned
            * hook into the ProseMirror `DirectEditorProps` (they are spread
            * straight into `new EditorView(...)`), so the attributes land on the
@@ -404,13 +425,9 @@
           listeners.blur(() => onfocuschange?.(false));
           listeners.selectionUpdated((_ctx, selection) => {
             const view = pmView();
-            const inList = view ? enclosingListItem(view) !== null : false;
-            if (inList !== onListLine) {
-              onListLine = inList;
-              oncursorcontext?.({ onListLine: inList });
-            }
             // Pass `selection` explicitly — see emitFormatState's doc comment
             // for why `pmView()!.state.selection` is one step stale here.
+            emitCursorContext(selection);
             emitFormatState(selection);
             // No hover on mobile — surface the handle for the block the
             // cursor now sits in (covers both real cursor moves and a tap
@@ -988,10 +1005,11 @@
       return false;
     }
     action();
-    // A tap may toggle a mark/node without moving the selection (e.g. Bold
-    // mid-word), so selectionUpdated alone would miss it — and
-    // markdownUpdated is 200ms-debounced, too slow for a toolbar highlight
-    // to feel connected to the tap that caused it.
+    // A tap may change the block or a mark without moving the selection (e.g.
+    // Bold mid-word), so selectionUpdated alone would miss it — and
+    // markdownUpdated is 200ms-debounced, too slow for a toolbar highlight or
+    // an Indent button to feel connected to the tap that caused it.
+    emitCursorContext();
     emitFormatState();
     return true;
   }

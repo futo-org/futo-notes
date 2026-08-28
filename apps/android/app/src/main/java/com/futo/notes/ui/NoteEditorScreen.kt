@@ -828,11 +828,13 @@ fun NoteEditorScreen(
             // exactly like iOS's inputAccessoryView rather than tracking focus
             // alone (the two can legitimately differ — a hardware keyboard, or
             // the frame in which the IME is still animating). Exec items dispatch
-            // into the SHARED markdownToolbar.ts commands — no editing logic in
-            // Kotlin.
+            // into the SHARED TOOLBAR_EXEC commands — no editing logic in
+            // Kotlin — and `activeFormats` (bridge `formatState`) tints the
+            // buttons that cover the caret.
             if (host.editorFocused && WindowInsets.isImeVisible) {
                 EditorToolbar(
                     onListLine = host.onListLine,
+                    activeFormats = host.activeFormats,
                     perform = { item ->
                         when (val action = item.action) {
                             ToolbarItemAction.Exec -> host.exec(item.id)

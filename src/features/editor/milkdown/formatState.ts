@@ -29,6 +29,7 @@ import { isTaskItem } from './caretContext';
  * `computeActiveFormats`).
  */
 function markActive(
+  /** Only the schema is read from the view; the document comes from `selection`. */
   view: ProseView,
   selection: ProseSelection,
   storedMarks: readonly ProseMark[] | null,
@@ -41,17 +42,22 @@ function markActive(
     const marks = storedMarks ?? selection.$from.marks();
     return markType.isInSet(marks) !== undefined;
   }
-  /* `view.state.doc` may be one transaction behind `selection` — see
-   * `computeActiveFormats`. That is harmless for a pure selection move (same
-   * doc), but a doc-CHANGING transaction that also moves the caret can put this
-   * range past the end of the doc it is about to be measured on, and
-   * `rangeHasMark` THROWS on an out-of-range position rather than returning
-   * false. Measured: 78 of 31k corpus notes crashed the editor here when
-   * progressive open started appending content behind the caret. Inactive is
-   * the right answer — the transaction the view is about to adopt fires its own
-   * update, and that one reports against a document that contains the range. */
-  if (to > view.state.doc.content.size) return false;
-  return view.state.doc.rangeHasMark(from, to, markType);
+  /* The SELECTION's own document, never `view.state.doc`.
+   *
+   * `view.state` may be one transaction behind `selection` (see
+   * `computeActiveFormats`). For a pure selection move that is harmless — same
+   * doc — but a transaction that ALSO changes the document leaves `from`/`to`
+   * indexing the new one while `view.state.doc` is still the old: the marks
+   * read back are then simply the wrong document's, and once the range runs
+   * past the end of the old doc `rangeHasMark` THROWS rather than returning
+   * false. Both paths are real. Progressive open appending content behind the
+   * caret crashed the editor on 78 of the 31k corpus notes here, and a toolbar
+   * block command over a multi-block selection does the same thing.
+   *
+   * A resolved position carries the document it was resolved against, so this
+   * is by construction the document those positions belong to — in range, and
+   * holding the marks the caller is actually asking about. */
+  return selection.$from.doc.rangeHasMark(from, to, markType);
 }
 
 /**

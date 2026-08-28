@@ -629,10 +629,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // native toolbar.
             toolbarState.onListLine = (body["onListLine"] as? Bool) ?? false
         case .formatState:
-            // Milkdown editor, iOS-only — Notion-style active-state highlight
-            // on the matching toolbar button(s). Deduped by the embed. The
-            // CodeMirror editor never sends it, so this stays inert until the
-            // Milkdown transition lands.
+            // Milkdown editor — Notion-style active-state highlight on the
+            // matching toolbar button(s). Deduped by the embed. The CodeMirror
+            // editor never sends it, so this stays inert until the Milkdown
+            // transition lands. Android does the same in EditorWebView.kt.
             toolbarState.activeFormats = Set(body["active"] as? [String] ?? [])
         case .haptic:
             // Milkdown editor, iOS-only — the long-press mobile block-drag

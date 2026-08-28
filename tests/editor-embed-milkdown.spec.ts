@@ -396,6 +396,24 @@ test('tapping an external link posts openUrl and never calls window.open', async
   expect(await page.evaluate(() => (window as unknown as FakeHostWindow).__openCalls)).toEqual([]);
 });
 
+// A decoration whose block is DELETED has to go with it. Shift+Tab is the
+// preset's own liftListItem binding, so this needs no toolbar: lifting a
+// top-level task item clear of its list used to leave the mapped checkbox
+// widget floating over the plain paragraph it became.
+test('lifting a task item clear of its list takes its checkbox with it', async ({ page }) => {
+  const checkboxes = page.locator('.ProseMirror input[type="checkbox"]');
+  await hostSetContent(page, '- [ ] hello');
+  await focusEditor(page);
+  await expect(checkboxes).toHaveCount(1);
+
+  await page.locator('.ProseMirror p').first().click();
+  await page.keyboard.press('Shift+Tab');
+  await settleChangeDebounce(page);
+
+  expect((await getContent(page)).trimEnd()).toBe('hello');
+  await expect(checkboxes).toHaveCount(0);
+});
+
 // ============================================================
 // formatState — the native toolbar's active-state highlight
 // ============================================================

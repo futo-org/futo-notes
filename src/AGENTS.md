@@ -9,7 +9,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **`app/`** owns application composition, routing, bootstrap, and native-shell wiring. `App.svelte` and `main.ts` are thin framework entry points.
 - **`features/`** owns complete capabilities. Components, reactive state, boundary shims, and tests stay with the feature that changes them.
 - **`features/editor/`** owns the CodeMirror editor, live preview, toolbar behavior, links, images, and editor UX extensions.
-- **`features/editor/milkdown/`** owns the Milkdown (ProseMirror) WYSIWYG editor the native embed mounts by default while the transition is in flight — read `docs/plan/milkdown-transition.md` before touching it. `editor.html?cm` still selects the CodeMirror editor; both suites live in `tests/editor-embed-{bridge,milkdown}.spec.ts`.
+- **`features/editor/milkdown/`** owns the Milkdown (ProseMirror) WYSIWYG editor the native embed mounts by default while the transition is in flight — read `docs/plan/milkdown-transition.md` before touching it. `editor.html?cm` still selects the CodeMirror editor. The suites live in `tests/editor-embed-bridge.spec.ts` (CodeMirror), `tests/editor-embed-milkdown.spec.ts` (Milkdown bridge contract) and `tests/editor-embed-milkdown-toolbar.spec.ts` (Milkdown toolbar command parity).
 - **`features/notes/`** owns reactive note projection state. `notes.svelte.ts` holds `notesCache`, applies committed `LocalNoteMutation` results, and never predicts collision, relink, migration, or search behavior.
 - **`features/sync/`** owns the E2EE client, sync lifecycle, watcher batching, write suppression, and external-change coordination.
 - **`features/search/`** owns search presentation. The Rust local-note store owns the sole BM25 lifecycle.

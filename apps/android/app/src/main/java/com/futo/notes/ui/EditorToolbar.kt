@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatIndentDecrease
 import androidx.compose.material.icons.automirrored.filled.FormatIndentIncrease
@@ -41,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -76,13 +78,19 @@ private val FADE_WIDTH = 10.dp
  *
  * This composable owns NO editing behavior: every tap is handed to [perform],
  * which the editor screen routes over the bridge (`FutoEditor.exec`) into the
- * same markdownToolbar.ts commands the web toolbar runs.
+ * shared TOOLBAR_EXEC commands the web toolbar runs.
+ *
+ * [activeFormats] is the bridge `formatState` set — the manifest ids that cover
+ * the caret — and tints those buttons, the Android half of the Notion-style
+ * active highlight iOS's EditorToolbarView draws. An engine that never sends
+ * `formatState` (CodeMirror) leaves it empty and nothing lights up.
  */
 @Composable
 fun EditorToolbar(
     onListLine: Boolean,
     perform: (ToolbarItemSpec) -> Unit,
     modifier: Modifier = Modifier,
+    activeFormats: Set<String> = emptySet(),
 ) {
     val c = FutoTheme.colors
     val density = LocalDensity.current
@@ -162,6 +170,7 @@ fun EditorToolbar(
                                 ToolbarButton(
                                     item,
                                     tint = c.textPrimary,
+                                    active = item.id in activeFormats,
                                     perform = perform,
                                     modifier = Modifier.onGloballyPositioned {
                                         buttonLefts[item.id] = it.positionInWindow().x - boxWindowX
@@ -236,20 +245,39 @@ private fun computeToolbarSnapPx(
     return inset.coerceAtLeast(0f)
 }
 
+/**
+ * One toolbar button. [active] paints the Notion-style highlight: an
+ * accent-tinted icon on a rounded accent wash INSET inside the 44 dp tap
+ * target, so the tap area is unchanged and the pill reads as a state, not a
+ * second button. Matches the iOS `button(for:)` treatment (8 pt radius, 15%
+ * accent fill, accent icon). Only `.Exec` items can be active — their id is a
+ * manifest command id, and `formatState` only ever names those — so the
+ * dismiss and picker buttons are unaffected by construction.
+ */
 @Composable
 private fun ToolbarButton(
     item: ToolbarItemSpec,
     tint: Color,
     perform: (ToolbarItemSpec) -> Unit,
     modifier: Modifier = Modifier,
+    active: Boolean = false,
 ) {
+    val accent = FutoTheme.colors.accent
     IconButton(onClick = { perform(item) }, modifier = modifier.size(BUTTON_SIZE)) {
-        Icon(
-            imageVector = materialIcon(item.material),
-            contentDescription = item.label,
-            tint = tint,
-            modifier = Modifier.size(22.dp),
-        )
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (active) accent.copy(alpha = 0.15f) else Color.Transparent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = materialIcon(item.material),
+                contentDescription = item.label,
+                tint = if (active) accent else tint,
+                modifier = Modifier.size(22.dp),
+            )
+        }
     }
 }
 

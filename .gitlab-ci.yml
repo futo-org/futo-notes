@@ -654,6 +654,7 @@ test:e2e:editor-embed:
         - tests/editor-embed-milkdown.spec.ts
         - tests/editor-embed-milkdown-wikilinks.spec.ts
         - tests/editor-embed-milkdown-parity.spec.ts
+        - tests/editor-embed-milkdown-toolbar.spec.ts
         - tests/editor-embed-milkdown-compat.spec.ts
         - tests/milkdown-census/**/*
         - tests/lib/editorEmbedHost.ts

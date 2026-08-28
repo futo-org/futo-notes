@@ -9,6 +9,7 @@
  */
 import { editorViewCtx, type Editor } from '@milkdown/kit/core';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
+import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 /**
@@ -37,24 +38,25 @@ export function isTaskItem(node: ProseNode): boolean {
   );
 }
 
-/** The innermost `list_item` containing the caret, with its position. */
-export function enclosingListItem(view: ProseView): { node: ProseNode; pos: number } | null {
+/**
+ * The innermost `list_item` containing `selection`, with its position.
+ *
+ * Walks the selection's OWN resolved position rather than re-resolving one
+ * against `view.state.doc`, for the reason `formatState.ts` spells out:
+ * Milkdown's `selectionUpdated` listener runs from inside
+ * `EditorState.apply(tr)`, so `view.state` there is a whole transaction behind
+ * — and after a doc-changing transaction its doc is behind too, which makes
+ * re-resolving actively wrong rather than merely stale.
+ */
+export function enclosingListItem(
+  selection: ProseSelection,
+): { node: ProseNode; pos: number } | null {
   // `$from` would be the natural ProseMirror name, but Svelte reserves the `$`
   // prefix in the component that consumes this.
-  const at = view.state.doc.resolve(view.state.selection.from);
+  const at = selection.$from;
   for (let depth = at.depth; depth > 0; depth -= 1) {
     const node = at.node(depth);
     if (node.type.name === 'list_item') return { node, pos: at.before(depth) };
   }
   return null;
-}
-
-/** The heading level at the caret, or 0 when the caret is not in a heading. */
-export function currentHeadingLevel(view: ProseView): number {
-  const at = view.state.doc.resolve(view.state.selection.from);
-  for (let depth = at.depth; depth > 0; depth -= 1) {
-    const node = at.node(depth);
-    if (node.type.name === 'heading') return Number(node.attrs.level ?? 0);
-  }
-  return 0;
 }

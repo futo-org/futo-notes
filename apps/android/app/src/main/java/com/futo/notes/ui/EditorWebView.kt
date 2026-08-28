@@ -47,7 +47,8 @@ internal fun isInAppEditorNavigation(scheme: String?): Boolean =
  *     (the injected `@JavascriptInterface`) — `ready` / `change` / `focus` /
  *     `openNote` / `pickImage` (bridge v2) / `cursorContext` (bridge v3) /
  *     `openUrl` (bridge v6) / `initialized` + `bridgeVersionMismatch`
- *     (bridge v7).
+ *     (bridge v7) / `formatState` (unversioned, Milkdown engine only — see
+ *     bridge.ts's BRIDGE_VERSION doc comment).
  *   - host → editor: `window.FutoEditor.initialize` (bridge v7 — the whole boot
  *     config in one call) plus `setContent/getContent/focus/setTheme/setNotes/
  *     applyExternalContent/insertImage/setImageBaseUrl` and the bridge-v3
@@ -174,6 +175,15 @@ class EditorHost private constructor(appContext: Context) {
         private set
     /** Cursor is on a list line — shows the Indent/Outdent items. */
     var onListLine by mutableStateOf(false)
+        private set
+    /**
+     * Toolbar-manifest ids active at the cursor/selection (bridge
+     * `formatState`) — drives the Notion-style highlighted button state in
+     * EditorToolbar.kt, the counterpart of iOS's EditorToolbarState. Empty on
+     * editors that never send `formatState` (the CodeMirror engine), so no
+     * button lights up there.
+     */
+    var activeFormats by mutableStateOf<Set<String>>(emptySet())
         private set
 
     /** The bundle has applied this shell's host config and the note is on
@@ -443,6 +453,17 @@ class EditorHost private constructor(appContext: Context) {
             // Cursor moved on/off a list line — drives Indent/Outdent
             // visibility in the native toolbar (deduped editor-side).
             "cursorContext" -> onListLine = msg.optBoolean("onListLine")
+            // Which toolbar-manifest commands cover the caret (deduped
+            // editor-side) — the native toolbar tints those buttons. Milkdown
+            // only; the CodeMirror engine never sends it.
+            "formatState" -> {
+                val ids = msg.optJSONArray("active")
+                activeFormats = buildSet {
+                    for (i in 0 until (ids?.length() ?: 0)) {
+                        ids?.optString(i)?.takeIf { it.isNotEmpty() }?.let { add(it) }
+                    }
+                }
+            }
             // User tapped a RESOLVED wikilink — id is the target note's id
             // (vault-relative path sans .md) [editor.md:77].
             "openNote" -> onOpenNote(msg.optString("id"))

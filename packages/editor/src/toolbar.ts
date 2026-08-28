@@ -15,11 +15,20 @@
  *     file by the same script and covered by the same staleness check.
  *
  * The EDITING BEHAVIOR behind each `exec` item is not defined here and never
- * lives in a native shell: native toolbars dispatch
- * `FutoEditor.exec(item.id)` over the bridge, which runs the shared
- * CodeMirror command in `src/features/editor/markdownToolbar.ts` (`TOOLBAR_EXEC`). One
- * implementation of every command, identical behavior on every platform by
- * construction.
+ * lives in a native shell: every toolbar dispatches `exec(item.id)` — over the
+ * bridge on the native shells — into the one shared implementation for
+ * whichever engine is mounted:
+ *
+ *   - CodeMirror: `TOOLBAR_EXEC` in `src/features/editor/markdownToolbar.ts`.
+ *   - Milkdown/ProseMirror: `createToolbarExec` in
+ *     `src/features/editor/milkdown/toolbarExec.ts` (block formats in
+ *     `blockCommands.ts`), while the transition is in flight
+ *     (docs/plan/milkdown-transition.md).
+ *
+ * One implementation of every command per engine, identical behavior on every
+ * platform by construction, and the two engines agree on what each command
+ * MEANS — pinned by `tests/editor-embed-bridge.spec.ts` and
+ * `tests/editor-embed-milkdown-toolbar.spec.ts`.
  */
 
 /** What tapping a toolbar item does. */
