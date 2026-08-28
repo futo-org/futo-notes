@@ -149,6 +149,9 @@ importers:
       jsdom:
         specifier: ^28.1.0
         version: 28.1.0
+      mdast-util-to-markdown:
+        specifier: 2.1.2
+        version: 2.1.2
       pixelmatch:
         specifier: ^7.1.1
         version: 7.1.1

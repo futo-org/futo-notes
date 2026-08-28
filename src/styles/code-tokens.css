@@ -1,0 +1,75 @@
+/*
+ * Fenced-code token colours, for BOTH editors.
+ *
+ * `@lezer/highlight`'s `classHighlighter` names tokens `tok-*` whichever
+ * editor asks it, so the CodeMirror live-preview editor and the Milkdown
+ * editor produce the same class names from the same curated grammars — and a
+ * second copy of this palette mapping would be pure drift. Each editor marks
+ * its own fences with `.futo-code-tokens` and inherits these:
+ *   - CodeMirror: live-preview/blockDecorations.ts, on each code line.
+ *   - Milkdown:   milkdown/codeHighlight.ts, as a node decoration on the fence.
+ *
+ * `!important` is for CodeMirror's sake: these rules are in a cascade layer and
+ * CodeMirror injects its own theme unlayered, which would otherwise win.
+ * The colours themselves live in theme.css (`--syntax-*`, light and dark).
+ */
+
+.futo-code-tokens .tok-keyword {
+  color: var(--syntax-keyword) !important;
+  font-weight: 600;
+}
+
+.futo-code-tokens .tok-string {
+  color: var(--syntax-string) !important;
+}
+
+.futo-code-tokens .tok-number,
+.futo-code-tokens .tok-literal,
+.futo-code-tokens .tok-bool,
+.futo-code-tokens .tok-atom {
+  color: var(--syntax-number) !important;
+}
+
+.futo-code-tokens .tok-comment {
+  color: var(--color-muted) !important;
+  font-style: italic;
+}
+
+.futo-code-tokens .tok-variableName,
+.futo-code-tokens .tok-variableName2,
+.futo-code-tokens .tok-labelName {
+  color: var(--syntax-variable) !important;
+}
+
+.futo-code-tokens .tok-typeName,
+.futo-code-tokens .tok-className,
+.futo-code-tokens .tok-namespace,
+.futo-code-tokens .tok-macroName {
+  color: var(--syntax-type) !important;
+}
+
+.futo-code-tokens .tok-propertyName {
+  color: var(--syntax-property) !important;
+}
+
+.futo-code-tokens .tok-definition {
+  color: var(--syntax-property) !important;
+}
+
+.futo-code-tokens .tok-regexp,
+.futo-code-tokens .tok-escape,
+.futo-code-tokens .tok-url,
+.futo-code-tokens .tok-string2 {
+  color: var(--syntax-regexp) !important;
+}
+
+.futo-code-tokens .tok-meta,
+.futo-code-tokens .tok-punctuation,
+.futo-code-tokens .tok-operator {
+  color: var(--syntax-type) !important;
+}
+
+.futo-code-tokens .tok-invalid {
+  color: var(--color-danger) !important;
+  text-decoration: underline wavy currentColor;
+}

@@ -94,6 +94,7 @@
     "eslint-config-prettier": "^10.1.8",
     "js-yaml": "^4.1.1",
     "jsdom": "^28.1.0",
+    "mdast-util-to-markdown": "2.1.2",
     "pixelmatch": "^7.1.1",
     "pngjs": "^7.0.0",
     "prettier": "^3.9.4",
