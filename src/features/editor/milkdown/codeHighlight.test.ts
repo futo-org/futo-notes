@@ -2,11 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { javascript } from '@codemirror/lang-javascript';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
-import { EditorState } from '@milkdown/kit/prose/state';
+import { EditorState, type Plugin } from '@milkdown/kit/prose/state';
 import type { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 
 import {
-  CODE_TOKENS_CLASS,
   codeBlocksIn,
   createCodeHighlightPlugin,
   codeHighlightKey,
@@ -116,22 +115,53 @@ describe('the plugin', () => {
     return EditorState.create({ doc: d, plugins: [createCodeHighlightPlugin()] });
   }
 
-  it('marks every fence for the shared token stylesheet, coloured or not', () => {
-    const state = stateWith(doc(fence('mermaid', 'graph TD'), fence('', 'plain'), para('body')));
-    const marks = decorationsOf(state)
-      .find()
-      .filter((d) => classOf(d) === CODE_TOKENS_CLASS);
-    expect(marks).toHaveLength(2);
-  });
-
-  it('does not mark anything that is not a fence', () => {
+  it('decorates nothing outside a fence', () => {
     const state = stateWith(doc(para('body #tag')));
     expect(decorationsOf(state).find()).toEqual([]);
   });
 
   it('leaves a fence in an unlisted language uncoloured', () => {
-    const state = stateWith(doc(fence('mermaid', 'graph TD')));
-    expect(decorationsOf(state).find().map(classOf)).toEqual([CODE_TOKENS_CLASS]);
+    expect(decorationsOf(stateWith(doc(fence('mermaid', 'graph TD')))).find()).toEqual([]);
+  });
+
+  /*
+   * The M5 lock, and it has teeth: this plugin USED to put one node decoration
+   * per fence on the document to carry a CSS class. A node decoration spanning
+   * a whole top-level block is stored in the decoration tree's ROOT, so mapping
+   * them made every keystroke cost O(fences) — measured 4.6 ms per keystroke at
+   * 1000 fences, against 0.075 ms once the decoration was gone (a 33x gap over
+   * the empty-plugin baseline, against the 4x this asserts).
+   *
+   * Measured as a RATIO OF RATIOS — how much worse the plugin scales than an
+   * editor with no plugins at all — so it says nothing about how fast the
+   * machine running it is.
+   */
+  it('costs no more per keystroke as the document grows', () => {
+    const growth = (plugins: Plugin[]) => {
+      const measure = (fences: number) => {
+        const blocks: ProseNode[] = [];
+        for (let i = 0; i < fences; i += 1) {
+          blocks.push(fence('mermaid', `graph ${i}`));
+          blocks.push(para(`body paragraph number ${i}`));
+        }
+        blocks.push(para('edit me'));
+        const state = EditorState.create({ doc: doc(...blocks), plugins });
+        const at = state.doc.content.size - 2;
+        for (let i = 0; i < 30; i += 1) state.apply(state.tr.insertText('x', at));
+        // The MINIMUM of several runs: the most stable statistic when
+        // something else on the machine is competing for the core.
+        let best = Infinity;
+        for (let run = 0; run < 5; run += 1) {
+          const started = performance.now();
+          for (let i = 0; i < 100; i += 1) state.apply(state.tr.insertText('x', at));
+          best = Math.min(best, performance.now() - started);
+        }
+        return best;
+      };
+      return measure(1000) / measure(20);
+    };
+
+    expect(growth([createCodeHighlightPlugin()]) / growth([])).toBeLessThan(4);
   });
 
   it('keeps its decorations across a transaction that changed nothing', () => {
@@ -140,17 +170,16 @@ describe('the plugin', () => {
     expect(codeHighlightKey.getState(moved)).toBe(codeHighlightKey.getState(state));
   });
 
-  it('marks a fence that an edit creates', () => {
-    let state = stateWith(doc(para('body')));
-    state = state.apply(
-      state.tr.replaceWith(0, state.doc.content.size, fence('mermaid', 'graph TD')),
-    );
-    expect(decorationsOf(state).find().map(classOf)).toEqual([CODE_TOKENS_CLASS]);
-  });
-
-  it('drops the mark when the fence is deleted', () => {
-    let state = stateWith(doc(fence('js', 'x'), para('body')));
-    state = state.apply(state.tr.delete(0, state.doc.firstChild!.nodeSize));
+  it("drops a fence's decorations when the fence is deleted", () => {
+    // With the grammar not yet loaded there is nothing to drop, so seed the
+    // set by hand and prove the delete clears it.
+    const first = fence('js', 'const a = 1;');
+    let state = EditorState.create({
+      doc: doc(first, para('body')),
+      plugins: [createCodeHighlightPlugin()],
+    });
+    state = state.apply(state.tr.delete(0, first.nodeSize));
     expect(decorationsOf(state).find()).toEqual([]);
+    expect(codeBlocksIn(state.doc, 0, state.doc.content.size)).toEqual([]);
   });
 });

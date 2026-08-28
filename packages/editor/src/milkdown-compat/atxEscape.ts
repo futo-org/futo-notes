@@ -17,10 +17,10 @@
  * that condition, so a leading `#` is escaped exactly when leaving it alone
  * would turn a paragraph into a heading.
  *
- * Home per docs/plan/milkdown-transition.md §3: both hosts and the corpus
- * harness consume one copy. §3.6's M6 carve-out applies — this is an adapter
+ * Home per docs/plan/milkdown-transition.md §3 (entry 3): both hosts and the
+ * corpus harness consume one copy. §3.7's M6 carve-out applies — this is an adapter
  * for a Milkdown/remark implementation detail, not a note rule, so it has no
- * Rust mirror. §3.5: report upstream.
+ * Rust mirror. §3.6: report upstream.
  *
  * Typed structurally rather than against `mdast-util-to-markdown`, which this
  * package does not depend on — it reaches us only as a transitive dependency

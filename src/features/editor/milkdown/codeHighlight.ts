@@ -33,9 +33,6 @@ import {
   type PositionedBlock,
 } from './blockDecorations';
 
-/** Marks a fence as carrying `tok-*` spans, for src/styles/code-tokens.css. */
-export const CODE_TOKENS_CLASS = 'futo-code-tokens';
-
 /**
  * Fences longer than this are left uncoloured.
  *
@@ -136,12 +133,15 @@ export function createCodeHighlightPlugin(): Plugin<DecorationSet> {
    * fence is decorated properly by the refresh that load dispatches.
    */
   function decorate(node: ProseNode, pos: number): Decoration[] {
-    // The class the stylesheet keys off goes on every fence, coloured or not,
-    // so the rules are about the fence rather than about which grammars
-    // happen to have arrived.
-    const marker = Decoration.node(pos, pos + node.nodeSize, { class: CODE_TOKENS_CLASS });
+    // Token decorations ONLY. There is no per-fence marker decoration, and
+    // there must not be: a node decoration spanning a whole top-level block
+    // lands in the decoration tree's root, so one per fence turns every
+    // keystroke into O(fences) — 4.6 ms at 1000 fences, against 0.075 ms
+    // without (AGENTS.md M5). src/styles/code-tokens.css scopes Milkdown's
+    // token colours to `.futo-milkdown .ProseMirror pre` instead, which costs
+    // nothing at runtime.
     const support = grammarFor(node.attrs.language);
-    return support ? [marker, ...highlightFence(node, pos, support)] : [marker];
+    return support ? highlightFence(node, pos, support) : [];
   }
 
   function decorateAll(doc: ProseNode): DecorationSet {

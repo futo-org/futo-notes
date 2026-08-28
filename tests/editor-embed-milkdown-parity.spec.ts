@@ -317,9 +317,23 @@ test('a fence with no language still renders, just uncoloured', async ({ page })
   await expect(page.locator('.ProseMirror pre span')).toHaveCount(0);
 });
 
-test('every fence carries the class the shared token palette keys off', async ({ page }) => {
-  await open(page, '```js\nlet a = 1;\n```\n\n```mermaid\ngraph TD\n```\n');
-  await expect(page.locator('.ProseMirror pre.futo-code-tokens')).toHaveCount(2);
+test('the shared token palette reaches this editor without a per-fence class', async ({ page }) => {
+  // The colours are scoped by container, not by a decoration on each fence —
+  // one node decoration per fence made every keystroke cost O(fences)
+  // (codeHighlight.ts). So the proof is that a token is COLOURED, and that no
+  // per-fence marker class exists to be relied on.
+  await open(page, '```js\nlet a = 1;\n```\n');
+  await waitForTokens(page);
+  await expect(page.locator('.ProseMirror pre.futo-code-tokens')).toHaveCount(0);
+  const [color, muted] = await page.evaluate(() => {
+    const token = document.querySelector('.ProseMirror pre .tok-keyword');
+    return [
+      token ? getComputedStyle(token).color : null,
+      getComputedStyle(document.querySelector('.ProseMirror pre')!).color,
+    ];
+  });
+  expect(color).not.toBeNull();
+  expect(color).not.toBe(muted);
 });
 
 test('token colours come from the theme, and follow it', async ({ page }) => {
@@ -359,13 +373,12 @@ test('editing one fence leaves the next one coloured', async ({ page }) => {
   // highlighting and nothing put it back.
   await open(page, '```js\nconst a = 1;\n```\n\n```js\nconst b = 2;\n```\n');
   await waitForTokens(page);
-  await expect(page.locator('.ProseMirror pre.futo-code-tokens')).toHaveCount(2);
+  await expect(page.locator('.ProseMirror pre .tok-keyword')).toHaveCount(2);
 
   await page.locator('.ProseMirror pre').first().click();
   await page.keyboard.type(' ');
   await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
 
-  await expect(page.locator('.ProseMirror pre.futo-code-tokens')).toHaveCount(2);
   await expect(page.locator('.ProseMirror pre').nth(1).locator('.tok-keyword')).toHaveText('const');
 });
 

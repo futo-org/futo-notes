@@ -133,7 +133,7 @@ Branch `feat/milkdown-wikilinks`. Wikilinks work in the Milkdown editor:
 `src/features/editor/milkdown/wikilink/` — `syntax.ts` (micromark tokenizer +
 mdast from/to-markdown), `node.ts` (inline atom node + node view), `display.ts`
 (which of the shared index's two answers a rendering uses), `inputRule.ts`,
-`autocomplete.ts`. The survey that decided "build, don't adopt" is §3.8.
+`autocomplete.ts`. The survey that decided "build, don't adopt" is §3a.
 
 - **The reason this was mandatory, measured**: unpatched, Milkdown serializes
   `[[notes/alpha]]` as `\[\[notes/alpha]]`. Every link in a note breaks on its
@@ -188,9 +188,9 @@ Tags, task checkboxes, and fenced-code highlighting, on branch
   `#######x`) is not. `packages/editor/src/milkdown-compat/atxEscape.ts` states that condition and
   replaces the blanket rule; `stringifyHandlers.ts` applies it by wrapping Milkdown's own `text`
   handler, because unsafe patterns can only be ADDED through an extension while handlers can be
-  replaced. This is the first tenant of §3's `milkdown-compat/` home, with §3.4's canary shape:
+  replaced. This is the first tenant of §3's `milkdown-compat/` home, with §3.5's canary shape:
   three tests lock the UNPATCHED behavior of the pinned `mdast-util-to-markdown` so the day
-  upstream narrows its own rule they go red and the fix gets deleted. §3.5 reporting still to do.
+  upstream narrows its own rule they go red and the fix gets deleted. §3.6 reporting (upstream) still to do.
 - **Tags are decorated, not modelled.** `tagDecorations.ts` paints `scanTags` matches; the document
   holds a tag as ordinary text exactly as the file does. A schema node would have made a tag
   undeletable by character and put an IME-hostile boundary mid-word. Inline code and fenced blocks
@@ -227,7 +227,15 @@ Tags, task checkboxes, and fenced-code highlighting, on branch
   (114 KB minified) next to the ones we already ship. `blockDecorations.ts` is the ~40 lines they
   are replaced with: map the existing set through the transaction, rebuild only the blocks the
   transaction's own steps touched. Tags and highlighting both run on it (M5).
-- Found by the standards review, after the first commit: `repaintBlocks` removed stale decorations
+- Found by the review round, after the first commit — the M5 rule bit twice more. `repaintBlocks`
+  fixed the per-keystroke cost of REBUILDING decorations, but the fence highlighter also put one
+  node decoration per fence on the document to carry a CSS class, and a node decoration spanning a
+  whole top-level block is stored in the decoration tree's ROOT — so MAPPING them cost O(fences) on
+  every keystroke: 4.6 ms at 1000 fences, against 0.075 ms with the decoration gone (a 33x gap over
+  an empty-plugin baseline). The class is gone; `src/styles/code-tokens.css` names both editors'
+  fences instead, which costs nothing at runtime. `codeHighlight.test.ts` locks the scaling as a
+  ratio of ratios, so it says nothing about how fast the machine is.
+- Found by the review round, after the first commit: `repaintBlocks` removed stale decorations
   with `set.find(pos, pos + nodeSize)`, and `DecorationSet.find` returns everything TOUCHING that
   range — so a node decoration on the NEXT block, which starts exactly where this one ends, was
   removed and never re-added. Typing in one fence silently un-highlighted the fence below it.
@@ -259,23 +267,29 @@ the corpus harness consume the same module — the ADR-0002 "one serializer" rul
 2. **Empty-link fix**: remark transformer that gives `link` nodes with zero children a text child
    equal to the URL. One-way. Images are a different mdast node type, so the `![](url)` regression
    class from the regex version cannot occur.
-3. **Bullet-number escape**: the pre-parse string pass stays (`* 0. item` → `* 0\. item`) — remark
+3. **ATX-escape narrowing** (added by T5, #102 — `milkdown-compat/atxEscape.ts`): remark-stringify
+   escapes EVERY line-leading `#`, so a note's header tag block `#alpha #beta` saved as
+   `\#alpha #beta` and the tag stopped being a tag to `scanTags`, `extractHeaderTagBlock`, the tag
+   bar, and Obsidian. Replaces the blanket `{atBreak: true, character: '#'}` unsafe rule with the
+   real CommonMark condition (1-6 `#` then space/tab/EOL) by wrapping Milkdown's own `text`
+   handler — an extension can only ADD unsafe patterns, but handlers can be replaced.
+4. **Bullet-number escape**: the pre-parse string pass stays (`* 0. item` → `* 0\. item`) — remark
    transformers run post-parse, after CommonMark has already resolved the ambiguity into a nested
    list. Same skip-fences/inline-code rules as the parked WIP.
-4. **Canary tests**: pin the Milkdown version; a test reproduces each upstream bug against the
+5. **Canary tests**: pin the Milkdown version; a test reproduces each upstream bug against the
    *unpatched* preset so the day upstream fixes it the canary flips and the fork gets deleted.
    Register the fork in `scripts/drift-registry.json` if `check-drift` flags it.
-5. **Upstream**: file the `<br>`-deletion and empty-link bugs against Milkdown with the minimal
+6. **Upstream**: file the `<br>`-deletion and empty-link bugs against Milkdown with the minimal
    repros from the census report.
-6. **M6 carve-out**: these transforms are Milkdown-implementation adapters, not note rules — no
+7. **M6 carve-out**: these transforms are Milkdown-implementation adapters, not note rules — no
    Rust mirror. Record the carve-out in `packages/editor/AGENTS.md` when the module lands.
-7. **Re-census** after the rewrite: full foreign corpus + a second leg over Justin's real vault
+8. **Re-census** after the rewrite: full foreign corpus + a second leg over Justin's real vault
    (local, never committed). Diff against `corpus-results-baseline.jsonl` (regenerated baseline on
    the spike). Target: the two real-loss classes at zero, zero new regressions, the 16
    uninvestigated `html_loss` notes dispositioned. Per D4 this is tracked, not gating — but the
    report is a required deliverable (`spike-notes` successor doc or `tests/` local artifact).
 
-## 3.8 Wikilink plugin — survey result (T4 / #101)
+## 3a. Wikilink plugin — survey result (T4 / #101)
 
 The ticket required a survey before a line of plugin code: adopt a maintained
 extension if one fits, build only if none does. **None does — built.**
@@ -430,7 +444,7 @@ Worth its own ticket.
 
 - M5: serialization off the keystroke path — `getMarkdown()` is whole-doc (~210 ms at 14k lines);
   saves stay debounced/background.
-- M6/M7: compat plugins carry the recorded carve-out (§3.6); the wikilink *rules* (resolution,
+- M6/M7: compat plugins carry the recorded carve-out (§3.7); the wikilink *rules* (resolution,
   shortest-suffix) remain the existing conformance-locked mirrors — the plugin consumes them.
 - M8/M10: bridge and toolbar changes follow `packages/editor/AGENTS.md`; both native hosts per
   message; regenerate specs.
