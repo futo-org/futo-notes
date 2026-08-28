@@ -108,8 +108,13 @@
    * still exactly what it loaded, so an open/close cycle cannot rewrite a note
    * on disk in Milkdown's normalized syntax. */
   let hostMarkdown: string | null = null;
-  /* Milkdown's own serialization of the current doc. */
-  let liveMarkdown = '';
+  /* Milkdown's own serialization of the current doc; null until something has
+   * actually been loaded. It must NOT start as `''`: an empty string is also a
+   * legitimate serialization, so a placeholder `''` made `setContent('')` — a
+   * brand-new note — look like content we already held, skip `applyExternal`,
+   * and leave `externalSerialization` unset, which switches the load-echo guard
+   * in getContent() off for exactly that note. */
+  let liveMarkdown: string | null = null;
   /* Milkdown's serialization of the doc AS LOADED from the host. The listener
    * plugin debounces markdownUpdated by 200ms, so a synchronous "we are
    * applying host content" flag cannot suppress the load echo — comparing
@@ -478,7 +483,7 @@
 
   export function getContent(): string | undefined {
     const live = readSerialized();
-    if (live === null) return hostMarkdown ?? liveMarkdown;
+    if (live === null) return hostMarkdown ?? liveMarkdown ?? '';
     // Only hand back the host's original bytes while the document is still
     // EXACTLY what it loaded; a keystroke inside the listener's debounce window
     // must not be reported as the unmodified note.

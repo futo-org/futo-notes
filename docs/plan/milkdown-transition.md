@@ -87,7 +87,14 @@ What the review changed:
   `handleBlockDrag.ts` (the ⠿ touch fallback), `formatState.ts`, `caretContext.ts`,
   `toolbarExec.ts`, `blockDragMode.ts`, alongside the moved `blockDragGeometry.ts` and
   `mobileBlockDnd.ts`.
-- **Tests where there were none.** `tests/editor-embed-milkdown.spec.ts` (24 cases) drives the real
+- **`mobileBlockDnd.ts` was reviewed but deliberately NOT decomposed** (669 lines, now the feature's
+  largest file). Its two separable parts are already out — geometry into `blockDragGeometry.ts`, the
+  commit into `blockMove.ts`. What is left is one long-press gesture state machine that has to be
+  read as a single sequence (arm -> suppress selection -> lift -> drag -> release), plus the
+  device-earned constraints doc comment and the stylesheet for the ghost card, which only make sense
+  next to the code they explain. Splitting it would scatter one gesture across files without making
+  any part of it independently understandable.
+- **Tests where there were none.** `tests/editor-embed-milkdown.spec.ts` (28 cases) drives the real
   `editor.html` bundle: the load-echo guard over markdown Milkdown would normalize, the undo
   boundary, the change contract, `formatState`, and the long-press block drag through real CDP touch
   input. Unit tests cover `blockMove` and `formatState` (18 cases).
@@ -108,6 +115,13 @@ Recorded, not fixed here:
   Android mounts the gutter-handle drag and never emits it.
 - Toolbar parity gaps found by the suite, all **#104**: `link` with an empty selection does nothing,
   `indent` needs a preceding sibling item, and list markers serialize as `*` rather than `-`.
+- **The empty-note load echo was luck, not contract** (fixed as part of the review round). The
+  guard could not fire for a note that loaded empty — `liveMarkdown` started as `''`, so
+  `setContent('')` looked like content already held and skipped the path that records a baseline. It
+  happened to be harmless because Milkdown serializes an empty document to `''`; a serializer change
+  would have turned opening a brand-new note into a rewrite. `liveMarkdown` now starts null, and
+  three spec cases cover empty and whitespace-only notes.
+
 - **Change notification is debounced 200 ms with no maxWait** (`@milkdown/plugin-listener`), so
   sustained typing can defer the host's `change` — and therefore its autosave — indefinitely. Exit
   and background paths read `getContent()` directly, so this is a crash-window question, not a

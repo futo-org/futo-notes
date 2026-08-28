@@ -172,6 +172,38 @@ for (const [label, markdown] of NORMALIZED_BY_MILKDOWN) {
 // differ from the bytes on disk. The trailing newline is that normalization
 // showing up in its smallest form; asserting it is how a future serializer
 // change announces itself instead of quietly rewriting every note.
+// An EMPTY note is the case the guard above can miss: `setContent('')` matches
+// the initial `liveMarkdown`, so the load never runs through `applyExternal`
+// and never records a serialization to compare against. If `getContent()` then
+// answers with Milkdown's own serialization of an empty document, opening a
+// brand-new note and leaving it rewrites the file.
+test('opening an empty note returns empty and posts no change', async ({ page }) => {
+  await clearMessages(page);
+  await hostSetContent(page, '');
+
+  expect(await getContent(page)).toBe('');
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+});
+
+test('an empty note carried by the boot config stays empty', async ({ page }) => {
+  await clearMessages(page);
+  await initialize(page, hostConfig({ content: '' }));
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('');
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+});
+
+// A note whose only content is whitespace has the same shape of risk: the host
+// gave us bytes, and closing without an edit must hand back those bytes.
+test('opening a whitespace-only note returns its own bytes', async ({ page }) => {
+  await clearMessages(page);
+  await hostSetContent(page, '\n\n');
+
+  expect(await getContent(page)).toBe('\n\n');
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+});
+
 test('a real keystroke posts exactly one change carrying the normalized document', async ({
   page,
 }) => {
@@ -320,10 +352,10 @@ test('formatState reports the block kind at the caret, deduped', async ({ page }
   expect((await messagesOfType(page, 'formatState')).at(-1)?.active).toEqual(['heading']);
   await clearMessages(page);
 
-  // Into the paragraph: the heading is no longer active.
+  // Into the paragraph: the heading is no longer active. Wait on the message
+  // rather than a frame — the click has to land, move the selection, and post.
   await clickCaretInto(page, 3);
-  await flushFrames(page);
-  expect((await messagesOfType(page, 'formatState')).at(-1)?.active).toEqual([]);
+  expect((await waitForMessages(page, 'formatState')).at(-1)?.active).toEqual([]);
 
   // Moving WITHIN the paragraph changes nothing, so nothing new is posted.
   const seen = (await messagesOfType(page, 'formatState')).length;
@@ -342,9 +374,8 @@ test('formatState reports bold for a caret inside bold text', async ({ page }) =
   const box = await strong.boundingBox();
   if (!box) throw new Error('no <strong> geometry');
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await flushFrames(page);
 
-  expect((await messagesOfType(page, 'formatState')).at(-1)?.active).toEqual(['bold']);
+  expect((await waitForMessages(page, 'formatState')).at(-1)?.active).toEqual(['bold']);
 });
 
 // ============================================================
