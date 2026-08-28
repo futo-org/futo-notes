@@ -15,8 +15,8 @@
  * ProseMirror node rendered `display: none` cannot be reached by caret or click
  * at all, so hiding it would leave the note's tags unreadable AND uneditable —
  * and on the native shells, which have no tag bar, that is the only place they
- * exist. Recorded as a gap in docs/spec/editor.md against the desktop swap,
- * which is where the tag bar and this editor first meet.
+ * exist. Recorded as a gap under docs/spec/editor.md's Tags section, against
+ * the desktop swap — where the tag bar and this editor first meet.
  *
  * Two things it must not do, both of them spec (docs/spec/editor.md "Code /
  * fence isolation"):
@@ -28,12 +28,18 @@
  * maps the rest (AGENTS.md M5).
  */
 import { scanTags } from '@futo-notes/editor';
-import { $prose } from '@milkdown/kit/utils';
-
-import { changedRanges, repaintBlocks, type PositionedBlock } from './blockDecorations';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
-import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
+import { Decoration, type DecorationSet } from '@milkdown/kit/prose/view';
+import { $prose } from '@milkdown/kit/utils';
+
+import {
+  changedRanges,
+  decorateAllBlocks,
+  isCodeBlock,
+  repaintBlocks,
+  type PositionedBlock,
+} from './blockDecorations';
 
 /** Class the decoration paints; styled by MilkdownEditor.svelte. */
 export const TAG_DECORATION_CLASS = 'futo-tag';
@@ -51,7 +57,7 @@ export const tagDecorationsKey = new PluginKey<DecorationSet>('FUTO_TAG_DECORATI
  * — and a space is a tag boundary, so blanking can only ever destroy a match,
  * never invent one.
  */
-export function scannableBlockText(node: ProseNode): string {
+export function tagScannableText(node: ProseNode): string {
   let text = '';
   node.forEach((child) => {
     // `code: true` is how a mark declares "this is code" in a ProseMirror
@@ -66,7 +72,7 @@ export function scannableBlockText(node: ProseNode): string {
 
 /** Tag decorations for one textblock at `pos` (the position BEFORE the node). */
 export function blockTagDecorations(node: ProseNode, pos: number): Decoration[] {
-  return scanTags(scannableBlockText(node)).map((match) =>
+  return scanTags(tagScannableText(node)).map((match) =>
     Decoration.inline(pos + 1 + match.start, pos + 1 + match.end, {
       class: TAG_DECORATION_CLASS,
     }),
@@ -78,10 +84,10 @@ export function blockTagDecorations(node: ProseNode, pos: number): Decoration[] 
  * `code_block` is skipped whole — a fenced block's contents are never tags —
  * and so is anything nested inside one.
  */
-export function scannableBlocks(doc: ProseNode, from: number, to: number): PositionedBlock[] {
+export function tagScannableBlocks(doc: ProseNode, from: number, to: number): PositionedBlock[] {
   const out: PositionedBlock[] = [];
   doc.nodesBetween(from, to, (node, pos) => {
-    if (node.type.spec.code) return false;
+    if (isCodeBlock(node)) return false;
     if (node.isTextblock) {
       out.push({ node, pos });
       return false;
@@ -92,12 +98,7 @@ export function scannableBlocks(doc: ProseNode, from: number, to: number): Posit
 }
 
 export function docTagDecorations(doc: ProseNode): DecorationSet {
-  return DecorationSet.create(
-    doc,
-    scannableBlocks(doc, 0, doc.content.size).flatMap(({ node, pos }) =>
-      blockTagDecorations(node, pos),
-    ),
-  );
+  return decorateAllBlocks(doc, tagScannableBlocks, blockTagDecorations);
 }
 
 export function createTagDecorationPlugin(): Plugin<DecorationSet> {
@@ -111,7 +112,7 @@ export function createTagDecorationPlugin(): Plugin<DecorationSet> {
               set.map(tr.mapping, tr.doc),
               tr.doc,
               changedRanges(tr),
-              scannableBlocks,
+              tagScannableBlocks,
               blockTagDecorations,
             )
           : set,

@@ -352,6 +352,23 @@ test('editing inside a fence re-colours it', async ({ page }) => {
   expect(await getContent(page)).toContain('let b = 2;');
 });
 
+test('editing one fence leaves the next one coloured', async ({ page }) => {
+  // Regression: decorations were removed by everything TOUCHING the edited
+  // block's range, and the next fence's node decoration starts exactly where
+  // this one ends — so typing in the first fence stripped the second one's
+  // highlighting and nothing put it back.
+  await open(page, '```js\nconst a = 1;\n```\n\n```js\nconst b = 2;\n```\n');
+  await waitForTokens(page);
+  await expect(page.locator('.ProseMirror pre.futo-code-tokens')).toHaveCount(2);
+
+  await page.locator('.ProseMirror pre').first().click();
+  await page.keyboard.type(' ');
+  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+
+  await expect(page.locator('.ProseMirror pre.futo-code-tokens')).toHaveCount(2);
+  await expect(page.locator('.ProseMirror pre').nth(1).locator('.tok-keyword')).toHaveText('const');
+});
+
 test('a fence typed into a note gets coloured once its grammar arrives', async ({ page }) => {
   await open(page, '```python\ndef f():\n    return 1\n```\n');
   await waitForTokens(page);

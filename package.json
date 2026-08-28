@@ -44,7 +44,7 @@
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "ci": "pnpm run lint && pnpm run check:svelte && pnpm run format:check && pnpm run test:full && pnpm run build",
-    "_comment": "Tauri commands (dev, build, deploy) live in the justfile — use `just` from the monorepo root. Only toolchain scripts (vite, vitest, playwright, eslint) belong here.",
+    "_comment": "Tauri commands (dev, build, deploy) live in the justfile \u2014 use `just` from the monorepo root. Only toolchain scripts (vite, vitest, playwright, eslint) belong here.",
     "test:cross-platform": "node tests/cross-platform-sync.mjs"
   },
   "dependencies": {
@@ -94,7 +94,6 @@
     "eslint-config-prettier": "^10.1.8",
     "js-yaml": "^4.1.1",
     "jsdom": "^28.1.0",
-    "mdast-util-to-markdown": "2.1.2",
     "pixelmatch": "^7.1.1",
     "pngjs": "^7.0.0",
     "prettier": "^3.9.4",

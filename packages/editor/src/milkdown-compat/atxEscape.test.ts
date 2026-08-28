@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+// The module under test deliberately does NOT import this (see atxEscape.ts) —
+// but the canary below has to measure the real serializer, so the test does,
+// and the version is pinned in this package's own devDependencies. If it ever
+// drifts from the one @milkdown/kit resolves, that is itself worth knowing.
 import { toMarkdown } from 'mdast-util-to-markdown';
 
 import { ATX_HASH_PATTERN, narrowAtxHashEscape, type UnsafePattern } from './atxEscape';

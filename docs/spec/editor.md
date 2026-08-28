@@ -377,6 +377,17 @@ this file states the behaviors a human cares about.
   code or a fenced block. → markdown-spec/cases/09-tags, 13-adversarial
 - Tags dedup case-insensitively (`#Project` + `#project` → one `#project`).
 - A leading header tag block is recognized and hidden when the cursor is away.
+  > **Gap:** the Milkdown editor (the native shells' embedded editor on the
+  > `feat/milkdown-editor` branch) recognizes the block but does NOT hide it.
+  > A ProseMirror node rendered `display: none` cannot be reached by caret or
+  > click, so hiding it would leave the note's tags uneditable — and on the
+  > native shells, which have no tag bar, invisible as well; a Backspace at the
+  > start of the following paragraph would also silently join an unseen block.
+  > The block renders as text with its tags decorated instead. The desktop swap
+  > is where this editor and the tag bar first meet and is where this is
+  > settled. _(native shells, Milkdown only)_
+  > → src/features/editor/milkdown/tagDecorations.ts,
+  > docs/plan/milkdown-transition.md "T5 outcome"
 
 ## Tag bar _(desktop)_
 

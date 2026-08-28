@@ -8,8 +8,8 @@ import {
   blockTagDecorations,
   createTagDecorationPlugin,
   docTagDecorations,
-  scannableBlocks,
-  scannableBlockText,
+  tagScannableBlocks,
+  tagScannableText,
   TAG_DECORATION_CLASS,
   tagDecorationsKey,
 } from './tagDecorations';
@@ -35,9 +35,9 @@ function ranges(decorations: ReturnType<typeof blockTagDecorations>): Array<[num
   return decorations.map((d) => [d.from, d.to]);
 }
 
-describe('scannableBlockText', () => {
+describe('tagScannableText', () => {
   it('is the block text when the block is all plain text', () => {
-    expect(scannableBlockText(para(s.text('some #project work')))).toBe('some #project work');
+    expect(tagScannableText(para(s.text('some #project work')))).toBe('some #project work');
   });
 
   it('blanks inline code without moving anything after it', () => {
@@ -46,14 +46,14 @@ describe('scannableBlockText', () => {
       s.text('#nope', [s.marks.inlineCode.create()]),
       s.text(' and #yes'),
     );
-    expect(scannableBlockText(block)).toBe('see       and #yes');
-    expect(scannableBlockText(block)).toHaveLength(block.content.size);
+    expect(tagScannableText(block)).toBe('see       and #yes');
+    expect(tagScannableText(block)).toHaveLength(block.content.size);
   });
 
   it('substitutes a non-text inline node with its own size in spaces', () => {
     const block = para(s.text('a'), s.nodes.image.create(), s.text(' #tag'));
-    expect(scannableBlockText(block)).toBe('a  #tag');
-    expect(scannableBlockText(block)).toHaveLength(block.content.size);
+    expect(tagScannableText(block)).toBe('a  #tag');
+    expect(tagScannableText(block)).toHaveLength(block.content.size);
   });
 });
 

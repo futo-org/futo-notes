@@ -227,6 +227,13 @@ Tags, task checkboxes, and fenced-code highlighting, on branch
   (114 KB minified) next to the ones we already ship. `blockDecorations.ts` is the ~40 lines they
   are replaced with: map the existing set through the transaction, rebuild only the blocks the
   transaction's own steps touched. Tags and highlighting both run on it (M5).
+- Found by the standards review, after the first commit: `repaintBlocks` removed stale decorations
+  with `set.find(pos, pos + nodeSize)`, and `DecorationSet.find` returns everything TOUCHING that
+  range — so a node decoration on the NEXT block, which starts exactly where this one ends, was
+  removed and never re-added. Typing in one fence silently un-highlighted the fence below it.
+  Removal is now containment, not touching, with a test. The same review caught `taskCheckbox`
+  rebuilding every widget in the document on each keystroke — the exact shape the two rejected
+  libraries were rejected for — now on `repaintBlocks` like the other two.
 - Coverage: `tests/editor-embed-milkdown-parity.spec.ts` (28 cases) drives the real `editor.html`
   with Playwright mouse AND CDP touch — the phone case is the one that catches a checkbox that
   toggles but steals focus. Unit tests cover the escape narrowing, the tag scanner, the bounded

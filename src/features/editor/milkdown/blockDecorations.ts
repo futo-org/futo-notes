@@ -19,7 +19,7 @@
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { Mapping } from '@milkdown/kit/prose/transform';
-import type { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
+import { DecorationSet, type Decoration } from '@milkdown/kit/prose/view';
 
 /** A block a decorator owns, with the position immediately before it. */
 export interface PositionedBlock {
@@ -64,8 +64,46 @@ export function repaintBlocks(
     const start = Math.max(0, Math.min(from, doc.content.size));
     const end = Math.max(start, Math.min(to, doc.content.size));
     for (const { node, pos } of blocksIn(doc, start, end)) {
-      next = next.remove(next.find(pos, pos + node.nodeSize)).add(doc, decorate(node, pos));
+      next = next
+        .remove(decorationsWithin(next, pos, pos + node.nodeSize))
+        .add(doc, decorate(node, pos));
     }
   }
   return next;
+}
+
+/**
+ * The decorations that belong to `[from, to]` — contained by it, not merely
+ * touching it.
+ *
+ * `DecorationSet.find` returns everything that TOUCHES the range, and a node
+ * decoration on the next block starts exactly where this one ends. Removing
+ * what `find` returns therefore takes the neighbour's decorations with it, and
+ * nothing puts them back: only the blocks inside the changed ranges get
+ * rebuilt. Typing in one fence would silently un-highlight the fence below it.
+ */
+function decorationsWithin(set: DecorationSet, from: number, to: number): Decoration[] {
+  return set.find(from, to).filter((decoration) => decoration.from >= from && decoration.to <= to);
+}
+
+/** Decorations for every block `blocksIn` owns — the whole-document build. */
+export function decorateAllBlocks(
+  doc: ProseNode,
+  blocksIn: (doc: ProseNode, from: number, to: number) => PositionedBlock[],
+  decorate: (node: ProseNode, pos: number) => Decoration[],
+): DecorationSet {
+  return DecorationSet.create(
+    doc,
+    blocksIn(doc, 0, doc.content.size).flatMap(({ node, pos }) => decorate(node, pos)),
+  );
+}
+
+/**
+ * A fenced code block: a textblock whose schema says its content is code. The
+ * one predicate both decorators key off, from opposite sides — tags are never
+ * inside one, highlighting is only inside one — so they cannot disagree about
+ * what a fence is.
+ */
+export function isCodeBlock(node: ProseNode): boolean {
+  return node.type.spec.code === true && node.isTextblock;
 }

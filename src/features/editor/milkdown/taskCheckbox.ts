@@ -23,6 +23,12 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 import { $prose } from '@milkdown/kit/utils';
 
+import {
+  changedRanges,
+  decorateAllBlocks,
+  repaintBlocks,
+  type PositionedBlock,
+} from './blockDecorations';
 import { isTaskItem } from './caretContext';
 
 /**
@@ -99,30 +105,40 @@ function renderCheckbox(checked: boolean, view: ProseView, getPos: () => number 
   return wrapper;
 }
 
-export function taskCheckboxDecorations(doc: ProseNode): DecorationSet {
-  const decorations: Decoration[] = [];
-  doc.descendants((node, pos) => {
-    if (!isTaskItem(node)) return true;
-    const checked = node.attrs.checked === true;
-    decorations.push(
-      Decoration.widget(
-        checkboxPos(node, pos),
-        (view, getPos) => renderCheckbox(checked, view, getPos),
-        {
-          // `side: -1` puts it before the item's first character. The key
-          // carries the state so ProseMirror redraws the widget when it flips
-          // instead of reusing a box with the wrong tick in it.
-          side: -1,
-          key: `futo-task-${checked}`,
-          // Events inside the widget are the widget's, never the document's.
-          stopEvent: () => true,
-          ignoreSelection: true,
-        },
-      ),
-    );
+/** Every task item in `[from, to]`, with its position. */
+export function taskItemsIn(doc: ProseNode, from: number, to: number): PositionedBlock[] {
+  const out: PositionedBlock[] = [];
+  doc.nodesBetween(from, to, (node, pos) => {
+    // Keep descending: a task list nests inside its parent item.
+    if (isTaskItem(node)) out.push({ node, pos });
     return true;
   });
-  return DecorationSet.create(doc, decorations);
+  return out;
+}
+
+/** The checkbox widget for one task item. */
+function decorateTaskItem(node: ProseNode, pos: number): Decoration[] {
+  const checked = node.attrs.checked === true;
+  return [
+    Decoration.widget(
+      checkboxPos(node, pos),
+      (view, getPos) => renderCheckbox(checked, view, getPos),
+      {
+        // `side: -1` puts it before the item's first character. The key
+        // carries the state so ProseMirror redraws the widget when it flips
+        // instead of reusing a box with the wrong tick in it.
+        side: -1,
+        key: `futo-task-${checked}`,
+        // Events inside the widget are the widget's, never the document's.
+        stopEvent: () => true,
+        ignoreSelection: true,
+      },
+    ),
+  ];
+}
+
+export function taskCheckboxDecorations(doc: ProseNode): DecorationSet {
+  return decorateAllBlocks(doc, taskItemsIn, decorateTaskItem);
 }
 
 export function createTaskCheckboxPlugin(): Plugin<DecorationSet> {
@@ -130,11 +146,22 @@ export function createTaskCheckboxPlugin(): Plugin<DecorationSet> {
     key: taskCheckboxKey,
     state: {
       init: (_config, state) => taskCheckboxDecorations(state.doc),
-      // Rebuilt on a document change rather than mapped: a widget's rendered
-      // state is its item's `checked` attribute, and `setNodeMarkup` changes
-      // that WITHOUT moving a single position, so a mapped set would keep
-      // showing the old tick.
-      apply: (tr, set) => (tr.docChanged ? taskCheckboxDecorations(tr.doc) : set),
+      // Rebuilt, not mapped: a widget's rendered state is its item's `checked`
+      // attribute, and `setNodeMarkup` changes that WITHOUT moving a single
+      // position, so a mapped set would keep showing the old tick. Rebuilt only
+      // for the items the transaction's own steps touched, though — the toggle
+      // step's range covers the item it retyped, so nothing needs a walk of the
+      // whole document (AGENTS.md M5).
+      apply: (tr, set) =>
+        tr.docChanged
+          ? repaintBlocks(
+              set.map(tr.mapping, tr.doc),
+              tr.doc,
+              changedRanges(tr),
+              taskItemsIn,
+              decorateTaskItem,
+            )
+          : set,
     },
     props: {
       decorations(state) {

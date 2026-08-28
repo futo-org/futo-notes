@@ -21,11 +21,17 @@ import { classHighlighter, highlightTree } from '@lezer/highlight';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
+import { Decoration, type DecorationSet } from '@milkdown/kit/prose/view';
 import { $prose } from '@milkdown/kit/utils';
 
 import { codeFenceLanguages } from '../codeFenceLanguages';
-import { changedRanges, repaintBlocks, type PositionedBlock } from './blockDecorations';
+import {
+  changedRanges,
+  decorateAllBlocks,
+  isCodeBlock,
+  repaintBlocks,
+  type PositionedBlock,
+} from './blockDecorations';
 
 /** Marks a fence as carrying `tok-*` spans, for src/styles/code-tokens.css. */
 export const CODE_TOKENS_CLASS = 'futo-code-tokens';
@@ -50,7 +56,7 @@ const REFRESH = 'refresh';
 export function codeBlocksIn(doc: ProseNode, from: number, to: number): PositionedBlock[] {
   const out: PositionedBlock[] = [];
   doc.nodesBetween(from, to, (node, pos) => {
-    if (!node.type.spec.code || !node.isTextblock) return true;
+    if (!isCodeBlock(node)) return true;
     out.push({ node, pos });
     return false;
   });
@@ -124,6 +130,11 @@ export function createCodeHighlightPlugin(): Plugin<DecorationSet> {
     return null;
   }
 
+  /*
+   * Not a pure function: for a fence whose grammar has not arrived yet this
+   * STARTS the load (once per language) and returns the marker alone, and the
+   * fence is decorated properly by the refresh that load dispatches.
+   */
   function decorate(node: ProseNode, pos: number): Decoration[] {
     // The class the stylesheet keys off goes on every fence, coloured or not,
     // so the rules are about the fence rather than about which grammars
@@ -134,10 +145,7 @@ export function createCodeHighlightPlugin(): Plugin<DecorationSet> {
   }
 
   function decorateAll(doc: ProseNode): DecorationSet {
-    return DecorationSet.create(
-      doc,
-      codeBlocksIn(doc, 0, doc.content.size).flatMap(({ node, pos }) => decorate(node, pos)),
-    );
+    return decorateAllBlocks(doc, codeBlocksIn, decorate);
   }
 
   return new Plugin<DecorationSet>({

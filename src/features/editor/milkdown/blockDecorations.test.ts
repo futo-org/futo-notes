@@ -125,6 +125,40 @@ describe('repaintBlocks', () => {
     expect(next.find()).toHaveLength(2);
   });
 
+  it('never strips the neighbouring block, whose decoration abuts this one', () => {
+    // `DecorationSet.find(from, to)` returns everything TOUCHING that range,
+    // and a node decoration on the next block starts exactly where this one
+    // ends — so a naive remove-then-add takes the neighbour's decorations with
+    // it and never puts them back. Node decorations (codeHighlight's fence
+    // marker) abut exactly; inline ones sit a position inside their block.
+    const first = para('one');
+    const second = para('two');
+    const d = s.nodes.doc.create(null, [first, second]);
+    const wholeNode = (node: ProseNode, pos: number): Decoration[] => [
+      Decoration.node(pos, pos + node.nodeSize, { class: 'block' }, { text: node.textContent }),
+    ];
+    const state = EditorState.create({ doc: d });
+    const tr = state.tr.insertText('!', 2);
+
+    const next = repaintBlocks(
+      DecorationSet.create(d, [...wholeNode(first, 0), ...wholeNode(second, first.nodeSize)]).map(
+        tr.mapping,
+        tr.doc,
+      ),
+      tr.doc,
+      changedRanges(tr),
+      paragraphsIn,
+      wholeNode,
+    );
+
+    expect(
+      next
+        .find()
+        .map((decoration) => decoration.spec.text)
+        .sort(),
+    ).toEqual(['o!ne', 'two']);
+  });
+
   it('survives a range that a later step pushed past the end of the document', () => {
     const state = EditorState.create({ doc: docOf('one', 'two') });
     const tr = state.tr.insertText('xyz', 8).delete(0, state.doc.content.size);

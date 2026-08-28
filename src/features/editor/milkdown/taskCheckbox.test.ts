@@ -5,12 +5,14 @@ import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { EditorState, type Transaction } from '@milkdown/kit/prose/state';
 import type { Decoration, DecorationSet, EditorView as ProseView } from '@milkdown/kit/prose/view';
 
+import { changedRanges } from './blockDecorations';
 import {
   CHECKBOX_SIZE_PX,
   createTaskCheckboxPlugin,
   TASK_CHECKBOX_CLASS,
   taskCheckboxDecorations,
   taskCheckboxKey,
+  taskItemsIn,
   toggleTaskItem,
 } from './taskCheckbox';
 import { testSchema as s } from './__fixtures__/schema';
@@ -203,6 +205,29 @@ describe('the plugin', () => {
     const before = keyOf(app.state);
     toggleTaskItem(app.view, 3);
     expect(keyOf(app.state)).not.toBe(before);
+  });
+
+  it('rebuilds one item per keystroke, whatever the document size', () => {
+    // The M5 assertion. A toggle retypes ONE node, and typing in an item's text
+    // touches only that item, so neither costs a walk of the document — the
+    // shape this diff rejected two published highlight plugins for.
+    const items = Array.from({ length: 500 }, (_, i) => item(false, `task ${i}`));
+    const d = doc(list(...items));
+    const state = EditorState.create({ doc: d, plugins: [createTaskCheckboxPlugin()] });
+    const middle = state.doc.resolve(Math.floor(d.content.size / 2)).start();
+
+    // Distinct items: `setNodeMarkup` is one step with two map ranges (the
+    // node's open and close), so the same item is reported by both — rebuilding
+    // it twice is wasted work, never wrong work.
+    const touched = (tr: Transaction) =>
+      new Set(changedRanges(tr).flatMap(([f, t]) => taskItemsIn(tr.doc, f, t).map((i) => i.pos)));
+
+    expect(touched(state.tr.insertText('!', middle)).size).toBe(1);
+
+    const last = taskItemsIn(d, 0, d.content.size)[499];
+    expect(touched(state.tr.setNodeMarkup(last.pos, undefined, { checked: true })).size).toBe(1);
+
+    expect(taskItemsIn(d, 0, d.content.size)).toHaveLength(500);
   });
 
   it('adds a widget when an edit turns a bullet into a task', () => {
