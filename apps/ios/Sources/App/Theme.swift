@@ -44,3 +44,36 @@ extension Color {
             })
     }
 }
+
+enum ThemeMode: String, CaseIterable {
+    case light
+    case dark
+    case auto
+
+    static let storageKey = "futo.themeMode"
+
+    static func resolve(_ rawValue: String) -> ThemeMode {
+        ThemeMode(rawValue: rawValue) ?? .auto
+    }
+
+    var interfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .light: return .light
+        case .dark: return .dark
+        case .auto: return .unspecified
+        }
+    }
+}
+
+extension View {
+    func appearanceOverride(_ mode: ThemeMode) -> some View {
+        onChange(of: mode, initial: true) { _, newMode in
+            for scene in UIApplication.shared.connectedScenes {
+                guard let windowScene = scene as? UIWindowScene else { continue }
+                for window in windowScene.windows {
+                    window.overrideUserInterfaceStyle = newMode.interfaceStyle
+                }
+            }
+        }
+    }
+}

@@ -90,9 +90,6 @@
   border: 1px solid var(--color-border, #d1d5db);
   background: transparent;
   color: var(--color-text, inherit);
-  transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease;
 }
 
 .modal-btn-primary {

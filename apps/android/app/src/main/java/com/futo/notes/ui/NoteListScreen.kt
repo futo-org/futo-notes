@@ -43,8 +43,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -71,6 +69,7 @@ import com.futo.notes.NotesStore
 import com.futo.notes.shouldCompleteNoteAction
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
+import com.futo.notes.ui.components.FutoTopBar
 import com.futo.notes.ui.components.NewFolderDialog
 import com.futo.notes.ui.components.NoteCard
 import com.futo.notes.ui.components.pressScale
@@ -128,7 +127,7 @@ internal fun NoteListScreen(
     Scaffold(
         containerColor = c.surface,
         topBar = {
-            TopAppBar(
+            FutoTopBar(
                 title = { Text(title, style = FutoType.title, color = c.textPrimary) },
                 navigationIcon = {
                     // The root folder is the stack floor [nav.md], so it shows no
@@ -153,7 +152,6 @@ internal fun NoteListScreen(
                         Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = c.textSecondary)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface),
                 modifier = if (scrolled) Modifier.drawWithContent {
                     drawContent()
                     val stroke = 1.dp.toPx()

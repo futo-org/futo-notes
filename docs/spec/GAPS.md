@@ -9,6 +9,7 @@ flag gaps the codebase suggests have been implemented.
 
 - [app.md:136](app.md#L136) — Android pre-11 (API < 30) devices can't use Device storage (All-files access is an API-30 mechanism) — they only get App storage, so their vault is not visible in a file manager. _(Android)_
 - [app.md:140](app.md#L140) — The vault folder is fixed per mode and not a user-pickable arbitrary directory on mobile (desktop allows a custom folder); iOS has no iCloud Drive vault option. Both are possible follow-ups. _(iOS / Android)_
+- [app.md:193](app.md#L193) — _(iOS)_ A stock toolbar button's pill background — Settings' **Done** — repaints on UIKit's own later pass, so it trails the rest of the sheet. Measured on an iPhone 17 Pro simulator (iOS 26) by tapping Light/Dark and sampling frames: every sheet surface reaches its new colour in the same single frame, while the pill is ~29% of the way there. Reproduced with the app's tint replaced by a stock system colour, so this is platform chrome rather than FUTO theming, and there is no app-side fix.
 
 ## desktop-rust.md
 
@@ -50,4 +51,4 @@ flag gaps the codebase suggests have been implemented.
 - [sync.md:1148](sync.md#L1148) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 - [sync.md:1152](sync.md#L1152) — The desktop scheduler's own triggers are not distinguishable in the record. Launch, poll, resume and local-save all reach Rust through the one `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be told apart from a user pressing "Sync now"; only the live loop's four triggers are recorded faithfully.
 
-_24 gaps._
+_25 gaps._

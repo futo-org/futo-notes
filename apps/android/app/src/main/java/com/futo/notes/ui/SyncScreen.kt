@@ -27,8 +27,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
 import com.futo.notes.SyncManager
+import com.futo.notes.ui.components.FutoTopBar
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -68,14 +67,13 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
     Scaffold(
         containerColor = c.surface,
         topBar = {
-            TopAppBar(
+            FutoTopBar(
                 title = { Text("Sync", style = FutoType.title, color = c.textPrimary) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface),
             )
         },
     ) { padding ->

@@ -655,6 +655,15 @@ qa-shot *args:
 check-qa-input-safety:
   node scripts/check-qa-input-safety.mjs
 
+# Fail if a theme swap would repaint any surface at a different pace than the rest
+# of the window: a CSS `transition` over a theme-dependent property whose rest
+# value is a real colour, or a Material3 `TopAppBar(` called outside FutoTopBar
+# (M3 springs the bar's container colour through animateColorAsState). Three
+# separate landings fixed three instances of the same law before anything held
+# the rule. Background: docs/spec/app.md.
+check-theme-single-pace:
+  node scripts/check-theme-single-pace.mjs
+
 # Resolve a desktop QA target safely: the ONLY sanctioned way to turn a port or
 # PID into something you may drive. Verifies the executable is a debug build
 # inside THIS worktree (plus its data dir and vault) and exits 3 on anything
