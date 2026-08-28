@@ -25,12 +25,10 @@
  */
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
-import { contentColumnX, resolveTopLevelTarget, type TopLevelTarget } from './blockDragGeometry';
+import { autoScrollAtEdge, targetAtPointerY, type TopLevelTarget } from './blockDragGeometry';
 import { moveTopLevelBlock } from './blockMove';
 
 const TOUCH_DRAG_THRESHOLD_PX = 6;
-const AUTO_SCROLL_EDGE_PX = 48;
-const AUTO_SCROLL_STEP_PX = 14;
 
 /** The block the ⠿ handle is currently showing for (BlockProvider's `active`). */
 export interface ActiveBlock {
@@ -109,13 +107,6 @@ export function createHandleBlockDrag(options: HandleBlockDragOptions): HandleBl
     indicatorEl?.classList.remove('milkdown-touch-drop-indicator--visible');
   }
 
-  /** The drop boundary for a pointer at `clientY`, clamped into the editor. */
-  function targetAt(view: ProseView, clientY: number): TopLevelTarget | null {
-    const rect = view.dom.getBoundingClientRect();
-    const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
-    return resolveTopLevelTarget(view, contentColumnX(view), y);
-  }
-
   function beginDrag(): void {
     const state = drag;
     if (!state) return;
@@ -172,16 +163,9 @@ export function createHandleBlockDrag(options: HandleBlockDragOptions): HandleBl
       if (!state.dragging) return; // no active block to drag (see beginDrag)
     }
 
-    const target = targetAt(view, event.clientY);
+    const target = targetAtPointerY(view, event.clientY);
     if (target) showIndicator(target);
-
-    // Rudimentary auto-scroll: `.ProseMirror` (view.dom) owns overflow-y.
-    const rect = view.dom.getBoundingClientRect();
-    if (event.clientY - rect.top < AUTO_SCROLL_EDGE_PX) {
-      view.dom.scrollTop = Math.max(0, view.dom.scrollTop - AUTO_SCROLL_STEP_PX);
-    } else if (rect.bottom - event.clientY < AUTO_SCROLL_EDGE_PX) {
-      view.dom.scrollTop += AUTO_SCROLL_STEP_PX;
-    }
+    autoScrollAtEdge(view, event.clientY);
   };
 
   function endDrag(event: PointerEvent, commit: boolean): void {
@@ -203,7 +187,7 @@ export function createHandleBlockDrag(options: HandleBlockDragOptions): HandleBl
     const view = getView();
     if (!commit || !view) return; // pointercancel, or the view vanished: abort cleanly
 
-    const target = targetAt(view, event.clientY);
+    const target = targetAtPointerY(view, event.clientY);
     if (!target) return;
     moveTopLevelBlock(
       view,

@@ -138,7 +138,9 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       const insertMarkdown = `![](${filename})\n`;
       if (editor.insertMarkdown) {
         editor.insertMarkdown(insertMarkdown);
-        preloadImages(insertMarkdown, undefined, () => editor.getView());
+        // No `getView`: preloadImages only uses it to nudge a CodeMirror view
+        // after an async `getImageUrl` resolve, and this branch passes neither.
+        preloadImages(insertMarkdown);
         return;
       }
       const view = editor.getView();

@@ -7,8 +7,23 @@
  * a projection ProseMirror may re-render at any time, the node tree is what the
  * commands actually act on.
  */
+import { editorViewCtx, type Editor } from '@milkdown/kit/core';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
+
+/**
+ * The live ProseMirror view, or null before the editor finishes building (and
+ * after it is destroyed) — `ctx.get` throws for a slice that is not there yet,
+ * which every caller here treats as "no view".
+ */
+export function editorView(editor: Editor | null): ProseView | null {
+  if (!editor) return null;
+  try {
+    return editor.ctx.get(editorViewCtx);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * A GFM task-list item. Milkdown models it as an ordinary `list_item` carrying

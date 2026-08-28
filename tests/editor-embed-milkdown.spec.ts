@@ -1,5 +1,6 @@
 import { expect, test as base, type CDPSession, type Page } from '@playwright/test';
 
+import { DEFAULT_LONG_PRESS_MS } from '../src/features/editor/milkdown/mobileBlockDnd';
 import { EDITOR_URL } from './editorEmbedBundle';
 import {
   clearMessages,
@@ -383,8 +384,10 @@ async function longPressDrag(
   to: { x: number; y: number },
 ): Promise<void> {
   await touch(cdp, 'touchStart', from.x, from.y);
-  // Past the 340 ms lift timer, stationary (any real movement cancels it).
-  await page.waitForTimeout(450);
+  // Past the lift timer, stationary (any real movement cancels it). A hold
+  // genuinely needs wall time; the number comes from the plugin's own default
+  // so the two cannot drift apart.
+  await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
   // Several moves, as a finger produces — one jump would skip the indicator.
   for (let step = 1; step <= 4; step += 1) {
     await touch(

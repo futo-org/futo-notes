@@ -83,8 +83,8 @@ import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import {
-  contentColumnX,
-  resolveTopLevelTarget,
+  autoScrollAtEdge,
+  targetAtPointerY,
   topLevelBlockAt,
   type TopLevelTarget,
 } from './blockDragGeometry';
@@ -96,17 +96,19 @@ export interface MobileBlockDndOptions {
   /** Fired once on lift and once on a committed (non-no-op) drop. */
   onHaptic: (kind: MobileDndHapticKind) => void;
   /** Stationary hold (ms) before a touch lifts a block. Default 340 — must
-   * beat iOS's own ~500ms text-selection long-press (see module doc). */
+   * beat iOS's own ~500ms text-selection long-press (see module doc). No
+   * caller overrides either of these today; they exist because both numbers
+   * were tuned by hand on a device and the next tuning pass wants a dial. */
   longPressMs?: number;
   /** Movement (px) before the timer fires that cancels the pending lift and
    * lets the gesture pass through as an ordinary scroll. */
   moveCancelPx?: number;
 }
 
-const DEFAULT_LONG_PRESS_MS = 340;
+/** Exported so a test can hold for longer than the lift timer without
+ * hardcoding a second copy of the number. */
+export const DEFAULT_LONG_PRESS_MS = 340;
 const DEFAULT_MOVE_CANCEL_PX = 10;
-const AUTO_SCROLL_EDGE_PX = 48;
-const AUTO_SCROLL_STEP_PX = 14;
 
 /** Horizontal breathing room the ghost card adds around the block's own rect,
  * so the preview reads as a card the block sits inside rather than a crop of
@@ -417,7 +419,7 @@ class MobileBlockDndView {
     const target = this.computeTarget(event.clientY);
     if (target) this.showIndicator(target);
     else this.hideIndicator();
-    this.autoScroll(event.clientY);
+    autoScrollAtEdge(this.view, event.clientY);
   };
 
   private onPointerUp = (event: PointerEvent): void => {
@@ -547,11 +549,7 @@ class MobileBlockDndView {
   }
 
   private computeTarget(clientY: number): TopLevelTarget | null {
-    const view = this.view;
-    const rect = view.dom.getBoundingClientRect();
-    const x = contentColumnX(view);
-    const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
-    return resolveTopLevelTarget(view, x, y);
+    return targetAtPointerY(this.view, clientY);
   }
 
   private ensureIndicator(): HTMLDivElement {
@@ -577,16 +575,6 @@ class MobileBlockDndView {
 
   private hideIndicator(): void {
     this.indicatorEl?.classList.remove('futo-mobile-dnd-indicator--visible');
-  }
-
-  private autoScroll(clientY: number): void {
-    const view = this.view;
-    const rect = view.dom.getBoundingClientRect();
-    if (clientY - rect.top < AUTO_SCROLL_EDGE_PX) {
-      view.dom.scrollTop = Math.max(0, view.dom.scrollTop - AUTO_SCROLL_STEP_PX);
-    } else if (rect.bottom - clientY < AUTO_SCROLL_EDGE_PX) {
-      view.dom.scrollTop += AUTO_SCROLL_STEP_PX;
-    }
   }
 
   private cleanupDragVisuals(): void {

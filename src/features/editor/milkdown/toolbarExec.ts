@@ -13,7 +13,7 @@
  * selection and `indent` on a list item with no preceding sibling are known
  * gaps, owned by the toolbar-parity ticket (#104).
  */
-import { editorViewCtx, type CmdKey, type Editor } from '@milkdown/kit/core';
+import { type CmdKey, type Editor } from '@milkdown/kit/core';
 import {
   liftListItemCommand,
   sinkListItemCommand,
@@ -30,21 +30,13 @@ import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { callCommand } from '@milkdown/kit/utils';
 
-import { currentHeadingLevel, enclosingListItem } from './caretContext';
+import { currentHeadingLevel, editorView, enclosingListItem } from './caretContext';
 
 /** Command ids this editor can execute, mapped to their implementations. */
 export type ToolbarExecMap = Record<string, () => void>;
 
 export function createToolbarExec(getEditor: () => Editor | null): ToolbarExecMap {
-  function view(): ProseView | null {
-    const editor = getEditor();
-    if (!editor) return null;
-    try {
-      return editor.ctx.get(editorViewCtx);
-    } catch {
-      return null;
-    }
-  }
+  const view = (): ProseView | null => editorView(getEditor());
 
   function run<T>(command: { key: CmdKey<T> }, payload?: T): void {
     const editor = getEditor();

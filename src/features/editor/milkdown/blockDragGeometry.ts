@@ -94,3 +94,36 @@ export function topLevelBlockAt(view: ProseView, x: number, y: number): TopLevel
   if (!(dom instanceof HTMLElement)) return null;
   return { pos: start, node, dom };
 }
+
+/* ---- shared drag mechanics ---------------------------------------------- *
+ * Both drag paths need the same two things while a finger is down, and they
+ * used to carry their own copies of both (including their own copies of these
+ * constants). */
+
+const AUTO_SCROLL_EDGE_PX = 48;
+const AUTO_SCROLL_STEP_PX = 14;
+
+/**
+ * The drop boundary for a pointer at `clientY`, with the point clamped inside
+ * the editor box so a finger dragged past either end still resolves to the
+ * first or last block rather than to nothing.
+ */
+export function targetAtPointerY(view: ProseView, clientY: number): TopLevelTarget | null {
+  const rect = view.dom.getBoundingClientRect();
+  const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
+  return resolveTopLevelTarget(view, contentColumnX(view), y);
+}
+
+/**
+ * Nudges the editor's own scroller when the finger is near an edge. Rudimentary
+ * on purpose: one step per pointermove, so it only scrolls while the finger is
+ * actually moving. `.ProseMirror` (view.dom) owns overflow-y here.
+ */
+export function autoScrollAtEdge(view: ProseView, clientY: number): void {
+  const rect = view.dom.getBoundingClientRect();
+  if (clientY - rect.top < AUTO_SCROLL_EDGE_PX) {
+    view.dom.scrollTop = Math.max(0, view.dom.scrollTop - AUTO_SCROLL_STEP_PX);
+  } else if (rect.bottom - clientY < AUTO_SCROLL_EDGE_PX) {
+    view.dom.scrollTop += AUTO_SCROLL_STEP_PX;
+  }
+}

@@ -4,6 +4,16 @@ import path from 'node:path';
 import { test as base, expect, type Browser, type Page } from '@playwright/test';
 
 import { CM6_EDITOR_URL, EDITOR_BUNDLE_PATH, withCodeMirrorEngine } from './editorEmbedBundle';
+import {
+  clearMessages,
+  flushFrames,
+  getContent,
+  installFakeAndroidHost,
+  messages,
+  messagesOfType,
+  type BridgeMessage,
+  type FakeHostWindow,
+} from './lib/editorEmbedHost';
 
 /**
  * futoBridge v7 protocol contract, CodeMirror engine — executable.
@@ -48,46 +58,6 @@ import { CM6_EDITOR_URL, EDITOR_BUNDLE_PATH, withCodeMirrorEngine } from './edit
  * hook (`import.meta.env.DEV` is false in a release build).
  */
 
-interface BridgeMessage {
-  type: string;
-  [key: string]: unknown;
-}
-
-interface FakeHostWindow extends Window {
-  __msgs: BridgeMessage[];
-  __openCalls: unknown[][];
-  FutoEditor: {
-    initialize(configJson: string): void;
-    setContent(markdown: string): void;
-    getContent(): string;
-    focus(): void;
-    blur(): void;
-    setTheme(theme: 'light' | 'dark'): void;
-    setNotes(notesJson: string): void;
-    applyExternalContent(markdown: string): void;
-    insertImage(filename: string): void;
-    setImageBaseUrl(base: string): void;
-    exec(commandId: string): void;
-    setNativeToolbar(enabled: boolean): void;
-  };
-}
-
-// Installed via addInitScript BEFORE the bundle's own scripts, so the very
-// first `ready` post lands in `__msgs`. Also stubs `window.open` so a test can
-// prove external links never fall back to it while a host is present.
-function installFakeAndroidHost(): void {
-  const w = window as unknown as FakeHostWindow;
-  w.__msgs = [];
-  w.__openCalls = [];
-  w.open = ((...args: unknown[]) => {
-    w.__openCalls.push(args);
-    return null;
-  }) as typeof window.open;
-  (w as unknown as { futoBridge: { postMessage(json: string): void } }).futoBridge = {
-    postMessage: (json: string) => w.__msgs.push(JSON.parse(json) as BridgeMessage),
-  };
-}
-
 const test = base.extend<{ page: Page }>({
   page: async ({ browser }, use) => {
     const context = await browser.newContext({ hasTouch: true });
@@ -124,31 +94,6 @@ async function pointBelowFinalEditorLine(page: Page, rowsBelow: number) {
     Number.parseFloat(getComputedStyle(element).lineHeight),
   );
   return { x: box.x + 18, y: box.y + box.height + rowHeight * rowsBelow };
-}
-
-// Let the editor's rAF-coalesced change callback flush before we assert.
-async function flushFrames(page: Page): Promise<void> {
-  await page.evaluate(
-    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
-  );
-}
-
-function messages(page: Page): Promise<BridgeMessage[]> {
-  return page.evaluate(() => (window as unknown as FakeHostWindow).__msgs);
-}
-
-async function messagesOfType(page: Page, type: string): Promise<BridgeMessage[]> {
-  return (await messages(page)).filter((m) => m.type === type);
-}
-
-async function clearMessages(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    (window as unknown as FakeHostWindow).__msgs.length = 0;
-  });
-}
-
-function getContent(page: Page): Promise<string> {
-  return page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.getContent());
 }
 
 // Set the whole document from the host, then let the (suppressed) change

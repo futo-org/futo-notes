@@ -644,6 +644,8 @@ test:e2e:editor-embed:
         - editor.html
         - vite.editor.config.ts
         - tests/editor-embed-bridge.spec.ts
+        - tests/editor-embed-milkdown.spec.ts
+        - tests/lib/editorEmbedHost.ts
         - tests/editorEmbedBundle.ts
         - playwright.editor-embed.config.ts
         - package.json

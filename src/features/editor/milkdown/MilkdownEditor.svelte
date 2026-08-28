@@ -50,8 +50,8 @@
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
   import { resolveImageSrc } from '../live-preview/images';
   import type { EditorLinkGesture } from '../interactions/editorPointerInteractions';
-  import { isIOS } from '$lib/platform';
-  import { enclosingListItem, isTaskItem } from './caretContext';
+  import { resolveBlockDragMode } from './blockDragMode';
+  import { editorView, enclosingListItem, isTaskItem } from './caretContext';
   import { computeActiveFormats } from './formatState';
   import { createHandleBlockDrag, type HandleBlockDrag } from './handleBlockDrag';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
@@ -88,32 +88,18 @@
     onhaptic,
   }: Props = $props();
 
-  /* TEST-ONLY escape hatch: headless chromium (Playwright smokes) can never
-   * be sniffed as iOS, so the long-press path needs a way in without a real
-   * device. `editor.html?forceMobileDnd` or `window.__futoForceMobileDnd`;
-   * never set by production hosts. Kept as the sole extra input to the ONE
-   * iOS gate below rather than a second ad-hoc platform check. */
-  function forceMobileDndForTests(): boolean {
-    if (typeof window === 'undefined') return false;
-    if ((window as unknown as { __futoForceMobileDnd?: boolean }).__futoForceMobileDnd) return true;
-    try {
-      return new URLSearchParams(window.location.search).has('forceMobileDnd');
-    } catch {
-      return false;
-    }
-  }
-
-  /* THE single gate (root AGENTS.md §6 requirement 6): the Notion-style
-   * long-press-anywhere-on-the-block path replaces the ⠿ gutter handle ONLY
-   * in the native iOS shell. Every other environment (desktop browser,
-   * Android, and the shipping CodeMirror editor entirely) is unaffected.
+  /* THE single gate: the Notion-style long-press-anywhere-on-the-block path
+   * REPLACES the ⠿ gutter handle in the native iOS shell, and the two never
+   * coexist for one editor. `blockDragMode.ts` owns the decision (components
+   * do not read the platform — src/AGENTS.md).
+   *
    * `$derived` (not a plain top-level read) so the gutter CSS class and the
    * tap handlers stay wired to the `nativeShell` prop rather than to a
    * snapshot. Which PLUGIN gets mounted is still decided once, in onMount —
    * the embed never flips `nativeShell` on a live editor, and swapping drag
    * mechanisms under a mounted ProseMirror view is not something this
    * supports. */
-  const useMobileBlockDnd = $derived(nativeShell && (isIOS || forceMobileDndForTests()));
+  const useMobileBlockDnd = $derived(resolveBlockDragMode(nativeShell) === 'long-press');
 
   let container: HTMLDivElement;
   let editor: Editor | null = null;
@@ -156,14 +142,7 @@
     return HISTORY_KEY.getState(EditorState.create({ schema, plugins: [proseHistory()] }));
   }
 
-  function pmView(): ProseView | null {
-    if (!editor) return null;
-    try {
-      return editor.ctx.get(editorViewCtx);
-    } catch {
-      return null;
-    }
-  }
+  const pmView = (): ProseView | null => editorView(editor);
 
   /* ---- image srcs -------------------------------------------------------- *
    * Vault images are relative filenames; the native host registers a base URL
@@ -221,7 +200,7 @@
   /* Task-list glyphs are painted via an outdented `::before` on the <li>
    * (see the `li[data-checked]::before` rule below) that the block handle's
    * own bounding box does not know about — push the handle further left for
-   * those items so the two tap targets never overlap (req. 5). */
+   * those items so the handle and the checkbox are never the same tap. */
   function blockHandleOffset(node: ProseNode): { mainAxis: number } {
     return isTaskItem(node) ? { mainAxis: 30 } : { mainAxis: 8 };
   }
