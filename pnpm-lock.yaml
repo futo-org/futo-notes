@@ -125,6 +125,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.2
         version: 9.39.4
+      '@lezer/markdown':
+        specifier: 1.6.3
+        version: 1.6.3
       '@playwright/test':
         specifier: ^1.58.1
         version: 1.58.2

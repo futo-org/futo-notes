@@ -6,7 +6,10 @@ import { createImageFilename, isImageFilename } from '$shared/media/imageFiles';
 
 import type { PlatformFS } from '../types';
 
-type TauriImages = Pick<PlatformFS, 'saveImage' | 'saveImageBytes' | 'getImageUrl' | 'pickImage'>;
+type TauriImages = Pick<
+  PlatformFS,
+  'saveImage' | 'saveImageBytes' | 'getImageUrl' | 'pickImage' | 'pasteClipboardImage'
+>;
 
 interface TauriImageDependencies {
   getNotesRoot: () => Promise<string>;
@@ -82,6 +85,10 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
       return URL.createObjectURL(
         new Blob([new Uint8Array(bytes)], { type: imageMimeForExtension(extension) }),
       );
+    },
+
+    pasteClipboardImage() {
+      return invoke<string>('fs_paste_clipboard_image');
     },
 
     async pickImage() {

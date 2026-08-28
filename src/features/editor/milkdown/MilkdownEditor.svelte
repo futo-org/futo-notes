@@ -50,8 +50,12 @@
   import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
   import type { Node as ProseNode, Schema as ProseSchema } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
-  import { withNarrowedAtxHashEscape } from '@futo-notes/editor';
-  import { resolveImageSrc } from '../live-preview/images';
+  import { imageReferenceMarkdown, withNarrowedAtxHashEscape } from '@futo-notes/editor';
+  import {
+    installVaultImageUrlResolver,
+    uninstallVaultImageUrlResolver,
+  } from '$features/images/vaultImageUrlResolver';
+  import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
   import type { EditorLinkGesture } from '../interactions/editorPointerInteractions';
   import { resolveBlockDragMode } from './blockDragMode';
   import { editorView, enclosingListItem, isTaskItem } from './caretContext';
@@ -74,6 +78,7 @@
   import { tagDecorations } from './tagDecorations';
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
   import { createToolbarExec } from './toolbarExec';
+  import { vaultImageView } from './vaultImageView';
   import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
   import { WIKILINK_BROKEN_CLASS } from './wikilink/display';
 
@@ -204,22 +209,20 @@
 
   const pmView = (): ProseView | null => editorView(editor);
 
-  /* ---- image srcs -------------------------------------------------------- *
-   * Vault images are relative filenames; the native host registers a base URL
-   * (createFutoEditorApi -> setLocalImageBaseUrl), and resolveImageSrc owns the
-   * mapping. Milkdown renders plain <img src="file.png">, so rewrite after every
-   * render instead of teaching the schema about vault paths. */
-  function rewriteImageSrcs(): void {
-    const root = container;
-    if (!root) return;
-    for (const img of Array.from(root.querySelectorAll('img'))) {
-      const original = img.dataset.futoSrc ?? img.getAttribute('src') ?? '';
-      if (!original) continue;
-      img.dataset.futoSrc = original;
-      const resolved = resolveImageSrc(original);
-      if (resolved && img.getAttribute('src') !== resolved) img.setAttribute('src', resolved);
-    }
-  }
+  /* ---- images ------------------------------------------------------------ *
+   * Vault images are bare filenames; `vaultImageView.ts` is the ProseMirror
+   * node view that resolves each one against whatever this shell serves the
+   * vault over, and re-resolves itself when that arrives late. Nothing here
+   * touches rendered image DOM — a post-render sweep is what the node view
+   * replaced (see that file's header for the three bugs it had).
+   *
+   * Pasting an image is `pasteHandler` below: `imagePasteSink.ts` decides how
+   * THIS host captures the bytes, and this component only inserts whatever
+   * filename comes back. */
+  let pasteHandler: ((event: ClipboardEvent) => boolean) | null = null;
+  /* Only true where this editor installed the per-file URL producer (Tauri
+   * desktop), so the teardown removes exactly what the mount added. */
+  let ownsImageUrlResolver = false;
 
   /* Sorted comma-joined snapshot of the last emitted format-state set, so
    * emitFormatState() below can dedupe without the caller tracking it. */
@@ -349,6 +352,11 @@
            * mutation WebKit's DOMObserver would fight. `autocapitalize` is
            * deliberately NOT set: the ask is to drop the underlines, not to
            * change how typing behaves. CM6 has its own path and is untouched. */
+          /* `handlePaste` rides the same hook. It has to be a DIRECT view prop
+           * rather than a plugin: ProseMirror consults direct props before
+           * plugin props, and `.use(clipboard)` below would otherwise claim an
+           * image paste as HTML content first. Returning true means "this was
+           * an image, do not paste it as text". */
           ctx.update(editorViewOptionsCtx, (prev) => ({
             ...prev,
             attributes: {
@@ -356,6 +364,7 @@
               spellcheck: 'false',
               autocorrect: 'off',
             },
+            handlePaste: (_view, event) => pasteHandler?.(event) ?? false,
           }));
 
           const listeners = ctx.get(listenerCtx);
@@ -369,7 +378,6 @@
              * MID-STREAM: a truncated document, arriving one debounce window
              * after the save lock lifted. Re-read the live document for that
              * one callback rather than trust it. */
-            rewriteImageSrcs();
             emitFormatState();
             /* SAVE LOCK (CRITICAL — progressiveLoad.ts): while the tail is
              * streaming the document is a PREFIX of the note. Reporting it as a
@@ -418,13 +426,13 @@
             }
           });
           listeners.mounted(() => {
-            rewriteImageSrcs();
             emitFormatState();
           });
         })
         .use(commonmark)
         .use(gfm)
         .use(wikilink)
+        .use(vaultImageView)
         .use(history)
         .use(listener)
         .use(clipboard)
@@ -462,7 +470,14 @@
         applyExternal(pendingContent);
       }
       pendingContent = null;
-      rewriteImageSrcs();
+
+      pasteHandler = createImagePasteHandler({
+        sink: resolveImagePasteSink(),
+        insertImage: (filename) => insertMarkdown(imageReferenceMarkdown(filename)),
+      });
+      /* Where images resolve per file rather than off a host base URL (Tauri
+       * desktop), the node views need something to ask. */
+      ownsImageUrlResolver = installVaultImageUrlResolver();
 
       if (!useMobileBlockDnd) {
         const handleEl = document.createElement('div');
@@ -506,6 +521,10 @@
       disposed = true;
       progressive?.cancel();
       progressive = null;
+      if (ownsImageUrlResolver) {
+        uninstallVaultImageUrlResolver();
+        ownsImageUrlResolver = false;
+      }
       container.removeEventListener('click', handleClick);
       container.removeEventListener('touchend', handleTouchEnd);
       pmView()?.dom.removeEventListener('scroll', handleBlockScroll);
@@ -535,7 +554,6 @@
     hostMarkdown = text;
     liveMarkdown = text;
     externalSerialization = readSerialized() ?? text;
-    rewriteImageSrcs();
   }
 
   /**
@@ -598,7 +616,6 @@
     streamingTail = false;
     listenerSnapshotMayBeStale = true;
     measureOpen(OPEN_COMPLETE_MEASURE);
-    rewriteImageSrcs();
     emitFormatState();
 
     const complete = readSerialized();
@@ -694,7 +711,6 @@
     // this returns.
     const view = pmView();
     historyBaselineDepth = view ? undoDepth(view.state) : 0;
-    rewriteImageSrcs();
     measureOpen(OPEN_INTERACTIVE_MEASURE);
   }
 
@@ -857,12 +873,17 @@
 
   /**
    * Re-derive everything that depends on the HOST's state rather than the
-   * document: image base URL and the note universe. Reached from the bridge's
-   * `setNotes`/`setImageBaseUrl`, so it must not dispatch a transaction — that
-   * would make a host call look like a user edit and normalize-save the note.
+   * document — today the note universe, which decides which wikilinks render as
+   * broken. Reached from the bridge's `setNotes`/`setImageBaseUrl`, so it must
+   * not dispatch a transaction: that would make a host call look like a user
+   * edit and normalize-save the note.
+   *
+   * Images are deliberately NOT rebuilt here. Their node views re-resolve
+   * themselves through `onVaultImageSrcChange` (vaultImageView.ts), which is
+   * also the only thing that works when a URL lands with no host call behind it
+   * — a late `setImageBaseUrl`, or an async desktop `getImageUrl`.
    */
   export function refreshDecorations(): void {
-    rewriteImageSrcs();
     refreshWikilinkViews(pmView());
   }
 
@@ -938,6 +959,26 @@
   /** No CodeMirror view exists — every CM-specific caller already guards null. */
   export function getView(): CodeMirrorView | null {
     return null;
+  }
+
+  /**
+   * The live ProseMirror view, for the editor gauntlet's Milkdown adapter
+   * (tests/editor-gauntlet/milkdownAdapter.ts) — the permanent regression
+   * suite, which drives the SAME editor.html bytes the shells ship and so has
+   * no other way in.
+   *
+   * It exists because the gauntlet's two hardest jobs need the document model,
+   * not the DOM: placing a caret at an exact position across 31k foreign notes,
+   * and timing one keystroke's SYNCHRONOUS cost against the same 16 ms budget
+   * CM6 is measured on (`cm6Adapter.measureKeystrokes` times `view.dispatch`).
+   * A DOM-selection approximation would measure a different thing and quietly
+   * change what the budget means.
+   *
+   * Read-only by intent and not part of the futoBridge contract; no native
+   * host calls it. `main.ts` is what puts it on `window`.
+   */
+  export function getProseMirrorView(): ProseView | null {
+    return pmView();
   }
 
   export function exec(commandId: string): boolean {

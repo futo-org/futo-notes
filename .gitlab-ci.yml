@@ -643,6 +643,10 @@ test:e2e:editor-embed:
         # The embed inlines app.css, so a stylesheet change can turn these
         # specs red (they assert rendered geometry and computed token colours).
         - src/styles/**/*
+        # The vault filename -> loadable URL mapping both editor engines render
+        # images through (features/images/vaultImageSrc.ts) — an MR touching only
+        # that file can blank every image in the embed.
+        - src/features/images/**/*
         - packages/editor/**/*
         - editor.html
         - vite.editor.config.ts
