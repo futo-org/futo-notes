@@ -53,14 +53,15 @@
  *      partially, and a v7 host's single `initialize` means nothing to a v6
  *      bundle, so both native hosts move together (M10).
  *
- * `formatState` (Notion-style native toolbar active-state, milkdown spike —
- * see {@link FormatStateMessage}) is additive and ships WITHOUT a version
- * bump: it is emitted only by the Milkdown editor on the `spike/milkdown-editor`
- * branch, and a host that doesn't handle it just drops the message (no
- * highlighting, exactly today's behavior). Bumping BRIDGE_VERSION needs
- * explicit sign-off (root AGENTS.md §11) — do not do it as part of this spike.
+ * `formatState` (Notion-style native toolbar active-state — see
+ * {@link FormatStateMessage}) is additive and ships WITHOUT a version bump: it
+ * is emitted only by the Milkdown editor, which reaches users only when the
+ * transition lands (docs/plan/milkdown-transition.md), and a host that doesn't
+ * handle it just drops the message (no highlighting, exactly today's
+ * behavior). Bumping BRIDGE_VERSION needs explicit sign-off (root AGENTS.md
+ * §11) — the transition does not do it.
  *
- * `haptic` (Notion-style mobile block-drag feedback, milkdown spike — see
+ * `haptic` (Notion-style mobile block-drag feedback — see
  * {@link HapticMessage}) ships the SAME way: additive, no version bump,
  * emitted only by the Milkdown editor's iOS long-press block-drag path
  * (`mobileBlockDnd.ts`). A host without a case for it just drops the message
@@ -306,10 +307,13 @@ export interface OpenUrlMessage {
  * even though it is schema-nested inside one, so the two buttons don't both
  * light up.
  *
- * Milkdown-spike only (`MilkdownEditor.svelte`) and iOS-only for now —
- * Android has no consumer and the shipping CodeMirror editor (`?cm`) never
- * emits it; both are exempt, not gaps. See {@link BRIDGE_VERSION}'s doc
- * comment for why this ships without a version bump.
+ * Milkdown only (`MilkdownEditor.svelte`) and iOS-only for now: the shipping
+ * CodeMirror editor (`?cm`) never emits it, and Android has no consumer yet —
+ * adding one (or recording the asymmetry as a spec gap) is the toolbar-parity
+ * ticket's job, #104, deliberately not the spike graduation's. Until then
+ * Android drops the message and its toolbar simply shows no active state, the
+ * same as today. See {@link BRIDGE_VERSION}'s doc comment for why this ships
+ * without a version bump.
  */
 export interface FormatStateMessage {
   type: 'formatState';
@@ -317,15 +321,17 @@ export interface FormatStateMessage {
 }
 
 /**
- * Emitted by the iOS long-press mobile block-drag path (`mobileBlockDnd.ts`,
- * milkdown spike) at the two moments the interaction wants tactile feedback:
+ * Emitted by the iOS long-press mobile block-drag path (`mobileBlockDnd.ts`)
+ * at the two moments the interaction wants tactile feedback:
  * `'lift'` when a ~330-350ms hold picks the block up (the moment it visibly
  * scales/shadows), and `'drop'` when a release COMMITS an actual reorder as
  * one transaction. A release back at the source position is a true no-op
  * (no transaction, no history entry) and posts no `'drop'` — see the module
- * doc comment there. iOS-only for now: Android and desktop never construct
- * this plugin, so neither ever emits this message; a host without a case for
- * it (Android) just drops it, same as `formatState`.
+ * doc comment there. iOS-only BY CONSTRUCTION, which is the difference from
+ * `formatState`: Android and desktop mount the ⠿ gutter-handle drag instead
+ * and never construct this plugin, so there is no Android consumer to add
+ * unless Android adopts the long-press gesture too. A host without a case for
+ * it just drops it.
  */
 export interface HapticMessage {
   type: 'haptic';

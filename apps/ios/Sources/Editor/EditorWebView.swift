@@ -113,9 +113,9 @@ final class EditorCompletionQueue {
 ///   { type: 'cursorContext', onListLine: <bool> }
 ///   { type: 'saveImageData', data: <base64>, ext: <string> }   (v4)
 ///   { type: 'pasteClipboardImage' }                            (v5)
-///   { type: 'formatState', active: [<toolbar id>] }   (milkdown spike, unversioned —
+///   { type: 'formatState', active: [<toolbar id>] }   (Milkdown editor, unversioned —
 ///     see bridge.ts's BRIDGE_VERSION doc comment; drives toolbar highlighting below)
-///   { type: 'haptic', kind: 'lift' | 'drop' }          (milkdown spike, unversioned,
+///   { type: 'haptic', kind: 'lift' | 'drop' }          (Milkdown editor, unversioned,
 ///     iOS-only — the long-press mobile block-drag path; drives UIImpactFeedbackGenerator below)
 ///
 /// The markdown toolbar is NATIVE on iOS: EditorHost installs
@@ -316,8 +316,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// cursorContext drives Indent/Outdent visibility).
     let toolbarState = EditorToolbarState()
 
-    /// iOS long-press mobile block-drag haptics (milkdown spike — bridge
-    /// 'haptic'). Two generators (not one reused instance) so `.medium`
+    /// iOS long-press mobile block-drag haptics (bridge 'haptic'). Two generators (not one reused instance) so `.medium`
     /// (lift) and `.light` (drop) each stay primed for their own style;
     /// `prepare()` ahead of `impactOccurred()` minimizes the click's latency,
     /// re-primed immediately after firing for the next lift/drop.
@@ -630,11 +629,13 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // native toolbar.
             toolbarState.onListLine = (body["onListLine"] as? Bool) ?? false
         case .formatState:
-            // Milkdown spike, iOS-only — Notion-style active-state highlight
-            // on the matching toolbar button(s). Deduped by the embed.
+            // Milkdown editor, iOS-only — Notion-style active-state highlight
+            // on the matching toolbar button(s). Deduped by the embed. The
+            // CodeMirror editor never sends it, so this stays inert until the
+            // Milkdown transition lands.
             toolbarState.activeFormats = Set(body["active"] as? [String] ?? [])
         case .haptic:
-            // Milkdown spike, iOS-only — the long-press mobile block-drag
+            // Milkdown editor, iOS-only — the long-press mobile block-drag
             // path posts this on lift and on a COMMITTED drop (never on a
             // drop-at-source no-op or a cancel). The simulator has no
             // haptics hardware; this log is the proof of receipt there.

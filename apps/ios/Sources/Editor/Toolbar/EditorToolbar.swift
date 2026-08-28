@@ -40,7 +40,7 @@ final class EditorToolbarState: ObservableObject {
     /// Cursor is on a list line — shows the Indent/Outdent items.
     @Published var onListLine = false
     /// Toolbar-manifest ids active at the cursor/selection (bridge
-    /// `formatState`, milkdown spike, iOS-only) — drives the Notion-style
+    /// `formatState`, Milkdown editor, iOS-only) — drives the Notion-style
     /// highlighted button state below. Empty on hosts/editors that never send
     /// `formatState` (the shipping CodeMirror editor), so no button lights up.
     @Published var activeFormats: Set<String> = []
@@ -235,7 +235,7 @@ struct EditorToolbarView: View {
             .padding(.horizontal, 4)
     }
 
-    /// Notion-style active highlight (bridge `formatState`, milkdown spike,
+    /// Notion-style active highlight (bridge `formatState`, Milkdown editor,
     /// iOS-only): a rounded-rect fill INSET inside the button's own frame, not
     /// the whole capsule, plus an accent-tinted icon — so it reads correctly
     /// nested inside the glass capsule background. Only `.exec` items can be

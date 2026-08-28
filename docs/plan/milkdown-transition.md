@@ -58,6 +58,48 @@ same code). Known debts the review pays down:
   graduates into this plan, spec lines, and test fixtures.
 - Rebase onto main and rename to a `feat/` branch when execution starts.
 
+### T1 outcome (#98, done)
+
+Branch `feat/milkdown-editor` (the spike was already on current main, so the rebase was a rename).
+What the review changed:
+
+- **Undo could destroy a note (fixed).** `resetHistory()` was a no-op, and the host calls it on
+  every `initialize`/`setContent` — i.e. every note open. The first Ctrl-Z after opening a note
+  un-applied the load and left the document EMPTY, and after a note switch undo replayed the
+  previous note's steps into the current file. It now rebuilds the ProseMirror state around the live
+  doc (prosemirror-history has no clear command), preserving doc and caret.
+- **One hardened block move for both drag paths.** The iOS long-press path validated the source
+  range at drop time and moved the NODE; the ⠿-handle touch fallback still trusted positions
+  captured at pointerdown and inserted a re-fitted SLICE, which is exactly the "my heading stopped
+  being a heading" failure the iOS path was hardened against (M17, fixed 1 of N). Both now commit
+  through `blockMove.ts`.
+- **`markActive` said one thing and did another.** Its comment claimed a mark must cover every
+  character of a range; it used `rangeHasMark`, which is "occurs anywhere". "Anywhere" is correct —
+  it matches what `toggleMark` will do to that selection — so the comment was fixed, not the code.
+- **Decomposition.** `MilkdownEditor.svelte` 1,152 -> 842 lines (574 script + 268 style, which stays
+  with the component). Extracted into `src/features/editor/milkdown/`: `blockMove.ts`,
+  `handleBlockDrag.ts` (the ⠿ touch fallback), `formatState.ts`, `caretContext.ts`,
+  `toolbarExec.ts`, alongside the moved `blockDragGeometry.ts` and `mobileBlockDnd.ts`.
+- **Tests where there were none.** `tests/editor-embed-milkdown.spec.ts` (24 cases) drives the real
+  `editor.html` bundle: the load-echo guard over markdown Milkdown would normalize, the undo
+  boundary, the change contract, `formatState`, and the long-press block drag through real CDP touch
+  input. Unit tests cover `blockMove` and `formatState` (18 cases).
+- **The CodeMirror contract suite now pins `?cm`.** Making Milkdown the default engine had silently
+  turned `editor-embed-bridge.spec.ts` red (33 of 50), most of it CM6-specific DOM and
+  markdown-source assertions. It loads `CM6_EDITOR_URL` and dies with CM6 at the swap.
+
+Recorded, not fixed here:
+
+- `formatState` has no Android consumer — deferred to **#104** by this ticket's acceptance criteria,
+  and recorded in `bridge.ts` and `BridgeCoverageTest.kt`. `haptic` is iOS-only by construction:
+  Android mounts the gutter-handle drag and never emits it.
+- Toolbar parity gaps found by the suite, all **#104**: `link` with an empty selection does nothing,
+  `indent` needs a preceding sibling item, and list markers serialize as `*` rather than `-`.
+- **Change notification is debounced 200 ms with no maxWait** (`@milkdown/plugin-listener`), so
+  sustained typing can defer the host's `change` — and therefore its autosave — indefinitely. Exit
+  and background paths read `getContent()` directly, so this is a crash-window question, not a
+  lost-work-on-exit one. Owned by **#105** (save semantics).
+
 ## 3. Compat plugin set (replaces the parked string guards)
 
 Home: `packages/editor/src/milkdown-compat/` (exact name at implementation time). Both hosts and
