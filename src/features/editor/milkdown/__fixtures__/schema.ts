@@ -21,11 +21,25 @@ export const testSchema = new Schema({
       attrs: { level: { default: 1 } },
     },
     blockquote: { group: 'block', content: 'block+' },
-    bullet_list: { group: 'block', content: 'list_item+' },
-    ordered_list: { group: 'block', content: 'list_item+' },
+    bullet_list: {
+      group: 'block',
+      content: 'list_item+',
+      attrs: { spread: { default: false } },
+    },
+    ordered_list: {
+      group: 'block',
+      content: 'list_item+',
+      attrs: { order: { default: 1 }, spread: { default: false } },
+    },
     list_item: {
       content: 'paragraph block*',
-      attrs: { checked: { default: null } },
+      defining: true,
+      attrs: {
+        checked: { default: null },
+        label: { default: '\u2022' },
+        listType: { default: 'bullet' },
+        spread: { default: true },
+      },
     },
     horizontal_rule: { group: 'block' },
     // `code: true` and `marks: ''` mirror the preset's code_block: nothing

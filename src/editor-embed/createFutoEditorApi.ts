@@ -35,6 +35,7 @@ export interface EmbeddedEditorHandle {
 export interface EmbeddedToolbarHandle {
   setCursorContext: (onListLine: boolean) => void;
   setFocused: (focused: boolean) => void;
+  setActiveFormats: (active: string[]) => void;
 }
 
 interface CreateFutoEditorApiOptions {

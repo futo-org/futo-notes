@@ -53,7 +53,7 @@
  *      partially, and a v7 host's single `initialize` means nothing to a v6
  *      bundle, so both native hosts move together (M10).
  *
- * `formatState` (Notion-style native toolbar active-state — see
+ * `formatState` (Notion-style toolbar active-state — see
  * {@link FormatStateMessage}) is additive and ships WITHOUT a version bump: it
  * is emitted only by the Milkdown editor, which reaches users only when the
  * transition lands (docs/plan/milkdown-transition.md), and a host that doesn't
@@ -300,20 +300,19 @@ export interface OpenUrlMessage {
  * change and content change, and again right after a native toolbar tap runs
  * its command (so a tap reflects immediately rather than waiting for the next
  * selection event). Drives Notion-style active-state highlighting on the
- * NATIVE keyboard toolbar — the iOS host tints the matching button. `active`
+ * keyboard toolbar — each host tints the matching button. `active`
  * is the subset of toolbar-manifest exec ids (`TOOLBAR_EXEC_IDS` in
  * toolbar.ts, e.g. `'bold'`, `'heading'`, `'task-list'`) that cover the
  * current cursor/selection; a task-list item never reports `'bullet-list'`
  * even though it is schema-nested inside one, so the two buttons don't both
  * light up.
  *
- * Milkdown only (`MilkdownEditor.svelte`) and iOS-only for now: the shipping
- * CodeMirror editor (`?cm`) never emits it, and Android has no consumer yet —
- * adding one (or recording the asymmetry as a spec gap) is the toolbar-parity
- * ticket's job, #104, deliberately not the spike graduation's. Until then
- * Android drops the message and its toolbar simply shows no active state, the
- * same as today. See {@link BRIDGE_VERSION}'s doc comment for why this ships
- * without a version bump.
+ * Milkdown only (`MilkdownEditor.svelte`): the shipping CodeMirror editor
+ * (`?cm`) never emits it, so a host that mounts that engine simply never sees
+ * one and no button lights up. All three toolbar surfaces consume it —
+ * `EditorToolbarState` on iOS, `EditorHost.activeFormats` on Android, and the
+ * embed fallback's own `EmbedToolbar`. See {@link BRIDGE_VERSION}'s doc comment
+ * for why this ships without a version bump.
  */
 export interface FormatStateMessage {
   type: 'formatState';
@@ -330,7 +329,8 @@ export interface FormatStateMessage {
  * doc comment there. iOS-only BY CONSTRUCTION, which is the difference from
  * `formatState`: Android and desktop mount the ⠿ gutter-handle drag instead
  * and never construct this plugin, so there is no Android consumer to add
- * unless Android adopts the long-press gesture too. A host without a case for
+ * unless Android adopts the long-press gesture too (unlike `formatState`,
+ * which #104 gave one). A host without a case for
  * it just drops it.
  */
 export interface HapticMessage {

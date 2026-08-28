@@ -71,6 +71,10 @@
 
   let editorFocused = $state(false);
   let cursorOnListLine = $state(false);
+  /* Manifest ids covering the caret — the bridge `formatState` set, fed by the
+   * embed host. Empty on the CodeMirror engine, which never reports it, so no
+   * button lights up there. */
+  let activeFormats = $state<string[]>([]);
 
   export function setFocused(focused: boolean): void {
     editorFocused = focused;
@@ -78,6 +82,10 @@
 
   export function setCursorContext(onListLine: boolean): void {
     cursorOnListLine = onListLine;
+  }
+
+  export function setActiveFormats(active: string[]): void {
+    activeFormats = active;
   }
 
   let bottomOffset = $state(0);
@@ -142,6 +150,7 @@
             {@const Icon = icon(item)}
             <button
               class="toolbar-btn"
+              class:is-active={activeFormats.includes(item.id)}
               onmousedown={preventFocus}
               ontouchstart={preventFocus}
               onclick={() => activate(item)}

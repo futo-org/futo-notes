@@ -29,6 +29,7 @@ import { isTaskItem } from './caretContext';
  * `computeActiveFormats`).
  */
 function markActive(
+  /** Only the schema is read from the view; the document comes from `selection`. */
   view: ProseView,
   selection: ProseSelection,
   storedMarks: readonly ProseMark[] | null,
@@ -41,10 +42,15 @@ function markActive(
     const marks = storedMarks ?? selection.$from.marks();
     return markType.isInSet(marks) !== undefined;
   }
-  // `view.state.doc` is safe even when `selection` is newer than `view.state`:
-  // a pure selection-move transaction never touches the doc, so the stale and
-  // fresh docs are the same object.
-  return view.state.doc.rangeHasMark(from, to, markType);
+  // The SELECTION's own document, never `view.state.doc`. When `selection` is
+  // newer than `view.state` (see this module's doc comment) and the
+  // transaction changed the document too — a toolbar block command over a
+  // multi-block selection does exactly that — `from`/`to` index the new
+  // document while `view.state.doc` is still the old one. That read is wrong
+  // whenever the two differ, and throws outright once the range runs past the
+  // end of the old document. A resolved position carries the document it was
+  // resolved against, so this is always the right one.
+  return selection.$from.doc.rangeHasMark(from, to, markType);
 }
 
 /**

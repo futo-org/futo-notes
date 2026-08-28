@@ -81,6 +81,14 @@
   background: rgba(var(--ink-rgb), 0.08);
 }
 
+/* Notion-style active-format highlight (bridge `formatState`) — the embed
+   fallback's copy of the accent wash the two native toolbars draw. Same
+   8px radius and 15% accent fill as EditorToolbar.swift/.kt. */
+.toolbar-btn.is-active {
+  background: color-mix(in srgb, var(--color-primary) 15%, transparent);
+  color: var(--color-primary);
+}
+
 .toolbar-separator {
   width: 1px;
   min-width: 1px;

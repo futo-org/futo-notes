@@ -67,9 +67,17 @@ export function repaintBlocks(
   decorate: (node: ProseNode, pos: number) => Decoration[],
 ): DecorationSet {
   let next = set;
-  for (const [from, to] of ranges) {
-    const start = Math.max(0, Math.min(from, doc.content.size));
-    const end = Math.max(start, Math.min(to, doc.content.size));
+  for (const range of ranges) {
+    const [start, end] = expandToBlocks(doc, range[0], range[1]);
+    // Clear the range BEFORE re-decorating it. Rebuilding block by block only
+    // ever removes decorations belonging to a block that is STILL THERE, so a
+    // transaction that deletes one left its mapped decoration behind: lifting a
+    // task item clear of its list (Shift+Tab, or the toolbar's Task button)
+    // stranded the checkbox widget on the plain paragraph it became.
+    // Decorations owned by a block that merely straddles the range are not
+    // contained by it and so survive; the per-block clear below still catches a
+    // surviving block whose decorations reach outside the range.
+    next = next.remove(decorationsWithin(next, start, end));
     for (const { node, pos } of blocksIn(doc, start, end)) {
       next = next
         .remove(decorationsWithin(next, pos, pos + node.nodeSize))
@@ -77,6 +85,37 @@ export function repaintBlocks(
     }
   }
   return next;
+}
+
+/**
+ * `[from, to]` widened to the top-level blocks it touches.
+ *
+ * A step that changes STRUCTURE rather than text reports zero-width ranges: a
+ * lift out of a list rewrites the wrappers on either side of the content and
+ * leaves the content itself untouched, so `changedRanges` answers with the two
+ * collapsed boundaries (`[[0,0],[7,7]]` for a one-item list) and a decoration
+ * sitting in the middle is in neither. Widening to the block means the repaint
+ * sees the paragraph that the item became.
+ *
+ * Still bounded (AGENTS.md M5): every step here is a `resolve`, which costs the
+ * document's DEPTH, and the widened range covers the one or two top-level
+ * blocks at the edit — never a walk of the document's children.
+ */
+function expandToBlocks(doc: ProseNode, from: number, to: number): [number, number] {
+  const start = Math.max(0, Math.min(from, doc.content.size));
+  const end = Math.max(start, Math.min(to, doc.content.size));
+  const $start = doc.resolve(start);
+  const $end = doc.resolve(end);
+  // A position at depth 0 sits BETWEEN top-level blocks rather than inside one.
+  // Reaching out to the neighbour there is only right when the range is EMPTY:
+  // a range with width already covers whole blocks, and widening past them
+  // would repaint a block the transaction never touched.
+  const empty = start === end;
+  const blockStart =
+    $start.depth > 0 ? $start.before(1) : start - (empty ? ($start.nodeBefore?.nodeSize ?? 0) : 0);
+  const blockEnd =
+    $end.depth > 0 ? $end.after(1) : end + (empty ? ($end.nodeAfter?.nodeSize ?? 0) : 0);
+  return [Math.max(0, blockStart), Math.min(doc.content.size, Math.max(blockStart, blockEnd))];
 }
 
 /**

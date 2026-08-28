@@ -120,6 +120,32 @@ describe('computeActiveFormats', () => {
     expect(activeAt(doc, 0)).toEqual(['heading', 'strikethrough']);
   });
 
+  // Regression: `markActive` used to range-check against `view.state.doc`. When
+  // the caller passes a selection from a transaction that ALSO changed the
+  // document — which a toolbar block command over a multi-block selection does
+  // — those positions index the new document, and reading the old one is wrong
+  // where the two overlap and throws "Cannot read properties of undefined
+  // (reading 'nodeSize')" where the new range runs past the old document's end.
+  it("reads the document the selection was resolved against, not the view's", () => {
+    const before = s.nodes.doc.create(null, s.nodes.paragraph.create(null, s.text('ab')));
+    // The same text after a wrap: every position has shifted, and the new
+    // document is longer than the old one.
+    const after = s.nodes.doc.create(
+      null,
+      s.nodes.bullet_list.create(
+        null,
+        s.nodes.list_item.create(
+          null,
+          s.nodes.paragraph.create(null, s.text('ab', [s.marks.strong.create()])),
+        ),
+      ),
+    );
+    const staleView = stubView(before);
+    const freshSelection = TextSelection.create(after, 3, 5);
+
+    expect(computeActiveFormats(staleView, freshSelection, null)).toEqual(['bold', 'bullet-list']);
+  });
+
   it('ignores a mark the schema does not have', () => {
     // The commonmark preset alone has no strike_through; a missing mark type
     // must read as "not active", never throw.

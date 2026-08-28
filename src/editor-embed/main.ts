@@ -117,8 +117,12 @@ const editor = mount(EmbeddedEditor, {
       }
     },
     // Milkdown-only (see MilkdownEditor.svelte); the CodeMirror path (`?cm`)
-    // never calls this prop, so it simply never posts formatState.
+    // never calls this prop, so it simply never posts formatState and no
+    // toolbar shows an active state. Same split as `oncursorcontext`: the web
+    // toolbar is driven directly, and the message goes out for the native
+    // toolbars whether or not this build renders one.
     onformatstate: (active: string[]) => {
+      if (!nativeToolbar) toolbar?.setActiveFormats(active);
       post({ type: 'formatState', active });
     },
     // Milkdown-only, iOS long-press block-drag path (see

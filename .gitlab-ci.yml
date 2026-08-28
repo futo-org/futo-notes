@@ -649,7 +649,11 @@ test:e2e:editor-embed:
         - tests/editor-embed-bridge.spec.ts
         - tests/editor-embed-milkdown.spec.ts
         - tests/editor-embed-milkdown-wikilinks.spec.ts
+<<<<<<< HEAD
         - tests/editor-embed-milkdown-parity.spec.ts
+=======
+        - tests/editor-embed-milkdown-toolbar.spec.ts
+>>>>>>> 959d44e2 (feat(editor): put the toolbar's block commands on real ProseMirror toggles)
         - tests/lib/editorEmbedHost.ts
         - tests/editorEmbedBundle.ts
         - playwright.editor-embed.config.ts
