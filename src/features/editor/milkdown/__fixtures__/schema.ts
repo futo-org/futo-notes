@@ -28,6 +28,12 @@ export const testSchema = new Schema({
       attrs: { checked: { default: null } },
     },
     horizontal_rule: { group: 'block' },
+    image: {
+      inline: true,
+      group: 'inline',
+      atom: true,
+      attrs: { src: { default: '' }, alt: { default: '' }, title: { default: '' } },
+    },
     text: { group: 'inline' },
   },
   marks: {

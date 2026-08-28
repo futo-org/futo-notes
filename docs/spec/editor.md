@@ -743,12 +743,47 @@ EditorWebView.swift, EditorWebView.kt
   end-to-end on the Android emulator 2026-06-22. When the WebView hides the
   bitmap from the JS paste event (no File — WKWebView/WebKitGTK), the embed
   instead posts the payload-less `pasteClipboardImage` message (bridge contract
-  v5) and the host reads the image off the native clipboard. → editor-embed/main.ts
-  `handleNativeImagePaste`, bridge.ts `SaveImageDataMessage` /
+  v5) and the host reads the image off the native clipboard. → editor-embed/
+  `installNativeImagePaste.ts`, bridge.ts `SaveImageDataMessage` /
   `PasteClipboardImageMessage` (contract v5), EditorWebView.kt + ImagePicker.kt
   `saveImageDataIntoVault` (Android), EditorWebView.swift `saveImageData` +
   `clipboardImageData` + EditorImages.swift `VaultImages.save` (iOS),
   fs_paste_clipboard_image (Tauri), tests/editor-embed-bridge.spec.ts
+- In the WYSIWYG editor a vault image is a ProseMirror node whose rendered
+  `<img src>` is resolved for display only; the node's own `src` — what gets
+  serialized — stays the bare vault reference the note holds. Opening a note
+  with an image therefore leaves the file byte-identical, and an edit elsewhere
+  in the note still writes `![](image-…ext)`, never the shell's `futo-asset://`
+  or `asset://` URL. → milkdown/vaultImageView.ts, features/images/
+  vaultImageSrc.ts, tests/editor-embed-milkdown.spec.ts
+- A vault image whose URL cannot be resolved yet renders as nothing rather than
+  a broken-image glyph, and resolves itself as soon as the host registers the
+  base URL or a per-file URL arrives — the host may call `setImageBaseUrl` after
+  `setContent`, and a desktop `getImageUrl` resolves asynchronously, neither of
+  which is accompanied by a document change. → milkdown/vaultImageView.ts,
+  features/images/vaultImageSrc.ts `onVaultImageSrcChange`
+- Clipboard image paste in the WYSIWYG editor claims the paste through
+  ProseMirror's `handlePaste` and captures it through the sink for the host it
+  is running in: the `saveImageData` / `pasteClipboardImage` bridge messages on
+  the native shells (the host writes the file and calls `insertImage` back), or
+  `PlatformFS` on Tauri desktop. Which pastes count as an image is the same
+  decision for both editors (`classifyImagePaste`), and a claimed image paste
+  never also lands as pasted content. A paste carrying plain text is left to the
+  editor. → milkdown/imagePasteSink.ts, imagePaste.ts `classifyImagePaste`,
+  tests/editor-embed-milkdown.spec.ts
+- An image destination containing a space needs its CommonMark spelling
+  (`![](<my photo.png>)`) in the WYSIWYG editor; the bare `![](my photo.png)`
+  is not an image in CommonMark and renders as text. Every filename the app
+  itself generates is space-free (`createImageFilename`), so this only reaches
+  notes written elsewhere.
+  > **Gap:** an image destination that is ALREADY percent-encoded in the file
+  > (`![](my%20photo.png)`, as some other editors write it) is percent-encoded
+  > again when resolved against the base URL, so it renders blank. Both editor
+  > engines share the resolver and both have this behavior. Fixing it has to
+  > agree with the iOS `futo-asset://` scheme handler and the Android asset
+  > loader on who decodes, so it is tracked rather than patched in the resolver.
+  > → features/images/vaultImageSrc.ts `resolveVaultImageSrc`
+
 - A delayed native picker/clipboard completion belongs to the editor attachment
   generation that started it. Detaching, deleting, or adopting another note
   invalidates the completion, so it cannot insert Markdown into a different

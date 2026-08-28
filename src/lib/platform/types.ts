@@ -28,6 +28,13 @@ export interface PlatformStorage {
 
 export interface NativeCapabilities {
   pickImage?(): Promise<string | null>;
+  /**
+   * Reads an image off the OS clipboard into the vault and returns its
+   * filename. Present only where the OS clipboard is reachable at all (Tauri
+   * desktop): the JS paste event hides a screenshot on Linux/WebKitGTK, so
+   * this is the only way to recover one. Absent everywhere else.
+   */
+  pasteClipboardImage?(): Promise<string>;
 }
 
 export interface PlatformFS extends PlatformStorage, NativeCapabilities {

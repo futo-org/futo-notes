@@ -1,40 +1,32 @@
 import { StateEffect } from '@codemirror/state';
 import { EditorView, WidgetType } from '@codemirror/view';
 
+import {
+  clearVaultImageUrlCache,
+  isRemoteImageSource,
+  registerVaultImageUrl,
+  registeredVaultImageUrl,
+  resolveVaultImageSrc,
+  setVaultImageBaseUrl,
+} from '$features/images/vaultImageSrc';
+
 export const imageCacheUpdated = StateEffect.define<null>();
 
 const MAX_IMAGE_HEIGHT = 300;
 const IMAGE_PATTERN = /!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g;
 const imageSizes = new Map<string, { width: number; height: number }>();
-const localImageUrls = new Map<string, string>();
 
-let localImageBaseUrl = '';
-
-export function clearLocalImageUrlCache(): void {
-  for (const url of localImageUrls.values()) {
-    if (url.startsWith('blob:')) URL.revokeObjectURL(url);
-  }
-  localImageUrls.clear();
-}
-
-export function resolveImageSrc(source: string): string {
-  if (isRemoteSource(source)) return source;
-  const cachedUrl = localImageUrls.get(source);
-  if (cachedUrl !== undefined) return cachedUrl;
-  return localImageBaseUrl ? localImageBaseUrl + encodeURIComponent(source) : '';
-}
-
-export function registerLocalImageUrl(filename: string, url: string): void {
-  const previousUrl = localImageUrls.get(filename);
-  if (previousUrl !== url && previousUrl?.startsWith('blob:')) {
-    URL.revokeObjectURL(previousUrl);
-  }
-  localImageUrls.set(filename, url);
-}
-
-export function setLocalImageBaseUrl(baseUrl: string): void {
-  localImageBaseUrl = baseUrl;
-}
+/* The vault filename -> loadable URL mapping itself lives in
+ * `features/images/vaultImageSrc.ts`, which both editor engines share and which
+ * outlives this CodeMirror-only directory (docs/plan/milkdown-transition.md §7).
+ * These names stay as the aliases the CM6 call sites and the
+ * `liveMarkdownTransform` facade already use. */
+export {
+  clearVaultImageUrlCache as clearLocalImageUrlCache,
+  registerVaultImageUrl as registerLocalImageUrl,
+  resolveVaultImageSrc as resolveImageSrc,
+  setVaultImageBaseUrl as setLocalImageBaseUrl,
+};
 
 export function preloadImages(
   markdown: string,
@@ -47,24 +39,29 @@ export function preloadImages(
   let match: RegExpExecArray | null;
   while ((match = IMAGE_PATTERN.exec(markdown)) !== null) {
     const source = match[1];
-    if (isRemoteSource(source)) {
+    if (isRemoteImageSource(source)) {
       preloadImage(source);
       continue;
     }
 
-    const cachedUrl = localImageUrls.get(source);
-    if (cachedUrl) {
-      preloadImage(cachedUrl);
+    /* A registered per-file URL takes priority; only then is an async
+     * `getImageUrl` worth a round trip; a base URL alone resolves without one.
+     * `resolveVaultImageSrc` returns '' when nothing can resolve the filename
+     * yet, which is the only case that reaches `getImageUrl`. */
+    const registered = registeredVaultImageUrl(source);
+    if (registered) {
+      preloadImage(registered);
     } else if (getImageUrl) {
       void getImageUrl(source)
         .then((url) => {
-          registerLocalImageUrl(source, url);
+          registerVaultImageUrl(source, url);
           preloadImage(url);
           getView?.()?.dispatch({ effects: imageCacheUpdated.of(null) });
         })
         .catch(() => undefined);
-    } else if (localImageBaseUrl) {
-      preloadImage(localImageBaseUrl + encodeURIComponent(source));
+    } else {
+      const fromBase = resolveVaultImageSrc(source);
+      if (fromBase) preloadImage(fromBase);
     }
   }
 }
@@ -79,7 +76,7 @@ export class ImageWidget extends WidgetType {
     private readonly endPosition: number,
   ) {
     super();
-    this.resolvedUrl = resolveImageSrc(source);
+    this.resolvedUrl = resolveVaultImageSrc(source);
   }
 
   /// The one key this widget's size is cached under. Reads and writes must agree:
@@ -165,12 +162,6 @@ export class ImageWidget extends WidgetType {
   ignoreEvent(): boolean {
     return true;
   }
-}
-
-function isRemoteSource(source: string): boolean {
-  return (
-    source.startsWith('http://') || source.startsWith('https://') || source.startsWith('data:')
-  );
 }
 
 function preloadImage(url: string): void {

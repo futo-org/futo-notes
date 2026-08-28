@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { invoke, saveImageBytes, getImageUrl } = vi.hoisted(() => ({
-  invoke: vi.fn(),
+const { pasteClipboardImage, saveImageBytes, getImageUrl } = vi.hoisted(() => ({
+  pasteClipboardImage: vi.fn(),
   saveImageBytes: vi.fn(),
   getImageUrl: vi.fn(),
 }));
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke }));
-vi.mock('$lib/platform', () => ({ getFS: () => ({ saveImageBytes, getImageUrl }), isTauri: true }));
+/* The OS-clipboard read reaches Tauri only through PlatformFS — there is no
+ * `@tauri-apps` mock here on purpose, because a direct `invoke` in this module
+ * would fail `check-platform-discipline`, not just this test. */
+vi.mock('$lib/platform', () => ({
+  getFS: () => ({ saveImageBytes, getImageUrl, pasteClipboardImage }),
+  isTauri: true,
+}));
 
 import { handlePasteEvent } from './imagePaste';
 
@@ -25,13 +30,13 @@ function pasteEvent(clipboardData: unknown) {
 
 describe('handlePasteEvent (Tauri) — guards the WebKitGTK clipboard-shape wiring', () => {
   beforeEach(() => {
-    invoke.mockReset();
+    pasteClipboardImage.mockReset();
     getImageUrl.mockReset();
     saveImageBytes.mockReset();
   });
 
   it('routes a browser "Copy Image" (lone text/html, no file) to the native clipboard read', async () => {
-    invoke.mockResolvedValue('native-clip.png');
+    pasteClipboardImage.mockResolvedValue('native-clip.png');
     getImageUrl.mockResolvedValue('asset://native-clip.png');
     const view = makeView();
     const event = pasteEvent({
@@ -46,7 +51,7 @@ describe('handlePasteEvent (Tauri) — guards the WebKitGTK clipboard-shape wiri
     expect(handled).toBe(true);
     expect(event.preventDefault).toHaveBeenCalled();
     await vi.waitFor(() => expect(view.dispatch).toHaveBeenCalled());
-    expect(invoke).toHaveBeenCalledWith('fs_paste_clipboard_image');
+    expect(pasteClipboardImage).toHaveBeenCalled();
     expect(view.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ changes: { from: 0, insert: '![](native-clip.png)\n' } }),
     );
@@ -67,7 +72,7 @@ describe('handlePasteEvent (Tauri) — guards the WebKitGTK clipboard-shape wiri
 
     expect(handled).toBe(true);
     expect(event.preventDefault).toHaveBeenCalled();
-    expect(invoke).not.toHaveBeenCalled(); // standard path, not the native fallback
+    expect(pasteClipboardImage).not.toHaveBeenCalled(); // standard path, not the native fallback
   });
 
   it('does NOT hijack a plain-text paste', () => {
@@ -82,6 +87,6 @@ describe('handlePasteEvent (Tauri) — guards the WebKitGTK clipboard-shape wiri
 
     expect(handled).toBe(false);
     expect(event.preventDefault).not.toHaveBeenCalled();
-    expect(invoke).not.toHaveBeenCalled();
+    expect(pasteClipboardImage).not.toHaveBeenCalled();
   });
 });

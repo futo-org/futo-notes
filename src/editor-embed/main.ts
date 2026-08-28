@@ -136,7 +136,10 @@ toolbar = mount(EmbedToolbar, {
   },
 }) as unknown as EmbeddedToolbarHandle;
 
-installNativeImagePaste(() => editor.getView());
+/* Milkdown installs its own image paste through ProseMirror's `handlePaste`
+ * prop (MilkdownEditor.svelte); this document-capture install exists only to
+ * cut off CodeMirror's paste handling, and dies with CM6 at the swap. */
+if (useCodeMirror) installNativeImagePaste(() => editor.getView());
 
 const futoEditor = createFutoEditorApi({
   editor,

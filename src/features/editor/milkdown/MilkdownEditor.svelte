@@ -48,14 +48,16 @@
   import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
   import type { Node as ProseNode, Schema as ProseSchema } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
-  import { resolveImageSrc } from '../live-preview/images';
+  import { imageReferenceMarkdown } from '@futo-notes/editor';
   import type { EditorLinkGesture } from '../interactions/editorPointerInteractions';
   import { resolveBlockDragMode } from './blockDragMode';
   import { editorView, enclosingListItem, isTaskItem } from './caretContext';
   import { computeActiveFormats } from './formatState';
   import { createHandleBlockDrag, type HandleBlockDrag } from './handleBlockDrag';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
+  import { createImagePasteHandler, resolveImagePasteSink } from './imagePasteSink';
   import { createToolbarExec } from './toolbarExec';
+  import { vaultImageView } from './vaultImageView';
 
   interface Props {
     content?: string;
@@ -149,22 +151,17 @@
 
   const pmView = (): ProseView | null => editorView(editor);
 
-  /* ---- image srcs -------------------------------------------------------- *
-   * Vault images are relative filenames; the native host registers a base URL
-   * (createFutoEditorApi -> setLocalImageBaseUrl), and resolveImageSrc owns the
-   * mapping. Milkdown renders plain <img src="file.png">, so rewrite after every
-   * render instead of teaching the schema about vault paths. */
-  function rewriteImageSrcs(): void {
-    const root = container;
-    if (!root) return;
-    for (const img of Array.from(root.querySelectorAll('img'))) {
-      const original = img.dataset.futoSrc ?? img.getAttribute('src') ?? '';
-      if (!original) continue;
-      img.dataset.futoSrc = original;
-      const resolved = resolveImageSrc(original);
-      if (resolved && img.getAttribute('src') !== resolved) img.setAttribute('src', resolved);
-    }
-  }
+  /* ---- images ------------------------------------------------------------ *
+   * Vault images are bare filenames; `vaultImageView.ts` is the ProseMirror
+   * node view that resolves each one against whatever this shell serves the
+   * vault over, and re-resolves itself when that arrives late. Nothing here
+   * touches rendered image DOM — a post-render sweep is what the node view
+   * replaced (see that file's header for the three bugs it had).
+   *
+   * Pasting an image is `pasteHandler` below: `imagePasteSink.ts` decides how
+   * THIS host captures the bytes, and this component only inserts whatever
+   * filename comes back. */
+  let pasteHandler: ((event: ClipboardEvent) => boolean) | null = null;
 
   /* Sorted comma-joined snapshot of the last emitted format-state set, so
    * emitFormatState() below can dedupe without the caller tracking it. */
@@ -268,6 +265,11 @@
            * mutation WebKit's DOMObserver would fight. `autocapitalize` is
            * deliberately NOT set: the ask is to drop the underlines, not to
            * change how typing behaves. CM6 has its own path and is untouched. */
+          /* `handlePaste` rides the same hook. It has to be a DIRECT view prop
+           * rather than a plugin: ProseMirror consults direct props before
+           * plugin props, and `.use(clipboard)` below would otherwise claim an
+           * image paste as HTML content first. Returning true means "this was
+           * an image, do not paste it as text". */
           ctx.update(editorViewOptionsCtx, (prev) => ({
             ...prev,
             attributes: {
@@ -275,12 +277,12 @@
               spellcheck: 'false',
               autocorrect: 'off',
             },
+            handlePaste: (_view, event) => pasteHandler?.(event) ?? false,
           }));
 
           const listeners = ctx.get(listenerCtx);
           listeners.markdownUpdated((_ctx, markdown) => {
             liveMarkdown = markdown;
-            rewriteImageSrcs();
             emitFormatState();
             // The debounced echo of host content we just loaded — not an edit.
             if (externalSerialization !== null && markdown === externalSerialization) return;
@@ -315,12 +317,12 @@
             }
           });
           listeners.mounted(() => {
-            rewriteImageSrcs();
             emitFormatState();
           });
         })
         .use(commonmark)
         .use(gfm)
+        .use(vaultImageView)
         .use(history)
         .use(listener)
         .use(clipboard)
@@ -350,7 +352,11 @@
         applyExternal(pendingContent);
       }
       pendingContent = null;
-      rewriteImageSrcs();
+
+      pasteHandler = createImagePasteHandler({
+        sink: resolveImagePasteSink(),
+        insertImage: (filename) => insertMarkdown(imageReferenceMarkdown(filename)),
+      });
 
       if (!useMobileBlockDnd) {
         const handleEl = document.createElement('div');
@@ -412,7 +418,6 @@
     hostMarkdown = text;
     liveMarkdown = text;
     externalSerialization = readSerialized() ?? text;
-    rewriteImageSrcs();
   }
 
   /* Tapping a task-list marker toggles it (Milkdown renders the checkbox state
@@ -513,9 +518,14 @@
     pmView()?.focus();
   }
 
-  export function refreshDecorations(): void {
-    rewriteImageSrcs();
-  }
+  /**
+   * A CodeMirror-shaped call with nothing to do here. The host makes it after
+   * registering the image base URL and the note universe, both of which reach
+   * their renderers by subscription in this editor: images through
+   * `onVaultImageSrcChange` (vaultImageView.ts), and there are no wikilink
+   * decorations to rebuild yet (#101).
+   */
+  export function refreshDecorations(): void {}
 
   /**
    * Drops the undo/redo stack, keeping the document and the caret.

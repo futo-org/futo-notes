@@ -640,6 +640,10 @@ test:e2e:editor-embed:
       changes:
         - src/editor-embed/**/*
         - src/features/editor/**/*
+        # The vault filename -> loadable URL mapping both editor engines render
+        # images through (features/images/vaultImageSrc.ts) — an MR touching only
+        # that file can blank every image in the embed.
+        - src/features/images/**/*
         - packages/editor/**/*
         - editor.html
         - vite.editor.config.ts
