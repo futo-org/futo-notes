@@ -35,7 +35,7 @@
     remarkStringifyOptionsCtx,
     rootCtx,
   } from '@milkdown/kit/core';
-  import { commonmark } from '@milkdown/kit/preset/commonmark';
+  import { commonmarkWithCompat } from '@futo-notes/editor/milkdown-compat';
   import { gfm } from '@milkdown/kit/preset/gfm';
   import { history } from '@milkdown/kit/plugin/history';
   import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
@@ -429,7 +429,7 @@
             emitFormatState();
           });
         })
-        .use(commonmark)
+        .use(commonmarkWithCompat())
         .use(gfm)
         .use(wikilink)
         .use(vaultImageView)

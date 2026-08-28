@@ -16,6 +16,10 @@ import { defineConfig, devices } from '@playwright/test';
 // purpose — naming the files one by one is how a new spec silently stops being
 // run (AGENTS.md M11), and the root playwright config already excludes exactly
 // this glob so the two configs cannot disagree about who owns a file.
+// `editor-embed-milkdown-compat` is the one exception to "loads editor.html":
+// it builds its own page (tests/milkdown-census/build.mjs), because its canaries
+// have to run the UNPATCHED upstream preset alongside the shipping one and
+// editor.html only contains the patched one.
 
 const isCI = !!process.env.CI;
 

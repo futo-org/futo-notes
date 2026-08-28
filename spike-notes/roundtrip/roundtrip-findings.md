@@ -1,3 +1,10 @@
+> **SUPERSEDED 2026-08-28 by `packages/editor/src/milkdown-compat/`** (#99). The three root
+> causes below are correct and were the input to that module; the string-level protect/restore
+> approach and the WIP files in this directory are not. Do not resume them — the fix now lives in
+> the mdast tree, where the two "known remaining issues" (footnote definitions, tables nested in
+> blockquotes) cannot occur. Findings and current numbers:
+> `docs/editor/milkdown-roundtrip-census.md`.
+
 # Milkdown round-trip bug fixes — findings + WIP (parked)
 
 Status: **parked mid-fix, per explicit instruction**. Repo tree has been reverted to

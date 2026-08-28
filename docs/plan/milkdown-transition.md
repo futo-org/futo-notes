@@ -343,6 +343,49 @@ the corpus harness consume the same module — the ADR-0002 "one serializer" rul
    uninvestigated `html_loss` notes dispositioned. Per D4 this is tracked, not gating — but the
    report is a required deliverable (`spike-notes` successor doc or `tests/` local artifact).
 
+### T2 outcome (#99, done)
+
+Landed as `packages/editor/src/milkdown-compat/` — `commonmarkWithCompat`, one
+array that replaces `.use(commonmark)`. Numbers and the full write-up:
+`docs/editor/milkdown-roundtrip-census.md`. Over 30,995 corpus notes,
+`<br>` deletion **61 → 0**, empty-link deletion **26 → 0**, `html_loss`
+**61 → 0**, and **zero newly-raised flags** per note; the maintainer's own
+2,511-note vault agrees (run locally, results not committed).
+
+What changed against §3 as written:
+
+- **All three `<br>` isolation cases collapsed into one rule.** The parked
+  string guards needed separate handling for bare paragraphs, table cells and
+  list items, and still could not see a table nested in a blockquote or a
+  footnote definition. In the mdast tree the placeholder is simply "in block
+  position, or the sole child of a paragraph/table cell", and both parked
+  regressions (idx 8560, 25957) cannot occur.
+- **The fork keeps upstream's slice id**, `remark-preserve-empty-line`.
+  `node/paragraph.ts` only emits the placeholder when
+  `ctx.get('remark-preserve-empty-line')` resolves, and `Ctx#get` looks a string
+  up by slice *name* — registering under a new name would have silently turned
+  the serializer half off and started dropping blank lines the author typed.
+- **One extra repair was needed.** remark will not write an eol directly before
+  inline HTML (mdast-util-to-markdown#15), so a preserved `<br>` after a hard
+  break stranded the break's backslash mid-line. A kept tag is moved in front of
+  the breaks it follows; without that, six notes regressed.
+- **The bullet-number escape is a partial fix, by design of the scope.** 342 →
+  299. The 299 are the same placeholder mechanism reached through `* > quote` /
+  `* * nested` (279), where escaping would change meaning, plus 16 digit-dot
+  bullets indented past the escape's CommonMark 0–3-space allowance. The report
+  names the follow-up: drop the structurally-required empty leading paragraph in
+  a `listItem`. **Not done here** — it is a different fix to a different cause.
+- **The census is a recipe now**, `just milkdown-census`, with a `baseline`
+  variant that runs the unpatched preset. That is how "did anything regress" is
+  answered from the harness itself rather than from numbers nobody can
+  re-derive, and it is how the canary tests reproduce the upstream bugs.
+- The two upstream bugs are **drafted, not filed** —
+  `docs/editor/upstream-milkdown-issues.md` waits on Justin, since filing posts
+  publicly under the project's name.
+- **No `docs/spec/` change** (M19). Milkdown is not the shipping editor yet, so
+  the existing spec lines stay in force until the swap (bucket 2, D9); nothing in
+  this work changes CM6's behavior.
+
 ## 3a. Wikilink plugin — survey result (T4 / #101)
 
 The ticket required a survey before a line of plugin code: adopt a maintained
