@@ -12,7 +12,11 @@ import android.webkit.WebView
  * Two facts, both reported by the page itself:
  *  - `editor.html`'s ES5 preflight publishes what the engine can't parse on
  *    `window.__futoEngineUnsupported`.
- *  - the bundle sets `window.FutoEditor` when it mounts.
+ *  - the bundle sets `window.__futoEditorMounted` when the EDITOR ENGINE comes
+ *    up. Not `window.FutoEditor`, which it used to read: that is published by
+ *    the module's top level, and Milkdown's editor is created asynchronously
+ *    after it, so a Chromium 83 WebView that could not run the engine showed a
+ *    blank pane the gate called healthy (measured on futo-api30, Android 11).
  *
  * [EditorHost] reads both with [ENGINE_PROBE_JS] and reduces them through
  * [editorEngineFailure]; version numbers survive only as wording in
@@ -21,25 +25,29 @@ import android.webkit.WebView
 
 private const val BOOTED = "booted"
 
+/** The global the bundle sets once the editor engine is up — see
+ *  `src/editor-embed/main.ts` (drift-registry `editor-mounted-global`). */
+private const val MOUNTED_GLOBAL = "__futoEditorMounted"
+
 private const val UNSUPPORTED_PREFIX = "unsupported:"
 
 /**
  * Asks the page what happened, in one round trip. Answers:
- *  - `booted` — `window.FutoEditor` exists, so the bundle parsed and mounted.
+ *  - `booted` — the editor engine came up, so this WebView runs the editor.
  *  - `unsupported:<what is missing>` — the preflight found the engine below the
  *    bundle's syntax floor.
  *  - `pending` — neither yet.
  */
 internal const val ENGINE_PROBE_JS = """
 (function () {
-  if (window.FutoEditor) return '$BOOTED';
+  if (window.$MOUNTED_GLOBAL) return '$BOOTED';
   if (window.__futoEngineUnsupported) return '$UNSUPPORTED_PREFIX' + window.__futoEngineUnsupported;
   return 'pending';
 })()
 """
 
 /**
- * The bundle parsed and mounted, so this engine runs the editor — the whole
+ * The editor engine came up, so this WebView runs the editor — the whole
  * question the gate asks. Kept here with the probe program that produces the
  * answer, so the word survives in exactly one place.
  */

@@ -77,6 +77,14 @@
     /* Notion-style mobile block drag haptics (iOS long-press path only — see
      * bridge.ts HapticMessage / mobileBlockDnd.ts). */
     onhaptic?: (kind: MobileDndHapticKind) => void;
+    /* The editor engine is up and holding a document. Milkdown's
+     * `Editor.make().create()` is ASYNC, so Svelte's `mount()` returns long
+     * before this — and the Android WebView gate used to read the host API that
+     * mount() publishes as proof the engine works. On a Chromium 83 WebView
+     * that meant a blank pane and no "update System WebView" notice
+     * (docs/spec/editor.md; tests/editor-embed-webview-floor.spec.ts). This is
+     * the honest signal. */
+    onenginemounted?: () => void;
   }
 
   let {
@@ -89,6 +97,7 @@
     onformatstate,
     nativeShell = false,
     onhaptic,
+    onenginemounted,
   }: Props = $props();
 
   /* THE single gate: the Notion-style long-press-anywhere-on-the-block path
@@ -253,7 +262,7 @@
     // Not passive: the handler must be able to preventDefault a link tap.
     container.addEventListener('touchend', handleTouchEnd, { passive: false });
 
-    void (async () => {
+    (async () => {
       let builder = Editor.make()
         .config((ctx) => {
           ctx.set(rootCtx, container);
@@ -352,6 +361,11 @@
       }
 
       editor = created;
+      // Here, not after the chrome below and not after the first document is
+      // parsed: the question this answers is "can this WebView run the editor
+      // engine", and tying it to a parse would make a big note look like an
+      // unsupported WebView on a slow phone (the host's boot grace is 10 s).
+      onenginemounted?.();
       if (pendingContent !== null && pendingContent !== '') {
         applyExternal(pendingContent);
       }
@@ -387,7 +401,14 @@
         });
         handleDrag.attach(handleEl);
       }
-    })();
+    })().catch((error: unknown) => {
+      // An engine that cannot build the editor is the whole reason the WebView
+      // gate exists, and this used to be an unhandled rejection — invisible to
+      // everything. Swallowing it is still the right shape: onenginemounted
+      // never fired, so the host's probe keeps answering 'pending' and its
+      // grace period turns that into the update-WebView notice.
+      console.error('MilkdownEditor: the editor engine failed to start', error);
+    });
 
     return () => {
       disposed = true;

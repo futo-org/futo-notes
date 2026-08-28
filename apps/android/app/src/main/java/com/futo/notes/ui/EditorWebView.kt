@@ -228,8 +228,10 @@ class EditorHost private constructor(appContext: Context) {
         private set
 
     /**
-     * The bundle has parsed and mounted (`window.FutoEditor` exists) — the only
+     * The editor engine has come up (`window.__futoEditorMounted`) — the only
      * thing this gate decides, so once it is true there is nothing left to probe.
+     * Deliberately NOT `window.FutoEditor`, which the module's top level
+     * publishes before Milkdown's async editor creation has run or failed.
      *
      * Deliberately NOT [isReady], which on bridge v7 means the whole
      * `initialize(config)` round-trip came back (the `initialized` message) — a
@@ -324,6 +326,29 @@ class EditorHost private constructor(appContext: Context) {
         }
     }
 
+    /**
+     * A message arrived, so something in the page is running. If the grace
+     * period has already latched a failure, ask the gate once more.
+     *
+     * Without this a working engine that mounted LATER than
+     * [ENGINE_BOOT_GRACE_MS] would sit behind the notice for the rest of the
+     * session, because [probeEngine] stops asking once a failure is recorded
+     * and nothing else re-opens the question. Reopening the note re-focuses the
+     * editor, which posts, which lands here — the recovery the notice's own
+     * "then reopen the note" promises.
+     *
+     * It can only ever CLEAR a failure: the probe stays the authority, so a
+     * message from something other than a mounted editor changes nothing.
+     */
+    private fun rescueEngineVerdict() {
+        if (engineBooted || engineFailure == null) return
+        val probed = webView
+        probed.evaluateJavascript(ENGINE_PROBE_JS) { raw ->
+            if (probed !== webView) return@evaluateJavascript
+            if (editorEngineBooted(decodeJavascriptString(raw))) markEngineBooted()
+        }
+    }
+
     /** This engine runs the editor, whatever its provider calls itself: stop
      *  probing, and disprove any failure a slow boot had already earned. */
     private fun markEngineBooted() {
@@ -358,6 +383,7 @@ class EditorHost private constructor(appContext: Context) {
     }
 
     private fun handle(msg: JSONObject) {
+        rescueEngineVerdict()
         when (msg.optString("type")) {
             // The page is alive but shows nothing until it is configured. Hand
             // it this shell's whole intent in one call; the bundle owns the
@@ -368,10 +394,15 @@ class EditorHost private constructor(appContext: Context) {
             // this shell's per-note follow-up is meaningful.
             "initialized" -> {
                 isReady = true
-                // Only the bundle can send this, so it proves the engine ran it.
-                // A shortcut, never the gate: the gate is the probe (see
-                // [engineBooted]), which does not wait for the config round-trip.
-                markEngineBooted()
+                // NOT a shortcut to [markEngineBooted]. It used to be one, on
+                // the reasoning that only the bundle can send this — true, and
+                // beside the point: `initialize(config)` is answered by the host
+                // API, which exists whether or not the EDITOR came up behind it.
+                // Measured on futo-api30 (Chromium 83): Milkdown's async
+                // `create()` threw, `initialized` still arrived, the engine was
+                // marked booted, and the note showed a blank pane with no
+                // update-WebView notice. The probe is the only gate; the rescue
+                // it lost is [rescueEngineVerdict], above.
                 // The desired state can have moved (a sync adopt, a theme flip)
                 // between sending the config and this reply; each of these is
                 // deduped and so a no-op when it hasn't.

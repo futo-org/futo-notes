@@ -330,6 +330,27 @@
       ]
     },
     {
+      "concept": "editor-mounted-global",
+      "description": "The name of the global the editor bundle sets once the EDITOR ENGINE is up (window.__futoEditorMounted, src/editor-embed/main.ts) and the Android host's probe program that reads it (EditorEngineSupport.kt ENGINE_PROBE_JS). Separate from editor-engine-unsupported-global because the two answer different questions from different files: the preflight verdict has to survive a bundle that failed to parse, so it lives in editor.html's ES5 script, while 'the engine came up' is only knowable inside the bundle. It exists at all because Milkdown creates its editor asynchronously: window.FutoEditor, which the probe used to read, is published by the module's top level whether or not the engine came up behind it, so a Chromium 83 WebView showed a blank pane the gate called healthy. Same M10 carve-out as its sibling: NOT a futoBridge message, because a message would bump BRIDGE_VERSION and oblige both native hosts for a signal only Android reads. A source-scan unit test holds the two spellings together.",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "src/editor-embed/main.ts",
+          "pattern": "window\\.__futoEditorMounted ="
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorEngineSupport.kt",
+          "pattern": "__futoEditorMounted"
+        }
+      ],
+      "locks": [
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorEngineSupportTest.kt",
+          "kind": "test"
+        }
+      ]
+    },
+    {
       "concept": "worktree-slot-derivation",
       "description": "Per-worktree slot (md5 of the repo root, mod 50) and the port map derived from it. ONE definition in scripts/lib/slot.mjs; every other consumer imports it or shells out to its CLI. Registered for the scan block, not to permit a duplicate: a slot addresses already-claimed pool devices and already-running sync servers, so a divergent copy repoints a live worktree at another's resources. scripts/lib/slot.test.mjs is listed as BOTH a copy and a lock on purpose: it holds a deliberate second implementation (legacySlot) whose only job is to assert parity.",
       "lockStatus": "locked",

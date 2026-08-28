@@ -10,10 +10,12 @@ import { defineConfig, devices } from '@playwright/test';
 // transition is in flight (docs/plan/milkdown-transition.md):
 // `editor-embed-bridge` drives `editor.html?cm` (CodeMirror) and the
 // `editor-embed-milkdown*` specs drive the bare URL (Milkdown), one per parity
-// surface. `testMatch` takes the whole `editor-embed-*` family on purpose —
-// naming the files one by one is how a new spec silently stops being run
-// (AGENTS.md M11), and the root playwright config already excludes exactly this
-// glob so the two configs cannot disagree about who owns a file.
+// surface. `editor-embed-webview-floor` holds the legacy-Android-WebView floor
+// for both, and lives here for the same reason they do: it needs the built
+// bundle over file://. `testMatch` takes the whole `editor-embed-*` family on
+// purpose — naming the files one by one is how a new spec silently stops being
+// run (AGENTS.md M11), and the root playwright config already excludes exactly
+// this glob so the two configs cannot disagree about who owns a file.
 
 const isCI = !!process.env.CI;
 

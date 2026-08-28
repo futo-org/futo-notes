@@ -5,12 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#ffffff" />
   <title>FUTO Notes Editor</title>
-  <!-- Legacy Android System WebView runtime shim (github#8). The editor bundle
-       targets ES2020 (syntax floor: Chromium 80), but Svelte 5's client runtime
-       calls String.prototype.replaceAll (Chromium 85), so without this the whole
-       app throws on Chromium 80-84 and the editor never mounts. A classic (non-
-       module) script runs before the deferred module bundle. Engines below the
-       ES2020 syntax floor are caught natively (see Android EditorWebView). -->
+  <!-- Legacy Android System WebView runtime shims (github#8, Milkdown T10).
+       The editor bundle targets ES2020, so its SYNTAX floor is Chromium 80 — but
+       parsing is only half the floor. Dependencies reach for built-in methods
+       that landed later, and those load clean and then throw:
+         - Svelte 5's client runtime calls String.prototype.replaceAll (85) while
+           mounting, so without it the whole app dies before first paint.
+         - @milkdown/transformer calls Array.prototype.at (92) in its serializer
+           stack and its mark-merge pass — every parse and every save.
+       A classic (non-module) script runs before the deferred module bundle, so
+       both are in place by the time anything uses them. Engines below the ES2020
+       syntax floor are caught natively (see Android EditorEngineSupport.kt), and
+       tests/editor-embed-webview-floor.spec.ts holds the whole floor: it deletes
+       each built-in, proves the editor still runs, and audits the built bundle
+       for post-floor built-ins no shim covers. -->
   <script>
     if (!String.prototype.replaceAll) {
       String.prototype.replaceAll = function (search, replacement) {
@@ -24,6 +32,36 @@
         return String.prototype.replace.call(this, new RegExp(escaped, 'g'), replacement);
       };
     }
+    // Array.prototype.at / String.prototype.at, in an IIFE so the helpers do not
+    // become page globals. Covers Array and String only — a TypedArray `.at`
+    // would need its own line here, and the bundle uses none.
+    //
+    // defineProperty, not assignment: a plain `Array.prototype.at = ...` is an
+    // ENUMERABLE own property, so every `for (const k in someArray)` in the page
+    // — ours and every dependency's — would start yielding 'at'. Deleting the
+    // shim is safer than shipping that.
+    (function () {
+      // ToIntegerOrInfinity, near enough: Math.trunc gives NaN for undefined
+      // and non-numeric strings, and `|| 0` folds NaN and -0 to +0. Reads
+      // `this.length` raw rather than through ToLength, so it is exact for
+      // arrays and strings and approximate for a hand-rolled array-like.
+      var at = function (index) {
+        var length = this.length;
+        var i = Math.trunc(index) || 0;
+        if (i < 0) i += length;
+        return i < 0 || i >= length ? undefined : this[i];
+      };
+      var define = function (target) {
+        Object.defineProperty(target, 'at', {
+          value: at,
+          writable: true,
+          enumerable: false,
+          configurable: true,
+        });
+      };
+      if (!Array.prototype.at) define(Array.prototype);
+      if (!String.prototype.at) define(String.prototype);
+    })();
   </script>
   <!-- Engine capability preflight (github#8). The bundle is built with vite
        `target: 'ES2020'`, so an engine that can't parse it throws on the module

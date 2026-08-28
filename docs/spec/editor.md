@@ -65,10 +65,19 @@ this file states the behaviors a human cares about.
   tests/editor-embed-bridge.spec.ts (legacy WebView tests)
 - The editor needs a System WebView engine of **Chromium 80 or newer**: the
   bundle targets ES2020, an `editor.html` `String.prototype.replaceAll` shim
-  covers Chromium 80–84 (Svelte 5's runtime would otherwise throw), and the
+  covers Chromium 80–84 (Svelte 5's runtime would otherwise throw), an
+  `editor.html` `Array.prototype.at` shim covers Chromium 80–91
+  (`@milkdown/transformer` calls it on every parse and every serialize), and the
   editor uses `textContent = ''` rather than `Element.replaceChildren` (Chromium 86) in its own DOM code so tables and the slash menu work down to the floor
   too. _(Android)_ → editor.html, slashMenuRenderer.ts, tableEditorWidget.ts,
   vite.editor.config.ts
+- The floor is a property of the **built bundle**, not of the syntax target: a
+  dependency reaching for a newer built-in method parses fine and throws at
+  runtime, which is how `Element.replaceChildren` (Chromium 86) once shipped
+  inside a bundle declaring Chromium 80. Every post-floor built-in the bundle
+  uses is either shimmed in `editor.html` — proved by deleting it and running the
+  editor without it — or fails the bundle audit. _(Android)_ → editor.html,
+  tests/editor-embed-webview-floor.spec.ts
 - Whether an engine is supported is decided by **capability, never by a version
   number**: the page reports what it couldn't parse and whether the editor
   mounted, and the shell reads that. A WebView `versionName` is never consulted —
@@ -76,6 +85,21 @@ this file states the behaviors a human cares about.
   Chromium), so a version floor rejects working engines. _(Android)_ →
   editor.html, EditorEngineSupport.kt, EditorWebView.kt,
   tests/editor-embed-bridge.spec.ts (engine preflight tests)
+- "The editor mounted" means the EDITOR ENGINE came up, reported by the bundle on
+  `window.__futoEditorMounted` — not that the host API exists and not that the
+  bridge `initialize` round-trip returned. Milkdown creates its editor
+  asynchronously, so both of those are true while the engine is failing behind
+  them: on a Chromium 83 WebView that showed a blank editor pane and no notice.
+  _(Android)_ → src/editor-embed/main.ts, EditorEngineSupport.kt `ENGINE_PROBE_JS`,
+  EditorWebView.kt, tests/editor-embed-webview-floor.spec.ts
+
+  > **Gap:** the engine gate answers "can this WebView run the editor", and
+  > reports the mount before the first document is parsed — deliberately, so a
+  > large note on a slow phone can't be mistaken for an unsupported WebView. An
+  > engine that mounts and then throws inside a later parse or serialize
+  > therefore still shows a blank editor pane with no notice. The break this
+  > work found (`@milkdown/transformer`'s `Array.prototype.at`) happens to fail
+  > at mount as well, so it is caught; a parse-only failure would not be.
 - A note whose editor can't run shows the native "update Android System WebView"
   notice in place of a blank editor pane — when the engine reported a missing
   capability, never produced a mounted editor, or there is no WebView provider at
