@@ -42,14 +42,21 @@ function markActive(
     const marks = storedMarks ?? selection.$from.marks();
     return markType.isInSet(marks) !== undefined;
   }
-  // The SELECTION's own document, never `view.state.doc`. When `selection` is
-  // newer than `view.state` (see this module's doc comment) and the
-  // transaction changed the document too — a toolbar block command over a
-  // multi-block selection does exactly that — `from`/`to` index the new
-  // document while `view.state.doc` is still the old one. That read is wrong
-  // whenever the two differ, and throws outright once the range runs past the
-  // end of the old document. A resolved position carries the document it was
-  // resolved against, so this is always the right one.
+  /* The SELECTION's own document, never `view.state.doc`.
+   *
+   * `view.state` may be one transaction behind `selection` (see
+   * `computeActiveFormats`). For a pure selection move that is harmless — same
+   * doc — but a transaction that ALSO changes the document leaves `from`/`to`
+   * indexing the new one while `view.state.doc` is still the old: the marks
+   * read back are then simply the wrong document's, and once the range runs
+   * past the end of the old doc `rangeHasMark` THROWS rather than returning
+   * false. Both paths are real. Progressive open appending content behind the
+   * caret crashed the editor on 78 of the 31k corpus notes here, and a toolbar
+   * block command over a multi-block selection does the same thing.
+   *
+   * A resolved position carries the document it was resolved against, so this
+   * is by construction the document those positions belong to — in range, and
+   * holding the marks the caller is actually asking about. */
   return selection.$from.doc.rangeHasMark(from, to, markType);
 }
 

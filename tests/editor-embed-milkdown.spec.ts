@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { expect, test as base, type CDPSession, type Page } from '@playwright/test';
 
 import { DEFAULT_LONG_PRESS_MS } from '../src/features/editor/milkdown/mobileBlockDnd';
@@ -9,6 +13,7 @@ import {
   getContent,
   installFakeAndroidHost,
   messagesOfType,
+  openEmbed,
   waitForMessages,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
@@ -73,10 +78,37 @@ async function settleChangeDebounce(page: Page): Promise<void> {
   await flushFrames(page);
 }
 
+/**
+ * Records whether the progressive-open affordance ever appeared, for the whole
+ * life of the page. Installed as an init script rather than armed per test:
+ * how long a tail takes to stream is a property of the machine, so polling for
+ * it would be asserting that this box is slow, and a test that has to remember
+ * to arm its own watch is a test that will one day forget.
+ */
+function installStreamingTailWatch(): void {
+  const w = window as unknown as { __tail: { seen: boolean; role: string | null } };
+  w.__tail = { seen: false, role: null };
+  new MutationObserver(() => {
+    const el = document.querySelector('.milkdown-stream-tail');
+    if (!el) return;
+    w.__tail.seen = true;
+    w.__tail.role = el.getAttribute('role');
+    // `document`, not `document.documentElement`: an init script runs before
+    // the latter exists, and a MutationObserver takes the Document itself.
+  }).observe(document, { childList: true, subtree: true });
+}
+
+function readTailWatch(page: Page): Promise<{ seen: boolean; role: string | null }> {
+  return page.evaluate(
+    () => (window as unknown as { __tail: { seen: boolean; role: string | null } }).__tail,
+  );
+}
+
 const test = base.extend<{ page: Page }>({
   page: async ({ browser }, use) => {
     const context = await browser.newContext({ hasTouch: true });
     await context.addInitScript(installFakeAndroidHost);
+    await context.addInitScript(installStreamingTailWatch);
     const page = await context.newPage();
     await page.goto(EDITOR_URL);
     await page.waitForFunction(() =>
@@ -614,6 +646,332 @@ mobileDndTest(
     expect(content.indexOf('> quoted line')).toBeLessThan(content.indexOf('# heading'));
   },
 );
+
+// ============================================================
+// Progressive open — the large-note story (issue #105)
+// ============================================================
+//
+// A large note opens viewport-first: the first chunk is parsed and mounted
+// synchronously, the rest streams in idle slices
+// (src/features/editor/milkdown/progressiveLoad.ts). The whole design turns on
+// one guarantee — a partially loaded note can never be saved — because
+// serializing a half-loaded document writes a TRUNCATED file, and the editor
+// hands content to the host through exactly two doors: the `change` message and
+// `getContent()`. Both are locked here.
+//
+// The chunked-parse-equals-whole-parse half of the proof is not here: it is a
+// property of every note in a 31k-note corpus, which is
+// `scripts/milkdown-chunk-census.mjs`, not a spec case.
+
+/**
+ * A note past the 400-line threshold, so it takes the progressive path. Kept
+ * only as large as the assertion needs: mounting tens of thousands of blocks
+ * per test leaves enough browser pressure to make the suite's mouse-click
+ * tests miss, which is a flake this suite pays for and learns nothing from.
+ */
+function largeNote(paragraphs = 800): string {
+  return (
+    Array.from(
+      { length: paragraphs },
+      (_, i) => `## Section ${i}\n\nBody line ${i} with some **bold** and a [link](https://e.com).`,
+    ).join('\n\n') + '\n'
+  );
+}
+
+/**
+ * Drives one `initialize` and reports what the editor looked like INSIDE the
+ * same task — before any idle slice could run. That is what makes "mid-stream"
+ * deterministic instead of a race: progressive open applies chunk 0 in the
+ * calling task and schedules everything else.
+ */
+async function initializeAndPeekMidStream(page: Page, content: string) {
+  return page.evaluate((json) => {
+    const w = window as unknown as FakeHostWindow & { __msgs: { type: string }[] };
+    w.__msgs.length = 0;
+    w.FutoEditor.initialize(json);
+    return {
+      contentDuringStream: w.FutoEditor.getContent(),
+      messageTypes: w.__msgs.map((m) => m.type),
+      mountedBlocks: document.querySelectorAll('.ProseMirror > *').length,
+    };
+  }, hostConfig({ content }));
+}
+
+/**
+ * Resolves once the streaming affordance has come and gone — and FAILS if it
+ * never came.
+ *
+ * Waiting only for `detached` would resolve instantly for a note the chunk
+ * planner declined, and every assertion after it would then pass while
+ * exercising the ordinary whole-document load: a test going green having
+ * checked nothing (AGENTS.md M11). The planner's decline conditions are
+ * exactly the kind of thing a later change moves.
+ */
+async function waitForStreamComplete(page: Page): Promise<void> {
+  await page.waitForSelector('.milkdown-stream-tail', { state: 'detached', timeout: 60000 });
+  expect(
+    (await readTailWatch(page)).seen,
+    'this note never took the progressive path — the assertions below prove nothing',
+  ).toBe(true);
+  await settleChangeDebounce(page);
+}
+
+test('a large note mounts only its first chunk before the tail streams', async ({ page }) => {
+  const note = largeNote();
+
+  const peek = await initializeAndPeekMidStream(page, note);
+
+  // The whole note is ~15k lines; the first chunk's budget is 80.
+  expect(peek.mountedBlocks).toBeGreaterThan(0);
+  expect(peek.mountedBlocks).toBeLessThan(200);
+
+  await waitForStreamComplete(page);
+
+  const mountedAfter = await page.evaluate(
+    () => document.querySelectorAll('.ProseMirror > *').length,
+  );
+  // 800 sections, each a heading plus a body paragraph.
+  expect(mountedAfter).toBeGreaterThan(1500);
+});
+
+test('the save lock holds: no change message while the tail is streaming', async ({ page }) => {
+  const peek = await initializeAndPeekMidStream(page, largeNote());
+
+  expect(peek.messageTypes).not.toContain('change');
+
+  await waitForStreamComplete(page);
+
+  // Still none: a clean open never reports a change, streamed or not.
+  expect(await messagesOfType(page, 'change')).toEqual([]);
+});
+
+test('the save lock holds: getContent mid-stream returns the original bytes', async ({ page }) => {
+  const note = largeNote();
+
+  const peek = await initializeAndPeekMidStream(page, note);
+
+  // Not a prefix of the note — the note itself.
+  expect(peek.contentDuringStream).toBe(note);
+
+  await waitForStreamComplete(page);
+  expect(await getContent(page)).toBe(note);
+});
+
+test('opening and closing a large note leaves it byte-identical', async ({ page }) => {
+  // The load-echo guard (ADR-0002) over the chunked path: Milkdown would
+  // normalize this markdown on a real edit, and must not on an open.
+  const note =
+    Array.from({ length: 600 }, (_, i) => `*   item ${i}\n\nSome __bold__ text ${i}.`).join(
+      '\n\n',
+    ) + '\n';
+
+  await initialize(page, hostConfig({ content: note }));
+  await waitForStreamComplete(page);
+
+  expect(await getContent(page)).toBe(note);
+  expect(await messagesOfType(page, 'change')).toEqual([]);
+});
+
+test('streamed appends are not undoable — Ctrl-Z after an open keeps the note', async ({
+  page,
+}) => {
+  const note = largeNote(600);
+
+  await initialize(page, hostConfig({ content: note }));
+  await waitForStreamComplete(page);
+  await focusEditor(page);
+
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  await settleChangeDebounce(page);
+
+  // Undo neither un-loaded a chunk nor emptied the document.
+  expect(await getContent(page)).toBe(note);
+  expect(await messagesOfType(page, 'change')).toEqual([]);
+});
+
+test('an edit made while the tail streams is released against the COMPLETE note', async ({
+  page,
+}) => {
+  const note = largeNote(600);
+
+  // Type into the first viewport in the same task the load starts in, so the
+  // keystroke provably lands before the tail has finished arriving.
+  await page.evaluate(
+    (json) => {
+      const w = window as unknown as FakeHostWindow;
+      w.__msgs.length = 0;
+      w.FutoEditor.initialize(json);
+      w.FutoEditor.focus();
+    },
+    hostConfig({ content: note }),
+  );
+  await page.keyboard.type('EDITED ');
+  await waitForStreamComplete(page);
+
+  const changes = await messagesOfType(page, 'change');
+  expect(changes.length).toBeGreaterThan(0);
+  const saved = changes[changes.length - 1].content as string;
+
+  expect(saved).toContain('EDITED ');
+  // The tail is all there: the last section of the note survived the edit.
+  expect(saved).toContain('Section 599');
+  expect(await getContent(page)).toBe(saved);
+});
+
+test('getContent mid-stream after an edit finishes the load rather than answering short', async ({
+  page,
+}) => {
+  // The other half of the save lock. With nothing typed, `getContent` can
+  // answer with the host's own bytes for free; once the user has edited, the
+  // only answer carrying BOTH the edit and the tail costs the rest of the
+  // parse, and this asserts it is paid rather than a prefix returned.
+  // Big enough that the tail outlives the keystrokes below — the assertion on
+  // `streaming` keeps that honest rather than assumed.
+  const note = largeNote(4000);
+
+  await page.evaluate(
+    (json) => {
+      const w = window as unknown as FakeHostWindow;
+      w.__msgs.length = 0;
+      w.FutoEditor.initialize(json);
+      w.FutoEditor.focus();
+    },
+    hostConfig({ content: note }),
+  );
+  await page.keyboard.type('EDITED ');
+
+  // Read while the tail is still arriving.
+  const midStream = await page.evaluate(() => {
+    const w = window as unknown as FakeHostWindow;
+    return {
+      streaming: document.querySelectorAll('.milkdown-stream-tail').length,
+      content: w.FutoEditor.getContent(),
+    };
+  });
+
+  expect(midStream.streaming).toBe(1);
+  expect(midStream.content).toContain('EDITED ');
+  // The tail, which had not been parsed when the read started.
+  expect(midStream.content).toContain('Section 3999');
+});
+
+test('the streaming tail carries a loading affordance that clears on completion', async ({
+  page,
+}) => {
+  await initialize(page, hostConfig({ content: largeNote() }));
+  await waitForStreamComplete(page);
+
+  // `waitForStreamComplete` already asserts it appeared; this pins its role.
+  expect(await readTailWatch(page)).toEqual({ seen: true, role: 'status' });
+  await expect(page.locator('.milkdown-stream-tail')).toHaveCount(0);
+});
+
+test('open records time-to-interactive-first-viewport, and it beats time-to-complete', async ({
+  page,
+}) => {
+  await initialize(page, hostConfig({ content: largeNote() }));
+  await waitForStreamComplete(page);
+
+  const timings = await page.evaluate(() => ({
+    interactive: performance.getEntriesByName('futo:editor-open-interactive')[0]?.duration ?? null,
+    complete: performance.getEntriesByName('futo:editor-open-complete')[0]?.duration ?? null,
+  }));
+
+  expect(timings.interactive).not.toBeNull();
+  expect(timings.complete).not.toBeNull();
+  /* The assertion is the RATIO, not a wall-clock number. The product budget is
+   * "first viewport interactive in under a second" on the low-end reference
+   * PHONE (docs/plan/milkdown-transition.md §5 / D7), which is issue #106's to
+   * enforce on the device; an absolute millisecond bound here would only be
+   * measuring this box, and its next edit would be a bump (AGENTS.md M15).
+   * Half is a bound sized to fail a first chunk that parsed the whole
+   * document, whatever the machine: this note streams in 8 chunks. */
+  expect(timings.interactive!).toBeLessThan(timings.complete! / 2);
+});
+
+/**
+ * The one unacceptable failure, tested against a REAL FILE.
+ *
+ * The two tests above prove the editor never hands out a partial document. This
+ * one closes the loop the way the product does: a host that autosaves whatever
+ * the editor tells it, a note file on disk, and the app dying mid-stream. The
+ * file must come back byte-for-byte.
+ *
+ * It runs its own browser context because the "kill" IS closing that context
+ * while the tail is still arriving — there is no exit path, no flush, no
+ * `getContent`, exactly as when an OS kills a backgrounded app.
+ *
+ * Red-proved: deleting either door of the save lock (the `progressive.loading`
+ * early return in the change listener, or the one in `getContent`) turns this
+ * test red.
+ */
+base('killing the app mid-stream leaves the note file byte-untouched', async ({ browser }) => {
+  const note =
+    Array.from(
+      { length: 4000 },
+      (_, i) => `## Section ${i}\n\n*   loose item ${i}\n\nBody __${i}__ text.`,
+    ).join('\n\n') + '\n';
+
+  const dir = mkdtempSync(path.join(tmpdir(), 'futo-progressive-'));
+  const notePath = path.join(dir, 'note.md');
+  writeFileSync(notePath, note, 'utf8');
+  const originalBytes = readFileSync(notePath);
+
+  const { context, page } = await openEmbed(browser, EDITOR_URL);
+  try {
+    // The host's autosave: every `change` the editor reports is written to the
+    // note file, immediately, which is what makes a truncated `change` fatal.
+    await page.exposeFunction('__futoHostAutosave', (content: string) => {
+      writeFileSync(notePath, content, 'utf8');
+    });
+    await page.evaluate(() => {
+      const w = window as unknown as FakeHostWindow & {
+        futoBridge: { postMessage(json: string): void };
+        __futoHostAutosave(content: string): void;
+      };
+      w.futoBridge = {
+        postMessage: (json: string) => {
+          const message = JSON.parse(json) as { type: string; content?: string };
+          w.__msgs.push(message as never);
+          if (message.type === 'change' && typeof message.content === 'string') {
+            void w.__futoHostAutosave(message.content);
+          }
+        },
+      };
+    });
+
+    await page.evaluate(
+      (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
+      hostConfig({ content: note }),
+    );
+
+    await page.waitForSelector('.milkdown-stream-tail', { state: 'attached' });
+
+    /* Sit here, mid-stream, for longer than the change listener's own 200 ms
+     * debounce. This is what gives the test teeth: without it the context
+     * closed within milliseconds of chunk 0, before any `change` could have
+     * been delivered — so the file came back untouched whether or not the save
+     * lock existed, and the test passed with the lock deleted. Inside this
+     * window an unlocked editor DOES report a partial document (Milkdown's
+     * listener serializes the doc from the transaction that started the
+     * debounce, which mid-stream is a prefix), the fake host writes it, and the
+     * byte comparison below fails. */
+    await page.waitForTimeout(CHANGE_DEBOUNCE_MS * 3);
+
+    // Still streaming: the plug is being pulled on a genuinely partial load.
+    expect(await page.locator('.milkdown-stream-tail').count()).toBe(1);
+    expect(
+      await page.evaluate(() => document.querySelectorAll('.ProseMirror > *').length),
+    ).toBeLessThan(8000);
+  } finally {
+    await context.close();
+  }
+
+  expect(readFileSync(notePath).equals(originalBytes)).toBe(true);
+  rmSync(dir, { recursive: true, force: true });
+});
 
 // ============================================================
 // Images (#103) — vault-relative rendering
