@@ -20,3 +20,15 @@ export function isImageFilename(filename: string): boolean {
   if (dot < 0) return false;
   return IMAGE_EXTENSION_SET.has(filename.slice(dot + 1).toLowerCase());
 }
+
+/**
+ * The markdown an image reference is written as when the editor inserts one.
+ *
+ * Every insertion path — the toolbar Camera/Image picker, clipboard paste on
+ * every shell, and the host's `insertImage` bridge call — produces the same
+ * spelling, so a pasted image is indistinguishable on disk from a picked one.
+ * The trailing newline closes the paragraph the image was dropped into.
+ */
+export function imageReferenceMarkdown(filename: string): string {
+  return `![](${filename})\n`;
+}

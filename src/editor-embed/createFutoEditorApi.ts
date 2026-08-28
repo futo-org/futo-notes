@@ -1,6 +1,7 @@
 import type { EditorView } from '@codemirror/view';
 import {
   createEditorHostBoot,
+  imageReferenceMarkdown,
   postToHost,
   type BridgeNote,
   type EditorHostEffects,
@@ -8,7 +9,8 @@ import {
   type FutoEditorApi,
 } from '@futo-notes/editor';
 
-import { preloadImages, setLocalImageBaseUrl } from '$features/editor/liveMarkdownTransform';
+import { preloadImages } from '$features/editor/liveMarkdownTransform';
+import { setVaultImageBaseUrl } from '$features/images/vaultImageSrc';
 import { TOOLBAR_EXEC } from '$features/editor/markdownToolbar';
 import {
   EXTERNAL_CONTENT_OPTS,
@@ -85,7 +87,7 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
         ?.setAttribute('content', theme === 'dark' ? '#000000' : '#ffffff');
     },
     applyImageBaseUrl(base: string): void {
-      setLocalImageBaseUrl(base);
+      setVaultImageBaseUrl(base);
       preloadImages(editor.getContent(), undefined, () => editor.getView());
       editor.refreshDecorations();
     },
@@ -135,18 +137,17 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       editor.setContent(markdown, EXTERNAL_CONTENT_OPTS);
     },
     insertImage(filename: string): void {
-      const insertMarkdown = `![](${filename})\n`;
+      const insert = imageReferenceMarkdown(filename);
       if (editor.insertMarkdown) {
-        editor.insertMarkdown(insertMarkdown);
+        editor.insertMarkdown(insert);
         // No `getView`: preloadImages only uses it to nudge a CodeMirror view
         // after an async `getImageUrl` resolve, and this branch passes neither.
-        preloadImages(insertMarkdown);
+        preloadImages(insert);
         return;
       }
       const view = editor.getView();
       if (!view) return;
       const position = view.state.selection.main.head;
-      const insert = `![](${filename})\n`;
       view.dispatch({
         changes: { from: position, insert },
         selection: { anchor: position + insert.length },

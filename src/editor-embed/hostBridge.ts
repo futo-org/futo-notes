@@ -7,10 +7,6 @@ declare global {
   }
 }
 
-export function hasNativeHost(): boolean {
-  return Boolean(window.webkit?.messageHandlers?.futoBridge || window.futoBridge);
-}
-
 export function pickImageInBrowser(
   source: 'camera' | 'library',
   onselect: (dataUrl: string) => void,
