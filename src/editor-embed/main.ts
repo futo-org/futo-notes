@@ -155,6 +155,14 @@ warmEditorFonts(() => editor.warmScroll());
 
 (window as unknown as { __scrollDiag?: () => unknown }).__scrollDiag = () => editor.warmScroll();
 
+/* Harness probe for the editor gauntlet's Milkdown adapter
+ * (tests/editor-gauntlet/milkdownAdapter.ts). It drives these exact bundle
+ * bytes over file://, so a test-only build would not be the thing under test.
+ * Null under `?cm`, which has no ProseMirror view. See
+ * MilkdownEditor.getProseMirrorView for why the gauntlet needs the view. */
+(window as unknown as { __futoProseMirrorView?: () => unknown }).__futoProseMirrorView = () =>
+  editor.getProseMirrorView?.() ?? null;
+
 requestAnimationFrame(() => {
   post({ type: 'ready', version: BRIDGE_VERSION });
 });

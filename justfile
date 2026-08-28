@@ -520,6 +520,40 @@ remote-android *flags:
   node scripts/remote-test.mjs {{flags}} build-android-native
   node scripts/remote-test.mjs {{flags}} test-android-native
 
+# ── Editor gauntlet (the permanent editor regression suite) ──
+# Candidate-neutral: the matrix and oracles live behind EditorGauntletAdapter,
+# with one adapter per editor. `gauntlet-cm6*` drives the shipping CodeMirror
+# editor through the dev server; `gauntlet-milkdown*` drives the SAME
+# single-file editor.html the native shells ship (it builds the bundle first),
+# which is where Milkdown lives during the transition.
+# Reports land in tests/editor-gauntlet/local/ (gitignored). Full details,
+# including corpus sharding: tests/editor-gauntlet/README.md.
+
+# The 56-case split-torture matrix against Milkdown, scored against the ledger.
+gauntlet-milkdown:
+  pnpm run test:editor-gauntlet:milkdown
+
+# Milkdown performance floor: hard budgets at real-note sizes, no cliff above.
+gauntlet-milkdown-perf:
+  pnpm run test:editor-gauntlet:milkdown:perf
+
+# Milkdown foreign-corpus preservation sweep (never-refuse/never-warn/never-lose).
+# Read ~/Developer/futo-notes-ml/NOTICE.md first, then point it at a corpus:
+#   EDITOR_GAUNTLET_CORPUS=~/Developer/futo-notes-ml/dataset/sample.jsonl \
+#     EDITOR_GAUNTLET_CORPUS_LIMIT=100 just gauntlet-milkdown-foreign
+gauntlet-milkdown-foreign *args:
+  pnpm run test:editor-gauntlet:milkdown:foreign {{args}}
+
+# The same three against the shipping CodeMirror editor, for comparison.
+gauntlet-cm6:
+  pnpm run test:editor-gauntlet:cm6
+
+gauntlet-cm6-perf:
+  pnpm run test:editor-gauntlet:perf
+
+gauntlet-cm6-foreign *args:
+  pnpm run test:editor-gauntlet:foreign {{args}}
+
 # Factory: compare our editor to Obsidian's, scenario by scenario.
 # See factory/AGENTS.md.
 factory-judge *args:

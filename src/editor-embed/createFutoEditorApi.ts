@@ -29,6 +29,8 @@ export interface EmbeddedEditorHandle {
   /* Editors with no CodeMirror view (the Milkdown editor) run toolbar
    * commands themselves instead of through TOOLBAR_EXEC. */
   exec?: (commandId: string) => boolean;
+  /* ProseMirror-backed editors only; the harness probe main.ts exposes. */
+  getProseMirrorView?: () => unknown;
   insertMarkdown?: (text: string) => void;
 }
 

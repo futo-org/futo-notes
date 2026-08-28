@@ -3,7 +3,26 @@ import type { EditorGauntletAdapter } from './types';
 export const PERFORMANCE_BUDGET = {
   openMs: 1_000,
   keystrokeP95Ms: 16,
+  /**
+   * How much worse a fixture's per-unit open cost may be than its reference
+   * before it counts as a cliff. The point is to catch a scaling WALL — the
+   * TipTap-shaped failure, where cost jumps by an order of magnitude past some
+   * size — not to police constant factors, so the multiple is generous enough
+   * to absorb GC and cache effects across a 5x size step.
+   */
+  openCliffFactor: 2.5,
 } as const;
+
+/** Whether a fixture's open time is gated outright, or only for linearity. */
+export type OpenPolicy = { kind: 'hard' } | { kind: 'linear'; reference: string };
+
+export interface FloorFixture {
+  name: string;
+  /** What the per-unit cost is measured against for a linearity comparison. */
+  unit: 'lines' | 'bytes';
+  openPolicy: OpenPolicy;
+  build(): string;
+}
 
 export interface PerformanceResult {
   fixture: string;
@@ -13,7 +32,15 @@ export interface PerformanceResult {
   openSynchronousMs: number;
   keystrokeSynchronousP95Ms: number;
   keystrokeSettledToPaintP95Ms: number;
-  withinBudget: boolean;
+}
+
+export type FloorViolationKind =
+  'open-budget' | 'open-cliff' | 'keystroke-budget' | 'missing-reference' | 'missing-measurement';
+
+export interface FloorViolation {
+  fixture: string;
+  kind: FloorViolationKind;
+  detail: string;
 }
 
 function percentile95(samples: number[]): number {
@@ -36,8 +63,8 @@ function lineFixture(lines: number): string {
   }).join('\n');
 }
 
-function tenMegabyteFixture(): string {
-  const targetBytes = 10 * 1024 * 1024;
+/** The TipTap-benchmark-shaped adversarial document, grown to `targetBytes`. */
+function adversarialFixture(targetBytes: number): string {
   const blocks: string[] = [];
   let bytes = 0;
   let index = 0;
@@ -66,39 +93,165 @@ function tenMegabyteFixture(): string {
         `[ref-${definition}]: https://example.com/${definition} "Reference ${definition}"\n`,
     ),
   );
-  blocks.push('END-10MB\n');
+  blocks.push('END-FIXTURE\n');
   return blocks.join('\n');
+}
+
+const MIB = 1024 * 1024;
+
+/**
+ * The CodeMirror ladder, unchanged: every fixture is hard-gated on open.
+ * CM6 has met that bar since the bakeoff and relaxing it would only lose
+ * coverage on an editor that is about to be deleted anyway.
+ */
+export const CM6_FLOOR_FIXTURES: FloorFixture[] = [
+  ...[1_000, 10_000, 50_000].map((lines): FloorFixture => ({
+    name: `${lines / 1_000}k-lines`,
+    unit: 'lines',
+    openPolicy: { kind: 'hard' },
+    build: () => lineFixture(lines),
+  })),
+  {
+    name: '10mb-adversarial',
+    unit: 'bytes',
+    openPolicy: { kind: 'hard' },
+    build: () => adversarialFixture(10 * MIB),
+  },
+];
+
+/**
+ * The Milkdown ladder, per docs/plan/milkdown-transition.md §5: hard budgets at
+ * sizes real notes actually reach, and "scales linearly, no cliff" above them.
+ *
+ * The size line comes from the note-size population in the plan's §2 — the
+ * foreign corpus tops out at 19,295 lines and Justin's vault at 13,876, so 10k
+ * lines and a 1 MiB document are ordinary notes and 50k lines / 10 MiB are not.
+ * Each linear fixture is compared against a hard-gated fixture BUILT BY THE
+ * SAME GENERATOR, because per-unit cost is only comparable within one document
+ * shape. The keystroke budget applies everywhere: typing stays interactive at
+ * any size (M5), whatever the open cost.
+ */
+export const MILKDOWN_FLOOR_FIXTURES: FloorFixture[] = [
+  {
+    name: '1k-lines',
+    unit: 'lines',
+    openPolicy: { kind: 'hard' },
+    build: () => lineFixture(1_000),
+  },
+  {
+    name: '10k-lines',
+    unit: 'lines',
+    openPolicy: { kind: 'hard' },
+    build: () => lineFixture(10_000),
+  },
+  {
+    name: '50k-lines',
+    unit: 'lines',
+    openPolicy: { kind: 'linear', reference: '10k-lines' },
+    build: () => lineFixture(50_000),
+  },
+  {
+    name: '1mb-adversarial',
+    unit: 'bytes',
+    openPolicy: { kind: 'hard' },
+    build: () => adversarialFixture(MIB),
+  },
+  {
+    name: '10mb-adversarial',
+    unit: 'bytes',
+    openPolicy: { kind: 'linear', reference: '1mb-adversarial' },
+    build: () => adversarialFixture(10 * MIB),
+  },
+];
+
+function perUnitMs(result: PerformanceResult, unit: FloorFixture['unit']): number {
+  const size = unit === 'lines' ? result.lines : result.bytes;
+  return size > 0 ? result.openMs / size : Infinity;
+}
+
+/** Every budget the run missed, in fixture order. Empty means the floor held. */
+export function evaluatePerformanceFloor(
+  fixtures: FloorFixture[],
+  results: PerformanceResult[],
+): FloorViolation[] {
+  const byName = new Map(results.map((result) => [result.fixture, result]));
+  const violations: FloorViolation[] = [];
+
+  for (const fixture of fixtures) {
+    const result = byName.get(fixture.name);
+    if (!result) {
+      violations.push({
+        fixture: fixture.name,
+        kind: 'missing-measurement',
+        detail: 'the fixture produced no measurement',
+      });
+      continue;
+    }
+
+    if (result.keystrokeSynchronousP95Ms >= PERFORMANCE_BUDGET.keystrokeP95Ms) {
+      violations.push({
+        fixture: fixture.name,
+        kind: 'keystroke-budget',
+        detail:
+          `synchronous keystroke p95 ${Math.round(result.keystrokeSynchronousP95Ms)}ms ` +
+          `is not under the ${PERFORMANCE_BUDGET.keystrokeP95Ms}ms budget`,
+      });
+    }
+
+    if (fixture.openPolicy.kind === 'hard') {
+      if (result.openMs >= PERFORMANCE_BUDGET.openMs) {
+        violations.push({
+          fixture: fixture.name,
+          kind: 'open-budget',
+          detail: `${Math.round(result.openMs)}ms exceeds the ${PERFORMANCE_BUDGET.openMs}ms budget`,
+        });
+      }
+      continue;
+    }
+
+    const reference = byName.get(fixture.openPolicy.reference);
+    if (!reference) {
+      violations.push({
+        fixture: fixture.name,
+        kind: 'missing-reference',
+        detail: `no ${fixture.openPolicy.reference} measurement to compare against`,
+      });
+      continue;
+    }
+    const cost = perUnitMs(result, fixture.unit);
+    const referenceCost = perUnitMs(reference, fixture.unit);
+    const ratio = cost / referenceCost;
+    if (ratio > PERFORMANCE_BUDGET.openCliffFactor) {
+      violations.push({
+        fixture: fixture.name,
+        kind: 'open-cliff',
+        detail:
+          `open costs ${ratio.toFixed(1)}x as much per ${fixture.unit === 'lines' ? 'line' : 'byte'} ` +
+          `as ${fixture.openPolicy.reference}, past the ${PERFORMANCE_BUDGET.openCliffFactor}x cliff factor`,
+      });
+    }
+  }
+
+  return violations;
 }
 
 export async function runPerformanceFloor(
   adapter: EditorGauntletAdapter,
+  fixtures: FloorFixture[],
 ): Promise<PerformanceResult[]> {
-  const fixtures = [
-    ...[1_000, 10_000, 50_000].map((lines) => ({
-      name: `${lines}-lines`,
-      source: lineFixture(lines),
-    })),
-    { name: '10mb-adversarial', source: tenMegabyteFixture() },
-  ];
   const results: PerformanceResult[] = [];
-
   await adapter.open('', 'performance-floor');
   for (const fixture of fixtures) {
-    const opened = await adapter.measureOpen(fixture.source);
+    const opened = await adapter.measureOpen(fixture.build());
     const typed = await adapter.measureKeystrokes(25);
-    const keystrokeSynchronousP95Ms = percentile95(typed.synchronousSamplesMs);
-    const keystrokeSettledToPaintP95Ms = percentile95(typed.settledToPaintSamplesMs);
     results.push({
       fixture: fixture.name,
       lines: opened.lines,
       bytes: opened.bytes,
       openMs: opened.settledMs,
       openSynchronousMs: opened.synchronousMs,
-      keystrokeSynchronousP95Ms,
-      keystrokeSettledToPaintP95Ms,
-      withinBudget:
-        opened.settledMs < PERFORMANCE_BUDGET.openMs &&
-        keystrokeSynchronousP95Ms < PERFORMANCE_BUDGET.keystrokeP95Ms,
+      keystrokeSynchronousP95Ms: percentile95(typed.synchronousSamplesMs),
+      keystrokeSettledToPaintP95Ms: percentile95(typed.settledToPaintSamplesMs),
     });
   }
   return results;

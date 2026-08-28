@@ -559,6 +559,26 @@
     return null;
   }
 
+  /**
+   * The live ProseMirror view, for the editor gauntlet's Milkdown adapter
+   * (tests/editor-gauntlet/milkdownAdapter.ts) — the permanent regression
+   * suite, which drives the SAME editor.html bytes the shells ship and so has
+   * no other way in.
+   *
+   * It exists because the gauntlet's two hardest jobs need the document model,
+   * not the DOM: placing a caret at an exact position across 31k foreign notes,
+   * and timing one keystroke's SYNCHRONOUS cost against the same 16 ms budget
+   * CM6 is measured on (`cm6Adapter.measureKeystrokes` times `view.dispatch`).
+   * A DOM-selection approximation would measure a different thing and quietly
+   * change what the budget means.
+   *
+   * Read-only by intent and not part of the futoBridge contract; no native
+   * host calls it. `main.ts` is what puts it on `window`.
+   */
+  export function getProseMirrorView(): ProseView | null {
+    return pmView();
+  }
+
   export function exec(commandId: string): boolean {
     const action = EXEC[commandId];
     if (!action) {

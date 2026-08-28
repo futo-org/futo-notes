@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 
 import { expect, test } from '@playwright/test';
 
-import { Cm6GauntletAdapter } from './cm6Adapter';
+import { MilkdownGauntletAdapter } from './milkdownAdapter';
 import { gauntletArtifactCapture } from './artifactCapture';
 import { ForeignCorpusLoader, sha256File } from './foreignCorpus';
 import {
@@ -14,6 +14,23 @@ import {
   type ForeignSweepShardReport,
 } from './foreignReport';
 import { runForeignPreservationSweep } from './foreignPreservation';
+
+/**
+ * The foreign-corpus preservation sweep against Milkdown, on the LOSS-ONLY bar.
+ *
+ * The CodeMirror sweep asserts byte fidelity: an edit rewrites its own block
+ * and nothing else, byte for byte. ADR-0002 retires that bar for a WYSIWYG
+ * candidate — a round trip through Milkdown legitimately renormalizes markdown
+ * syntax across the whole document — so what this run gates is what the corpus
+ * census actually measured (docs/plan/milkdown-transition.md §2):
+ *
+ *   never refuse the edit · never warn · never lose text
+ *
+ * The rewrite counters are still computed and still in the report. They are
+ * evidence about how much normalization the corpus provokes, which is the
+ * normalize-once scorecard (plan D4). They are not pass conditions, and this
+ * spec says so out loud rather than quietly dropping them.
+ */
 
 const corpusPath = process.env.EDITOR_GAUNTLET_CORPUS;
 const shardIndex = Number.parseInt(process.env.EDITOR_GAUNTLET_SHARD_INDEX ?? '0', 10);
@@ -26,7 +43,7 @@ const expectedRecords = process.env.EDITOR_GAUNTLET_EXPECTED_RECORDS
   ? Number.parseInt(process.env.EDITOR_GAUNTLET_EXPECTED_RECORDS, 10)
   : undefined;
 
-test('current CM6 preserves foreign files', async ({ page }) => {
+test('milkdown preserves foreign files', async ({ browser }) => {
   test.skip(!corpusPath, 'set EDITOR_GAUNTLET_CORPUS after reading the corpus NOTICE');
   test.setTimeout(timeoutMs);
   const startedAt = performance.now();
@@ -44,13 +61,14 @@ test('current CM6 preserves foreign files', async ({ page }) => {
     shard: { index: shardIndex, count: shardCount },
     maxNotes,
   });
-  const adapter = new Cm6GauntletAdapter(page);
+  const adapter = new MilkdownGauntletAdapter(browser);
   const [corpusSha256, adapterRevision] = await Promise.all([
     sha256File(corpusPath!),
-    sha256File(path.resolve('tests/editor-gauntlet/cm6Adapter.ts')),
+    sha256File(path.resolve('tests/editor-gauntlet/milkdownAdapter.ts')),
   ]);
   const config: ForeignSweepRunConfig = {
     semanticsVersion: 'foreign-preservation-v4',
+    assertions: 'loss-only',
     candidate: adapter.name,
     candidateRevision:
       process.env.EDITOR_GAUNTLET_CANDIDATE_REVISION ??
@@ -60,20 +78,31 @@ test('current CM6 preserves foreign files', async ({ page }) => {
     expectedRecords: expectedRecords ?? 0,
     maxNotes: maxNotes ?? null,
     artifactCapture: gauntletArtifactCapture(),
-    assertions: 'byte-fidelity',
     shardCount,
     selection: 'zero-based-record-ordinal-modulo',
     blocks: 'lezer-markdown-gfm-top-level-v1',
     caretWalk: 'block-from-and-to-with-render-frame-v1',
     edit: 'isolated-insert-x-at-block-from-v1',
   };
-  const result = await runForeignPreservationSweep(adapter, loader, (progress) => {
-    if (progress.notesPlanned % 100 === 0) {
-      console.log(
-        `EDITOR_GAUNTLET_FOREIGN_PROGRESS ${JSON.stringify({ shardIndex, shardCount, notes: progress.notesPlanned, blocks: progress.blocksPlanned })}`,
-      );
-    }
-  });
+
+  let result;
+  try {
+    result = await runForeignPreservationSweep(adapter, loader, (progress) => {
+      if (progress.notesPlanned % 100 === 0) {
+        console.log(
+          `EDITOR_GAUNTLET_FOREIGN_PROGRESS ${JSON.stringify({
+            shardIndex,
+            shardCount,
+            notes: progress.notesPlanned,
+            blocks: progress.blocksPlanned,
+          })}`,
+        );
+      }
+    });
+  } finally {
+    await adapter.dispose();
+  }
+
   const report: ForeignSweepShardReport = {
     schemaVersion: 1,
     candidate: adapter.name,
@@ -92,11 +121,12 @@ test('current CM6 preserves foreign files', async ({ page }) => {
     ? path.resolve(process.env.EDITOR_GAUNTLET_REPORT_PATH)
     : path.join(
         reportDir,
-        `current-cm6-foreign-preservation.shard-${shardIndex}-of-${shardCount}.json`,
+        `milkdown-foreign-preservation.shard-${shardIndex}-of-${shardCount}.json`,
       );
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`EDITOR_GAUNTLET_FOREIGN ${JSON.stringify(report)}`);
 
+  // ---- accounting: the run must have covered what it claims to have covered //
   expect(loader.accounting.reachedEof, 'the loader must account through corpus EOF').toBe(true);
   if (expectedRecords !== undefined) {
     expect(
@@ -112,10 +142,7 @@ test('current CM6 preserves foreign files', async ({ page }) => {
     loader.accounting.selectedInvalidJson,
     'every selected corpus record must be valid JSON',
   ).toBe(0);
-  expect(
-    loader.accounting.selectedMissingBody,
-    'every selected corpus record must have a body',
-  ).toBe(0);
+  expect(loader.accounting.selectedMissingBody, 'every selected record must have a body').toBe(0);
   if (maxNotes === undefined) {
     expect(loader.accounting.omittedByLimit, 'a full sweep must not cap selected notes').toBe(0);
     expect(loader.accounting.yieldedNotes, 'every valid selected note must reach the runner').toBe(
@@ -146,8 +173,15 @@ test('current CM6 preserves foreign files', async ({ page }) => {
     budgetExceededOperations: 0,
     adapterOperations: 0,
   });
-  expect.soft(result.refusals, 'tier 1 requires zero refused edits').toBe(0);
-  expect.soft(result.editsWithWarnings, 'tier 2 requires zero preservation warnings').toBe(0);
+
+  // ---- the loss-only bar --------------------------------------------------- //
+  expect.soft(result.refusals, 'never refuse: no edit may be refused').toBe(0);
+  expect.soft(result.editsWithWarnings, 'never warn: no edit may surface a warning').toBe(0);
   expect.soft(result.exactOnlyNotes, 'rich editing must remain available').toBe(0);
-  expect(result.outsideBlockRewrites, 'no edit may rewrite outside its parsed block').toBe(0);
+  expect
+    .soft(
+      { lossyEdits: result.lossyEdits, lostWords: result.lostTokenSamples },
+      'never lose: every word the note had must survive the edit',
+    )
+    .toEqual({ lossyEdits: 0, lostWords: [] });
 });

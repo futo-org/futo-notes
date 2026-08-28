@@ -9,27 +9,27 @@
 
 ## 1. The decision ledger
 
-| # | Decision | Choice |
-|---|---|---|
-| D1 | Sequencing | **Editor first, on existing file sync.** CRDT sync is a separate later campaign. Normalize-once churn under text sync is accepted as bounded and self-extinguishing; the conflict-copy machinery catches the rare concurrent-edit collision. |
-| D2 | CRDT substrate (on paper now, per ADR-0002's gate) | **Tree CRDT, Yjs family** — see ADR-0003. The editor's engine wrapper is built with the y-prosemirror rebind in mind. |
-| D3 | Foundation | **Productionize `spike/milkdown-editor`**: `@milkdown/kit` core presets + our own chrome (no Crepe). Validated by the perf probe, the 31k-note corpus census, and the working two-shell integration on that branch. |
-| D4 | Data-loss bar | **Zero loss is the tracked ideal, not a release gate** (amends ADR-0002's wording). The parked guard work gets finished as ordinary v1 work; the census is a scorecard. |
-| D5 | Guard architecture | **Milkdown compat plugin set in `packages/editor`** (root-cause plugin fixes), plus one pre-parse string pass for the bullet-number ambiguity only. Canary tests against upstream; bugs filed upstream. No Rust mirror — recorded M6 carve-out. |
-| D6 | Feature parity | **Full bucket-1 parity** with `docs/spec/editor.md` before replacement (see §4). Live-preview/decorated-source spec sections are renegotiated, not matched. |
-| D7 | Large notes | **Progressive viewport-first open (7C)**. Open budget redefined as time-to-interactive-first-viewport; saves locked until fully loaded; budgets enforced on a real low-end Android phone (Justin's old device). |
-| D8 | Mobile gates | **WebView floor measured** down the Chromium tier ladder, github#8 update-notice below it. **No formal keyboard matrix** — the dogfood period covers IME organically (decided with the risk named). |
-| D9 | Rollout | **Dogfood on dev builds, then big-bang three-platform replace.** No CM6 escape-hatch toggle. CM6 and its scaffolding deleted in the same MR chain. Spec renegotiation is its own reviewed MR. |
+| #   | Decision                                           | Choice                                                                                                                                                                                                                                          |
+| --- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Sequencing                                         | **Editor first, on existing file sync.** CRDT sync is a separate later campaign. Normalize-once churn under text sync is accepted as bounded and self-extinguishing; the conflict-copy machinery catches the rare concurrent-edit collision.    |
+| D2  | CRDT substrate (on paper now, per ADR-0002's gate) | **Tree CRDT, Yjs family** — see ADR-0003. The editor's engine wrapper is built with the y-prosemirror rebind in mind.                                                                                                                           |
+| D3  | Foundation                                         | **Productionize `spike/milkdown-editor`**: `@milkdown/kit` core presets + our own chrome (no Crepe). Validated by the perf probe, the 31k-note corpus census, and the working two-shell integration on that branch.                             |
+| D4  | Data-loss bar                                      | **Zero loss is the tracked ideal, not a release gate** (amends ADR-0002's wording). The parked guard work gets finished as ordinary v1 work; the census is a scorecard.                                                                         |
+| D5  | Guard architecture                                 | **Milkdown compat plugin set in `packages/editor`** (root-cause plugin fixes), plus one pre-parse string pass for the bullet-number ambiguity only. Canary tests against upstream; bugs filed upstream. No Rust mirror — recorded M6 carve-out. |
+| D6  | Feature parity                                     | **Full bucket-1 parity** with `docs/spec/editor.md` before replacement (see §4). Live-preview/decorated-source spec sections are renegotiated, not matched.                                                                                     |
+| D7  | Large notes                                        | **Progressive viewport-first open (7C)**. Open budget redefined as time-to-interactive-first-viewport; saves locked until fully loaded; budgets enforced on a real low-end Android phone (Justin's old device).                                 |
+| D8  | Mobile gates                                       | **WebView floor measured** down the Chromium tier ladder, github#8 update-notice below it. **No formal keyboard matrix** — the dogfood period covers IME organically (decided with the risk named).                                             |
+| D9  | Rollout                                            | **Dogfood on dev builds, then big-bang three-platform replace.** No CM6 escape-hatch toggle. CM6 and its scaffolding deleted in the same MR chain. Spec renegotiation is its own reviewed MR.                                                   |
 
 ## 2. Evidence base (do not re-derive)
 
 - **Perf probe 2026-08-27** (standalone, @milkdown/kit 7.22.1, headless Chromium): passes open <1 s
-  + keystroke p95 <16 ms through 14k lines *with* `.ProseMirror > * { content-visibility: auto;
-  contain-intrinsic-size: auto 24px }`; ceiling ~16k lines, bound by remark parse (~62 ms/1k lines,
-  linear — no TipTap-style wall). Keystroke cost without the cv rule is 82% browser layout over the
-  eager whole-doc DOM. Typing passes even at 50k with cv (+ filtering the preset's two whole-doc
-  per-transaction walkers, not needed ≤16k). Numbers are from a fast desktop — low-end Android
-  multiplies them, which is why D7 exists.
+  - keystroke p95 <16 ms through 14k lines _with_ `.ProseMirror > * { content-visibility: auto;
+contain-intrinsic-size: auto 24px }`; ceiling ~16k lines, bound by remark parse (~62 ms/1k lines,
+    linear — no TipTap-style wall). Keystroke cost without the cv rule is 82% browser layout over the
+    eager whole-doc DOM. Typing passes even at 50k with cv (+ filtering the preset's two whole-doc
+    per-transaction walkers, not needed ≤16k). Numbers are from a fast desktop — low-end Android
+    multiplies them, which is why D7 exists.
 - **Round-trip corpus census** (`spike-notes/milkdown-corpus-report.md` on the spike): 31k notes,
   zero crashes/hangs. Two real loss classes — inline `<br>` deleted (word fusion; the standard
   multi-line table-cell idiom) and `[](url)` links deleted href-and-all — plus one corruption class
@@ -127,6 +127,47 @@ Recorded, not fixed here:
   and background paths read `getContent()` directly, so this is a crash-window question, not a
   lost-work-on-exit one. Owned by **#105** (save semantics).
 
+### T3 outcome (#100, done)
+
+The editor gauntlet — the bake-off's candidate-neutral harness, previously stranded on the unmerged
+`test/editor-gauntlet` branch — is graduated onto this branch and has a Milkdown adapter. It drives
+the same single-file `editor.html` the shells ship (there is no app shell running Milkdown until
+D9), and the runners are untouched: the boundary is still `EditorGauntletAdapter`.
+
+What the first scored run says (desktop chromium, 2026-08-28; full detail in
+`tests/editor-gauntlet/README.md`):
+
+- **Split torture 36/56.** Three failure families, each in
+  `milkdown-split-torture.baseline.json`: no wikilink node (8 — §4 bucket-1 scope), a caret on a
+  mark boundary types outside the mark (7 — ProseMirror mark inclusivity, which is arguably the
+  correct WYSIWYG reading of a case written for source mode; worth deciding deliberately during the
+  §4 audit), and pasted text inheriting the mark of the range it replaced (4).
+- **Zero of 56 undos are byte-exact** — every one adds a trailing newline. Normalize-once, as
+  designed; undo is therefore checked for loss, and the byte-exact count is reported as the D4
+  scorecard.
+- **Preservation is loss-only now**, per ADR-0002. The sweep still counts block rewrites and still
+  reports them; they are no longer pass conditions, because a WYSIWYG round trip rewrites syntax
+  document-wide (an 8-note smoke rewrote 10 of 11 edited blocks). The gate is never-refuse /
+  never-warn / never-lose, with loss judged by a token-multiset oracle that reproduced the census's
+  two real loss classes and produced no false positives on benign normalization.
+- **The performance floor fails, and the shape of the failure matters.** Open misses the 1 s budget
+  at real note sizes (10k lines 1872 ms, 1 MiB adversarial 5516 ms) and keystroke p95 misses 16 ms
+  above them (50k lines 60 ms, 10 MiB 57 ms) — but there is **no cliff**: per-line open cost at 50k
+  is 1.4x the 10k cost, and per-byte cost at 10 MiB is 0.3x the 1 MiB cost. The scaling claim behind
+  D3 holds; what is missing is §5's progressive open, which is what redefines the open budget as
+  time-to-interactive-first-viewport. **Correction to a §5 assumption:** adding the perf probe's
+  `content-visibility` stylesheet to the live page does not close the open gap (10k-line open
+  1752 ms vs 1872 ms), so that rule is a keystroke-layout lever, not an open-cost one. The floor is
+  asserted rather than ledgered, so it stays red until the progressive-open work moves it.
+
+One production seam was added: `MilkdownEditor.getProseMirrorView()`, exposed by `main.ts` as
+`window.__futoProseMirrorView` alongside the existing `__scrollDiag`. The gauntlet drives the
+shipped bundle bytes, so it has no other way to place a caret exactly across 31k foreign notes or to
+time a keystroke against the same synchronous unit CM6 is measured on.
+
+Not in CI, by design: the split matrix is ~40 s, the perf floor minutes, and a full corpus sweep
+hours. Recipes are `just gauntlet-milkdown`, `-perf`, and `-foreign`.
+
 ## 3. Compat plugin set (replaces the parked string guards)
 
 Home: `packages/editor/src/milkdown-compat/` (exact name at implementation time). Both hosts and
@@ -144,7 +185,7 @@ the corpus harness consume the same module — the ADR-0002 "one serializer" rul
    transformers run post-parse, after CommonMark has already resolved the ambiguity into a nested
    list. Same skip-fences/inline-code rules as the parked WIP.
 4. **Canary tests**: pin the Milkdown version; a test reproduces each upstream bug against the
-   *unpatched* preset so the day upstream fixes it the canary flips and the fork gets deleted.
+   _unpatched_ preset so the day upstream fixes it the canary flips and the fork gets deleted.
    Register the fork in `scripts/drift-registry.json` if `check-drift` flags it.
 5. **Upstream**: file the `<br>`-deletion and empty-link bugs against Milkdown with the minimal
    repros from the census report.
@@ -176,7 +217,7 @@ the corpus harness consume the same module — the ADR-0002 "one serializer" rul
 
 - Parse markdown in top-level-block chunks (blank-line splits, fence/reference-definition aware).
   Mount the first chunk immediately; stream the rest as idle-time appends. The cv stylesheet makes
-  offscreen DOM cheap; chunking makes offscreen *parse* deferred.
+  offscreen DOM cheap; chunking makes offscreen _parse_ deferred.
 - **Save lock (CRITICAL)**: while the tail is streaming, no save may fire and the load-echo guard
   holds — serializing a half-loaded doc writes a truncated file. Save unlocks only at
   full-doc-loaded. Needs a test with teeth: kill mid-stream, assert the file untouched.
@@ -218,7 +259,7 @@ devices, stop and ask Justin (support-surface change).
 
 - M5: serialization off the keystroke path — `getMarkdown()` is whole-doc (~210 ms at 14k lines);
   saves stay debounced/background.
-- M6/M7: compat plugins carry the recorded carve-out (§3.6); the wikilink *rules* (resolution,
+- M6/M7: compat plugins carry the recorded carve-out (§3.6); the wikilink _rules_ (resolution,
   shortest-suffix) remain the existing conformance-locked mirrors — the plugin consumes them.
 - M8/M10: bridge and toolbar changes follow `packages/editor/AGENTS.md`; both native hosts per
   message; regenerate specs.

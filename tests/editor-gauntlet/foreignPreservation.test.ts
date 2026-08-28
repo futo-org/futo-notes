@@ -13,7 +13,7 @@ class RecordingAdapter implements EditorGauntletAdapter {
   readonly caseIds: string[] = [];
   failWalk = false;
   failPerformAt = -1;
-  saveMutation: 'exact' | 'inside' | 'outside' = 'exact';
+  saveMutation: 'exact' | 'inside' | 'outside' | 'normalized' | 'lossy' = 'exact';
   performCalls = 0;
   private source = '';
   private selection = 0;
@@ -35,12 +35,7 @@ class RecordingAdapter implements EditorGauntletAdapter {
 
   async save(): Promise<EditorSnapshot> {
     const exact = `${this.source.slice(0, this.selection)}x${this.source.slice(this.selection)}`;
-    const savedSource =
-      this.saveMutation === 'exact'
-        ? exact
-        : this.saveMutation === 'inside'
-          ? `${exact.slice(0, this.selection + 1)}y${exact.slice(this.selection + 1)}`
-          : `${exact}-outside`;
+    const savedSource = this.savedBytes(exact);
     return {
       source: savedSource,
       shellSource: savedSource,
@@ -51,6 +46,24 @@ class RecordingAdapter implements EditorGauntletAdapter {
       refused: false,
       mode: 'rich',
     };
+  }
+
+  /** What lands on disk, per the mutation the test is exercising. */
+  private savedBytes(exact: string): string {
+    switch (this.saveMutation) {
+      case 'exact':
+        return exact;
+      case 'inside':
+        return `${exact.slice(0, this.selection + 1)}y${exact.slice(this.selection + 1)}`;
+      case 'outside':
+        return `${exact}-outside`;
+      // Every byte rewritten, every word kept: what a WYSIWYG round trip does.
+      case 'normalized':
+        return exact.replace(/^- /gm, '* ').replace(/\*\*/g, '__');
+      // A word deleted outright: the only thing loss-only mode gates on.
+      case 'lossy':
+        return exact.replace('beta', '');
+    }
   }
 
   async walkCaret(_positions: number[]): Promise<void> {
@@ -136,4 +149,35 @@ describe('runForeignPreservationSweep', () => {
       expect(result.rewriteRate).toBe(1);
     },
   );
+
+  it('does not call a byte-for-byte rewrite that keeps every word a loss', async () => {
+    const adapter = new RecordingAdapter();
+    adapter.saveMutation = 'normalized';
+    const result = await runForeignPreservationSweep(adapter, [
+      { ordinal: 0, source: '- **alpha** item\n\n- **beta** item' },
+    ]);
+
+    expect(result.editedBlockRewrites + result.outsideBlockRewrites).toBeGreaterThan(0);
+    expect(result.lossyEdits).toBe(0);
+    expect(result.lostTokenEvents).toBe(0);
+  });
+
+  it('counts an edit that dropped a word, and names the words', async () => {
+    const adapter = new RecordingAdapter();
+    adapter.saveMutation = 'lossy';
+    const result = await runForeignPreservationSweep(adapter, [
+      { ordinal: 0, source: 'alpha\n\nbeta gamma' },
+    ]);
+
+    expect(result.lossyEdits).toBe(2);
+    expect(result.lostTokenEvents).toBe(2);
+    expect(result.lostTokenSamples).toContain('beta');
+  });
+
+  it('does not read the inserted character itself as a lost word', async () => {
+    const adapter = new RecordingAdapter();
+    const result = await runForeignPreservationSweep(adapter, [{ ordinal: 0, source: '- item' }]);
+
+    expect(result.lossyEdits).toBe(0);
+  });
 });

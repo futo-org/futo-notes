@@ -1,5 +1,12 @@
 import type { EditorGauntletAdapter } from './types';
+import { detectTextLoss } from './lossOracle';
 import { markdownBlockRanges } from './markdownStructure';
+
+/** The one character every isolated edit types. */
+export const SWEEP_INSERTED_TEXT = 'x';
+
+/** How many distinct lost words a report keeps as evidence. */
+const LOST_TOKEN_SAMPLE_LIMIT = 50;
 
 export interface ForeignNote {
   /** Corpus position only; never a title, hash, URL, or other source identifier. */
@@ -34,6 +41,17 @@ export interface ForeignSweepResult {
   editedBlockRewrites: number;
   outsideBlockRewrites: number;
   rewriteRate: number;
+  /**
+   * Edits after which at least one word the note had is gone. This is the
+   * loss-only bar a WYSIWYG candidate is held to (ADR-0002): the rewrite
+   * counters above stay as evidence, because a round trip legitimately rewrites
+   * markdown syntax, but nothing a reader wrote may disappear.
+   */
+  lossyEdits: number;
+  /** Total lost word occurrences across every edit. */
+  lostTokenEvents: number;
+  /** Up to 50 distinct lost words, so a red run says WHAT went missing. */
+  lostTokenSamples: string[];
   hardFailures: {
     parseNotes: number;
     uneditableEdits: number;
@@ -74,6 +92,9 @@ export function emptyForeignSweepResult(): ForeignSweepResult {
     editedBlockRewrites: 0,
     outsideBlockRewrites: 0,
     rewriteRate: 0,
+    lossyEdits: 0,
+    lostTokenEvents: 0,
+    lostTokenSamples: [],
     hardFailures: {
       parseNotes: 0,
       uneditableEdits: 0,
@@ -174,7 +195,7 @@ export async function runForeignPreservationSweep(
         continue;
       }
       try {
-        await adapter.perform({ type: 'insert-text', text: 'x' });
+        await adapter.perform({ type: 'insert-text', text: SWEEP_INSERTED_TEXT });
       } catch (error) {
         countOperationFailure(result, 'edit-perform', error);
         result.failedEdits += 1;
@@ -198,7 +219,24 @@ export async function runForeignPreservationSweep(
       if (saved.mode === 'exact-only') noteWasExactOnly = true;
       if (saved.refused || saved.mode === 'exact-only') result.hardFailures.uneditableEdits += 1;
 
-      const expected = `${note.source.slice(0, block.from)}x${note.source.slice(block.from)}`;
+      // Loss is measured against the note as it arrived, not against the
+      // byte-exact expected string: a rich editor puts the typed character
+      // inside the block's text where a source offset would have put it before
+      // the block marker, and that is the same edit, not a lost word.
+      const loss = detectTextLoss(note.source, saved.savedSource, {
+        absorbable: SWEEP_INSERTED_TEXT,
+      });
+      if (loss.lostTokenCount > 0) {
+        result.lossyEdits += 1;
+        result.lostTokenEvents += loss.lostTokenCount;
+        for (const token of loss.lostTokens) {
+          if (result.lostTokenSamples.length >= LOST_TOKEN_SAMPLE_LIMIT) break;
+          if (!result.lostTokenSamples.includes(token)) result.lostTokenSamples.push(token);
+        }
+      }
+
+      const expected =
+        note.source.slice(0, block.from) + SWEEP_INSERTED_TEXT + note.source.slice(block.from);
       if (saved.savedSource === expected) continue;
       const diff = diffBounds(expected, saved.savedSource);
       const adjustedBlockTo = block.to + 1;

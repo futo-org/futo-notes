@@ -14,7 +14,8 @@ function shard(index: number, count = 2): ForeignSweepShardReport {
   sweep.notesPlanned = selectedRecords;
   sweep.notesParsed = selectedRecords;
   const config: ForeignSweepRunConfig = {
-    semanticsVersion: 'foreign-preservation-v3',
+    semanticsVersion: 'foreign-preservation-v4',
+    assertions: 'byte-fidelity',
     candidate: 'candidate',
     candidateRevision: 'candidate-revision',
     adapterRevision: 'adapter-sha',
@@ -52,6 +53,23 @@ function shard(index: number, count = 2): ForeignSweepShardReport {
 }
 
 describe('mergeForeignSweepShardReports', () => {
+  it('sums the loss counters and unions the lost-word samples across shards', () => {
+    const first = shard(0);
+    first.sweep.lossyEdits = 2;
+    first.sweep.lostTokenEvents = 3;
+    first.sweep.lostTokenSamples = ['alpha', 'beta'];
+    const second = shard(1);
+    second.sweep.lossyEdits = 1;
+    second.sweep.lostTokenEvents = 4;
+    second.sweep.lostTokenSamples = ['beta', 'gamma'];
+
+    const merged = mergeForeignSweepShardReports([first, second]);
+
+    expect(merged.sweep.lossyEdits).toBe(3);
+    expect(merged.sweep.lostTokenEvents).toBe(7);
+    expect(merged.sweep.lostTokenSamples).toEqual(['alpha', 'beta', 'gamma']);
+  });
+
   it('exactly aggregates a complete modulo partition independent of input order', () => {
     const second = shard(1);
     second.sweep.blocksPlanned = 5;

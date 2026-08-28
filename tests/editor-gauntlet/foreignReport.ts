@@ -9,7 +9,8 @@ import {
 } from './foreignPreservation';
 
 export interface ForeignSweepRunConfig {
-  semanticsVersion: 'foreign-preservation-v3';
+  /** v4 added the loss counters; a v3 report is not comparable to one. */
+  semanticsVersion: 'foreign-preservation-v4';
   candidate: string;
   candidateRevision: string;
   adapterRevision: string;
@@ -17,6 +18,12 @@ export interface ForeignSweepRunConfig {
   expectedRecords: number;
   maxNotes: number | null;
   artifactCapture: GauntletArtifactCapture;
+  /**
+   * Which bar the run was judged against. `byte-fidelity` is the original
+   * tier-3 contract; `loss-only` is what ADR-0002 leaves a WYSIWYG candidate
+   * accountable for. It is part of the fingerprint so the two never merge.
+   */
+  assertions: 'byte-fidelity' | 'loss-only';
   shardCount: number;
   selection: 'zero-based-record-ordinal-modulo';
   blocks: 'lezer-markdown-gfm-top-level-v1';
@@ -50,6 +57,9 @@ export interface ForeignSweepAggregateReport {
   corpus: Omit<ForeignCorpusAccounting, 'reachedEof'> & { reachedEof: true };
   sweep: ForeignSweepResult;
 }
+
+/** Matches the per-shard cap in foreignPreservation.ts. */
+const LOST_TOKEN_SAMPLE_LIMIT = 50;
 
 const FAILURE_STAGES: ForeignSweepFailureStage[] = [
   'parse',
@@ -90,6 +100,12 @@ function addSweep(total: ForeignSweepResult, part: ForeignSweepResult): void {
   total.exactOnlyNotes += part.exactOnlyNotes;
   total.editedBlockRewrites += part.editedBlockRewrites;
   total.outsideBlockRewrites += part.outsideBlockRewrites;
+  total.lossyEdits += part.lossyEdits;
+  total.lostTokenEvents += part.lostTokenEvents;
+  for (const token of part.lostTokenSamples) {
+    if (total.lostTokenSamples.length >= LOST_TOKEN_SAMPLE_LIMIT) break;
+    if (!total.lostTokenSamples.includes(token)) total.lostTokenSamples.push(token);
+  }
   total.hardFailures.parseNotes += part.hardFailures.parseNotes;
   total.hardFailures.uneditableEdits += part.hardFailures.uneditableEdits;
   total.hardFailures.budgetExceededOperations += part.hardFailures.budgetExceededOperations;

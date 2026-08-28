@@ -1,0 +1,25 @@
+{
+  "//": "Cases Milkdown is known to fail, with why. See scoreBaseline.ts: a case that starts failing is a regression, and a case that starts passing while still listed is a stale entry — both are red. Recorded 2026-08-28 at 36/56.",
+  "expectedFailures": {
+    "bold/paste-across-closing-boundary": "pasted text inherits the mark of the range it replaced",
+    "bold/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "italic/paste-across-closing-boundary": "pasted text inherits the mark of the range it replaced",
+    "italic/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "strike/paste-across-closing-boundary": "pasted text inherits the mark of the range it replaced",
+    "strike/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "inline-code/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "inline-code/type-at-closing-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "double-backtick-code/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "double-backtick-code/type-at-closing-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "wikilink/enter-mid-span-early": "no wikilink node yet — Milkdown escapes [[x]] to \\[\\[x]]; bucket-1 parity scope (plan §4)",
+    "wikilink/enter-mid-span-late": "no wikilink node yet — Milkdown escapes [[x]] to \\[\\[x]]; bucket-1 parity scope (plan §4)",
+    "wikilink/backspace-join-blocks": "no wikilink node yet — Milkdown escapes [[x]] to \\[\\[x]]; bucket-1 parity scope (plan §4)",
+    "wikilink/backspace-join-lines": "no wikilink node yet — Milkdown escapes [[x]] to \\[\\[x]]; bucket-1 parity scope (plan §4)",
+    "wikilink/paste-across-opening-boundary": "no wikilink node yet — Milkdown escapes [[x]] to \\[\\[x]]; bucket-1 parity scope (plan §4)",
+    "wikilink/paste-across-closing-boundary": "no wikilink node yet — Milkdown escapes [[x]] to \\[\\[x]]; bucket-1 parity scope (plan §4)",
+    "wikilink/type-at-opening-marker-edge": "no wikilink node yet — Milkdown escapes [[x]] to \\[\\[x]]; bucket-1 parity scope (plan §4)",
+    "wikilink/type-at-closing-marker-edge": "no wikilink node yet — Milkdown escapes [[x]] to \\[\\[x]]; bucket-1 parity scope (plan §4)",
+    "markdown-link/paste-across-closing-boundary": "pasted text inherits the mark of the range it replaced",
+    "markdown-link/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge"
+  }
+}

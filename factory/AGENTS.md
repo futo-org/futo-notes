@@ -193,6 +193,7 @@ just factory-down
 ```
 
 The detailed `last-run.json`, screenshot pairs, visual HTML, scratch Obsidian vault, and aggregate
+<!-- check-agent-docs: ignore-next-line -->
 `corpus-summary.json` all live below gitignored `factory/captures/`. Only the aggregate report is
 safe to quote: it contains sample/population counts and buckets, never source. Its unit is an intact
 note under explicit size bounds; oversized notes are excluded and counted, never truncated through

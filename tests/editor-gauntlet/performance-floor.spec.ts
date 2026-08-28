@@ -4,13 +4,22 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 
 import { Cm6GauntletAdapter } from './cm6Adapter';
-import { PERFORMANCE_BUDGET, runPerformanceFloor } from './performanceFloor';
+import {
+  CM6_FLOOR_FIXTURES,
+  PERFORMANCE_BUDGET,
+  evaluatePerformanceFloor,
+  runPerformanceFloor,
+} from './performanceFloor';
 
 test('current CM6 meets the editor performance floor', async ({ page }) => {
   test.setTimeout(5 * 60_000);
   const adapter = new Cm6GauntletAdapter(page);
-  const results = await runPerformanceFloor(adapter);
-  const report = { candidate: adapter.name, budget: PERFORMANCE_BUDGET, results };
+  // CM6 keeps a hard open budget at EVERY size. The plan's linear-above-real-
+  // note-sizes policy exists for the candidate replacing it; CM6 has met the
+  // flat bar since the bakeoff, and relaxing it here would only lose coverage.
+  const results = await runPerformanceFloor(adapter, CM6_FLOOR_FIXTURES);
+  const violations = evaluatePerformanceFloor(CM6_FLOOR_FIXTURES, results);
+  const report = { candidate: adapter.name, budget: PERFORMANCE_BUDGET, results, violations };
   const reportDir = path.resolve('tests/editor-gauntlet/local');
   await mkdir(reportDir, { recursive: true });
   await writeFile(
@@ -19,13 +28,9 @@ test('current CM6 meets the editor performance floor', async ({ page }) => {
   );
   console.log(`EDITOR_GAUNTLET_PERF ${JSON.stringify(report)}`);
 
-  for (const result of results) {
-    expect
-      .soft(result.openMs, `${result.fixture} settled open`)
-      .toBeLessThan(PERFORMANCE_BUDGET.openMs);
-    expect(
-      result.keystrokeSynchronousP95Ms,
-      `${result.fixture} synchronous keystroke p95`,
-    ).toBeLessThan(PERFORMANCE_BUDGET.keystrokeP95Ms);
-  }
+  expect(
+    results.map((result) => result.fixture),
+    'every fixture must produce a measurement',
+  ).toEqual(CM6_FLOOR_FIXTURES.map((fixture) => fixture.name));
+  expect(violations, 'the performance floor must hold').toEqual([]);
 });
