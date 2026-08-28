@@ -1,12 +1,16 @@
 export const meta = {
   name: 'ticket-wave',
   description:
-    'One wave of agent-ready GitLab tickets: compute the grabbable frontier (blockers closed), run /implement per ticket in parallel (each in its own worktree off the target branch), light-review, serial merge-back, then close/comment the tickets - args {branch, maxLanes?, tickets?, match?, parentSpec?}',
+    'One wave of agent-ready GitLab tickets: compute the grabbable frontier (blockers closed), implement each ticket in parallel (each in its own worktree off the target branch), light-review, serial merge-back, then close/comment the tickets - args {branch, maxLanes?, tickets?, match?, parentSpec?}',
   phases: [
     { title: 'Frontier', detail: 'which tickets are grabbable, sized to maxLanes' },
-    { title: 'Implement', detail: 'the /implement skill, one agent per ticket, own worktree' },
-    { title: 'Review', detail: 'light second pass - /implement already reviewed' },
-    { title: 'Fix', detail: 'only confirmed critical/high findings' },
+    {
+      title: 'Implement',
+      detail: 'inlined implement procedure, one agent per ticket, own worktree',
+      model: 'opus',
+    },
+    { title: 'Review', detail: 'light second pass - the implement lane already reviewed' },
+    { title: 'Fix', detail: 'only confirmed critical/high findings', model: 'opus' },
     { title: 'Merge', detail: 'serial merge-back + checks + push' },
     { title: 'Tracker', detail: 'close merged tickets, comment residuals' },
   ],
@@ -107,18 +111,28 @@ const laneResults = await pipeline(
   frontier.lanes,
   (lane) =>
     agent(
-      `Implement GitLab ticket #${lane.ticket} (${lane.title}) by invoking the "implement" skill via the Skill tool — do not reimplement its process by hand. Invoke it with args:
-"${lane.url || `https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/${lane.ticket}`} — make a worktree based off ${BRANCH} to avoid interference with other agents: git -C ${REPO} worktree add /home/justin/Developer/futo-notes-t${lane.ticket} -b wave/t${lane.ticket} origin/${BRANCH} (reuse it if it already exists and is clean). Work ONLY in that worktree. Push the branch when done. Do not merge or close the ticket."
-Then follow the skill wherever it leads — it drives TDD and its own code review.
+      `Implement GitLab ticket #${lane.ticket} (${lane.title}) end to end: ${lane.url || `https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/${lane.ticket}`}
+Setup: git -C ${REPO} worktree add /home/justin/Developer/futo-notes-t${lane.ticket} -b wave/t${lane.ticket} origin/${BRANCH} (reuse it if it already exists and is clean). Work ONLY in that worktree; pnpm install there if node_modules is missing.
+Procedure (the repo's implement process, inlined here because the /implement skill is user-invocation-only — the Skill tool will refuse it, do not try):
+1. Read the ticket (glab issue view ${lane.ticket}) and every spec/plan file it names; implement to its acceptance criteria.
+2. Work test-first where the layer supports it — invoke the "tdd" skill via the Skill tool at pre-agreed seams; if it refuses model invocation, write the failing test first yourself.
+3. Run typechecking and the relevant single test files regularly, and the owning layer's full chain (AGENTS.md §7) once at the end.
+4. When done, invoke the "code-review" skill via the Skill tool on your diff and address confirmed findings; if it refuses model invocation, do a careful self-review pass of git diff origin/${BRANCH}...HEAD instead.
+5. Commit per convention (type(scope): imperative summary, body with a Verified: line) and push the branch. Do not merge or close the ticket.
 ${lane.hardwareNote ? `HARDWARE NOTE: ${lane.hardwareNote} — if the required device is not actually available, make at most two genuine attempts to proceed, then stop and report honestly with a findings comment on the ticket instead of thrashing.` : ''}
 ${RULES}
 Fill the structured output honestly — done:false with a good summary beats an inflated claim.`,
-      { label: `implement:#${lane.ticket}`, phase: 'Implement', schema: LANE_RESULT },
+      {
+        label: `implement:#${lane.ticket}`,
+        phase: 'Implement',
+        model: 'opus',
+        schema: LANE_RESULT,
+      },
     ),
   (impl, lane) => {
     if (!impl) return null;
     return agent(
-      `LIGHT second-pass review of GitLab ticket #${lane.ticket} on branch ${impl.branch || `wave/t${lane.ticket}`} (worktree ${impl.worktree || `/home/justin/Developer/futo-notes-t${lane.ticket}`}). The /implement skill already ran a full code review, so do NOT repeat it. Your scope is narrow:
+      `LIGHT second-pass review of GitLab ticket #${lane.ticket} on branch ${impl.branch || `wave/t${lane.ticket}`} (worktree ${impl.worktree || `/home/justin/Developer/futo-notes-t${lane.ticket}`}). The implement lane already ran a full code review, so do NOT repeat it. Your scope is narrow:
 1. Diff sanity: git diff origin/${BRANCH}...HEAD — look ONLY for this repo's catastrophic classes: data-loss paths, CRITICAL guard weakening (dev/prod data, save/echo locks, push-first sync), private corpus or vault content accidentally committed, and M-rule violations (M5 typing hot path, M6/M7 single-source, M17 fixed-1-of-N).
 2. Verify ONE claim: rerun the single headline verification command from the implementer's report and confirm it passes.
 3. Nothing else — no style notes, no nice-to-haves.
@@ -147,7 +161,7 @@ Mark findings confirmed=true only when reproduced. Verdict SHIP unless a confirm
 ${JSON.stringify(confirmed, null, 2)}
 Failing regression test first where the layer supports it, minimal fix, rerun the owning chain, commit per convention (type(scope): summary + Verified: line), push.
 ${RULES}`,
-      { label: `fix:#${lane.ticket}`, phase: 'Fix', schema: LANE_RESULT },
+      { label: `fix:#${lane.ticket}`, phase: 'Fix', model: 'opus', schema: LANE_RESULT },
     ).then((fixed) => ({
       lane: lane.ticket,
       branch: impl.branch || `wave/t${lane.ticket}`,
