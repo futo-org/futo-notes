@@ -49,7 +49,7 @@ import {
 } from '$features/notes/noteSession.svelte';
 import { writeSuppressor } from '$lib/platform/writeSuppression';
 import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
-import { createSyncManager, getSyncErrorMessage, type SyncManagerDeps } from './syncManager.svelte';
+import { createSyncManager, type SyncManagerDeps } from './syncManager.svelte';
 import type { SyncSummary } from './syncServiceE2ee';
 
 const emptySummary: SyncSummary = {
@@ -254,10 +254,6 @@ afterEach(() => {
 });
 
 describe('sync outcome state', () => {
-  it('rewrites opaque fetch TypeErrors to an actionable message', () => {
-    expect(getSyncErrorMessage(new TypeError('Failed to fetch'))).toMatch(/Could not reach server/);
-  });
-
   it('keeps a background transport error quiet and clears it on the next clean cycle', async () => {
     const { manager } = makeManager();
     const cleanup = manager.start();

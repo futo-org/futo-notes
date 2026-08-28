@@ -47,6 +47,21 @@ describe('desktop localization', () => {
     expect(harness.localization.effectiveLanguage.tag).toBe('en');
   });
 
+  it('does not rebuild when the device languages are unchanged', () => {
+    const harness = localizationHarness(['en-US']);
+    const documentLanguageCount = harness.documentLanguages.length;
+
+    harness.localization.refreshSystemLanguage();
+    harness.localization.refreshSystemLanguage();
+
+    expect(harness.documentLanguages.length).toBe(documentLanguageCount);
+
+    harness.setSystemLanguageTags(['zh-CN']);
+    harness.localization.refreshSystemLanguage();
+
+    expect(harness.documentLanguages.length).toBe(documentLanguageCount + 1);
+  });
+
   it('corrects an unavailable stored language to System', () => {
     const harness = localizationHarness(['zh-CN']);
 

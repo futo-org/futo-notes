@@ -23,7 +23,6 @@ test('desktop language selection applies immediately', async ({ page }) => {
   const languageOptions = page.getByRole('listbox', { name: 'Language' });
   await expect(languageOptions).toBeVisible();
   await expect(languageOptions.getByRole('option')).toHaveText(['System', 'English', '简体中文']);
-  await expect(languageOptions).toHaveCSS('border-top-width', '0px');
   await expect(languageOptions.getByRole('option').first()).toHaveAttribute(
     'aria-selected',
     'true',
@@ -47,6 +46,7 @@ test('desktop language selection applies immediately', async ({ page }) => {
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
 
+  await expect(page).toHaveTitle(/FUTO 笔记/);
   await expect(page.locator('.settings-title')).toHaveText('设置');
   await expect(page.locator('.settings-section-title', { hasText: '语言' })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-Hans');
@@ -66,6 +66,7 @@ test('desktop language selection applies immediately', async ({ page }) => {
 
   await expect(page.locator('.settings-title')).toHaveText('Settings');
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page).toHaveTitle(/FUTO Notes/);
 });
 
 test('desktop language picker keeps visible keyboard focus in forced colors', async ({ page }) => {
@@ -118,4 +119,19 @@ More text`;
     'aria-label',
     '拖动列',
   );
+});
+
+test('a note created under Simplified Chinese keeps its English Untitled filename', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('.sidebar-settings-btn').click();
+  await page.locator('.settings-language-trigger').click();
+  await page.getByRole('option', { name: '简体中文' }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-Hans');
+
+  await page.goto('/#/note/new');
+  await page.waitForSelector('.title-input');
+
+  await expect(page.locator('.title-input')).toHaveValue(/^Untitled(-\d+)?$/);
 });

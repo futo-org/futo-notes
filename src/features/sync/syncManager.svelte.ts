@@ -10,12 +10,14 @@ import {
   createExternalChangeCoordinator,
   type OpenNoteReconcileResult,
 } from './createExternalChangeCoordinator';
-import { classifySyncError, getSyncErrorMessage, type SyncErrorClass } from './syncErrorMessage';
+import {
+  classifySyncError,
+  syncErrorDedupeKey,
+  type SyncErrorClass,
+} from './syncErrorClassification';
 import { createSyncCompletionReconciler } from './reconcileSyncCompletion';
 import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
 import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
-
-export { getSyncErrorMessage } from './syncErrorMessage';
 
 export interface SyncManagerDeps {
   session: NoteSession;
@@ -233,7 +235,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     live = payload.live;
     if (payload.message) {
       const source = payload.status === 'cycle-error' ? 'sync' : 'stream';
-      const message = getSyncErrorMessage(payload.message);
+      const message = syncErrorDedupeKey(payload.message);
       const errorClass =
         payload.status === 'reconnecting' || payload.status === 'cycle-error'
           ? classifySyncError(payload.message)
@@ -284,7 +286,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     startAutoSyncV2({
       onSyncComplete: (summary, trigger) => void handleSyncComplete(summary, trigger),
       onSyncError: (err, trigger) => {
-        failureState.reportFailure(getSyncErrorMessage(err), {
+        failureState.reportFailure(syncErrorDedupeKey(err), {
           source: 'sync',
           class: classifySyncError(err),
           immediate: trigger === 'manual',

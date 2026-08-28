@@ -77,8 +77,8 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
             ? { path: 'notes.movedTo', arguments: { destination: folderPath } }
             : { path: 'notes.movedToNotes' },
         );
-      } catch {
-        console.warn('Failed to move current note');
+      } catch (cause) {
+        console.warn('Failed to move current note', cause);
         deps.showToast({ path: 'notes.errors.moveFailed' });
       }
     });
@@ -103,8 +103,8 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
         deps.onDeleteConfirmed();
         deps.onDeleted(id);
         deps.showToast({ path: 'notes.deleted' });
-      } catch {
-        console.warn('Failed to delete current note');
+      } catch (cause) {
+        console.warn('Failed to delete current note', cause);
         deps.showToast({ path: 'notes.errors.deleteFailed' });
       }
     });

@@ -23,7 +23,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **Svelte 5 reactivity**: Use `$state()` runes, not stores. Read `scrollParent` and `onchange` lazily inside callbacks (not in `$effect` body) to avoid tracking them as dependencies — prevents editor destruction/recreation.
 - **Editor responsiveness is sacred.** Never let background operations (sync, search indexing, save) block or delay typing.
 - **Image preloading**: Editor preloads image dimensions for CM6 widget sizing. Images served via Tauri asset protocol (`asset://`).
-- **Note/folder/search work goes through `getLocalNoteStore()`.** `PlatformFS` is only for shell storage, images, and capabilities; components never invoke note commands or plugin-fs directly. Sync keeps its dedicated `syncServiceE2ee.ts` shim, and user-facing sync errors funnel through `getSyncErrorMessage()`.
+- **Note/folder/search work goes through `getLocalNoteStore()`.** `PlatformFS` is only for shell storage, images, and capabilities; components never invoke note commands or plugin-fs directly. Sync keeps its dedicated `syncServiceE2ee.ts` shim; user-facing sync errors are localized catalog messages, with `classifySyncError()` deciding transient vs actionable and `syncErrorDedupeKey()` collapsing transport variants so a flapping outage toasts once.
 - **Never hand-build note paths** — use `pathSafety.ts` for any path formed before a command call.
 
 ## Common Patterns

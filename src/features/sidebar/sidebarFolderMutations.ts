@@ -129,8 +129,8 @@ export async function renameSidebarNote(
       }
       return null;
     });
-  } catch {
-    console.warn('Failed to rename sidebar note');
+  } catch (cause) {
+    console.warn('Failed to rename sidebar note', cause);
     return { path: 'notes.errors.renameFailed' };
   }
 }
@@ -161,8 +161,8 @@ export async function moveSidebarNote(
           : { path: 'notes.movedToNotes' },
       );
     });
-  } catch {
-    console.warn('Failed to move sidebar note');
+  } catch (cause) {
+    console.warn('Failed to move sidebar note', cause);
     showGlobalToast({ path: 'notes.errors.moveFailed' });
   }
 }
@@ -200,8 +200,8 @@ export async function confirmDeleteSidebarNote(
       options.onNoteIdsDeleted([deleteId]);
       showGlobalToast({ path: 'notes.deleted' });
     });
-  } catch {
-    console.warn('Failed to delete sidebar note');
+  } catch (cause) {
+    console.warn('Failed to delete sidebar note', cause);
     showGlobalToast({ path: 'notes.errors.deleteFailed' });
   }
 }

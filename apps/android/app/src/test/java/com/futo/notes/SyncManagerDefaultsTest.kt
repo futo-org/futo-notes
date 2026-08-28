@@ -58,7 +58,7 @@ class SyncManagerDefaultsTest {
 
         manager.handleLiveError("auth: HTTP 401: invalid session")
 
-        assertEquals("auth: HTTP 401: invalid session", manager.lastError)
-        assertEquals("Error", manager.status)
+        assertEquals("auth: HTTP 401: invalid session", manager.lastErrorDiagnostic)
+        assertEquals("sync.status.error", manager.statusMessage.path)
     }
 }

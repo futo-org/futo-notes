@@ -3,8 +3,6 @@
 > **Gap:** Shared UI text, user-facing errors, authored native-shell text, and the
 > embedded editor resolve from the catalogs on desktop, Android, and iOS. Android's
 > in-app language dropdown and iOS's system-Settings language row remain unwired.
-> The iOS adapter also uses Foundation plural rules rather than the specified
-> ICU4X operation through Rust FFI.
 
 ## Scope
 
@@ -210,6 +208,12 @@
 - Stored timestamps, filenames, protocols, and crash dates remain
   language-independent. Version 1 adds no currency, percentage, or general
   absolute-date formatter without a real caller.
+
+> **Gap:** When no regional tag is supplied, desktop falls back to the requested
+> language tag for number formatting while both native shells format with the
+> region-less selected tag, so `zh-CN` formats as `zh-CN` on desktop and
+> `zh-Hans` on iOS and Android. Every message case in tests/localization/cases.json
+> supplies a regional tag, so the shared fixture cannot see this.
 
 ## Editor integration
 

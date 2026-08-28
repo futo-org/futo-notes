@@ -131,7 +131,6 @@ targets:
       - path: ../../tests/conformance/server-url.json
         buildPhase: resources
       - path: ../../tests/localization/cases.json
-        name: localization-cases.json
         buildPhase: resources
     dependencies:
       - target: FutoNotesNative

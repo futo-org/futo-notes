@@ -44,8 +44,8 @@
       if (result !== null) {
         error = result;
       }
-    } catch {
-      console.warn('Create folder dialog failed');
+    } catch (cause) {
+      console.warn('Create folder dialog failed', cause);
       error = { path: 'folders.errors.createFailed' };
     } finally {
       submitting = false;

@@ -54,40 +54,57 @@ function flattenPlainMessages(messages) {
   return flattened;
 }
 
+function parseNativeLanguageCatalog(catalogPath) {
+  let value;
+  try {
+    value = JSON.parse(readFileSync(catalogPath, 'utf8'));
+  } catch (cause) {
+    throw new Error(`${catalogPath}: catalog is not readable JSON`, { cause });
+  }
+  if (!isRecord(value)) throw new Error(`${catalogPath}: catalog root must be an object`);
+  if (value.$schema !== './catalog.schema.json') {
+    throw new Error(`${catalogPath}: $schema must be "./catalog.schema.json"`);
+  }
+  if (!isRecord(value.language)) throw new Error(`${catalogPath}: language must be an object`);
+  if (typeof value.language.englishName !== 'string') {
+    throw new Error(`${catalogPath}: language.englishName must be a string`);
+  }
+  if (typeof value.language.nativeName !== 'string') {
+    throw new Error(`${catalogPath}: language.nativeName must be a string`);
+  }
+  if (value.language.direction !== 'ltr' && value.language.direction !== 'rtl') {
+    throw new Error(`${catalogPath}: language.direction must be "ltr" or "rtl"`);
+  }
+  if (!Array.isArray(value.language.aliases)) {
+    throw new Error(`${catalogPath}: language.aliases must be an array`);
+  }
+  if (!isRecord(value.messages)) throw new Error(`${catalogPath}: messages must be an object`);
+  return value;
+}
+
 export function discoverNativeLanguageCatalogs(directory = languagesDirectory) {
   return readdirSync(directory, { withFileTypes: true })
     .filter(
       (entry) =>
         entry.isFile() && entry.name.endsWith('.json') && entry.name !== 'catalog.schema.json',
     )
-    .flatMap((entry) => {
+    .map((entry) => {
       const languageTag = entry.name.slice(0, -'.json'.length);
-      if (canonicalLanguageTag(languageTag) !== languageTag) return [];
-      try {
-        const source = readFileSync(path.join(directory, entry.name), 'utf8');
-        const value = JSON.parse(source);
-        if (
-          !isRecord(value) ||
-          value.$schema !== './catalog.schema.json' ||
-          !isRecord(value.language) ||
-          typeof value.language.englishName !== 'string' ||
-          typeof value.language.nativeName !== 'string' ||
-          (value.language.direction !== 'ltr' && value.language.direction !== 'rtl') ||
-          !Array.isArray(value.language.aliases) ||
-          !isRecord(value.messages)
-        ) {
-          return [];
-        }
-        return [
-          {
-            languageTag,
-            value,
-            messages: flattenPlainMessages(value.messages),
-          },
-        ];
-      } catch {
-        return [];
+      const catalogPath = path.join(directory, entry.name);
+      const canonicalTag = canonicalLanguageTag(languageTag);
+      if (canonicalTag !== languageTag) {
+        throw new Error(
+          canonicalTag === null
+            ? `${catalogPath}: filename is not a valid BCP 47 language tag`
+            : `${catalogPath}: filename must use the canonical language tag ${canonicalTag}`,
+        );
       }
+      const value = parseNativeLanguageCatalog(catalogPath);
+      return {
+        languageTag,
+        value,
+        messages: flattenPlainMessages(value.messages),
+      };
     })
     .sort((left, right) => left.languageTag.localeCompare(right.languageTag));
 }

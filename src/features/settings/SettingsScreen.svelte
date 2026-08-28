@@ -100,7 +100,8 @@
     preferences.language.selectedLanguageTag = acceptedLanguageTag;
     try {
       await saveSelectedLanguageTag(acceptedLanguageTag);
-    } catch {
+    } catch (cause) {
+      console.warn('Failed to save the selected language', cause);
       showGlobalToast({ path: 'settings.language.saveFailed' });
     }
   }
@@ -149,11 +150,11 @@
       if (!confirmed) return;
       await setNotesDir(selected);
       await restartForNewVault();
-    } catch {
+    } catch (cause) {
       // Picking a folder and having nothing happen is the worst outcome here, and
       // every step above can fail: an unusable grant, a folder that cannot be
       // created, a refused relaunch.
-      console.warn('Failed to change notes directory');
+      console.warn('Failed to change notes directory', cause);
       showGlobalToast({ path: 'settings.storage.useFolderFailed' });
     }
   }
@@ -188,8 +189,8 @@
     resetFailed = false;
     try {
       await onreset();
-    } catch {
-      console.error('Full reset failed');
+    } catch (cause) {
+      console.error('Full reset failed', cause);
       resetFailed = true;
       resetting = false;
     }

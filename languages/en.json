@@ -162,11 +162,8 @@
         "description": "Periodically check for new versions and notify you when one is available",
         "automaticChecks": "Automatically check for updates",
         "checking": "Checking for updates…",
-        "download": "Download update",
         "downloading": "Downloading update…",
-        "install": "Install and restart",
         "installing": "Installing update…",
-        "restart": "Restart to finish updating",
         "installVersion": "Install v{version}",
         "downloadingProgress": "Downloading… {percent}%",
         "restarting": "Restarting…",
@@ -184,7 +181,6 @@
     },
     "notes": {
       "heading": "Notes",
-      "allNotes": "All notes",
       "forYou": {
         "heading": "For You",
         "empty": "Create your first note from the sidebar to get started."
@@ -193,8 +189,6 @@
       "newNoteShort": "New",
       "untitledPlaceholder": "Untitled",
       "list": {
-        "emptyHeading": "Nothing here yet",
-        "emptyBody": "Start a note and your thoughts will gather.",
         "rootEmptyHeading": "No notes yet",
         "folderEmptyHeading": "Empty folder",
         "android": {
@@ -368,8 +362,6 @@
       "expandAccessibilityLabel": "Expand sidebar",
       "collapseAccessibilityLabel": "Collapse sidebar",
       "resizeAccessibilityLabel": "Resize sidebar",
-      "foldersAccessibilityLabel": "Folders",
-      "library": "Library",
       "views": {
         "notesAccessibilityLabel": "Notes view",
         "tagsAccessibilityLabel": "Tags view",
@@ -525,7 +517,6 @@
       "passwordSavedOnDevice": "Password saved on this device.",
       "working": "Working...",
       "connect": "Connect",
-      "lastSync": "Last sync",
       "lastSyncValue": "Last sync: {time}",
       "never": "Never",
       "status": {
@@ -537,7 +528,6 @@
         "syncing": "Syncing…",
         "complete": "Sync complete",
         "error": "Error",
-        "upToDate": "Up to date",
         "upToDateAccessibilityLabel": "Sync up to date"
       },
       "confirmations": {
@@ -615,7 +605,9 @@
         "recoverySourceUnavailable": "The previous notes folder cannot be inspected. Reconnect its storage and restart.",
         "recoverySaveFailed": "The recovered notes folder could not be saved. Both note folders were retained.",
         "recoveryRecordFailed": "The recovered storage state could not be recorded. Both note folders were retained.",
-        "adoptionFailed": "The notes folder could not be changed. The current notes folder remains active."
+        "adoptionSaveFailed": "Your notes could not be saved first, so the notes folder was not changed.",
+        "adoptionRecordFailed": "The previous move could not be closed out, so the notes folder was not changed.",
+        "adoptionPreferenceFailed": "That folder could not be saved as the notes location, so it was not changed."
       }
     },
     "crashReporting": {

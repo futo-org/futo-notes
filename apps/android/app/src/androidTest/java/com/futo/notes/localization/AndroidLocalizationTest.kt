@@ -4,6 +4,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AndroidLocalizationTest {
@@ -15,19 +16,17 @@ class AndroidLocalizationTest {
     @Test
     fun sharedLocalizationCasesUseAndroidIcu() {
         val matchingCases = cases.getJSONArray("languageMatching")
+        assertTrue("languageMatching cases are missing", matchingCases.length() > 0)
         for (index in 0 until matchingCases.length()) {
             val testCase = matchingCases.getJSONObject(index)
             val availableTags = testCase.getJSONArray("availableLanguageTags").strings()
+            val requestedTags = testCase.getJSONArray("requestedLanguageTags").strings()
             val localization = if (availableTags == listOf("en", "zh-Hans")) {
-                Localization.fromGeneratedCatalogs(
-                    testCase.getJSONArray("requestedLanguageTags").strings(),
-                    null,
-                )
+                Localization.fromGeneratedCatalogs(requestedTags, null)
             } else {
-                Localization.fromCatalogSources(
-                    availableTags.associateWith { syntheticCatalog(it) },
-                    AndroidLocalizationRules,
-                    testCase.getJSONArray("requestedLanguageTags").strings(),
+                Localization.fromRuntimeCatalogs(
+                    availableTags.map(::emptyCatalog),
+                    requestedTags,
                     null,
                 )
             }
@@ -35,6 +34,7 @@ class AndroidLocalizationTest {
         }
 
         val messageCases = cases.getJSONArray("messages")
+        assertTrue("message cases are missing", messageCases.length() > 0)
         for (index in 0 until messageCases.length()) {
             val testCase = messageCases.getJSONObject(index)
             val localization = localization(testCase)
@@ -48,6 +48,7 @@ class AndroidLocalizationTest {
         }
 
         val fileSizeCases = cases.getJSONArray("fileSizes")
+        assertTrue("file size cases are missing", fileSizeCases.length() > 0)
         for (index in 0 until fileSizeCases.length()) {
             val testCase = fileSizeCases.getJSONObject(index)
             assertEquals(
@@ -58,6 +59,7 @@ class AndroidLocalizationTest {
 
         val now = 1_700_000_000_000L
         val relativeTimeCases = cases.getJSONArray("relativeTimes")
+        assertTrue("relative time cases are missing", relativeTimeCases.length() > 0)
         for (index in 0 until relativeTimeCases.length()) {
             val testCase = relativeTimeCases.getJSONObject(index)
             val timestamp = now + testCase.getLong("secondsFromNow") * 1_000
@@ -69,18 +71,17 @@ class AndroidLocalizationTest {
     }
 
     @Test
-    fun availableLanguagesAreOrderedByEnglishName() {
-        val localization = Localization.fromCatalogSources(
-            mapOf(
-                "en" to syntheticCatalog("en", "English", "English"),
-                "de" to syntheticCatalog("de", "German", "Deutsch"),
+    fun availableLanguagesAreOrderedByCollatedEnglishName() {
+        val localization = Localization.fromRuntimeCatalogs(
+            listOf(
+                namedCatalog("zu", englishName = "Zulu", nativeName = "isiZulu"),
+                namedCatalog("de", englishName = "Ärger", nativeName = "Deutsch"),
             ),
-            AndroidLocalizationRules,
-            listOf("en"),
+            listOf("zu"),
             null,
         )
 
-        assertEquals(listOf("en", "de"), localization.availableLanguages.map { it.tag })
+        assertEquals(listOf("de", "zu"), localization.availableLanguages.map { it.tag })
     }
 
     private fun localization(testCase: JSONObject, now: Long = System.currentTimeMillis()) =
@@ -91,22 +92,18 @@ class AndroidLocalizationTest {
             currentTimeMillis = { now },
         )
 
-    private fun syntheticCatalog(
-        languageTag: String,
-        englishName: String = languageTag,
-        nativeName: String = languageTag,
-    ) = JSONObject()
-        .put("\$schema", "./catalog.schema.json")
-        .put(
-            "language",
-            JSONObject()
-                .put("englishName", englishName)
-                .put("nativeName", nativeName)
-                .put("direction", "ltr")
-                .put("aliases", JSONArray()),
+    private fun emptyCatalog(languageTag: String) =
+        namedCatalog(languageTag, englishName = languageTag, nativeName = languageTag)
+
+    private fun namedCatalog(languageTag: String, englishName: String, nativeName: String) =
+        RuntimeCatalog(
+            tag = languageTag,
+            englishName = englishName,
+            nativeName = nativeName,
+            direction = "ltr",
+            aliases = emptyList(),
+            messages = emptyMap(),
         )
-        .put("messages", JSONObject())
-        .toString()
 }
 
 private fun JSONArray.strings(): List<String> =

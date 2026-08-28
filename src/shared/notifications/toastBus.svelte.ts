@@ -1,6 +1,6 @@
 import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
 
-export type ToastMessage = string | LocalizedMessage;
+export type ToastMessage = LocalizedMessage;
 
 // The single app-wide toast: one message at a time, auto-dismiss (app.md).
 // App.svelte renders it; every feature emits through here.
@@ -25,6 +25,5 @@ export function showGlobalToast(nextMessage: ToastMessage): void {
 
 export function currentToastMessage(): string {
   if (message === null) return '';
-  if (typeof message === 'string') return message;
   return resolveLocalizedMessage(message);
 }

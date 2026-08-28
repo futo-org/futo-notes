@@ -3,7 +3,6 @@ package com.futo.notes.localization
 import android.content.res.Resources
 import android.icu.text.NumberingSystem
 import android.icu.util.ULocale
-import org.json.JSONObject
 
 data class Language(
     val tag: String,
@@ -16,19 +15,6 @@ internal data class LanguageShape(
     val script: String?,
     val hasRegion: Boolean,
 )
-
-internal interface LocalizationRules {
-    fun canonicalLanguageTag(languageTag: String): String?
-    fun languageShape(languageTag: String, maximize: Boolean): LanguageShape?
-    fun formattingLanguageTag(
-        selectedLanguageTag: String,
-        regionalLanguageTag: String?,
-        regionalNumberingSystem: String?,
-    ): String
-    fun formatNumber(languageTag: String, value: Number): String
-    fun pluralCategory(languageTag: String, value: Long): String
-    fun compare(languageTag: String, left: String, right: String): Int
-}
 
 internal sealed interface TemplateToken {
     data class Text(val value: String) : TemplateToken
@@ -54,7 +40,6 @@ internal data class RuntimeCatalog(
 
 class Localization private constructor(
     private val catalogs: List<RuntimeCatalog>,
-    private val rules: LocalizationRules,
     requestedLanguageTags: List<String>,
     regionalLanguageTag: String?,
     regionalNumberingSystem: String?,
@@ -63,7 +48,7 @@ class Localization private constructor(
 ) {
     private val reportedDiagnostics = mutableSetOf<String>()
     private val selectedCatalog = selectCatalog(requestedLanguageTags)
-    private val formatLanguageTag = rules.formattingLanguageTag(
+    private val formatLanguageTag = AndroidLocalizationRules.formattingLanguageTag(
         selectedCatalog?.tag ?: "en",
         regionalLanguageTag,
         regionalNumberingSystem,
@@ -76,7 +61,7 @@ class Localization private constructor(
 
     val availableLanguages = catalogs
         .sortedWith { left, right ->
-            val englishNameOrder = rules.compare("en", left.englishName, right.englishName)
+            val englishNameOrder = AndroidLocalizationRules.compare("en", left.englishName, right.englishName)
             englishNameOrder.takeIf { it != 0 } ?: left.tag.compareTo(right.tag)
         }
         .map { Language(it.tag, it.nativeName, it.direction) }
@@ -98,7 +83,7 @@ class Localization private constructor(
                     }
                     val exactSelector = "=$pluralValue"
                     val template = message.variants[exactSelector]
-                        ?: message.variants[rules.pluralCategory(catalog.tag, pluralValue)]
+                        ?: message.variants[AndroidLocalizationRules.pluralCategory(catalog.tag, pluralValue)]
                         ?: message.variants.getValue("other")
                     return renderTemplate(template, arguments, path)
                 }
@@ -193,7 +178,7 @@ class Localization private constructor(
                         )
                         append("{${token.name}}")
                     } else if (value is Number) {
-                        append(rules.formatNumber(formatLanguageTag, value))
+                        append(AndroidLocalizationRules.formatNumber(formatLanguageTag, value))
                     } else {
                         append(value.toString())
                     }
@@ -214,21 +199,21 @@ class Localization private constructor(
     }
 
     private fun compatibleCatalogs(requestedLanguageTag: String): List<RuntimeCatalog> {
-        val requested = rules.languageShape(requestedLanguageTag, maximize = true)
+        val requested = AndroidLocalizationRules.languageShape(requestedLanguageTag, maximize = true)
         if (requested?.script == null) return emptyList()
         return catalogs.filter { catalog ->
-            val candidate = rules.languageShape(catalog.tag, maximize = true)
+            val candidate = AndroidLocalizationRules.languageShape(catalog.tag, maximize = true)
             candidate?.language == requested.language && candidate.script == requested.script
         }
     }
 
     private fun selectRequestedCatalog(requestedLanguageTag: String): RuntimeCatalog? {
-        val canonicalTag = rules.canonicalLanguageTag(requestedLanguageTag) ?: return null
+        val canonicalTag = AndroidLocalizationRules.canonicalLanguageTag(requestedLanguageTag) ?: return null
         catalogs.firstOrNull { it.tag == canonicalTag }?.let { return it }
         catalogs.firstOrNull { canonicalTag in it.aliases }?.let { return it }
         val compatible = compatibleCatalogs(canonicalTag)
         val generic = compatible.filter {
-            rules.languageShape(it.tag, maximize = false)?.hasRegion == false
+            AndroidLocalizationRules.languageShape(it.tag, maximize = false)?.hasRegion == false
         }
         if (generic.size == 1) return generic.first()
         return compatible.singleOrNull()
@@ -246,7 +231,7 @@ class Localization private constructor(
         selectedCatalog?.let(candidates::add)
         selectedCatalog?.let { selected ->
             val generic = compatibleCatalogs(selected.tag).filter {
-                it.tag != selected.tag && rules.languageShape(it.tag, maximize = false)?.hasRegion == false
+                it.tag != selected.tag && AndroidLocalizationRules.languageShape(it.tag, maximize = false)?.hasRegion == false
             }
             generic.singleOrNull()?.let(candidates::add)
         }
@@ -272,6 +257,22 @@ class Localization private constructor(
             reportDiagnostic = reportDiagnostic,
         )
 
+        internal fun fromRuntimeCatalogs(
+            catalogs: List<RuntimeCatalog>,
+            requestedLanguageTags: List<String>,
+            regionalLanguageTag: String?,
+            regionalNumberingSystem: String? = null,
+            currentTimeMillis: () -> Long = System::currentTimeMillis,
+            reportDiagnostic: (String) -> Unit = {},
+        ): Localization = Localization(
+            catalogs,
+            requestedLanguageTags,
+            regionalLanguageTag,
+            regionalNumberingSystem,
+            currentTimeMillis,
+            reportDiagnostic,
+        )
+
         internal fun fromGeneratedCatalogs(
             requestedLanguageTags: List<String>,
             regionalLanguageTag: String?,
@@ -281,211 +282,12 @@ class Localization private constructor(
         ): Localization {
             return Localization(
                 GeneratedLanguageCatalogs.catalogs,
-                AndroidLocalizationRules,
                 requestedLanguageTags,
                 regionalLanguageTag,
                 regionalNumberingSystem,
                 currentTimeMillis,
                 reportDiagnostic,
             )
-        }
-
-        internal fun fromCatalogSources(
-            catalogSources: Map<String, String>,
-            rules: LocalizationRules,
-            requestedLanguageTags: List<String>,
-            regionalLanguageTag: String?,
-            regionalNumberingSystem: String? = null,
-            currentTimeMillis: () -> Long = System::currentTimeMillis,
-            reportDiagnostic: (String) -> Unit = {},
-        ): Localization {
-            val reportedCatalogProblems = mutableSetOf<String>()
-            val catalogs = catalogSources.mapNotNull { (languageTag, source) ->
-                parseCatalog(languageTag, source, rules) { key, message ->
-                    if (reportedCatalogProblems.add(key)) reportDiagnostic(message)
-                } ?: run {
-                    val message = "Localization catalog error: language=$languageTag path=catalog type=invalid-catalog"
-                    if (reportedCatalogProblems.add("$languageTag:catalog:invalid-catalog")) {
-                        reportDiagnostic(message)
-                    }
-                    null
-                }
-            }
-            return Localization(
-                catalogs,
-                rules,
-                requestedLanguageTags,
-                regionalLanguageTag,
-                regionalNumberingSystem,
-                currentTimeMillis,
-                reportDiagnostic,
-            )
-        }
-
-        private fun parseCatalog(
-            languageTag: String,
-            source: String,
-            rules: LocalizationRules,
-            report: (String, String) -> Unit,
-        ): RuntimeCatalog? {
-            if (rules.canonicalLanguageTag(languageTag) != languageTag) return null
-            val root = runCatching { JSONObject(source) }.getOrNull() ?: return null
-            if (root.length() != 3 || root.optString("\$schema") != "./catalog.schema.json") {
-                return null
-            }
-            val language = root.optJSONObject("language") ?: return null
-            val messages = root.optJSONObject("messages") ?: return null
-            if (language.length() != 4) return null
-            val englishName = language.opt("englishName") as? String ?: return null
-            val nativeName = language.opt("nativeName") as? String ?: return null
-            val direction = language.opt("direction") as? String ?: return null
-            val aliasesValue = language.optJSONArray("aliases") ?: return null
-            if (
-                !isValidCatalogText(englishName) ||
-                !isValidCatalogText(nativeName) ||
-                direction !in setOf("ltr", "rtl")
-            ) {
-                return null
-            }
-            val aliases = mutableListOf<String>()
-            for (index in 0 until aliasesValue.length()) {
-                val alias = aliasesValue.opt(index) as? String ?: return null
-                if (rules.canonicalLanguageTag(alias) != alias || alias in aliases) return null
-                aliases += alias
-            }
-            val flattenedMessages = mutableMapOf<String, CatalogMessage>()
-            flattenMessages(languageTag, messages, emptyList(), flattenedMessages, report)
-            return RuntimeCatalog(
-                languageTag,
-                englishName,
-                nativeName,
-                direction,
-                aliases,
-                flattenedMessages,
-            )
-        }
-
-        private fun flattenMessages(
-            languageTag: String,
-            group: JSONObject,
-            segments: List<String>,
-            messages: MutableMap<String, CatalogMessage>,
-            report: (String, String) -> Unit,
-        ) {
-            for (segment in group.keys()) {
-                val nextSegments = segments + segment
-                val path = nextSegments.joinToString(".")
-                if (!segment.matches(Regex("^[a-z][A-Za-z0-9]*$"))) {
-                    report(
-                        "$languageTag:$path:invalid-path",
-                        "Localization catalog error: language=$languageTag path=$path type=invalid-path",
-                    )
-                    continue
-                }
-                val value = group.opt(segment)
-                val message = parseMessage(value)
-                if (message != null) {
-                    messages[path] = message
-                } else if (value is JSONObject && !value.has("plural") && !value.has("variants")) {
-                    flattenMessages(languageTag, value, nextSegments, messages, report)
-                } else {
-                    report(
-                        "$languageTag:$path:invalid-message",
-                        "Localization catalog error: language=$languageTag path=$path type=invalid-message",
-                    )
-                }
-            }
-        }
-
-        private fun parseMessage(value: Any?): CatalogMessage? {
-            if (value is String) return parseTemplate(value)?.let(CatalogMessage::Plain)
-            if (value !is JSONObject || value.length() != 2 || !value.has("plural") || !value.has("variants")) {
-                return null
-            }
-            val pluralArgument = value.optString("plural")
-            if (!pluralArgument.matches(Regex("^[a-z][A-Za-z0-9]*$"))) return null
-            val variantsValue = value.optJSONObject("variants") ?: return null
-            if (!variantsValue.has("other")) return null
-            val variants = mutableMapOf<String, List<TemplateToken>>()
-            for (selector in variantsValue.keys()) {
-                if (
-                    selector !in setOf("zero", "one", "two", "few", "many", "other") &&
-                    !selector.matches(Regex("^=(?:0|[1-9][0-9]*)$"))
-                ) {
-                    return null
-                }
-                val variant = variantsValue.opt(selector)
-                if (variant !is String) return null
-                val template = parseTemplate(variant) ?: return null
-                variants[selector] = template
-            }
-            return CatalogMessage.Plural(pluralArgument, variants)
-        }
-
-        private fun isValidCatalogText(value: String): Boolean {
-            if (value.isEmpty() || value.trim() != value) return false
-            var index = 0
-            while (index < value.length) {
-                val character = value[index]
-                val codePoint = character.code
-                if (
-                    codePoint in 0x00..0x08 ||
-                    codePoint in 0x0B..0x0C ||
-                    codePoint in 0x0E..0x1F ||
-                    codePoint in 0xFFFE..0xFFFF
-                ) {
-                    return false
-                }
-                if (Character.isHighSurrogate(character)) {
-                    if (!Character.isLowSurrogate(value.getOrNull(index + 1) ?: return false)) {
-                        return false
-                    }
-                    index += 2
-                } else {
-                    if (Character.isLowSurrogate(character)) return false
-                    index += 1
-                }
-            }
-            return true
-        }
-
-        private fun parseTemplate(template: String?): List<TemplateToken>? {
-            if (template == null || !isValidCatalogText(template)) return null
-            val tokens = mutableListOf<TemplateToken>()
-            var index = 0
-            var text = StringBuilder()
-            fun flushText() {
-                if (text.isNotEmpty()) {
-                    tokens += TemplateToken.Text(text.toString())
-                    text = StringBuilder()
-                }
-            }
-            while (index < template.length) {
-                val character = template[index]
-                val nextCharacter = template.getOrNull(index + 1)
-                if (character == '{' && nextCharacter == '{') {
-                    text.append('{')
-                    index += 2
-                } else if (character == '}' && nextCharacter == '}') {
-                    text.append('}')
-                    index += 2
-                } else if (character == '}') {
-                    return null
-                } else if (character != '{') {
-                    text.append(character)
-                    index += 1
-                } else {
-                    val closingIndex = template.indexOf('}', index + 1)
-                    if (closingIndex == -1) return null
-                    val placeholder = template.substring(index + 1, closingIndex)
-                    if (!placeholder.matches(Regex("^[a-z][A-Za-z0-9]*$"))) return null
-                    flushText()
-                    tokens += TemplateToken.Placeholder(placeholder)
-                    index = closingIndex + 1
-                }
-            }
-            flushText()
-            return tokens
         }
     }
 }

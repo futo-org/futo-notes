@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   androidAppNameStrings,
@@ -9,6 +13,8 @@ import {
   iosRuntimeCatalogSource,
   nativeResourceCatalogs,
 } from './generate-native-language-resources.mjs';
+
+const repositoryLanguagesDirectory = path.resolve(import.meta.dirname, '../languages');
 
 describe('native language resources', () => {
   it('discovers every valid authored catalog without a registry', () => {
@@ -123,5 +129,65 @@ describe('native language resources', () => {
     expect(source).toContain('.plural(argument: "count"');
     expect(source).not.toContain('JSONSerialization');
     expect(source).not.toContain('Bundle');
+  });
+
+  describe('refuses an unusable catalog instead of dropping it', () => {
+    let seededDirectory = null;
+
+    afterEach(() => {
+      if (seededDirectory !== null) rmSync(seededDirectory, { recursive: true, force: true });
+      seededDirectory = null;
+    });
+
+    function seedCatalogs(mutate) {
+      seededDirectory = mkdtempSync(path.join(tmpdir(), 'futo-language-catalogs-'));
+      for (const languageTag of ['en', 'zh-Hans']) {
+        const source = readFileSync(
+          path.join(repositoryLanguagesDirectory, `${languageTag}.json`),
+          'utf8',
+        );
+        writeFileSync(path.join(seededDirectory, `${languageTag}.json`), source);
+      }
+      mutate(seededDirectory);
+      return seededDirectory;
+    }
+
+    it('accepts the seeded catalogs when nothing is wrong', () => {
+      const directory = seedCatalogs(() => {});
+
+      expect(
+        discoverNativeLanguageCatalogs(directory).map((catalog) => catalog.languageTag),
+      ).toEqual(['en', 'zh-Hans']);
+    });
+
+    it('throws when a catalog declares the wrong schema', () => {
+      const directory = seedCatalogs((target) => {
+        const catalogPath = path.join(target, 'zh-Hans.json');
+        const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
+        catalog.$schema = 'catalog.schema.json';
+        writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
+      });
+
+      expect(() => discoverNativeLanguageCatalogs(directory)).toThrow(/\$schema/);
+    });
+
+    it('throws when a catalog is not readable JSON', () => {
+      const directory = seedCatalogs((target) => {
+        writeFileSync(path.join(target, 'zh-Hans.json'), '{ broken');
+      });
+
+      expect(() => discoverNativeLanguageCatalogs(directory)).toThrow(/not readable JSON/);
+    });
+
+    it('throws when catalog metadata is missing', () => {
+      const directory = seedCatalogs((target) => {
+        const catalogPath = path.join(target, 'zh-Hans.json');
+        const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
+        delete catalog.language.nativeName;
+        writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
+      });
+
+      expect(() => discoverNativeLanguageCatalogs(directory)).toThrow(/language.nativeName/);
+    });
   });
 });

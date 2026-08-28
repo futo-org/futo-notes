@@ -162,11 +162,8 @@
         "description": "定期检查新版本，并在有可用更新时通知你",
         "automaticChecks": "自动检查更新",
         "checking": "正在检查更新…",
-        "download": "下载更新",
         "downloading": "正在下载更新…",
-        "install": "安装并重新启动",
         "installing": "正在安装更新…",
-        "restart": "重新启动以完成更新",
         "installVersion": "安装 v{version}",
         "downloadingProgress": "正在下载… {percent}%",
         "restarting": "正在重新启动…",
@@ -184,7 +181,6 @@
     },
     "notes": {
       "heading": "笔记",
-      "allNotes": "所有笔记",
       "forYou": {
         "heading": "为你推荐",
         "empty": "从侧边栏创建第一篇笔记即可开始使用。"
@@ -193,8 +189,6 @@
       "newNoteShort": "新建",
       "untitledPlaceholder": "无标题",
       "list": {
-        "emptyHeading": "这里还没有内容",
-        "emptyBody": "新建一篇笔记，开始记录你的想法。",
         "rootEmptyHeading": "还没有笔记",
         "folderEmptyHeading": "空文件夹",
         "android": {
@@ -366,8 +360,6 @@
       "expandAccessibilityLabel": "展开侧边栏",
       "collapseAccessibilityLabel": "折叠侧边栏",
       "resizeAccessibilityLabel": "调整侧边栏大小",
-      "foldersAccessibilityLabel": "文件夹",
-      "library": "资料库",
       "views": {
         "notesAccessibilityLabel": "笔记视图",
         "tagsAccessibilityLabel": "标签视图",
@@ -523,7 +515,6 @@
       "passwordSavedOnDevice": "密码已保存在此设备上。",
       "working": "正在处理...",
       "connect": "连接",
-      "lastSync": "上次同步",
       "lastSyncValue": "上次同步：{time}",
       "never": "从未",
       "status": {
@@ -535,7 +526,6 @@
         "syncing": "正在同步…",
         "complete": "同步完成",
         "error": "错误",
-        "upToDate": "已是最新状态",
         "upToDateAccessibilityLabel": "同步已是最新状态"
       },
       "confirmations": {
@@ -611,7 +601,9 @@
         "recoverySourceUnavailable": "无法检查之前的笔记文件夹。请重新连接其存储设备并重新启动。",
         "recoverySaveFailed": "无法保存恢复的笔记文件夹。两个笔记文件夹均已保留。",
         "recoveryRecordFailed": "无法记录恢复后的存储状态。两个笔记文件夹均已保留。",
-        "adoptionFailed": "无法更改笔记文件夹。当前笔记文件夹仍处于活动状态。"
+        "adoptionSaveFailed": "无法先保存你的笔记，因此未更改笔记文件夹。",
+        "adoptionRecordFailed": "无法结束上一次移动，因此未更改笔记文件夹。",
+        "adoptionPreferenceFailed": "无法将该文件夹保存为笔记位置，因此未进行更改。"
       }
     },
     "crashReporting": {

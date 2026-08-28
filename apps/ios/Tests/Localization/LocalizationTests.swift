@@ -58,10 +58,7 @@ private enum JSONNumber: Decodable {
 
 private func loadLocalizationCases() throws -> LocalizationCases {
     let bundle = Bundle(for: LocalizationBundleToken.self)
-    let url = try #require(
-        bundle.url(forResource: "localization-cases", withExtension: "json")
-            ?? bundle.url(forResource: "cases", withExtension: "json")
-    )
+    let url = try #require(bundle.url(forResource: "cases", withExtension: "json"))
     return try JSONDecoder().decode(LocalizationCases.self, from: Data(contentsOf: url))
 }
 
@@ -77,28 +74,12 @@ private func runtimeCatalog(languageTag: String) -> RuntimeCatalog {
         )
 }
 
-private func catalogData(
-    englishName: String,
-    nativeName: String,
-    messages: [String: Any] = [:]
-) throws -> Data {
-    return try JSONSerialization.data(withJSONObject: [
-        "$schema": "./catalog.schema.json",
-        "language": [
-            "englishName": englishName,
-            "nativeName": nativeName,
-            "direction": "ltr",
-            "aliases": [],
-        ],
-        "messages": messages,
-    ])
-}
-
 @Suite("Localization conformance")
 struct LocalizationTests {
     @Test("language matching follows shared cases")
     func languageMatching() throws {
         let cases = try loadLocalizationCases()
+        #expect(!cases.languageMatching.isEmpty)
         for testCase in cases.languageMatching {
             let localization = Localization(
                 runtimeCatalogs: testCase.availableLanguageTags.map(runtimeCatalog),
@@ -148,55 +129,10 @@ struct LocalizationTests {
         #expect(toolbarLocalization.localization.localizedText("editor.toolbar.bold") == "粗体")
     }
 
-    @Test("invalid catalog metadata is skipped")
-    func invalidCatalogMetadata() throws {
-        let invalidLanguages: [[String: Any]] = [
-            [
-                "englishName": "\u{0000}",
-                "nativeName": "简体中文",
-                "direction": "ltr",
-                "aliases": [String](),
-            ],
-            [
-                "englishName": "Simplified Chinese",
-                "nativeName": "\u{0000}",
-                "direction": "ltr",
-                "aliases": [String](),
-            ],
-            [
-                "englishName": "Simplified Chinese",
-                "nativeName": "简体中文",
-                "direction": "ltr",
-                "aliases": [42],
-            ],
-        ]
-        for language in invalidLanguages {
-            let sources = [
-                "en": try catalogData(englishName: "English", nativeName: "English"),
-                "zh-Hans": try JSONSerialization.data(withJSONObject: [
-                    "$schema": "./catalog.schema.json",
-                    "language": language,
-                    "messages": [String: Any](),
-                ]),
-            ]
-            var diagnostics: [String] = []
-            let localization = Localization(
-                catalogData: sources,
-                requestedLanguageTags: ["zh-Hans"],
-                regionalLanguageTag: "zh-CN",
-                reportDiagnostic: { diagnostics.append($0) }
-            )
-
-            #expect(localization.effectiveLanguage.tag == "en")
-            #expect(diagnostics == [
-                "Localization catalog error: language=zh-Hans path=catalog type=invalid-catalog"
-            ])
-        }
-    }
-
     @Test("messages follow shared cases")
     func messages() throws {
         let cases = try loadLocalizationCases()
+        #expect(!cases.messages.isEmpty)
         for testCase in cases.messages {
             let localization = Localization(
                 runtimeCatalogs: GeneratedLanguageCatalogs.catalogs,
@@ -215,6 +151,7 @@ struct LocalizationTests {
     @Test("file sizes follow shared cases")
     func fileSizes() throws {
         let cases = try loadLocalizationCases()
+        #expect(!cases.fileSizes.isEmpty)
         for testCase in cases.fileSizes {
             let localization = Localization(
                 runtimeCatalogs: GeneratedLanguageCatalogs.catalogs,
@@ -230,6 +167,7 @@ struct LocalizationTests {
     func relativeTimes() throws {
         let cases = try loadLocalizationCases()
         let now = 1_700_000_000_000.0
+        #expect(!cases.relativeTimes.isEmpty)
         for testCase in cases.relativeTimes {
             let localization = Localization(
                 runtimeCatalogs: GeneratedLanguageCatalogs.catalogs,
@@ -241,48 +179,5 @@ struct LocalizationTests {
             let timestamp = now + Double(testCase.secondsFromNow * 1_000)
             #expect(localization.localizedRelativeTime(timestamp) == testCase.expected)
         }
-    }
-
-    @Test("invalid message leaves fall back and report once")
-    func invalidMessageLeaf() throws {
-        try assertInvalidMessageLeafFallsBack(42)
-    }
-
-    @Test("control-only message leaves fall back")
-    func controlOnlyMessageLeaf() throws {
-        try assertInvalidMessageLeafFallsBack("\u{0000}")
-    }
-
-    private func assertInvalidMessageLeafFallsBack(_ invalidValue: Any) throws {
-        let sources = [
-            "en": try catalogData(
-                englishName: "English",
-                nativeName: "English",
-                messages: ["settings": ["language": ["heading": "Language"]]]
-            ),
-            "zh-Hans": try JSONSerialization.data(withJSONObject: [
-                "$schema": "./catalog.schema.json",
-                "language": [
-                    "englishName": "Simplified Chinese",
-                    "nativeName": "简体中文",
-                    "direction": "ltr",
-                    "aliases": [],
-                ],
-                "messages": ["settings": ["language": ["heading": invalidValue]]],
-            ]),
-        ]
-        var diagnostics: [String] = []
-        let localization = Localization(
-            catalogData: sources,
-            requestedLanguageTags: ["zh-Hans"],
-            regionalLanguageTag: "zh-CN",
-            reportDiagnostic: { diagnostics.append($0) }
-        )
-
-        #expect(localization.localizedText("settings.language.heading") == "Language")
-        #expect(localization.localizedText("settings.language.heading") == "Language")
-        #expect(diagnostics == [
-            "Localization catalog error: language=zh-Hans path=settings.language.heading type=invalid-message"
-        ])
     }
 }

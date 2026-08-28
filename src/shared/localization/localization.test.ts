@@ -40,6 +40,10 @@ function localization(
 }
 
 describe('localization language matching', () => {
+  it('has language-matching cases to run', () => {
+    expect(localizationCases.languageMatching.length).toBeGreaterThan(0);
+  });
+
   it.each(localizationCases.languageMatching)(
     'matches $requestedLanguageTags against compatible scripts',
     ({ requestedLanguageTags, availableLanguageTags, expectedLanguageTag }) => {
@@ -95,6 +99,10 @@ describe('localization language matching', () => {
 });
 
 describe('localizedText', () => {
+  it('has message cases to run', () => {
+    expect(localizationCases.messages.length).toBeGreaterThan(0);
+  });
+
   it.each(localizationCases.messages)(
     'formats $path in $languageTag',
     ({

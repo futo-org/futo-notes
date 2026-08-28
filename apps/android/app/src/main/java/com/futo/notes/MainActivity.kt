@@ -43,10 +43,11 @@ import com.futo.notes.storage.StorageMigrationJournal
 import com.futo.notes.storage.StorageMigrationPhase
 import com.futo.notes.storage.StorageMode
 import com.futo.notes.storage.StorageRecoveryFailure
+import com.futo.notes.storage.storageAdoptionFailureMessage
+import com.futo.notes.storage.storageRefusalMessage
 import com.futo.notes.storage.StorageStartupRecovery
 import com.futo.notes.storage.StorageSwitchPlan
 import com.futo.notes.storage.StorageSwitchFailureStage
-import com.futo.notes.storage.SYNC_CONNECTED_STORAGE_REFUSAL
 import com.futo.notes.storage.activateStagedStorageMigration
 import com.futo.notes.storage.adoptExistingVault
 import com.futo.notes.storage.storageAdoptionMessage
@@ -184,6 +185,10 @@ class MainActivity : ComponentActivity() {
         // Requires androidx.activity >= 1.12 — earlier versions call the deprecated
         // setters internally, so the Play warning would persist (see build.gradle.kts).
         enableEdgeToEdge()
+
+        localization = Localization.system(
+            resources.configuration.locales.toLanguageTags().split(',').filter(String::isNotBlank),
+        )
 
         // Construct the preferences handle synchronously, but do not read it
         // before the first composition. Theme and storage recovery load on IO
@@ -643,14 +648,10 @@ class MainActivity : ComponentActivity() {
                 is StorageSwitchPlan.OpenExisting ->
                     pendingStorageAdoption.value = PendingStorageAdoption(newMode, plan)
                 is StorageSwitchPlan.Refuse -> {
-                    android.util.Log.e("FutoStorage", "Storage switch refused")
+                    android.util.Log.e("FutoStorage", "Storage switch refused: ${plan.reason}")
                     Toast.makeText(
                         this@MainActivity,
-                        if (plan.message == SYNC_CONNECTED_STORAGE_REFUSAL) {
-                            localization.localizedText("storage.android.disconnectSyncFirst")
-                        } else {
-                            localization.localizedText("storage.android.folderUnavailable")
-                        },
+                        localization.localizedText(storageRefusalMessage(plan.reason).path),
                         Toast.LENGTH_LONG,
                     ).show()
                 }
@@ -702,12 +703,14 @@ class MainActivity : ComponentActivity() {
             when (outcome) {
                 StorageAdoptionOutcome.Restart -> restartApp()
                 is StorageAdoptionOutcome.KeepCurrent -> {
-                    android.util.Log.e("FutoStorage", "Storage adoption failed")
+                    android.util.Log.e("FutoStorage", "Storage adoption failed: ${outcome.failure}")
                     current.resumeAfterStorageMigrationFailure()
                     storageSwitching.value = false
                     Toast.makeText(
                         this@MainActivity,
-                        localization.localizedText("storage.android.adoptionFailed"),
+                        localization.localizedText(
+                            storageAdoptionFailureMessage(outcome.failure).path,
+                        ),
                         Toast.LENGTH_LONG,
                     ).show()
                 }
@@ -807,10 +810,7 @@ class MainActivity : ComponentActivity() {
             if (activation is StorageActivationOutcome.KeepSource) {
                 android.util.Log.e(
                     "FutoStorage",
-                    when (failureStage) {
-                        StorageSwitchFailureStage.MIGRATION -> "Storage migration failed"
-                        StorageSwitchFailureStage.ACTIVATION -> "Storage activation failed"
-                    },
+                    "Storage switch failed at $failureStage: ${activation.failure}",
                 )
             }
         }

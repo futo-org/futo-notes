@@ -109,9 +109,6 @@ this file states the behaviors a human cares about.
   [localization.md](localization.md), packages/editor/src/toolbar.ts,
   scripts/gen-toolbar-spec.ts
 
-> **Gap:** The editor does not yet receive the effective language, resolve its UI
-> text through the catalog, or carry localization paths in the toolbar manifest.
-
 ## Live preview
 
 - Markdown markers (`*`, `#`, ` ``` `, `[[`, `]]`, …) are hidden on lines that

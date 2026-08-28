@@ -7,12 +7,12 @@ import android.icu.text.PluralRules
 import android.icu.util.ULocale
 import java.util.Locale
 
-internal object AndroidLocalizationRules : LocalizationRules {
-    override fun canonicalLanguageTag(languageTag: String): String? = runCatching {
+internal object AndroidLocalizationRules {
+    fun canonicalLanguageTag(languageTag: String): String? = runCatching {
         Locale.Builder().setLanguageTag(languageTag).build().toLanguageTag()
     }.getOrNull()?.takeUnless { it == "und" }
 
-    override fun languageShape(languageTag: String, maximize: Boolean): LanguageShape? = runCatching {
+    fun languageShape(languageTag: String, maximize: Boolean): LanguageShape? = runCatching {
         val locale = ULocale.forLanguageTag(languageTag)
         val resolved = if (maximize) ULocale.addLikelySubtags(locale) else locale
         LanguageShape(
@@ -22,7 +22,7 @@ internal object AndroidLocalizationRules : LocalizationRules {
         )
     }.getOrNull()
 
-    override fun formattingLanguageTag(
+    fun formattingLanguageTag(
         selectedLanguageTag: String,
         regionalLanguageTag: String?,
         regionalNumberingSystem: String?,
@@ -43,15 +43,15 @@ internal object AndroidLocalizationRules : LocalizationRules {
             .toLanguageTag()
     }.getOrDefault(selectedLanguageTag)
 
-    override fun formatNumber(languageTag: String, value: Number): String =
+    fun formatNumber(languageTag: String, value: Number): String =
         NumberFormat.getNumberInstance(ULocale.forLanguageTag(languageTag)).apply {
             maximumFractionDigits = 3
         }.format(value)
 
-    override fun pluralCategory(languageTag: String, value: Long): String =
+    fun pluralCategory(languageTag: String, value: Long): String =
         PluralRules.forLocale(ULocale.forLanguageTag(languageTag), PluralRules.PluralType.CARDINAL)
             .select(value.toDouble())
 
-    override fun compare(languageTag: String, left: String, right: String): Int =
+    fun compare(languageTag: String, left: String, right: String): Int =
         Collator.getInstance(ULocale.forLanguageTag(languageTag)).compare(left, right)
 }

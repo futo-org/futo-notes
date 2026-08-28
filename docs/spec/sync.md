@@ -58,9 +58,8 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
   transport error. All three shells pre-validate identically: Android
   `SyncManager.validateServerUrl`, iOS `SyncManager.validateServerURL` (guards
   `connectAndSync`), and desktop `validateSyncServerUrl` (thrown from
-  `connectE2ee` before the `e2ee_connect` invoke; surfaced via
-  `getSyncErrorMessage`). → SyncManager.kt / SyncManager.swift /
-  syncServiceE2ee.ts
+  `connectE2ee` before the `e2ee_connect` invoke; surfaced as a catalog
+  message). → SyncManager.kt / SyncManager.swift / syncServiceE2ee.ts
 - **A plain-`http://` sync server is permitted on every build type, including
   production.** Self-hosters and testers can point at a server without TLS (a
   LAN box, a VPS, or localhost); note content is E2EE-encrypted client-side
@@ -123,11 +122,11 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   classification, deduplication, logging, and crash reports; the user-facing
   boundary resolves a stable source-specific catalog message and does not expose
   server URLs or reqwest internals. Download-per-item retry failures remain immediately
-  actionable for now. → syncErrorMessage.ts (`classifySyncError`,
-  `getSyncErrorMessage`), syncManager.svelte.ts (`reportFailure`,
+  actionable for now. → syncErrorClassification.ts (`classifySyncError`,
+  `syncErrorDedupeKey`), syncManager.svelte.ts (`reportFailure`,
   `reconnecting`, `syncError`), SyncStatusBar.svelte, SyncSettingsSection.svelte
 
-  > **Gap:** iOS/Android SyncManagers still escalate on the first failure with no transient/actionable classification (single lastError bucket); desktop-only as of 2026-08-24.
+  > **Gap:** iOS/Android SyncManagers still escalate on the first failure with no transient/actionable classification (single error bucket); desktop-only as of 2026-08-24.
   - **A transport failure retains its complete cause chain in the engine and
     journal.** Anything that never reached a status line — DNS,
     no route, a refused or reset connection, a stale pooled socket, TLS, a

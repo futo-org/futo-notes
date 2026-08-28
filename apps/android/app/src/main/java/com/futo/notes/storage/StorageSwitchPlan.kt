@@ -31,12 +31,13 @@ sealed interface StorageSwitchPlan {
      *  user has to be shown both sides before this runs. */
     data class OpenExisting(val notes: Int, val lastModifiedMs: Long) : StorageSwitchPlan
 
-    data class Refuse(val message: String) : StorageSwitchPlan
+    data class Refuse(val reason: StorageRefusalReason) : StorageSwitchPlan
 }
 
-/** Also shown when the confirmed switch re-checks sync before relaunching. */
-const val SYNC_CONNECTED_STORAGE_REFUSAL =
-    "Disconnect sync before switching to a folder that already has notes."
+enum class StorageRefusalReason {
+    DESTINATION_UNUSABLE,
+    SYNC_CONNECTED,
+}
 
 /**
  * Opening a populated folder adopts whatever sync state that folder carries
@@ -50,13 +51,11 @@ fun storageSwitchPlan(
 ): StorageSwitchPlan =
     when (destination) {
         StorageDestination.Unusable ->
-            StorageSwitchPlan.Refuse(
-                "That notes folder can't be used. Check that nothing else is using that path.",
-            )
+            StorageSwitchPlan.Refuse(StorageRefusalReason.DESTINATION_UNUSABLE)
         StorageDestination.Empty -> StorageSwitchPlan.Migrate
         is StorageDestination.Occupied ->
             if (isSyncConnected) {
-                StorageSwitchPlan.Refuse(SYNC_CONNECTED_STORAGE_REFUSAL)
+                StorageSwitchPlan.Refuse(StorageRefusalReason.SYNC_CONNECTED)
             } else {
                 StorageSwitchPlan.OpenExisting(destination.notes, destination.lastModifiedMs)
             }

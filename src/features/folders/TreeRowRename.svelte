@@ -53,8 +53,8 @@
       }
       error = failure;
       showGlobalToast(failure);
-    } catch {
-      console.warn('Inline rename failed');
+    } catch (cause) {
+      console.warn('Inline rename failed', cause);
       error = { path: 'common.errors.renameFailed' };
       showGlobalToast({ path: 'common.errors.renameFailed' });
     } finally {

@@ -36,13 +36,16 @@ export function createDesktopLocalization(
   let selectedLanguageTag = $state<string | null>(null);
   let selectionRevision = 0;
 
+  let observedSystemLanguageTags: readonly string[] = [];
+
   function createCurrentLocalization(): LocalizationModule {
     const regionalNumberFormat = dependencies.getRegionalNumberFormat();
+    observedSystemLanguageTags = dependencies.getSystemLanguageTags();
     return createLocalizationModule({
       catalogs: bundledLanguageCatalogs,
       requestedLanguageTags: selectedLanguageTag
         ? [selectedLanguageTag]
-        : dependencies.getSystemLanguageTags(),
+        : observedSystemLanguageTags,
       regionalLanguageTag: regionalNumberFormat.locale,
       regionalNumberingSystem: regionalNumberFormat.numberingSystem,
     });
@@ -69,7 +72,15 @@ export function createDesktopLocalization(
   }
 
   function refreshSystemLanguage(): void {
-    if (selectedLanguageTag === null) rebuildLocalization();
+    if (selectedLanguageTag !== null) return;
+    const systemLanguageTags = dependencies.getSystemLanguageTags();
+    if (
+      systemLanguageTags.length === observedSystemLanguageTags.length &&
+      systemLanguageTags.every((tag, index) => tag === observedSystemLanguageTags[index])
+    ) {
+      return;
+    }
+    rebuildLocalization();
   }
 
   function localizedText(path: string, argumentsMap?: LocalizationArguments): string {

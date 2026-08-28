@@ -27,8 +27,12 @@ function folderDepth(path: string): number {
     .filter(Boolean).length;
 }
 
-function folderOperationError(diagnostic: string, fallback: LocalizedMessage): LocalizedMessage {
-  console.warn(diagnostic);
+function folderOperationError(
+  diagnostic: string,
+  fallback: LocalizedMessage,
+  cause?: unknown,
+): LocalizedMessage {
+  console.warn(diagnostic, cause);
   return fallback;
 }
 
@@ -95,12 +99,14 @@ export async function createFolder(
     _applyLocalMutation(mutation);
     openFolderAndAncestors(path);
     return { ok: true, path };
-  } catch {
+  } catch (cause) {
     return {
       ok: false,
-      error: folderOperationError('Folder creation failed', {
-        path: 'folders.errors.createFailed',
-      }),
+      error: folderOperationError(
+        'Folder creation failed',
+        { path: 'folders.errors.createFailed' },
+        cause,
+      ),
     };
   }
 }
@@ -146,12 +152,14 @@ export async function renameOrMoveFolder(
     const finalFolder = mutation.finalFolder ?? toPath;
     rebaseOpenFolders(fromPath, finalFolder);
     return { ok: true, renames: mutation.renamed, finalFolder };
-  } catch {
+  } catch (cause) {
     return {
       ok: false,
-      error: folderOperationError('Folder rename failed', {
-        path: 'folders.errors.renameFailed',
-      }),
+      error: folderOperationError(
+        'Folder rename failed',
+        { path: 'folders.errors.renameFailed' },
+        cause,
+      ),
     };
   }
 }
@@ -202,10 +210,14 @@ export async function moveFolder(
     const finalFolder = mutation.finalFolder ?? fromPath;
     rebaseOpenFolders(fromPath, finalFolder);
     return { ok: true, renames: mutation.renamed, finalFolder };
-  } catch {
+  } catch (cause) {
     return {
       ok: false,
-      error: folderOperationError('Folder move failed', { path: 'folders.errors.moveFailed' }),
+      error: folderOperationError(
+        'Folder move failed',
+        { path: 'folders.errors.moveFailed' },
+        cause,
+      ),
     };
   }
 }
@@ -219,12 +231,14 @@ export async function deleteFolder(
     _applyLocalMutation(mutation);
     removeOpenFolderTree(path);
     return { ok: true, renames: mutation.renamed };
-  } catch {
+  } catch (cause) {
     return {
       ok: false,
-      error: folderOperationError('Folder deletion failed', {
-        path: 'folders.errors.deleteFailed',
-      }),
+      error: folderOperationError(
+        'Folder deletion failed',
+        { path: 'folders.errors.deleteFailed' },
+        cause,
+      ),
     };
   }
 }

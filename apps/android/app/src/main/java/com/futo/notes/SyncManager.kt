@@ -47,12 +47,12 @@ class SyncManager(
     )
     var connected by mutableStateOf(false)
         private set
-    var status by mutableStateOf("Not connected")
+    var statusMessage by mutableStateOf(LocalizedMessage("sync.status.notConnected"))
         private set
-    private var statusMessage by mutableStateOf(LocalizedMessage("sync.status.notConnected"))
     var busy by mutableStateOf(false)
         private set
-    var lastError by mutableStateOf<String?>(null)
+    var lastErrorDiagnostic: String? = null
+        private set
     private var errorMessage by mutableStateOf<LocalizedMessage?>(null)
 
     fun localizedStatus(localization: Localization): String =
@@ -131,8 +131,7 @@ class SyncManager(
         // it surface as a cryptic transport error [sync.md].
         val url = serverUrl.trim()
         validateServerUrl(url)?.let { error ->
-            lastError = error
-            status = "Error"
+            lastErrorDiagnostic = error
             statusMessage = LocalizedMessage("sync.status.error")
             errorMessage = if (url.isEmpty()) {
                 LocalizedMessage("sync.errors.enterServerUrl")
@@ -142,9 +141,8 @@ class SyncManager(
             return
         }
         busy = true
-        lastError = null
+        lastErrorDiagnostic = null
         errorMessage = null
-        status = "Connecting…"
         statusMessage = LocalizedMessage("sync.status.connecting")
         this.notesRoot = notesRoot
         try {
@@ -158,7 +156,6 @@ class SyncManager(
                 secure?.storePassword(password)
                 prefs?.edit()?.putString(Prefs.SYNC_SERVER_URL, url)?.apply()
             }
-            status = "Connected (${info.authMode}) · syncing…"
             statusMessage = LocalizedMessage(
                 "sync.status.connectedAndSyncing",
                 mapOf("authMode" to info.authMode),
@@ -171,8 +168,7 @@ class SyncManager(
             c.startLive(LiveListener()) // onConnected flips `live` when the stream is up
         } catch (e: Exception) {
             connected = client != null
-            lastError = describe(e)
-            status = "Error"
+            lastErrorDiagnostic = describe(e)
             statusMessage = LocalizedMessage("sync.status.error")
             errorMessage = LocalizedMessage("sync.errors.connectFailed")
         } finally {
@@ -184,9 +180,8 @@ class SyncManager(
         storageMigrationGate.runAccessIfAvailable {
             val c = client ?: return@runAccessIfAvailable
             busy = true
-            lastError = null
+            lastErrorDiagnostic = null
             errorMessage = null
-            status = "Syncing…"
             statusMessage = LocalizedMessage("sync.status.syncing")
             try {
                 val summary = c.syncNow()
@@ -199,8 +194,7 @@ class SyncManager(
                 if (isRecoverableSessionError(e)) {
                     healSession(describe(e))
                 } else {
-                    lastError = describe(e)
-                    status = "Error"
+                    lastErrorDiagnostic = describe(e)
                     statusMessage = LocalizedMessage("sync.status.error")
                     errorMessage = LocalizedMessage("sync.errors.syncFailed")
                 }
@@ -253,14 +247,13 @@ class SyncManager(
         if (shouldHealLiveError(message)) {
             healSession(message)
         } else {
-            lastError = message
+            lastErrorDiagnostic = message
             errorMessage = LocalizedMessage("sync.errors.liveUnavailable")
         }
     }
 
     private fun reportUnavailableSessionRecovery(message: String) {
-        lastError = message
-        status = "Error"
+        lastErrorDiagnostic = message
         statusMessage = LocalizedMessage("sync.status.error")
         errorMessage = LocalizedMessage("sync.errors.previousFailure")
     }
@@ -272,13 +265,11 @@ class SyncManager(
     internal fun applyOutcome(summary: SyncSummary) {
         val message = summary.failureMessage
         if (message != null) {
-            lastError = message
-            status = "Error"
+            lastErrorDiagnostic = message
             statusMessage = LocalizedMessage("sync.status.error")
             errorMessage = LocalizedMessage("sync.errors.completedWithErrors")
         } else {
-            status = "Sync complete"
-            lastError = null
+            lastErrorDiagnostic = null
             statusMessage = LocalizedMessage("sync.status.complete")
             errorMessage = null
         }
@@ -303,7 +294,7 @@ class SyncManager(
                 try {
                     c.startLive(LiveListener())
                 } catch (e: Exception) {
-                    lastError = describe(e)
+                    lastErrorDiagnostic = describe(e)
                     errorMessage = LocalizedMessage("sync.errors.liveUnavailable")
                 }
             }
@@ -341,7 +332,7 @@ class SyncManager(
 
     /** Silent reconnect with the persisted session at startup [sync.md:91].
      *  Fire-and-forget, off-main — never gates render. Failures surface via
-     *  [status]/[lastError] but do NOT wipe the stored password (the server
+     *  [statusMessage]/[lastErrorDiagnostic] but do NOT wipe the stored password (the server
      *  may simply be unreachable); only [disconnect] clears it. */
     fun restoreSession(notesRoot: String) {
         scope.launch {
@@ -361,8 +352,7 @@ class SyncManager(
         connected = false
         live = false
         healing = false  // clear any stalled heal so a future session can heal
-        status = "Not connected"
-        lastError = null
+        lastErrorDiagnostic = null
         statusMessage = LocalizedMessage("sync.status.notConnected")
         errorMessage = null
         // Explicit disconnect is the ONLY place the stored password is wiped.
