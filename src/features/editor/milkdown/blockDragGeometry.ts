@@ -1,9 +1,9 @@
 /*
- * Shared TOP-LEVEL block-boundary geometry for Milkdown's block-drag paths
- * (SPIKE). Extracted out of MilkdownEditor.svelte so the desktop/Android touch
- * fallback there and the iOS long-press plugin (mobileBlockDnd.ts) resolve
- * drop targets identically instead of maintaining two copies that could
- * silently disagree.
+ * Shared TOP-LEVEL block-boundary geometry for Milkdown's two block-drag
+ * paths — the ⠿ gutter handle's touch/pen fallback (handleBlockDrag.ts) and
+ * the iOS long-press plugin (mobileBlockDnd.ts) — so both resolve drop targets
+ * identically instead of maintaining two copies that could silently disagree.
+ * The move itself is equally shared, in blockMove.ts.
  *
  * ProseMirror's own `dropPoint()` snaps to the nearest SCHEMA-VALID position
  * for a dragged slice, which is often a nested child slot (e.g. just below a

@@ -3,16 +3,30 @@ import path from 'node:path';
 
 import { test as base, expect, type Browser, type Page } from '@playwright/test';
 
-import { EDITOR_BUNDLE_PATH, EDITOR_URL } from './editorEmbedBundle';
+import { CM6_EDITOR_URL, EDITOR_BUNDLE_PATH, withCodeMirrorEngine } from './editorEmbedBundle';
 
 /**
- * futoBridge v7 protocol contract — executable.
+ * futoBridge v7 protocol contract, CodeMirror engine — executable.
  *
  * This drives the SAME single-file `editor.html` bundle the native iOS/Android
  * shells ship (built by `vite.editor.config.ts`) with a FAKE host installed
  * before any page script runs, and asserts the full editor-embed <-> host
  * message contract defined in `packages/editor/src/bridge.ts` and the prose in
- * `docs/spec/editor.md`. It covers BOTH host transports:
+ * `docs/spec/editor.md`.
+ *
+ * ENGINE: every page here loads `CM6_EDITOR_URL` (`editor.html?cm`), the
+ * shipping CodeMirror live-preview editor. While the Milkdown transition is in
+ * flight (docs/plan/milkdown-transition.md) a bare `editor.html` mounts
+ * Milkdown instead, and a large part of this file asserts things only a
+ * source-visible editor has: `.cm-content`/`.cm-line` DOM, markdown markers
+ * revealed near the caret, and `**bold**` in `getContent()` after a toolbar
+ * command. Those are CodeMirror's contract, not the bridge's. The
+ * engine-independent half is asserted against Milkdown by
+ * `editor-embed-milkdown.spec.ts`; the rest is Milkdown's parity backlog
+ * (transition plan §4 / issues #101-#104), not a silent regression here.
+ * This whole file dies with CM6 at the swap (transition plan §7.3).
+ *
+ * It covers BOTH host transports:
  *
  *   - Android: `window.futoBridge.postMessage(jsonString)` (the primary path
  *     these tests record from).
@@ -79,7 +93,7 @@ const test = base.extend<{ page: Page }>({
     const context = await browser.newContext({ hasTouch: true });
     await context.addInitScript(installFakeAndroidHost);
     const page = await context.newPage();
-    await page.goto(EDITOR_URL);
+    await page.goto(CM6_EDITOR_URL);
     await page.waitForFunction(() =>
       (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
     );
@@ -95,7 +109,7 @@ async function openIosTouchEditor(browser: Browser) {
   const context = await browser.newContext({ hasTouch: true, userAgent: IOS_TOUCH_USER_AGENT });
   await context.addInitScript(installFakeAndroidHost);
   const page = await context.newPage();
-  await page.goto(EDITOR_URL);
+  await page.goto(CM6_EDITOR_URL);
   await page.waitForFunction(() =>
     (window as unknown as FakeHostWindow).__msgs?.some((message) => message.type === 'ready'),
   );
@@ -266,7 +280,7 @@ test('prefers the iOS webkit transport when both hosts are present', async ({ br
     w.futoBridge = { postMessage: (json) => w.__android.push(JSON.parse(json) as BridgeMessage) };
   });
   const page = await context.newPage();
-  await page.goto(EDITOR_URL);
+  await page.goto(CM6_EDITOR_URL);
   await page.waitForFunction(() =>
     (window as unknown as { __ios: BridgeMessage[] }).__ios.some((m) => m.type === 'ready'),
   );
@@ -925,7 +939,7 @@ function writeLegacyWebViewBundle(): string {
   );
   const legacyPath = path.join(path.dirname(EDITOR_BUNDLE_PATH), 'editor-legacy-webview-test.html');
   writeFileSync(legacyPath, stripped);
-  return `file://${legacyPath}`;
+  return withCodeMirrorEngine(`file://${legacyPath}`);
 }
 
 // Expected text colors come from the theme tokens so this spec can never
@@ -982,8 +996,8 @@ test('legacy WebView (no @layer): light theme text keeps the light token color',
 test('modern engine: the unlayered fallback does not fight the layered theme', async ({
   browser,
 }) => {
-  expect(await editorContentColor(browser, EDITOR_URL, 'dark')).toBe(themeTextColor('dark'));
-  expect(await editorContentColor(browser, EDITOR_URL, 'light')).toBe(themeTextColor('light'));
+  expect(await editorContentColor(browser, CM6_EDITOR_URL, 'dark')).toBe(themeTextColor('dark'));
+  expect(await editorContentColor(browser, CM6_EDITOR_URL, 'light')).toBe(themeTextColor('light'));
 });
 
 // Regression guard for the Chromium 80–84 compatibility branch (github#8). The
@@ -1001,7 +1015,7 @@ test('legacy WebView (no native replaceAll): the editor.html shim lets the bundl
   });
   await context.addInitScript(installFakeAndroidHost);
   const page = await context.newPage();
-  await page.goto(EDITOR_URL);
+  await page.goto(CM6_EDITOR_URL);
   await page.waitForFunction(() =>
     (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
   );
@@ -1054,7 +1068,7 @@ test('engine preflight: an engine below the ES2020 floor is reported unsupported
     Object.defineProperty(window, 'Function', { value: stub, configurable: true });
   });
   const page = await context.newPage();
-  await page.goto(EDITOR_URL);
+  await page.goto(CM6_EDITOR_URL);
   expect(await engineVerdict(page)).toContain('ES2020 syntax');
   await context.close();
 });

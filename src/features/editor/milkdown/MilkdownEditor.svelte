@@ -1,18 +1,29 @@
 <script lang="ts">
   /*
-   * SPIKE — Milkdown (ProseMirror) WYSIWYG editor for the native embedded host.
+   * Milkdown (ProseMirror) WYSIWYG editor for the native embedded host.
    *
-   * Quick-and-dirty drop-in for MarkdownEditor.svelte inside src/editor-embed:
-   * it implements the same props + the subset of the exported handle that
-   * createFutoEditorApi/EmbedToolbar actually call. `getView()` returns null
-   * because there is no CodeMirror view here; every CM-specific caller already
-   * guards on that, and toolbar commands route through `exec()` instead.
+   * The default engine `editor.html` mounts while the Milkdown transition is in
+   * flight (docs/plan/milkdown-transition.md); `editor.html?cm` still selects
+   * the shipping CodeMirror live-preview editor, and both are mounted from one
+   * props object by src/editor-embed/main.ts. This implements the same props
+   * plus the exported handle `createFutoEditorApi`/`EmbedToolbar` call.
+   * `getView()` returns null because there is no CodeMirror view here; every
+   * CM-specific caller already guards on that, and toolbar commands route
+   * through `exec()` instead.
    *
-   * NOT a replacement for the shipping CM6 live-preview editor: Milkdown
-   * round-trips markdown through remark, so its serializer normalizes syntax
-   * (`*em*` -> `_em_`, list markers, spacing). `getContent()` therefore returns
-   * the host's ORIGINAL markdown until the user actually edits, so merely
-   * opening a note can never rewrite it on disk.
+   * ROUND-TRIP CONTRACT (ADR-0002): Milkdown parses and re-serializes markdown
+   * through remark, so saving normalizes syntax (list markers, emphasis
+   * delimiters, spacing, a trailing newline). Normalizing on a real edit is
+   * accepted; normalizing on OPEN is not. `getContent()` therefore returns the
+   * host's ORIGINAL bytes for as long as the document is still exactly what
+   * loaded, so opening and closing a note can never rewrite it on disk.
+   * `editor-embed-milkdown.spec.ts` locks that.
+   *
+   * What lives elsewhere: drop-target geometry (`blockDragGeometry.ts`), the
+   * block move itself (`blockMove.ts`), the two drag gestures
+   * (`handleBlockDrag.ts` for the ⠿ gutter handle, `mobileBlockDnd.ts` for the
+   * iOS long-press), toolbar commands (`toolbarExec.ts`) and the native
+   * toolbar's active-state (`formatState.ts`).
    */
   import { onMount } from 'svelte';
   import {
@@ -22,36 +33,29 @@
     editorViewOptionsCtx,
     rootCtx,
   } from '@milkdown/kit/core';
-  import {
-    commonmark,
-    liftListItemCommand,
-    sinkListItemCommand,
-    toggleEmphasisCommand,
-    toggleLinkCommand,
-    toggleStrongCommand,
-    turnIntoTextCommand,
-    wrapInBlockquoteCommand,
-    wrapInBulletListCommand,
-    wrapInHeadingCommand,
-    wrapInOrderedListCommand,
-  } from '@milkdown/kit/preset/commonmark';
-  import { gfm, toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm';
+  import { commonmark } from '@milkdown/kit/preset/commonmark';
+  import { gfm } from '@milkdown/kit/preset/gfm';
   import { history } from '@milkdown/kit/plugin/history';
   import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
   import { clipboard } from '@milkdown/kit/plugin/clipboard';
   import { cursor, dropCursorConfig } from '@milkdown/kit/plugin/cursor';
   import { trailing } from '@milkdown/kit/plugin/trailing';
   import { block, BlockProvider } from '@milkdown/kit/plugin/block';
-  import { callCommand, getMarkdown, insert, replaceAll } from '@milkdown/kit/utils';
+  import { getMarkdown, insert, replaceAll } from '@milkdown/kit/utils';
+  import { redoDepth, undoDepth } from '@milkdown/kit/prose/history';
+  import { EditorState } from '@milkdown/kit/prose/state';
   import type { EditorView as CodeMirrorView } from '@codemirror/view';
   import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-  import type { Mark as ProseMark, Node as ProseNode } from '@milkdown/kit/prose/model';
+  import type { Node as ProseNode } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
-  import { resolveImageSrc } from './live-preview/images';
-  import type { EditorLinkGesture } from './interactions/editorPointerInteractions';
+  import { resolveImageSrc } from '../live-preview/images';
+  import type { EditorLinkGesture } from '../interactions/editorPointerInteractions';
   import { isIOS } from '$lib/platform';
-  import { contentColumnX, resolveTopLevelTarget, type TopLevelTarget } from './blockDragGeometry';
+  import { enclosingListItem, isTaskItem } from './caretContext';
+  import { computeActiveFormats } from './formatState';
+  import { createHandleBlockDrag, type HandleBlockDrag } from './handleBlockDrag';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
+  import { createToolbarExec } from './toolbarExec';
 
   interface Props {
     content?: string;
@@ -63,12 +67,13 @@
     nativeShell?: boolean;
     onopenlink?: (title: string, gesture: EditorLinkGesture) => void;
     onopenurl?: (url: string) => void;
-    /* Notion-style native toolbar active-state (SPIKE, iOS only for now — see
-     * bridge.ts FormatStateMessage). Fires deduped whenever the set of active
-     * toolbar-manifest ids at the cursor/selection changes. */
+    /* Notion-style native toolbar active-state (iOS only for now — see
+     * bridge.ts FormatStateMessage and issue #104 for the Android consumer).
+     * Fires deduped whenever the set of active toolbar-manifest ids at the
+     * cursor/selection changes. */
     onformatstate?: (active: string[]) => void;
-    /* Notion-style mobile block drag haptics (SPIKE, iOS long-press path
-     * only — see bridge.ts HapticMessage / mobileBlockDnd.ts). */
+    /* Notion-style mobile block drag haptics (iOS long-press path only — see
+     * bridge.ts HapticMessage / mobileBlockDnd.ts). */
     onhaptic?: (kind: MobileDndHapticKind) => void;
   }
 
@@ -123,224 +128,81 @@
   let pendingContent: string | null = null;
   let onListLine: boolean | null = null;
 
-  /* Notion-style block drag handle (SPIKE). BlockProvider (from Milkdown's
-   * block plugin) owns rendering/positioning the ⠿ handle and the native
-   * HTML5 drag mechanics; we just feed it a DOM node and, on mobile where
-   * there is no hover, nudge it to show for the block under the cursor/tap by
-   * dispatching a synthetic pointermove — the SAME event the plugin's own
-   * hover detection listens for, so selection/tap and mouse-hover resolve to
-   * identical block boundaries. */
+  /* Notion-style block drag handle. BlockProvider (from Milkdown's block
+   * plugin) owns rendering/positioning the ⠿ handle and the native HTML5 drag
+   * mechanics; we just feed it a DOM node and, on touch where there is no
+   * hover, nudge it to show for the block under the cursor/tap by dispatching a
+   * synthetic pointermove — the SAME event the plugin's own hover detection
+   * listens for, so selection/tap and mouse-hover resolve to identical block
+   * boundaries. The touch/pen drag itself is handleBlockDrag.ts. */
   let blockProvider: BlockProvider | null = null;
-  /* The live handle DOM node BlockProvider renders into — hoisted out of the
-   * onMount async closure (where it is created) so the touch-drag listeners
-   * below can be attached/removed from the SAME onMount's teardown. */
-  let blockHandleEl: HTMLDivElement | null = null;
+  let handleDrag: HandleBlockDrag | null = null;
+  /* Suspended for the duration of a touch drag: its auto-scroll moves
+   * `view.dom.scrollTop` directly, which fires a native 'scroll' event that
+   * would otherwise flicker the handle away mid-drag. */
+  let scrollHideSuspended = false;
 
-  /* Touch/pen drag fallback (SPIKE). The block handle's drag mechanism is
-   * native HTML5 DnD (`draggable`/`dragstart`), which iOS WKWebView never
-   * initiates for a finger — `UIDragInteraction.isEnabled` defaults to FALSE
-   * on the iPhone idiom (it's an iPad-only default), so no real `dragstart`
-   * ever fires there.
-   *
-   * An earlier version of this drove ProseMirror's own core `drop` handler
-   * (via synthetic DragEvents + `view.dragging`) so the move landed as one
-   * transaction "for free". That reuse turned out to have a real bug:
-   * `handleDrop`'s `dropPoint()` snapping picks the NEAREST *schema-valid*
-   * position for the dragged slice, not the nearest TOP-LEVEL boundary — so
-   * dropping a paragraph just below a blockquote landed it INSIDE the
-   * blockquote (a valid child slot) instead of after it as a sibling. Fixed
-   * by resolving the target ourselves (`resolveTopLevelTarget`, walking the
-   * doc to a depth-0/1 boundary the way `selectRootNodeByDom` in
-   * @milkdown/plugin-block's own block-service.ts does for hover) and
-   * building the move as an explicit delete+map+insert transaction, rather
-   * than trusting the library's more permissive snapping. The visual
-   * indicator is rendered from the SAME resolved boundary (a small custom
-   * element, not the reused `.use(cursor)` one — that plugin only shows
-   * wherever dropPoint() would land, which is exactly the position this
-   * fallback deliberately does NOT use) so what the user sees always matches
-   * where the drop will land. */
-  type TouchDragState = {
-    pointerId: number;
-    startX: number;
-    startY: number;
-    dragging: boolean;
-    sourceEl: HTMLElement | null;
-    /** Position immediately before the dragged top-level block, and its size — both captured
-     * once at drag start (see beginTouchDrag) and stable for the drag's duration since no
-     * transaction is dispatched until drop. */
-    sourceStart: number;
-    sourceSize: number;
-  };
-  let touchDrag: TouchDragState | null = null;
-  let touchDropIndicatorEl: HTMLDivElement | null = null;
-  const TOUCH_DRAG_THRESHOLD_PX = 6;
-  const AUTO_SCROLL_EDGE_PX = 48;
-  const AUTO_SCROLL_STEP_PX = 14;
-
-  // contentColumnX / resolveTopLevelTarget / TopLevelTarget now live in
-  // blockDragGeometry.ts, shared with mobileBlockDnd.ts's iOS long-press path
-  // (see that module's doc comment for why top-level resolution must not
-  // reuse ProseMirror's own dropPoint()).
-
-  function ensureTouchDropIndicator(): HTMLDivElement {
-    if (!touchDropIndicatorEl) {
-      const el = document.createElement('div');
-      el.className = 'milkdown-touch-drop-indicator';
-      el.setAttribute('aria-hidden', 'true');
-      container.appendChild(el);
-      touchDropIndicatorEl = el;
-    }
-    return touchDropIndicatorEl;
-  }
-
-  function showTouchDropIndicator(target: TopLevelTarget): void {
-    const el = ensureTouchDropIndicator();
-    const containerRect = container.getBoundingClientRect();
-    const domRect = target.dom.getBoundingClientRect();
-    const y = target.corner === 'before' ? domRect.top : domRect.bottom;
-    el.style.left = `${domRect.left - containerRect.left}px`;
-    el.style.width = `${domRect.width}px`;
-    el.style.top = `${y - containerRect.top}px`;
-    el.classList.add('milkdown-touch-drop-indicator--visible');
-  }
-
-  function hideTouchDropIndicator(): void {
-    touchDropIndicatorEl?.classList.remove('milkdown-touch-drop-indicator--visible');
-  }
-
-  function beginTouchDrag(view: ProseView): void {
-    const state = touchDrag;
-    if (!state) return;
-    const active = blockProvider?.active;
-    if (!active) {
-      // Nothing hovered (handle tapped without a prior tap/selection nudging
-      // it onto a block) — leave `dragging` false so pointerup treats this
-      // as a no-op tap rather than starting a drag with no source.
-      return;
-    }
-    state.dragging = true;
-    state.sourceEl = active.el;
-    state.sourceStart = active.$pos.pos;
-    state.sourceSize = active.node.nodeSize;
-    state.sourceEl.classList.add('milkdown-block-drag-source');
-    // Auto-scroll below moves view.dom.scrollTop directly, which fires a
-    // native 'scroll' event — suppress the existing scroll->hide handler for
-    // the duration of the drag so it cannot flicker the handle away mid-drag.
-    view.dom.removeEventListener('scroll', handleBlockScroll);
-  }
-
-  function handleHandlePointerDown(event: PointerEvent): void {
-    // Mouse keeps the existing native HTML5 DnD path untouched — this
-    // fallback is touch/pen only, and the two must never both fire for one
-    // gesture (a mouse never reaches this branch at all).
-    if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
-    if (touchDrag) return; // a second simultaneous touch on the handle
-    const handleEl = event.currentTarget as HTMLElement;
-    event.preventDefault();
+  function pmView(): ProseView | null {
+    if (!editor) return null;
     try {
-      handleEl.setPointerCapture(event.pointerId);
+      return editor.ctx.get(editorViewCtx);
     } catch {
-      // Rare (pointer already released); the drag just won't track off-element.
+      return null;
     }
-    touchDrag = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      dragging: false,
-      sourceEl: null,
-      sourceStart: 0,
-      sourceSize: 0,
-    };
   }
 
-  function handleHandlePointerMove(event: PointerEvent): void {
-    const state = touchDrag;
-    if (!state || event.pointerId !== state.pointerId) return;
-    event.preventDefault();
+  /* ---- image srcs -------------------------------------------------------- *
+   * Vault images are relative filenames; the native host registers a base URL
+   * (createFutoEditorApi -> setLocalImageBaseUrl), and resolveImageSrc owns the
+   * mapping. Milkdown renders plain <img src="file.png">, so rewrite after every
+   * render instead of teaching the schema about vault paths. */
+  function rewriteImageSrcs(): void {
+    const root = container;
+    if (!root) return;
+    for (const img of Array.from(root.querySelectorAll('img'))) {
+      const original = img.dataset.futoSrc ?? img.getAttribute('src') ?? '';
+      if (!original) continue;
+      img.dataset.futoSrc = original;
+      const resolved = resolveImageSrc(original);
+      if (resolved && img.getAttribute('src') !== resolved) img.setAttribute('src', resolved);
+    }
+  }
+
+  /* Sorted comma-joined snapshot of the last emitted format-state set, so
+   * emitFormatState() below can dedupe without the caller tracking it. */
+  let lastFormatStateKey: string | null = null;
+
+  /**
+   * Emits deduped `formatState`. `selectionOverride`, when given, is the
+   * SELECTION-JUST-APPLIED from Milkdown's `selectionUpdated` listener
+   * callback — pass it explicitly rather than reading `pmView()!.state`
+   * there: Milkdown's listener plugin runs that callback from inside
+   * `EditorState.apply(tr)`, before the default `dispatchTransaction` calls
+   * `view.updateState(...)`, so `view.state` (and its `.selection`/
+   * `.storedMarks`) is still ONE TRANSACTION BEHIND at that exact call site —
+   * `pmView()?.state.selection` there would report where the caret USED TO
+   * BE. `mounted`/`markdownUpdated`(debounced)/`exec()` all run outside that
+   * window, so `view.state` is current for them (no override needed) — and
+   * `storedMarks` is intentionally omitted (`null`) for the override case: a
+   * plain selection-move transaction always clears storedMarks anyway, so
+   * `selection.$from.marks()` alone is correct there, whereas `exec('bold')`
+   * on a collapsed selection genuinely relies on the freshly toggled
+   * `view.state.storedMarks` to report active immediately.
+   */
+  function emitFormatState(selectionOverride?: ProseSelection): void {
+    if (!onformatstate) return;
     const view = pmView();
     if (!view) return;
-
-    if (!state.dragging) {
-      const dx = event.clientX - state.startX;
-      const dy = event.clientY - state.startY;
-      if (Math.hypot(dx, dy) < TOUCH_DRAG_THRESHOLD_PX) return;
-      beginTouchDrag(view);
-      if (!state.dragging) return; // no active block to drag (see beginTouchDrag)
-    }
-
-    const rect = view.dom.getBoundingClientRect();
-    const x = contentColumnX(view);
-    const y = Math.min(Math.max(event.clientY, rect.top + 1), rect.bottom - 1);
-    const target = resolveTopLevelTarget(view, x, y);
-    if (target) showTouchDropIndicator(target);
-
-    // Rudimentary auto-scroll: `.ProseMirror` (view.dom) owns overflow-y.
-    if (event.clientY - rect.top < AUTO_SCROLL_EDGE_PX) {
-      view.dom.scrollTop = Math.max(0, view.dom.scrollTop - AUTO_SCROLL_STEP_PX);
-    } else if (rect.bottom - event.clientY < AUTO_SCROLL_EDGE_PX) {
-      view.dom.scrollTop += AUTO_SCROLL_STEP_PX;
-    }
+    const selection = selectionOverride ?? view.state.selection;
+    const storedMarks = selectionOverride ? null : view.state.storedMarks;
+    const active = computeActiveFormats(view, selection, storedMarks);
+    const key = [...active].sort().join(',');
+    if (key === lastFormatStateKey) return;
+    lastFormatStateKey = key;
+    onformatstate(active);
   }
 
-  function endTouchDrag(event: PointerEvent, commit: boolean): void {
-    const state = touchDrag;
-    const handleEl = blockHandleEl;
-    if (!state || event.pointerId !== state.pointerId) return;
-    touchDrag = null;
-    state.sourceEl?.classList.remove('milkdown-block-drag-source');
-    hideTouchDropIndicator();
-    if (handleEl) {
-      try {
-        handleEl.releasePointerCapture(event.pointerId);
-      } catch {
-        // Already released (e.g. handle hidden mid-drag) — fine.
-      }
-    }
-    if (!state.dragging) return; // never crossed the threshold: a no-op tap
-
-    const view = pmView();
-    if (view) view.dom.addEventListener('scroll', handleBlockScroll, { passive: true });
-    if (!commit || !view) return; // pointercancel, or the view vanished mid-drag: abort cleanly
-
-    const rect = view.dom.getBoundingClientRect();
-    const x = contentColumnX(view);
-    const y = Math.min(Math.max(event.clientY, rect.top + 1), rect.bottom - 1);
-    const target = resolveTopLevelTarget(view, x, y);
-    if (!target) return;
-
-    const srcStart = state.sourceStart;
-    const srcEnd = srcStart + state.sourceSize;
-    // Dropping back onto/within the source's own range (including exactly
-    // at either edge, which is what "dropped where it started" resolves to
-    // once mapped through the deletion) is a genuine no-op: skip the
-    // transaction entirely so there is no markdownUpdated and no history
-    // entry, rather than dispatching a transaction that happens to be a
-    // doc-identity no-op.
-    if (target.pos >= srcStart && target.pos <= srcEnd) return;
-
-    const beforeDoc = view.state.doc;
-    const slice = beforeDoc.slice(srcStart, srcEnd);
-    let tr = view.state.tr.delete(srcStart, srcEnd);
-    const mappedTarget = tr.mapping.map(target.pos);
-    tr = tr.insert(mappedTarget, slice.content);
-    if (!tr.doc.eq(beforeDoc)) view.dispatch(tr);
-  }
-
-  function handleHandlePointerUp(event: PointerEvent): void {
-    endTouchDrag(event, true);
-  }
-
-  function handleHandlePointerCancel(event: PointerEvent): void {
-    endTouchDrag(event, false);
-  }
-
-  function isTaskItem(node: ProseNode): boolean {
-    return (
-      node.type.name === 'list_item' &&
-      node.attrs.checked !== null &&
-      node.attrs.checked !== undefined
-    );
-  }
+  const EXEC = createToolbarExec(() => editor);
 
   /* Task-list glyphs are painted via an outdented `::before` on the <li>
    * (see the `li[data-checked]::before` rule below) that the block handle's
@@ -371,201 +233,9 @@
    * without this it would visually drift over the wrong block while the user
    * scrolls the ProseMirror-internal scroller. */
   function handleBlockScroll(): void {
+    if (scrollHideSuspended) return;
     blockProvider?.hide();
   }
-
-  function pmView(): ProseView | null {
-    if (!editor) return null;
-    try {
-      return editor.ctx.get(editorViewCtx);
-    } catch {
-      return null;
-    }
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function run(command: { key: any }, payload?: unknown): void {
-    if (!editor) return;
-    editor.action(callCommand(command.key, payload));
-    pmView()?.focus();
-  }
-
-  /* ---- image srcs -------------------------------------------------------- *
-   * Vault images are relative filenames; the native host registers a base URL
-   * (createFutoEditorApi -> setLocalImageBaseUrl), and resolveImageSrc owns the
-   * mapping. Milkdown renders plain <img src="file.png">, so rewrite after every
-   * render instead of teaching the schema about vault paths. */
-  function rewriteImageSrcs(): void {
-    const root = container;
-    if (!root) return;
-    for (const img of Array.from(root.querySelectorAll('img'))) {
-      const original = img.dataset.futoSrc ?? img.getAttribute('src') ?? '';
-      if (!original) continue;
-      img.dataset.futoSrc = original;
-      const resolved = resolveImageSrc(original);
-      if (resolved && img.getAttribute('src') !== resolved) img.setAttribute('src', resolved);
-    }
-  }
-
-  function enclosingListItem(): { node: ProseNode; pos: number } | null {
-    const view = pmView();
-    if (!view) return null;
-    // `$from` would be the natural name, but Svelte reserves the `$` prefix.
-    const at = view.state.doc.resolve(view.state.selection.from);
-    for (let depth = at.depth; depth > 0; depth -= 1) {
-      const node = at.node(depth);
-      if (node.type.name === 'list_item') return { node, pos: at.before(depth) };
-    }
-    return null;
-  }
-
-  function currentHeadingLevel(): number {
-    const view = pmView();
-    if (!view) return 0;
-    const at = view.state.doc.resolve(view.state.selection.from);
-    for (let depth = at.depth; depth > 0; depth -= 1) {
-      const node = at.node(depth);
-      if (node.type.name === 'heading') return Number(node.attrs.level ?? 0);
-    }
-    return 0;
-  }
-
-  /* Notion-style native toolbar active-state (SPIKE, iOS only for now). Sorted
-   * comma-joined snapshot of the last emitted set, so emitFormatState() below
-   * can dedupe without the caller having to track it. */
-  let lastFormatStateKey: string | null = null;
-
-  /* Whether `markName` (a Milkdown/ProseMirror mark type) covers `selection`
-   * on `view`'s doc: for an empty selection, the marks that would apply to
-   * text typed next (`storedMarks` when given, falling back to the resolved
-   * position's own marks); for a range, every character in it. `storedMarks`
-   * is threaded in rather than read off `view.state` because the caller may
-   * be reporting a NEWER selection than `view.state` currently reflects (see
-   * computeActiveFormats). */
-  function markActive(
-    view: ProseView,
-    selection: ProseSelection,
-    storedMarks: readonly ProseMark[] | null,
-    markName: string,
-  ): boolean {
-    const markType = view.state.schema.marks[markName];
-    if (!markType) return false;
-    const { from, to, empty } = selection;
-    if (empty) {
-      const marks = storedMarks ?? selection.$from.marks();
-      return markType.isInSet(marks) !== undefined;
-    }
-    // `view.state.doc` is safe even when `selection` is newer than `view.state`
-    // (see computeActiveFormats): a pure selection-move transaction never
-    // touches the doc, so the stale and fresh docs are the same object.
-    return view.state.doc.rangeHasMark(from, to, markType);
-  }
-
-  /* The toolbar-manifest ids active for `selection` (see EXEC above for the id
-   * set). Node checks walk `selection.$from`'s ancestors, same pattern as
-   * enclosingListItem()/currentHeadingLevel() but resolved against the
-   * SELECTION passed in rather than `view.state.selection` — see the caller
-   * comment in the `selectionUpdated` listener for why that distinction
-   * matters. A task-list item is schema-nested inside bullet_list, so it
-   * reports 'task-list' and deliberately NOT 'bullet-list' — otherwise both
-   * toolbar buttons would light up together. */
-  function computeActiveFormats(
-    selection: ProseSelection,
-    storedMarks: readonly ProseMark[] | null,
-  ): string[] {
-    const view = pmView();
-    if (!view) return [];
-    const active = new Set<string>();
-
-    if (markActive(view, selection, storedMarks, 'strong')) active.add('bold');
-    if (markActive(view, selection, storedMarks, 'emphasis')) active.add('italic');
-    if (markActive(view, selection, storedMarks, 'strike_through')) active.add('strikethrough');
-    if (markActive(view, selection, storedMarks, 'link')) active.add('link');
-
-    const at = selection.$from;
-    let inHeading = false;
-    let inBlockquote = false;
-    let inBulletList = false;
-    let inOrderedList = false;
-    let inTaskItem = false;
-    for (let depth = at.depth; depth > 0; depth -= 1) {
-      const node = at.node(depth);
-      if (node.type.name === 'heading') inHeading = true;
-      else if (node.type.name === 'blockquote') inBlockquote = true;
-      else if (node.type.name === 'bullet_list') inBulletList = true;
-      else if (node.type.name === 'ordered_list') inOrderedList = true;
-      else if (node.type.name === 'list_item' && isTaskItem(node)) inTaskItem = true;
-    }
-    if (inHeading) active.add('heading');
-    if (inBlockquote) active.add('quote');
-    if (inOrderedList) active.add('ordered-list');
-    if (inTaskItem) active.add('task-list');
-    else if (inBulletList) active.add('bullet-list');
-
-    return Array.from(active);
-  }
-
-  /**
-   * Emits deduped `formatState`. `selectionOverride`, when given, is the
-   * SELECTION-JUST-APPLIED from Milkdown's `selectionUpdated` listener
-   * callback — pass it explicitly rather than reading `pmView()!.state`
-   * there: Milkdown's listener plugin runs that callback from inside
-   * `EditorState.apply(tr)`, before the default `dispatchTransaction` calls
-   * `view.updateState(...)`, so `view.state` (and its `.selection`/
-   * `.storedMarks`) is still ONE TRANSACTION BEHIND at that exact call site —
-   * `pmView()?.state.selection` there would report where the caret USED TO
-   * BE. `mounted`/`markdownUpdated`(debounced)/`exec()` all run outside that
-   * window, so `view.state` is current for them (no override needed) — and
-   * `storedMarks` is intentionally omitted (`null`) for the override case: a
-   * plain selection-move transaction always clears storedMarks anyway, so
-   * `selection.$from.marks()` alone is correct there, whereas `exec('bold')`
-   * on a collapsed selection genuinely relies on the freshly toggled
-   * `view.state.storedMarks` to report active immediately.
-   */
-  function emitFormatState(selectionOverride?: ProseSelection): void {
-    if (!onformatstate) return;
-    const view = pmView();
-    if (!view) return;
-    const selection = selectionOverride ?? view.state.selection;
-    const storedMarks = selectionOverride ? null : view.state.storedMarks;
-    const active = computeActiveFormats(selection, storedMarks);
-    const key = [...active].sort().join(',');
-    if (key === lastFormatStateKey) return;
-    lastFormatStateKey = key;
-    onformatstate(active);
-  }
-
-  function setListItemChecked(value: boolean | null): void {
-    const view = pmView();
-    const item = enclosingListItem();
-    if (!view || !item) return;
-    view.dispatch(
-      view.state.tr.setNodeMarkup(item.pos, undefined, { ...item.node.attrs, checked: value }),
-    );
-  }
-
-  const EXEC: Record<string, () => void> = {
-    bold: () => run(toggleStrongCommand),
-    italic: () => run(toggleEmphasisCommand),
-    strikethrough: () => run(toggleStrikethroughCommand),
-    link: () => run(toggleLinkCommand, { href: '' }),
-    heading: () => {
-      const level = currentHeadingLevel();
-      if (level >= 3) run(turnIntoTextCommand);
-      else run(wrapInHeadingCommand, level + 1);
-    },
-    quote: () => run(wrapInBlockquoteCommand),
-    'bullet-list': () => run(wrapInBulletListCommand),
-    'ordered-list': () => run(wrapInOrderedListCommand),
-    'task-list': () => {
-      if (!enclosingListItem()) run(wrapInBulletListCommand);
-      const current = enclosingListItem()?.node.attrs.checked ?? null;
-      setListItemChecked(current === null ? false : null);
-      pmView()?.focus();
-    },
-    indent: () => run(sinkListItemCommand),
-    outdent: () => run(liftListItemCommand),
-  };
 
   onMount(() => {
     let disposed = false;
@@ -624,7 +294,8 @@
           listeners.focus(() => onfocuschange?.(true));
           listeners.blur(() => onfocuschange?.(false));
           listeners.selectionUpdated((_ctx, selection) => {
-            const inList = enclosingListItem() !== null;
+            const view = pmView();
+            const inList = view ? enclosingListItem(view) !== null : false;
             if (inList !== onListLine) {
               onListLine = inList;
               oncursorcontext?.({ onListLine: inList });
@@ -636,15 +307,12 @@
             // cursor now sits in (covers both real cursor moves and a tap
             // that placed the caret). Not applicable at all under the iOS
             // long-press path — there is no handle to surface.
-            if (!useMobileBlockDnd) {
-              const view = pmView();
-              if (view) {
-                try {
-                  const coords = view.coordsAtPos(selection.from);
-                  nudgeBlockHandle((coords.top + coords.bottom) / 2);
-                } catch {
-                  // Position not currently measurable (e.g. mid-transaction); skip.
-                }
+            if (!useMobileBlockDnd && view) {
+              try {
+                const coords = view.coordsAtPos(selection.from);
+                nudgeBlockHandle((coords.top + coords.bottom) / 2);
+              } catch {
+                // Position not currently measurable (e.g. mid-transaction); skip.
               }
             }
           });
@@ -701,14 +369,19 @@
           .get(editorViewCtx)
           .dom.addEventListener('scroll', handleBlockScroll, { passive: true });
 
-        // Touch/pen drag fallback (SPIKE) — see the block comment above
-        // touchDrag's declaration. Mouse is deliberately excluded inside the
-        // handler itself, not here, so this stays the single attachment point.
-        blockHandleEl = handleEl;
-        handleEl.addEventListener('pointerdown', handleHandlePointerDown);
-        handleEl.addEventListener('pointermove', handleHandlePointerMove, { passive: false });
-        handleEl.addEventListener('pointerup', handleHandlePointerUp);
-        handleEl.addEventListener('pointercancel', handleHandlePointerCancel);
+        handleDrag = createHandleBlockDrag({
+          container,
+          getView: pmView,
+          getActiveBlock: () => {
+            const active = blockProvider?.active;
+            if (!active) return null;
+            return { el: active.el, pos: active.$pos.pos, size: active.node.nodeSize };
+          },
+          setScrollHideSuspended: (suspended) => {
+            scrollHideSuspended = suspended;
+          },
+        });
+        handleDrag.attach(handleEl);
       }
     })();
 
@@ -716,16 +389,8 @@
       disposed = true;
       container.removeEventListener('click', handleClick);
       pmView()?.dom.removeEventListener('scroll', handleBlockScroll);
-      if (blockHandleEl) {
-        blockHandleEl.removeEventListener('pointerdown', handleHandlePointerDown);
-        blockHandleEl.removeEventListener('pointermove', handleHandlePointerMove);
-        blockHandleEl.removeEventListener('pointerup', handleHandlePointerUp);
-        blockHandleEl.removeEventListener('pointercancel', handleHandlePointerCancel);
-      }
-      blockHandleEl = null;
-      touchDrag = null;
-      touchDropIndicatorEl?.remove();
-      touchDropIndicatorEl = null;
+      handleDrag?.destroy();
+      handleDrag = null;
       blockProvider?.destroy();
       blockProvider = null;
       const current = editor;
@@ -779,23 +444,7 @@
       const rect = item.getBoundingClientRect();
       if (event.clientX < rect.left) {
         event.preventDefault();
-        const view = pmView();
-        if (view) {
-          const pos = view.posAtDOM(item, 0);
-          const resolved = view.state.doc.resolve(pos);
-          for (let depth = resolved.depth; depth > 0; depth -= 1) {
-            const node = resolved.node(depth);
-            if (node.type.name !== 'list_item') continue;
-            const checked = node.attrs.checked;
-            view.dispatch(
-              view.state.tr.setNodeMarkup(resolved.before(depth), undefined, {
-                ...node.attrs,
-                checked: checked ? false : true,
-              }),
-            );
-            break;
-          }
-        }
+        toggleTaskItemAt(item);
         return;
       }
     }
@@ -803,6 +452,23 @@
     // No hover on mobile — surface the drag handle for whatever block was
     // tapped. Not applicable under the iOS long-press path (no handle).
     if (!useMobileBlockDnd) nudgeBlockHandle(event.clientY);
+  }
+
+  function toggleTaskItemAt(itemEl: HTMLElement): void {
+    const view = pmView();
+    if (!view) return;
+    const resolved = view.state.doc.resolve(view.posAtDOM(itemEl, 0));
+    for (let depth = resolved.depth; depth > 0; depth -= 1) {
+      const node = resolved.node(depth);
+      if (node.type.name !== 'list_item') continue;
+      view.dispatch(
+        view.state.tr.setNodeMarkup(resolved.before(depth), undefined, {
+          ...node.attrs,
+          checked: !node.attrs.checked,
+        }),
+      );
+      return;
+    }
   }
 
   // ---- handle consumed by src/editor-embed ------------------------------- //
@@ -853,11 +519,41 @@
     rewriteImageSrcs();
   }
 
+  /**
+   * Drops the undo/redo stack, keeping the document and the caret.
+   *
+   * CRITICAL — the host calls this on every `initialize`/`setContent`, i.e.
+   * every note open (createFutoEditorApi.ts). Without it a Ctrl-Z after a note
+   * switch replays the PREVIOUS note's steps into the current document and the
+   * change that follows writes them to the current note's file. The first undo
+   * after an open would also un-apply the load itself and leave the note empty.
+   *
+   * prosemirror-history exposes no clear command, so this rebuilds the state
+   * around the live doc — the same move `replaceAll(md, true)` makes inside
+   * Milkdown's own utils, and the same one CodeMirror's `resetHistory` makes
+   * with `swapEditorState`. Plugin VIEWS survive (the plugin array is the same
+   * reference, so prosemirror-view updates rather than recreates them); only
+   * plugin STATE is reinitialized, which for our own plugins means an empty
+   * decoration set — never true mid-drag, since a note switch cannot happen
+   * with a finger down.
+   */
   export function resetHistory(): void {
-    // Milkdown's history plugin has no public clear; a fresh note is close
-    // enough for the spike.
+    const view = pmView();
+    if (!view) return;
+    const { state } = view;
+    if (undoDepth(state) === 0 && redoDepth(state) === 0) return;
+    view.updateState(
+      EditorState.create({
+        schema: state.schema,
+        doc: state.doc,
+        selection: state.selection,
+        storedMarks: state.storedMarks,
+        plugins: state.plugins,
+      }),
+    );
   }
 
+  /** CodeMirror-only warm-up; there is no height map to warm here. */
   export function warmScroll(): { grew: number; steps: number } | null {
     return null;
   }
@@ -1070,7 +766,7 @@
     background: var(--color-selection, #ffe4d1);
   }
 
-  /* Notion-style block drag handle (SPIKE). Positioned by Milkdown's
+  /* Notion-style block drag handle. Positioned by Milkdown's
    * BlockProvider (floating-ui, `data-show` toggled by it); shown for
    * mouse hover natively, and for tap/selection via a synthetic pointermove
    * dispatched from this component (see nudgeBlockHandle). */
@@ -1120,21 +816,20 @@
     border-radius: 2px;
   }
 
-  /* Touch drag fallback (SPIKE) — cheap "this block is being moved"
-   * affordance for the source block while a touch drag is in flight (see
-   * touchDrag in the script block); cleared on drop/cancel. */
+  /* Touch drag fallback — cheap "this block is being moved" affordance for
+   * the source block while a touch drag is in flight (handleBlockDrag.ts);
+   * cleared on drop/cancel. */
   :global(.futo-milkdown .milkdown-block-drag-source) {
     opacity: 0.35;
     transition: opacity 0.1s ease;
   }
 
-  /* Touch drag fallback's own drop indicator (see resolveTopLevelTarget /
-   * showTouchDropIndicator in the script block): a plain absolutely-positioned
-   * line rather than the reused `.use(cursor)` one above, because that plugin
-   * only shows wherever ProseMirror's dropPoint() would land — the more
-   * permissive, non-top-level-only position this fallback deliberately does
-   * NOT use for the actual drop (see the block comment above touchDrag).
-   * Same color/thickness as dropCursorConfig for visual consistency. */
+  /* Touch drag fallback's own drop indicator (handleBlockDrag.ts): a plain
+   * absolutely-positioned line rather than the reused `.use(cursor)` one
+   * above, because that plugin only shows wherever ProseMirror's dropPoint()
+   * would land — the more permissive, non-top-level-only position this
+   * fallback deliberately does NOT use for the actual drop (see that module's
+   * doc comment). Same color/thickness as dropCursorConfig for consistency. */
   :global(.futo-milkdown .milkdown-touch-drop-indicator) {
     position: absolute;
     height: 3px;

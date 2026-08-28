@@ -1,7 +1,7 @@
 /*
- * Notion-style mobile block drag-and-drop (SPIKE) — the iOS long-press path.
+ * Notion-style mobile block drag-and-drop — the iOS long-press path.
  *
- * MilkdownEditor.svelte's desktop/Android touch fallback drives drag off a
+ * The desktop/Android touch fallback (handleBlockDrag.ts) drives drag off a
  * dedicated ⠿ gutter handle (BlockProvider). On iPhone the product ask is
  * different: there is no handle at all — THE BLOCK ITSELF is the handle.
  * Touch-and-hold a block (~330-350ms; any real movement before the timer
@@ -63,20 +63,16 @@
  *    (prosemirror-view ignores attribute mutations on its own docView node),
  *    which is why the armed/dragging classes above may live there.
  *  - THE DROP MUST NOT TRUST POSITIONS CAPTURED AT POINTERDOWN. The source
- *    range is re-read at drop time from the decoration (ProseMirror maps it
- *    through every intervening transaction), the range is required to be
- *    exactly one top-level node, the node itself is re-inserted (not a
- *    re-fitted slice), and the mapped insert position is required to still be
- *    a top-level gap. `Transform.insert` into a position inside a textblock
- *    does NOT fail — ProseMirror's Fitter silently unwraps the node and merges
- *    its inline content into that textblock, which is exactly what "my heading
- *    stopped being a heading after I dropped it" looks like.
+ *    range is re-read at drop time from the decoration, which ProseMirror maps
+ *    through every intervening transaction; everything that can still go wrong
+ *    from there (a range that is no longer one top-level node, a target that
+ *    stopped being a top-level gap, a node the Fitter would silently unwrap)
+ *    is refused by `blockMove.ts`.
  *
- * Drop-target resolution reuses `resolveTopLevelTarget`/`topLevelBlockAt`
- * from `blockDragGeometry.ts` — the same top-level-boundary walk the
- * desktop/Android fallback uses, so both paths agree on where a block can
- * land (never nested inside a blockquote/list the way ProseMirror's own
- * `dropPoint()` would snap it).
+ * Geometry and commit are both SHARED with the ⠿-handle drag path
+ * (`handleBlockDrag.ts`): `blockDragGeometry.ts` resolves the target and
+ * `blockMove.ts` performs the move, so the two paths can never disagree about
+ * where a block may land or about which drops are refused.
  *
  * Gating: this plugin is only ever constructed/`.use()`d for the native iOS
  * shell (see MilkdownEditor.svelte) — it never coexists with the block-drag
@@ -92,6 +88,7 @@ import {
   topLevelBlockAt,
   type TopLevelTarget,
 } from './blockDragGeometry';
+import { moveTopLevelBlock, type BlockMoveRange } from './blockMove';
 
 export type MobileDndHapticKind = 'lift' | 'drop';
 
@@ -609,7 +606,7 @@ class MobileBlockDndView {
    * that edited the doc between pointerdown and release — autocorrect, a host
    * `setContent`, the trailing-paragraph plugin. The pointerdown-time
    * positions are only the fallback. */
-  private currentSourceRange(pressed: PressedBlock): { from: number; to: number } | null {
+  private currentSourceRange(pressed: PressedBlock): BlockMoveRange {
     const decorations = mobileBlockDndKey.getState(this.view.state)?.decorationSet;
     const found = decorations?.find();
     if (found && found.length === 1) return { from: found[0].from, to: found[0].to };
@@ -636,55 +633,18 @@ class MobileBlockDndView {
 
     const view = this.view;
     const range = this.currentSourceRange(pressed);
-    if (!range) {
-      this.clearDecoration();
-      return;
-    }
-    const { from: srcStart, to: srcEnd } = range;
-    if (target.pos >= srcStart && target.pos <= srcEnd) {
-      // Dropped back onto/within its own range: a genuine no-op per the
-      // product spec — no transaction, no history entry, no 'change'.
-      this.clearDecoration();
-      return;
-    }
-
-    const beforeDoc = view.state.doc;
-    // Move the NODE, not a re-fitted slice: `doc.slice()` + `Transform.insert`
-    // lets ProseMirror's Fitter re-shape the content, and a heading that does
-    // not fit where it lands is silently unwrapped into the surrounding
-    // textblock's inline content ("my heading stopped being a heading").
-    const node = beforeDoc.nodeAt(srcStart);
-    if (!node || srcStart + node.nodeSize !== srcEnd || beforeDoc.resolve(srcStart).depth !== 0) {
-      // The tracked range is no longer exactly one top-level node — refuse to
-      // guess rather than commit a lossy move.
-      this.clearDecoration();
-      return;
-    }
-
-    let tr = view.state.tr.delete(srcStart, srcEnd);
-    const mappedTarget = tr.mapping.map(target.pos);
-    if (tr.doc.resolve(mappedTarget).depth !== 0) {
-      // The resolved boundary stopped being a top-level gap once the source was
-      // removed; inserting there would coerce the node's type.
-      this.clearDecoration();
-      return;
-    }
-    tr = tr.insert(mappedTarget, node);
-    tr.setMeta(mobileBlockDndKey, { decorationSet: DecorationSet.empty });
-    // The move must be an exact relocation: same node type, same attrs, same
-    // content. If ProseMirror re-shaped it anyway, drop the whole transaction.
-    // `insert` puts the node so it STARTS at mappedTarget, so no re-mapping.
-    const moved = tr.doc.nodeAt(mappedTarget);
-    if (!moved || !moved.sameMarkup(node) || !moved.content.eq(node.content)) {
-      this.clearDecoration();
-      return;
-    }
-    if (!tr.doc.eq(beforeDoc)) {
-      view.dispatch(tr);
-      this.options.onHaptic('drop');
-    } else {
-      this.clearDecoration();
-    }
+    // Every refusal case (stale range, a target that stopped being a top-level
+    // gap, a drop back at the source, a node ProseMirror would re-shape) lives
+    // in moveTopLevelBlock, shared with the ⠿-handle drag path. A drop that
+    // commits nothing is silent: no transaction, no history entry, no
+    // 'change', and no drop haptic.
+    const committed = moveTopLevelBlock(view, range, target.pos, (tr) =>
+      // Same transaction as the move, so the source block is never drawn
+      // dimmed for a frame at its new position.
+      tr.setMeta(mobileBlockDndKey, { decorationSet: DecorationSet.empty }),
+    );
+    if (committed) this.options.onHaptic('drop');
+    else this.clearDecoration();
   }
 }
 

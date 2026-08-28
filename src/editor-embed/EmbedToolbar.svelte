@@ -39,7 +39,7 @@
 
   interface Props {
     getView: () => EditorView | null;
-    /* Editors with no CodeMirror view (the Milkdown spike) run the command
+    /* Editors with no CodeMirror view (the Milkdown editor) run the command
      * themselves; returns false when they don't support it. */
     onexec?: (commandId: string) => boolean;
     onpickimage: (source: 'camera' | 'library') => void;

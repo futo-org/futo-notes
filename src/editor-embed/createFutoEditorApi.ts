@@ -26,8 +26,8 @@ export interface EmbeddedEditorHandle {
   resetHistory: () => void;
   setContent: (text: string, options?: SetEditorContentOptions) => void;
   warmScroll: () => { grew: number; steps: number } | null;
-  /* Editors with no CodeMirror view (the Milkdown spike) run toolbar commands
-   * themselves instead of through TOOLBAR_EXEC. */
+  /* Editors with no CodeMirror view (the Milkdown editor) run toolbar
+   * commands themselves instead of through TOOLBAR_EXEC. */
   exec?: (commandId: string) => boolean;
   insertMarkdown?: (text: string) => void;
 }

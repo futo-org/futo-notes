@@ -2,7 +2,7 @@
 //
 // Mounts the REAL FUTO Notes MarkdownEditor.svelte into a bare HTML page and
 // exposes the `window.FutoEditor` JS bridge consumed by the native Swift host
-// (WKWebView). See the JS BRIDGE CONTRACT in the spike docs.
+// (WKWebView). See the futoBridge contract in packages/editor/src/bridge.ts.
 //
 // The full app already runs under plain chromium for Playwright (no Tauri
 // host), so MarkdownEditor's transitive imports detect "not Tauri" and fall
@@ -13,7 +13,7 @@
 import { mount } from 'svelte';
 import '../styles/app.css';
 import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
-import MilkdownEditor from '$features/editor/MilkdownEditor.svelte';
+import MilkdownEditor from '$features/editor/milkdown/MilkdownEditor.svelte';
 import type { EditorLinkGesture } from '$features/editor/interactions/editorPointerInteractions';
 import EmbedToolbar from './EmbedToolbar.svelte';
 import { BRIDGE_VERSION, postToHost, type FutoEditorApi } from '@futo-notes/editor';
@@ -50,9 +50,11 @@ let nativeToolbar = false;
 
 let lastPostedOnListLine: boolean | null = null;
 
-/* SPIKE: Milkdown is the default embedded editor. Load editor.html?cm to get the
- * shipping CodeMirror live-preview editor back. Both are statically imported so
- * the bundle keeps its ES2020 target (no top-level await). */
+/* Milkdown is the default embedded editor while the transition is in flight
+ * (docs/plan/milkdown-transition.md); `editor.html?cm` gets the shipping
+ * CodeMirror live-preview editor back, and that switch dies with CM6 at the
+ * swap. Both are statically imported so the bundle keeps its ES2020 target
+ * (no top-level await). */
 const useCodeMirror = new URLSearchParams(window.location.search).has('cm');
 const EmbeddedEditor = (useCodeMirror ? MarkdownEditor : MilkdownEditor) as typeof MarkdownEditor;
 

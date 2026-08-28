@@ -13,7 +13,7 @@ export default defineConfig({
   // Runner-specific tests stay out of the default Playwright suite: the
   // editor-embed harness has its own config, and Vitest unit files install a
   // matcher runtime that conflicts with Playwright's.
-  testIgnore: ['**/editor-embed-bridge.spec.ts', '**/*.test.mjs'],
+  testIgnore: ['**/editor-embed-*.spec.ts', '**/*.test.mjs'],
   timeout: isCI ? 90000 : 30000,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
