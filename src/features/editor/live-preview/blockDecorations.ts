@@ -348,7 +348,14 @@ export function decorateBlockQuote(
 export function decorateHorizontalRule(
   from: number,
   to: number,
+  doc: Text,
   decorations: PendingDecoration[],
 ): void {
+  const lineFrom = doc.lineAt(from).from;
+  decorations.push({
+    from: lineFrom,
+    to: lineFrom,
+    value: { class: 'cm-md-hr-line', startSide: 0, endSide: 0 },
+  });
   decorations.push({ from, to, value: { widget: new HorizontalRuleWidget() } });
 }

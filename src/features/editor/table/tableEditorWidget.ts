@@ -1,13 +1,22 @@
 import { WidgetType, EditorView } from '@codemirror/view';
+import { EditorSelection } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { parseMarkdownTable } from './tableModel';
 import type { ParsedTable } from './tableModel';
 import { addRow, serialize, setCellContent } from './tableOperations';
 import { setTableFocusEffect } from '../editorUX/selectionToolbar';
-import { attachTableControls, updateTableControlAlignments } from './tableControls';
+import {
+  attachTableControls,
+  positionTableControls,
+  updateTableControlAlignments,
+} from './tableControls';
 import { createTableCellNavigation } from './tableCellNavigation';
 
 const SYNC_DEBOUNCE_MS = 180;
+
+const TABLE_VERTICAL_PADDING = 16;
+const TABLE_BORDER_HEIGHT = 2;
+const TABLE_ROW_HEIGHT = 44;
 
 function cellTextFromElement(el: HTMLElement): string {
   return (el.textContent ?? '').replace(/\r?\n/g, ' ');
@@ -62,7 +71,42 @@ export class TableEditorWidget extends WidgetType {
 
     this.dom = root;
     this.attachHoverCoordination(root);
+    this.attachSpacingBandCaretPlacement(root);
     return root;
+  }
+
+  private attachSpacingBandCaretPlacement(root: HTMLElement): void {
+    root.addEventListener('mousedown', (event) => {
+      if (event.target !== root || event.button !== 0 || event.ctrlKey) return;
+      const view = this.view;
+      const range = this.currentRange();
+      if (!view || !range) return;
+
+      const tableElement = root.querySelector('table');
+      const clickedAbove = tableElement
+        ? event.clientY < tableElement.getBoundingClientRect().top
+        : false;
+      const { doc } = view.state;
+      const firstLine = doc.lineAt(range.from);
+      const lastLine = doc.lineAt(range.to);
+      const target = clickedAbove
+        ? firstLine.number > 1
+          ? doc.line(firstLine.number - 1).to
+          : null
+        : lastLine.number < doc.lines
+          ? doc.line(lastLine.number + 1).from
+          : null;
+      if (target === null) return;
+
+      event.preventDefault();
+      const { anchor } = view.state.selection.main;
+      view.dispatch({
+        selection: event.shiftKey
+          ? EditorSelection.range(anchor, target)
+          : EditorSelection.cursor(target),
+      });
+      view.focus();
+    });
   }
 
   private showControlsTimer: number | null = null;
@@ -78,10 +122,14 @@ export class TableEditorWidget extends WidgetType {
     const show = () => {
       if (this.showControlsTimer != null) window.clearTimeout(this.showControlsTimer);
       this.showControlsTimer = null;
+      positionTableControls(root);
       root.classList.add('sf-table--show-controls');
     };
 
     root.addEventListener('pointerenter', show);
+    root.querySelector('.sf-table__scroll')?.addEventListener('scroll', () => {
+      if (root.classList.contains('sf-table--show-controls')) positionTableControls(root);
+    });
     root.addEventListener('pointerleave', (e) => {
       const next = e.relatedTarget as Node | null;
       if (next && root.contains(next)) return;
@@ -228,6 +276,7 @@ export class TableEditorWidget extends WidgetType {
       table: this.table,
       mutateTable: (mutation) => this.mutateAndSync(mutation),
     });
+    if (root.isConnected) positionTableControls(root);
   }
 
   private updateColControlAlignments(t: ParsedTable): void {
@@ -326,9 +375,8 @@ export class TableEditorWidget extends WidgetType {
   }
 
   get estimatedHeight(): number {
-    const headerHeight = 44;
-    const rowHeight = 40;
-    return headerHeight + this.table.rows.length * rowHeight + 16;
+    const renderedRows = this.table.rows.length + 1;
+    return TABLE_VERTICAL_PADDING + TABLE_BORDER_HEIGHT + renderedRows * TABLE_ROW_HEIGHT;
   }
 
   destroy(): void {
