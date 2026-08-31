@@ -67,6 +67,13 @@ infrastructure owner.
 - **Svelte 5 runes only** (`$state`/`$derived`/`$effect`; module state in `.svelte.ts`). Never
   `svelte/store`, `on:click`, or `createEventDispatcher` — use `onclick=` attributes and callback props.
 - Never hand-build note paths: use TS `pathSafety.ts` or Rust `safe_note_path`.
+- **Every new user-visible string is a catalog entry.** Authored UI text — labels, headings,
+  buttons, placeholders, toasts, errors, accessibility and OS-facing labels — is added to
+  `languages/en.json` and read back through the platform's accessor (`localizedText` in TS/Swift/
+  Kotlin), never written as a literal at the call site. An English entry is the minimum bar; a
+  translation is welcome but never required to land. User data is the opposite rule: note titles,
+  filenames, folder names, tags, paths and URLs render verbatim (M2). `languages/README.md` owns
+  the naming and placeholder grammar; `pnpm run check:languages` validates the catalogs.
 - The note cache (`notesCache` in `src/features/notes/notes.svelte.ts`) is a projection. Apply the
   complete post-commit `LocalNoteMutation`; do not optimistically reconstruct collision or backlink
   outcomes.
