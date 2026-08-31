@@ -198,6 +198,31 @@ test-android-native: build-rust-android
 test-android-native-ui: build-rust-android
   cd apps/android && ./gradlew connectedDebugAndroidTest
 
+# Editor performance stories against the REAL native Android app on an
+# explicitly claimed device — written for the low-end reference phone, where
+# the budgets are hardest (issue #106, docs/plan/milkdown-transition.md §5):
+# interactive-first-viewport <1s and keystroke p95 <16ms at real-note sizes,
+# open that scales linearly with no cliff, and the content-visibility
+# containment stylesheet verified inside the real editor chrome. The
+# build/install is deliberately mandatory so the run always exercises the code
+# being pushed (same rule as test-ios-stories). The maintainer's largest real
+# note joins the fixtures as a LOCAL, UNCOMMITTED file: $FUTO_PERF_NOTE=<path>,
+# or drop it at tests/editor-gauntlet/local/device-perf-note.md (gitignored).
+# Requires $ANDROID_SERIAL (a physical phone, or `just qa-claim android`).
+# Deliberately not in `check`/CI — runners have no device.
+#   just test-android-perf              # ~10 min on the reference phone
+#   just test-android-perf --stress     # adds the 50k rung; 30 min+, see the runner
+test-android-perf *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -n "${ANDROID_SERIAL:-}" ] || {
+    echo 'Set ANDROID_SERIAL to the claimed device (the low-end reference phone; adb devices -l).' >&2
+    echo 'Pool emulators: just qa-claim android' >&2
+    exit 1
+  }
+  just android-native
+  node tests/android-editor-perf.mjs {{args}}
+
 # User-level storage-location stories against the REAL native Android app: the
 # first-run picker, both migration directions, and opening an already-populated
 # folder — each asserted on the vault that actually lands on disk. ~35s, of which

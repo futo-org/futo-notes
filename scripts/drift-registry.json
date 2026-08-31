@@ -444,6 +444,27 @@
           "kind": "engine parity test"
         }
       ]
+    },
+    {
+      "concept": "editor-perf-floor-fixture",
+      "description": "The editor performance floor's line-fixture generator and p95 rank rule, in the desktop Playwright harness (TypeScript) and in the device runner (plain node .mjs, imported by tests/android-editor-perf.mjs over CDP). The copy exists because the device leg cannot import the harness's TS; it matters because device and desktop numbers are only comparable if both open the SAME document and rank samples the same way. Locked by a differential assertion in tests/lib/editorDevicePerf.test.mjs.",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "tests/editor-gauntlet/performanceFloor.ts",
+          "pattern": "export function lineFixture"
+        },
+        {
+          "location": "tests/lib/editorDevicePerf.mjs",
+          "pattern": "export function lineFixture"
+        }
+      ],
+      "locks": [
+        {
+          "path": "tests/lib/editorDevicePerf.test.mjs",
+          "kind": "test"
+        }
+      ]
     }
   ]
 }

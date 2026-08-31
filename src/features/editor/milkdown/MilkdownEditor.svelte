@@ -1107,6 +1107,24 @@
     margin-top: 0.75em;
   }
 
+  /* The containment stylesheet (docs/plan/milkdown-transition.md §2/§5, issue
+   * #106). Offscreen top-level blocks skip rendering work, so keystroke cost
+   * stops scaling with document length: the 2026-08-27 perf probe measured
+   * keystroke cost at 14k lines as 82% browser layout over the eager whole-doc
+   * DOM without this rule, and under the 16ms p95 budget with it — which is
+   * what lets the low-end Android reference phone hold the budget at real note
+   * sizes (tests/android-editor-perf.mjs). `contain-intrinsic-size: auto 24px`
+   * keeps the scrollbar stable: 24px approximates one unrendered line, and
+   * `auto` remembers each block's real size once it has been rendered, so
+   * scrolling back over visited content never jumps. Verified inside the real
+   * editor chrome on all three shells (caret into skipped regions, scroll,
+   * nested scroll containers) — the embed spec's containment test locks the
+   * rule and the caret behavior. */
+  :global(.futo-milkdown .ProseMirror > *) {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 24px;
+  }
+
   :global(.futo-milkdown .ProseMirror h1),
   :global(.futo-milkdown .ProseMirror h2),
   :global(.futo-milkdown .ProseMirror h3),
