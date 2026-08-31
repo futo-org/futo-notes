@@ -13,7 +13,15 @@ just test-android-native       # JVM unit tests (the only Android tests CI runs)
 just test-android-native-ui    # Compose instrumentation tests on $ANDROID_SERIAL
 just android-drive             # drive the running app; no args prints the commands
 just test-android-storage      # user-level storage stories on a real device
+just test-android-perf         # editor perf budgets on the low-end reference phone
 ```
+
+`test-android-perf` is the DEVICE half of the editor performance floor (#106):
+it drives the editor WebView over CDP and enforces interactive-first-viewport
+<1s plus keystroke p95 <16ms on the phone the budgets are hardest on. It needs
+`$ANDROID_SERIAL` set to a physical low-end device — a fast emulator on a
+desktop CPU cannot fail the way the ticket cares about — and it is deliberately
+out of `check`/CI, which has no device.
 
 For app-only Kotlin iteration, `./gradlew :app:installDebug` from here is enough
 **in a warm checkout**. In a FRESH worktree it is not, and both failures look

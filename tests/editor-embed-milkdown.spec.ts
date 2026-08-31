@@ -899,6 +899,101 @@ test('open records time-to-interactive-first-viewport, and it beats time-to-comp
 });
 
 /**
+ * The read-only diagnostic global `src/editor-embed/main.ts` installs for the
+ * gauntlet. Deliberately NOT part of `FakeHostWindow`, which mirrors the
+ * futoBridge contract exactly (apps/ios BridgeCallSurfaceTests scans that
+ * surface) — this is not a contract member.
+ */
+interface ProseMirrorDiagnosticWindow {
+  __futoProseMirrorView: () => {
+    state: {
+      doc: { content: { size: number }; resolve(pos: number): unknown };
+      tr: { setSelection(selection: unknown): { scrollIntoView(): unknown } };
+      selection: { from: number; constructor: { near(pos: unknown): unknown } };
+    };
+    dispatch(tr: unknown): void;
+    domAtPos(pos: number): { node: Node };
+  };
+}
+
+/**
+ * The containment stylesheet (docs/plan/milkdown-transition.md §2/§5, issue
+ * #106): `.ProseMirror > *` children carry `content-visibility: auto` with a
+ * `contain-intrinsic-size` estimate, so offscreen blocks cost no layout per
+ * keystroke — the perf probe measured keystroke cost at 14k lines as 82%
+ * browser layout without it. This locks the rule's presence and the behavior
+ * it must not break: the caret can move into a region the browser has skipped,
+ * and land on real, rendered content.
+ */
+test('offscreen blocks are containment-skipped and the caret can still reach them', async ({
+  page,
+}) => {
+  await initialize(page, hostConfig({ content: largeNote() }));
+  await waitForStreamComplete(page);
+
+  const styles = await page.evaluate(() => {
+    const blocks = document.querySelectorAll('.ProseMirror > *');
+    const middle = blocks[Math.floor(blocks.length / 2)] as Element;
+    const computed = getComputedStyle(middle);
+    return {
+      contentVisibility: computed.getPropertyValue('content-visibility'),
+      containIntrinsicSize: computed.getPropertyValue('contain-intrinsic-size'),
+    };
+  });
+  expect(styles.contentVisibility).toBe('auto');
+  expect(styles.containIntrinsicSize).toContain('auto');
+
+  // Caret into an offscreen region: place the selection at the document end
+  // the way in-app navigation does (a scrolled dispatch), then type with the
+  // real keyboard. If containment broke caret entry or scroll anchoring, the
+  // keystroke would land elsewhere or nowhere.
+  await focusEditor(page);
+  const scrolled = await page.evaluate(() => {
+    const view = (window as unknown as ProseMirrorDiagnosticWindow).__futoProseMirrorView();
+    const scroller = document.querySelector('.ProseMirror') as HTMLElement;
+    const before = scroller.scrollTop;
+    /* `Selection.near` is a static, reached through the live selection's
+     * constructor so this test needs no prosemirror import of its own — the
+     * bundle under test owns the only copy of those classes. */
+    const selection = view.state.selection.constructor.near(
+      view.state.doc.resolve(view.state.doc.content.size),
+    );
+    view.dispatch(view.state.tr.setSelection(selection).scrollIntoView());
+    return { before, after: scroller.scrollTop };
+  });
+  expect(scrolled.after).toBeGreaterThan(scrolled.before);
+
+  await page.keyboard.type(' THE-END');
+  await settleChangeDebounce(page);
+  expect((await getContent(page)).trimEnd().endsWith('THE-END')).toBe(true);
+
+  /* The block the CARET landed in is genuinely rendered, not a
+   * `contain-intrinsic-size` estimate: its box sits inside the scroller's
+   * viewport at its real laid-out size.
+   *
+   * The caret's block, not the document's last child — the preset keeps a
+   * trailing placeholder paragraph after the content and ProseMirror scrolls
+   * the CARET into view, so the final element legitimately stays below the
+   * fold. Asserting on the last child passed here by luck and was outright
+   * wrong on Android, where tests/android-editor-perf.mjs runs the same probe;
+   * the two are deliberately kept in the same shape. */
+  const landing = await page.evaluate(() => {
+    const editor = document.querySelector('.ProseMirror') as HTMLElement;
+    const view = (window as unknown as ProseMirrorDiagnosticWindow).__futoProseMirrorView();
+    let block = view.domAtPos(view.state.selection.from).node as Node | null;
+    if (block?.nodeType === Node.TEXT_NODE) block = block.parentElement;
+    while (block && (block as HTMLElement).parentElement !== editor) {
+      block = (block as HTMLElement).parentElement;
+    }
+    const rect = (block as HTMLElement).getBoundingClientRect();
+    const viewport = editor.getBoundingClientRect();
+    return { top: rect.top, height: rect.height, viewportBottom: viewport.bottom };
+  });
+  expect(landing.height).toBeGreaterThan(0);
+  expect(landing.top).toBeLessThan(landing.viewportBottom);
+});
+
+/**
  * The one unacceptable failure, tested against a REAL FILE.
  *
  * The two tests above prove the editor never hands out a partial document. This

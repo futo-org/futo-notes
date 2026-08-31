@@ -71,7 +71,12 @@ function percentile95(samples: number[]): number {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] ?? Infinity;
 }
 
-function lineFixture(lines: number): string {
+/**
+ * Exported for the device floor's differential lock
+ * (tests/lib/editorDevicePerf.test.mjs): the low-end-phone run must open the
+ * same document this floor opens or the numbers are not comparable.
+ */
+export function lineFixture(lines: number): string {
   return Array.from({ length: lines }, (_, index) => {
     switch (index % 4) {
       case 0:
