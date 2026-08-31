@@ -205,25 +205,39 @@
       min-height: 100% !important;
     }
 
+    /* The tail must begin where the CONTENT ends, not at the bottom of the
+     * viewport. An absolutely positioned tail at `top: 100%` resolves against
+     * the scroller's PADDING BOX — i.e. its visible height — so it appended the
+     * full tail below the fold no matter how short the note was, and a note
+     * that did not fill the screen could be scrolled entirely out of view
+     * (measured: 216px of content in a 780px viewport, 312px of scroll).
+     * A wrapped flex line is in normal flow, so it starts at the content's end
+     * and a short note gets no scrollable overshoot at all. `.cm-scroller` is
+     * `display:flex; flex-direction:row`, so the tail needs `flex: 0 0 100%` to
+     * claim a line of its own below `.cm-content`, and `align-content` must be
+     * pinned or the two lines get stretched apart. → docs/spec/editor.md */
     .cm-editor[data-ios-off-text-surface] .cm-scroller {
       position: relative !important;
       padding-bottom: 0 !important;
+      flex-wrap: wrap !important;
+      align-content: flex-start !important;
     }
 
     .cm-editor[data-ios-off-text-surface] .cm-scroller::after {
       content: '';
-      position: absolute;
-      top: 100%;
-      left: 0;
-      width: 1px;
+      flex: 0 0 100%;
       height: var(--futo-edit-pad-bottom);
       pointer-events: none;
     }
 
+    /* No `margin-bottom` tail here: WebKit leaves a last child's bottom margin
+     * out of the scrollable overflow, which is why the tail was a pseudo-element
+     * to begin with — and once the pseudo is in flow the margin only stacks a
+     * second tail on top of it. */
     .cm-editor[data-ios-off-text-surface] .cm-content {
       min-height: 0 !important;
       padding-bottom: 0 !important;
-      margin-bottom: var(--futo-edit-pad-bottom) !important;
+      margin-bottom: 0 !important;
     }
   </style>
 </head>

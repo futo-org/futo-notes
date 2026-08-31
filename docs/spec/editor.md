@@ -201,6 +201,11 @@ this file states the behaviors a human cares about.
   gestures remain scrolling; the tail works after short and long notes so the
   final line can clear the keyboard. → editor.html
   `[data-ios-off-text-surface]`, tests/editor-embed-bridge.spec.ts _(iOS)_
+- The tail begins where the text ends, so it never buys scrollable space a note
+  did not earn: a note shorter than the editor does not scroll at all, and no
+  note can be scrolled until its last line leaves the screen. → editor.html
+  `[data-ios-off-text-surface] .cm-scroller::after`,
+  tests/editor-embed-bridge.spec.ts
 - The first iOS tap focuses with `preventScroll` before setting the caret,
   including in the blank tail, so keyboard presentation does not scroll-jump
   the editor. → docs/learnings/ios-keyboard-editor-jump.md,

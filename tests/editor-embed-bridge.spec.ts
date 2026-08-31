@@ -694,21 +694,47 @@ test('the iOS touch sequence resolves off-text words before compatibility mouse 
   await context.close();
 });
 
-test('iOS notes keep a non-editable scroll tail at short and long lengths', async ({ browser }) => {
+// The tail exists so a LONG note's final line can clear the keyboard. It must
+// never buy a short note scrollable space: an absolutely positioned tail at
+// `top: 100%` resolved against the scroller's visible box rather than the end
+// of the text, so every note — a four-line one included — could be scrolled
+// completely off the top and reopened (via scroll restore) showing nothing.
+test('a note that fits the screen cannot be scrolled out of view', async ({ browser }) => {
   const { context, page: iosPage } = await openIosTouchEditor(browser);
-  await hostSetContent(iosPage, 'short note');
+  await hostSetContent(iosPage, '- one\n- two\n- three\n- four');
 
   const scroller = iosPage.locator('.cm-scroller');
-  const metrics = await scroller.evaluate((element) => ({
-    clientHeight: element.clientHeight,
-    scrollHeight: element.scrollHeight,
-  }));
-  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  const fits = await scroller.evaluate((element) => {
+    const content = element.querySelector('.cm-content');
+    if (!(content instanceof HTMLElement)) throw new Error('no content');
+    return content.getBoundingClientRect().height < element.clientHeight;
+  });
+  expect(fits).toBe(true);
 
   await scroller.evaluate((element) => {
-    element.scrollTop = 100;
+    element.scrollTop = element.scrollHeight;
   });
-  expect(await scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+  // Scrolled as far as it will go, every line of the note is still on screen.
+  const visibleLines = await iosPage.locator('.cm-scroller').evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const lines = [...element.querySelectorAll('.cm-line')].filter((line) =>
+      line.textContent?.trim(),
+    );
+    const visible = lines.filter((line) => {
+      const rect = line.getBoundingClientRect();
+      return rect.bottom > box.top + 1 && rect.top < box.bottom - 1;
+    });
+    return { total: lines.length, visible: visible.length };
+  });
+  expect(visibleLines.visible).toBe(visibleLines.total);
+  expect(visibleLines.total).toBe(4);
+
+  await context.close();
+});
+
+test('iOS notes keep a non-editable scroll tail after a long note', async ({ browser }) => {
+  const { context, page: iosPage } = await openIosTouchEditor(browser);
 
   await hostSetContent(
     iosPage,
@@ -727,7 +753,7 @@ test('iOS notes keep a non-editable scroll tail at short and long lengths', asyn
     });
   expect(trailingSpace).toBeGreaterThanOrEqual(250);
 
-  await scroller.evaluate((element) => {
+  await iosPage.locator('.cm-scroller').evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
   const longTailTarget = await iosPage
