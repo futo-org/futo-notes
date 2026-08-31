@@ -393,16 +393,19 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
             let message = desiredLocalization.localizedText("editor.ios.bundleMissing")
-            let escapedMessage = message
-                .replacingOccurrences(of: "&", with: "&amp;")
-                .replacingOccurrences(of: "<", with: "&lt;")
-                .replacingOccurrences(of: ">", with: "&gt;")
-                .replacingOccurrences(of: "\"", with: "&quot;")
             webView.loadHTMLString(
-                "<html><body><p>\(escapedMessage)</p></body></html>",
+                "<html><body><p>\(htmlEscaped(message))</p></body></html>",
                 baseURL: nil
             )
         }
+    }
+
+    private func htmlEscaped(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
     /// Kick off WebView creation + bundle load early (e.g. app start) so the
