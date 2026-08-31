@@ -41,7 +41,8 @@ const RULES = `HARD RULES (this repo):
 - Never touch ${REPO}'s working tree, main, or branches you don't own. Never merge anything yourself.
 - Never publish anything external (upstream issues stay drafts; no store/registry actions). The internal GitLab tracker (glab) is allowed.
 - Never pattern-kill processes (AGENTS.md M25). Claim devices only via just qa-claim inside your own worktree.
-- Push your ticket branch when done; never force-push anything you didn't create this run.`;
+- Push your ticket branch when done; never force-push anything you didn't create this run.
+- The session scratchpad is SHARED by every parallel lane: put all your temp files under a subdirectory named after your ticket (e.g. <scratchpad>/t<ticket>/), never at the scratchpad root — a sibling lane once overwrote another's backup file there (pc_6a5ade2b4b99).`;
 
 phase('Frontier');
 const frontier = await agent(
