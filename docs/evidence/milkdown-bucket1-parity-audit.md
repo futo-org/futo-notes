@@ -45,14 +45,21 @@ behavior is unchanged by this branch, and the line is re‑audited at the swap.
   audit; the iOS Swift suite (`just test-ios-native`) was NOT — it needs macOS, same reason as
   the iOS device leg below. A `[shell]` row therefore means "specified behavior lives in
   unchanged shell code, covered by that shell's own suite", not "re‑measured here".
-- `[census]` `just milkdown-census --limit 4000` over the real note corpus, run TWICE this
-  audit — once with the serializer fix and once with it patched out (the pre‑ticket baseline).
-  Both runs report identical counters: 0 `text_loss`, 0 `br_loss`, 0 `wikilink_loss`, 0
-  `html_loss`, 15 `doc_mismatch`, 1 `structural_diff`, 5 `unstable`. So the fix raises no flag
-  and clears none — it costs nothing on the corpus. Note what this does *not* show: the census
-  has no counter for the empty‑cell rewrite, so it is evidence of no regression, not evidence of
-  the fix's benefit (that is the unit + bundle‑seam coverage below). 4,000 notes, not the full
-  ~31k — enough for a no‑regression comparison at both ends.
+- `[census]` the measurement `packages/editor/AGENTS.md` mandates for any change under
+  `src/milkdown-compat/` — `just milkdown-census --variant baseline` (unpatched upstream preset)
+  then `just milkdown-census --diff build/milkdown-census/baseline` — over the **full corpus,
+  30,995 notes**, both runs this audit:
+
+  > `vs build/milkdown-census/baseline: 339 flags cleared, 0 newly raised` — exit 0.
+
+  That clears the stated bar ("zero newly-raised flags over ~31k real notes"). The compat set
+  now takes `br_loss` 61 → **0**, `html_loss` 61 → **0**, `empty_link_loss` 26 → **0**, and
+  `text_loss` 482 → 437. A second, narrower run isolated *this ticket's* serializer handler by
+  patching only it out (`--limit 4000`): counters identical with and without it, so the handler
+  raises no flag and clears none on its own.
+  Note what the census does *not* show: it has no counter for the empty‑cell rewrite, so for
+  this ticket it is evidence of **no regression**, not evidence of the fix's benefit — that is
+  the unit + bundle‑seam + device coverage below.
 - `[device]` the Android pool emulator futo‑qa‑3, claimed by this worktree via
   `just qa-claim android` and driven this run; the oracle is the note file on disk. The iOS leg
   was NOT run — see "Device legs" below.
@@ -222,7 +229,11 @@ are exactly as recorded — PASS via `[shell]` ordering suites, gaps stand.
 4. **An empty table cell serializes as `|  |`**, not `| <br /> |`
    (packages/editor/src/milkdown-compat/emptyLine.ts `htmlWithoutEmptyCellPlaceholder`). Also
    repairs a pre‑existing corruption: any note holding an empty cell had it rewritten to
-   `| <br /> |` by the first unrelated keystroke. Census diff: 0 flags newly raised, 0 cleared.
+   `| <br /> |` by the first unrelated keystroke. Full-corpus census `--diff`: 339 cleared,
+   **0 newly raised** over 30,995 notes. It replaces the stock remark‑stringify `html` handler,
+   which is exactly `node.value || ''` with `peek() === '<'` — verified against
+   `mdast-util-to-markdown/lib/handle/html.js`, and nothing in Milkdown or this repo installs a
+   custom one — so everything the handler does not claim serializes identically.
 5. **Flake hardening**: the formatState bold assertion now polls for the settled state instead of
    reading the first message after a click (tests/editor-embed-milkdown.spec.ts).
 
@@ -276,11 +287,16 @@ The ticket asks for all three shells. What was actually run, and what was not:
   backspace‑on‑empty spec line rests on its documented upstream resolution and the bundle‑seam
   coverage, NOT on a device result from this run. No spec gap is recorded from it.
 - **iOS — NOT RUN.** This machine is Linux (`xcrun`/`xcodebuild` absent), so the leg needs the
-  Mac over Tailscale. The Mac is reachable and has booted simulators, but its checkout has no
-  `feat/milkdown-editor` lineage fetched (`git branch -a | grep milkdown` → empty), so the leg
-  would require pushing this branch, creating a throwaway worktree there, and a cold
-  `build-rust-ios` xcframework + `xcodegen` + `xcodebuild` cycle. That was not completed within
-  this run's budget and is **not** claimed as evidence anywhere above.
+  Mac over Tailscale. Two attempts were made and both were blocked; the findings, so the next
+  run does not repeat them:
+  1. The Mac IS reachable (macOS 26.6.1) and HAS booted simulators, including pool devices
+     `futo-qa-1`/`futo-qa-2` — so the device side is fine.
+  2. But `~/Developer/futo-notes` there is **not a git repository** (`git fetch` → "fatal: not a
+     git repository"), `xcodegen` is **not installed** (`which xcodegen` → not found), and there
+     is no prebuilt `apps/ios/Frameworks` xcframework. So the leg needs a fresh clone plus a
+     `brew install xcodegen` plus a cold `build-rust-ios` — installing toolchain on the user's
+     machine, which this run did not do on its own authority.
+  This is **not** claimed as evidence anywhere above.
   What stands in for it, and what does not: the iOS shell loads the SAME single‑file
   `editor.html` bytes as Android (`vite.editor.config.ts` stages one artifact into both), and
   the fixes are engine‑internal ProseMirror/remark logic in that bundle, exercised by 14
