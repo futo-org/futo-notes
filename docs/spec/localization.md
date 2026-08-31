@@ -1,7 +1,7 @@
 # Localization — Spec
 
-> **Gap:** Shared UI text, user-facing errors, authored native-shell text, and the
-> embedded editor resolve from the catalogs on desktop, Android, and iOS.
+Shared UI text, user-facing errors, authored native-shell text, and the embedded
+editor resolve from the catalogs on desktop, Android, and iOS.
 
 ## Scope
 
