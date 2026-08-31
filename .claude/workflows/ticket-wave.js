@@ -112,7 +112,7 @@ const laneResults = await pipeline(
   (lane) =>
     agent(
       `Implement GitLab ticket #${lane.ticket} (${lane.title}) end to end: ${lane.url || `https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/${lane.ticket}`}
-Setup: git -C ${REPO} worktree add /home/justin/Developer/futo-notes-t${lane.ticket} -b wave/t${lane.ticket} origin/${BRANCH} (reuse it if it already exists and is clean). Work ONLY in that worktree; pnpm install there if node_modules is missing.
+Setup: git -C ${REPO} worktree add /home/justin/Developer/futo-notes-t${lane.ticket} -b wave/t${lane.ticket} origin/${BRANCH} (reuse it if it already exists and is clean). If it exists but is DIRTY, that is a previous crashed lane's partial work on this same ticket: read the diff first, keep only what is sound and on-ticket (build on it), and git checkout/rm what is broken or off-ticket — never keep code you have not read. Work ONLY in that worktree; pnpm install there if node_modules is missing.
 Procedure (the repo's implement process, inlined here because the /implement skill is user-invocation-only — the Skill tool will refuse it, do not try):
 1. Read the ticket (glab issue view ${lane.ticket}) and every spec/plan file it names; implement to its acceptance criteria.
 2. Work test-first where the layer supports it — invoke the "tdd" skill via the Skill tool at pre-agreed seams; if it refuses model invocation, write the failing test first yourself.
