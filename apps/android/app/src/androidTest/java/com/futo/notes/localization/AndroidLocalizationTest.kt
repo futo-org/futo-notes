@@ -84,6 +84,24 @@ class AndroidLocalizationTest {
         assertEquals(listOf("de", "zu"), localization.availableLanguages.map { it.tag })
     }
 
+    @Test
+    fun aRegionalOverrideResolvesToTheCatalogTagTheLanguageRowShows() {
+        fun effectiveTagFor(overrideLanguageTag: String) = Localization.fromRuntimeCatalogs(
+            catalogs = listOf(
+                namedCatalog("en", "English", "English"),
+                namedCatalog("zh-Hans", "Simplified Chinese", "\u7b80\u4f53\u4e2d\u6587"),
+            ),
+            requestedLanguageTags = listOf(overrideLanguageTag),
+            regionalLanguageTag = null,
+        ).effectiveLanguage.tag
+
+        assertEquals("en", effectiveTagFor("en"))
+        assertEquals("en", effectiveTagFor("en-US"))
+        assertEquals("en", effectiveTagFor("en-GB"))
+        assertEquals("zh-Hans", effectiveTagFor("zh-Hans"))
+        assertEquals("zh-Hans", effectiveTagFor("zh-CN"))
+    }
+
     private fun localization(testCase: JSONObject, now: Long = System.currentTimeMillis()) =
         Localization.fromGeneratedCatalogs(
             listOf(testCase.getString("languageTag")),

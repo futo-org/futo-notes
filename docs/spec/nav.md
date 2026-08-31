@@ -56,9 +56,14 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   folder→folder push and its pop animate opposite ways. → AppNavigation.kt
   *(Android)*
 - Activity recreation starts a fresh route stack at the **vault root folder**,
-  restoring the root list's scroll position; a deeper folder stack is
-  deliberately not restored, so the user always returns to a screen that is
-  guaranteed to exist. → AppNavigation.kt / NoteListState.kt /
+  restoring the root list's scroll position; a deeper folder stack and any open
+  note are deliberately not restored, so the user always returns to a screen that
+  is guaranteed to exist. Settings, the screens reached from it (Sync, Storage
+  location), and Search are the exception: they exist independently of the vault,
+  so recreation restores them with their parent chain rather than stranding the
+  user at the root — an operating-system language change recreates the activity
+  and is not the user asking to leave the screen they were on
+  ([localization.md](localization.md)). → AppNavigation.kt / NoteListState.kt /
   AppNavigationTest.kt *(Android)*
 - A folder route whose folder is renamed or moved rebases onto the new path; a
   folder route whose folder stops existing is dropped, popping to the nearest

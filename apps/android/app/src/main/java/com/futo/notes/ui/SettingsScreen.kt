@@ -3,6 +3,10 @@ package com.futo.notes.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.app.LocaleManager
+import android.os.Build
+import android.os.LocaleList
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -24,9 +28,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -40,6 +47,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -73,6 +82,22 @@ enum class ThemeMode { LIGHT, DARK, AUTO }
 private const val SOURCE_URL = "https://gitlab.futo.org/futo-notes/futo-notes"
 private const val ISSUE_TRACKER_URL = "https://github.com/futo-org/futo-notes/issues"
 
+private fun localeManager(context: Context): LocaleManager? =
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) null
+    else context.getSystemService(LocaleManager::class.java)
+
+private fun applicationLanguageTag(context: Context): String? =
+    localeManager(context)?.applicationLocales?.takeUnless { it.isEmpty }?.get(0)?.toLanguageTag()
+
+private fun selectedCatalogLanguageTag(context: Context, localization: Localization): String? =
+    applicationLanguageTag(context)?.let { localization.effectiveLanguage.tag }
+
+private fun setApplicationLanguageTag(context: Context, languageTag: String?) {
+    localeManager(context)?.applicationLocales =
+        if (languageTag == null) LocaleList.getEmptyLocaleList()
+        else LocaleList.forLanguageTags(languageTag)
+}
+
 private fun storageModeLabel(mode: StorageMode, localization: Localization): String = when (mode) {
     StorageMode.DEVICE -> localization.localizedText("settings.storage.sharedFolderDescription")
     StorageMode.APP -> localization.localizedText("settings.storage.appFolderDescription")
@@ -95,6 +120,14 @@ fun SettingsScreen(
     val localization = LocalLocalization.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val supportsApplicationLanguage = remember(context) { localeManager(context) != null }
+    val configuration = LocalConfiguration.current
+    var selectedLanguageTag by remember {
+        mutableStateOf(selectedCatalogLanguageTag(context, localization))
+    }
+    LaunchedEffect(configuration) {
+        selectedLanguageTag = selectedCatalogLanguageTag(context, localization)
+    }
     // Same prefs file the Activity already loaded — getSharedPreferences is a
     // cached lookup by now, no disk hit.
     val prefs = remember { context.getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE) }
@@ -155,6 +188,32 @@ fun SettingsScreen(
                         selectedIndex = themeMode.ordinal,
                         onSelect = { onThemeMode(ThemeMode.entries[it]) },
                     )
+                }
+            }
+
+            if (supportsApplicationLanguage) {
+                SettingsGroup(localization.localizedText("settings.language.heading")) {
+                    SettingsRow(title = localization.localizedText("settings.language.heading")) {
+                        LanguageMenu(
+                            localization = localization,
+                            selectedLanguageTag = selectedLanguageTag,
+                            onSelect = { languageTag ->
+                                scope.launch {
+                                    if (store.settlePendingEditorDrafts()) {
+                                        setApplicationLanguageTag(context, languageTag)
+                                        selectedLanguageTag =
+                                            selectedCatalogLanguageTag(context, localization)
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            localization.localizedText("settings.language.android.draftSaveFailed"),
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                }
+                            },
+                        )
+                    }
                 }
             }
 
@@ -334,6 +393,47 @@ fun SettingsScreen(
 }
 
 /// SYNCED / LOCAL pill shown on the single "Self-hosted sync" row.
+@Composable
+private fun LanguageMenu(
+    localization: Localization,
+    selectedLanguageTag: String?,
+    onSelect: (String?) -> Unit,
+) {
+    val c = FutoTheme.colors
+    val systemOption = localization.localizedText("settings.language.systemOption")
+    val options = listOf<Pair<String?, String>>(null to systemOption) +
+        localization.availableLanguages.map { it.tag to it.nativeName }
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable { expanded = true },
+        ) {
+            Text(
+                options.firstOrNull { it.first == selectedLanguageTag }?.second ?: systemOption,
+                color = c.textMuted,
+            )
+            Icon(
+                Icons.Filled.ArrowDropDown,
+                contentDescription = null,
+                tint = c.textMuted,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            for ((languageTag, name) in options) {
+                DropdownMenuItem(
+                    text = { Text(name) },
+                    onClick = {
+                        expanded = false
+                        if (languageTag != selectedLanguageTag) onSelect(languageTag)
+                    },
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun SyncBadge(connected: Boolean) {
     val c = FutoTheme.colors

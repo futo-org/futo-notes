@@ -153,6 +153,9 @@
         "heading": "Language",
         "systemOption": "System",
         "saveFailed": "Language changed, but the preference could not be saved.",
+        "android": {
+          "draftSaveFailed": "Language unchanged: your open note could not be saved."
+        },
         "ios": {
           "openSystemSettings": "Open iOS Settings"
         }

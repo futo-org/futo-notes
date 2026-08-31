@@ -13,6 +13,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.unit.IntOffset
 import com.futo.notes.ui.NoteListState
@@ -40,6 +42,25 @@ internal sealed interface Screen {
 
 /** The vault root folder route — the stack floor [nav.md]. */
 internal val RootFolder = Screen.Folder("")
+
+private val RestorableRouteChains = mapOf(
+    "settings" to listOf(Screen.Settings),
+    "sync" to listOf(Screen.Settings, Screen.Sync),
+    "storage-location" to listOf(Screen.Settings, Screen.StorageLocation),
+    "search" to listOf(Screen.Search),
+)
+
+private fun restorableRouteKey(screen: Screen?): String? =
+    RestorableRouteChains.entries.firstOrNull { it.value.last() == screen }?.key
+
+private val RestorableStackSaver = listSaver<SnapshotStateList<Screen>, String>(
+    save = { stack -> listOfNotNull(restorableRouteKey(stack.lastOrNull())) },
+    restore = { keys ->
+        mutableStateListOf<Screen>(RootFolder).apply {
+            keys.firstOrNull()?.let(RestorableRouteChains::get)?.let(::addAll)
+        }
+    },
+)
 
 /**
  * One rendered stack position. AnimatedContent animates on `depth` so a
@@ -185,7 +206,9 @@ internal fun AppNavigation(
     // Activity recreation starts a fresh route stack at the vault root [nav.md]:
     // `remember`, not `rememberSaveable`. Only the root list's scroll position is
     // restored (NoteListState), which is all a root-only stack can show.
-    val stack = remember { mutableStateListOf<Screen>(RootFolder) }
+    val stack = rememberSaveable(saver = RestorableStackSaver) {
+        mutableStateListOf<Screen>(RootFolder)
+    }
     val navigator = remember(stack, noteListState) {
         AppNavigator(stack, noteListState)
     }

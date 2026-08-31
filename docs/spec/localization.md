@@ -145,10 +145,28 @@
   system's per-app language setting. Selecting System clears the override. A
   change made in Android system settings and a change made in the app therefore
   share one source of truth.
-- Android may recreate its activity after a language change. The current editor
-  draft must settle first. If settling fails, the language does not change and a
-  localized save error appears. After recreation, the app restores the route,
-  open note, cursor, and draft.
+- Android's operating system relaunches the activity to apply a language change.
+  Declaring the locale configuration change does not prevent that relaunch. The
+  current editor draft settles first; if settling fails, the language does not
+  change and a localized save error appears. The relaunch restores
+  the route from saved instance state, so the user returns to the screen they were
+  on — including after several language changes made from Android's own settings
+  while the app was in the background — for every route [nav.md](nav.md) restores. →
+  SettingsScreen.kt / AppNavigation.kt / AppNavigationTest.kt _(Android)_
+- Android's language row shows the catalog actually in effect, so a regional
+  override such as `en-US` reads as English rather than falling back to System. →
+  SettingsScreen.kt / AndroidLocalizationTest.kt _(Android)_
+
+> **Gap:** Android's language-change relaunch briefly blanks the whole display and
+> loses editor state. The blank is the system's window gap, not a surface the app
+> can paint, and no `configChanges` declaration suppresses the relaunch. Restorable
+> routes and the settled draft survive; the open note, cursor, editor scroll and
+> undo history do not, because they live in the CodeMirror WebView the relaunch
+> destroys. Eliminating all of it requires an app-owned language preference instead
+> of the operating system's per-app locale — the app reads no Android string
+> resources, so a switch could apply in-process with nothing torn down. Deliberately
+> not taken: it trades this spec's single source of truth with the OS for two
+> sources and a precedence rule (2026-08-31).
 - iOS provides no in-app dropdown. Its Language row opens FUTO Notes in system
   Settings, where the operating system owns selection. Returning to the app or
   relaunching resolves the change immediately and preserves the existing

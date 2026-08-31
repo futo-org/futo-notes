@@ -117,6 +117,18 @@ internal fun immediateSubfolders(folders: List<String>, of: String): List<String
  *  loaded. [savedContent] is both the dirty check and the flush's expected-prev
  *  [base]. Pulled synchronously at flush time by [PendingEditorDraft]. Pure +
  *  top-level so it is unit-testable without composition. */
+internal suspend fun settlePendingDrafts(
+    drafts: List<PendingDraft>,
+    persist: suspend (PendingDraft) -> Boolean,
+    onPersisted: (PendingDraft) -> Unit,
+): Boolean {
+    var allPersisted = true
+    for (draft in drafts) {
+        if (persist(draft)) onPersisted(draft) else allPersisted = false
+    }
+    return allPersisted
+}
+
 internal fun derivePendingDraft(
     loaded: Boolean,
     noteId: String,
@@ -402,6 +414,13 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  Best-effort: the write is fire-and-forget, so an immediate process death
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
+
+    suspend fun settlePendingEditorDrafts(): Boolean =
+        settlePendingDrafts(
+            drafts = pendingEditor.currentDrafts(),
+            persist = { flushDraft(it) != null },
+            onPersisted = pendingEditor::complete,
+        )
 
     /** Claim exclusive vault access for migration. Refuse while a write is
      * active because image saves include their later WebView insertion. */

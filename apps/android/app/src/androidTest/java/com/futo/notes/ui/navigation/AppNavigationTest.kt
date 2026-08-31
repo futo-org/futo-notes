@@ -93,6 +93,64 @@ class AppNavigationTest {
         compose.onNodeWithTag("current-folder").assertTextEquals("<root>")
     }
 
+    @Test
+    fun activityRecreationReturnsToSettings() {
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent { routeHarness() }
+
+        compose.onNodeWithTag("open-settings").performClick()
+        compose.onNodeWithTag("current-screen").assertTextEquals(Screen.Settings.toString())
+
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithTag("current-screen").assertTextEquals(Screen.Settings.toString())
+    }
+
+    @Test
+    fun activityRecreationRestoresSyncUnderneathSettingsSoBackReturnsThere() {
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent { routeHarness() }
+
+        compose.onNodeWithTag("open-settings").performClick()
+        compose.onNodeWithTag("open-sync").performClick()
+        compose.onNodeWithTag("current-screen").assertTextEquals(Screen.Sync.toString())
+
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithTag("current-screen").assertTextEquals(Screen.Sync.toString())
+
+        compose.onNodeWithTag("go-back-route").performClick()
+        compose.onNodeWithTag("current-screen").assertTextEquals(Screen.Settings.toString())
+    }
+
+    @Composable
+    private fun routeHarness() {
+        AppNavigation(
+            hasBootstrapped = true,
+            availableFolderPaths = emptyList(),
+        ) { screen, navigator, _ ->
+            Column {
+                Text(text = screen.toString(), modifier = Modifier.testTag("current-screen"))
+                Button(
+                    onClick = navigator::openSettings,
+                    modifier = Modifier.testTag("open-settings"),
+                ) {
+                    Text("Open settings")
+                }
+                Button(
+                    onClick = navigator::openSync,
+                    modifier = Modifier.testTag("open-sync"),
+                ) {
+                    Text("Open sync")
+                }
+                Button(
+                    onClick = navigator::goBack,
+                    modifier = Modifier.testTag("go-back-route"),
+                ) {
+                    Text("Back")
+                }
+            }
+        }
+    }
+
     @Composable
     private fun navHarness(hasBootstrapped: Boolean, folderPaths: List<String>) {
         AppNavigation(

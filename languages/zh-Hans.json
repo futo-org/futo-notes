@@ -153,6 +153,9 @@
         "heading": "语言",
         "systemOption": "跟随系统",
         "saveFailed": "语言已更改，但无法保存此偏好设置。",
+        "android": {
+          "draftSaveFailed": "语言未更改：无法保存当前打开的笔记。"
+        },
         "ios": {
           "openSystemSettings": "打开 iOS 设置"
         }
