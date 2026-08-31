@@ -51,6 +51,7 @@
   import type { Node as ProseNode, Schema as ProseSchema } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
   import { imageReferenceMarkdown, withNarrowedAtxHashEscape } from '@futo-notes/editor';
+  import { htmlWithoutEmptyCellPlaceholder } from '@futo-notes/editor/milkdown-compat';
   import {
     installVaultImageUrlResolver,
     uninstallVaultImageUrlResolver,
@@ -61,6 +62,7 @@
   import { editorView, enclosingListItem, isTaskItem } from './caretContext';
   import { computeActiveFormats } from './formatState';
   import { createHandleBlockDrag, type HandleBlockDrag } from './handleBlockDrag';
+  import { handleParityKeyDown } from './keyboardParity';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
   import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
@@ -359,6 +361,17 @@
             };
           });
 
+          /* An empty table cell saves as `|  |`, not as the `<br />`
+           * empty-paragraph placeholder — the placeholder exists for blank
+           * LINES, which markdown cannot represent; an empty cell it can.
+           * Without this, a note holding an empty cell had it rewritten to
+           * `| <br /> |` by the first unrelated keystroke. See
+           * packages/editor/src/milkdown-compat/emptyLine.ts. */
+          ctx.update(remarkStringifyOptionsCtx, (options) => ({
+            ...options,
+            handlers: { ...options.handlers, html: htmlWithoutEmptyCellPlaceholder() },
+          }));
+
           /* `-` for bullet markers, not remark-stringify's default `*`.
            * The manifest's Bullet/Task buttons and the CodeMirror engine both
            * emit `- `, and so does the overwhelming majority of the corpus, so
@@ -378,6 +391,10 @@
            * plugin props, and `.use(clipboard)` below would otherwise claim an
            * image paste as HTML content first. Returning true means "this was
            * an image, do not paste it as text". */
+          /* `handleKeyDown` rides it for the same precedence reason: the
+           * CM6-parity Enter/Tab behaviors in keyboardParity.ts must win over
+           * the gfm preset's own table keymap (bare Enter there is
+           * `exitTable`) without depending on plugin registration order. */
           ctx.update(editorViewOptionsCtx, (prev) => ({
             ...prev,
             attributes: {
@@ -386,6 +403,7 @@
               autocorrect: 'off',
             },
             handlePaste: (_view, event) => pasteHandler?.(event) ?? false,
+            handleKeyDown: (view, event) => handleParityKeyDown(view, event),
           }));
 
           const listeners = ctx.get(listenerCtx);

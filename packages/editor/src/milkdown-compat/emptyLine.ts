@@ -95,6 +95,67 @@ function hoistOverLineBreaks(parent: MdastNode, index: number): void {
 }
 
 /**
+ * The serializer state fields the empty-cell-aware html handler reads. A type
+ * parameter-free structural interface for the same reason
+ * `stringifyHandlers.ts` uses one: the real state type lives in
+ * `mdast-util-to-markdown`, which this package must not import directly.
+ */
+export interface HasConstructStack {
+  stack: string[];
+}
+
+/**
+ * A remark-stringify `html` handler that serializes an EMPTY table cell as
+ * empty instead of as the `<br />` empty-paragraph placeholder.
+ *
+ * The paragraph serializer that emits the placeholder is context-blind: it
+ * marks every empty paragraph, including the one a ProseMirror `table_cell`
+ * wraps its content in. A blank line genuinely needs the placeholder — markdown
+ * cannot represent an empty paragraph between paragraphs — but an empty cell
+ * is representable as `|  |`, which is what the CodeMirror editor writes and
+ * what authors write by hand. Without this handler, any note holding an empty
+ * cell had it rewritten to `| <br /> |` by the first unrelated keystroke.
+ *
+ * The parse side already treats a lone `<br />` in a cell as the placeholder
+ * ({@link fixEmptyLinePlaceholders}), so both spellings load as an empty cell
+ * and this only changes which of them the save writes. Everything else — the
+ * kept inline `<br>` beside content, block placeholders that ARE blank lines,
+ * arbitrary html — serializes exactly as the stock handler (`node.value`),
+ * `peek` included.
+ */
+export function htmlWithoutEmptyCellPlaceholder(): (<
+  Node extends { value?: string },
+  Parent extends { type: string; children?: readonly unknown[] } | undefined,
+  State extends HasConstructStack,
+>(
+  node: Node,
+  parent: Parent,
+  state: State,
+) => string) & { peek(): string } {
+  const handler = <
+    Node extends { value?: string },
+    Parent extends { type: string; children?: readonly unknown[] } | undefined,
+    State extends HasConstructStack,
+  >(
+    node: Node,
+    parent: Parent,
+    state: State,
+  ): string => {
+    const value = node.value ?? '';
+    const isSolePlaceholder =
+      BR_PLACEHOLDERS.has(value.trim()) &&
+      parent?.type === 'paragraph' &&
+      parent.children?.length === 1;
+    // 'tableCell' is the construct mdast-util-gfm-table enters around each
+    // cell — the same idiom that library uses internally for in-cell checks.
+    if (isSolePlaceholder && state.stack.includes('tableCell')) return '';
+    return value;
+  };
+  handler.peek = () => '<';
+  return handler;
+}
+
+/**
  * Drop-in replacement for upstream's `remarkPreserveEmptyLinePlugin`.
  *
  * The id string is deliberately identical: `node/paragraph.ts`'s `toMarkdown`

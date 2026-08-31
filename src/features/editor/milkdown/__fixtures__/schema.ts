@@ -10,6 +10,23 @@
  * `tests/editor-embed-milkdown.spec.ts`, which drives the real bundle.
  */
 import { Schema } from '@milkdown/kit/prose/model';
+import { tableNodes } from '@milkdown/kit/prose/tables';
+
+/*
+ * The preset builds its table nodes by renaming/reshaping the output of
+ * prosemirror-tables' `tableNodes()` (preset-gfm src/node/table/schema.ts);
+ * mirror that here rather than hand-writing the specs, because
+ * prosemirror-tables' own commands (`addRow`, `selectedRect`) read the
+ * generated `tableRole` / colspan attrs off the specs. Node ORDER matters:
+ * `table_row` must register after `table_header_row` so
+ * `tableNodeTypes(schema).row` resolves to the body-row type, exactly as it
+ * does in the real preset's schema array.
+ */
+const pmTableSpecs = tableNodes({
+  tableGroup: 'block',
+  cellContent: 'paragraph',
+  cellAttributes: {},
+});
 
 export const testSchema = new Schema({
   nodes: {
@@ -54,6 +71,12 @@ export const testSchema = new Schema({
       attrs: { src: { default: '' }, alt: { default: '' }, title: { default: '' } },
     },
     hardbreak: { group: 'inline', inline: true },
+    // GFM tables, shaped like the preset's: one header row, then body rows.
+    table: { ...pmTableSpecs.table, content: 'table_header_row table_row+' },
+    table_header_row: { ...pmTableSpecs.table_row, content: 'table_header*' },
+    table_row: { ...pmTableSpecs.table_row, content: 'table_cell*' },
+    table_header: pmTableSpecs.table_header,
+    table_cell: pmTableSpecs.table_cell,
     text: { group: 'inline' },
   },
   marks: {

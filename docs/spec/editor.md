@@ -172,6 +172,17 @@ this file states the behaviors a human cares about.
   > docs/plan/milkdown-transition.md, src/features/editor/milkdown/wikilink/
 - Arrow up/down moves by visual row on wrapped lines and skips block widgets. →
   markdown-spec/cases/10-cursor-reveal
+
+  > **Gap:** in the **Milkdown** editor the native embed mounts by default, visual-row
+  > movement is native but arrowing onto a block widget does not skip it — it SELECTS the
+  > node (a ProseMirror `NodeSelection`), and the next character typed REPLACES the widget.
+  > Measured against the built bundle: arrowing down from `above` into `above\n\n---\n\nbelow`
+  > selects the `hr` node, and typing `X` yields `above\n\nX\n\nbelow` — the rule is gone.
+  > Selecting an atom block is the standard WYSIWYG idiom for reaching one (it is how the
+  > widget can be deleted at all without a source view), so this is bucket-2 renegotiation
+  > input for the transition's spec MR rather than a defect with an obvious fix; it is
+  > recorded because the destructive half is user-visible. _(native shells)_ →
+  > docs/plan/milkdown-transition.md, docs/evidence/milkdown-bucket1-parity-audit.md
 - Pressing Enter in a continued list item scrolls the new item into view. →
   docs/learnings/ios-keyboard-editor-jump.md _(iOS)_
 
@@ -558,6 +569,11 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
 - Pressing Enter in a list item continues the list (inherits nesting, auto
   numbers ordered items, renumbers on edit); Backspace at item start dedents;
   Backspace in an empty item deletes it. → listContinuation.ts
+- Splitting a task item always starts the new item UNCHECKED: pressing Enter at the end of
+  `- [x] done` gives `- [ ]`, never a second `- [x]`. The item you are leaving keeps its own
+  state. → listContinuation.ts (desktop),
+  src/features/editor/milkdown/keyboardParity.ts `splitCheckedTaskItem` (native shells),
+  tests/editor-embed-milkdown-interactive.spec.ts
 - Undoing an edit that renumbered a list reverses the edit and the renumbering
   together, as one step. → orderedListRenumber.ts, listContinuation.test.ts
 - Renumbering follows an edit, so merely opening a note leaves its numbering exactly as
