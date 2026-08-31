@@ -10,6 +10,7 @@ flag gaps the codebase suggests have been implemented.
 - [app.md:86](app.md#L86) — _(Android)_ the editor stays interactive while a migration is latched, but `acceptsEditorChange` drops every editor change for the duration, so keystrokes typed in that window appear on screen and are never written to the buffer or saved — they are lost when the editor is next re-synced from the store. The drop is deliberate (it is what stops a save racing the staging copy), but the user is given no signal that typing is not being kept. Found by code trace during the github#33 investigation, not by QA; the window is short, and nobody has measured how reachable it is in practice. → EditorSession.kt `acceptsEditorChange`, NoteEditorScreen.kt That same synchronous latch makes an
 - [app.md:145](app.md#L145) — Android pre-11 (API < 30) devices can't use Device storage (All-files access is an API-30 mechanism) — they only get App storage, so their vault is not visible in a file manager. _(Android)_
 - [app.md:149](app.md#L149) — The vault folder is fixed per mode and not a user-pickable arbitrary directory on mobile (desktop allows a custom folder); iOS has no iCloud Drive vault option. Both are possible follow-ups. _(iOS / Android)_
+- [app.md:202](app.md#L202) — _(iOS)_ A stock toolbar button's pill background — Settings' **Done** — repaints on UIKit's own later pass, so it trails the rest of the sheet. Measured on an iPhone 17 Pro simulator (iOS 26) by tapping Light/Dark and sampling frames: every sheet surface reaches its new colour in the same single frame, while the pill is ~29% of the way there. Reproduced with the app's tint replaced by a stock system colour, so this is platform chrome rather than FUTO theming, and there is no app-side fix.
 
 ## desktop-rust.md
 
@@ -50,4 +51,4 @@ flag gaps the codebase suggests have been implemented.
 - [sync.md:1148](sync.md#L1148) — Only the desktop shell opens a journal. iOS and Android run the same sync crate, but `SyncSession::set_journal` is not exposed through `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 - [sync.md:1152](sync.md#L1152) — The desktop scheduler's own triggers are not distinguishable in the record. Launch, poll, resume and local-save all reach Rust through the one `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be told apart from a user pressing "Sync now"; only the live loop's four triggers are recorded faithfully.
 
-_24 gaps._
+_25 gaps._

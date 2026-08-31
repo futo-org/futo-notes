@@ -68,6 +68,7 @@ const GATES = {
   'toolbar-spec': ['node_modules/.bin/tsx', ['scripts/gen-toolbar-spec.ts', '--check']],
   'title-spec': ['node_modules/.bin/tsx', ['scripts/gen-title-spec.ts', '--check']],
   'bridge-spec': ['node_modules/.bin/tsx', ['scripts/gen-bridge-spec.ts', '--check']],
+  'theme-single-pace': ['node', ['scripts/check-theme-single-pace.mjs']],
   'rust-dependency-boundaries': ['node', ['scripts/check-rust-dependency-boundaries.mjs']],
 };
 
@@ -323,6 +324,91 @@ const PROOFS = [
     expect: ['.claude/skills/redproof-sentinel-skill', 'fresh clone'],
     absent: ['no such justfile recipe'],
     fix: 'validateSkillLinks()/listSkillEntries() in scripts/check-agent-docs.mjs stopped stat-ing skill symlinks — a committed link into a gitignored directory loads in exactly one checkout and is dead everywhere else.',
+  },
+  {
+    gate: 'theme-single-pace',
+    id: 'css-transition-over-a-theme-colour',
+    seeded:
+      'created src/styles/redproof-sentinel-theme.css transitioning background-color at a themed rest value',
+    claim:
+      'a CSS transition covering a theme-dependent property whose rest value is a real colour must fail — that is the desktop half of the law 55478cfc fixed',
+    inject: (wt) =>
+      seed.write(
+        wt,
+        'src/styles/redproof-sentinel-theme.css',
+        '/* Seeded by scripts/gate-redproofs.mjs inside a throwaway git worktree. */\n' +
+          '.redproof-sentinel-themed {\n' +
+          '  background-color: var(--color-surface);\n' +
+          '  transition: background-color 0.15s ease;\n' +
+          '}\n',
+      ),
+    expect: [
+      'src/styles/redproof-sentinel-theme.css',
+      '.redproof-sentinel-themed',
+      'background-color',
+    ],
+    absent: ['TopAppBar'],
+    fix: 'the CSS half of scripts/check-theme-single-pace.mjs stopped seeing themed transitions — RULE_BLOCK_RE, THEME_PROPERTIES or restValue() drifted. Desktop theme swaps can flicker again (55478cfc).',
+  },
+  {
+    gate: 'theme-single-pace',
+    id: 'compose-topappbar-outside-the-wrapper',
+    seeded: 'created a Compose screen calling Material3 TopAppBar directly',
+    claim:
+      "a raw Material3 TopAppBar in app code must fail — M3 springs the bar's container colour through animateColorAsState while the rest of the screen snaps",
+    inject: (wt) =>
+      seed.write(
+        wt,
+        'apps/android/app/src/main/java/com/futo/notes/ui/RedproofSentinelScreen.kt',
+        '// Seeded by scripts/gate-redproofs.mjs inside a throwaway git worktree.\n' +
+          'package com.futo.notes.ui\n\n' +
+          'fun redproofSentinelBar() {\n' +
+          '    TopAppBar(title = {})\n' +
+          '}\n',
+      ),
+    expect: ['RedproofSentinelScreen.kt', 'TopAppBar', 'TopBar'],
+    absent: ['redproof-sentinel-theme.css'],
+    fix: 'the Compose half of scripts/check-theme-single-pace.mjs stopped seeing direct TopAppBar calls — TOP_APP_BAR_CALL_RE or the walk() scope drifted. A fifth Android top bar can reintroduce the theme-swap spring.',
+  },
+  {
+    gate: 'theme-single-pace',
+    id: 'swiftui-preferredcolorscheme-applies-the-theme',
+    seeded: 'created a SwiftUI view applying the theme with .preferredColorScheme',
+    claim:
+      'applying the theme as a SwiftUI preference rather than a window trait must fail — it never reaches an already-presented sheet, which then keeps its old appearance for good',
+    inject: (wt) =>
+      seed.write(
+        wt,
+        'apps/ios/Sources/App/RedproofSentinelTheme.swift',
+        '// Seeded by scripts/gate-redproofs.mjs inside a throwaway git worktree.\n' +
+          'import SwiftUI\n\n' +
+          'struct RedproofSentinelTheme: View {\n' +
+          '    var body: some View {\n' +
+          '        Text("seeded").preferredColorScheme(.dark)\n' +
+          '    }\n' +
+          '}\n',
+      ),
+    expect: ['RedproofSentinelTheme.swift', 'preferredColorScheme', 'appearanceOverride'],
+    absent: ['TopAppBar'],
+    fix: 'the SwiftUI half of scripts/check-theme-single-pace.mjs stopped seeing .preferredColorScheme. Measured on iOS 26: with it, tapping Light/Dark left the open Settings sheet unchanged for all 468 recorded frames.',
+  },
+  {
+    gate: 'theme-single-pace',
+    id: 'wrapper-loses-its-transparent-container',
+    seeded: "changed TopBar's containerColor away from Color.Transparent",
+    claim:
+      "the wrapper losing its constant container colour must fail — the transparent container is the only reason M3's animateColorAsState has nothing to animate",
+    inject: (wt) =>
+      seed.replace(
+        wt,
+        'apps/android/app/src/main/java/com/futo/notes/ui/components/TopBar.kt',
+        'containerColor = Color.Transparent',
+        'containerColor = FutoTheme.colors.surface',
+      ),
+    expect: ['TopBar.kt', 'Color.Transparent'],
+    absent: ['redproof-sentinel-theme.css'],
+    marker: 'claim',
+    fix: 'the wrapper-integrity check in scripts/check-theme-single-pace.mjs stopped firing. Routing every bar through TopBar buys nothing if the wrapper itself can go back to a themed container colour.',
   },
   {
     gate: 'qa-input-safety',

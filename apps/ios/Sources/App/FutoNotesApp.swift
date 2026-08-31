@@ -9,10 +9,11 @@ struct FutoNotesApp: App {
     private let launchConfiguration: AppLaunchConfiguration
 
     /// "light" | "dark" | "auto" — set from Settings (futo.themeMode), applied
-    /// app-wide here. The editor WebView follows automatically: NoteEditorView
-    /// derives its pushed theme from @Environment(\.colorScheme), which
-    /// preferredColorScheme overrides.
-    @AppStorage("futo.themeMode") private var themeMode = "auto"
+    /// app-wide here by overriding the scene's windows, so an already-presented
+    /// sheet follows a change too. The editor WebView follows automatically:
+    /// NoteEditorView derives its pushed theme from @Environment(\.colorScheme),
+    /// which the window override drives.
+    @AppStorage(ThemeMode.storageKey) private var themeMode = ThemeMode.auto.rawValue
 
     init() {
         launchConfiguration = AppLaunchConfiguration.resolve()
@@ -27,9 +28,7 @@ struct FutoNotesApp: App {
                 .environmentObject(store)
                 .environmentObject(sync)
                 .tint(Theme.primary)
-                .preferredColorScheme(
-                    themeMode == "light" ? .light : themeMode == "dark" ? .dark : nil
-                )
+                .appearanceOverride(ThemeMode.resolve(themeMode))
                 // Crash Report sheet for reports found by the launch scan (only
                 // when reporting is enabled and Always-send is off).
                 .sheet(
