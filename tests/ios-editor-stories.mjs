@@ -27,6 +27,12 @@ const TXT_MIGRATION_SENTINEL = '.txt-migration-done';
 // the 400ms autosave debounce and the durable FFI flush.
 const TYPED_TEXT = '123456789012345678901234567890123456789012345';
 const EXPECTED_BODY = SEEDED_BODY + TYPED_TEXT;
+// The story's contract is NEVER LOSE (tiers 1–2), not byte identity: ADR-0002
+// relaxed tier 3, and the Milkdown editor's normalize-once save appends exactly
+// one trailing newline (docs/plan/milkdown-transition.md §5 records it). Accept
+// that one designed difference and nothing else, so a lost or duplicated
+// keystroke still fails byte-exactly.
+const savedBodyMatches = (actual) => actual === EXPECTED_BODY || actual === `${EXPECTED_BODY}\n`;
 
 const device = createIosDevice();
 const results = [];
@@ -70,7 +76,7 @@ async function sustainedTyping() {
       const after = device.vaultFiles();
       const violations = vaultInvariant(before, after, [TXT_MIGRATION_SENTINEL]);
       if (violations.some(({ kind }) => kind === 'conflict-copy')) return true;
-      return device.readNote(SEEDED_NOTE) === EXPECTED_BODY;
+      return savedBodyMatches(device.readNote(SEEDED_NOTE));
     },
     {
       timeoutMs: 30_000,
@@ -91,7 +97,7 @@ async function sustainedTyping() {
     );
   }
   const actual = device.readNote(SEEDED_NOTE);
-  if (actual !== EXPECTED_BODY) {
+  if (!savedBodyMatches(actual)) {
     throw new Error(
       `saved bytes differ: expected ${JSON.stringify(EXPECTED_BODY)}, got ${JSON.stringify(actual)}`,
     );
