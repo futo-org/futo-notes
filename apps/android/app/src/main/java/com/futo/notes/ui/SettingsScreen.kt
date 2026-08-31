@@ -57,8 +57,8 @@ import com.futo.notes.Prefs
 import com.futo.notes.storage.StorageMode
 import com.futo.notes.SyncManager
 import com.futo.notes.ui.components.ConfirmDialog
-import com.futo.notes.ui.components.FutoTopBar
 import com.futo.notes.ui.components.MicroLabel
+import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -104,7 +104,7 @@ fun SettingsScreen(
     Scaffold(
         containerColor = c.surface,
         topBar = {
-            FutoTopBar(
+            TopBar(
                 title = { Text("Settings", style = FutoType.title, color = c.textPrimary) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

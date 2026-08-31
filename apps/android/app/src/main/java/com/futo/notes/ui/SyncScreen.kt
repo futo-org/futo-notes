@@ -43,7 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
 import com.futo.notes.SyncManager
-import com.futo.notes.ui.components.FutoTopBar
+import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -67,7 +67,7 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
     Scaffold(
         containerColor = c.surface,
         topBar = {
-            FutoTopBar(
+            TopBar(
                 title = { Text("Sync", style = FutoType.title, color = c.textPrimary) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

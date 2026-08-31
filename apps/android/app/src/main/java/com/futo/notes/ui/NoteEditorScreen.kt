@@ -66,7 +66,7 @@ import com.futo.notes.shouldCompleteNoteAction
 import com.futo.notes.shouldContinueDeleteAfterEditorWrite
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
-import com.futo.notes.ui.components.FutoTopBar
+import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.theme.FutoTheme
 import kotlinx.coroutines.CancellationException
@@ -649,7 +649,7 @@ fun NoteEditorScreen(
     Scaffold(
         containerColor = c.surface,
         topBar = {
-            FutoTopBar(
+            TopBar(
                 title = {},
                 navigationIcon = {
                     IconButton(

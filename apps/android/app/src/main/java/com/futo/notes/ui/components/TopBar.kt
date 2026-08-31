@@ -12,7 +12,7 @@ import com.futo.notes.ui.theme.FutoTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FutoTopBar(
+fun TopBar(
     title: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     navigationIcon: @Composable () -> Unit = {},

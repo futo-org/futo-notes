@@ -366,7 +366,7 @@ const PROOFS = [
           '    TopAppBar(title = {})\n' +
           '}\n',
       ),
-    expect: ['RedproofSentinelScreen.kt', 'TopAppBar', 'FutoTopBar'],
+    expect: ['RedproofSentinelScreen.kt', 'TopAppBar', 'TopBar'],
     absent: ['redproof-sentinel-theme.css'],
     fix: 'the Compose half of scripts/check-theme-single-pace.mjs stopped seeing direct TopAppBar calls — TOP_APP_BAR_CALL_RE or the walk() scope drifted. A fifth Android top bar can reintroduce the theme-swap spring.',
   },
@@ -395,20 +395,20 @@ const PROOFS = [
   {
     gate: 'theme-single-pace',
     id: 'wrapper-loses-its-transparent-container',
-    seeded: "changed FutoTopBar's containerColor away from Color.Transparent",
+    seeded: "changed TopBar's containerColor away from Color.Transparent",
     claim:
       "the wrapper losing its constant container colour must fail — the transparent container is the only reason M3's animateColorAsState has nothing to animate",
     inject: (wt) =>
       seed.replace(
         wt,
-        'apps/android/app/src/main/java/com/futo/notes/ui/components/FutoTopBar.kt',
+        'apps/android/app/src/main/java/com/futo/notes/ui/components/TopBar.kt',
         'containerColor = Color.Transparent',
         'containerColor = FutoTheme.colors.surface',
       ),
-    expect: ['FutoTopBar.kt', 'Color.Transparent'],
+    expect: ['TopBar.kt', 'Color.Transparent'],
     absent: ['redproof-sentinel-theme.css'],
     marker: 'claim',
-    fix: 'the wrapper-integrity check in scripts/check-theme-single-pace.mjs stopped firing. Routing every bar through FutoTopBar buys nothing if the wrapper itself can go back to a themed container colour.',
+    fix: 'the wrapper-integrity check in scripts/check-theme-single-pace.mjs stopped firing. Routing every bar through TopBar buys nothing if the wrapper itself can go back to a themed container colour.',
   },
   {
     gate: 'qa-input-safety',

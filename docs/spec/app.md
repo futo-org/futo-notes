@@ -181,10 +181,10 @@ Behaviors and constraints that hold across every surface and platform.
   theme colour (`transparent`, `none`), so the animated value is reachable only
   under `:hover`/`:active` — states an unattended theme change never enters
   _(desktop)_. → src/styles/sidebar-header.css
-- Top bars take their background from `FutoTopBar`, never Material3's
+- Top bars take their background from `TopBar`, never Material3's
   `TopAppBar` container colour, which Material runs through
   `animateColorAsState` _(Android)_. →
-  apps/android/app/src/main/java/com/futo/notes/ui/components/FutoTopBar.kt
+  apps/android/app/src/main/java/com/futo/notes/ui/components/TopBar.kt
 - The theme is applied by overriding the scene's windows
   (`overrideUserInterfaceStyle`), never a root `.preferredColorScheme`: the
   latter leaves an already-presented sheet on its old appearance entirely

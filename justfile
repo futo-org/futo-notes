@@ -657,7 +657,7 @@ check-qa-input-safety:
 
 # Fail if a theme swap would repaint any surface at a different pace than the rest
 # of the window: a CSS `transition` over a theme-dependent property whose rest
-# value is a real colour, or a Material3 `TopAppBar(` called outside FutoTopBar
+# value is a real colour, or a Material3 `TopAppBar(` called outside TopBar
 # (M3 springs the bar's container colour through animateColorAsState). Three
 # separate landings fixed three instances of the same law before anything held
 # the rule. Background: docs/spec/app.md.

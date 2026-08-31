@@ -69,9 +69,9 @@ import com.futo.notes.NotesStore
 import com.futo.notes.shouldCompleteNoteAction
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
-import com.futo.notes.ui.components.FutoTopBar
 import com.futo.notes.ui.components.NewFolderDialog
 import com.futo.notes.ui.components.NoteCard
+import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.components.pressScale
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
@@ -127,7 +127,7 @@ internal fun NoteListScreen(
     Scaffold(
         containerColor = c.surface,
         topBar = {
-            FutoTopBar(
+            TopBar(
                 title = { Text(title, style = FutoType.title, color = c.textPrimary) },
                 navigationIcon = {
                     // The root folder is the stack floor [nav.md], so it shows no
