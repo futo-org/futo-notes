@@ -82,7 +82,16 @@ Behaviors and constraints that hold across every surface and platform.
     vault write is active, because an image write completes with a later editor
     insertion that must be confirmed by the WebView before the storage gate
     opens; the user can retry after that save finishes. A newly queued save is
-    rejected once migration is latched. That same synchronous latch makes an
+    rejected once migration is latched.
+    > **Gap:** _(Android)_ the editor stays interactive while a migration is
+    > latched, but `acceptsEditorChange` drops every editor change for the
+    > duration, so keystrokes typed in that window appear on screen and are never
+    > written to the buffer or saved — they are lost when the editor is next
+    > re-synced from the store. The drop is deliberate (it is what stops a save
+    > racing the staging copy), but the user is given no signal that typing is not
+    > being kept. Found by code trace during the github#33 investigation, not by
+    > QA; the window is short, and nobody has measured how reachable it is in
+    > practice. → EditorSession.kt `acceptsEditorChange`, NoteEditorScreen.kt That same synchronous latch makes an
     Activity `onStop` unable to abort live sync before the migration's graceful
     sync stop completes. Editor navigation captures the latest live CodeMirror
     body and persists-or-parks it before leaving the editor; Settings is reached
