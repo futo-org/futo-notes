@@ -9,6 +9,14 @@
 >
 > **Update 2026-07-17: transition DEFERRED (Justin) — CM6 stays the shipping
 > editor on all three platforms for now. See the §6 addendum.**
+>
+> **Update 2026-08-27: byte-fidelity requirement RELAXED (Justin) — round-trip
+> normalization by the editor is now acceptable (see
+> `docs/adr/0002-roundtrip-normalization-accepted.md`). Tree-owned WYSIWYG
+> candidates (Milkdown/ProseMirror — spike `spike/milkdown-editor`) are back on
+> the table; the parked Rust engine and both option-A/B framings here presume
+> source-owned editing and are read through that ADR now. Never-refuse /
+> never-warn / never-lose and the one-serializer-everywhere rule still bind.**
 
 ## 1. The decision
 

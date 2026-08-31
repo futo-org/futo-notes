@@ -1,19 +1,36 @@
 import SwiftUI
 import UIKit
 
-/// Fixed metrics for the keyboard accessory toolbar, in one place so the bar
-/// height can never drift between the SwiftUI view, the UIKit container frame,
-/// and `intrinsicContentSize` (a mismatch there is exactly how a gap creeps
-/// back in). Spec: docs/spec/editor.md → "Markdown toolbar".
+/// Metrics for the keyboard accessory toolbar, in one place so the height can
+/// never drift between the SwiftUI view, the container frame, and
+/// `intrinsicContentSize`. Spec: docs/spec/editor.md → "Markdown toolbar".
 enum ToolbarMetrics {
-    /// The bar docks FLUSH to the top of the keyboard at this exact height —
-    /// no empty band below the icons. (See EditorToolbarAccessory's
-    /// safeAreaRegions note for why that flushness is fragile.)
-    static let barHeight: CGFloat = 44
-    /// Icon button tap target — centers in `barHeight` with ~4pt top/bottom.
+    /// Height of the whole accessory band, deliberately TALLER than the capsule
+    /// it contains — the surrounding air is what makes the capsule read as
+    /// floating. `barHeight - capsuleHeight` is intentional, not a safe-area bug.
+    static let barHeight: CGFloat = 56
+    static let capsuleHeight: CGFloat = 40
+    /// Air between the capsules and the screen edges.
+    static let capsuleGap: CGFloat = 8
     static let buttonHeight: CGFloat = 36
-    /// Inter-group separator hairline height.
+    /// Also the unit the peek snap is computed in.
+    static let buttonWidth: CGFloat = 44
+    /// Inset from the capsule's rounded ends to the first/last icon.
+    static let contentPad: CGFloat = 10
     static let separatorHeight: CGFloat = 20
+}
+
+/// Floating-control material: Liquid Glass on iOS 26 (what Safari's own keyboard
+/// accessory controls use), the closest chrome material below it.
+extension View {
+    @ViewBuilder
+    func futoToolbarGlass() -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular, in: .capsule)
+        } else {
+            self.background(.regularMaterial, in: Capsule())
+        }
+    }
 }
 
 /// Reactive inputs the native markdown toolbar renders from. Owned by
@@ -27,9 +44,8 @@ final class EditorToolbarState: ObservableObject {
 /// Native SwiftUI rendering of the shared toolbar manifest
 /// (ToolbarSpec.swift — GENERATED from packages/editor/src/toolbar.ts, the
 /// single source of truth for items/order/labels/visibility across all three
-/// apps). Visual twin of the web toolbar (`.markdown-toolbar` in
-/// editor-shell.css): a 44 pt bar of horizontally scrollable button groups with
-/// hairline separators, plus a fixed dismiss chevron at the right edge.
+/// apps): horizontally scrollable button groups with hairline separators, plus
+/// a fixed dismiss chevron.
 ///
 /// This view owns NO editing behavior: every tap is handed to `perform`,
 /// which EditorHost routes over the bridge (`FutoEditor.exec`) into the same
@@ -40,9 +56,8 @@ struct EditorToolbarView: View {
     /// or blur (dismiss).
     let perform: (ToolbarItemSpec) -> Void
 
-    /// Width of the soft edge fade that eases the outer edge of the peeking
-    /// icon. Kept NARROW — the real "more →" signal is the half-visible icon the
-    /// snap guarantees; the fade just softens its cut edge.
+    /// Kept NARROW — the real "more →" signal is the half-visible icon the snap
+    /// guarantees; the fade just softens its cut edge.
     private let fadeWidth: CGFloat = 10
 
     /// Coordinate space anchored to the scroll CONTENT (scroll-invariant), so we
@@ -66,26 +81,31 @@ struct EditorToolbarView: View {
     @State private var slotWidth: CGFloat = 0
     @State private var snapInset: CGFloat = 0
 
+    /// Two floating capsules on a transparent band, matching how iOS 26 builds a
+    /// keyboard accessory (verified against Safari's, simulator iOS 26.5).
+    /// Deliberately NO background fill and NO top hairline: either one turns the
+    /// accessory back into an opaque plank pasted onto the keyboard.
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: ToolbarMetrics.capsuleGap) {
             scrollingItems
-            Rectangle()
-                .fill(Color(UIColor.separator))
-                .frame(width: 0.5, height: ToolbarMetrics.barHeight)
+                .frame(height: ToolbarMetrics.capsuleHeight)
+                .clipShape(.capsule)
+                .futoToolbarGlass()
             button(for: ToolbarSpec.dismiss, foreground: .secondary)
+                .frame(
+                    width: ToolbarMetrics.capsuleHeight,
+                    height: ToolbarMetrics.capsuleHeight
+                )
+                .clipShape(.capsule)
+                .futoToolbarGlass()
         }
+        .padding(.horizontal, ToolbarMetrics.capsuleGap)
         .frame(height: ToolbarMetrics.barHeight)
-        .background(Theme.surface)
-        .overlay(alignment: .top) {
-            Rectangle().fill(Color(UIColor.separator)).frame(height: 0.5)
-        }
     }
 
     /// The horizontally scrolling button groups. A measured trailing inset
     /// (`snapInset`) guarantees a half-icon peek at the trailing edge on any
-    /// width; the edge fades soften that peek (and the leading edge once
-    /// scrolled). Overlays sit on the ScrollView itself so they track the real
-    /// (snapped) viewport edge, not the inset gap, and never intercept taps.
+    /// width; the edge fades soften that peek.
     private var scrollingItems: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
@@ -100,7 +120,7 @@ struct EditorToolbarView: View {
                     }
                 }
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, ToolbarMetrics.contentPad)
             .coordinateSpace(name: Self.contentSpace)
         }
         // iOS 18+ live scroll geometry — reliable overflow detection for the
@@ -122,17 +142,19 @@ struct EditorToolbarView: View {
             slotWidth = s.containerWidth + snapInset
             snapInset = Self.computeSnap(xs: buttonMinXs, slot: slotWidth)
         }
-        .overlay(alignment: .leading) {
-            edgeFade(leading: true).opacity(canScrollLeading ? 1 : 0)
-        }
-        .overlay(alignment: .trailing) {
-            edgeFade(leading: false).opacity(canScrollTrailing ? 1 : 0)
+        // A MASK, not a colored overlay: a gradient of the bar's own color only
+        // works when the bar HAS one, and over glass it would paint a smear.
+        .mask(alignment: .leading) {
+            HStack(spacing: 0) {
+                edgeMask(leading: true, active: canScrollLeading)
+                Rectangle().fill(.black)
+                edgeMask(leading: false, active: canScrollTrailing)
+            }
         }
         .animation(.easeInOut(duration: 0.15), value: canScrollLeading)
         .animation(.easeInOut(duration: 0.15), value: canScrollTrailing)
-        // The snap inset narrows the visible scroll area (the freed strip is the
-        // bar's own color) so the cut lands mid-icon. Applied AFTER the overlays
-        // so the trailing fade rides the snapped edge.
+        // Narrows the visible scroll area so the cut lands mid-icon. Applied
+        // AFTER the mask so the trailing fade rides the snapped edge.
         .padding(.trailing, snapInset)
         .onPreferenceChange(ToolbarButtonMinXKey.self) { xs in
             buttonMinXs = xs
@@ -156,7 +178,7 @@ struct EditorToolbarView: View {
     /// amount we add NO inset (zero gap); we only inset to rescue a too-thin
     /// sliver or a cut that fell in the gap between icons.
     private static func computeSnap(xs rawXs: [CGFloat], slot: CGFloat) -> CGFloat {
-        let bw: CGFloat = 44  // formatting-button width (ToolbarMetrics)
+        let bw = ToolbarMetrics.buttonWidth
         let target = bw * 0.55  // desired visible slice of the peeking icon
         let minPeek = bw * 0.30  // thinner than this reads as a stray sliver
         let maxPeek = bw * 0.85  // fuller than this reads as "not cut off"
@@ -164,7 +186,7 @@ struct EditorToolbarView: View {
         guard slot > 1, xs.count > 1 else { return 0 }
 
         // No overflow → nothing to peek, no inset.
-        let contentWidth = (xs.last ?? 0) + bw + 8  // + trailing pad
+        let contentWidth = (xs.last ?? 0) + bw + ToolbarMetrics.contentPad
         guard contentWidth > slot + 1 else { return 0 }
 
         guard let edgeButton = xs.last(where: { $0 <= slot }) else { return 0 }
@@ -189,17 +211,16 @@ struct EditorToolbarView: View {
         return inset
     }
 
-    /// A soft bar-colored gradient that eases the outer edge of the partial icon
-    /// peeking past this edge, so the peek looks intentional rather than hard-
-    /// clipped. `leading: false` is the trailing (right) edge.
-    private func edgeFade(leading: Bool) -> some View {
+    /// One end of the scroll mask; `leading: false` is the trailing edge. Returns
+    /// a gradient even when inactive so the ramp can animate in by interpolating
+    /// its end color — opacity 0 on a mask HIDES content rather than revealing it.
+    private func edgeMask(leading: Bool, active: Bool) -> some View {
         LinearGradient(
-            colors: [Theme.surface, Theme.surface.opacity(0)],
+            colors: [active ? Color.black.opacity(0) : .black, .black],
             startPoint: leading ? .leading : .trailing,
             endPoint: leading ? .trailing : .leading
         )
         .frame(width: fadeWidth)
-        .allowsHitTesting(false)
     }
 
     private var separator: some View {
@@ -216,7 +237,7 @@ struct EditorToolbarView: View {
             Image(systemName: item.sfSymbol)
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(foreground)
-                .frame(width: 44, height: ToolbarMetrics.buttonHeight)
+                .frame(width: ToolbarMetrics.buttonWidth, height: ToolbarMetrics.buttonHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -230,28 +251,34 @@ struct EditorToolbarView: View {
 /// the SYSTEM owns docking and animation with the keyboard — show, hide,
 /// rotation, interactive dismiss — which is exactly what the embed's
 /// visualViewport-docked web toolbar had to approximate by hand.
-final class EditorToolbarAccessory: UIView {
+///
+/// CRITICAL — the base class is `UIInputView`, not `UIView`, and every subview
+/// stays transparent. `UIInputView(inputViewStyle: .keyboard)` supplies the
+/// system's own accessory backdrop for whichever OS you are on, tracking
+/// light/dark, Increase Contrast and `keyboardAppearance` for free. A fixed app
+/// color cannot: the real backdrop is a translucent material whose rendered
+/// color depends on what is behind it, so any hex is a near-miss and the bar
+/// reads as a slab pasted onto the keyboard — which is what `Theme.surface`
+/// (#F2F2F2/#171717) did here. Spec: docs/spec/editor.md → "Markdown toolbar".
+final class EditorToolbarAccessory: UIInputView {
     private let hosting: UIHostingController<EditorToolbarView>
 
     @MainActor
     init(state: EditorToolbarState, perform: @escaping (ToolbarItemSpec) -> Void) {
         hosting = UIHostingController(
             rootView: EditorToolbarView(state: state, perform: perform))
-        // CRITICAL — keep the bar FLUSH to the keyboard. As a keyboard
-        // inputAccessoryView this view sits in the keyboard's window, whose
-        // bottom safe-area inset is the home-indicator gap (~34pt). By default
-        // UIHostingController feeds that inset into the hosted SwiftUI content's
-        // Environment.safeAreaInsets, so the 44pt bar lays its icons out in the
-        // TOP portion and leaves a dead band below them — the exact gap that
-        // regressed when the web toolbar (docked inside the webview's
-        // visualViewport, naturally flush) was replaced by this native bar in
-        // 7c43a8e. `safeAreaRegions = []` (iOS 16.4+; our floor is 18.0) makes
-        // the content ignore all safe areas, so it fills the full 44pt and
-        // docks tight to the keyboard. Do not remove without re-checking the
-        // simulator with the soft keyboard up. Spec: docs/spec/editor.md.
+        // CRITICAL — the content must fill the accessory's own bounds. In the
+        // keyboard's window the bottom safe-area inset is the home-indicator gap
+        // (~34pt), which UIHostingController feeds into the hosted content by
+        // default, leaving a dead strip below the capsules (the gap that
+        // regressed in 7c43a8e). If that gap ever exceeds the intentional
+        // `barHeight - capsuleHeight`, this line is the first suspect.
         hosting.safeAreaRegions = []
-        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: ToolbarMetrics.barHeight))
+        super.init(
+            frame: CGRect(x: 0, y: 0, width: 0, height: ToolbarMetrics.barHeight),
+            inputViewStyle: .keyboard)
         autoresizingMask = [.flexibleWidth]
+        // Transparent so the UIInputView backdrop is what you see.
         hosting.view.backgroundColor = .clear
         hosting.view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting.view)
