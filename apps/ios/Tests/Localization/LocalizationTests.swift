@@ -129,6 +129,29 @@ struct LocalizationTests {
         #expect(toolbarLocalization.localization.localizedText("editor.toolbar.bold") == "粗体")
     }
 
+    @Test("the Settings language row resolves in every shipped language")
+    func settingsLanguageRow() {
+        let english = Localization.system(
+            requestedLanguageTags: ["en"],
+            regionalLanguageTag: "en-US"
+        )
+        let simplifiedChinese = Localization.system(
+            requestedLanguageTags: ["zh-Hans"],
+            regionalLanguageTag: "zh-CN"
+        )
+
+        #expect(english.localizedText("settings.language.heading") == "Language")
+        #expect(english.localizedText("settings.language.ios.openSystemSettings") == "Open iOS Settings")
+        #expect(english.effectiveLanguage.nativeName == "English")
+
+        #expect(simplifiedChinese.localizedText("settings.language.heading") == "语言")
+        #expect(
+            simplifiedChinese.localizedText("settings.language.ios.openSystemSettings")
+                == "打开 iOS 设置"
+        )
+        #expect(simplifiedChinese.effectiveLanguage.nativeName == "简体中文")
+    }
+
     @Test("messages follow shared cases")
     func messages() throws {
         let cases = try loadLocalizationCases()

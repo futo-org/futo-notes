@@ -2,7 +2,7 @@
 
 > **Gap:** Shared UI text, user-facing errors, authored native-shell text, and the
 > embedded editor resolve from the catalogs on desktop, Android, and iOS. Android's
-> in-app language dropdown and iOS's system-Settings language row remain unwired.
+> in-app language dropdown remains unwired.
 
 ## Scope
 

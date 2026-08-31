@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// App settings sheet (gear button in the note list). Mirrors the desktop
 /// Settings surface (settings.md): a single "Self-hosted sync" row, appearance,
@@ -6,6 +7,7 @@ import SwiftUI
 /// Sync details/actions stay in SyncView — the Sync row just opens it.
 struct SettingsView: View {
     private let issueTrackerURL = URL(string: "https://github.com/futo-org/futo-notes/issues")!
+    private let systemSettingsURL = URL(string: UIApplication.openSettingsURLString)!
 
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
@@ -74,6 +76,23 @@ struct SettingsView: View {
                             .tag(ThemeMode.auto.rawValue)
                     }
                     .pickerStyle(.segmented)
+                }
+
+                Section(localization.localizedText("settings.language.heading")) {
+                    Link(destination: systemSettingsURL) {
+                        HStack {
+                            Text(
+                                localization.localizedText(
+                                    "settings.language.ios.openSystemSettings"
+                                )
+                            )
+                            Spacer()
+                            Text(localization.effectiveLanguage.nativeName)
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "arrow.up.right")
+                        }
+                    }
+                    .accessibilityIdentifier("settings-language")
                 }
 
                 Section(localization.localizedText("settings.sections.storage")) {

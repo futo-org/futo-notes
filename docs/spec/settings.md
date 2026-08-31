@@ -15,9 +15,9 @@
   dropdown. The selection is local to the device and never syncs.
 
 > **Gap:** Desktop's language control, persistence, and immediate application are
-> wired. Android's dropdown and iOS's system-Settings link are not yet wired into
-> their Settings surfaces; their existing UI still resolves the effective system
-> or per-app language reactively.
+> wired, and iOS's system-Settings row is wired. Android's dropdown is not yet
+> wired into its Settings surface; its existing UI still resolves the effective
+> system or per-app language reactively.
 
 - The app version is shown.
 
