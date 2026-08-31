@@ -312,7 +312,7 @@ struct CrashReportSheet: View {
                         text: $userNote,
                         axis: .vertical
                     )
-                        .lineLimit(2...5)
+                    .lineLimit(2...5)
                 }
                 Section {
                     Toggle(
@@ -331,7 +331,9 @@ struct CrashReportSheet: View {
                         }
                     }
                     .disabled(sending)
-                    Button(localization.localizedText("crashReporting.dontSend"), role: .destructive) {
+                    Button(
+                        localization.localizedText("crashReporting.dontSend"), role: .destructive
+                    ) {
                         finish(send: false)
                     }
                     .disabled(sending)

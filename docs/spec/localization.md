@@ -1,8 +1,7 @@
 # Localization — Spec
 
 > **Gap:** Shared UI text, user-facing errors, authored native-shell text, and the
-> embedded editor resolve from the catalogs on desktop, Android, and iOS. Android's
-> in-app language dropdown remains unwired.
+> embedded editor resolve from the catalogs on desktop, Android, and iOS.
 
 ## Scope
 
@@ -71,6 +70,14 @@
   Icon-only and custom controls use dedicated `accessibilityLabel` paths, and
   extra explanation uses `accessibilityHint`. Custom UI may reuse its visible
   text path when the accessible value must be identical.
+
+> **Gap:** iOS's Back and More icon buttons carry no catalog-backed
+> `accessibilityLabel`, and the macOS/Tauri permission prompts are still hardcoded
+> English rather than catalog-resolved.
+
+> **Gap:** Future-language correctness is only partial. A right-to-left interface
+> language is not yet applied to embedded note content, and regional number
+> formatting still diverges between desktop and the native shells.
 
 ## Message values
 
@@ -141,32 +148,24 @@
 - Desktop resolves System at launch and whenever the app returns to the
   foreground. It does not poll. A stored language that is invalid or no longer
   available becomes System, and desktop saves that correction.
-- Android provides an in-app dropdown that reads and writes the operating
-  system's per-app language setting. Selecting System clears the override. A
-  change made in Android system settings and a change made in the app therefore
-  share one source of truth.
-- Android's operating system relaunches the activity to apply a language change.
-  Declaring the locale configuration change does not prevent that relaunch. The
-  current editor draft settles first; if settling fails, the language does not
-  change and a localized save error appears. The relaunch restores
-  the route from saved instance state, so the user returns to the screen they were
-  on — including after several language changes made from Android's own settings
-  while the app was in the background — for every route [nav.md](nav.md) restores. →
-  SettingsScreen.kt / AppNavigation.kt / AppNavigationTest.kt _(Android)_
+- Android provides an in-app dropdown on every supported release. Selecting System
+  clears the override. On Android 13+ it reads and writes the operating system's
+  per-app language setting, so a change made in Android's settings and a change
+  made in the app share one source of truth. Android 9-12 have no per-app locale
+  to share, so the app stores the choice itself and applies it the same way. →
+  AppLanguageController.kt _(Android)_
+- Android applies a language change in place. `MainActivity` declares the `locale`,
+  `layoutDirection` and `screenLayout` configuration changes — all three, because a
+  locale change dirties the layout-direction bits inside `screenLayout` and one
+  undeclared bit relaunches the activity anyway — so the operating system delivers
+  the change to the running activity. Nothing is recreated: the route, open note,
+  cursor, and draft all survive, and the editor WebView is told the new language
+  over the bridge rather than reloaded. The current editor draft still settles
+  first; if settling fails, the language does not change and a localized save error
+  appears. → AndroidManifest.xml / LocalLocalization.kt _(Android)_
 - Android's language row shows the catalog actually in effect, so a regional
   override such as `en-US` reads as English rather than falling back to System. →
-  SettingsScreen.kt / AndroidLocalizationTest.kt _(Android)_
-
-> **Gap:** Android's language-change relaunch briefly blanks the whole display and
-> loses editor state. The blank is the system's window gap, not a surface the app
-> can paint, and no `configChanges` declaration suppresses the relaunch. Restorable
-> routes and the settled draft survive; the open note, cursor, editor scroll and
-> undo history do not, because they live in the CodeMirror WebView the relaunch
-> destroys. Eliminating all of it requires an app-owned language preference instead
-> of the operating system's per-app locale — the app reads no Android string
-> resources, so a switch could apply in-process with nothing torn down. Deliberately
-> not taken: it trades this spec's single source of truth with the OS for two
-> sources and a precedence rule (2026-08-31).
+  AppLanguageController.kt / AndroidLocalizationTest.kt _(Android)_
 - iOS provides no in-app dropdown. Its Language row opens FUTO Notes in system
   Settings, where the operating system owns selection. Returning to the app or
   relaunching resolves the change immediately and preserves the existing

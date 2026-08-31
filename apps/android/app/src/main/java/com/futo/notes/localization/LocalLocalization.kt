@@ -15,10 +15,13 @@ data class LocalizedMessage(
 )
 
 @Composable
-fun ProvideLocalization(content: @Composable () -> Unit) {
+fun ProvideLocalization(selectedLanguageTag: String?, content: @Composable () -> Unit) {
     val languageTags = LocalConfiguration.current.locales.toLanguageTags()
-    val localization = androidx.compose.runtime.remember(languageTags) {
-        Localization.system(languageTags.split(',').filter(String::isNotBlank))
+    val localization = androidx.compose.runtime.remember(selectedLanguageTag, languageTags) {
+        Localization.system(
+            listOfNotNull(selectedLanguageTag) +
+                languageTags.split(',').filter(String::isNotBlank),
+        )
     }
     CompositionLocalProvider(LocalLocalization provides localization, content = content)
 }

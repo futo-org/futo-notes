@@ -584,7 +584,7 @@ struct FolderContentsView: View {
                     ? localization.localizedText("notes.list.rootEmptyHeading")
                     : localization.localizedText("notes.list.folderEmptyHeading")
             )
-                .font(.title2.bold())
+            .font(.title2.bold())
             Text(localization.localizedText("notes.list.ios.emptyActionHint"))
                 .foregroundStyle(.secondary)
         }
@@ -789,7 +789,7 @@ struct MoveToFolderSheet: View {
                             localization.localizedText("folders.newFolderEllipsis"),
                             systemImage: "folder.badge.plus"
                         )
-                            .foregroundStyle(Theme.primary)
+                        .foregroundStyle(Theme.primary)
                     }
                 }
             }
@@ -993,8 +993,8 @@ struct NoteRow: View {
                         note.modified.timeIntervalSince1970 * 1_000
                     )
                 )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
             if showFolder && !note.folder.isEmpty {
                 Label(note.folder, systemImage: "folder")

@@ -7,7 +7,7 @@ import UIKit
 /// Sync details/actions stay in SyncView — the Sync row just opens it.
 struct SettingsView: View {
     private let issueTrackerURL = URL(string: "https://github.com/futo-org/futo-notes/issues")!
-    private let systemSettingsURL = URL(string: UIApplication.openSettingsURLString)!
+    static let systemSettingsURL = URL(string: UIApplication.openSettingsURLString)!
 
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
@@ -52,7 +52,8 @@ struct SettingsView: View {
                                 Text(
                                     sync.connected
                                         ? sync.localizedStatus(localization)
-                                        : localization.localizedText("settings.sync.localDescription")
+                                        : localization.localizedText(
+                                            "settings.sync.localDescription")
                                 )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -66,7 +67,8 @@ struct SettingsView: View {
 
                 Section(localization.localizedText("settings.sections.appearance")) {
                     Picker(
-                        localization.localizedText("settings.appearance.theme"), selection: $themeMode
+                        localization.localizedText("settings.appearance.theme"),
+                        selection: $themeMode
                     ) {
                         Text(localization.localizedText("settings.appearance.light"))
                             .tag(ThemeMode.light.rawValue)
@@ -79,8 +81,10 @@ struct SettingsView: View {
                 }
 
                 Section(localization.localizedText("settings.language.heading")) {
-                    Link(destination: systemSettingsURL) {
+                    Link(destination: Self.systemSettingsURL) {
                         HStack {
+                            Image(systemName: "globe")
+                                .foregroundStyle(Theme.primary)
                             Text(
                                 localization.localizedText(
                                     "settings.language.ios.openSystemSettings"
@@ -114,7 +118,7 @@ struct SettingsView: View {
                         localization.localizedText("settings.issueReporting.sendAutomatically"),
                         isOn: $crashAlwaysSend
                     )
-                        .disabled(!crashEnabled)
+                    .disabled(!crashEnabled)
                     Link(destination: issueTrackerURL) {
                         HStack {
                             Text(localization.localizedText("settings.issueReporting.reportIssue"))
@@ -152,7 +156,8 @@ struct SettingsView: View {
                         ) {
                             Task { await runFullReset() }
                         }
-                        Button(localization.localizedText("common.actions.cancel"), role: .cancel) {}
+                        Button(localization.localizedText("common.actions.cancel"), role: .cancel) {
+                        }
                     }
                     #if DEBUG
                         // On-device verification hook for the crash pipeline: traps
@@ -206,13 +211,13 @@ struct SettingsView: View {
                 ? localization.localizedText("settings.sync.syncedBadge")
                 : localization.localizedText("settings.sync.localBadge")
         )
-            .font(.caption2.bold())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(sync.connected ? Color.green : Color.secondary)
-            .background(
-                (sync.connected ? Color.green : Color.secondary).opacity(0.15),
-                in: Capsule())
+        .font(.caption2.bold())
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .foregroundStyle(sync.connected ? Color.green : Color.secondary)
+        .background(
+            (sync.connected ? Color.green : Color.secondary).opacity(0.15),
+            in: Capsule())
     }
 
     private var appVersion: String {

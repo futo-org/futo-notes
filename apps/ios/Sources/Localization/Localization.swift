@@ -88,15 +88,17 @@ final class Localization {
             requestedLanguageTags: requestedLanguageTags,
             catalogs: runtimeCatalogs
         )
-        let effectiveLanguage = selectedCatalog.map {
-            Language(tag: $0.tag, nativeName: $0.nativeName, direction: $0.direction)
-        } ?? Language(tag: "en", nativeName: "English", direction: "ltr")
+        let effectiveLanguage =
+            selectedCatalog.map {
+                Language(tag: $0.tag, nativeName: $0.nativeName, direction: $0.direction)
+            } ?? Language(tag: "en", nativeName: "English", direction: "ltr")
         let formatLanguageTag = Self.formattingLanguageTag(
             selectedLanguageTag: effectiveLanguage.tag,
             regionalLanguageTag: regionalLanguageTag,
             regionalNumberingSystem: regionalNumberingSystem
         )
-        let availableLanguages = runtimeCatalogs
+        let availableLanguages =
+            runtimeCatalogs
             .sorted {
                 let englishNameOrder = $0.englishName.compare(
                     $1.englishName,
@@ -127,15 +129,19 @@ final class Localization {
             case .plain(let template):
                 return renderTemplate(template, arguments: arguments, path: path)
             case .plural(let pluralArgument, let variants):
-                guard let pluralValue = integerArgument(arguments[pluralArgument]), pluralValue >= 0 else {
+                guard let pluralValue = integerArgument(arguments[pluralArgument]), pluralValue >= 0
+                else {
                     reportOnce(
                         key: "\(effectiveLanguage.tag):\(path):invalid-plural-argument",
-                        message: "Localization catalog error: language=\(effectiveLanguage.tag) path=\(path) type=invalid-plural-argument"
+                        message:
+                            "Localization catalog error: language=\(effectiveLanguage.tag) path=\(path) type=invalid-plural-argument"
                     )
                     return path
                 }
-                let template = variants["=\(pluralValue)"]
-                    ?? variants[localizationPluralCategory(languageTag: catalog.tag, value: pluralValue)]
+                let template =
+                    variants["=\(pluralValue)"]
+                    ?? variants[
+                        localizationPluralCategory(languageTag: catalog.tag, value: pluralValue)]
                     ?? variants["other"]
                 guard let template else { return path }
                 return renderTemplate(template, arguments: arguments, path: path)
@@ -143,7 +149,8 @@ final class Localization {
         }
         reportOnce(
             key: "\(effectiveLanguage.tag):\(path):missing-message",
-            message: "Localization catalog error: language=\(effectiveLanguage.tag) path=\(path) type=missing-message"
+            message:
+                "Localization catalog error: language=\(effectiveLanguage.tag) path=\(path) type=missing-message"
         )
         return path
     }
@@ -218,7 +225,8 @@ final class Localization {
                 guard let value = arguments[name] else {
                     reportOnce(
                         key: "\(effectiveLanguage.tag):\(path):missing-argument:\(name)",
-                        message: "Localization catalog error: language=\(effectiveLanguage.tag) path=\(path) type=missing-argument name=\(name)"
+                        message:
+                            "Localization catalog error: language=\(effectiveLanguage.tag) path=\(path) type=missing-argument name=\(name)"
                     )
                     return "{\(name)}"
                 }
@@ -234,7 +242,9 @@ final class Localization {
     private func integerArgument(_ value: Any?) -> UInt64? {
         guard let number = value as? NSNumber else { return nil }
         let doubleValue = number.doubleValue
-        guard doubleValue.isFinite, doubleValue >= 0, doubleValue.rounded(.towardZero) == doubleValue else {
+        guard doubleValue.isFinite, doubleValue >= 0,
+            doubleValue.rounded(.towardZero) == doubleValue
+        else {
             return nil
         }
         return UInt64(exactly: doubleValue)
@@ -247,7 +257,8 @@ final class Localization {
     private static func canonicalLanguageTag(_ languageTag: String) -> String? {
         let canonical = Locale.canonicalLanguageIdentifier(from: languageTag)
             .replacingOccurrences(of: "_", with: "-")
-        guard !canonical.isEmpty, localizationMaximizeLanguageTag(languageTag: canonical) != nil else {
+        guard !canonical.isEmpty, localizationMaximizeLanguageTag(languageTag: canonical) != nil
+        else {
             return nil
         }
         return canonical

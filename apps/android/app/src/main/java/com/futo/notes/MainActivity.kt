@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -73,6 +74,7 @@ import com.futo.notes.ui.navigation.Screen
 import com.futo.notes.ui.theme.FutoNotesTheme
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
+import com.futo.notes.localization.AppLanguageController
 import com.futo.notes.localization.ProvideLocalization
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -101,6 +103,7 @@ private data class PendingStorageAdoption(
 
 class MainActivity : ComponentActivity() {
     private lateinit var localization: Localization
+    private lateinit var appLanguage: AppLanguageController
     // Hoisted so onStart/onStop can pause/resume the SSE live stream — the
     // stream shouldn't stay open while backgrounded; re-foregrounding gets a
     // fresh `ready` that drives a catch-up pull.
@@ -194,6 +197,7 @@ class MainActivity : ComponentActivity() {
         // before the first composition. Theme and storage recovery load on IO
         // after setContent, preserving the never-gate-render invariant.
         prefs = getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE)
+        appLanguage = AppLanguageController(this, prefs)
 
         // Re-check the All-files grant when we return from the system settings
         // screen, then run whatever device-storage action was pending.
@@ -216,9 +220,11 @@ class MainActivity : ComponentActivity() {
         TestHooks.install(this, testHooks())
 
         setContent {
-            ProvideLocalization {
+            ProvideLocalization(appLanguage.selectedLanguageTag) {
                 val currentLocalization = LocalLocalization.current
                 SideEffect { localization = currentLocalization }
+                val configuration = LocalConfiguration.current
+                LaunchedEffect(configuration) { appLanguage.refresh() }
                 if (BuildConfig.DEBUG) {
                     LaunchedEffect(Unit) {
                         android.util.Log.i("FutoStartup", "first composition reached")
@@ -362,6 +368,20 @@ class MainActivity : ComponentActivity() {
         storageResolving.value = false
     }
 
+    private fun selectLanguage(store: NotesStore, languageTag: String?) {
+        lifecycleScope.launch {
+            if (store.settlePendingEditorDrafts()) {
+                appLanguage.select(languageTag)
+            } else {
+                Toast.makeText(
+                    this@MainActivity,
+                    localization.localizedText("settings.language.android.draftSaveFailed"),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
     /** The normal app once the vault location is known. */
     @Composable
     private fun AppShell(
@@ -408,6 +428,8 @@ class MainActivity : ComponentActivity() {
                     sync = sync,
                     themeMode = themeMode,
                     onThemeMode = onThemeMode,
+                    selectedLanguageTag = appLanguage.selectedLanguageTag,
+                    onSelectLanguage = { languageTag -> selectLanguage(s, languageTag) },
                     onOpenSync = navigator::openSync,
                     storageMode = currentMode(),
                     onChangeStorage = navigator::openStorageLocation,

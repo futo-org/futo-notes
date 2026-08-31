@@ -12,13 +12,9 @@
 - **Language** follows [localization.md](localization.md). Desktop and Android
   provide a System-first language dropdown and apply changes immediately. iOS
   provides a row that opens the app's system Settings instead of an in-app
-  dropdown. The selection is local to the device and never syncs.
+  dropdown. Both native rows carry a globe icon. The selection is local to the
+  device and never syncs.
 
-> **Gap:** Desktop's language control, persistence, and immediate application are
-> wired, iOS's system-Settings row is wired, and Android's dropdown is wired into
-> its Settings surface. Android's dropdown is shown only on Android 13+, where the
-> operating system owns per-app language; older releases have no per-app language
-> to read or write, so no control is offered.
 
 - The app version is shown.
 
@@ -46,9 +42,10 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   verified via the crash-test relaunch). → Theme.swift `appearanceOverride`
   _(iOS)_
 - **Language**: Android's dropdown reads and writes the operating system's
-  per-app language setting. iOS's row opens the app's system Settings, where the
-  operating system owns selection. Draft settlement and restoration follow the
-  platform rules in [localization.md](localization.md).
+  per-app language setting on Android 13+, and stores the choice itself on older
+  releases that have none. iOS's row opens the app's system Settings, where the
+  operating system owns selection. Draft settlement follows the platform rules in
+  [localization.md](localization.md).
 - **Storage**: a notes-directory path readout. On Android, **Storage location**
   opens the picker as a Settings sub-screen — Back or its **Cancel** button
   returns to Settings and changes nothing (see nav.md). Changing Device/App

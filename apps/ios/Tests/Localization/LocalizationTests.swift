@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UIKit
 
 @testable import FutoNotesNative
 
@@ -76,6 +77,15 @@ private func runtimeCatalog(languageTag: String) -> RuntimeCatalog {
 
 @Suite("Localization conformance")
 struct LocalizationTests {
+    @Test("the Language row opens this app's own iOS Settings page")
+    func languageRowOpensAppSettings() {
+        #expect(SettingsView.systemSettingsURL.scheme == "app-settings")
+        #expect(
+            SettingsView.systemSettingsURL.absoluteString
+                == UIApplication.openSettingsURLString
+        )
+    }
+
     @Test("language matching follows shared cases")
     func languageMatching() throws {
         let cases = try loadLocalizationCases()
@@ -141,7 +151,10 @@ struct LocalizationTests {
         )
 
         #expect(english.localizedText("settings.language.heading") == "Language")
-        #expect(english.localizedText("settings.language.ios.openSystemSettings") == "Open iOS Settings")
+        #expect(
+            english.localizedText("settings.language.ios.openSystemSettings")
+                == "Open iOS Settings"
+        )
         #expect(english.effectiveLanguage.nativeName == "English")
 
         #expect(simplifiedChinese.localizedText("settings.language.heading") == "语言")
@@ -167,7 +180,10 @@ struct LocalizationTests {
                 reportDiagnostic: { _ in }
             )
             let arguments = testCase.arguments?.mapValues(\.value) ?? [:]
-            #expect(localization.localizedText(testCase.path, arguments: arguments) == testCase.expected)
+            #expect(
+                localization.localizedText(testCase.path, arguments: arguments)
+                    == testCase.expected
+            )
         }
     }
 

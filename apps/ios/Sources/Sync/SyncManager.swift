@@ -128,7 +128,8 @@ final class SyncManager: ObservableObject {
         // of letting the client fail with an opaque transport error. → sync.md
         if SyncManager.validateServerURL(serverURL) != nil {
             statusMessage = LocalizedMessage("sync.status.error")
-            lastErrorMessage = serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            lastErrorMessage =
+                serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? LocalizedMessage("sync.errors.enterServerUrl")
                 : LocalizedMessage("sync.errors.addServerScheme")
             return

@@ -110,13 +110,6 @@ internal fun immediateSubfolders(folders: List<String>, of: String): List<String
     }
 }
 
-/** The open editor's unsaved-draft derivation — the ONE definition of "is there
- *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
- *  LIVE [noteId] (so it re-keys by construction after a rename) whenever the body
- *  has loaded and diverges from what's on disk; null when clean or not yet
- *  loaded. [savedContent] is both the dirty check and the flush's expected-prev
- *  [base]. Pulled synchronously at flush time by [PendingEditorDraft]. Pure +
- *  top-level so it is unit-testable without composition. */
 internal suspend fun settlePendingDrafts(
     drafts: List<PendingDraft>,
     persist: suspend (PendingDraft) -> Boolean,
@@ -129,6 +122,13 @@ internal suspend fun settlePendingDrafts(
     return allPersisted
 }
 
+/** The open editor's unsaved-draft derivation — the ONE definition of "is there
+ *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
+ *  LIVE [noteId] (so it re-keys by construction after a rename) whenever the body
+ *  has loaded and diverges from what's on disk; null when clean or not yet
+ *  loaded. [savedContent] is both the dirty check and the flush's expected-prev
+ *  [base]. Pulled synchronously at flush time by [PendingEditorDraft]. Pure +
+ *  top-level so it is unit-testable without composition. */
 internal fun derivePendingDraft(
     loaded: Boolean,
     noteId: String,

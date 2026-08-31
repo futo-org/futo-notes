@@ -53,6 +53,7 @@ lint-swift:
     -name '*.swift' \
     -not -path '*/Generated/*' \
     -not -path '*/GeneratedContracts/*' \
+    -not -path '*/GeneratedLocalization/*' \
     -print0 \
     | xargs -0 xcrun swift-format lint --strict --configuration apps/ios/.swift-format
 
