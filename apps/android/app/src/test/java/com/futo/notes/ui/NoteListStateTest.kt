@@ -1,48 +1,61 @@
 package com.futo.notes.ui
 
 import androidx.compose.foundation.lazy.LazyListState
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Test
 
+/**
+ * The folder being browsed lives in the nav stack now (`Screen.Folder`), so
+ * [NoteListState] is purely the per-folder scroll-position holder. Route
+ * rebasing/pruning is pinned by AppNavStackTest.
+ */
 class NoteListStateTest {
     @Test
-    fun `selected folder remains until navigation explicitly changes it`() {
-        val state = NoteListState(LazyListState())
+    fun `each folder keeps its own scroll state and the root's is the supplied one`() {
+        val root = LazyListState()
+        val state = NoteListState(root)
 
-        state.selectFolder("Projects")
-        state.retainAvailableFolderPaths(listOf("Projects", "Archive"))
-
-        assertEquals("Projects", state.selectedFolderPath)
+        assertSame(root, state.scrollStateFor(ROOT_FOLDER))
+        val projects = state.scrollStateFor("Projects")
+        assertNotSame(root, projects)
+        assertSame(projects, state.scrollStateFor("Projects"))
+        assertNotSame(projects, state.scrollStateFor("Projects/Plans"))
     }
 
     @Test
-    fun `selected folder follows a renamed or moved ancestor`() {
+    fun `a folder that no longer exists forgets its scroll position`() {
         val state = NoteListState(LazyListState())
-        state.selectFolder("Projects/Plans")
+        val projects = state.scrollStateFor("Projects")
 
-        state.followFolderMove(from = "Projects", to = "Archive/Projects")
+        state.retainFolders(listOf("Archive"))
 
-        assertEquals("Archive/Projects/Plans", state.selectedFolderPath)
+        assertNotSame(projects, state.scrollStateFor("Projects"))
     }
 
     @Test
-    fun `deleting the selected folder or its ancestor returns to all notes`() {
-        val state = NoteListState(LazyListState())
-        state.selectFolder("Projects/Plans")
+    fun `the root scroll state survives every folder disappearing`() {
+        val root = LazyListState()
+        val state = NoteListState(root)
+        state.scrollStateFor("Projects")
 
-        state.handleFolderDeleted("Projects")
+        state.retainFolders(emptyList())
 
-        assertNull(state.selectedFolderPath)
+        assertSame(root, state.scrollStateFor(ROOT_FOLDER))
     }
 
     @Test
-    fun `missing selected folder returns to all notes after navigation`() {
+    fun `scroll position follows a renamed or moved folder and its descendants`() {
         val state = NoteListState(LazyListState())
-        state.selectFolder("Projects")
+        val projects = state.scrollStateFor("Projects")
+        val plans = state.scrollStateFor("Projects/Plans")
+        val untouched = state.scrollStateFor("Inbox")
 
-        state.retainAvailableFolderPaths(listOf("Archive"))
+        state.followFolderMove("Projects", "Archive/Projects")
 
-        assertNull(state.selectedFolderPath)
+        assertSame(projects, state.scrollStateFor("Archive/Projects"))
+        assertSame(plans, state.scrollStateFor("Archive/Projects/Plans"))
+        assertSame(untouched, state.scrollStateFor("Inbox"))
+        assertNotSame(projects, state.scrollStateFor("Projects"))
     }
 }

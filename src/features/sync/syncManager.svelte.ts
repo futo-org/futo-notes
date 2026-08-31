@@ -10,7 +10,7 @@ import {
   createExternalChangeCoordinator,
   type OpenNoteReconcileResult,
 } from './createExternalChangeCoordinator';
-import { getSyncErrorMessage } from './syncErrorMessage';
+import { classifySyncError, getSyncErrorMessage, type SyncErrorClass } from './syncErrorMessage';
 import { createSyncCompletionReconciler } from './reconcileSyncCompletion';
 
 export { getSyncErrorMessage } from './syncErrorMessage';
@@ -28,6 +28,7 @@ export interface SyncManager {
   readonly syncOffline: boolean;
   readonly syncError: boolean;
   readonly syncErrorMessage: string;
+  readonly reconnecting: boolean;
   readonly live: boolean;
 
   enqueueFileChange: (event: FileChangeEvent) => void;
@@ -59,29 +60,130 @@ export interface LiveStatePayload {
 
 export type SyncErrorSource = 'sync' | 'stream';
 
-export function createSyncManager(deps: SyncManagerDeps): SyncManager {
-  let syncStatusMessage = $state('');
-  let syncIndicatorVisible = $state(false);
-  let syncOffline = $state(false);
+// The 2026-08-24 post-wake tailnet outage recovered after 2m34s. Three
+// minutes keeps that canonical transient failure quiet while ensuring a dead
+// server still becomes actionable during the same working session.
+const RECONNECTING_GRACE_MS = 180_000;
+
+function createSyncFailureState(showToast: (message: string) => void) {
   let syncError = $state(false);
   let syncErrorMessage = $state('');
-  let live = $state(false);
-  let syncErrorSource: SyncErrorSource | null = null;
+  let reconnecting = $state(false);
+  const syncErrors: Partial<Record<SyncErrorSource, string>> = {};
+  const reconnectingSince: Record<SyncErrorSource, number | null> = {
+    sync: null,
+    stream: null,
+  };
+  const transientEscalated: Record<SyncErrorSource, boolean> = {
+    sync: false,
+    stream: false,
+  };
 
   function raiseSyncError(message: string, source: SyncErrorSource = 'sync'): void {
     const changed = message !== syncErrorMessage;
     syncError = true;
     syncErrorMessage = message;
-    syncErrorSource = source;
-    if (changed) deps.showToast(`Sync error: ${message}`);
+    syncErrors[source] = message;
+    if (changed) showToast(`Sync error: ${message}`);
   }
 
   function clearSyncError(source?: SyncErrorSource): void {
-    if (source && syncErrorSource !== null && syncErrorSource !== source) return;
-    syncError = false;
-    syncErrorMessage = '';
-    syncErrorSource = null;
+    if (!source) {
+      delete syncErrors.sync;
+      delete syncErrors.stream;
+    } else {
+      delete syncErrors[source];
+    }
+    const remainingSource = (['stream', 'sync'] as const).find(
+      (candidate) => syncErrors[candidate] !== undefined,
+    );
+    if (remainingSource) {
+      syncError = true;
+      syncErrorMessage = syncErrors[remainingSource] ?? '';
+    } else {
+      syncError = false;
+      syncErrorMessage = '';
+    }
   }
+
+  function clearReconnecting(source?: SyncErrorSource): void {
+    if (source) {
+      reconnectingSince[source] = null;
+    } else {
+      reconnectingSince.sync = null;
+      reconnectingSince.stream = null;
+    }
+    reconnecting = Object.values(reconnectingSince).some((startedAt) => startedAt !== null);
+  }
+
+  function clearFailure(source: SyncErrorSource): void {
+    clearSyncError(source);
+    clearReconnecting(source);
+    transientEscalated[source] = false;
+  }
+
+  function reportFailure(
+    message: string,
+    options: { source: SyncErrorSource; class: SyncErrorClass; immediate?: boolean },
+  ): void {
+    const { source } = options;
+    if (options.immediate || options.class === 'actionable') {
+      clearReconnecting(source);
+      if (options.class === 'transient') transientEscalated[source] = true;
+      raiseSyncError(message, source);
+      return;
+    }
+
+    if (transientEscalated[source]) {
+      raiseSyncError(message, source);
+      return;
+    }
+
+    if (syncErrors[source] !== undefined) {
+      raiseSyncError(message, source);
+      return;
+    }
+
+    const startedAt = reconnectingSince[source];
+    if (startedAt === null) {
+      reconnectingSince[source] = Date.now();
+      reconnecting = true;
+      return;
+    }
+    if (Date.now() - startedAt >= RECONNECTING_GRACE_MS) {
+      clearReconnecting(source);
+      transientEscalated[source] = true;
+      raiseSyncError(message, source);
+    }
+  }
+
+  function reportActionableSyncFailure(message: string): void {
+    reportFailure(message, { source: 'sync', class: 'actionable', immediate: true });
+  }
+
+  return {
+    get syncError() {
+      return syncError;
+    },
+    get syncErrorMessage() {
+      return syncErrorMessage;
+    },
+    get reconnecting() {
+      return reconnecting;
+    },
+    clearError: clearSyncError,
+    clearSource: clearFailure,
+    reportActionableSyncFailure,
+    reportFailure,
+  };
+}
+
+export function createSyncManager(deps: SyncManagerDeps): SyncManager {
+  let syncStatusMessage = $state('');
+  let syncIndicatorVisible = $state(false);
+  let syncOffline = $state(false);
+  let live = $state(false);
+  const failureState = createSyncFailureState(deps.showToast);
 
   const notifySaved = () => {
     notifySavedV2();
@@ -120,9 +222,15 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   function handleLiveState(payload: LiveStatePayload): void {
     live = payload.live;
     if (payload.message) {
-      raiseSyncError(payload.message, payload.status === 'cycle-error' ? 'sync' : 'stream');
+      const source = payload.status === 'cycle-error' ? 'sync' : 'stream';
+      const message = getSyncErrorMessage(payload.message);
+      const errorClass =
+        payload.status === 'reconnecting' || payload.status === 'cycle-error'
+          ? classifySyncError(payload.message)
+          : 'actionable';
+      failureState.reportFailure(message, { source, class: errorClass });
     } else if (payload.live) {
-      clearSyncError('stream');
+      failureState.clearSource('stream');
     }
   }
 
@@ -130,8 +238,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     dependencies: { ...deps, onRename: applyReportedRename },
     externalChanges,
     writeSuppressor,
-    raiseSyncError: (message) => raiseSyncError(message),
-    clearSyncError: () => clearSyncError('sync'),
+    raiseSyncError: failureState.reportActionableSyncFailure,
+    clearSyncError: () => {
+      failureState.clearSource('sync');
+    },
     getSyncStartEditVersion: (trigger) =>
       trigger === undefined
         ? (syncCoord?.getLiveSyncStartEditVersion() ?? 0)
@@ -167,8 +277,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     const coord = syncCoord;
     startAutoSyncV2({
       onSyncComplete: (summary, trigger) => void handleSyncComplete(summary, trigger),
-      onSyncError: (err) => {
-        raiseSyncError(getSyncErrorMessage(err));
+      onSyncError: (err, trigger) => {
+        failureState.reportFailure(getSyncErrorMessage(err), {
+          source: 'sync',
+          class: classifySyncError(err),
+          immediate: trigger === 'manual',
+        });
         console.warn('Auto-sync error:', err);
       },
       flushPendingSave: deps.session.flushSave,
@@ -217,10 +331,13 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       return syncOffline;
     },
     get syncError() {
-      return syncError;
+      return failureState.syncError;
     },
     get syncErrorMessage() {
-      return syncErrorMessage;
+      return failureState.syncErrorMessage;
+    },
+    get reconnecting() {
+      return failureState.reconnecting;
     },
     get live() {
       return live;
@@ -232,7 +349,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) =>
       externalChanges.reconcileOpenNote(id, { parkedDraft }),
     notifySaved,
-    clearSyncError,
+    clearSyncError: failureState.clearError,
 
     start,
     handleSyncComplete,

@@ -7,9 +7,10 @@
     sync: SyncSettings;
     backgroundError: boolean;
     backgroundErrorMessage: string;
+    reconnecting: boolean;
   }
 
-  let { sync, backgroundError, backgroundErrorMessage }: Props = $props();
+  let { sync, backgroundError, backgroundErrorMessage, reconnecting }: Props = $props();
 </script>
 
 <section class="settings-section">
@@ -96,6 +97,8 @@
       <p class="settings-btn-desc settings-hint">{sync.status}</p>
     {:else if backgroundError}
       <p class="settings-btn-desc settings-hint">Sync failed: {backgroundErrorMessage}</p>
+    {:else if reconnecting}
+      <p class="settings-btn-desc settings-hint">Reconnecting…</p>
     {/if}
   </div>
 </section>
