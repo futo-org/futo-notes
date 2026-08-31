@@ -93,6 +93,33 @@
       background: transparent;
     }
 
+    /* Pin the body to the web view, unlayered (github#33).
+     *
+     * This is a deliberate copy of src/styles/base.css's `body { position:
+     * fixed; inset: 0 }` — the rule that gives #editor below a containing block
+     * with a REAL height. base.css lives in `@layer base`, and `@layer` is
+     * Chromium 99, so every WebView in the 80–98 band drops it. Without it the
+     * body is static and zero-height, and #editor's offsets fall back to the
+     * initial containing block, which this engine sizes to ZERO (the same defect
+     * that makes it resolve 100vh/100dvh to 0 — measured on an Android 11 /
+     * Chromium 83 WebView: `position: absolute; top: 0; bottom: 0` gives 0px
+     * there, while an explicit pixel height or a fixed-position box gives the
+     * correct 555px). The whole height chain below then collapses, .cm-scroller
+     * never becomes a scroll container, and CodeMirror scrolls the ROOT document
+     * to reveal the cursor instead — which slides the note up under the shell's
+     * native title bar as you type (github#33, reported on 1.7.0 / Android 10).
+     *
+     * Identical declarations to base.css's, so engines that DO apply that layer
+     * see no change; longhands rather than `inset` because that shorthand is
+     * Chromium 87 (see #editor below). Keep the two in step. */
+    body {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+    }
+
     /* Legacy-WebView text-color fallback (github#8). Non-updated Android 8-10
      * system WebViews predate @layer (Chromium 99) and drop EVERY rule inside
      * Tailwind's layers — including the @theme light tokens and the
@@ -108,9 +135,28 @@
       color: var(--color-text, #0f0f0f);
     }
 
+    /* Fill the web view — a DEFINITE height for the chain below.
+     *
+     * LONGHANDS, never `inset: 0` (github#33). The `inset` shorthand is
+     * Chromium 87; the editor's engine floor is 80, so a WebView in the 80–86
+     * band drops that one declaration and leaves `position: absolute` with all
+     * four offsets `auto`. #editor then shrink-wraps its text at the static
+     * position instead of filling the pane: `.cm-editor`'s `height: 100%`
+     * resolves against an auto-height parent, `.cm-scroller` never becomes a
+     * scroll container, and the note grows past the bottom of the pane with
+     * nothing to scroll — so CodeMirror's scroll-cursor-into-view moves the
+     * ROOT document and the note slides up under the shell's native title bar.
+     * Reported on 1.7.0 / Android 10. Locked by the "pre-inset WebView" tests
+     * in tests/editor-embed-bridge.spec.ts. The same goes for any other
+     * post-80 CSS added to THIS stylesheet: everything the app's own
+     * @layer'd CSS declares is already discarded by these engines
+     * (@layer is Chromium 99), so this rule is the whole layout on them. */
     #editor {
       position: absolute;
-      inset: 0;                  /* fill the web view: a DEFINITE height */
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
     }
 
     /* MarkdownEditor.svelte mounts a single wrapper <div> inside #editor;
@@ -121,7 +167,8 @@
     }
 
     /* Fixed height enables CM's internal scroller. We anchor to a definite
-     * height CHAIN (#editor is absolute inset:0) rather than viewport units:
+     * height CHAIN (#editor is absolutely positioned to all four edges) rather
+     * than viewport units:
      * Android System WebView resolves 100dvh/100vh to 0 here (while
      * innerHeight/clientHeight are correct), collapsing the editor to 0px and
      * painting blank. 100% off the definite chain works on both WKWebView and
