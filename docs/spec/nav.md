@@ -3,13 +3,18 @@
 How screens stack and transition. Native-shell stack first; Tauri-shell
 navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 
-- Screens: **List** (root) → Editor / Search / Settings; **Settings** → Sync /
-  Storage location. → AppNavigation.kt *(Android)*
-- iOS native: **List** (root) → Editor / folder screen (tapping a folder row
-  pushes a filtered list titled with the folder name); search is an inline
-  bottom search bar on the list; the nav-bar gear presents the Settings
-  sheet and the cloud button presents the Sync sheet (see settings.md). →
-  NoteListView.swift *(iOS)*
+- Both native shells stack the SAME folder browser: the root screen is the vault
+  root folder, and tapping a folder row pushes another folder screen (see
+  [list.md](list.md#folder-browsing)). There is no drawer on either.
+- Screens: **Folder** (root = the vault root, the stack floor) → Folder /
+  Editor / Search / Settings; **Settings** → Sync / Storage location. A folder
+  screen can push another folder screen to any depth. → AppNavigation.kt
+  *(Android)*
+- iOS native: `Route` { folder / note / newNote } on one `NavigationStack`;
+  search is an inline bottom search bar on the list, which bypasses the folder
+  browser for a flat cross-folder result list; the nav-bar gear presents the
+  Settings sheet and the cloud button presents the Sync sheet (see settings.md).
+  → NoteListView.swift *(iOS)*
   The list nav-bar controls are exposed to accessibility and to automation: the
   **gear** (Settings), **cloud** (Sync), and **"+"** create-note menu each carry
   an `accessibilityLabel` ("Settings" / "Sync" / "New note or folder"), a stable
@@ -21,14 +26,16 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   "New Note" item is itself tappable. Every nav item also appears as a wrapping
   `Group`, so automation must pass `--element-type`. → NoteListView.swift
   toolbar
-- A typed nav stack holds entries. Note ids and folders contain `/`, which would
-  break string-based routes, so the stack holds typed `Screen` values, not path
-  strings. → AppNavigation.kt
-- System Back pops one screen. Back on the root List does nothing app-side (the
-  stack floor is the List — the app never intercepts it there); on Android the
-  unhandled Back then follows the OS default and backgrounds/finishes the
-  activity. "Nothing app-side" means the nav stack never changes, not that the
-  event is swallowed. → AppNavigation.kt `BackHandler`
+- A typed nav stack holds entries. Note ids and folder paths contain `/`, which
+  would break string-based routes, so the stack holds typed `Screen` values
+  (`Screen.Folder(path)`, `Screen.Editor(noteId, …)`), not path strings. →
+  AppNavigation.kt
+- System Back pops one screen — including one folder level, which is also what
+  the folder screen's top-bar up arrow does. Back on the root folder does nothing
+  app-side (it is the stack floor — the app never intercepts it there); on
+  Android the unhandled Back then follows the OS default and
+  backgrounds/finishes the activity. "Nothing app-side" means the nav stack never
+  changes, not that the event is swallowed. → AppNavigation.kt `BackHandler`
 - Every full-screen surface the shell can reach is a stack entry, so Back always
   has an owner. Settings → **Storage location** is one: Back and its **Cancel**
   button are the same pop, both landing on Settings. (The first-run picker draws
@@ -44,10 +51,18 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   the shell underneath would have handled. *(Android)* → MainActivity.kt,
   SettingsScreen.kt
 - Forward transitions slide in + fade; back transitions fade + slide out.
-  → AppNavigation.kt *(Android)*
-- Activity recreation starts a fresh route stack at List while restoring the
-  list's selected folder and scroll position. → AppNavigation.kt /
+  Direction is derived from stack **depth**, not screen type, so a
+  folder→folder push and its pop animate opposite ways. → AppNavigation.kt
+  *(Android)*
+- Activity recreation starts a fresh route stack at the **vault root folder**,
+  restoring the root list's scroll position; a deeper folder stack is
+  deliberately not restored, so the user always returns to a screen that is
+  guaranteed to exist. → AppNavigation.kt / NoteListState.kt /
   AppNavigationTest.kt *(Android)*
+- A folder route whose folder is renamed or moved rebases onto the new path; a
+  folder route whose folder stops existing is dropped, popping to the nearest
+  surviving ancestor. → AppNavigation.kt `rebaseFolderRoutes` /
+  `pruneFolderRoutes`, AppNavStackTest.kt *(Android)*
 - A swipe from the editor's leading edge goes back, running the SAME gated exit as
   the Back button (`requestNavigation`): it drains in-flight rename/move/adopt work
   and will not leave while a rename cannot commit. Because the editor hides the

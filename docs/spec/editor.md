@@ -665,6 +665,18 @@ EditorWebView.swift, EditorWebView.kt
   commands mutate the doc and autosave; Indent/Outdent appear only on list
   lines; pickers open natively; chevron blurs). → EditorToolbar.swift,
   EditorWebView.swift `futo_overrideInputAccessoryView`
+- iOS native: the accessory takes its BACKDROP from the system, never from the
+  app palette — the container is a `UIInputView` with `inputViewStyle`
+  `.keyboard` and every subview is transparent, so the strip renders the OS's
+  own accessory backdrop and follows light/dark, Increase Contrast, and
+  `keyboardAppearance` without app code. The buttons float on it in Liquid
+  Glass capsules (`glassEffect` on iOS 26+, `.regularMaterial` below), one for
+  the scrolling formatting items and one for the dismiss chevron, with no fill
+  or hairline behind the band. Verified against Safari's own accessory on the
+  iOS 26.5 simulator 2026-08-26: Apple's band background matches the PAGE
+  behind it (242,242,247) rather than the keyboard slab (223,224,230), which
+  is why a bar painted an app color reads as pasted onto the keyboard.
+  → EditorToolbar.swift `ToolbarMetrics`, `futoToolbarGlass`
 - Android native: the toolbar is a Compose bar (generated ToolbarSpec.kt
   rendered by EditorToolbar.kt) docked above the soft keyboard via the editor
   screen's `imePadding`, shown only while the editor is focused (bridge
