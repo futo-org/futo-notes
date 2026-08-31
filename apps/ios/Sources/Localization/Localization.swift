@@ -215,6 +215,7 @@ final class Localization {
         path: String
     ) -> String {
         let numberFormatter = NumberFormatter()
+        numberFormatter.numberStyle = .decimal
         numberFormatter.locale = Locale(identifier: formatLanguageTag)
         numberFormatter.maximumFractionDigits = 3
         return template.map { token in
