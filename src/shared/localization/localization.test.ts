@@ -27,7 +27,7 @@ function minimalCatalog(languageTag: string): unknown {
 
 function localization(
   languageTag: string,
-  regionalLanguageTag: string,
+  regionalLanguageTag: string | undefined,
   overrides: Partial<Parameters<typeof createLocalizationModule>[0]> = {},
 ) {
   return createLocalizationModule({

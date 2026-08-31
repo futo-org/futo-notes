@@ -105,7 +105,7 @@ class AndroidLocalizationTest {
     private fun localization(testCase: JSONObject, now: Long = System.currentTimeMillis()) =
         Localization.fromGeneratedCatalogs(
             listOf(testCase.getString("languageTag")),
-            testCase.getString("regionalLanguageTag"),
+            testCase.optString("regionalLanguageTag").takeIf(String::isNotEmpty),
             testCase.optString("regionalNumberingSystem").takeIf(String::isNotEmpty),
             currentTimeMillis = { now },
         )

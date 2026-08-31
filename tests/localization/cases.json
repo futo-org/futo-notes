@@ -1,43 +1,87 @@
 {
   "languageMatching": [
     {
-      "requestedLanguageTags": ["zh"],
-      "availableLanguageTags": ["en", "zh-Hans"],
+      "requestedLanguageTags": [
+        "zh"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
       "expectedLanguageTag": "zh-Hans"
     },
     {
-      "requestedLanguageTags": ["zh-CN"],
-      "availableLanguageTags": ["en", "zh-Hans"],
+      "requestedLanguageTags": [
+        "zh-CN"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
       "expectedLanguageTag": "zh-Hans"
     },
     {
-      "requestedLanguageTags": ["zh-SG"],
-      "availableLanguageTags": ["en", "zh-Hans"],
+      "requestedLanguageTags": [
+        "zh-SG"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
       "expectedLanguageTag": "zh-Hans"
     },
     {
-      "requestedLanguageTags": ["zh-TW", "en-US"],
-      "availableLanguageTags": ["en", "zh-Hans"],
+      "requestedLanguageTags": [
+        "zh-TW",
+        "en-US"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
       "expectedLanguageTag": "en"
     },
     {
-      "requestedLanguageTags": ["zh-Hant"],
-      "availableLanguageTags": ["en", "zh-Hans"],
+      "requestedLanguageTags": [
+        "zh-Hant"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
       "expectedLanguageTag": "en"
     },
     {
-      "requestedLanguageTags": ["en-US"],
-      "availableLanguageTags": ["en", "zh-Hans"],
+      "requestedLanguageTags": [
+        "en-US"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
       "expectedLanguageTag": "en"
     },
     {
-      "requestedLanguageTags": ["pt"],
-      "availableLanguageTags": ["en", "pt-BR", "pt-PT"],
+      "requestedLanguageTags": [
+        "pt"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "pt-BR",
+        "pt-PT"
+      ],
       "expectedLanguageTag": "en"
     },
     {
-      "requestedLanguageTags": ["pt"],
-      "availableLanguageTags": ["en", "pt", "pt-BR", "pt-PT"],
+      "requestedLanguageTags": [
+        "pt"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "pt",
+        "pt-BR",
+        "pt-PT"
+      ],
       "expectedLanguageTag": "pt"
     }
   ],
@@ -58,14 +102,18 @@
       "languageTag": "en",
       "regionalLanguageTag": "en-US",
       "path": "time.relative.future.minute",
-      "arguments": { "count": 1 },
+      "arguments": {
+        "count": 1
+      },
       "expected": "In 1 minute"
     },
     {
       "languageTag": "en",
       "regionalLanguageTag": "en-US",
       "path": "time.relative.future.minute",
-      "arguments": { "count": 2 },
+      "arguments": {
+        "count": 2
+      },
       "expected": "In 2 minutes"
     },
     {
@@ -73,22 +121,45 @@
       "regionalLanguageTag": "ar-EG",
       "regionalNumberingSystem": "arab",
       "path": "time.relative.future.minute",
-      "arguments": { "count": 2 },
+      "arguments": {
+        "count": 2
+      },
       "expected": "In ٢ minutes"
     },
     {
       "languageTag": "zh-Hans",
       "regionalLanguageTag": "zh-CN",
       "path": "time.relative.past.day",
-      "arguments": { "count": 1 },
+      "arguments": {
+        "count": 1
+      },
       "expected": "昨天"
     },
     {
       "languageTag": "zh-Hans",
       "regionalLanguageTag": "zh-CN",
       "path": "time.relative.past.day",
-      "arguments": { "count": 2 },
+      "arguments": {
+        "count": 2
+      },
       "expected": "2天前"
+    },
+    {
+      "languageTag": "en-IN",
+      "path": "search.resultCount",
+      "arguments": {
+        "count": 1234567
+      },
+      "expected": "1,234,567 results"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "path": "search.resultCount",
+      "arguments": {
+        "count": 1234567
+      },
+      "expected": "1,234,567 results"
     }
   ],
   "fileSizes": [
@@ -121,6 +192,11 @@
       "regionalLanguageTag": "zh-CN",
       "bytes": 1000000,
       "expected": "1 MB"
+    },
+    {
+      "languageTag": "en-DE",
+      "bytes": 1234567,
+      "expected": "1.2 MB"
     }
   ],
   "relativeTimes": [

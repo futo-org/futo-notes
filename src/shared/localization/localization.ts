@@ -427,7 +427,7 @@ export function createLocalizationModule(options: LocalizationModuleOptions): Lo
     : { tag: 'en', nativeName: 'English', direction: 'ltr' };
   const formatLanguageTag = formattingLanguageTag(
     effectiveLanguage.tag,
-    options.regionalLanguageTag ?? selection.requestedLanguageTag,
+    options.regionalLanguageTag,
     options.regionalNumberingSystem,
   );
   const numberFormatter = new Intl.NumberFormat(formatLanguageTag, { maximumFractionDigits: 3 });

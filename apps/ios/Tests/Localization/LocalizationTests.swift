@@ -21,7 +21,7 @@ private struct LanguageMatchingCase: Decodable {
 
 private struct MessageCase: Decodable {
     let languageTag: String
-    let regionalLanguageTag: String
+    let regionalLanguageTag: String?
     let regionalNumberingSystem: String?
     let path: String
     let arguments: [String: JSONNumber]?
@@ -30,14 +30,14 @@ private struct MessageCase: Decodable {
 
 private struct FileSizeCase: Decodable {
     let languageTag: String
-    let regionalLanguageTag: String
+    let regionalLanguageTag: String?
     let bytes: Int64
     let expected: String
 }
 
 private struct RelativeTimeCase: Decodable {
     let languageTag: String
-    let regionalLanguageTag: String
+    let regionalLanguageTag: String?
     let secondsFromNow: Int64
     let expected: String
 }

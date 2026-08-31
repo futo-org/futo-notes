@@ -76,8 +76,7 @@ editor resolve from the catalogs on desktop, Android, and iOS.
 > English rather than catalog-resolved.
 
 > **Gap:** Future-language correctness is only partial. A right-to-left interface
-> language is not yet applied to embedded note content, and regional number
-> formatting still diverges between desktop and the native shells.
+> language is not yet applied to embedded note content.
 
 ## Message values
 
@@ -226,11 +225,11 @@ editor resolve from the catalogs on desktop, Android, and iOS.
   language-independent. Version 1 adds no currency, percentage, or general
   absolute-date formatter without a real caller.
 
-> **Gap:** When no regional tag is supplied, desktop falls back to the requested
-> language tag for number formatting while both native shells format with the
-> region-less selected tag, so `zh-CN` formats as `zh-CN` on desktop and
-> `zh-Hans` on iOS and Android. Every message case in tests/localization/cases.json
-> supplies a regional tag, so the shared fixture cannot see this.
+- The device's regional preferences are the only source of regional formatting. A
+  selected interface language never supplies a region of its own: with no regional
+  tag, all three platforms format with the region-less selected tag, so requesting
+  `en-IN` groups as `1,234,567`, not `12,34,567`.
+  → tests/localization/cases.json (the cases that omit `regionalLanguageTag`)
 
 ## Editor integration
 
