@@ -39,7 +39,7 @@ export * from './atxEscape';
 export * from './stringifyHandlers';
 export { escapeAmbiguousBulletNumbers } from './bulletNumbers';
 export { expandEmptyLinks } from './emptyLink';
-export { fixEmptyLinePlaceholders } from './emptyLine';
+export { fixEmptyLinePlaceholders, htmlWithoutEmptyCellPlaceholder } from './emptyLine';
 export type { MdastNode } from './mdast';
 
 /** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */

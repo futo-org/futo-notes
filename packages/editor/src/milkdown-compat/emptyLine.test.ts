@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { fixEmptyLinePlaceholders } from './emptyLine';
+import { fixEmptyLinePlaceholders, htmlWithoutEmptyCellPlaceholder } from './emptyLine';
 import type { MdastNode } from './mdast';
 
 /**
@@ -137,5 +137,44 @@ describe('fixEmptyLinePlaceholders', () => {
       fixEmptyLinePlaceholders({ type: 'root', children: [parent] });
       expect(types(parent)).toEqual(['html', 'text']);
     });
+  });
+});
+
+describe('htmlWithoutEmptyCellPlaceholder', () => {
+  const handler = htmlWithoutEmptyCellPlaceholder();
+  // On the serialize side the placeholder sits inside the paragraph the
+  // ProseMirror table_cell wraps its content in; state.stack carries the
+  // mdast-util-gfm-table 'tableCell' construct while a cell serializes.
+  const soleChildParagraph = (child: MdastNode): MdastNode => ({
+    type: 'paragraph',
+    children: [child],
+  });
+  const inCell = { stack: ['table', 'tableRow', 'tableCell', 'phrasing'] };
+  const inBody = { stack: [] as string[] };
+
+  it('serializes an empty cell as empty, not as the <br /> placeholder', () => {
+    const node = br();
+    expect(handler(node, soleChildParagraph(node), inCell)).toBe('');
+  });
+
+  it('keeps the placeholder outside tables — it IS the blank line there', () => {
+    const node = br();
+    expect(handler(node, soleChildParagraph(node), inBody)).toBe('<br />');
+  });
+
+  it("keeps an author's inline <br> beside other content in a cell", () => {
+    const node = br('<br>');
+    const paragraph: MdastNode = { type: 'paragraph', children: [text('a'), node, text('b')] };
+    expect(handler(node, paragraph, inCell)).toBe('<br>');
+  });
+
+  it('serializes every other html node exactly as the stock handler', () => {
+    const node: MdastNode = { type: 'html', value: '<kbd>' };
+    expect(handler(node, soleChildParagraph(node), inCell)).toBe('<kbd>');
+    expect(handler({ type: 'html' }, undefined, inBody)).toBe('');
+  });
+
+  it('peeks < like the stock handler, so escape decisions are unchanged', () => {
+    expect(handler.peek()).toBe('<');
   });
 });

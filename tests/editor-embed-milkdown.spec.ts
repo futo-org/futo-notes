@@ -448,7 +448,14 @@ test('formatState reports bold for a caret inside bold text', async ({ page }) =
   if (!box) throw new Error('no <strong> geometry');
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 
-  expect((await waitForMessages(page, 'formatState')).at(-1)?.active).toEqual(['bold']);
+  // Wait for the SETTLED state, not the first message after the click: the
+  // click path can post an intermediate formatState (mousedown selection)
+  // before the one for the final caret position, and asserting `.at(-1)` the
+  // moment the first arrives read that intermediate under load. The assertion
+  // is unchanged — the latest state must become exactly ['bold'].
+  await expect
+    .poll(async () => (await messagesOfType(page, 'formatState')).at(-1)?.active)
+    .toEqual(['bold']);
 });
 
 // ============================================================
