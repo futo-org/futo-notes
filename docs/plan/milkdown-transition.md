@@ -53,6 +53,8 @@ same code). Known debts the review pays down:
   pass (`/slow-review` grade) and likely decomposition before merge.
 - `formatState`/`haptic` are iOS-only: add the Android consumers or record the asymmetry as an
   explicit spec gap — the spike's "no consumer yet" exemption is not a shippable end state.
+  **Both paid: `formatState` in #104, `haptic` on 2026-09-01 when Android took the long-press block
+  drag (§4) and gained `performBlockDragHaptic`.**
 - The parked string guards in `spike-notes/roundtrip/` are replaced by §3's plugin set, not resumed.
 - The `?cm` escape switch and the `spike-notes/` directory die at swap time; their content
   graduates into this plan, spec lines, and test fixtures.
@@ -112,7 +114,8 @@ Recorded, not fixed here:
 
 - `formatState` has no Android consumer — deferred to **#104** by this ticket's acceptance criteria,
   and recorded in `bridge.ts` and `BridgeCoverageTest.kt`. `haptic` is iOS-only by construction:
-  Android mounts the gutter-handle drag and never emits it.
+  Android mounts the gutter-handle drag and never emits it. **Superseded 2026-09-01 — Android now
+  mounts the long-press drag and receives `haptic`; see §4.**
 - Toolbar parity gaps found by the suite, all **#104** (closed there — see the T7 outcome below):
   `link` with an empty selection does nothing, `indent` needs a preceding sibling item, and list
   markers serialize as `*` rather than `-`.
@@ -501,6 +504,27 @@ shape as the TS↔Rust rule differential — over 34 hand-picked edges plus an
   (D9). Until the swap lands, existing spec lines stay in force (ADR-0002).
 - **Bucket 3 — new spec lines**: block drag, format-state toolbar highlighting, progressive-open
   behavior (§5), normalize-once semantics.
+
+### Android drags the block, not a handle (2026-09-01)
+
+Both native shells now mount the SAME Notion-style long-press block drag; the ⠿ gutter handle is the
+desktop browser's gesture alone. `resolveBlockDragMode(nativeShell)` is the whole gate, so the
+embed's own host flag decides and no user-agent sniff is left in it. Consequences worth recording:
+
+- The only page a headless harness can load is `editor.html`, whose host flag is a hard-coded
+  `nativeShell: true`, so the ⠿ path lost its harness. `blockDragMode.ts`'s test-only override was
+  widened to force EITHER mode (`?blockDragMode=gutter-handle`), which is what the handle's
+  touch-drag spec now uses.
+- Measured on the reference phone (moto g play 2023, Android 13, System WebView 151): Chromium shows
+  NO word highlight, selection handles, floating Cut/Copy action mode or magnifier over a lifted
+  block, focused or unfocused. WebKit's whole `isTextInteractionEnabled` problem simply does not
+  exist here — the page's own `selectstart`/`contextmenu`/selection defences hold. So the shell
+  ignores `blockDrag` entirely.
+- The one leak was haptic, not visual: the WebView fires its own `LONG_PRESS` buzz 128-141 ms after
+  the editor's lift (its recogniser trips around touch-down + 480 ms against the 340 ms lift), so a
+  pickup felt like a stutter. `EditorWebView.setBlockPressActive` turns the WebView's view-level
+  haptics off for the press and the editor's own three opt past with `FLAG_IGNORE_VIEW_SETTING`; a
+  long press the editor does not claim keeps its normal buzz.
 
 ## 5. Progressive open (the large-note story)
 

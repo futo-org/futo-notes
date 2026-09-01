@@ -187,15 +187,15 @@ final class EditorCompletionQueue {
 ///   { type: 'pasteClipboardImage' }                            (v5)
 ///   { type: 'formatState', active: [<toolbar id>] }   (Milkdown editor, unversioned —
 ///     see bridge.ts's BRIDGE_VERSION doc comment; drives toolbar highlighting below)
-///   { type: 'haptic', kind: 'lift' | 'move' | 'drop' } (Milkdown editor, unversioned,
-///     iOS-only — the long-press mobile block-drag path; drives the impact and
-///     selection feedback generators below)
-///   { type: 'blockDrag', active: <bool> }              (Milkdown editor, unversioned,
-///     iOS-only — same path; suspends WKWebView's text interaction so the OS
-///     magnifier stays out of the drag)
-///   { type: 'blockPress', pressed: <bool> }            (Milkdown editor, unversioned,
-///     iOS-only — the same path's TOUCH-DOWN half; stands the delayed text
-///     interaction down before it can win the race the lift used to have to)
+///   { type: 'haptic', kind: 'lift' | 'move' | 'drop' } (Milkdown editor, unversioned —
+///     the long-press block-drag path both native shells mount; drives the
+///     impact and selection feedback generators below)
+///   { type: 'blockDrag', active: <bool> }              (Milkdown editor, unversioned —
+///     same path; suspends WKWebView's text interaction so the OS magnifier
+///     stays out of the drag. Android needs no equivalent — see bridge.ts)
+///   { type: 'blockPress', pressed: <bool> }            (Milkdown editor, unversioned —
+///     the same path's TOUCH-DOWN half; stands the delayed text interaction
+///     down before it can win the race the lift used to have to)
 ///
 /// The markdown toolbar is NATIVE on iOS: EditorHost installs
 /// EditorToolbarAccessory as the keyboard's inputAccessoryView (so it docks
@@ -895,8 +895,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // transition lands. Android does the same in EditorWebView.kt.
             toolbarState.activeFormats = Set(body["active"] as? [String] ?? [])
         case .haptic:
-            // Milkdown editor, iOS-only — the long-press mobile block-drag
-            // path posts this on lift and on a COMMITTED drop (never on a
+            // Milkdown editor — the long-press block-drag path posts this on
+            // lift and on a COMMITTED drop (never on a
             // drop-at-source no-op or a cancel). The simulator has no
             // haptics hardware; this log is the proof of receipt there.
             let kind = (body["kind"] as? String) ?? ""
@@ -915,8 +915,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             }
             EditorHost.logger.info("haptic received: \(kind, privacy: .public)")
         case .blockDrag:
-            // Milkdown editor, iOS-only — a block is airborne (or has landed)
-            // on the long-press block-drag path. Suspend the WebView's own text
+            // Milkdown editor — a block is airborne (or has landed) on the
+            // long-press block-drag path. Suspend the WebView's own text
             // interaction for that window: WKWebView's long-press gesture
             // otherwise magnifies the block under the finger (the system loupe)
             // and drags a caret along behind it, on top of the drag the user is
@@ -927,8 +927,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // to the whole stack now that the gesture is committed.
             setBlockDragActive((body["active"] as? Bool) == true)
         case .blockPress:
-            // Milkdown editor, iOS-only — a finger is DOWN on a block (or has
-            // come off one) on the long-press block-drag path. Posted at
+            // Milkdown editor — a finger is DOWN on a block (or has come off
+            // one) on the long-press block-drag path. Posted at
             // touch-down, which is the point of it: `blockDrag` cannot arrive
             // until the editor's 340ms timer has fired, and WKWebView's own text
             // interaction fires at ~655ms whether or not it does, so a press

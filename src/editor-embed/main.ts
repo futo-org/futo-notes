@@ -135,23 +135,24 @@ const editor = mount(EmbeddedEditor, {
       if (!nativeToolbar) toolbar?.setActiveFormats(active);
       post({ type: 'formatState', active });
     },
-    // Milkdown-only, iOS long-press block-drag path (see
-    // MilkdownEditor.svelte / mobileBlockDnd.ts); the CodeMirror path (`?cm`)
-    // and every non-iOS environment never call this prop.
+    // Milkdown-only, and the long-press block-drag path BOTH native shells
+    // mount (see MilkdownEditor.svelte / mobileBlockDnd.ts); the CodeMirror
+    // path (`?cm`) never calls this prop, and neither does the browser build,
+    // which keeps the ⠿ gutter handle.
     onhaptic: (kind: 'lift' | 'drop') => {
       post({ type: 'haptic', kind });
     },
-    // Same path, and the message the iOS shell acts on rather than merely
+    // Same path, and on iOS the message the shell ACTS on rather than merely
     // reports: it suspends WKWebView's text-interaction gestures while a block
     // is airborne, because the page cannot stop the OS magnifier itself
     // (bridge.ts BlockDragMessage).
     onblockdrag: (active: boolean) => {
       post({ type: 'blockDrag', active });
     },
-    // Same path, posted at TOUCH-DOWN rather than at the lift: the shell's
+    // Same path, posted at TOUCH-DOWN rather than at the lift: a shell's
     // protection must not be conditional on the editor's 340ms timer winning a
-    // race against WKWebView's own ~655ms text interaction (bridge.ts
-    // BlockPressMessage).
+    // race against its WebView's own long-press recogniser (WKWebView's fires
+    // at ~655ms) (bridge.ts BlockPressMessage).
     onblockpress: (pressed: boolean) => {
       post({ type: 'blockPress', pressed });
     },

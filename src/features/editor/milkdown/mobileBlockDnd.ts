@@ -1,18 +1,20 @@
 /*
- * Notion-style mobile block drag-and-drop — the iOS long-press path.
+ * Notion-style mobile block drag-and-drop — the native shells' long-press path.
  *
- * The desktop/Android touch fallback (handleBlockDrag.ts) drives drag off a
- * dedicated ⠿ gutter handle (BlockProvider). On iPhone the product ask is
- * different: there is no handle at all — THE BLOCK ITSELF is the handle.
- * Touch-and-hold a block (~330-350ms; any real movement before the timer
- * cancels it, so ordinary scrolling is untouched) lifts it (a card-like ghost
- * pops up under the finger + a haptic), dragging floats that ghost with a
- * drop-indicator line at the resolved top-level boundary, and release commits
- * the move as ONE transaction (a second haptic) or, dropped back at the
- * source, is a true no-op: no transaction, no history entry, no bridge
- * 'change' message.
+ * The desktop browser (handleBlockDrag.ts) drives drag off a dedicated ⠿ gutter
+ * handle (BlockProvider). On a phone the product ask is different: there is no
+ * handle at all — THE BLOCK ITSELF is the handle. Touch-and-hold a block
+ * (~330-350ms; any real movement before the timer cancels it, so ordinary
+ * scrolling is untouched) lifts it (a card-like ghost pops up under the finger
+ * + a haptic), dragging floats that ghost with a drop-indicator line at the
+ * resolved top-level boundary, and release commits the move as ONE transaction
+ * (a second haptic) or, dropped back at the source, is a true no-op: no
+ * transaction, no history entry, no bridge 'change' message.
  *
- * Hard-won constraints, each of which cost a device debugging session:
+ * Hard-won constraints, each of which cost a device debugging session. They
+ * were all measured on iOS/WKWebView, which is the harder engine here: WebKit
+ * commits to its own text interaction at touch-down and hands the page no way
+ * to cancel it. Where Chromium's Android WebView differs is called out inline.
  *
  *  - `-webkit-user-select: none` IS NOT A SELECTION SUPPRESSION MECHANISM HERE.
  *    The first version of this plugin set it on the ProseMirror root at lift
@@ -100,9 +102,10 @@
  * `blockMove.ts` performs the move, so the two paths can never disagree about
  * where a block may land or about which drops are refused.
  *
- * Gating: this plugin is only ever constructed/`.use()`d for the native iOS
- * shell (see MilkdownEditor.svelte) — it never coexists with the block-drag
- * gutter handle for one editor instance.
+ * Gating: this plugin is only ever constructed/`.use()`d for a native shell —
+ * iOS and Android alike (`blockDragMode.ts`, read by MilkdownEditor.svelte) —
+ * and it never coexists with the block-drag gutter handle for one editor
+ * instance.
  */
 import { $prose } from '@milkdown/kit/utils';
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';

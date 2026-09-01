@@ -303,28 +303,63 @@ plugins` mid-render and the editor kept showing the previously opened note.
   seeding the off-text double-tap range and the iOS paragraph range above.
   Verified on Android and iOS devices 2026-07-10. →
   interactions/editorPointerInteractions.ts _(native shells)_
-- The iOS long-press block drag is haptic three ways: one medium impact when the
-  block lifts, a light selection tick each time the drop indicator lands on a
+- Both native shells drag a block by LONG-PRESSING THE BLOCK ITSELF — there is
+  no ⠿ handle anywhere in the editor on a phone, and the left gutter that would
+  hold one is not reserved. Touch and hold a block for ~340ms and it lifts as a
+  card-like ghost under the finger, dragging floats it with a drop-indicator
+  line at the resolved top-level boundary, and release commits the move. The ⠿
+  gutter handle is the DESKTOP BROWSER's gesture only. Verified on an Android
+  device 2026-09-01 (moto g play 2023, System WebView 151) and on the iOS
+  simulator. → src/features/editor/milkdown/blockDragMode.ts
+  `resolveBlockDragMode`, src/features/editor/milkdown/mobileBlockDnd.ts,
+  src/features/editor/milkdown/blockDragMode.test.ts
+  _(native shells, Milkdown only)_
+- A block drag is haptic three ways on both native shells: one firmer impact
+  when the block lifts, a light tick each time the drop indicator lands on a
   DIFFERENT top-level boundary, and one light impact when a release commits a
   reorder. A finger travelling inside one gap ticks nothing, a hold ticks
   nothing, edge auto-scroll ticks nothing (an auto-scroll is a hold, and a tick
   per boundary swept past would be a continuous buzz), and a release back at the
-  source is silent (it commits nothing). →
+  source is silent (it commits nothing). Same gesture, same three moments, same
+  feel on both. →
   src/features/editor/milkdown/mobileBlockDnd.ts,
   apps/ios/Sources/Editor/EditorWebView.swift `moveHapticFeedback`,
-  tests/editor-embed-milkdown.spec.ts _(native shells, iOS, Milkdown only)_
+  apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
+  `performBlockDragHaptic`,
+  tests/editor-embed-milkdown.spec.ts _(native shells, Milkdown only)_
+- On Android, a finger landing on a block silences the WebView's OWN long-press
+  haptic for the length of the press, so the lift is felt once rather than as
+  two impacts an eighth of a second apart. Chromium's long-press recogniser
+  trips around touch-down + 480ms, 128-141ms after the editor's 340ms lift. A
+  long press anywhere the editor does NOT claim as a block press still gets the
+  platform's normal buzz, and the editor's own three haptics are exempted rather
+  than silenced with it. Measured on a device 2026-09-01. →
+  apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
+  `setBlockPressActive`, packages/editor/src/bridge.ts `BlockPressMessage`
+  _(native shells, Android, Milkdown only)_
+- On Android that is ALL the shell does for the drag: Chromium's visible text
+  interaction never appears over a lifted block. A stationary hold, editable
+  focused and unfocused, draws no word highlight, no selection handles, no
+  floating Cut/Copy action mode and no magnifier — the page's own suppression
+  holds, which is the difference from WebKit. So the shell ignores `blockDrag`
+  entirely. Measured on a device 2026-09-01. →
+  src/features/editor/milkdown/mobileBlockDnd.ts,
+  packages/editor/src/bridge.ts `BlockDragMessage`
+  _(native shells, Android, Milkdown only)_
 - A block drag holding the pointer within 64px of the editor scroller's top or
   bottom edge scrolls the note continuously — 200px/s at the zone's inner lip
   ramping to 1400px/s at the edge — so a block can be dropped at a boundary that
   was off screen when it was lifted. It runs while the pointer holds still, stops
   at the document's ends, and stops on every exit (commit, no-op release, cancel,
   editor destroy). The drop indicator is recomputed each frame from the boundary
-  now under the stationary pointer. Both drag paths share it: the iOS long-press
-  drag and the ⠿ gutter handle's touch drag. →
+  now under the stationary pointer. Both drag paths share it: the native shells'
+  long-press drag and the desktop ⠿ gutter handle's touch drag. Verified on an
+  Android device 2026-09-01 — a hold within the zone scrolls continuously and
+  stops on release; a hold mid-viewport does not scroll. →
   src/features/editor/milkdown/blockDragGeometry.ts `createDragAutoScroller`,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts _(native shells, Milkdown only)_
-- A finger landing on a block in the iOS long-press block drag suspends the
+- A finger landing on a block in the long-press block drag suspends the
   platform's DELAYED text interaction from touch-down — the magnifier loupe and
   tap-and-a-half select — for as long as the press lasts, and restores it the
   moment the press resolves, however it resolves (lift, tap, scroll, cancel). It
@@ -340,9 +375,11 @@ plugins` mid-render and the editor kept showing the previously opened note.
 - A tap still places the caret and raises the keyboard, and a double-tap still
   selects a word and shows the platform Cut/Copy/Paste callout, during and after
   that press-level suspension: only the hold-triggered recognisers stand down,
-  never the tap ones. Verified on the simulator 2026-09-01. →
-  apps/ios/Sources/Editor/EditorWebView.swift `delayedTextInteractionGestures`
-  _(native shells, iOS, Milkdown only)_
+  never the tap ones. An ordinary swipe scrolls and never lifts a block.
+  Verified on the simulator 2026-09-01 and on an Android device 2026-09-01. →
+  apps/ios/Sources/Editor/EditorWebView.swift `delayedTextInteractionGestures`,
+  apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
+  `setBlockPressActive` _(native shells, Milkdown only)_
 - While a block is airborne in that drag, the suspension escalates to the WHOLE
   platform text interaction — no magnifier over the block being moved, no
   callout, no caret dragged along behind it, and the selection preference off —

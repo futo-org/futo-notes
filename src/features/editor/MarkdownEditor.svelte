@@ -38,17 +38,17 @@
      * only so editor-embed/main.ts can mount either editor from one props
      * object. CodeMirror never calls it — no native toolbar active-state. */
     onformatstate?: (active: string[]) => void;
-    /* Milkdown-only (see MilkdownEditor.svelte's onhaptic, iOS long-press
-     * block-drag path); declared here for the same reason as onformatstate.
-     * CodeMirror never calls it. */
+    /* Milkdown-only (see MilkdownEditor.svelte's onhaptic, the native shells'
+     * long-press block-drag path); declared here for the same reason as
+     * onformatstate. CodeMirror never calls it. */
     onhaptic?: (kind: 'lift' | 'drop') => void;
-    /* Milkdown-only (see MilkdownEditor.svelte's onblockdrag, iOS long-press
-     * block-drag path); declared here for the same reason as onhaptic.
-     * CodeMirror never calls it. */
+    /* Milkdown-only (see MilkdownEditor.svelte's onblockdrag, the native
+     * shells' long-press block-drag path); declared here for the same reason as
+     * onhaptic. CodeMirror never calls it. */
     onblockdrag?: (active: boolean) => void;
-    /* Milkdown-only (see MilkdownEditor.svelte's onblockpress, iOS long-press
-     * block-drag path); declared here for the same reason as onhaptic.
-     * CodeMirror never calls it. */
+    /* Milkdown-only (see MilkdownEditor.svelte's onblockpress, the native
+     * shells' long-press block-drag path); declared here for the same reason as
+     * onhaptic. CodeMirror never calls it. */
     onblockpress?: (pressed: boolean) => void;
     /* The editor engine is up and holding a document — what the Android
      * WebView gate treats as a working engine (see MilkdownEditor.svelte's

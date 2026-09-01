@@ -22,7 +22,7 @@
    * What lives elsewhere: drop-target geometry (`blockDragGeometry.ts`), the
    * block move itself (`blockMove.ts`), the two drag gestures
    * (`handleBlockDrag.ts` for the ⠿ gutter handle, `mobileBlockDnd.ts` for the
-   * iOS long-press), toolbar commands (`toolbarExec.ts`) and the native
+   * native shells' long-press), toolbar commands (`toolbarExec.ts`) and the native
    * toolbar's active-state (`formatState.ts`).
    */
   import { onMount } from 'svelte';
@@ -102,17 +102,18 @@
      * Fires deduped whenever the set of active toolbar-manifest ids at the
      * cursor/selection changes. */
     onformatstate?: (active: string[]) => void;
-    /* Notion-style mobile block drag haptics (iOS long-press path only — see
-     * bridge.ts HapticMessage / mobileBlockDnd.ts). */
+    /* Notion-style block drag haptics, from the long-press path both native
+     * shells mount (see bridge.ts HapticMessage / mobileBlockDnd.ts). */
     onhaptic?: (kind: MobileDndHapticKind) => void;
-    /* Whether a block is airborne on that same iOS long-press path. The shell
-     * suspends WKWebView's own text-interaction gestures while it is (bridge.ts
-     * BlockDragMessage) — nothing the page can do stops the OS magnifier. */
+    /* Whether a block is airborne on that same long-press path. A shell whose
+     * WebView runs its own text-interaction gestures suspends them while it is
+     * (bridge.ts BlockDragMessage) — on iOS nothing the page can do stops the
+     * OS magnifier. */
     onblockdrag?: (active: boolean) => void;
     /* Whether a finger is DOWN on a block on that same path — posted at
-     * touch-down, so the shell can stand WKWebView's delayed text interaction
-     * down before it can win, instead of waiting for a lift that may not come
-     * (bridge.ts BlockPressMessage / mobileBlockDnd.ts). */
+     * touch-down, so a shell can stand its WebView's DELAYED long-press
+     * recognisers down before they can win, instead of waiting for a lift that
+     * may not come (bridge.ts BlockPressMessage / mobileBlockDnd.ts). */
     onblockpress?: (pressed: boolean) => void;
     /* The editor engine is up and holding a document. Milkdown's
      * `Editor.make().create()` is ASYNC, so Svelte's `mount()` returns long
@@ -140,9 +141,9 @@
   }: Props = $props();
 
   /* THE single gate: the Notion-style long-press-anywhere-on-the-block path
-   * REPLACES the ⠿ gutter handle in the native iOS shell, and the two never
-   * coexist for one editor. `blockDragMode.ts` owns the decision (components
-   * do not read the platform — src/AGENTS.md).
+   * REPLACES the ⠿ gutter handle in the native shells — iOS and Android both —
+   * and the two never coexist for one editor. `blockDragMode.ts` owns the
+   * decision (components do not read the platform — src/AGENTS.md).
    *
    * `$derived` (not a plain top-level read) so the gutter CSS class and the
    * tap handlers stay wired to the `nativeShell` prop rather than to a
@@ -530,7 +531,7 @@
             emitFormatState(selection);
             // No hover on mobile — surface the handle for the block the
             // cursor now sits in (covers both real cursor moves and a tap
-            // that placed the caret). Not applicable at all under the iOS
+            // that placed the caret). Not applicable at all under the
             // long-press path — there is no handle to surface.
             if (!useMobileBlockDnd && view) {
               try {
@@ -558,9 +559,10 @@
         .use(taskCheckbox)
         .use(codeHighlight);
 
-      // THE single iOS gate (see useMobileBlockDnd above): the Notion-style
-      // long-press-anywhere-on-the-block path REPLACES the ⠿ gutter handle
-      // plugin entirely for this editor instance — the two never coexist.
+      // THE single native-shell gate (see useMobileBlockDnd above): the
+      // Notion-style long-press-anywhere-on-the-block path REPLACES the ⠿
+      // gutter handle plugin entirely for this editor instance — the two never
+      // coexist.
       builder = useMobileBlockDnd
         ? builder.use(
             createMobileBlockDndPlugin({
@@ -928,7 +930,7 @@
     }
 
     // No hover on mobile — surface the drag handle for whatever block was
-    // tapped. Not applicable under the iOS long-press path (no handle).
+    // tapped. Not applicable under the long-press path (no handle).
     if (!useMobileBlockDnd) nudgeBlockHandle(event.clientY);
   }
 
@@ -1191,8 +1193,8 @@
     white-space: pre-wrap;
   }
 
-  /* …and NONE of that applies without a handle. Under the iOS long-press path
-   * (useMobileBlockDnd -> .mobile-dnd on the container) the block itself is
+  /* …and NONE of that applies without a handle. Under the long-press path both
+   * native shells mount (useMobileBlockDnd -> .mobile-dnd) the block itself is
    * the handle, so there is nothing to keep clear of the back-swipe strip and
    * the 54px gutter is pure dead offset — the user's "gutter on the left is
    * still there, everything is still offset". Drop it back to the right side's

@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.HapticFeedbackConstants
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
@@ -308,6 +309,9 @@ class EditorHost private constructor(appContext: Context) {
             // (EditorEngineSupport.kt), and once more after the boot grace
             // period in case the bundle is still mounting.
             override fun onPageFinished(view: WebView?, url: String?) {
+                // A page that died mid-gesture never posted its `blockPress`
+                // false — see setBlockPressActive.
+                view?.isHapticFeedbackEnabled = true
                 probeEngine(isFinal = false)
                 main.removeCallbacks(graceProbe)
                 main.postDelayed(graceProbe, ENGINE_BOOT_GRACE_MS)
@@ -485,7 +489,92 @@ class EditorHost private constructor(appContext: Context) {
                 val ext = msg.optString("ext")
                 if (data.isNotEmpty() && ext.isNotEmpty()) onSaveImageData(data, ext)
             }
+            // Block-drag haptics. Both native shells mount the SAME
+            // long-press block drag (blockDragMode.ts), so the three moments
+            // and their feel are shared (bridge.ts HapticMessage).
+            "haptic" -> performBlockDragHaptic(msg.optString("kind"))
+            "blockPress" -> setBlockPressActive(msg.optBoolean("pressed"))
         }
+    }
+
+    /**
+     * The Android half of the block-drag haptics iOS does with
+     * `UIImpactFeedbackGenerator` / `UISelectionFeedbackGenerator`, mapped to
+     * the closest platform constants so the two feel alike:
+     *
+     * - `lift`  — iOS medium impact; here [HapticFeedbackConstants.LONG_PRESS],
+     *   the platform's own "you have picked this up".
+     * - `move`  — iOS `selectionChanged()`; here
+     *   [HapticFeedbackConstants.CLOCK_TICK], Android's picker/scrubber tick,
+     *   which is the same "the bar is somewhere new" signal.
+     * - `drop`  — iOS light impact; here
+     *   [HapticFeedbackConstants.CONTEXT_CLICK], a lighter click than the lift.
+     *
+     * All three exist well below `minSdk` 28, so there is no API branching.
+     * [android.view.View.performHapticFeedback] — NOT [android.os.Vibrator] —
+     * because it needs no `VIBRATE` permission and honors the user's system
+     * touch-feedback setting, the same way iOS's feedback generators honor
+     * theirs. An unknown kind is dropped, matching iOS's `default: break`: a
+     * future kind must not buzz the wrong way on an old host.
+     *
+     * [HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING] because
+     * [setBlockPressActive] turns the WebView's own view-level haptics OFF for
+     * the duration of a block press — see there. The flag skips the VIEW's
+     * setting only; the user's SYSTEM touch-feedback setting is still honored,
+     * because `FLAG_IGNORE_GLOBAL_SETTING` is deliberately not passed.
+     */
+    private fun performBlockDragHaptic(kind: String) {
+        val constant = when (kind) {
+            "lift" -> HapticFeedbackConstants.LONG_PRESS
+            "move" -> HapticFeedbackConstants.CLOCK_TICK
+            "drop" -> HapticFeedbackConstants.CONTEXT_CLICK
+            else -> null
+        }
+        // Emulators and haptics-less hardware feel nothing; this log is the
+        // proof of receipt there, matching the iOS shell's.
+        Log.d("FutoBridgeDBG", "haptic received: $kind")
+        if (constant != null) {
+            webView.performHapticFeedback(
+                constant,
+                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING,
+            )
+        }
+    }
+
+    /**
+     * The Android half of the press-level suspension iOS does by standing
+     * WKWebView's delayed text-interaction recognisers down (bridge.ts
+     * `BlockPressMessage`) — and it is a MUCH smaller job here, because
+     * Chromium is not WebKit.
+     *
+     * Measured on a moto g play 2023 (Android 13, System WebView 151), a
+     * stationary hold on a block, focused and unfocused, five runs: no word
+     * highlight, no selection handles, no floating Cut/Copy action mode, no
+     * magnifier — the page's own defences in `mobileBlockDnd.ts` (cancelled
+     * `selectstart`/`contextmenu`, re-collapsed selection, `preventDefault()`
+     * on the drag's touch stream) are enough for Chromium, which — unlike
+     * WebKit — lets the page have them. So none of iOS's
+     * `isTextInteractionEnabled`/gesture-disabling machinery is needed here,
+     * and `blockDrag` needs no host at all.
+     *
+     * ONE thing does leak through, and it is the whole reason this exists: the
+     * WebView fires its OWN [HapticFeedbackConstants.LONG_PRESS] buzz when its
+     * long-press gesture recogniser trips, 128-141 ms after the editor's `lift`
+     * (measured across five holds; the recogniser fires around touch-down +
+     * 480 ms against the editor's 340 ms lift). Two impacts a seventh of a
+     * second apart read as a stutter, not as one pickup. The view-level flag is
+     * the narrowest lever that silences it: it kills the WebView's own
+     * feedback, [performBlockDragHaptic] opts past it, and a long press
+     * anywhere the editor does NOT claim as a block press keeps its normal
+     * buzz.
+     *
+     * Restored in `onPageFinished` as well as here, because a page that dies
+     * mid-gesture never posts the matching `pressed: false` and the WebView
+     * would stay mute for the rest of the session (the iOS shell resets in
+     * `loadEditor()` for the same reason).
+     */
+    private fun setBlockPressActive(pressed: Boolean) {
+        webView.isHapticFeedbackEnabled = !pressed
     }
 
     /**

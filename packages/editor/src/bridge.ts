@@ -61,23 +61,24 @@
  * behavior). Bumping BRIDGE_VERSION needs explicit sign-off (root AGENTS.md
  * §11) — the transition does not do it.
  *
- * `haptic` (Notion-style mobile block-drag feedback — see
- * {@link HapticMessage}) ships the SAME way: additive, no version bump,
- * emitted only by the Milkdown editor's iOS long-press block-drag path
- * (`mobileBlockDnd.ts`). A host without a case for it just drops the message
- * (no haptic, exactly today's behavior).
+ * `haptic` (Notion-style block-drag feedback — see {@link HapticMessage})
+ * ships the SAME way: additive, no version bump, emitted only by the Milkdown
+ * editor's long-press block-drag path (`mobileBlockDnd.ts`), which BOTH native
+ * shells mount (`blockDragMode.ts`). A host without a case for it just drops the
+ * message (no haptic, exactly today's behavior).
  *
- * `blockDrag` ({@link BlockDragMessage}) is the third of that family, and the
- * one the page cannot do without: WKWebView's own long-press text interaction
- * — the magnifier loupe and the caret it drags — is a UIKit gesture the page
- * has no way to cancel (measured: neither `pointer-events`, `touch-action`,
- * `user-select`, cancelling `selectstart`/`selectionchange`, nor
- * `preventDefault()` on the touch stream stops it, because WebKit commits to
- * the gesture at touch-down). Only the shell that owns the WebView can suspend
- * it, so the editor reports when a block is airborne and the shell decides what
- * that means. Additive, no version bump: a host without a case for it just
- * drops the message and keeps exactly today's behavior — including today's
- * loupe.
+ * `blockDrag` ({@link BlockDragMessage}) is the third of that family, and on
+ * iOS the one the page cannot do without: WKWebView's own long-press text
+ * interaction — the magnifier loupe and the caret it drags — is a UIKit gesture
+ * the page has no way to cancel (measured: neither `pointer-events`,
+ * `touch-action`, `user-select`, cancelling `selectstart`/`selectionchange`,
+ * nor `preventDefault()` on the touch stream stops it, because WebKit commits
+ * to the gesture at touch-down). Only the shell that owns the WebView can
+ * suspend it, so the editor reports when a block is airborne and the shell
+ * decides what that means — which on Android is nothing at all (see
+ * {@link BlockDragMessage}). Additive, no version bump: a host without a case
+ * for it just drops the message and keeps exactly today's behavior — including
+ * today's loupe.
  *
  * `blockPress` ({@link BlockPressMessage}) is `blockDrag`'s earlier half, and
  * ships the same way. `blockDrag` can only be posted once the editor's own
@@ -87,8 +88,10 @@
  * selection), against the editor's 340ms lift — so nothing but the editor's own
  * timer firing on time stands between a press and the OS magnifier. `blockPress`
  * is posted at TOUCH-DOWN instead, so the shell can stand the OS gesture down
- * before it can win. Additive, no version bump, and a host without a case for it
- * keeps exactly the pre-`blockPress` behavior.
+ * before it can win. Android needs the same window for a much smaller job — the
+ * WebView's own long-press BUZZ, which lands 128-141ms after the editor's lift
+ * (measured) — and gets it from the same message. Additive, no version bump, and
+ * a host without a case for it keeps exactly the pre-`blockPress` behavior.
  */
 export const BRIDGE_VERSION = 7 as const;
 
@@ -357,12 +360,12 @@ export interface FormatStateMessage {
  *   release back at the source position is a true no-op (no transaction, no
  *   history entry) and posts no `'drop'` — see the module doc comment there.
  *
- * iOS-only BY CONSTRUCTION, which is the difference from `formatState`: Android
- * and desktop mount the ⠿ gutter-handle drag instead and never construct this
- * plugin, so there is no Android consumer to add unless Android adopts the
- * long-press gesture too (unlike `formatState`, which #104 gave one). A host
- * without a case for a kind just drops it, which is why `'move'` needed no
- * version bump: a host that only knows lift/drop keeps exactly its old feel.
+ * Emitted by BOTH native shells, which mount the same long-press block drag
+ * (`blockDragMode.ts`); the desktop browser mounts the ⠿ gutter-handle drag
+ * instead and never constructs this plugin, so there is no third consumer to
+ * add. A host without a case for a kind just drops it, which is why `'move'`
+ * needed no version bump: a host that only knows lift/drop keeps exactly its
+ * old feel.
  */
 export interface HapticMessage {
   type: 'haptic';
@@ -370,7 +373,7 @@ export interface HapticMessage {
 }
 
 /**
- * Emitted by the same iOS long-press block-drag path (`mobileBlockDnd.ts`) when
+ * Emitted by the same long-press block-drag path (`mobileBlockDnd.ts`) when
  * a block LEAVES the page (`active: true`, at the lift) and again the moment
  * the gesture resolves in any way at all — committed reorder, drop back at the
  * source, or a cancel the system forced (`active: false`). Every exit posts it,
@@ -380,9 +383,18 @@ export interface HapticMessage {
  *
  * What the iOS shell does with it: suspends the WebView's text-interaction
  * gestures, so the OS magnifier does not appear on top of the block being
- * dragged (see {@link BRIDGE_VERSION}'s doc comment). iOS-only by construction,
- * the same way `haptic` is — Android and desktop mount the ⠿ gutter-handle drag
- * and never construct this plugin.
+ * dragged (see {@link BRIDGE_VERSION}'s doc comment).
+ *
+ * What the Android shell does with it: NOTHING, and that is a measurement, not
+ * an oversight. On a moto g play 2023 (Android 13, System WebView 151), holding
+ * a block still for 1.2-1.6s — editable focused and unfocused, five runs — drew
+ * no word highlight, no selection handles, no floating Cut/Copy action mode and
+ * no magnifier over the ghost. Chromium, unlike WebKit, lets the page keep the
+ * defences `mobileBlockDnd.ts` already mounts (cancelled
+ * `selectstart`/`contextmenu`, a re-collapsed selection, `preventDefault()` on
+ * the drag's touch stream), so there is nothing left for the shell to stand
+ * down. The one thing that DID leak is a haptic, and it arrives before any
+ * lift, so the shell handles it from {@link BlockPressMessage} instead.
  */
 export interface BlockDragMessage {
   type: 'blockDrag';
@@ -391,7 +403,7 @@ export interface BlockDragMessage {
 }
 
 /**
- * Emitted by the same iOS long-press block-drag path (`mobileBlockDnd.ts`) the
+ * Emitted by the same long-press block-drag path (`mobileBlockDnd.ts`) the
  * instant a finger lands on a block (`pressed: true`) and again the instant that
  * press resolves in ANY way (`pressed: false`) — it lifted, it was an ordinary
  * tap, it turned into a scroll, or the system took the touch away. Strictly
@@ -407,10 +419,20 @@ export interface BlockDragMessage {
  * gesture is known to be a drag, and it arrives 340ms too late to be the only
  * defence (see {@link BRIDGE_VERSION}'s doc comment for the measured numbers).
  *
+ * What the Android shell does with it: silences the WebView's OWN long-press
+ * haptic for the duration of the press, and nothing else. Chromium's
+ * long-press recogniser trips around touch-down + 480ms — 128-141ms after the
+ * editor's 340ms lift, measured over five holds on a moto g play 2023 (Android
+ * 13, System WebView 151) — so without this the user feels two impacts a
+ * seventh of a second apart instead of one pickup. Its VISIBLE half needs no
+ * suspension at all (see {@link BlockDragMessage}), which is why Android acts
+ * on this message and not on that one.
+ *
  * Every `true` is matched by exactly one `false` from the plugin's single
  * disarm path: a host that suspends anything on `true` and is never told the
- * press ended would leave the editor unselectable for the rest of the session.
- * iOS-only by construction, the same way `haptic` and `blockDrag` are.
+ * press ended would leave the editor unselectable — or, on Android, mute — for
+ * the rest of the session. Both shells therefore also reset on page load, for
+ * the press that a dying page never resolves.
  */
 export interface BlockPressMessage {
   type: 'blockPress';

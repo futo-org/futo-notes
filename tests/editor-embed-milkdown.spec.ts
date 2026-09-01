@@ -610,15 +610,34 @@ async function longPressDrag(
 }
 
 // ============================================================
-// The ⠿ gutter handle's touch drag (desktop browser + Android)
+// The ⠿ gutter handle's touch drag (desktop browser)
 // ============================================================
 
-// The other drag path. It shares `blockDragGeometry.ts` and `blockMove.ts`
-// with the long-press one, and this is the case that proves the sharing: the
-// handle path used to trust positions captured at pointerdown and insert a
-// re-fitted slice, so a heading dropped where it did not fit was silently
-// unwrapped into the surrounding paragraph.
-test('a touch drag on the ⠿ handle reorders the block', async ({ page }) => {
+// The other drag path, and the only page a harness can load is `editor.html`,
+// which declares itself a native shell and therefore long-presses — hence the
+// explicit `?blockDragMode=gutter-handle` (blockDragMode.ts): its test-only
+// override is what keeps this path reachable at all from here.
+//
+// It shares `blockDragGeometry.ts` and `blockMove.ts` with the long-press one,
+// and this is the case that proves the sharing: the handle path used to trust
+// positions captured at pointerdown and insert a re-fitted slice, so a heading
+// dropped where it did not fit was silently unwrapped into the surrounding
+// paragraph.
+const gutterHandleTest = base.extend<{ page: Page }>({
+  page: async ({ browser }, use) => {
+    const context = await browser.newContext({ hasTouch: true });
+    await context.addInitScript(installFakeAndroidHost);
+    const page = await context.newPage();
+    await page.goto(`${EDITOR_URL}?blockDragMode=gutter-handle`);
+    await page.waitForFunction(() =>
+      (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+    );
+    await use(page);
+    await context.close();
+  },
+});
+
+gutterHandleTest('a touch drag on the ⠿ handle reorders the block', async ({ page }) => {
   const cdp = await page.context().newCDPSession(page);
   await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
   await clearMessages(page);
@@ -652,14 +671,16 @@ test('a touch drag on the ⠿ handle reorders the block', async ({ page }) => {
   await cdp.detach();
 });
 
-// The long-press path is gated to the native iOS shell; `?forceMobileDnd` is
-// the test-only way in (headless Chromium can never be sniffed as iOS).
+// The long-press path is what a bare `editor.html` mounts — the page both
+// native shells load declares `nativeShell: true`, and that flag IS the gate
+// (blockDragMode.ts). This fixture differs from the default one only in
+// carrying a CDP session for the genuine touch stream.
 const mobileDndTest = base.extend<{ page: Page; cdp: CDPSession }>({
   page: async ({ browser }, use) => {
     const context = await browser.newContext({ hasTouch: true });
     await context.addInitScript(installFakeAndroidHost);
     const page = await context.newPage();
-    await page.goto(`${EDITOR_URL}?forceMobileDnd`);
+    await page.goto(EDITOR_URL);
     await page.waitForFunction(() =>
       (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
     );
