@@ -1369,6 +1369,146 @@ base('killing the app mid-stream leaves the note file byte-untouched', async ({ 
 });
 
 // ============================================================
+// The parse cap — a note with one enormous block (the huge-note trap)
+// ============================================================
+//
+// Progressive open streams a note in top-level blocks, so it has nothing to
+// offer a note that IS one block. Measured against these exact bundle bytes in
+// chromium (2026-09-01): the cost of a whole-document parse is driven not by
+// the note's size but by the size of its largest INLINE CONTENT RUN, and it is
+// superlinear in it — micromark's text tokenizer merges adjacent data tokens by
+// splicing one events array, which is quadratic inside a single run.
+//
+// | fixture (same 1.26 MB either way)      | initialize |
+// |---|---|
+// | 1.26 MB in ONE line (one inline node)  | 107 ms     |
+// | 20k lines, blank line every 200        | 667 ms     |
+// | 20k lines, blank line every line       | 2,264 ms   |
+// | 20k lines, NO blank line (one run)     | 7,796 ms   |
+//
+// A user's 50,000-line note with no blank line anywhere took 28 s here and
+// minutes on a phone: the editor showed nothing, and because the iOS shell
+// cannot read a document that never mounted, Back refused to leave. The editor's
+// half of that fix is this cap — a note whose largest run is past what parses in
+// bounded time mounts a BOUNDED, READ-ONLY preview and says so, instead of
+// blocking the engine on a parse that may never finish.
+//
+// Read-only is what makes it safe rather than merely fast: the note is never
+// serialized, so `getContent()` answers with the host's own bytes and no save
+// can ever write the preview over the real file. A prefix the user could edit
+// is the one trade this must not make (docs/plan/milkdown-transition.md §5).
+
+/**
+ * A note that is ONE paragraph: every line is a sentence and there is no blank
+ * line anywhere, so `planMarkdownChunks` declines it (`no-boundary`) and the
+ * whole document goes through a single parse.
+ *
+ * 20,000 lines rather than the reported 50,000 deliberately: it is the smallest
+ * fixture that reproduces the block clearly (7.8 s in chromium against ~50 ms
+ * after the cap), and a regression fails the timing assertion below instead of
+ * blowing the spec timeout with no message.
+ */
+function oneParagraphNote(lines: number): string {
+  return Array.from(
+    { length: lines },
+    (_, i) => `Line ${i + 1} of this note is an ordinary sentence about something.`,
+  ).join('\n');
+}
+
+const OVER_CAP_LINES = 20_000;
+/** Comfortably past the measured 7.8 s block, comfortably past the ~50 ms fix. */
+const OPEN_BUDGET_MS = 2_000;
+
+async function initializeTimed(page: Page, content: string): Promise<number> {
+  return page.evaluate((json) => {
+    const w = window as unknown as FakeHostWindow & { __msgs: { type: string }[] };
+    w.__msgs.length = 0;
+    const started = performance.now();
+    w.FutoEditor.initialize(json);
+    return performance.now() - started;
+  }, hostConfig({ content }));
+}
+
+test('a note that is one enormous paragraph opens instead of blocking the engine', async ({
+  page,
+}) => {
+  const note = oneParagraphNote(OVER_CAP_LINES);
+
+  const elapsed = await initializeTimed(page, note);
+
+  expect(elapsed).toBeLessThan(OPEN_BUDGET_MS);
+  // It really did mount something the user can read, rather than "opening" by
+  // rendering nothing at all.
+  expect(await page.locator('.ProseMirror').innerText()).toContain('Line 1 of this note');
+});
+
+test('an over-cap note mounts a bounded preview, not the whole document', async ({ page }) => {
+  const note = oneParagraphNote(OVER_CAP_LINES);
+
+  await initializeTimed(page, note);
+
+  const mounted = (await page.locator('.ProseMirror').innerText()).length;
+  // Bounded, and bounded well under the note: the preview budget is a few
+  // hundred lines against twenty thousand.
+  expect(mounted).toBeGreaterThan(1_000);
+  expect(mounted).toBeLessThan(note.length / 4);
+});
+
+test('an over-cap note tells the user it is read-only and why', async ({ page }) => {
+  await initializeTimed(page, oneParagraphNote(OVER_CAP_LINES));
+
+  const notice = page.locator('.milkdown-oversize-notice');
+  await expect(notice).toHaveCount(1);
+  // The two facts the user needs: nothing they do here is saved, and how much
+  // of the note they are looking at.
+  await expect(notice).toContainText(/read-only/i);
+  await expect(notice).toContainText('20,000');
+});
+
+test('an over-cap note hands the host back its own bytes and posts no change', async ({ page }) => {
+  const note = oneParagraphNote(OVER_CAP_LINES);
+
+  await initializeTimed(page, note);
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(note);
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+});
+
+test('typing into an over-cap note cannot change the note the host would save', async ({
+  page,
+}) => {
+  const note = oneParagraphNote(OVER_CAP_LINES);
+  await initializeTimed(page, note);
+  await clearMessages(page);
+
+  await page.locator('.ProseMirror').click();
+  await page.keyboard.type('DESTROY');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(note);
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+});
+
+test('a one-paragraph note UNDER the cap still opens fully editable', async ({ page }) => {
+  const note = oneParagraphNote(2_000);
+
+  const elapsed = await initializeTimed(page, note);
+
+  expect(elapsed).toBeLessThan(OPEN_BUDGET_MS);
+  await expect(page.locator('.milkdown-oversize-notice')).toHaveCount(0);
+  expect(await getContent(page)).toBe(note);
+
+  await focusEditor(page);
+  await page.keyboard.type('x');
+  await settleChangeDebounce(page);
+
+  const changes = await messagesOfType(page, 'change');
+  expect(changes.length).toBeGreaterThan(0);
+  expect(await getContent(page)).toContain('x');
+});
+
+// ============================================================
 // Images (#103) — vault-relative rendering
 // ============================================================
 

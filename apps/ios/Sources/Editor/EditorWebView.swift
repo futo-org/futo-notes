@@ -20,6 +20,56 @@ func editorGenerationAfterDetach(
     detachedToken == currentGeneration ? currentGeneration + 1 : currentGeneration
 }
 
+/// What an exit's attempt to read the open editor came back with.
+///
+/// The three cases exist because `nil` used to mean two opposite things, and the
+/// difference is whether the user can leave the screen. An editor that answered
+/// with its document, an editor that CANNOT hold anything this shell has not
+/// seen, and an editor that belongs to another note are three different
+/// situations; collapsing the middle one into "could not read" is what trapped a
+/// user on a note whose editor never mounted.
+enum EditorCaptureOutcome: Equatable {
+    /// The editor answered with its live document.
+    case captured(String)
+    /// There is no live document to read. The bundle never reported
+    /// `initialized` (a cold WebView, or one whose WebContent process died), or
+    /// it stopped answering altogether — a JS thread blocked on a parse that
+    /// will not finish inside any deadline. Either way it cannot be holding a
+    /// user edit, because it never presented an editable document.
+    case noLiveDocument
+    /// A different note owns the shared WebView now, so this capture would read
+    /// the WRONG document.
+    case notOurs
+}
+
+/// The body an exit should commit, given what the capture came back with.
+///
+/// `nil` means REFUSE the exit: reading the editor would answer for the wrong
+/// note, so leaving might discard an edit this shell cannot see.
+///
+/// {@link EditorCaptureOutcome.noLiveDocument} is not that case. An editor that
+/// never presented a document holds nothing, so `shellCopy` — the body this
+/// shell read from disk and has been keeping in step with the editor's own
+/// `change` messages — IS the freshest body in existence, and the exit proceeds
+/// with it. When the editor never loaded at all, that body still equals what is
+/// on disk and the commit is a no-op: leaving ABANDONS the load rather than
+/// saving a prefix, which is the only honest thing to do with a document the
+/// shell cannot read.
+///
+/// 2026-09-01: without this, opening a 50,000-line single-paragraph note left
+/// the user unable to leave the screen at all — every Back tap answered
+/// "Couldn't read the latest note. Navigation is paused while your changes
+/// remain pending.", forever, with force-quit and Delete Note the only exits.
+/// Android has had the same rule since `EditorSession.exitWithoutEditor`
+/// (docs/spec/editor.md, "Editor exits").
+func editorExitBody(_ outcome: EditorCaptureOutcome, shellCopy: String) -> String? {
+    switch outcome {
+    case .captured(let body): body
+    case .noLiveDocument: shellCopy
+    case .notOurs: nil
+    }
+}
+
 enum EditorNavigationDecision: Equatable {
     case allow
     case openExternally(URL)
@@ -48,6 +98,28 @@ func editorNavigationDecision(
         return .openExternally(url)
     default:
         return .deny
+    }
+}
+
+/// Resumes one capture continuation exactly once, whichever of the page's reply
+/// and the deadline gets there first.
+///
+/// A `withTaskGroup` race cannot do this job: cancelling the group does not
+/// cancel an `evaluateJavaScript` that never calls back, and `withTaskGroup`
+/// waits for every child to finish before returning — so racing a timeout that
+/// way hangs on exactly the case it exists for.
+@MainActor
+private final class EditorCaptureResumer {
+    private var continuation: CheckedContinuation<EditorCaptureOutcome, Never>?
+
+    init(_ continuation: CheckedContinuation<EditorCaptureOutcome, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ outcome: EditorCaptureOutcome) {
+        guard let pending = continuation else { return }
+        continuation = nil
+        pending.resume(returning: outcome)
     }
 }
 
@@ -606,9 +678,25 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             "window.FutoEditor && window.FutoEditor.blur();", completionHandler: nil)
     }
 
-    /// Blur and read the exact CodeMirror document owned by the current
-    /// attachment. A later editor adoption invalidates the completion.
-    func captureCurrentContent() async -> String? {
+    /// How long an exit waits for the page to answer before giving up on it.
+    ///
+    /// This is what keeps an exit FINITE. A WKWebView whose JS thread is blocked
+    /// never calls the completion handler at all, and `.navigate` holds the
+    /// interaction lock while it waits — so with no deadline the Back button is
+    /// simply dead, which is a worse trap than the toast. Six seconds is far
+    /// longer than any real capture (milliseconds; low seconds for a
+    /// multi-megabyte note, whose serialization is the cost) and far shorter
+    /// than a wedge, which does not end.
+    private static let captureDeadlineSeconds: TimeInterval = 6
+
+    /// Blur and read the exact document owned by the current attachment.
+    ///
+    /// A later editor adoption makes the answer `.notOurs`; a page that has not
+    /// reported `initialized`, or does not answer within
+    /// ``captureDeadlineSeconds``, makes it `.noLiveDocument`. See
+    /// ``editorExitBody(_:shellCopy:)`` for why those two are not the same
+    /// answer.
+    func captureCurrentContent() async -> EditorCaptureOutcome {
         let capturedGeneration = generation
         await completionQueue.waitForCurrent()
         guard
@@ -616,9 +704,13 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 capturedGeneration: capturedGeneration,
                 currentGeneration: generation
             )
-        else { return nil }
-        guard isReady else { return nil }
+        else { return .notOurs }
+        // No `initialized` yet: the bundle is still applying this shell's config
+        // — for a note big enough, for a long time — so there is no document on
+        // screen and nothing of the user's to lose.
+        guard isReady else { return .noLiveDocument }
         return await withCheckedContinuation { continuation in
+            let answer = EditorCaptureResumer(continuation)
             webView.evaluateJavaScript(
                 """
                 (() => {
@@ -635,10 +727,21 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                         currentGeneration: self.generation
                     )
                 else {
-                    continuation.resume(returning: nil)
+                    answer.resume(.notOurs)
                     return
                 }
-                continuation.resume(returning: result as? String)
+                guard let text = result as? String else {
+                    // The page is alive but has no `window.FutoEditor` — the
+                    // legacy-WebView notice, or a page that failed to boot.
+                    answer.resume(.noLiveDocument)
+                    return
+                }
+                answer.resume(.captured(text))
+            }
+            // Both this and the completion handler above run on the main thread,
+            // so the resumer needs no lock — only the once-only latch.
+            DispatchQueue.main.asyncAfter(deadline: .now() + EditorHost.captureDeadlineSeconds) {
+                answer.resume(.noLiveDocument)
             }
         }
     }
