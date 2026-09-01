@@ -641,7 +641,12 @@ bounded READ-ONLY preview with a notice saying the editor could not open it. It 
 fast and the maintainer rejected it on sight — correctly. A 4,280-line note is an ordinary pasted
 transcript or log, the CodeMirror editor opens it without complaint, and "more than the editor can
 open" is a capitulation with a friendly voice. Reverted the same day; the shell half of that lane
-(Back always leaves, `.noLiveDocument` vs `.notOurs`) is independent and stays.
+(Back always leaves, `.noLiveDocument` vs `.notOurs`) is independent and stays. Both native shells
+now hold that rule: iOS in `editorExitBody` (57cc910a) and Android in the same-named Kotlin
+function, whose capture answers `NoLiveDocument` when the bundle has not reported `initialized` or
+the renderer does not answer inside a 6 s deadline — the Android trap is the deadline, because
+`isReady` is app-lifetime state on the pre-warmed WebView and stays true while `setContent` blocks
+the renderer.
 
 **Second answer: make the parse fast.** Two candidate causes, both measured rather than argued.
 

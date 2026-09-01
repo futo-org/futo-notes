@@ -337,8 +337,21 @@ fun NoteEditorScreen(
                     saveJob?.cancel()
                 }
 
+                // null REFUSES the exit, so it is reserved for the one case
+                // where reading the shared WebView is genuinely ambiguous:
+                // another note owns it. An editor holding no live document
+                // cannot be holding an edit this screen has not seen, so the
+                // exit leaves on `content` — read from disk, then kept in step
+                // with every editor `change` — and commitBody's own
+                // savedContent guard makes that a no-op when the note never
+                // finished loading. See editorExitBody.
                 override suspend fun captureBody(): String? =
-                    attachment?.let { host.captureContentAndWait(it) }
+                    editorExitBody(
+                        attachment
+                            ?.let { host.captureContentAndWait(it) }
+                            ?: EditorCaptureOutcome.NotOurs,
+                        shellCopy = content,
+                    )
 
                 override suspend fun commitBody(body: String): Boolean {
                     content = body

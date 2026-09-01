@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.BuildConfig
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.coroutines.resume
@@ -640,18 +641,37 @@ class EditorHost private constructor(appContext: Context) {
             insert.run()
         }
 
-    /** Blur and read the live CodeMirror document for save-before-navigation.
+    /**
+     * Blur and read the live document for save-before-navigation.
+     *
      * The attachment check prevents a delayed callback from supplying bytes
-     * from whichever note adopts the shared WebView next. */
+     * from whichever note adopts the shared WebView next — that, and only that,
+     * is [EditorCaptureOutcome.NotOurs], the answer that refuses the exit. A
+     * page with no document to read answers [EditorCaptureOutcome.NoLiveDocument]
+     * instead, which lets the exit leave on the shell's own buffer; see
+     * [editorExitBody] for why those two are not the same answer.
+     */
     internal suspend fun captureContentAndWait(
         attachment: EditorAttachmentToken,
-    ): String? =
+    ): EditorCaptureOutcome {
+        // No `initialized` yet: the bundle is still applying this shell's
+        // config — for a big enough note, for a long time — so nothing is on
+        // screen and there is nothing of the user's to lose. Answer without
+        // touching the renderer at all.
+        if (!isReady) return EditorCaptureOutcome.NoLiveDocument
+        return withTimeoutOrNull(CAPTURE_DEADLINE_MS) { awaitCapture(attachment) }
+            ?: EditorCaptureOutcome.NoLiveDocument
+    }
+
+    private suspend fun awaitCapture(
+        attachment: EditorAttachmentToken,
+    ): EditorCaptureOutcome =
         suspendCancellableCoroutine { continuation ->
             val permit = EditorAttachmentOperationPermit(attachments, attachment)
             continuation.invokeOnCancellation { permit.cancel() }
             val capture = Runnable {
                 if (!permit.mayRun()) {
-                    if (continuation.isActive) continuation.resume(null)
+                    if (continuation.isActive) continuation.resume(EditorCaptureOutcome.NotOurs)
                     return@Runnable
                 }
                 webView.evaluateJavascript(
@@ -663,18 +683,27 @@ class EditorHost private constructor(appContext: Context) {
                     })()
                     """.trimIndent(),
                 ) { result ->
+                    // The deadline may already have answered for us. Returning
+                    // here is what makes a late callback harmless: the stale
+                    // bytes never reach [lastPushedContent].
                     if (!continuation.isActive) return@evaluateJavascript
                     if (!attachments.permits(attachment)) {
-                        continuation.resume(null)
+                        continuation.resume(EditorCaptureOutcome.NotOurs)
                         return@evaluateJavascript
                     }
                     val captured = decodeJavascriptString(result)
-                    if (captured != null) lastPushedContent = captured
-                    continuation.resume(captured)
+                    if (captured == null) {
+                        // The page answered but has no `window.FutoEditor` —
+                        // the legacy-WebView notice, or a boot that failed.
+                        continuation.resume(EditorCaptureOutcome.NoLiveDocument)
+                        return@evaluateJavascript
+                    }
+                    lastPushedContent = captured
+                    continuation.resume(EditorCaptureOutcome.Captured(captured))
                 }
             }
             if (Looper.myLooper() != Looper.getMainLooper()) {
-                if (continuation.isActive) continuation.resume(null)
+                if (continuation.isActive) continuation.resume(EditorCaptureOutcome.NotOurs)
                 return@suspendCancellableCoroutine
             }
             capture.run()
@@ -783,6 +812,21 @@ class EditorHost private constructor(appContext: Context) {
         /** Left/right inset of the note body, sent to the bundle in the host
          *  config so it lines up with this shell's native title field. */
         private const val CONTENT_PADDING_INLINE_PX = 16
+
+        /**
+         * How long an exit waits for the renderer to answer before giving up on
+         * it — what keeps an exit FINITE.
+         *
+         * `evaluateJavascript` runs in the renderer process, so a JS thread
+         * stuck inside a parse never calls the callback at all. The navigation
+         * exit holds the interaction lock while it waits, which with no
+         * deadline leaves Back simply dead — a worse trap than the toast. Six
+         * seconds is far longer than any real capture (milliseconds; low
+         * seconds on a low-end phone for a multi-megabyte note, whose
+         * serialization is the cost) and far shorter than a wedge, which does
+         * not end.
+         */
+        private const val CAPTURE_DEADLINE_MS = 6_000L
 
         @Volatile
         private var instance: EditorHost? = null

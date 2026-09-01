@@ -1487,8 +1487,9 @@ EditorSessionTest.kt, EditorSessionTests.swift
   loaded, that body still equals disk and the commit is a no-op: leaving
   **abandons the load** rather than saving a prefix. A capture therefore always
   completes in bounded time, so no exit can be blocked indefinitely by an
-  unresponsive editor. _(iOS)_ → EditorWebView.swift `editorExitBody`,
-  `captureCurrentContent`, EditorExitBodyTests
+  unresponsive editor. _(iOS/Android)_ → EditorWebView.swift `editorExitBody`,
+  `captureCurrentContent`, EditorExitBodyTests, EditorNavigationCommit.kt
+  `editorExitBody`, EditorWebView.kt `captureContentAndWait`, EditorExitBodyTest
 - A **committed** delete's latch is one-way for that session: no pending
   workflow, queued bridge callback, title debounce, or in-flight adoption can
   touch the note afterwards. _(iOS/Android)_
