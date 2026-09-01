@@ -1,4 +1,4 @@
-// Gate red-proof harness — the meta-gate that proves the other gates work.
+// Targeted gate red-proof harness — proves changed gates work.
 //
 //   node scripts/gate-redproofs.mjs                (just gate-redproofs)
 //   node scripts/gate-redproofs.mjs --self-test    (only the harness self-test)
@@ -12,8 +12,10 @@
 // unmatched JSON entry, so a retired counter could never be retired),
 // db31586c (the docs-only CI fast path skipped check-agent-docs). Every one of
 // those gates was GREEN while stepping over a real violation. Every gate this
-// repo has added later needed a red-proof it did not originally have — this is
-// that standing red-proof (AGENTS.md M11: no silent green).
+// repo has added later needed a red-proof it did not originally have. This
+// harness remains available for gate changes, but is deliberately outside the
+// routine `just check`/`prepush` path so unchanged conclusions are not re-proved
+// on every commit (AGENTS.md M11: no silent green).
 //
 // WHAT IT PROVES. For each covered gate, both directions:
 //   GREEN — the gate exits 0 on a pristine checkout (otherwise a red-proof is
@@ -64,16 +66,16 @@ const GATES = {
   'drift-check': ['node', ['scripts/drift-check.mjs']],
   'agent-docs': ['node', ['scripts/check-agent-docs.mjs']],
   'qa-input-safety': ['node', ['scripts/check-qa-input-safety.mjs']],
-  'spec-gaps': ['node', ['scripts/spec-gaps.mjs', '--check']],
   'toolbar-spec': ['node_modules/.bin/tsx', ['scripts/gen-toolbar-spec.ts', '--check']],
   'title-spec': ['node_modules/.bin/tsx', ['scripts/gen-title-spec.ts', '--check']],
   'bridge-spec': ['node_modules/.bin/tsx', ['scripts/gen-bridge-spec.ts', '--check']],
+  'theme-single-pace': ['node', ['scripts/check-theme-single-pace.mjs']],
   'rust-dependency-boundaries': ['node', ['scripts/check-rust-dependency-boundaries.mjs']],
 };
 
 // Gates whose proof needs a Rust toolchain. Kept out of the default run so the
-// harness can live in `check:arch-gate:portable`, which CI runs in an image
-// with no cargo.
+// default command stays usable on machines and CI images without cargo. The
+// `just gate-redproofs` recipe opts into these proofs explicitly.
 const CARGO_GATES = new Set(['rust-dependency-boundaries']);
 
 // Gates this harness deliberately does NOT cover, printed on every run so the
@@ -96,23 +98,6 @@ const TITLE_SWIFT = 'apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift'
 const TITLE_KOTLIN = 'apps/android/app/src/main/java/com/futo/notes/ui/TitleSpec.kt';
 const BRIDGE_SWIFT = 'apps/ios/Sources/Editor/GeneratedContracts/BridgeSpec.swift';
 const BRIDGE_KOTLIN = 'apps/android/app/src/main/java/com/futo/notes/ui/BridgeSpec.kt';
-
-// The live closure probe the `spec-gaps/closure-probe-fires` proof borrows (issue
-// #80, the Android dropped-keystroke divergence). A closure probe fires only when
-// BOTH halves line up — a gap note its `match` hits, and codebase evidence its
-// `closed()` finds — so the proof has to seed both. These name the two halves:
-// the phrase the probe matches on, and the file plus the vocabulary its
-// `closed()` greps for.
-//
-// A probe is retired the moment its gap closes, which is a NORMAL, healthy
-// event — so the proof asserts the coupling itself and fails loudly with
-// instructions when this probe goes. Do not silently delete the proof: repoint
-// these four constants at another live probe in scripts/spec-gaps.mjs.
-const CLOSURE_PROBE_GAP_PHRASE = 'destructive latch is DROPPED on Android';
-const CLOSURE_PROBE_EVIDENCE_FILE =
-  'apps/android/app/src/main/java/com/futo/notes/ui/EditorSession.kt';
-const CLOSURE_PROBE_EVIDENCE_ANCHOR = 'package com.futo.notes.ui';
-const CLOSURE_PROBE_EVIDENCE_VOCAB = 'quarantine';
 
 // ---------------------------------------------------------------------------
 // Seeding helpers — every mutation goes through these so revert stays simple
@@ -325,6 +310,91 @@ const PROOFS = [
     fix: 'validateSkillLinks()/listSkillEntries() in scripts/check-agent-docs.mjs stopped stat-ing skill symlinks — a committed link into a gitignored directory loads in exactly one checkout and is dead everywhere else.',
   },
   {
+    gate: 'theme-single-pace',
+    id: 'css-transition-over-a-theme-colour',
+    seeded:
+      'created src/styles/redproof-sentinel-theme.css transitioning background-color at a themed rest value',
+    claim:
+      'a CSS transition covering a theme-dependent property whose rest value is a real colour must fail — that is the desktop half of the law 55478cfc fixed',
+    inject: (wt) =>
+      seed.write(
+        wt,
+        'src/styles/redproof-sentinel-theme.css',
+        '/* Seeded by scripts/gate-redproofs.mjs inside a throwaway git worktree. */\n' +
+          '.redproof-sentinel-themed {\n' +
+          '  background-color: var(--color-surface);\n' +
+          '  transition: background-color 0.15s ease;\n' +
+          '}\n',
+      ),
+    expect: [
+      'src/styles/redproof-sentinel-theme.css',
+      '.redproof-sentinel-themed',
+      'background-color',
+    ],
+    absent: ['TopAppBar'],
+    fix: 'the CSS half of scripts/check-theme-single-pace.mjs stopped seeing themed transitions — RULE_BLOCK_RE, THEME_PROPERTIES or restValue() drifted. Desktop theme swaps can flicker again (55478cfc).',
+  },
+  {
+    gate: 'theme-single-pace',
+    id: 'compose-topappbar-outside-the-wrapper',
+    seeded: 'created a Compose screen calling Material3 TopAppBar directly',
+    claim:
+      "a raw Material3 TopAppBar in app code must fail — M3 springs the bar's container colour through animateColorAsState while the rest of the screen snaps",
+    inject: (wt) =>
+      seed.write(
+        wt,
+        'apps/android/app/src/main/java/com/futo/notes/ui/RedproofSentinelScreen.kt',
+        '// Seeded by scripts/gate-redproofs.mjs inside a throwaway git worktree.\n' +
+          'package com.futo.notes.ui\n\n' +
+          'fun redproofSentinelBar() {\n' +
+          '    TopAppBar(title = {})\n' +
+          '}\n',
+      ),
+    expect: ['RedproofSentinelScreen.kt', 'TopAppBar', 'TopBar'],
+    absent: ['redproof-sentinel-theme.css'],
+    fix: 'the Compose half of scripts/check-theme-single-pace.mjs stopped seeing direct TopAppBar calls — TOP_APP_BAR_CALL_RE or the walk() scope drifted. A fifth Android top bar can reintroduce the theme-swap spring.',
+  },
+  {
+    gate: 'theme-single-pace',
+    id: 'swiftui-preferredcolorscheme-applies-the-theme',
+    seeded: 'created a SwiftUI view applying the theme with .preferredColorScheme',
+    claim:
+      'applying the theme as a SwiftUI preference rather than a window trait must fail — it never reaches an already-presented sheet, which then keeps its old appearance for good',
+    inject: (wt) =>
+      seed.write(
+        wt,
+        'apps/ios/Sources/App/RedproofSentinelTheme.swift',
+        '// Seeded by scripts/gate-redproofs.mjs inside a throwaway git worktree.\n' +
+          'import SwiftUI\n\n' +
+          'struct RedproofSentinelTheme: View {\n' +
+          '    var body: some View {\n' +
+          '        Text("seeded").preferredColorScheme(.dark)\n' +
+          '    }\n' +
+          '}\n',
+      ),
+    expect: ['RedproofSentinelTheme.swift', 'preferredColorScheme', 'appearanceOverride'],
+    absent: ['TopAppBar'],
+    fix: 'the SwiftUI half of scripts/check-theme-single-pace.mjs stopped seeing .preferredColorScheme. Measured on iOS 26: with it, tapping Light/Dark left the open Settings sheet unchanged for all 468 recorded frames.',
+  },
+  {
+    gate: 'theme-single-pace',
+    id: 'wrapper-loses-its-transparent-container',
+    seeded: "changed TopBar's containerColor away from Color.Transparent",
+    claim:
+      "the wrapper losing its constant container colour must fail — the transparent container is the only reason M3's animateColorAsState has nothing to animate",
+    inject: (wt) =>
+      seed.replace(
+        wt,
+        'apps/android/app/src/main/java/com/futo/notes/ui/components/TopBar.kt',
+        'containerColor = Color.Transparent',
+        'containerColor = FutoTheme.colors.surface',
+      ),
+    expect: ['TopBar.kt', 'Color.Transparent'],
+    absent: ['redproof-sentinel-theme.css'],
+    marker: 'claim',
+    fix: 'the wrapper-integrity check in scripts/check-theme-single-pace.mjs stopped firing. Routing every bar through TopBar buys nothing if the wrapper itself can go back to a themed container colour.',
+  },
+  {
     gate: 'qa-input-safety',
     id: 'os-input-technique-in-an-instruction-file',
     seeded: "added the incident's own AppleScript keystroke recipe to README.md",
@@ -431,67 +501,6 @@ const PROOFS = [
     expect: ['README.md', 'relative-newermt', 'touch -t'],
     absent: ['cliclick'],
     fix: "the relative-newermt rule stopped firing. This is the check that produced the incident's false all-clear on the user's vault — a safety check that cannot fail is worse than none.",
-  },
-  {
-    gate: 'spec-gaps',
-    id: 'closure-probe-fires',
-    seeded:
-      'added a `> **Gap:**` note to docs/spec/settings.md AND the codebase evidence that makes its closure probe fire',
-    claim: 'a recorded gap the codebase shows as implemented must fail, so the spec gets updated',
-    // BOTH halves are seeded deliberately. A closure probe fires only when a gap
-    // note matches AND `closed()` finds evidence in the tree, so seeding the note
-    // alone can never turn one red — which is exactly how this proof shipped:
-    // it asserted the `iOS.* app has no Settings surface` probe that had been
-    // retired (correctly — iOS grew a Settings surface) long before, so it was
-    // red from the moment it merged, and its `fix:` line sent readers after a
-    // probe that no longer existed. Seeding the evidence too makes the proof
-    // exercise the PROBES mechanism instead of depending on whichever real gap
-    // happens to be open.
-    inject: (wt) => {
-      // Assert the borrowed probe still exists BEFORE seeding, so its retirement
-      // reads as `inject-failed` with instructions rather than a bare
-      // `marker-missing` that leaves the next person guessing.
-      if (!seed.read(wt, 'scripts/spec-gaps.mjs').includes(CLOSURE_PROBE_GAP_PHRASE)) {
-        throw new Error(
-          `no closure probe in scripts/spec-gaps.mjs matches ` +
-            `${JSON.stringify(CLOSURE_PROBE_GAP_PHRASE)} — it was almost certainly retired ` +
-            `when its gap closed, which is normal. Repoint the CLOSURE_PROBE_* constants in ` +
-            `scripts/gate-redproofs.mjs at another live probe and the evidence its closed() ` +
-            `greps for. Do not delete this proof.`,
-        );
-      }
-      seed.append(
-        wt,
-        'docs/spec/settings.md',
-        `\n> **Gap:** REDPROOF-SENTINEL ${CLOSURE_PROBE_GAP_PHRASE}.\n`,
-      );
-      seed.replace(
-        wt,
-        CLOSURE_PROBE_EVIDENCE_FILE,
-        CLOSURE_PROBE_EVIDENCE_ANCHOR,
-        `${CLOSURE_PROBE_EVIDENCE_ANCHOR}\n\n// ${CLOSURE_PROBE_EVIDENCE_VOCAB}: seeded by scripts/gate-redproofs.mjs`,
-      );
-    },
-    expect: ['Closure probe fired for settings.md:', 'REDPROOF-SENTINEL'],
-    fix: `the PROBES loop in scripts/spec-gaps.mjs stopped running, or the probe matching ${JSON.stringify(CLOSURE_PROBE_GAP_PHRASE)} no longer reports its hits. Closure probes are what stop docs/spec/ recording gaps that were fixed months ago. If that probe was retired because its gap closed, this proof throws from inject() with repointing instructions instead of reaching here.`,
-  },
-  {
-    gate: 'spec-gaps',
-    id: 'stale-gap-inventory',
-    seeded: 'added a `> **Gap:**` note to docs/spec/settings.md without regenerating GAPS.md',
-    claim: 'GAPS.md that no longer matches the inline gap notes must fail',
-    inject: (wt) =>
-      seed.append(
-        wt,
-        'docs/spec/settings.md',
-        '\n> **Gap:** REDPROOF-SENTINEL placeholder, no closure probe matches this text.\n',
-      ),
-    // The gate reports staleness without echoing the gap text, so this proof
-    // asserts on the gate's own claim sentence — it still separates "detected"
-    // from "crashed", which is the line that matters.
-    expect: ['GAPS.md is stale'],
-    marker: 'claim',
-    fix: 'the render()-vs-file comparison in scripts/spec-gaps.mjs --check stopped firing, or GAP_LINE_RE no longer matches a plain `> **Gap:**` line (the qualified-gap bug this regex was widened for).',
   },
   {
     gate: 'toolbar-spec',
@@ -924,7 +933,7 @@ function main() {
       if (CARGO_GATES.has(name) && !includeCargo) {
         skipped.push({
           gate: name,
-          why: 'needs a Rust toolchain, and CI runs the portable arch-gate in an image without cargo. Re-run with --include-cargo (`just gate-redproofs` does).',
+          why: 'needs a Rust toolchain, so the default portable command omits it. Re-run with --include-cargo (`just gate-redproofs` does).',
         });
         return false;
       }

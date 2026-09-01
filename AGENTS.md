@@ -11,7 +11,7 @@ Engineering defaults: the simplest implementation that fully meets the current r
 established, well-maintained library over a custom one.
 
 **Read the nearest nested `AGENTS.md` before editing a layer.** This includes `src/`,
-`packages/editor/`, `crates/futo-notes-{core,sync}/`, each app, `docs/spec/`, and `factory/`.
+`packages/editor/`, `crates/futo-notes-{core,sync}/`, each app, and `docs/spec/`.
 
 For structural work, read `docs/architecture/codebase-organization.md`: use the narrowest real
 owner, make shared code earn its scope, keep entry points as orchestration, co-locate tests, and
@@ -39,7 +39,7 @@ Their nested manuals own build, device, release, and test variants. Missing
   safety + atomic files) · `-store` (THE local note engine) · `-sync` (push-first `run_sync`, SSE) ·
   `-search` (Tantivy BM25) · `-ffi` (UniFFI projection; bindings gitignored).
 - `apps/`: Tauri desktop plus native iOS and Android shells.
-- `docs/spec/`: behavioral truth; `tests/`, `markdown-spec/`, `factory/`: fixture/oracle systems.
+- `docs/spec/`: behavioral truth; `tests/` and `markdown-spec/`: fixture/oracle systems.
 
 Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
 at `~/Developer/futo-notes-server` receives only client-encrypted opaque blobs.
@@ -112,9 +112,9 @@ These are observed failures, not generic advice.
   `tests/conformance/*` goldens, pass the differential lock, and test both consumers;
   `packages/editor/AGENTS.md` owns the procedure.
 - **M8 — Generated-file edit.** Edit the registered source of truth and regenerate; never hand-edit
-  `GAPS.md`, `ToolbarSpec.*`/`TitleSpec.*`, uniffi bindings/JNI libs, or the **bundled**
+  `ToolbarSpec.*`/`TitleSpec.*`, uniffi bindings/JNI libs, or the **bundled**
   `editor.html` — the root `editor.html` IS the hand-written source. Regenerate with
-  `just spec-gaps` / `just toolbar-spec` / `just title-spec` / `scripts/build-rust-ios.sh` (and its
+  `just toolbar-spec` / `just title-spec` / `scripts/build-rust-ios.sh` (and its
   android sibling) / `vite build --config vite.editor.config.ts`.
 - **M9 — Stale FFI bindings.** Rebuild Rust bindings (`just build-rust-ios` /
   `just build-rust-android`) before native testing. `just *-native` does; direct Xcode/Gradle
@@ -201,10 +201,10 @@ requires `scripts/win-vm/`.
 ## 10. Behavioral spec — source of truth
 
 `docs/spec/` states cross-platform behavior once. Read/update the area file with behavior; record
-divergence as an inline `> **Gap:**` note, then `just spec-gaps` and commit the regenerated
-`GAPS.md` (`just spec-gaps-check` fails on staleness). `docs/spec/README.md` owns the line
-conventions (one behavior per line, platform tags, `→ path` authority refs);
-`docs/spec/AGENTS.md` and `/spec-sync` own the verification workflow.
+divergence as an inline `> **Gap:**` note in that same file — the notes are the source of truth and
+there is no generated index, so list them with `rg '> \*\*Gap' docs/spec/`.
+`docs/spec/README.md` owns the line conventions (one behavior per line, platform tags, `→ path`
+authority refs); `docs/spec/AGENTS.md` and `/spec-sync` own the verification workflow.
 
 ## 11. When uncertain
 
@@ -220,7 +220,7 @@ verified behavior, and force-pushing a feature branch (`--force-with-lease`, nev
    server, force-pushing `main`, deleting tags, dropping DBs you did not create, or a recursive delete
    outside your scratchpad — gitignored ≠ disposable, and `target/` is a 31GB rebuild. Cleanup
    removes only paths the script itself created, never a computed ancestor: `rmSync(rel.split('/')[0])`
-   ate a worktree's `target/` and a tracked `factory/`.
+   ate a worktree's `target/` and the then-tracked `factory/`.
 4. Publishing: Play/TestFlight uploads, tagging a release, posting to Zulip, F-Droid.
 5. Changing specified intent rather than closing a Gap.
 6. Sync payload, `BRIDGE_VERSION`, or `AppState` schema changes.

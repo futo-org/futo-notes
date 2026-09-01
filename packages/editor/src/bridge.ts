@@ -518,8 +518,8 @@ export interface AndroidFutoBridgeHost {
 /**
  * Post an outbound message to whichever host transport is present — iOS
  * (WKScriptMessageHandler, structured object) or Android (`@JavascriptInterface`,
- * JSON string). No-op in a plain browser (Playwright / factory-judge) with no
- * host. Both native shells receive the SAME message shapes.
+ * JSON string). No-op in a plain browser (Playwright) with no host. Both
+ * native shells receive the SAME message shapes.
  */
 export function postToHost(message: FutoEditorOutboundMessage): void {
   const { ios, android } = bridgeHosts();
@@ -532,8 +532,8 @@ export function postToHost(message: FutoEditorOutboundMessage): void {
 
 /**
  * Whether a native host is listening at all — i.e. whether {@link postToHost}
- * reaches anyone. The bundle also runs with no host (Playwright, the
- * factory judge, `pnpm run dev` in a browser), and behavior that only makes
+ * reaches anyone. The bundle also runs with no host (Playwright,
+ * `pnpm run dev` in a browser), and behavior that only makes
  * sense with a host to answer it — image paste hands the bytes to the shell and
  * waits for `insertImage` back — must not be armed there.
  */

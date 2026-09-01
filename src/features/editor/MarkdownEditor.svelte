@@ -137,7 +137,10 @@
         fns[name]?.(v);
       };
       w.__cmGetView = () => view;
-      import('../../../factory/driver/futoNotes').then(({ installDriver }) => {
+      // The editor gauntlet's CodeMirror leg reads editor state through this
+      // driver (tests/editor-gauntlet/cm6Adapter.ts). Dev-only, and dynamic so
+      // it never enters a production bundle.
+      void import('../../../tests/editor-gauntlet/driver/futoNotes').then(({ installDriver }) => {
         if (view) installDriver(view);
       });
     }

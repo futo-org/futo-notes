@@ -2,7 +2,7 @@
 
 .sf-table {
   display: block;
-  margin: 8px 0;
+  padding: 8px 0;
   position: relative;
   font-family: var(--font-sans);
 }
@@ -90,13 +90,11 @@
 .sf-table__row-controls {
   position: absolute;
   left: -44px;
-  transform: translateY(4px);
 }
 
 .sf-table__col-controls {
   position: absolute;
-  top: -34px;
-  transform: translateX(4px);
+  top: -26px;
 }
 
 .sf-table__row-controls button,

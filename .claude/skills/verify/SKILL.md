@@ -187,7 +187,7 @@ just test-android-native 2>&1 | tail -20   # JVM unit tests (builds ffi bindings
 # or compile-only: just build-android-native
 ```
 
-### spec: `just spec-gaps-check` (stale rollup / closure probes) — part of `just check` too.
+### spec: re-read the `> **Gap:**` notes for the surface you touched (`rg '> \*\*Gap' docs/spec/`) — a change that closes one must delete it.
 
 ### ci:
 ```bash

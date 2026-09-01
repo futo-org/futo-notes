@@ -906,9 +906,12 @@ Worth its own ticket.
 2. **Release**: simultaneous three-platform big-bang. Mixed-fleet window is safe by construction:
    CM6 never rewrites bytes, so normalization flows one way and settles; no ping-pong.
 3. **Teardown, same MR chain as the CM6 deletion** (not before, not lingering): CM6 editor path,
-   `liveMarkdownTransform`, CM6 scroll compensation, the factory/Obsidian judge harness, the
-   markdown-spec harness (mine its cases into plugin tests first). The editor gauntlet **stays** as
-   the regression suite, with tier-3 byte-diff assertions relaxed to loss-only per ADR-0002.
+   `liveMarkdownTransform`, CM6 scroll compensation, the gauntlet's CodeMirror leg
+   (`tests/editor-gauntlet/cm6Adapter.ts` and `tests/editor-gauntlet/driver/`, plus the `gauntlet-cm6*`
+   recipes), the markdown-spec harness (mine its cases into plugin tests first). The editor gauntlet
+   **stays** as the regression suite, with tier-3 byte-diff assertions relaxed to loss-only per
+   ADR-0002. The factory/Obsidian judge harness was already deleted ahead of this on main
+   (docs/learnings/factory-obsidian-judge.md).
 4. The P1 intent compiler (bake-off graduate, never merged) is not productionized; bake-off §12
    items are void.
 

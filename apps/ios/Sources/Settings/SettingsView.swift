@@ -11,10 +11,10 @@ struct SettingsView: View {
     @EnvironmentObject private var sync: SyncManager
     @Environment(\.dismiss) private var dismiss
 
-    /// "light" | "dark" | "auto". Applied app-wide via preferredColorScheme in
-    /// FutoNotesApp; the editor WebView follows automatically because
+    /// "light" | "dark" | "auto". Applied app-wide by FutoNotesApp's
+    /// appearanceOverride; the editor WebView follows automatically because
     /// NoteEditorView derives its pushed theme from @Environment(\.colorScheme).
-    @AppStorage("futo.themeMode") private var themeMode = "auto"
+    @AppStorage(ThemeMode.storageKey) private var themeMode = ThemeMode.auto.rawValue
     /// Crash-reporting prefs, read by CrashReporter's launch scan. Mirror the
     /// desktop prefs.crashReporting.{enabled,alwaysSend} pair.
     @AppStorage("futo.crashReporting.enabled") private var crashEnabled = true
@@ -63,9 +63,9 @@ struct SettingsView: View {
 
                 Section("Appearance") {
                     Picker("Theme", selection: $themeMode) {
-                        Text("Light").tag("light")
-                        Text("Dark").tag("dark")
-                        Text("Auto").tag("auto")
+                        Text("Light").tag(ThemeMode.light.rawValue)
+                        Text("Dark").tag(ThemeMode.dark.rawValue)
+                        Text("Auto").tag(ThemeMode.auto.rawValue)
                     }
                     .pickerStyle(.segmented)
                 }

@@ -32,7 +32,6 @@ const IGNORED_WATCH_DIRS = [
   '.tauri-data',
   'build',
   'playwright-report',
-  'factory/captures',
   'apps/android/app/build',
   'apps/android/build',
   'apps/android/app/src/main/assets/editor.html',

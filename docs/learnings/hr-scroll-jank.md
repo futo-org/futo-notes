@@ -59,9 +59,19 @@ adjacent line and make measured ≠ estimated):
 
 ## Guard
 
-`tests/markdown-rendering.spec.ts` → "horizontal rule rendered height matches
-its CM6 estimate" asserts the rendered `.cm-md-hr-widget` is 50px. If the CSS
-height and `estimatedHeight` ever drift apart, the bug re-opens.
+`tests/editor-height-map.spec.ts` → "every rule line measures the height the
+widget estimates, under any font metrics" asserts, for the plain, quoted and
+indented forms and under line-height 120px and font-size 40px, that the widget,
+the `.cm-line` holding it and `lineBlockAt().height` are all 50, that the line
+overflows neither vertically nor horizontally, that the widget is not pushed down
+inside its line, and that the rule still spans it. It runs on WebKit as well as
+Chromium (`@webkit-pointer`).
+
+The original guard here — `tests/markdown-rendering.spec.ts` "horizontal rule
+rendered height matches its CM6 estimate" — asserted only the `.cm-md-hr-widget`
+element. That is the wrong box: CM6 sizes the **line block**, so the assertion
+passed while the line ran 111px (proven by re-running it against the bug). It was
+deleted rather than kept alongside, since the new test asserts the element too.
 
 ## General principle
 
@@ -196,3 +206,103 @@ This is a recurring trap. Internalize these:
    `ios-editor-hotswap-and-scroll-probe`, was never landed — this summary is the
    only description of the technique). Drive real flings
    with `adb shell input swipe` / the simulator's `ui_swipe`.
+
+## Update (2026-08-24): the guard measured the widget, not the line
+
+Found while fixing the same class of bug on the table widget (`.sf-table` used
+`margin: 8px 0`, which `getBoundingClientRect().height` excludes, so CM6's height
+map ran 16px short per table and every geometry query below one — click
+placement, arrow motion, Cmd-Backspace, drag-select — resolved to the wrong line;
+one ArrowUp from below a table put the caret on the first line _above_ it).
+
+Sweeping the other widgets for the same defect turned up the rule. The widget
+element measured exactly 50px, as its guard asserted — but the `.cm-line` holding
+it measured **111.19px**:
+
+    <img class="cm-widgetBuffer"><div class="cm-md-hr-widget">…</div><img class="cm-widgetBuffer">
+
+The rule is an **inline** `Decoration.replace({widget})`, so it lives inside a
+`.cm-line` and CM6 brackets it with two `cm-widgetBuffer` `<img>` elements. With
+`display: flex` the widget is block-level, so that line splits into three boxes:
+buffer line box (30.6px) + widget (50px) + buffer line box (30.6px). The 61.19px
+surplus is exactly two line boxes at the editor's line-height — larger than the
+32px error this document was originally written about.
+
+**CM6 sizes the LINE BLOCK, not the widget element.** An assertion on the widget
+element cannot see this and never fired.
+
+**Fix:** `markdown-blocks.css` → `.cm-md-hr-widget { display: inline-flex;
+width: 100% }`. The widget then shares one line box with the buffers instead of
+forcing anonymous block boxes around them, and the line measures exactly 50 —
+`estimatedHeight`, the rendered `.cm-line`, and `lineBlockAt().height` all agree.
+
+**Making it inline was not enough.** It held only while the 50px widget was the
+tallest thing in the line box *and* nothing else shared the line. Four separate
+things broke it, each measured:
+
+- Raise the editor's line-height past 50 and the line strut wins again.
+- Put anything else on the rule's line — a hidden blockquote marker (`> ---`) or
+  the 1-3 leading spaces CommonMark allows (`   ---`) — and a 100%-wide widget no
+  longer fits beside it, so the line **wraps** and the rule lands 18px down.
+- Force it not to wrap and the same 100% width instead overflows the text column
+  sideways: 14px for `> ---`, 29px for `> > ---`, and the whole editor gains a
+  horizontal scroll range.
+- Raise the font-size and the `height: 1em` widget buffers grow past the widget,
+  spilling 15px out of the line at a 40px font.
+
+Every one of those is a symptom of the rule sharing an inline formatting context
+with its siblings. So the fix is to remove the line boxes entirely — make the
+rule's line a flex container and let the rule flex into whatever space is left:
+
+```css
+.cm-md-hr-widget {
+  height: 50px;
+  flex: 1;              /* was: no flex, width from the line box */
+  display: flex;
+  align-items: center;
+}
+
+.cm-line.cm-md-hr-line {
+  display: flex !important;
+}
+```
+
+There are no line boxes in a flex container, so there is no strut to zero, nothing
+to wrap, no baseline to sit on, and no 100% width to overflow — the four failures
+above all disappear at once, and `line-height`, `white-space`, `vertical-align`
+and the buffer heights stop mattering. `.cm-md-hr-widget` keeps main's
+`display: flex`; the only change to it is `flex: 1`.
+
+The `!important` is load-bearing, and not for specificity: CodeMirror injects
+`.cm-line { display: block }` from its own StyleModule **unlayered**, while
+`markdown.css` is imported into `layer(components)` — and an unlayered declaration
+beats a layered one whatever its specificity. Without `!important` the line stays
+`display: block`, the widget is not a flex item, and `flex: 1` leaves it 0px wide.
+All three declarations are red-proofed: remove any one and
+`tests/editor-height-map.spec.ts` fails.
+
+There is deliberately **no** pinned `height` on the line. An earlier attempt had
+one, and it was worse than useless: it clamped the line's rect to 50px, so the
+rect agreed with `estimatedHeight` while the content inside overflowed by 15-18px
+— the same "the box we measure is not the box we paint" defect this document is
+about, and it made the guard vacuous. The line measures 50px because its content
+is 50px, and the test asserts `scrollHeight == clientHeight` and
+`scrollWidth == clientWidth` so it cannot be fooled again.
+
+`HorizontalRule` is block-reveal-sensitive, so `decorateHorizontalRule` runs only
+when the widget is rendered. A caret on the rule's line reveals the `---` source
+and the class is absent, so the flattening never applies to real text — there is a
+test for exactly that.
+
+Visible side effect: the vertical band around a `---` shrinks by ~61px, from 111
+to the 50 the CSS always intended.
+
+Three rules follow, and `tests/editor-height-map.spec.ts` enforces all three:
+
+- A widget's spacing is **padding, never margin** — margins sit outside the box
+  CM6 measures.
+- An **inline** replace widget must not be block-level, or CM6's widget buffers
+  cost two extra line boxes.
+- A widget whose height is a fixed number must not share an inline formatting
+  context with anything, or the line's metrics and its siblings decide the box
+  instead — and the number is only right at one font setting, on one note.

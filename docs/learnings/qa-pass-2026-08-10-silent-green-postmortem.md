@@ -22,9 +22,10 @@ The single largest cluster, and the reason a data-loss bug survived in `main` un
 | Two scenarios carried `skipOnCi: true`, covering the exact surface under change (#91) | CI was green because the relevant scenarios never ran |
 | !205's pipeline reported success with `test:rust:workspace` **absent** and `test:cross-platform-sync` **manual** | `changes:` rules evaluated against a stacked MR's narrow diff |
 
-**Prevention.** The repo already proves its *gates* can fail: `scripts/gate-redproofs.mjs` seeds one
-violation per gate and rejects an exit-code-only pass. Extend that idea from gates to the handful of
-**data-safety behavioural tests**: seed the bug, require red. And add a coverage attestation — for a
+**Prevention.** At the time, a standing harness proved every *gate* could fail by seeding one
+violation per gate and rejecting an exit-code-only pass (removed 2026-08-24 — the practice survives
+as a rule when a gate is edited; see `docs/architecture-gates.md`). Extend that idea from gates to
+the handful of **data-safety behavioural tests**: seed the bug, require red. And add a coverage attestation — for a
 pipeline to count as green, assert that the jobs proving spec-critical behaviour actually *ran*, rather
 than being skipped, manual, or absent. This is M11 generalised from "assert the outcome" to "assert the
 assertion ran".

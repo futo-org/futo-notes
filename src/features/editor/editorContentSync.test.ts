@@ -87,6 +87,41 @@ describe('buildSetContentTransaction', () => {
     expect(result!.insertedText).toBe('brave ');
   });
 
+  // github#33. A host push WITHOUT preserveSelection replaces the whole document,
+  // and CodeMirror maps a caret inside a replaced range to its start — so the
+  // caret lands at offset 0 however deep in the note the user was. If one of these
+  // arrives while someone is typing, their next committed word is inserted at the
+  // head of the note, and the IME, now told the cursor is 0 with nothing before it,
+  // capitalizes it as a sentence start and omits the leading space. That is exactly
+  // the signature reported in github#33 (`"Zzz \nline-1 aaaa…"` at the head of a
+  // 400-line note whose caret was at line 393), and it is engine-independent — the
+  // legacy WebView has nothing to do with it. Locked here so the caret cost of a
+  // full push stays visible to whoever adds the next caller.
+  it('drops the caret to the document start on a full non-preserveSelection push', () => {
+    const doc = Array.from({ length: 40 }, (_, i) => `line-${i + 1}`).join('\n');
+    const state = EditorState.create({ doc, selection: { anchor: doc.length - 3 } });
+
+    const result = buildSetContentTransaction(state, `${doc}\nline-41`, {
+      preserveSelection: false,
+    });
+
+    expect(result).not.toBeNull();
+    expect(state.update(result!.spec).state.selection.main.anchor).toBe(0);
+  });
+
+  // The contrast that makes the above a choice rather than an accident: the same
+  // arriving text through EXTERNAL_CONTENT_OPTS (what a sync adopt uses) keeps the
+  // caret where the user left it, so a peer's edit never re-homes their cursor.
+  it('keeps the caret where the user left it when the same text arrives as an adopt', () => {
+    const doc = Array.from({ length: 40 }, (_, i) => `line-${i + 1}`).join('\n');
+    const state = EditorState.create({ doc, selection: { anchor: doc.length - 3 } });
+
+    const result = buildSetContentTransaction(state, `${doc}\nline-41`, EXTERNAL_CONTENT_OPTS);
+
+    expect(result).not.toBeNull();
+    expect(state.update(result!.spec).state.selection.main.anchor).toBe(doc.length - 3);
+  });
+
   it('returns full text as insertedText for non-preserveSelection', () => {
     const state = EditorState.create({ doc: 'hello' });
     const result = buildSetContentTransaction(state, 'goodbye');

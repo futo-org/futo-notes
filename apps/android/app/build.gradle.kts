@@ -16,12 +16,10 @@ if (hasReleaseKeystore) {
 
 android {
     namespace = "com.futo.notes"
-    // compileSdk 36 (Android 16): required so the modernized androidx stack
-    // (activity 1.12+, which brings the non-deprecated edge-to-edge path) can be
-    // compiled — those artifacts declare a compileSdk-36 floor. targetSdk stays
-    // 35 (below) — compileSdk only controls which APIs we can compile against,
-    // targetSdk controls runtime-behavior opt-in, so we don't take on Android 16
-    // runtime changes here.
+    // compileSdk 36 is the floor required by the modernized androidx stack.
+    // targetSdk 36 is required for Play updates from 2026-08-31; targeting it
+    // accepts mandatory edge-to-edge, predictive back by default, and ignored
+    // orientation/resizability restrictions on large screens.
     compileSdk = 36
 
     // Pin the NDK AGP uses for native lib stripping + debug-symbol extraction
@@ -43,7 +41,7 @@ android {
         // gates editor rendering, updates independently of the OS — so 9/10 with
         // a stale WebView still needs the editor's legacy-WebView handling.
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
         manifestPlaceholders["appLabel"] = "FUTO Notes"

@@ -366,7 +366,7 @@ Method (AGENTS.md 7.9 and the nearest nested manual own the details):
 1. FAILING regression test first, at the narrowest layer that can hold it. Say what it printed before the fix.
 2. Minimal fix in the narrowest real owner. Do not weaken a CRITICAL guard to make a test pass, and do not fix a symptom you cannot explain.
 3. Run the owning chain and report the commands with their results. Then prove it on the device if you have one.
-4. Update docs/spec/<area>.md when user-visible behavior changes, then 'just spec-gaps'. Never hand-edit generated files (GAPS.md, the generated native specs) — regenerate them.
+4. Update docs/spec/<area>.md when user-visible behavior changes; record a divergence as an inline '> **Gap:**' note in that same file. Never hand-edit a generated file (the generated native specs) — regenerate it.
 5. Commit as type(scope): imperative summary, with a body naming the exact failure, the root cause, and a Verified: block listing commands run.
 
 A MEASURED NEGATIVE IS A RESULT. If the honest answer is "this cannot be fixed at this layer", say so with the measurements that show it, revert your attempt, and record it as a spec Gap instead of shipping something inert. A wave shipped an attribute-based fix that the platform ignores; the value was the four measurements proving it, not the diff.
@@ -397,7 +397,7 @@ Branches, in this order: ${JSON.stringify(ready.map((r) => ({ branch: r.branch, 
 
 For EACH, one at a time:
 1. git merge --no-ff <branch>.
-2. Generated files conflict by construction because several lanes regenerate them — NEVER hand-resolve one. Take either side and regenerate: 'just spec-gaps' for docs/spec/GAPS.md, 'just bridge-spec' / 'just toolbar-spec' / 'just title-spec' for the native contracts. Then verify with the matching --check recipe.
+2. Generated files conflict by construction because several lanes regenerate them — NEVER hand-resolve one. Take either side and regenerate: 'just bridge-spec' / 'just toolbar-spec' / 'just title-spec' for the native contracts. Then verify with the matching --check recipe.
 3. A conflict in real source beyond the trivially-resolvable: git merge --abort, record it blocked with the file list, continue to the next branch.
 4. After each merge: 'pnpm exec tsc --noEmit' plus the suites that lane's report named. Fix only obvious inter-lane interactions; otherwise reset that merge away and record blocked.
 5. If a lane added a dependency, run 'pnpm install' in ${REPO} — a lane's node_modules is its own, so the main tree will not have it.

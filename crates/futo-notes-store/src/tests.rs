@@ -552,6 +552,100 @@ fn reported_external_changes_issue_scoped_search_notifications() {
     }
 }
 
+// A peer's `delete_folder` reaches this client as a pull that moves the folder's
+// notes up and leaves the directory behind. The projection must prune the
+// vacated directory exactly as the local delete/move workflows do, or every
+// peer that syncs a folder deletion keeps a ghost empty folder forever.
+#[test]
+fn reported_external_changes_prune_the_directories_the_pull_vacated() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("Projects/Plans/roadmap", "body", None).unwrap();
+    store
+        .write("Projects/Plans/Deep/detail", "body", None)
+        .unwrap();
+    store.write("Projects/keep", "body", None).unwrap();
+
+    // The sync engine has already applied the peer's folder deletion to disk:
+    // both notes now live in `Projects`, and `Projects/Plans[/Deep]` are empty.
+    fs::rename(
+        root.0.join("Projects/Plans/roadmap.md"),
+        root.0.join("Projects/roadmap.md"),
+    )
+    .unwrap();
+    fs::rename(
+        root.0.join("Projects/Plans/Deep/detail.md"),
+        root.0.join("Projects/detail.md"),
+    )
+    .unwrap();
+
+    let mutation = store
+        .refresh_external_changes(
+            &[],
+            &[],
+            &[
+                NoteRename {
+                    from: "Projects/Plans/roadmap".to_owned(),
+                    to: "Projects/roadmap".to_owned(),
+                },
+                NoteRename {
+                    from: "Projects/Plans/Deep/detail".to_owned(),
+                    to: "Projects/detail".to_owned(),
+                },
+            ],
+        )
+        .unwrap();
+
+    assert_eq!(mutation.folders, ["Projects"]);
+    assert!(!root.0.join("Projects/Plans").exists());
+    assert_eq!(store.snapshot().folders, ["Projects"]);
+}
+
+// Pruning is scoped to the ancestors the pull actually vacated — an empty folder
+// the user deliberately created, and a still-populated one, both survive.
+#[test]
+fn reported_external_changes_keep_empty_folders_the_pull_never_touched() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create_folder("Ideas/Someday").unwrap();
+    store.write("Projects/Plans/roadmap", "body", None).unwrap();
+    store
+        .write("Projects/Plans/Deep/detail", "body", None)
+        .unwrap();
+    store.write("Archive/old", "body", None).unwrap();
+
+    // Only `roadmap` is pulled away; `Projects/Plans` still holds `Deep`.
+    fs::rename(
+        root.0.join("Projects/Plans/roadmap.md"),
+        root.0.join("Projects/roadmap.md"),
+    )
+    .unwrap();
+
+    let mutation = store
+        .refresh_external_changes(
+            &[],
+            &[],
+            &[NoteRename {
+                from: "Projects/Plans/roadmap".to_owned(),
+                to: "Projects/roadmap".to_owned(),
+            }],
+        )
+        .unwrap();
+
+    assert_eq!(
+        mutation.folders,
+        [
+            "Archive",
+            "Ideas",
+            "Ideas/Someday",
+            "Projects",
+            "Projects/Plans",
+            "Projects/Plans/Deep",
+        ]
+    );
+    assert!(root.0.join("Ideas/Someday").is_dir());
+}
+
 #[test]
 fn watcher_paths_are_registered_before_the_corresponding_disk_mutation() {
     let root = TestRoot::new();

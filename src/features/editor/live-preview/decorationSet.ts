@@ -24,13 +24,15 @@ const MARK_SAFE_WIDGETS = new Set([
  * legally span line breaks; only replacements may not, so such a replacement is
  * dropped and its source text stays visible.
  *
- * A position outside the document answers `false` rather than letting
- * `doc.lineAt` throw: an invalid pending decoration stays the business of the
- * per-decoration guard in `createDecorationSet`, which warns and skips just
- * that one instead of losing the whole decoration build.
+ * A position outside the document answers `true` rather than letting
+ * `doc.lineAt` throw: the check cannot be evaluated there, and no build-time
+ * guard catches such a range either — `Decoration.replace` validates only
+ * `from <= to`, so an out-of-document replacement reaches the view and throws
+ * inside CodeMirror's own render, where nothing can catch it. Dropping the
+ * decoration is the only answer that keeps the view alive.
  */
 function replacementCrossesLineBreak(doc: Text, from: number, to: number): boolean {
-  if (from < 0 || from > doc.length || to > doc.length) return false;
+  if (from < 0 || from > doc.length || to > doc.length) return true;
   return to > doc.lineAt(from).to;
 }
 

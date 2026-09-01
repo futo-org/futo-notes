@@ -1,10 +1,10 @@
 import type { ElementKind } from './protocol';
 
 // Map a raw CSS class set to one or more semantic ElementKinds. An
-// Obsidian element commonly carries multiple semantic classes on the
-// same span (e.g. `cm-em cm-strong` for bold+italic, or `cm-link cm-em`
-// for an italicized link), so we return an array — the diff buckets by
-// kind, and one element should contribute to each bucket it belongs to.
+// element can carry multiple semantic classes on the same span (e.g.
+// `cm-em cm-strong` for bold+italic, or `cm-link cm-em` for an italicized
+// link), so we return an array — oracles bucket by kind, and one element
+// should contribute to each bucket it belongs to.
 //
 // FUTO Notes emits one decoration per concept (a separate bold mark and
 // a separate italic mark over the same range), so it normally returns a

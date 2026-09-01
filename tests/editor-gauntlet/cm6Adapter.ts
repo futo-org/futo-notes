@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 
-import type { Driver, DriverState } from '../../factory/driver/protocol';
+import type { Driver, DriverState } from './driver/protocol';
 import type {
   EditorGauntletAdapter,
   EditorIntentAction,
@@ -249,7 +249,7 @@ export class Cm6GauntletAdapter implements EditorGauntletAdapter {
   private async readDriverState(): Promise<DriverState> {
     return this.page.evaluate(async () => {
       const driver = (window as GauntletWindow).__driver;
-      if (!driver) throw new Error('factory editor driver is unavailable');
+      if (!driver) throw new Error('CodeMirror gauntlet driver is unavailable');
       return driver.state();
     });
   }

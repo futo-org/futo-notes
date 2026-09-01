@@ -184,13 +184,14 @@ with `vi.setSystemTime`/`advanceTimersByTime` since the design reads `Date.now()
   `> **Gap:** iOS/Android SyncManagers still escalate on the first failure with no
   transient/actionable classification (single lastError bucket); desktop-only as of
   2026-08-24.`
-- Then `just spec-gaps` and commit the regenerated `GAPS.md` (M8: never hand-edit it).
+- Keep any remaining `> **Gap:**` notes inline in the owning spec file; list them with
+  `rg '> \*\*Gap' docs/spec/`.
 
 ## 8. Verification chain
 
 - `pnpm run test:unit` (or the focused vitest run) — new tests red first, then green.
 - Follow `src/AGENTS.md`'s chain for UI/Svelte changes (7.1).
-- `just spec-gaps-check`, then `just check` before the MR.
+- `just check` before the MR.
 - Optional live QA (desktop dev build via `/verify` tooling only — M24: resolve any
   QA target through `scripts/qa-target.mjs`, never the installed prod app): dev
   Settings has `DevSyncErrorSettingsSection` to inject failures through the real path.

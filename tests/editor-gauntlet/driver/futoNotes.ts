@@ -208,16 +208,19 @@ async function applyEvent(view: EditorView, ev: DriverEvent): Promise<void> {
 }
 
 export function installDriver(view: EditorView): void {
-  // Tag this editor's contentDOM so the factory runner can click and
+  // Tag this editor's contentDOM so the gauntlet runner can click and
   // send key events to *this* editor specifically, not a sibling
-  // .cm-content (Obsidian has many; SF in dev usually has one but the
-  // attribute keeps the selector consistent across editors).
+  // .cm-content (dev usually has one, but the attribute keeps the
+  // selector consistent).
   try {
-    for (const el of document.querySelectorAll('.cm-content[data-factory-target]')) {
-      el.removeAttribute('data-factory-target');
+    for (const el of document.querySelectorAll('.cm-content[data-gauntlet-target]')) {
+      el.removeAttribute('data-gauntlet-target');
     }
-    view.contentDOM.setAttribute('data-factory-target', 'true');
-  } catch {}
+    view.contentDOM.setAttribute('data-gauntlet-target', 'true');
+  } catch {
+    // A detached or not-yet-mounted contentDOM: the tag is a convenience
+    // for the runner's selector, never load-bearing for state capture.
+  }
 
   const driver: Driver = {
     async setDoc(markdown) {

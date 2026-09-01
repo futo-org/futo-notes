@@ -1,14 +1,18 @@
-// The contract both editors implement so the judge can compare them.
-// FUTO Notes attaches an instance to window.__driver in dev builds.
-// Obsidian exposes the same shape over an HTTP endpoint via a plugin.
+// The state contract an editor exposes so the gauntlet's oracles can read it.
+// The CodeMirror editor attaches an instance to window.__driver in dev builds
+// (installDriver, futoNotes.ts); the Milkdown adapter synthesizes the same
+// shape off the rendered ProseMirror DOM.
 //
 // Two design constraints:
-//   1. State must be extractable from the live DOM, because both editors
-//      apply decorations through plugins we don't control end-to-end.
+//   1. State must be extractable from the live DOM, because the editor
+//      applies decorations through plugins we don't control end-to-end.
 //   2. Semantic kinds (bold-marker, heading-text-2, etc.) are derived
-//      from raw classes at capture time. Both editors use
-//      @codemirror/lang-markdown, so the class sets overlap enough to
-//      map. Class-to-kind mapping lives in semanticKind.ts.
+//      from raw classes at capture time. Class-to-kind mapping lives in
+//      semanticKind.ts.
+//
+// This contract and its CodeMirror implementation were the FUTO-side half of
+// the deleted factory/ Obsidian parity judge (docs/learnings/factory-obsidian-
+// judge.md); the gauntlet is the only remaining consumer, so they live here.
 
 export interface Position {
   line: number;

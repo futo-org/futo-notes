@@ -118,10 +118,9 @@ One isolated server, every client of this worktree connected to it:
 6. **Report.** One table: story id, spec line, verdict
    (PASS / FAIL / BLOCKED / SKIP-gap), evidence path, one-line note. Then
    details for every FAIL: expected (quote the spec), actual, repro steps.
-7. **File the findings.** A confirmed new divergence becomes a
-   `> **Gap:**` note in the spec file (with date + a closure probe in
-   `scripts/spec-gaps.mjs`, then `just spec-gaps`) — follow
-   `docs/spec/AGENTS.md`. A regression against previously-verified behavior →
+7. **File the findings.** A confirmed new divergence becomes a dated
+   `> **Gap:**` note inline in the spec file — follow `docs/spec/AGENTS.md`.
+   A regression against previously-verified behavior →
    recommend the `/bugfix` skill rather than silently patching.
 8. **Clean up.** `just qa-release` (add `--shutdown` unless the user will
    keep testing) — it also stops this worktree's sync server. Remove

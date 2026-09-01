@@ -26,14 +26,16 @@ native editor model.
   hard-gated fixture built by the same generator. The keystroke budget applies at every size.
   Settled-to-paint is reported separately but is not gated: a raw one-frame sample is phase-dependent
   and already approaches 16.7 ms on a 60 Hz display even when the editor does no work.
-- `feelOracle.ts`: adapts candidates to the existing factory `DriverState`; `just factory-judge`
-  remains a human-read divergence report, never a pass/fail gate.
+- `driver/`: the `DriverState` contract every adapter reports through, plus the CodeMirror
+  implementation that installs `window.__driver` in dev builds. It is the FUTO-side half of the
+  deleted `factory/` Obsidian parity judge (docs/learnings/factory-obsidian-judge.md); the gauntlet
+  is its only remaining consumer, so it lives here.
 - `cm6Adapter.ts`: current-main CM6 implementation of the shared boundary.
 - `milkdownAdapter.ts`: the Milkdown implementation. It drives the single-file `editor.html` the
   native shells ship, over `file://`, with the editor-embed harness's fake native host — that is
   where Milkdown lives during the transition, so there is no app shell to drive. Two translations
   it owns: markdown source offsets become (top-level block, visible-character offset) via
-  `sourcePositions.ts`, and the factory `DriverState` is read off the rendered ProseMirror DOM.
+  `sourcePositions.ts`, and the `DriverState` is read off the rendered ProseMirror DOM.
 - `lossOracle.ts`: "did any writing disappear?", as a token multiset containment check. This is the
   bar a WYSIWYG candidate is held to instead of byte fidelity (ADR-0002), and it is the same
   question the round-trip corpus census asked.

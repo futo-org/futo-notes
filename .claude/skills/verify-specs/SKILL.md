@@ -214,8 +214,8 @@ verdict }`. Present the `/verify`/`/mr-qa` report format:
   trigger-happy on that surface.
 - Distinguish **BLOCKED** (environment can't exercise it — e.g. no Postgres →
   sync mesh blocked; Linux → iOS blocked) from **FAIL**.
-- A confirmed new divergence → follow `/spec-sync` (record a `> **Gap:**` +
-  closure probe, `just spec-gaps`). A regression against previously-verified
+- A confirmed new divergence → follow `/spec-sync` (record a `> **Gap:**` note
+  inline in the area file). A regression against previously-verified
   behavior → recommend `/bugfix`, don't silently patch.
 
 ## Step 6 — Teardown

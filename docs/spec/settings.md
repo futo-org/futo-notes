@@ -26,10 +26,14 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   the user at the FUTO Notes server repo (see sync.md). →
   SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 - **Appearance**: the Theme Light/Dark/Auto control from "All platforms"
-  applies immediately (iOS: `.preferredColorScheme` + the editor WebView
-  theme follows; persisted in UserDefaults `futo.themeMode` / Android
-  SharedPreferences `theme_mode`; survives relaunch — verified via the
-  crash-test relaunch).
+  applies immediately, including to the open Settings sheet the user changed it
+  from, in both directions (iOS: the scene's windows get an
+  `overrideUserInterfaceStyle`, which every sheet, cover, alert and the editor
+  WebView inherit — a root-level `.preferredColorScheme` left an
+  already-presented sheet dark forever; persisted in UserDefaults
+  `futo.themeMode` / Android SharedPreferences `theme_mode`; survives relaunch —
+  verified via the crash-test relaunch). → Theme.swift `appearanceOverride`
+  _(iOS)_
 - **Storage**: a notes-directory path readout. On Android, **Storage location**
   opens the picker as a Settings sub-screen — Back or its **Cancel** button
   returns to Settings and changes nothing (see nav.md). Changing Device/App

@@ -1,6 +1,6 @@
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 
-import type { DecoratedRange, DriverState } from '../../factory/driver/protocol';
+import type { DecoratedRange, DriverState } from './driver/protocol';
 import { EDITOR_URL } from '../editorEmbedBundle';
 import { installFakeAndroidHost, type FakeHostWindow } from '../lib/editorEmbedHost';
 import { resolveSourceOffset } from './sourcePositions';
@@ -36,7 +36,7 @@ import type {
  *   from every debounced `change`, and writes that copy on save. `savedSource`
  *   is therefore the bytes a real shell's autosave would have written.
  * - **Decorations.** `checkSemanticIntent` asks which text carries which
- *   semantic kind. CodeMirror answers from the factory driver's decoration
+ *   semantic kind. CodeMirror answers from its driver's decoration
  *   set; here the rendered ProseMirror DOM is the answer.
  */
 
@@ -511,7 +511,8 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
   }
 
   /**
-   * The factory `DriverState` shape, read off the rendered ProseMirror DOM.
+   * The `DriverState` shape (driver/protocol.ts), read off the rendered
+   * ProseMirror DOM.
    * `doc` is the markdown the editor would save; `decorations` are the semantic
    * spans `checkSemanticIntent` looks for, keyed by the HTML the schema emits.
    */

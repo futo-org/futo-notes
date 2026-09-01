@@ -66,7 +66,7 @@ function decorateMarkdownNode(
     decorateBlockQuote(from, to, view, decorations, quoteLinesProcessed, scanRange);
   } else if (isListItemNode(nodeName)) {
     decorateListItem(from, doc.sliceString(from, doc.lineAt(from).to), view, decorations);
-  } else if (isHorizontalRuleNode(nodeName)) decorateHorizontalRule(from, to, decorations);
+  } else if (isHorizontalRuleNode(nodeName)) decorateHorizontalRule(from, to, doc, decorations);
 }
 
 export function createLiveMarkdownDecorationBuilder() {

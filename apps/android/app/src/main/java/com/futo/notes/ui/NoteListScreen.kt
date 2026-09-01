@@ -5,7 +5,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -44,8 +43,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -56,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -72,6 +71,7 @@ import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.components.NewFolderDialog
 import com.futo.notes.ui.components.NoteCard
+import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.components.pressScale
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
@@ -127,7 +127,7 @@ internal fun NoteListScreen(
     Scaffold(
         containerColor = c.surface,
         topBar = {
-            TopAppBar(
+            TopBar(
                 title = { Text(title, style = FutoType.title, color = c.textPrimary) },
                 navigationIcon = {
                     // The root folder is the stack floor [nav.md], so it shows no
@@ -152,11 +152,12 @@ internal fun NoteListScreen(
                         Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = c.textSecondary)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = if (scrolled) c.surface else Color.Transparent,
-                    scrolledContainerColor = c.surface,
-                ),
-                modifier = if (scrolled) Modifier.border(width = 1.dp, color = c.border) else Modifier,
+                modifier = if (scrolled) Modifier.drawWithContent {
+                    drawContent()
+                    val stroke = 1.dp.toPx()
+                    val y = size.height - stroke / 2
+                    drawLine(c.border, Offset(0f, y), Offset(size.width, y), stroke)
+                } else Modifier,
             )
         },
         floatingActionButton = {

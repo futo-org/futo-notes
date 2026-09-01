@@ -71,8 +71,8 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   subtitled "Tap + to add a note or folder." _(Tauri: "Nothing here yet".)_ The
   empty state waits for the first scan (`hasBootstrapped`) so a cold start never
   flashes it (M1). → NoteListView.swift, NoteListScreen.kt `EmptyState`
-- The top bar is transparent at rest and gains a surface fill + bottom border
-  once the list is scrolled. _(Android)_
+- The top bar carries the page surface, and gains a bottom hairline once the
+  list is scrolled. _(Android)_ → NoteListScreen.kt
 - Each note row shows a **rich, multi-line** body preview rather than raw
   markdown: line breaks are preserved (up to 3 lines), heading/quote markers are
   stripped, task items render as ☐/☑, bullets as •, tables and rules are
@@ -157,17 +157,13 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   to a dead screen. A note open above such a folder stays open; only where Back
   lands changes. _(Android)_ → AppNavigation.kt `rebaseFolderRoutes` /
   `pruneFolderRoutes`, AppNavStackTest.kt / AppNavigationTest.kt
-
-> **Gap:** the sync-pull half of the line above is undermined by a pre-existing
-> shared-store bug on every platform: `refresh_external_changes`
-> (`crates/futo-notes-store`) never calls `prune_empty_parents` for a pulled
-> note-move's vacated source directory, so a folder deleted on one client
-> survives as an empty ghost folder on every peer that syncs the deletion — the
-> nav stack then "correctly" keeps routes for a directory that should no longer
-> exist (observed on Android in MR !265 QA: Back from an open note landed on
-> the ghost, not the nearest truly-surviving ancestor). Fix belongs in
-> `refresh_external_changes`, mirroring the local `delete_folder_with` /
-> move-workflow pruning.
+- A pulled deletion prunes the directories it vacates, exactly like the local
+  delete/move workflows: a folder deleted on one client does not survive as an
+  empty ghost folder on syncing peers, while an intentionally-empty folder no
+  pulled change touched is never pruned. →
+  futo-notes-store `refresh_external_changes` + `prune_empty_parents`,
+  crates/futo-notes-store/src/tests.rs
+  `reported_external_changes_prune_the_directories_the_pull_vacated`
 - `NotesStore.noteCount(under:)` exists on iOS but is only used for delete
   confirmation text, never surfaced as a per-folder count. → NoteListView.swift
 - **Tauri** keeps its own model: a **tabbed folder tree** sidebar (files / tags /

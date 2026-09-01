@@ -97,7 +97,7 @@ final class CrashReporter: ObservableObject {
         futoCrashVersion =
             Bundle.main.object(
                 forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
-        futoCrashDeviceInfo = "iOS \(ProcessInfo.processInfo.operatingSystemVersionString)"
+        futoCrashDeviceInfo = currentDeviceInfo()
 
         // Pre-render one payload per fatal signal. The timestamp is install
         // time — a crash-time clock read isn't signal-safe; close enough for
@@ -125,6 +125,16 @@ final class CrashReporter: ObservableObject {
         for (sig, _) in signals {
             signal(sig, futoHandleSignal)
         }
+    }
+
+    nonisolated static func deviceInfo(hardware: String, osVersion: String) -> String {
+        "\(hardware) | iOS \(osVersion)"
+    }
+
+    nonisolated static func currentDeviceInfo() -> String {
+        deviceInfo(
+            hardware: DeviceInfo.hardwareModel(),
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString)
     }
 
     /// Shared payload shape — matches the desktop CrashReport interface

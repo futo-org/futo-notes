@@ -188,10 +188,6 @@
 
 /* Pointer-only so a touch shell never leaves a button stuck in its hover state. */
 @media (hover: hover) and (pointer: fine) {
-  .crash-btn {
-    transition: background-color 0.12s ease;
-  }
-
   .crash-btn-secondary:hover {
     background: color-mix(in srgb, var(--color-surface) 90%, var(--color-text));
   }
