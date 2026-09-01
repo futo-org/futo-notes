@@ -138,6 +138,31 @@ axe batch --udid $SIM --wait-timeout 8 \
 `sleep` — it waits for the element instead of guessing, which also handles the
 "tree is briefly an unlabeled Group right after a screen push" case.
 
+### Hold-then-drag: neither `swipe` nor `drag` can express it
+
+A long press that then moves — the iOS block-drag gesture, and anything
+Notion-shaped — cannot be driven by `axe swipe` or `axe drag`. Both apply
+`--pre-delay` BEFORE touch-down, so the finger is already moving when it lands
+and the app sees an ordinary scroll. Verified on AXe 1.8.0 with both verbs, at
+`--pre-delay` up to 1.2s: the editor's 340ms lift never fired.
+
+What works is one `touch` per position, because CoreSimulator's digitizer has no
+distinct move event — a second `--down` at a new point IS a move:
+
+```bash
+axe touch -x 200 -y 300 --down --udid $SIM   # finger lands, nothing else
+sleep 0.7                                     # past the app's 340ms lift
+axe touch -x 200 -y 360 --down --udid $SIM   # a move, not a second touch
+axe touch -x 200 -y 420 --down --udid $SIM
+axe touch -x 200 -y 420 --up   --udid $SIM   # release commits
+```
+
+Each step is a separate process, and the touch survives between them, which is
+the other half of the value: you can `axe screenshot` (or read the vault, or
+`describe-ios-ui`) BETWEEN steps and see the lift, the ghost and the drop
+indicator as separate frames. `axe batch` keeps one HID session if you want the
+whole gesture in a single round trip.
+
 ### Rules that stop silent failures
 
 Each of these was observed on iOS 26.5 / AXe 1.8.0. All but the last fail
