@@ -5,18 +5,60 @@ export const meta = {
   whenToUse:
     'After landing a batch of behavior changes on a feature branch, when you want the real apps attacked rather than the test suite re-run. Costs a device per lane and roughly an hour of wall clock.',
   phases: [
-    { title: 'Stations', detail: 'worktree + claimed device per lane, one build installed on all' },
-    { title: 'Hunt', detail: 'one adversarial QA agent per beat, on its own device' },
-    { title: 'Triage', detail: 'reproduce or refute each claimed finding before anyone fixes it' },
-    { title: 'Handover', detail: 'release the fleet claims so fix lanes can hold devices' },
+    {
+      title: 'Stations',
+      detail: 'worktree + claimed device per lane, one build installed on all',
+      model: 'sonnet',
+    },
+    {
+      title: 'Hunt',
+      detail: 'one adversarial QA agent per beat, on its own device',
+      model: 'sonnet',
+    },
+    {
+      title: 'Triage',
+      detail: 'reproduce or refute each claimed finding before anyone fixes it',
+      model: 'opus',
+    },
+    {
+      title: 'Handover',
+      detail: 'release the fleet claims so fix lanes can hold devices',
+      model: 'sonnet',
+    },
     { title: 'Fix', detail: 'one lane per confirmed bug, failing test first', model: 'opus' },
-    { title: 'Merge', detail: 'serial merge-back, regenerate generated files, gate' },
-    { title: 'Reverify', detail: 'rebuild, reinstall, second fleet weighted to the fixes' },
-    { title: 'Teardown', detail: 'release and shut down only what this run claimed' },
+    {
+      title: 'Merge',
+      detail: 'serial merge-back, regenerate generated files, gate',
+      model: 'opus',
+    },
+    {
+      title: 'Reverify',
+      detail: 'rebuild, reinstall, second fleet weighted to the fixes',
+      model: 'sonnet',
+    },
+    {
+      title: 'Teardown',
+      detail: 'release and shut down only what this run claimed',
+      model: 'sonnet',
+    },
   ],
 };
 
 const REPO = '/Users/justin/Developer/futo-notes/futo-notes';
+
+// ── Models ───────────────────────────────────────────────────────────────────
+// EVERY agent() call below sets its model explicitly; nothing inherits. The
+// facilitator running this script is usually Fable, which is the right tier for
+// orchestration and the wrong one for both jobs here.
+//   sonnet — the QA fleet and the mechanical steps: long device sessions, lots
+//   of tool driving, where breadth per dollar is what you are buying.
+//   opus — fix lanes, the serial merge, and triage. Triage is deliberately on
+//   this side: it decides whether a fix lane gets spawned at all, and it is the
+//   step that has to tell a real regression from a fixture artifact or a
+//   pre-existing bug. A phantom P0 wastes an entire opus lane, so the cheap
+//   place to spend is the gate.
+const QA_MODEL = 'sonnet';
+const FIX_MODEL = 'opus';
 
 // ── Args ─────────────────────────────────────────────────────────────────────
 // branch        (required) integration branch lanes fork from and merge into.
@@ -166,6 +208,7 @@ ${SAFETY}
 Return JSON: { sha, stations: [{beat, worktree, device, installed}], unavailable: [{beat, reason}] }.`,
   {
     label: 'stations:setup',
+    model: QA_MODEL,
     schema: {
       type: 'object',
       properties: {
@@ -210,7 +253,7 @@ ${METHOD}
 ${SAFETY}
 
 Time-box to ~35 minutes of active testing, then report. Rank findings by severity (data loss > crash > wrong content > UI glitch). For each: exact numbered repro, expected vs actual, the disk bytes, how many times you reproduced it, and whether your fixture used real words. Then what held up, and what you did NOT reach.`,
-      { label: `hunt:${station.beat}`, phase: 'Hunt', schema: FINDINGS_SCHEMA },
+      { label: `hunt:${station.beat}`, phase: 'Hunt', model: QA_MODEL, schema: FINDINGS_SCHEMA },
     ),
   (report, station) => {
     const found = report && report.findings ? report.findings : [];
@@ -239,6 +282,7 @@ Return one verdict per claimed finding, in the same order.`,
       {
         label: `triage:${station.beat}`,
         phase: 'Triage',
+        model: FIX_MODEL,
         schema: TRIAGE_SCHEMA,
         effort: 'high',
       },
@@ -293,6 +337,7 @@ ${SAFETY}
 Return JSON: { released: [worktree], stillHeldByOthers: [{device, owner}] }.`,
   {
     label: 'handover:release',
+    model: QA_MODEL,
     phase: 'Handover',
     schema: {
       type: 'object',
@@ -331,7 +376,7 @@ ${SAFETY}`,
         {
           label: `fix:${String(bug.title).slice(0, 28)}`,
           phase: 'Fix',
-          model: 'opus',
+          model: FIX_MODEL,
           schema: LANE_SCHEMA,
         },
       ),
@@ -364,6 +409,7 @@ ${SAFETY}
 Return JSON: { merged: [branches], blocked: [{branch, reason}], pushed: boolean, evidence: string }.`,
     {
       label: 'merge:serial',
+      model: FIX_MODEL,
       phase: 'Merge',
       schema: {
         type: 'object',
@@ -393,6 +439,7 @@ const rebuilt = await agent(
 ${SAFETY}`,
   {
     label: 'reverify:build',
+    model: QA_MODEL,
     phase: 'Reverify',
     schema: {
       type: 'object',
@@ -419,7 +466,12 @@ ${METHOD}
 
 ${SAFETY}
 Report per fix: HELD / BROKEN / PARTIAL / NOT REACHED with the evidence, then new findings ranked, then what held up.`,
-        { label: `reverify:${station.beat}`, phase: 'Reverify', schema: FINDINGS_SCHEMA },
+        {
+          label: `reverify:${station.beat}`,
+          phase: 'Reverify',
+          model: QA_MODEL,
+          schema: FINDINGS_SCHEMA,
+        },
       ),
   ),
 );
@@ -435,6 +487,7 @@ ${SAFETY}
 Return JSON: { shutDown: [device], leftInPlace: [path], untouched: [{device, owner}] }.`,
   {
     label: 'teardown:devices',
+    model: QA_MODEL,
     phase: 'Teardown',
     schema: {
       type: 'object',
