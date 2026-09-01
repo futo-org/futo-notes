@@ -110,6 +110,11 @@
      * suspends WKWebView's own text-interaction gestures while it is (bridge.ts
      * BlockDragMessage) — nothing the page can do stops the OS magnifier. */
     onblockdrag?: (active: boolean) => void;
+    /* Whether a finger is DOWN on a block on that same path — posted at
+     * touch-down, so the shell can stand WKWebView's delayed text interaction
+     * down before it can win, instead of waiting for a lift that may not come
+     * (bridge.ts BlockPressMessage / mobileBlockDnd.ts). */
+    onblockpress?: (pressed: boolean) => void;
     /* The editor engine is up and holding a document. Milkdown's
      * `Editor.make().create()` is ASYNC, so Svelte's `mount()` returns long
      * before this — and the Android WebView gate used to read the host API that
@@ -131,6 +136,7 @@
     nativeShell = false,
     onhaptic,
     onblockdrag,
+    onblockpress,
     onenginemounted,
   }: Props = $props();
 
@@ -592,6 +598,7 @@
             createMobileBlockDndPlugin({
               onHaptic: (kind) => onhaptic?.(kind),
               onDragActive: (active) => onblockdrag?.(active),
+              onPressActive: (pressed) => onblockpress?.(pressed),
             }),
           )
         : builder.use(block);

@@ -148,6 +148,13 @@ const editor = mount(EmbeddedEditor, {
     onblockdrag: (active: boolean) => {
       post({ type: 'blockDrag', active });
     },
+    // Same path, posted at TOUCH-DOWN rather than at the lift: the shell's
+    // protection must not be conditional on the editor's 340ms timer winning a
+    // race against WKWebView's own ~655ms text interaction (bridge.ts
+    // BlockPressMessage).
+    onblockpress: (pressed: boolean) => {
+      post({ type: 'blockPress', pressed });
+    },
     onenginemounted: () => {
       window.__futoEditorMounted = true;
     },

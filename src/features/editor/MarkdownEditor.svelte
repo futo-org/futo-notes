@@ -46,6 +46,10 @@
      * block-drag path); declared here for the same reason as onhaptic.
      * CodeMirror never calls it. */
     onblockdrag?: (active: boolean) => void;
+    /* Milkdown-only (see MilkdownEditor.svelte's onblockpress, iOS long-press
+     * block-drag path); declared here for the same reason as onhaptic.
+     * CodeMirror never calls it. */
+    onblockpress?: (pressed: boolean) => void;
     /* The editor engine is up and holding a document — what the Android
      * WebView gate treats as a working engine (see MilkdownEditor.svelte's
      * onenginemounted, which is where the distinction bites: CodeMirror's view

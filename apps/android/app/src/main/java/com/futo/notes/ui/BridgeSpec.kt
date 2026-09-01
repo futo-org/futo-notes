@@ -30,5 +30,6 @@ object BridgeSpec {
         "formatState",
         "haptic",
         "blockDrag",
+        "blockPress",
     )
 }

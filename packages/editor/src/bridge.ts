@@ -78,6 +78,17 @@
  * that means. Additive, no version bump: a host without a case for it just
  * drops the message and keeps exactly today's behavior — including today's
  * loupe.
+ *
+ * `blockPress` ({@link BlockPressMessage}) is `blockDrag`'s earlier half, and
+ * ships the same way. `blockDrag` can only be posted once the editor's own
+ * long-press timer has fired, which leaves the whole touch-down-to-lift window
+ * unprotected: measured on iOS 26.5, WKWebView's text interaction fires at
+ * ~655ms with the editable focused (loupe + caret) and ~700ms unfocused (word
+ * selection), against the editor's 340ms lift — so nothing but the editor's own
+ * timer firing on time stands between a press and the OS magnifier. `blockPress`
+ * is posted at TOUCH-DOWN instead, so the shell can stand the OS gesture down
+ * before it can win. Additive, no version bump, and a host without a case for it
+ * keeps exactly the pre-`blockPress` behavior.
  */
 export const BRIDGE_VERSION = 7 as const;
 
@@ -380,6 +391,34 @@ export interface BlockDragMessage {
 }
 
 /**
+ * Emitted by the same iOS long-press block-drag path (`mobileBlockDnd.ts`) the
+ * instant a finger lands on a block (`pressed: true`) and again the instant that
+ * press resolves in ANY way (`pressed: false`) — it lifted, it was an ordinary
+ * tap, it turned into a scroll, or the system took the touch away. Strictly
+ * wider than {@link BlockDragMessage}: every `blockDrag true` is inside a
+ * `blockPress true`, and a press that never lifts posts no `blockDrag` at all.
+ *
+ * What the iOS shell does with it: stands down WKWebView's DELAYED text
+ * interaction (the loupe long press, the tap-and-a-half select) for the
+ * duration of the press, while leaving the tap recognisers — the ones that place
+ * a caret and select a word — alone. That is the difference from `blockDrag`,
+ * which suspends the whole text-interaction stack and the
+ * `isTextInteractionEnabled` preference with it; that is safe only once the
+ * gesture is known to be a drag, and it arrives 340ms too late to be the only
+ * defence (see {@link BRIDGE_VERSION}'s doc comment for the measured numbers).
+ *
+ * Every `true` is matched by exactly one `false` from the plugin's single
+ * disarm path: a host that suspends anything on `true` and is never told the
+ * press ended would leave the editor unselectable for the rest of the session.
+ * iOS-only by construction, the same way `haptic` and `blockDrag` are.
+ */
+export interface BlockPressMessage {
+  type: 'blockPress';
+  /** True while a finger is down on a block and the press may still lift it. */
+  pressed: boolean;
+}
+
+/**
  * Editor → host messages, posted to the host's `futoBridge` message handler.
  * Discriminated on `type`.
  */
@@ -397,7 +436,8 @@ export type FutoEditorOutboundMessage =
   | PasteClipboardImageMessage
   | FormatStateMessage
   | HapticMessage
-  | BlockDragMessage;
+  | BlockDragMessage
+  | BlockPressMessage;
 
 /**
  * Every `type` value {@link FutoEditorOutboundMessage} can carry. Consumed by
@@ -423,6 +463,7 @@ export const OUTBOUND_MESSAGE_TYPES = [
   'formatState',
   'haptic',
   'blockDrag',
+  'blockPress',
 ] as const;
 
 // Distributive-conditional mutual-extends trick for exact type equality —

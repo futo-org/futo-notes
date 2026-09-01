@@ -48,17 +48,31 @@
  *    `touchend` and so before WebKit's tap gesture resolves a caret, leaving
  *    tap-to-place-caret untouched.
  *  - THE MAGNIFIER LOUPE IS NOT THE PAGE'S TO CANCEL. WKWebView's own
- *    long-press text interaction fires around 500ms — after this plugin's
- *    340ms lift — and paints the OS magnifier plus a caret it drags along,
- *    right on top of the block being moved; sometimes it takes the touch
- *    outright and WebKit cancels our pointer stream mid-air. It is a UIKit
- *    gesture recogniser, and WebKit commits to it at TOUCH-DOWN, so nothing
- *    applied later reaches it: `pointer-events: none` and `touch-action:
- *    pan-x pan-y` on the editable subtree were both measured on a simulator
- *    with the loupe still appearing, on top of the levers already listed
- *    above. The shell that owns the WebView suspends its text interaction
- *    instead, told by `onDragActive` (bridge.ts BlockDragMessage). Do not
- *    re-litigate this in CSS.
+ *    long-press text interaction paints the OS magnifier plus a caret it drags
+ *    along, right on top of the block being moved. It is a UIKit gesture
+ *    recogniser, and WebKit commits to it at TOUCH-DOWN, so nothing applied
+ *    later reaches it: `pointer-events: none` and `touch-action: pan-x pan-y`
+ *    on the editable subtree were both measured on a simulator with the loupe
+ *    still appearing, on top of the levers already listed above. The shell that
+ *    owns the WebView suspends its text interaction instead. Do not re-litigate
+ *    this in CSS.
+ *  - AND THE SHELL MUST BE ASKED AT TOUCH-DOWN, NOT AT LIFT. `onDragActive`
+ *    (bridge.ts BlockDragMessage) can only fire once the 340ms timer has
+ *    fired, which made the shell's protection conditional on this plugin
+ *    winning a race it does not control — and when a press produced no lift for
+ *    ANY reason (a timer starved by a busy main thread, a pointer stream WebKit
+ *    withheld, a press that never armed) the user got the OS magnifier and a
+ *    word selection instead of a ghost, with the suspension the module doc
+ *    claimed never even requested. Measured on the pool simulator, iOS 26.5:
+ *    WKWebView's text interaction fires at 655±2ms with the editable focused
+ *    (loupe + caret placement) and ~700ms unfocused (word selection) — it does
+ *    NOT have a shorter focused threshold, and it never `pointercancel`s the
+ *    page. So the fix is not a smaller number, it is not depending on the
+ *    number at all: `onPressActive` (bridge.ts BlockPressMessage) fires at
+ *    pointerdown and the shell stands the DELAYED recognisers down there,
+ *    leaving the tap recognisers (caret placement, double-tap word select)
+ *    alive. `onDragActive` still escalates to the full suspension at the lift.
+ *    Both are released from the same single `disarm()`.
  *  - LISTEN ON THE DOCUMENT, NOT ON `view.dom`. Applying the source-dim
  *    decoration re-renders the pressed block, which can detach the very DOM
  *    node the touch sequence targets; a `touchmove` listener bound to
@@ -118,8 +132,21 @@ export interface MobileBlockDndOptions {
    * plugin is fully functional without a listener, just with the loupe.
    */
   onDragActive?: (active: boolean) => void;
-  /** Stationary hold (ms) before a touch lifts a block. Default 340 — must
-   * beat iOS's own ~500ms text-selection long-press (see module doc). No
+  /**
+   * True the instant a finger lands on a block, false the instant that press
+   * resolves in ANY way — lift, plain tap, scroll, or cancel. Strictly wider
+   * than {@link MobileBlockDndOptions.onDragActive}, and the whole point of it
+   * is that it does NOT wait for the long-press timer: the iOS shell stands
+   * WKWebView's delayed text-interaction gestures down here, so the OS
+   * magnifier cannot appear even when no lift follows (see the module doc's
+   * touch-down note and bridge.ts BlockPressMessage). Optional: the plugin is
+   * fully functional without a listener, just back to racing the OS.
+   */
+  onPressActive?: (pressed: boolean) => void;
+  /** Stationary hold (ms) before a touch lifts a block. Default 340, which is
+   * a FEEL number, not a race number: iOS's own text interaction was measured at
+   * 655ms focused / ~700ms unfocused, and `onPressActive` — not this timer — is
+   * what keeps it out of the way (see the module doc's touch-down note). No
    * caller overrides either of these today; they exist because both numbers
    * were tuned by hand on a device and the next tuning pass wants a dial. */
   longPressMs?: number;
@@ -302,6 +329,7 @@ class MobileBlockDndView {
     this.options = {
       onHaptic: options.onHaptic,
       onDragActive: options.onDragActive ?? (() => {}),
+      onPressActive: options.onPressActive ?? (() => {}),
       longPressMs: options.longPressMs ?? DEFAULT_LONG_PRESS_MS,
       moveCancelPx: options.moveCancelPx ?? DEFAULT_MOVE_CANCEL_PX,
     };
@@ -364,16 +392,19 @@ class MobileBlockDndView {
     this.cancelTimer();
     this.autoScroll.stop();
     this.removeGestureListeners();
+    const wasArmed = this.pointerId !== null;
     this.pointerId = null;
     this.pressed = null;
     this.indicatorKey = null;
     const wasDragging = this.dragging;
     this.dragging = false;
     this.view.dom.classList.remove(ARMED_CLASS);
-    // Paired with the lift's `true`, from the ONE exit every abandoned gesture
-    // goes through — a shell left suspended would swallow text selection for
-    // the rest of the session.
+    // Paired with the lift's / the arm's `true`, from the ONE exit every
+    // abandoned gesture goes through — a shell left suspended would swallow
+    // text selection for the rest of the session. Drag first, then press, so
+    // the shell only ever steps DOWN a level.
     if (wasDragging) this.options.onDragActive(false);
+    if (wasArmed) this.options.onPressActive(false);
   }
 
   /* ---- selection suppression -------------------------------------------- */
@@ -422,6 +453,10 @@ class MobileBlockDndView {
     const block = topLevelBlockAt(this.view, event.clientX, event.clientY);
     if (!block) return;
     this.pointerId = event.pointerId;
+    // FIRST, before any of the page-side work below: this is a message to the
+    // shell and it has a WebContent->UI hop to make, and everything it buys is
+    // bought by arriving before WKWebView's own long press does (module doc).
+    this.options.onPressActive(true);
     this.startX = event.clientX;
     this.startY = event.clientY;
     this.lastY = event.clientY;
@@ -537,8 +572,10 @@ class MobileBlockDndView {
     if (this.pointerId === null || !this.pressed) return;
     const view = this.view;
 
-    // Pull the rug out from under WKWebView's own long-press-to-select gesture
-    // (still in flight at ~340ms; its magnifier/handles show around ~500ms).
+    // Belt and braces: the shell has been holding WKWebView's delayed text
+    // interaction down since pointerdown (`onPressActive`), so there should be
+    // no range to collapse — but a host without a `blockPress` case leaves this
+    // as the page's only defence.
     this.collapseSelection();
 
     const decoration = Decoration.node(this.pressed.pos, this.pressed.pos + this.pressed.size, {
@@ -556,8 +593,11 @@ class MobileBlockDndView {
     const restingTarget = targetAtPointerY(view, clientY);
     this.indicatorKey = restingTarget ? indicatorKeyOf(restingTarget) : null;
     this.createGhost(clientX, clientY);
-    // Before the haptic: the shell has ~160ms to suspend its text interaction
-    // ahead of WebKit's own ~500ms long press.
+    // Escalates the shell from the press-level suspension it has held since
+    // pointerdown to the full one (the whole text-interaction stack, plus the
+    // `isTextInteractionEnabled` preference) — safe only now that the gesture
+    // is known to be a drag. Before the haptic, so the escalation is in flight
+    // while the finger is still being told it worked.
     this.options.onDragActive(true);
     this.options.onHaptic('lift');
   }

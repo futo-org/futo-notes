@@ -324,14 +324,34 @@ plugins` mid-render and the editor kept showing the previously opened note.
   src/features/editor/milkdown/blockDragGeometry.ts `createDragAutoScroller`,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts _(native shells, Milkdown only)_
-- While a block is airborne in the iOS long-press block drag, the platform text
-  interaction is suspended — no magnifier over the block being moved, no
-  callout, no caret dragged along behind it — and restored the moment the
-  gesture resolves, however it resolves. Nothing on the page can suppress it, so
-  the editor reports the drag over the bridge and the shell suspends the
-  WebView's own gesture recognisers. Verified on the simulator 2026-08-31. →
+- A finger landing on a block in the iOS long-press block drag suspends the
+  platform's DELAYED text interaction from touch-down — the magnifier loupe and
+  tap-and-a-half select — for as long as the press lasts, and restores it the
+  moment the press resolves, however it resolves (lift, tap, scroll, cancel). It
+  is requested at touch-down and not at the lift because the platform gesture
+  fires at ~655ms with the editable focused and ~700ms unfocused, against the
+  340ms lift: a press that produced no lift for any reason used to hand the user
+  the magnifier and a word selection with nothing suspended at all. Measured on
+  the simulator 2026-09-01. →
   src/features/editor/milkdown/mobileBlockDnd.ts,
-  apps/ios/Sources/Editor/EditorWebView.swift `setTextInteractionSuspended`,
+  apps/ios/Sources/Editor/EditorWebView.swift `delayedTextInteractionGestures`,
+  packages/editor/src/bridge.ts `BlockPressMessage`,
+  tests/editor-embed-milkdown.spec.ts _(native shells, iOS, Milkdown only)_
+- A tap still places the caret and raises the keyboard, and a double-tap still
+  selects a word and shows the platform Cut/Copy/Paste callout, during and after
+  that press-level suspension: only the hold-triggered recognisers stand down,
+  never the tap ones. Verified on the simulator 2026-09-01. →
+  apps/ios/Sources/Editor/EditorWebView.swift `delayedTextInteractionGestures`
+  _(native shells, iOS, Milkdown only)_
+- While a block is airborne in that drag, the suspension escalates to the WHOLE
+  platform text interaction — no magnifier over the block being moved, no
+  callout, no caret dragged along behind it, and the selection preference off —
+  and steps back down the moment the gesture resolves, however it resolves.
+  Nothing on the page can suppress it, so the editor reports both the press and
+  the drag over the bridge and the shell decides what each means. Verified on the
+  simulator 2026-09-01. →
+  src/features/editor/milkdown/mobileBlockDnd.ts,
+  apps/ios/Sources/Editor/EditorWebView.swift `applyTextInteractionLevel`,
   packages/editor/src/bridge.ts `BlockDragMessage`
   _(native shells, iOS, Milkdown only)_
 - Desktop drag-selection across a rendered Markdown element expands through its

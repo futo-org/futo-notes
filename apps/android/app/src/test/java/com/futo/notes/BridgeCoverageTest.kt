@@ -28,6 +28,8 @@ class BridgeCoverageTest {
                 "emitted only by the iOS long-press block drag; Android mounts the gutter-handle drag and never sends it",
             "blockDrag" to
                 "same iOS-only long-press block drag; it exists so the iOS shell can suspend WKWebView's text interaction, and Chromium's WebView shows no loupe over the gutter-handle drag",
+            "blockPress" to
+                "blockDrag's touch-down half, posted by the same iOS-only long-press block drag; there is no Chromium equivalent to stand down and no gutter-handle press to protect",
         )
     }
 

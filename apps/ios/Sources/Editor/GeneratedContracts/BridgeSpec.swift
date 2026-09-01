@@ -22,4 +22,5 @@ enum BridgeMessageType: String {
     case formatState
     case haptic
     case blockDrag
+    case blockPress
 }
