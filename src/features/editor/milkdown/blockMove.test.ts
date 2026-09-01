@@ -17,6 +17,10 @@ function heading(level: number, text: string): ProseNode {
   return s.nodes.heading.create({ level }, s.text(text));
 }
 
+function frontmatter(value: string): ProseNode {
+  return s.nodes.frontmatter.create({ value });
+}
+
 /** A stub view: `moveTopLevelBlock` only reads `state` and calls `dispatch`. */
 function stubView(doc: ProseNode) {
   const dispatched: Transaction[] = [];
@@ -135,6 +139,45 @@ describe('moveTopLevelBlock', () => {
 
     expect(seen).toHaveLength(1);
     expect(seen[0]).toBe(dispatched[0]);
+  });
+
+  /* Front matter only means front matter at the very start of a file. A block
+   * dropped above it, or the block itself dragged down, would put `---` in the
+   * middle of the note — which the next open reads back as a thematic break
+   * plus a setext heading, prose-escaping the metadata values on the way
+   * (packages/editor/src/milkdown-compat/frontmatter.ts). */
+  it('refuses to move a block above the front matter block', () => {
+    const doc = s.nodes.doc.create(null, [frontmatter('title: T'), paragraph('a'), paragraph('b')]);
+    const { view, dispatched } = stubView(doc);
+
+    const committed = moveTopLevelBlock(view, rangeOf(doc, 2), 0);
+
+    expect(committed).toBe(false);
+    expect(dispatched).toHaveLength(0);
+  });
+
+  it('refuses to move the front matter block itself', () => {
+    const doc = s.nodes.doc.create(null, [frontmatter('title: T'), paragraph('a')]);
+    const { view, dispatched } = stubView(doc);
+
+    const committed = moveTopLevelBlock(view, rangeOf(doc, 0), doc.content.size);
+
+    expect(committed).toBe(false);
+    expect(dispatched).toHaveLength(0);
+  });
+
+  it('still reorders body blocks in a note that has front matter', () => {
+    const doc = s.nodes.doc.create(null, [frontmatter('title: T'), paragraph('a'), paragraph('b')]);
+    const { view, dispatched } = stubView(doc);
+
+    const committed = moveTopLevelBlock(view, rangeOf(doc, 1), doc.content.size);
+
+    expect(committed).toBe(true);
+    // The atom carries no text content, hence the leading '' — the value it
+    // holds is asserted on the node itself below.
+    expect(topLevelText(dispatched[0].doc)).toEqual(['', 'b', 'a']);
+    expect(dispatched[0].doc.firstChild?.type.name).toBe('frontmatter');
+    expect(dispatched[0].doc.firstChild?.attrs.value).toBe('title: T');
   });
 
   it('does not run beforeDispatch for a refused move', () => {

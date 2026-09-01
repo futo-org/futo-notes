@@ -414,6 +414,50 @@ this file states the behaviors a human cares about.
   be preserved. → src/features/editor/heightMapWarm.ts, docs/learnings/hr-scroll-jank.md
 - Wikilinks `[[Title]]`.
 
+### YAML front matter
+
+- A note that OPENS with a `---` fence, closed by a later `---` fence, carries
+  YAML front matter: the two fences and everything between them are metadata,
+  not markdown. The bytes survive every edit made elsewhere in the note
+  byte-for-byte — brackets, hashes, asterisks, quotes, indentation, trailing
+  spaces and interior blank lines included. Front matter is the one construct
+  ADR-0002's normalize-once does NOT get to re-spell: it is not markdown, so
+  there is no re-spelling of it that preserves its meaning to the tools that
+  read it. → packages/editor/src/milkdown-compat/frontmatter.ts,
+  tests/editor-embed-milkdown-compat.spec.ts,
+  tests/editor-embed-milkdown.spec.ts
+- Both fences must be exactly three dashes at column 0 with nothing after them
+  but whitespace. `----`, ` ---`, and a `---` with no closing fence are a
+  thematic break (and, with a line above it, a setext heading) exactly as
+  CommonMark says — and a `---` anywhere but the first line of the note is
+  always a thematic break, which the editor still normalizes to `***`.
+  _(Milkdown only; `+++` TOML front matter is not recognised and round-trips as
+  the paragraph CommonMark reads it as.)_
+- In the WYSIWYG (Milkdown) engine the block is RENDERED, as one inert
+  metadata panel above the body: muted, monospace, with a left rule, and no
+  caret. It cannot be typed into, clicked into, dragged, or reordered — the
+  editor has no YAML model, so it shows the bytes and refuses to edit them.
+  Deleting the whole note still deletes it. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `.futo-frontmatter`
+  > **Gap:** the front matter block cannot be edited or deleted on its own in
+  > any client. Changing a metadata value means editing the file in another
+  > tool. Closing this needs an affordance that edits YAML as fields — the one
+  > thing the current design deliberately refuses, because an editor with no
+  > YAML model that offers a caret is how a value gets silently rewritten
+  > (`tags: [a, b]` → `tags: \[a, b]`, the bug this block exists to fix).
+  > → packages/editor/src/milkdown-compat/frontmatter.ts
+- A note whose ONLY content is front matter gains one trailing blank line the
+  first time it is really edited: the document's content is
+  `frontmatter? block+`, so it gets the empty body paragraph the schema
+  requires. That paragraph is what gives the caret somewhere to go that is not
+  a selection ON the metadata. Opening such a note still changes nothing.
+  → packages/editor/src/milkdown-compat/frontmatter.ts `FRONTMATTER_DOC_CONTENT`
+- Progressive open never cuts a chunk boundary at a `---` fence, or anywhere
+  inside the note's own front matter: each chunk is parsed as its own document,
+  so a chunk that BEGAN with `---` would read a mid-note thematic break as
+  front matter. → src/features/editor/milkdown/markdownChunks.ts,
+  src/features/editor/milkdown/markdownChunks.test.ts
+
 ## Tags
 
 - A `#tag` is extracted and decorated only when it is at a word boundary, does

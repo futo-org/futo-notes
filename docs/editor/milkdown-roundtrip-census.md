@@ -127,6 +127,47 @@ byte-identically and covers all 299 without changing anyone's meaning. It does
 not fix *rendering* — the item still shows as a nested list rather than the text
 the author typed — which is why the escape is the better fix where it applies.
 
+### YAML front matter — 8 notes, fixed, and a blind spot closed
+
+This one is a correction to the table above as much as an addition to it. The
+first census reported "no eaten frontmatter-like content", and that was wrong —
+it was unmeasurable. **Every flag in this harness except `br_loss`,
+`empty_link_loss`, `html_loss` and `wikilink_loss` compares round1 against
+round2**, i.e. it measures STABILITY, and corrupted front matter is perfectly
+stable:
+
+```
+IN : ---                        OUT: ***
+     title: Front Matter Test
+     tags: [a, b]                    title: Front Matter Test
+     date: 2026-09-01                tags: \[a, b]
+     ---                             date: 2026-09-01
+                                     ----------------
+```
+
+`***` plus a setext underline round-trips to itself forever, so nothing fired —
+while `tags: [a, b]` had become `tags: \[a, b]`, a changed metadata VALUE, on
+the first edit anywhere in the note. `detectors.mjs` now carries a
+`frontmatter_loss` flag that compares round1 against the ORIGINAL BYTES, which
+is the right bar for this construct: front matter is not markdown, so ADR-0002's
+normalize-once has no re-spelling of it to accept.
+
+The 31k corpus holds only 8 notes with front matter, and all 8 sit past the line
+where the corpus reader currently dies on a malformed record, so the routine
+`--limit 4000` run sees none of them. Measured on a `--corpus` slice of exactly
+those 8 (extracted locally; note text, so never committed):
+
+| | baseline | compat |
+|---|---:|---:|
+| notes processed | 8 | 8 |
+| **`frontmatter_loss`** | **8** | **0** |
+| every other flag | 0 | 0 |
+
+`packages/editor/src/milkdown-compat/frontmatter.ts` adds `remark-frontmatter`
+plus an atomic, non-editable `frontmatter` node pinned to the document's first
+position. The routine 4000-note run is unchanged in every column and raises no
+new flag, front matter included.
+
 ## What is left, and why it is fine
 
 The 611 `doc_mismatch` notes that remain are the classes the first census

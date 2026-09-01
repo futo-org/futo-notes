@@ -22,9 +22,20 @@
  *    original before anything is dispatched.
  *  - A DROP BACK AT THE SOURCE IS A TRUE NO-OP: no transaction, so no history
  *    entry, no `markdownUpdated`, and no `change` message to the host.
+ *  - FRONT MATTER IS PINNED TO THE TOP. `---` only means front matter at the
+ *    very start of a file, so a block dropped above it — or the block itself
+ *    dragged down — would serialize metadata into the middle of the note, where
+ *    the next open reads it back as a thematic break plus a setext heading and
+ *    the values get prose-escaped. The schema says the same thing (the doc's
+ *    content is `frontmatter? block+`), but ProseMirror does not enforce a
+ *    content expression on every transform, so the guard belongs here too —
+ *    this is the one place a block drag becomes a document change, for both
+ *    drag paths.
  */
 import type { Transaction } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
+
+import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
 
 export interface BlockMoveRange {
   /** Position immediately before the dragged top-level node. */
@@ -59,12 +70,17 @@ export function moveTopLevelBlock(
   // Not exactly one top-level node any more — refuse to guess.
   if (!node || srcStart + node.nodeSize !== srcEnd) return false;
   if (beforeDoc.resolve(srcStart).depth !== 0) return false;
+  // The front matter block never moves (see the header note).
+  if (node.type.name === FRONTMATTER_NODE) return false;
 
   let tr = view.state.tr.delete(srcStart, srcEnd);
   const mappedTarget = tr.mapping.map(targetPos);
   // The boundary stopped being a top-level gap once the source was removed;
   // inserting there would coerce the node's type.
   if (tr.doc.resolve(mappedTarget).depth !== 0) return false;
+  // …and nothing moves above it. Position 0 is the only boundary that could,
+  // and only when front matter is what currently sits there.
+  if (mappedTarget === 0 && tr.doc.firstChild?.type.name === FRONTMATTER_NODE) return false;
 
   tr = tr.insert(mappedTarget, node);
   // `insert` puts the node so it STARTS at mappedTarget, so no re-mapping.

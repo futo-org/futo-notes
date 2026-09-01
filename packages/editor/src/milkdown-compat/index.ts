@@ -37,6 +37,13 @@
  * the same set, from the tag work (#102): remark escapes every line-leading
  * `#`, which destroys a `#tag`.
  *
+ * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
+ * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
+ * parsed as a thematic break plus a setext heading and the first edit anywhere
+ * in the note wrote back `***`, a dash rule, and `tags: \[a, b]` — a changed
+ * metadata value. It has no canary to go red, because upstream is not wrong;
+ * it just does not ship the extension.
+ *
  * These are adapters to one editor library's implementation, not note rules, so
  * they carry no Rust mirror — the M6 carve-out recorded in this package's
  * AGENTS.md. Both native hosts and the census harness consume this module, so
@@ -56,12 +63,19 @@ import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 import { bulletNumberEscapePlugin } from './bulletNumbers';
 import { remarkExpandEmptyLinksPlugin } from './emptyLink';
 import { remarkFixedPreserveEmptyLinePlugin } from './emptyLine';
+import { frontmatterPlugins } from './frontmatter';
 
 export * from './atxEscape';
 export * from './stringifyHandlers';
 export { escapeAmbiguousBulletNumbers } from './bulletNumbers';
 export { expandEmptyLinks } from './emptyLink';
 export { fixEmptyLinePlaceholders, htmlWithoutEmptyCellPlaceholder } from './emptyLine';
+export {
+  FRONTMATTER_CLASS,
+  FRONTMATTER_DOC_CONTENT,
+  FRONTMATTER_MDAST_TYPE,
+  FRONTMATTER_NODE,
+} from './frontmatter';
 export type { MdastNode } from './mdast';
 
 /** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */
@@ -133,6 +147,11 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
     ...remarkFixedPreserveEmptyLinePlugin,
     ...remarkExpandEmptyLinksPlugin,
     bulletNumberEscapePlugin,
+    /* LAST, and it has to be: the front matter set overrides the preset's own
+     * `doc` node by re-registering that id, which `$node` resolves by upsert —
+     * so it must be registered after the preset, and it reads the registered
+     * entry back to inherit everything but the content expression. */
+    ...frontmatterPlugins,
   ];
   return cached;
 }

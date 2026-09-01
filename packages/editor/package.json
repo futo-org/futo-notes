@@ -13,6 +13,9 @@
     "build:editor": "vite build --config ../../vite.editor.config.ts",
     "test": "vitest run"
   },
+  "dependencies": {
+    "remark-frontmatter": "5.0.0"
+  },
   "devDependencies": {
     "mdast-util-to-markdown": "2.1.2",
     "vitest": "^4.0.18"

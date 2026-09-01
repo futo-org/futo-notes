@@ -26,6 +26,15 @@ are adapters to one editor library's implementation — which mdast node a plugi
 deletes, how a link mark finds text to attach to — not note rules, so M6 does
 not apply. Nothing in Swift, Kotlin, or Rust may hold a second copy either.
 
+`src/milkdown-compat/frontmatter.ts` is in the same directory for the same
+reason but is an ADDITION, not a fork: the preset has no front matter construct,
+so `---\ntags: [a, b]\n---` parsed as a thematic break plus a setext heading and
+any edit wrote back `***` and `tags: \[a, b]`. It has no canary — upstream is
+not wrong, it just does not ship the extension — and it must stay LAST in
+`commonmarkWithCompat()`, because it overrides the preset's own `doc` node by
+re-registering that id and reads the registered entry back to inherit everything
+but the content expression.
+
 Rules that do bind here:
 
 - The parse-side set ships as one `commonmarkWithCompat()` array. Half of it is worse
