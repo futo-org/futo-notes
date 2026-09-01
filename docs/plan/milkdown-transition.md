@@ -617,6 +617,74 @@ carries no Milkdown behavior at all — per D9 and ADR-0002 the existing lines s
 swap, and the new progressive-open lines belong to the spec-renegotiation MR (**#109**), which
 should write them from this section.
 
+### The parse cap: what "opens no worse than today" was hiding (2026-09-01)
+
+§5 said a note the planner declines "opens no worse than it does today". For one shape that was
+true and useless: a note with **no blank line anywhere** could not be opened at all. A user's
+50,000-line note (~1.65 MB, every line a sentence) showed a blank editor body indefinitely, and
+because the iOS shell cannot read a document that never mounted, Back answered "Couldn't read the
+latest note. Navigation is paused while your changes remain pending." on every tap — force-quit or
+Delete Note were the only exits. Reproduced on the simulator, 2026-09-01.
+
+**The cost is not the note's size; it is the size of its largest INLINE CONTENT RUN, and it is
+superlinear in that.** Measured against the shipped `editor.html` in chromium, same 1.26 MB in every
+row:
+
+| fixture | `initialize` |
+|---|---|
+| 1.26 MB on ONE line (a single inline node) | 107 ms |
+| 20k lines, blank line every 200 | 667 ms |
+| 20k lines, blank line every line | 2,264 ms |
+| 20k lines, no blank line anywhere (one run) | 7,796 ms |
+
+A CPU profile puts 63% of the 20k/one-run case inside micromark's text tokenizer, which merges
+adjacent `data` tokens by splicing ONE events array — quadratic in the tokens of a single run. That
+is upstream, and it is why chunking cannot help: the note IS one block, and a cut inside a paragraph
+changes both the document and its serialization, which the census above proves is unsafe.
+
+Which shapes are affected is therefore not "big notes". At 10k lines / ~640 KB: a fenced code block
+costs 47–465 ms and a 10,000-item bullet list 690 ms (many small runs), while one paragraph costs
+2,977 ms, a blockquote of the same lines 3,204 ms and a 10,000-row table 4,355 ms.
+
+**So the editor now refuses that parse.** `oversizeNote.ts` measures the largest inline run BEFORE
+any parse — a line scan that breaks a run at anything opening a block of its own (list marker, ATX
+heading, fence, thematic break, HTML block) and keeps counting through blockquote markers and table
+rows. Past **4,000 lines or 256 KB in one run** the editor mounts the note's first 400 lines
+**READ-ONLY** and says so in a notice pinned above the body. Checked independently of the chunk plan:
+a chunkable note can still hold one enormous run, and it would stall in an idle slice where nothing
+is watching.
+
+Read-only is what makes this safe rather than merely fast, and it is the line §5 already drew: the
+document is never serialized, `getContent()` answers with the host's own bytes, the change listener
+is locked exactly as it is mid-stream, and `exec`/`insertMarkdown` refuse. **A prefix the user could
+edit is the trade this must not make** — it would put a truncated document one keystroke from disk.
+
+Threshold, on the reported note's own shape (33-char lines), before → after:
+
+| lines | size | before | after |
+|---|---|---|---|
+| 4,000 | 124 KB | 228 ms | 240 ms, editable — the last note under the cap |
+| 5,000 | 155 KB | 666 ms | 87 ms, read-only |
+| 10,000 | 311 KB | 849 ms | 10 ms, read-only |
+| 20,000 | 634 KB | 6,512 ms | 11 ms, read-only |
+| 50,000 | 1,600 KB | 26,857 ms | 17 ms, read-only |
+
+Multiply by ~6 for the low-end Android reference device (#106 measured that ratio on this exact
+shape), which puts the worst case still under the cap at ~1.5 s.
+
+**What this does NOT fix, and is left open deliberately:** a note that declines for a
+`reference-definition` while being properly block-separated still takes a whole-document parse whose
+LINEAR cost is real (20k lines in 1,000 paragraphs: 934 ms here, ~6 s on the reference phone). The
+cap does not touch it, because those notes open and are editable today and a read-only cap would be
+a regression for them. Bounding that is a scaling problem for the swap, not a trap.
+
+The other half of the fix is in the iOS shell and is spec'd rather than planned: an exit whose editor
+holds no live document leaves with the shell's own body instead of refusing
+(`docs/spec/editor.md`, "Editor exits"). That guarantee stands on its own — it was verified on the
+simulator with the cap deliberately disabled, so the note blocked exactly as before and Back left
+anyway — and it is what keeps the user out of a trap when the next unforeseen shape blocks the
+engine.
+
 ### T9 outcome (#106, partial — one budget is MISSED)
 
 `just test-android-perf` builds, installs and drives the REAL native Android app on a physical

@@ -1321,6 +1321,17 @@ EditorSessionTest.kt, EditorSessionTests.swift
   every latch that exit set, and reports which step failed so the shell can word
   the message. A failed delete un-latches so the editor stays usable, and a
   failed draft write never deletes. _(iOS/Android)_
+- "The editor did not answer" is only a failed capture when the answer would have
+  been for **another note**. An editor holding NO live document — the bundle has
+  not reported `initialized`, its renderer process died, or it stops answering
+  within the capture deadline — cannot be holding an edit the shell has not seen,
+  so the exit proceeds against the shell's own body (read from disk, then kept in
+  step with every editor `change`) instead of refusing. When the note never
+  loaded, that body still equals disk and the commit is a no-op: leaving
+  **abandons the load** rather than saving a prefix. A capture therefore always
+  completes in bounded time, so no exit can be blocked indefinitely by an
+  unresponsive editor. _(iOS)_ → EditorWebView.swift `editorExitBody`,
+  `captureCurrentContent`, EditorExitBodyTests
 - A **committed** delete's latch is one-way for that session: no pending
   workflow, queued bridge callback, title debounce, or in-flight adoption can
   touch the note afterwards. _(iOS/Android)_
