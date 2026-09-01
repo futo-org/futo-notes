@@ -93,7 +93,7 @@ Behaviors and constraints that hold across every surface and platform.
     > QA; the window is short, and nobody has measured how reachable it is in
     > practice. → EditorSession.kt `acceptsEditorChange`, NoteEditorScreen.kt That same synchronous latch makes an
     Activity `onStop` unable to abort live sync before the migration's graceful
-    sync stop completes. Editor navigation captures the latest live CodeMirror
+    sync stop completes. Editor navigation captures the latest live editor
     body and persists-or-parks it before leaving the editor; Settings is reached
     only after that navigation commit. A dirty draft retained by an unexpected
     editor disposal is additionally flushed by the store under the migration
@@ -174,11 +174,12 @@ Behaviors and constraints that hold across every surface and platform.
 ## Performance
 
 - Book-length notes must stay responsive. On the open path an unbounded
-  synchronous full-document parse (`ensureSyntaxTree(..., doc.length, 5000)`) is
-  banned; instead the `LiveMarkdownPlugin` constructor seeds decorations with a
-  tightly time-boxed (≤200 ms) `ensureSyntaxTree(..., doc.length, 200)` parse,
-  then grows decorations incrementally as parsing continues
-  (`scheduleParseRefresh`). → src/features/editor/live-preview/LiveMarkdownPlugin.ts
+  synchronous full-document parse is banned: a note of 400 lines or more is
+  parsed in top-level chunks, the first of which mounts synchronously so the
+  first viewport is interactive, with the rest streamed in idle slices. Budgets
+  and the streaming rules live in [editor.md](editor.md) "Performance". →
+  src/features/editor/milkdown/progressiveLoad.ts,
+  src/features/editor/milkdown/markdownChunks.ts
 
 ## Appearance
 

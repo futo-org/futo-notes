@@ -178,7 +178,7 @@ Use these as starting points. Adapt and combine them based on the test targets.
 - Round-trip: type markdown → save → reload → compare character-for-character
 - Complex GFM: tables, task lists, footnotes, strikethrough combined
 - Nested structures: blockquote inside list inside blockquote
-- CodeMirror decorations: verify widgets render for checkboxes, links, images
+- Editor node views: verify checkboxes, links, images and tables render as editable nodes
 - Paste rich HTML → expect clean markdown conversion
 
 ### Multi-client sync

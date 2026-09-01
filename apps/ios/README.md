@@ -1,8 +1,8 @@
 # FUTO Notes — Native iOS
 
 The iOS app is a native SwiftUI shell over the shared Rust note and sync
-engines. The Markdown editor is the same CodeMirror bundle used by desktop and
-Android, embedded in a `WKWebView`.
+engines. The Markdown editor is the same Milkdown (ProseMirror) bundle used by
+desktop and Android, embedded in a `WKWebView`.
 
 This app does not use Tauri. Generate, build, test, and run it through the
 repository-root `just` recipes so the editor bundle, UniFFI bindings, isolated

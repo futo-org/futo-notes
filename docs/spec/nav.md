@@ -83,10 +83,11 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   focuses the native title field; desktop and iOS focus the editor body/heading);
   opening an existing note pushes it without autofocus. → AppNavigation.kt /
   NoteEditorScreen.kt, noteSession.svelte.ts `loadNote('new')`, NoteListView.swift
-  The shared editor's mount-time auto-focus is gated off the native embeds
-  (`if (!nativeShell)`, 2026-07-09) — the pre-warmed native WebView no longer
-  focuses itself; it stays unfocused until the host asks (bridge `focus`, the
-  new-note autofocus path). → MarkdownEditor.svelte mount auto-focus
+  The shared editor never focuses itself on mount, on any surface — the
+  pre-warmed native WebView stays unfocused until the host asks (bridge
+  `focus`), and desktop focus comes from the shell's own new-note path. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `focus`,
+  noteSession.svelte.ts `focusEditor`
   iOS autofocus is confirmed on the simulator in both directions: opening an
   EXISTING note stays keyboard-less (2026-07-13 — no editor accessory toolbar
   appears on open; it only appears after tapping the body), and creating a NEW

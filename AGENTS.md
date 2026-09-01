@@ -39,7 +39,7 @@ Their nested manuals own build, device, release, and test variants. Missing
   safety + atomic files) · `-store` (THE local note engine) · `-sync` (push-first `run_sync`, SSE) ·
   `-search` (Tantivy BM25) · `-ffi` (UniFFI projection; bindings gitignored).
 - `apps/`: Tauri desktop plus native iOS and Android shells.
-- `docs/spec/`: behavioral truth; `tests/` and `markdown-spec/`: fixture/oracle systems.
+- `docs/spec/`: behavioral truth; `tests/` (unit, Playwright, and the editor gauntlet): fixture/oracle systems.
 
 Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
 at `~/Developer/futo-notes-server` receives only client-encrypted opaque blobs.
@@ -154,7 +154,9 @@ These are observed failures, not generic advice.
   success while doing nothing. Suspect the tool before the app, and **never record a spec gap from
   one tool's silence**; mechanics live in `/verify`'s `references/ios.md` + `references/android.md`.
 - **M22 — Wrong browser.** Playwright cannot prove WebView2 or real iOS keyboard behavior. Use the
-  Windows VM/device; after dependency changes, blank CM6 often means duplicate `@codemirror/*`.
+  Windows VM/device; after dependency changes, a blank editor usually means the bundle carries two
+  copies of an editor library — duplicated `prosemirror-*` (or `@milkdown/*`) instances silently
+  break the mounted view.
 - **M23 — Updater signing order.** The detached `.sig` must be the LAST touch on artifact bytes —
   after patching/notarization/Authenticode. Read `docs/release/updater.md` and `keys/README.md`, and
   rehearse locally with `just updater-localdev`; localdev signatures must never verify in production.
@@ -175,7 +177,7 @@ Every logic change gets a test; a bug regression fails before the fix. Report co
 | ID | Change | Required chain |
 |---|---|---|
 | **7.1** | UI/Svelte | `src/AGENTS.md` |
-| **7.2** | CM6 editor | `src/AGENTS.md` |
+| **7.2** | Milkdown editor | `src/AGENTS.md` |
 | **7.3** | Note/editor rule | `packages/editor/AGENTS.md` + both Rust/TS consumers + `just test-rust` (goldens + TS↔Rust differential) |
 | **7.4** | Rust core/Tauri | nearest crate or `apps/tauri/AGENTS.md` |
 | **7.5** | Sync | `crates/futo-notes-sync/AGENTS.md`; preserve push-first |

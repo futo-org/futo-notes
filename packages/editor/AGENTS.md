@@ -44,7 +44,7 @@ Rules that do bind here:
   this package's barrel re-exports the module: building the preset at module
   scope would run its upstream-shape check on every import of
   `@futo-notes/editor` and pull `@milkdown/kit` into every bundle that touches
-  the barrel, CodeMirror's and the codegen scripts' included.
+  the barrel, the codegen scripts' included.
 - **The forks are meant to die.** `tests/editor-embed-milkdown-compat.spec.ts`
   reproduces each upstream bug against the *unpatched* preset. A red canary means
   upstream shipped a fix — delete our fork, do not relax the canary. The

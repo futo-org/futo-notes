@@ -20,7 +20,7 @@ the one you need before driving that platform:
 
 | Platform | When | Playbook |
 |---|---|---|
-| Web dev server | pure CSS / markdown / CM6 decorations, no Tauri APIs | `references/desktop.md` |
+| Web dev server | pure CSS / markdown / editor decorations, no Tauri APIs | `references/desktop.md` |
 | Tauri desktop | default for desktop features; anything touching Rust/`invoke()`/platform APIs | `references/desktop.md` |
 | iOS simulator (native SwiftUI) | `apps/ios` changes, iOS-specific behavior, "on the simulator" | `references/ios.md` |
 | Android emulator (native Compose) | `apps/android` changes, Android-specific behavior (IME, status bar) | `references/android.md` |
@@ -225,7 +225,7 @@ files depend on Tauri APIs:
 grep -rl 'invoke\|@tauri-apps\|rustCore' $(git diff --name-only HEAD~1 HEAD 2>/dev/null; git diff --name-only --cached; git diff --name-only) 2>/dev/null | grep -E '\.(ts|svelte)$' | sort -u
 ```
 
-Any match → Tauri. No match and purely CSS/markdown/CodeMirror decorations →
+Any match → Tauri. No match and purely CSS/markdown/editor decorations →
 web is acceptable. Unsure → Tauri.
 
 ### Editor changes ship to three apps
