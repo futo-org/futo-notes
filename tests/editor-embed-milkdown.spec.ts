@@ -1652,14 +1652,18 @@ base('killing the app mid-stream leaves the note file byte-untouched', async ({ 
 // A user's 50,000-line note with no blank line anywhere took 28 s here and
 // minutes on a phone: the editor showed nothing, and because the iOS shell
 // cannot read a document that never mounted, Back refused to leave. The editor's
-// half of that fix is this cap — a note whose largest run is past what parses in
-// bounded time mounts a BOUNDED, READ-ONLY preview and says so, instead of
-// blocking the engine on a parse that may never finish.
+// half of that fix is parse SPEED. The cost was never the note's size: it was
+// micromark's text resolver merging adjacent data events with one `splice` per
+// run, which is quadratic in the number of runs — and a paragraph of
+// single-newline lines produces one run per line. Patched to compact in one
+// pass (patches/micromark@4.0.2.patch): 20,000 lines went 4.8 s -> 1.6 s and
+// 50,000 went 18.1 s -> 0.9 s, linear in the note.
 //
-// Read-only is what makes it safe rather than merely fast: the note is never
-// serialized, so `getContent()` answers with the host's own bytes and no save
-// can ever write the preview over the real file. A prefix the user could edit
-// is the one trade this must not make (docs/plan/milkdown-transition.md §5).
+// There is deliberately NO cap and no read-only mode. An earlier attempt
+// mounted a bounded read-only preview with a notice, and it was the wrong
+// answer to the right measurement: a 4,280-line note is an ordinary pasted
+// transcript, and telling its owner the editor cannot open it is a capitulation
+// (docs/plan/milkdown-transition.md §5).
 
 /**
  * A note that is ONE paragraph: every line is a sentence and there is no blank
@@ -1678,8 +1682,10 @@ function oneParagraphNote(lines: number): string {
   ).join('\n');
 }
 
-const OVER_CAP_LINES = 20_000;
-/** Comfortably past the measured 7.8 s block, comfortably past the ~50 ms fix. */
+const HUGE_PARAGRAPH_LINES = 20_000;
+/** The pre-fix parse of this fixture took 4.8 s (18.1 s at 50k lines); it now
+ * takes ~1.6 s in desktop chromium, all of it real work on 40,000 inline nodes.
+ * A regression to the quadratic resolver blows straight through this. */
 const OPEN_BUDGET_MS = 2_000;
 
 async function initializeTimed(page: Page, content: string): Promise<number> {
@@ -1695,7 +1701,7 @@ async function initializeTimed(page: Page, content: string): Promise<number> {
 test('a note that is one enormous paragraph opens instead of blocking the engine', async ({
   page,
 }) => {
-  const note = oneParagraphNote(OVER_CAP_LINES);
+  const note = oneParagraphNote(HUGE_PARAGRAPH_LINES);
 
   const elapsed = await initializeTimed(page, note);
 
@@ -1705,61 +1711,12 @@ test('a note that is one enormous paragraph opens instead of blocking the engine
   expect(await page.locator('.ProseMirror').innerText()).toContain('Line 1 of this note');
 });
 
-test('an over-cap note mounts a bounded preview, not the whole document', async ({ page }) => {
-  const note = oneParagraphNote(OVER_CAP_LINES);
-
-  await initializeTimed(page, note);
-
-  const mounted = (await page.locator('.ProseMirror').innerText()).length;
-  // Bounded, and bounded well under the note: the preview budget is a few
-  // hundred lines against twenty thousand.
-  expect(mounted).toBeGreaterThan(1_000);
-  expect(mounted).toBeLessThan(note.length / 4);
-});
-
-test('an over-cap note tells the user it is read-only and why', async ({ page }) => {
-  await initializeTimed(page, oneParagraphNote(OVER_CAP_LINES));
-
-  const notice = page.locator('.milkdown-oversize-notice');
-  await expect(notice).toHaveCount(1);
-  // The two facts the user needs: nothing they do here is saved, and how much
-  // of the note they are looking at.
-  await expect(notice).toContainText(/read-only/i);
-  await expect(notice).toContainText('20,000');
-});
-
-test('an over-cap note hands the host back its own bytes and posts no change', async ({ page }) => {
-  const note = oneParagraphNote(OVER_CAP_LINES);
-
-  await initializeTimed(page, note);
-  await settleChangeDebounce(page);
-
-  expect(await getContent(page)).toBe(note);
-  expect(await messagesOfType(page, 'change')).toHaveLength(0);
-});
-
-test('typing into an over-cap note cannot change the note the host would save', async ({
-  page,
-}) => {
-  const note = oneParagraphNote(OVER_CAP_LINES);
-  await initializeTimed(page, note);
-  await clearMessages(page);
-
-  await page.locator('.ProseMirror').click();
-  await page.keyboard.type('DESTROY');
-  await settleChangeDebounce(page);
-
-  expect(await getContent(page)).toBe(note);
-  expect(await messagesOfType(page, 'change')).toHaveLength(0);
-});
-
-test('a one-paragraph note UNDER the cap still opens fully editable', async ({ page }) => {
+test('a one-paragraph note of ordinary size opens fully editable', async ({ page }) => {
   const note = oneParagraphNote(2_000);
 
   const elapsed = await initializeTimed(page, note);
 
   expect(elapsed).toBeLessThan(OPEN_BUDGET_MS);
-  await expect(page.locator('.milkdown-oversize-notice')).toHaveCount(0);
   expect(await getContent(page)).toBe(note);
 
   await focusEditor(page);

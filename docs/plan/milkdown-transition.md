@@ -617,18 +617,17 @@ carries no Milkdown behavior at all — per D9 and ADR-0002 the existing lines s
 swap, and the new progressive-open lines belong to the spec-renegotiation MR (**#109**), which
 should write them from this section.
 
-### The parse cap: what "opens no worse than today" was hiding (2026-09-01)
+### The one-paragraph note: measured, capped, then actually fixed (2026-09-01)
 
-§5 said a note the planner declines "opens no worse than it does today". For one shape that was
-true and useless: a note with **no blank line anywhere** could not be opened at all. A user's
-50,000-line note (~1.65 MB, every line a sentence) showed a blank editor body indefinitely, and
-because the iOS shell cannot read a document that never mounted, Back answered "Couldn't read the
-latest note. Navigation is paused while your changes remain pending." on every tap — force-quit or
-Delete Note were the only exits. Reproduced on the simulator, 2026-09-01.
+§5 said a note the planner declines "opens no worse than it does today". For one shape that was true
+and useless: a note with **no blank line anywhere** could not be opened at all. A user's 50,000-line
+note (~1.65 MB, every line a sentence) showed a blank editor body indefinitely, and because the iOS
+shell cannot read a document that never mounted, Back answered "Couldn't read the latest note.
+Navigation is paused while your changes remain pending." on every tap — force-quit or Delete Note
+were the only exits. Reproduced on the simulator, 2026-09-01.
 
-**The cost is not the note's size; it is the size of its largest INLINE CONTENT RUN, and it is
-superlinear in that.** Measured against the shipped `editor.html` in chromium, same 1.26 MB in every
-row:
+**The cost is not the note's size; it is the size of its largest INLINE CONTENT RUN.** Same 1.26 MB
+in every row, measured against the shipped `editor.html` in chromium:
 
 | fixture | `initialize` |
 |---|---|
@@ -637,53 +636,47 @@ row:
 | 20k lines, blank line every line | 2,264 ms |
 | 20k lines, no blank line anywhere (one run) | 7,796 ms |
 
-A CPU profile puts 63% of the 20k/one-run case inside micromark's text tokenizer, which merges
-adjacent `data` tokens by splicing ONE events array — quadratic in the tokens of a single run. That
-is upstream, and it is why chunking cannot help: the note IS one block, and a cut inside a paragraph
-changes both the document and its serialization, which the census above proves is unsafe.
+**First answer, and the wrong one: a cap.** A note past ~4,000 lines / 256 KB in one run mounted a
+bounded READ-ONLY preview with a notice saying the editor could not open it. It was safe and it was
+fast and the maintainer rejected it on sight — correctly. A 4,280-line note is an ordinary pasted
+transcript or log, the CodeMirror editor opens it without complaint, and "more than the editor can
+open" is a capitulation with a friendly voice. Reverted the same day; the shell half of that lane
+(Back always leaves, `.noLiveDocument` vs `.notOurs`) is independent and stays.
 
-Which shapes are affected is therefore not "big notes". At 10k lines / ~640 KB: a fenced code block
-costs 47–465 ms and a 10,000-item bullet list 690 ms (many small runs), while one paragraph costs
-2,977 ms, a blockquote of the same lines 3,204 ms and a 10,000-row table 4,355 ms.
+**Second answer: make the parse fast.** Two candidate causes, both measured rather than argued.
 
-**So the editor now refuses that parse.** `oversizeNote.ts` measures the largest inline run BEFORE
-any parse — a line scan that breaks a run at anything opening a block of its own (list marker, ATX
-heading, fence, thematic break, HTML block) and keeps counting through blockquote markers and table
-rows. Past **4,000 lines or 256 KB in one run** the editor mounts the note's first 400 lines
-**READ-ONLY** and says so in a notice pinned above the body. Checked independently of the chunk plan:
-a chunkable note can still hold one enormous run, and it would stall in an idle slice where nothing
-is watching.
+1. **The hardbreak explosion — real, but NOT fixable this way.** `remarkLineBreak` splits every text
+   node at every newline and inserts a `break` node, and the schema renders each as its own
+   `contenteditable="false"` span: one paragraph of N lines becomes 2N inline nodes. Dropping the
+   plugin took a 4,000-line paragraph from 7,999 inline nodes to 1 — and **destroyed the author's
+   line breaks on the first edit**: `alpha\nbravo\ncharlie` saved back as `alpha bravo charlie`.
+   The nodes are what make a soft break survive an edit. Not dropped; the cost stands.
+2. **micromark's text resolver — fixed.** `resolveAllText` merges adjacent `data` events with one
+   `events.splice()` per run, and every splice shifts the whole tail: quadratic in the number of
+   runs, and a paragraph of single-newline lines produces one run per line. Patched to collect the
+   removals and compact in ONE pass, in place (`patches/micromark@4.0.2.patch`, applied by pnpm;
+   upstreamable as written).
 
-Read-only is what makes this safe rather than merely fast, and it is the line §5 already drew: the
-document is never serialized, `getContent()` answers with the host's own bytes, the change listener
-is locked exactly as it is mid-stream, and `exec`/`insertMarkdown` refuse. **A prefix the user could
-edit is the trade this must not make** — it would put a truncated document one keystroke from disk.
+| one paragraph | before | after |
+|---|---|---|
+| 4,000 lines (223 KB) | 481 ms | **163 ms** |
+| 10,000 lines (557 KB) | 2,147 ms | **541 ms** |
+| 20,000 lines (1.1 MB) | 4,819 ms | **1,622 ms** |
+| 50,000 lines (2.8 MB) | 18,100 ms | **8,862 ms** |
 
-Threshold, on the reported note's own shape (33-char lines), before → after:
+**The first version of that patch corrupted text on 3,912 of 4,000 corpus notes.** It returned a new
+array where upstream mutates in place, so callers holding the original identity processed the
+unmerged events a second time and text duplicated, compounding on every round trip
+(`Git plugin Documentation` -> `Git plugin Documentationplugin Documentation`). The census caught it
+before it reached the branch; the in-place version is `0 flags cleared, 0 newly raised` against the
+same 4,000 notes. This is exactly what the census is for, and the reason a dependency patch here is
+not a free action.
 
-| lines | size | before | after |
-|---|---|---|---|
-| 4,000 | 124 KB | 228 ms | 240 ms, editable — the last note under the cap |
-| 5,000 | 155 KB | 666 ms | 87 ms, read-only |
-| 10,000 | 311 KB | 849 ms | 10 ms, read-only |
-| 20,000 | 634 KB | 6,512 ms | 11 ms, read-only |
-| 50,000 | 1,600 KB | 26,857 ms | 17 ms, read-only |
-
-Multiply by ~6 for the low-end Android reference device (#106 measured that ratio on this exact
-shape), which puts the worst case still under the cap at ~1.5 s.
-
-**What this does NOT fix, and is left open deliberately:** a note that declines for a
-`reference-definition` while being properly block-separated still takes a whole-document parse whose
-LINEAR cost is real (20k lines in 1,000 paragraphs: 934 ms here, ~6 s on the reference phone). The
-cap does not touch it, because those notes open and are editable today and a read-only cap would be
-a regression for them. Bounding that is a scaling problem for the swap, not a trap.
-
-The other half of the fix is in the iOS shell and is spec'd rather than planned: an exit whose editor
-holds no live document leaves with the shell's own body instead of refusing
-(`docs/spec/editor.md`, "Editor exits"). That guarantee stands on its own — it was verified on the
-simulator with the cap deliberately disabled, so the note blocked exactly as before and Back left
-anyway — and it is what keeps the user out of a trap when the next unforeseen shape blocks the
-engine.
+**Still open.** 50,000 lines in one paragraph is 8.9 s, and the remaining cost is item 1: 99,999
+inline nodes for that fixture, all mounted at once. Fixing it needs inline-level progressive mount
+(append inline content into the SAME paragraph, which changes no block structure and so no bytes) —
+not a cap, and not dropping the nodes. No note in the 31k corpus has that shape; the largest real
+one-run note measured 4,280 lines, which now opens in ~0.2 s.
 
 ### T9 outcome (#106, partial — one budget is MISSED)
 
