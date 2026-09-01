@@ -57,23 +57,13 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
-    // Desktop ships on WebKit, whose native selection-drag chromium cannot
-    // reproduce. Local-only: CI installs chromium alone (.setup-playwright).
-    ...(isCI
-      ? []
-      : [
-          {
-            name: 'webkit-pointer',
-            use: { ...devices['Desktop Safari'] },
-            testMatch: [
-              '**/editor-ux.spec.ts',
-              '**/editor-height-map.spec.ts',
-              '**/table-controls-position.spec.ts',
-            ],
-            // A tag, not a title: a rename must not silently empty the project.
-            grep: /@webkit-pointer/,
-          },
-        ]),
+    // The `webkit-pointer` project is gone with the CodeMirror engine. It
+    // existed for `editor-ux.spec.ts`, `editor-height-map.spec.ts` and
+    // `table-controls-position.spec.ts`, all three of which asserted pointer
+    // hit-testing that CodeMirror did itself (`interactions/**`, deleted in
+    // ea65cf5a). A WYSIWYG editor leaves caret placement to the browser, so
+    // there is no longer app code whose WebKit behaviour chromium cannot
+    // reproduce. Re-add a project here the moment there is.
   ],
   webServer: {
     command: 'pnpm run dev',

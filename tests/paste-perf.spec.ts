@@ -1,11 +1,13 @@
 import { expect, type Page, test } from '@playwright/test';
 
+import { EDITOR } from './lib/desktopEditor';
+
 async function openNewNote(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
   await page.goto('/#/note/new');
   await page.waitForLoadState('domcontentloaded');
-  await page.waitForSelector('.cm-content', { timeout: 10000 });
+  await page.waitForSelector(EDITOR, { timeout: 10000 });
 }
 
 async function measurePasteMs(page: Page, itemCount: number, correctlyNumbered: boolean) {
@@ -24,7 +26,7 @@ async function measurePasteMs(page: Page, itemCount: number, correctlyNumbered: 
         (_, index) => `${correctlyNumbered ? index + 1 : 1}. item number ${index}`,
       ).join('\n');
 
-      const content = document.querySelector('.cm-content') as HTMLElement;
+      const content = document.querySelector(EDITOR) as HTMLElement;
       content.focus();
       const transfer = new DataTransfer();
       transfer.setData('text/plain', pasted);
@@ -72,7 +74,7 @@ test('pasting a large ordered list stays proportional to paste size', async ({ p
   });
 
   await openNewNote(page);
-  await page.click('.cm-content');
+  await page.click(EDITOR);
 
   // Compare the same shape at two sizes rather than checking a duration. A wall
   // clock measures the machine — a busy one made even the cheap shape 44x slower

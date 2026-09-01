@@ -1,11 +1,13 @@
 import { expect, type Page, test } from '@playwright/test';
 
+import { EDITOR } from './lib/desktopEditor';
+
 async function openNewNote(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
   await page.goto('/#/note/new');
   await page.waitForLoadState('domcontentloaded');
-  await page.waitForSelector('.cm-content', { timeout: 10000 });
+  await page.waitForSelector(EDITOR, { timeout: 10000 });
 }
 
 test('typing latency in a large note is viewport-bounded, not O(document)', async ({ page }) => {

@@ -1,233 +1,84 @@
 import { test, expect, Page } from '@playwright/test';
 
-async function openNewNote(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForLoadState('domcontentloaded');
-  await page.goto('/#/note/new');
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForSelector('.cm-editor', { timeout: 10000 });
-  await page.waitForSelector('.cm-content', { timeout: 10000 });
+import { EDITOR, editorMarkdown, openNewNote } from './lib/desktopEditor';
+
+/**
+ * Blockquote continuation, asserted on the MARKDOWN the editor would save.
+ *
+ * The CodeMirror version of this file read the caret's line text and character
+ * offset out of the editor's document and expected to find a literal `> ` /
+ * `> > ` prefix there. A WYSIWYG editor has no such prefix to find: a quote is
+ * a nested `<blockquote>`, and the `>` markers exist only in the serialized
+ * file. So the same product behaviour is checked one level out — what typing
+ * produces in the note — plus the nesting depth in the document.
+ *
+ * The caret-offset-after-continuation cases went with the engine: "the caret
+ * sits at column 2, after `> `" is a claim about markdown source, and there is
+ * no column 2 to be at.
+ */
+
+/** How deep the caret's quote nesting is: 0 outside a quote, 1 in `>`, 2 in `> >`. */
+async function quoteDepth(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const selection = window.getSelection();
+    let node: Node | null = selection?.focusNode ?? null;
+    let depth = 0;
+    while (node) {
+      if (node instanceof HTMLElement) {
+        if (node.classList.contains('ProseMirror')) break;
+        if (node.tagName === 'BLOCKQUOTE') depth += 1;
+      }
+      node = node.parentNode;
+    }
+    return depth;
+  });
 }
 
 async function typeInEditor(page: Page, text: string): Promise<void> {
-  const editor = page.locator('.cm-content');
-  await editor.click();
+  await page.locator(EDITOR).click();
   await page.keyboard.type(text);
 }
 
-/** Get the raw document text from the CodeMirror EditorView */
-async function getDocText(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const content = document.querySelector('.cm-content');
-    if (!content) return '';
-    const tile = (content as any).cmTile;
-    const view = tile?.root?.view;
-    return view?.state?.doc?.toString() ?? '';
-  });
-}
-
-/** Get the text of the line the cursor is on */
-async function getCursorLine(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const content = document.querySelector('.cm-content');
-    if (!content) return '';
-    const tile = (content as any).cmTile;
-    const view = tile?.root?.view;
-    if (!view) return '';
-    const pos = view.state.selection.main.from;
-    return view.state.doc.lineAt(pos).text;
-  });
-}
-
-/** Get the cursor's character offset within the current line */
-async function getCursorOffset(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const content = document.querySelector('.cm-content');
-    if (!content) return -1;
-    const tile = (content as any).cmTile;
-    const view = tile?.root?.view;
-    if (!view) return -1;
-    const pos = view.state.selection.main.from;
-    const line = view.state.doc.lineAt(pos);
-    return pos - line.from;
-  });
-}
-
-test.describe('Blockquote Continuation', () => {
-  // ===== LEVEL 1 CONTINUATION =====
-
-  test('Enter after level-1 quote continues with "> " (with space)', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '> hello');
-    await page.keyboard.press('Enter');
-
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('> ');
-  });
-
-  test('level-1 continuation places cursor after "> "', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '> hello');
-    await page.keyboard.press('Enter');
-
-    const offset = await getCursorOffset(page);
-    expect(offset).toBe(2); // after "> "
-  });
-
-  test('typing after level-1 continuation appends to the quote line', async ({ page }) => {
+test.describe('Blockquote continuation', () => {
+  test('Enter inside a quote stays in the quote', async ({ page }) => {
     await openNewNote(page);
     await typeInEditor(page, '> hello');
     await page.keyboard.press('Enter');
     await page.keyboard.type('world');
 
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('> world');
+    expect(await quoteDepth(page)).toBe(1);
+    expect(await editorMarkdown(page)).toBe('> hello\n>\n> world');
   });
 
-  // ===== LEVEL 2 CONTINUATION =====
-
-  test('Enter after level-2 quote continues with "> > " (spaces at every level)', async ({
-    page,
-  }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '>> hello');
-    await page.keyboard.press('Enter');
-
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('> > ');
-  });
-
-  test('level-2 continuation places cursor after "> > "', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '>> hello');
-    await page.keyboard.press('Enter');
-
-    const offset = await getCursorOffset(page);
-    expect(offset).toBe(4); // after "> > "
-  });
-
-  test('Enter after "> > hello" (spaced format) also continues at level 2', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '> > hello');
-    await page.keyboard.press('Enter');
-
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('> > ');
-  });
-
-  // ===== LEVEL 3 CONTINUATION =====
-
-  test('Enter after level-3 quote continues with "> > > "', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '>>> deep');
-    await page.keyboard.press('Enter');
-
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('> > > ');
-  });
-
-  // ===== TAB NESTING =====
-
-  test('Tab on a blockquote line nests it one level deeper', async ({ page }) => {
+  test('Enter on an empty quote line leaves the quote', async ({ page }) => {
     await openNewNote(page);
     await typeInEditor(page, '> hello');
-    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('outside');
 
-    const curLine = await getCursorLine(page);
-    const offset = await getCursorOffset(page);
-    expect(curLine).toBe('> > hello');
-    expect(offset).toBe('> > hello'.length);
+    expect(await quoteDepth(page)).toBe(0);
+    expect(await editorMarkdown(page)).toBe('> hello\n\noutside');
   });
 
-  test('Shift+Tab on a nested blockquote line steps it back one level', async ({ page }) => {
+  test('a nested quote steps down one level at a time', async ({ page }) => {
     await openNewNote(page);
-    await typeInEditor(page, '> > hello');
-    await page.keyboard.press('Shift+Tab');
+    await typeInEditor(page, '> > deep');
+    expect(await quoteDepth(page)).toBe(2);
 
-    const curLine = await getCursorLine(page);
-    const offset = await getCursorOffset(page);
-    expect(curLine).toBe('> hello');
-    expect(offset).toBe('> hello'.length);
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    expect(await quoteDepth(page), 'one empty line steps out of the inner quote only').toBe(1);
+
+    await page.keyboard.press('Enter');
+    expect(await quoteDepth(page), 'a second steps out of the outer quote').toBe(0);
   });
 
-  // ===== EXIT VIA DOUBLE-ENTER (LEVEL 1) =====
-
-  test('Enter twice on level-1 exits blockquote — line becomes empty', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '> hello');
-    await page.keyboard.press('Enter'); // continuation: "> "
-    await page.keyboard.press('Enter'); // empty quote line → exit
-
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('');
-  });
-
-  // ===== STEP-DOWN VIA DOUBLE-ENTER (LEVEL 2) =====
-
-  test('Enter twice on level-2 steps down to level 1, not full exit', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '>> hello');
-    await page.keyboard.press('Enter'); // continuation: "> > "
-    await page.keyboard.press('Enter'); // empty level-2 → step down to "> "
-
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('> ');
-  });
-
-  test('Enter three times on level-2 fully exits blockquote', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '>> hello');
-    await page.keyboard.press('Enter'); // continuation: "> > "
-    await page.keyboard.press('Enter'); // step down to "> "
-    await page.keyboard.press('Enter'); // exit
-
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('');
-  });
-
-  // ===== STEP-DOWN VIA DOUBLE-ENTER (LEVEL 3) =====
-
-  test('Enter twice on level-3 steps down to level 2', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '>>> deep');
-    await page.keyboard.press('Enter'); // continuation: "> > > "
-    await page.keyboard.press('Enter'); // step down to "> > "
-
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('> > ');
-  });
-
-  test('Enter four times on level-3 fully exits blockquote', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '>>> deep');
-    await page.keyboard.press('Enter'); // "> > > "
-    await page.keyboard.press('Enter'); // "> > "
-    await page.keyboard.press('Enter'); // "> "
-    await page.keyboard.press('Enter'); // exit
-
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('');
-  });
-
-  // ===== CONTENT PRESERVATION =====
-
-  test('continuation preserves original line content', async ({ page }) => {
+  test('the quote the user typed survives the continuation', async ({ page }) => {
     await openNewNote(page);
     await typeInEditor(page, '> hello');
     await page.keyboard.press('Enter');
 
-    const doc = await getDocText(page);
-    expect(doc).toContain('> hello');
-  });
-
-  test('typing after level-2 continuation then Enter stays at level 2', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '>> first');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('second');
-    await page.keyboard.press('Enter');
-
-    const curLine = await getCursorLine(page);
-    expect(curLine).toBe('> > ');
+    expect(await editorMarkdown(page)).toContain('> hello');
   });
 });

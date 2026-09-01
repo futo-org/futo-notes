@@ -429,7 +429,7 @@ export class TauriTestClient {
   async waitForEditorReady(timeoutMs = 10_000) {
     return this.waitForCondition(
       `(() => {
-      return Boolean(document.querySelector('.cm-editor') && document.querySelector('.cm-content') && document.querySelector('.title-input'));
+      return Boolean(document.querySelector('.futo-milkdown') && document.querySelector('.ProseMirror') && document.querySelector('.title-input'));
     })()`,
       timeoutMs,
       'editor ready',

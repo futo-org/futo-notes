@@ -1,157 +1,115 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
-async function openNewNote(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForLoadState('domcontentloaded');
-  await page.goto('/#/note/new');
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForSelector('.cm-editor', { timeout: 10000 });
-  await page.waitForSelector('.cm-content', { timeout: 10000 });
-  // Wait for custom fonts to load so pixel measurements are stable
-  await page.evaluate(() => document.fonts.ready);
-}
+import { EDITOR, openNewNote, setEditorMarkdown } from './lib/desktopEditor';
 
-test.describe('Bullet Glyphs by Nesting Level', () => {
-  test('different glyphs via direct doc content', async ({ page }) => {
+/**
+ * List markers and the hanging indent, measured in a real browser.
+ *
+ * The editor renders a list as a real `<ul>`/`<ol>`, so the marker column and
+ * the wrap are the browser's own list layout rather than a decoration the
+ * editor paints. That is what makes these assertions worth having: they check
+ * the CSS in `MilkdownEditor.svelte` actually produces the geometry
+ * docs/spec/editor.md claims, at every nesting depth.
+ *
+ * What is NOT here any more: the CodeMirror editor replaced each `- ` marker
+ * with a widget whose glyph cycled •/◦/▪ by depth, and revealed the raw `- `
+ * again on the line holding the caret. Both were decorations over markdown
+ * source. A real `<ul>` has neither, so the glyph-cycle test and the
+ * decorated-vs-revealed indent-shift test were deleted with the engine; the
+ * lost glyph cycle is recorded as a Gap in docs/spec/editor.md.
+ *
+ * Pixel measurements, so these only mean anything in a real browser.
+ */
+
+const NESTED = ['- L0', '  - L1', '    - L2', '      - L3', ''].join('\n');
+
+test.describe('List markers and hanging indent', () => {
+  test('every nesting level renders a marker', async ({ page }) => {
     await openNewNote(page);
+    await page.evaluate(() => document.fonts.ready);
+    await setEditorMarkdown(page, NESTED);
 
-    // Set content directly to ensure correct markdown indentation
-    // Add trailing blank line so cursor doesn't land on a list line
-    const nestedList = [
-      '- level 0',
-      '  - level 1',
-      '    - level 2',
-      '      - level 3 (wraps to 0)',
-      '',
-    ].join('\n');
+    // Four items, each in its own list, nested four deep.
+    await expect(page.locator(`${EDITOR} li`)).toHaveCount(4);
 
-    await page.evaluate((text) => {
-      const view = (window as any).__cmGetView?.();
-      if (view) {
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: text },
-          selection: { anchor: text.length },
-        });
-      }
-    }, nestedList);
-
-    await page.waitForTimeout(300);
-
-    // Get all bullet widgets and their text
-    const bullets = await page.locator('.cm-md-bullet').all();
-    const texts = await Promise.all(bullets.map((b) => b.textContent()));
-
-    expect(bullets.length).toBe(4);
-    expect(texts[0]).toBe('•'); // level 0
-    expect(texts[1]).toBe('◦'); // level 1
-    expect(texts[2]).toBe('▪'); // level 2
-    expect(texts[3]).toBe('•'); // level 3 wraps
+    // `list-style: disc` on every `ul`, so each item paints a marker in its own
+    // marker box rather than inheriting the browser's depth cycle. Asserted
+    // through the computed style because a `::marker` has no box of its own to
+    // measure.
+    const markers = await page.evaluate(
+      (selector) =>
+        [...document.querySelectorAll(`${selector} li`)].map(
+          (item) => getComputedStyle(item).listStyleType,
+        ),
+      EDITOR,
+    );
+    expect(markers).toEqual(['disc', 'disc', 'disc', 'disc']);
   });
 
-  test('indent content position is consistent at multiple nesting levels', async ({ page }) => {
+  test('each level indents further than the one above it', async ({ page }) => {
     await openNewNote(page);
+    await page.evaluate(() => document.fonts.ready);
+    await setEditorMarkdown(page, NESTED);
 
-    // 4 levels of nesting + blank line at end
-    const nestedList = '- L0\n  - L1\n    - L2\n      - L3\n';
-    await page.evaluate((text) => {
-      const view = (window as any).__cmGetView?.();
-      if (view) {
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: text },
-          selection: { anchor: text.length },
-        });
-      }
-    }, nestedList);
-    await page.waitForTimeout(300);
+    const lefts = await page.evaluate(
+      (selector) =>
+        [...document.querySelectorAll(`${selector} li > p`)].map(
+          (paragraph) => paragraph.getBoundingClientRect().left,
+        ),
+      EDITOR,
+    );
 
-    // Helper: measure the left edge of content text ("L0", "L1", etc.) in each cm-line.
-    // We find the actual text (not spaces, not markers) so measurement is consistent
-    // regardless of whether decorations are active.
-    async function measureTextLefts(): Promise<number[]> {
-      return page.evaluate(() => {
-        const lines = document.querySelectorAll('.cm-line');
-        return Array.from(lines)
-          .slice(0, 4)
-          .map((line) => {
-            // Walk all text nodes and find the first one containing our "L" content
-            const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
-            let node: Text | null;
-            while ((node = walker.nextNode() as Text | null)) {
-              const text = node.textContent || '';
-              // Find a text node that contains the actual content (e.g., "L0", "L1")
-              const match = text.match(/L\d/);
-              if (match && match.index !== undefined) {
-                const range = document.createRange();
-                range.setStart(node, match.index);
-                range.setEnd(node, match.index + 1);
-                return range.getBoundingClientRect().left;
-              }
-            }
-            return -1;
-          });
-      });
+    expect(lefts).toHaveLength(4);
+    for (let depth = 1; depth < lefts.length; depth += 1) {
+      expect(lefts[depth], `level ${depth} indent over level ${depth - 1}`).toBeGreaterThan(
+        lefts[depth - 1],
+      );
     }
-
-    // For each nesting level, measure text position with and without cursor on line.
-    // The per-level shift should be roughly constant (not growing with indent depth).
-    const diffs: number[] = [];
-    for (let i = 0; i < 4; i++) {
-      // Move cursor off all list lines (onto blank line at end)
-      await page.evaluate((text) => {
-        const view = (window as any).__cmGetView?.();
-        if (view) view.dispatch({ selection: { anchor: text.length } });
-      }, nestedList);
-      await page.waitForTimeout(200);
-      const decLefts = await measureTextLefts();
-
-      // Click on line i to put cursor there
-      await page.locator('.cm-line').nth(i).click();
-      await page.waitForTimeout(200);
-      const curLefts = await measureTextLefts();
-
-      diffs.push(Math.abs(decLefts[i] - curLefts[i]));
-    }
-
-    // The shift between decorated/undecorated should be roughly consistent across levels.
-    // Different bullet glyphs (•/◦/▪) have different widths vs raw "- " depending on font,
-    // so ~6px spread is normal. Broken indent handling would show 20+ px spread.
-    const maxDiff = Math.max(...diffs);
-    const minDiff = Math.min(...diffs);
-    expect(maxDiff - minDiff).toBeLessThan(10);
   });
 
-  test('Tab indent changes glyph', async ({ page }) => {
+  /**
+   * The spec's hanging-indent claim: a wrapped row starts under the item's
+   * TEXT, not back under its marker. Measured on a deliberately narrow viewport
+   * so the item is forced to wrap, and at depth 2 so a regression that only
+   * hangs the top level still fails.
+   */
+  test('a wrapped item hangs its continuation rows under its own text', async ({ page }) => {
+    await page.setViewportSize({ width: 520, height: 900 });
+    await openNewNote(page);
+    await page.evaluate(() => document.fonts.ready);
+    await setEditorMarkdown(
+      page,
+      ['- top', `  - ${'wrapping words '.repeat(30).trim()}`, ''].join('\n'),
+    );
+
+    const rows = await page.evaluate((selector) => {
+      const paragraph = document.querySelectorAll(`${selector} li > p`)[1];
+      // One client rect per rendered visual row.
+      const range = document.createRange();
+      range.selectNodeContents(paragraph);
+      return [...range.getClientRects()].map((rect) => Math.round(rect.left));
+    }, EDITOR);
+
+    expect(rows.length, 'the item must actually wrap for this to mean anything').toBeGreaterThan(1);
+    // Every row shares the first row's left edge: that IS the hang. A marker
+    // column reclaimed by the wrap would put later rows further left.
+    for (const [index, left] of rows.entries()) {
+      expect(left, `wrapped row ${index}`).toBe(rows[0]);
+    }
+  });
+
+  test('Tab nests the item under the one above it', async ({ page }) => {
     await openNewNote(page);
 
-    const editor = page.locator('.cm-content');
-    await editor.click();
-
-    // Type two bullet items
+    await page.locator(EDITOR).click();
     await page.keyboard.type('- parent');
     await page.keyboard.press('Enter');
-    // List continuation adds "- " automatically, so just type content
+    // List continuation carries the marker, so only the content is typed.
     await page.keyboard.type('child');
-    await page.waitForTimeout(100);
-
-    // Now indent second line with Tab
     await page.keyboard.press('Tab');
-    await page.waitForTimeout(200);
 
-    // Blur editor so cursor-on-line doesn't suppress decorations
-    await page.evaluate(() => {
-      const view = (window as any).__cmGetView?.();
-      if (view) {
-        view.contentDOM.blur();
-        view.dom.blur();
-      }
-    });
-    await page.waitForTimeout(200);
-
-    const bullets = await page.locator('.cm-md-bullet').all();
-    const texts = await Promise.all(bullets.map((b) => b.textContent()));
-
-    expect(bullets.length).toBe(2);
-    expect(texts[0]).toBe('•'); // parent - level 0
-    expect(texts[1]).toBe('◦'); // child - level 1
+    // The nesting is what Tab means — asserted on the document, not on a glyph.
+    await expect(page.locator(`${EDITOR} li li`)).toHaveCount(1);
+    await expect(page.locator(`${EDITOR} li li`)).toContainText('child');
   });
 });

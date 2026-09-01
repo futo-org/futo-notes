@@ -6,16 +6,16 @@ import { defineConfig, devices } from '@playwright/test';
 // specs are never pulled into the dev-server-based `test:e2e:*` runs, which do
 // not build the native editor bundle.
 //
-// The specs cover both editor engines the bundle ships while the Milkdown
-// transition is in flight (docs/plan/milkdown-transition.md):
-// `editor-embed-bridge` drives `editor.html?cm` (CodeMirror) and the
-// `editor-embed-milkdown*` specs drive the bare URL (Milkdown), one per parity
-// surface. `editor-embed-webview-floor` holds the legacy-Android-WebView floor
-// for both, and lives here for the same reason they do: it needs the built
-// bundle over file://. `testMatch` takes the whole `editor-embed-*` family on
-// purpose — naming the files one by one is how a new spec silently stops being
-// run (AGENTS.md M11), and the root playwright config already excludes exactly
-// this glob so the two configs cannot disagree about who owns a file.
+// The bundle ships ONE editor: the `editor-embed-milkdown*` specs drive it,
+// one per surface (bridge contract, toolbar, interactive keys, parity,
+// wikilinks, compat canaries, deep nesting), `editor-embed-ime` covers what the
+// editor tells the keyboard, and `editor-embed-webview-floor` holds the
+// legacy-Android-WebView floor. They live here for the same reason: they need
+// the built bundle over file://. `testMatch` takes the whole `editor-embed-*`
+// family on purpose — naming the files one by one is how a new spec silently
+// stops being run (AGENTS.md M11), and the root playwright config already
+// excludes exactly this glob so the two configs cannot disagree about who owns
+// a file.
 // `editor-embed-milkdown-compat` is the one exception to "loads editor.html":
 // it builds its own page (tests/milkdown-census/build.mjs), because its canaries
 // have to run the UNPATCHED upstream preset alongside the shipping one and

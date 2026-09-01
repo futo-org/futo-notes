@@ -24,14 +24,7 @@
  */
 import { test, expect, Page } from '@playwright/test';
 
-async function openNewNote(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForLoadState('domcontentloaded');
-  await page.goto('/#/note/new');
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForSelector('.cm-editor', { timeout: 10000 });
-  await page.waitForSelector('.cm-content', { timeout: 10000 });
-}
+import { EDITOR, openNewNote } from './lib/desktopEditor';
 
 /** What the app itself believes about editor focus — the value
  *  `session.editorFocused` reads, not a flag the test wrote. */
@@ -53,13 +46,13 @@ test.describe('Editor focus signal', () => {
     expect(await appReportedFocus(page)).toBe(false);
 
     // A real pointer click in the note body — the only input that produces a
-    // genuine CM6 focus event plus a focused document.
-    await page.locator('.cm-content').click();
+    // genuine editor focus event plus a focused document.
+    await page.locator(EDITOR).click();
 
-    // CM6 itself, the app's own focus read, and the workspace's reactive state
+    // The editor itself, the app's own focus read, and the workspace's reactive state
     // fed by `onfocuschange` — the same callback the shell hands
     // `handleEditorFocusChange`, so its firing is what this observes.
-    await expect(page.locator('.cm-editor')).toHaveClass(/cm-focused/);
+    await expect(page.locator(EDITOR)).toHaveClass(/ProseMirror-focused/);
     await expect(page.locator('.note-body')).toHaveAttribute('data-editor-focused', '');
     expect(await appReportedFocus(page)).toBe(true);
 
@@ -67,7 +60,7 @@ test.describe('Editor focus signal', () => {
     // deferred adoption.
     await page.locator('.title-input').click();
 
-    await expect(page.locator('.cm-editor')).not.toHaveClass(/cm-focused/);
+    await expect(page.locator(EDITOR)).not.toHaveClass(/ProseMirror-focused/);
     await expect(page.locator('.note-body')).not.toHaveAttribute('data-editor-focused', '');
     expect(await appReportedFocus(page)).toBe(false);
   });

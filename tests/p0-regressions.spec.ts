@@ -1,13 +1,6 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
-async function openNewNote(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForLoadState('domcontentloaded');
-  await page.goto('/#/note/new');
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForSelector('.cm-editor', { timeout: 10000 });
-  await page.waitForSelector('.cm-content', { timeout: 10000 });
-}
+import { EDITOR, openNewNote } from './lib/desktopEditor';
 
 test.describe('P0 Crash and IME Regressions', () => {
   test('backspacing all text then opening menu does not crash', async ({ page }) => {
@@ -18,7 +11,7 @@ test.describe('P0 Crash and IME Regressions', () => {
 
     await openNewNote(page);
 
-    const editor = page.locator('.cm-content');
+    const editor = page.locator(EDITOR);
     await editor.click();
     await editor.fill('Temporary text to remove');
     await page.keyboard.press('ControlOrMeta+A');
@@ -40,7 +33,7 @@ test.describe('P0 Crash and IME Regressions', () => {
 
     await openNewNote(page);
 
-    const editor = page.locator('.cm-content');
+    const editor = page.locator(EDITOR);
     await editor.click();
     await editor.fill('This is **bold** text');
     await page.keyboard.press('Control+End');

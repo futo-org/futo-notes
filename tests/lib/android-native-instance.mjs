@@ -360,7 +360,7 @@ class AndroidNativeSyncClient {
    *
    * Evaluating `window.FutoEditor.focus()` over CDP is only the DOM half, and it
    * can never succeed: Chromium withholds the focus event while the document
-   * itself is unfocused, so `.cm-focused` stays unset and `document.hasFocus()`
+   * itself is unfocused, so `.ProseMirror-focused` stays unset and `document.hasFocus()`
    * stays false however long the wait is (measured on a foregrounded, accelerated
    * emulator — this was a missing step, not a slow one). The app's path also does
    * `webView.requestFocus()`, which is what lets the focus land; both halves have
@@ -369,22 +369,22 @@ class AndroidNativeSyncClient {
   async focusOpenEditor() {
     await this.device.callHook('focus-editor');
     await this.device.waitFor(`${this.name}'s editor to gain focus`, UI_TIMEOUT_MS, () =>
-      // Both halves are asserted: `cm-focused` is CM6's own record of the focus
+      // Both halves are asserted: `ProseMirror-focused` is the editor's own record of the focus
       // event, and `document.hasFocus()` is the native focus the DOM-only path
       // could not get. Either one alone would pass for a half-focused editor.
       this.#evaluateInEditor(
-        `document.querySelector('.cm-editor')?.classList.contains('cm-focused') === true &&
+        `document.querySelector('.ProseMirror')?.classList.contains('ProseMirror-focused') === true &&
          document.hasFocus() === true`,
       ),
     );
   }
 
-  /** Does the editor REALLY hold focus right now — CM6's own class plus the
+  /** Does the editor REALLY hold focus right now — the editor's own class plus the
    *  native focus behind it? Lets a scenario distinguish "the shell reported a
    *  blur" from "the editor was blurred". */
   async isOpenEditorFocused() {
     return this.#evaluateInEditor(
-      `document.querySelector('.cm-editor')?.classList.contains('cm-focused') === true &&
+      `document.querySelector('.ProseMirror')?.classList.contains('ProseMirror-focused') === true &&
        document.hasFocus() === true`,
     );
   }
@@ -401,7 +401,7 @@ class AndroidNativeSyncClient {
     );
     await this.device.waitFor(`${this.name}'s editor to lose focus`, UI_TIMEOUT_MS, () =>
       this.#evaluateInEditor(
-        `document.querySelector('.cm-editor')?.classList.contains('cm-focused') !== true`,
+        `document.querySelector('.ProseMirror')?.classList.contains('ProseMirror-focused') !== true`,
       ),
     );
   }

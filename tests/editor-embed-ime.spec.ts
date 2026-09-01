@@ -1,25 +1,22 @@
 import { expect, test } from '@playwright/test';
 
-import { CM6_EDITOR_URL, EDITOR_URL } from './editorEmbedBundle';
+import { EDITOR_URL } from './editorEmbedBundle';
 import { installFakeAndroidHost, type FakeHostWindow } from './lib/editorEmbedHost';
 
 /**
- * The keyboard behaves the same in both editor engines — executable.
+ * What the editor tells the keyboard — executable.
  *
- * This is a DRIFT LOCK (scripts/drift-registry.json `editor-ime-attributes`),
- * not a feature test. The same product decision is expressed twice while the
- * Milkdown transition is in flight, against two different editables:
- * `EditorView.contentAttributes` on `.cm-content`
- * (createMarkdownEditorRuntime.ts) and `editorViewOptionsCtx.attributes` on
- * `.ProseMirror` (MilkdownEditor.svelte). Neither can consume the other, so
- * only a test keeps them together.
+ * This began as a drift lock between two engines (the deleted
+ * `editor-ime-attributes` registry entry) and is now a plain feature test: one
+ * editable, `.ProseMirror`, configured through `editorViewOptionsCtx.attributes`
+ * in MilkdownEditor.svelte.
  *
- * The decision: iOS autocorrect and sentence capitalisation ON, red spellcheck
- * squiggles and Apple's inline writing suggestions OFF. The Milkdown hook first
- * shipped with `autocorrect: 'off'` riding along with the squiggle fix, which
- * silently took autocorrect and predictive text away from every note typed in
- * the native shells — the swap's most-noticed regression. A keyboard is not a
- * detail of the engine; it is the product.
+ * The decision it locks: iOS autocorrect and sentence capitalisation ON, red
+ * spellcheck squiggles and Apple's inline writing suggestions OFF. The Milkdown
+ * hook first shipped with `autocorrect: 'off'` riding along with the squiggle
+ * fix, which silently took autocorrect and predictive text away from every note
+ * typed in the native shells — the transition's most-noticed regression. A
+ * keyboard is not a detail of the engine; it is the product.
  */
 const IME_ATTRIBUTES = ['autocorrect', 'autocapitalize', 'spellcheck', 'writingsuggestions'];
 
@@ -75,16 +72,13 @@ const CODE_EXPECTED = {
   writingsuggestions: 'false',
 };
 
-test('both engines hand the keyboard the same instructions', async ({ browser }) => {
-  const milkdown = await imeAttributes(browser, EDITOR_URL, '.ProseMirror');
-  const codemirror = await imeAttributes(browser, CM6_EDITOR_URL, '.cm-content');
+test('the editor hands the keyboard the intended instructions', async ({ browser }) => {
+  const attributes = await imeAttributes(browser, EDITOR_URL, '.ProseMirror');
 
   // Autocorrect on is the half that regressed; asserted by name so a future
   // "turn the squiggles off" change cannot quietly take it out again.
-  expect(milkdown.autocorrect).toBe('on');
-  expect(codemirror.autocorrect).toBe('on');
-  expect(milkdown).toEqual(EXPECTED);
-  expect(codemirror).toEqual(EXPECTED);
+  expect(attributes.autocorrect).toBe('on');
+  expect(attributes).toEqual(EXPECTED);
 });
 
 /**
@@ -100,9 +94,6 @@ test('both engines hand the keyboard the same instructions', async ({ browser })
  * them (unverified, no Android device at the time). So: green here means the
  * page asks correctly, NOT that iOS obeys. Suppressing it on iOS needs the
  * caret's context to reach the shell for a `reloadInputViews()`.
- *
- * WYSIWYG only: the CodeMirror engine edits markdown SOURCE, where a fence is
- * ordinary text with no element of its own to carry an attribute.
  */
 test('code blocks and inline code declare the autocorrect opt-out', async ({ browser }) => {
   const context = await browser.newContext({ hasTouch: true });
