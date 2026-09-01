@@ -17,7 +17,7 @@ import org.junit.Test
  */
 class AppNavigatorTest {
     private fun navigator() = AppNavigator(
-        mutableStateListOf(Screen.List),
+        mutableStateListOf(Screen.Folder("")),
         NoteListState(LazyListState()),
     )
 
@@ -36,12 +36,12 @@ class AppNavigatorTest {
 
         assertEquals(Screen.Settings, navigator.currentScreen)
         // ...and the Settings entry it was covering is still there, so the next
-        // Back returns to the List instead of exiting the app.
+        // Back returns to the root folder instead of exiting the app.
         assertTrue(navigator.canGoBack)
 
         navigator.goBack()
 
-        assertEquals(Screen.List, navigator.currentScreen)
+        assertEquals(Screen.Folder(""), navigator.currentScreen)
         assertFalse(navigator.canGoBack)
     }
 

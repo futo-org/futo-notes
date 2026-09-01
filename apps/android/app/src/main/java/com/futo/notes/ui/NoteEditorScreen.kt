@@ -34,8 +34,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +66,7 @@ import com.futo.notes.shouldCompleteNoteAction
 import com.futo.notes.shouldContinueDeleteAfterEditorWrite
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
+import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.theme.FutoTheme
 import kotlinx.coroutines.CancellationException
@@ -650,7 +649,7 @@ fun NoteEditorScreen(
     Scaffold(
         containerColor = c.surface,
         topBar = {
-            TopAppBar(
+            TopBar(
                 title = {},
                 navigationIcon = {
                     IconButton(
@@ -698,7 +697,6 @@ fun NoteEditorScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface),
             )
         },
     ) { padding ->

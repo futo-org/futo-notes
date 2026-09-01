@@ -602,6 +602,15 @@ qa-shot *args:
 check-qa-input-safety:
   node scripts/check-qa-input-safety.mjs
 
+# Fail if a theme swap would repaint any surface at a different pace than the rest
+# of the window: a CSS `transition` over a theme-dependent property whose rest
+# value is a real colour, or a Material3 `TopAppBar(` called outside TopBar
+# (M3 springs the bar's container colour through animateColorAsState). Three
+# separate landings fixed three instances of the same law before anything held
+# the rule. Background: docs/spec/app.md.
+check-theme-single-pace:
+  node scripts/check-theme-single-pace.mjs
+
 # Resolve a desktop QA target safely: the ONLY sanctioned way to turn a port or
 # PID into something you may drive. Verifies the executable is a debug build
 # inside THIS worktree (plus its data dir and vault) and exits 3 on anything
@@ -616,6 +625,12 @@ qa-target *args:
 # a dead end. See scripts/check-agent-docs.mjs for the escape hatch.
 check-agent-docs:
   node scripts/check-agent-docs.mjs
+
+# Prove architecture gates fail for the violations they claim to catch. This is
+# intentionally NOT part of `just check` or `prepush`: run it when adding or
+# changing a gate, so unchanged gates do not get re-proved on every commit.
+gate-redproofs *args:
+  node scripts/gate-redproofs.mjs --include-cargo {{args}}
 
 # Run the same focused architecture checks embedded in GitLab's mandatory test job.
 # package.json owns the membership because the pinned CI image does not include just.

@@ -236,10 +236,9 @@ with its copies and a `lockStatus`; `unlocked` means nothing but you keeps the c
 touch all of them in one commit and say so. `just check-drift` is deny-by-default: adding a duplicate
 means adding a registry entry. Keep the list there, not here — a prose copy of it is itself drift.
 
-Two unlocked entries deserve their reasoning recorded: `notes-root-triplet` is the dev/prod split
-(M3), and `sort-tiebreaker-modified-id` is note sort order, where the Rust store is canonical — the
-shells splice engine-reported positions verbatim (ADR-0001), so never reintroduce a shell comparator
-or a shell final-id heuristic; its only permitted twin is the browser test harness.
+The `notes-root-triplet` unlocked entry is the intentional dev/prod split (M3). Note sort order is
+owned only by the Rust store; shells splice engine-reported positions verbatim (ADR-0001), so never
+reintroduce a shell comparator or a shell final-id heuristic.
 
 ## 13. Own the E2E experience
 

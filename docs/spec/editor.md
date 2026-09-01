@@ -201,6 +201,11 @@ this file states the behaviors a human cares about.
   gestures remain scrolling; the tail works after short and long notes so the
   final line can clear the keyboard. → editor.html
   `[data-ios-off-text-surface]`, tests/editor-embed-bridge.spec.ts _(iOS)_
+- The tail begins where the text ends, so it never buys scrollable space a note
+  did not earn: a note shorter than the editor does not scroll at all, and no
+  note can be scrolled until its last line leaves the screen. → editor.html
+  `[data-ios-off-text-surface] .cm-scroller::after`,
+  tests/editor-embed-bridge.spec.ts
 - The first iOS tap focuses with `preventScroll` before setting the caret,
   including in the blank tail, so keyboard presentation does not scroll-jump
   the editor. → docs/learnings/ios-keyboard-editor-jump.md,
@@ -312,6 +317,48 @@ this file states the behaviors a human cares about.
   content itself has a definite height and any later change re-measures (see the
   image-widget rules below); a pinned `height` is not required, and for
   width-constrained content it is actively wrong. → docs/learnings/hr-scroll-jank.md
+- A block widget spaces itself with **padding, never margin**. CM6 measures a
+  block with `getBoundingClientRect().height`, which excludes margins, so a
+  margin makes the height map short by that much for every line below the widget
+  — cumulatively, once per widget. `posAtCoords` picks its block from the height
+  map before refining inside it against the DOM, so that shortfall breaks click
+  placement, arrow motion, Cmd-Backspace/Cmd-arrow line boundaries, drag-select
+  and wrapped-line selection rectangles for the rest of the note. `.sf-table`'s
+  `margin: 8px 0` cost 16px per table: one ArrowUp from a line below a table put
+  the caret on the first line *above* it. Absolute offsets on widget overlays are
+  measured from that same padding box, so they move with the padding. Because that
+  spacing is now inside the widget, the widget places the caret for a click in it:
+  on the neighbouring line, extending an existing selection when shift is held,
+  and declining the click entirely when there is no neighbouring line, since a
+  caret inside the widget's own range would reveal its source. →
+  editor-table.css, table/tableControls.ts, tests/editor-height-map.spec.ts
+- A widget's hover overlays are positioned from `getBoundingClientRect`, when they
+  become visible — never from `offsetTop`/`offsetLeft` while building. A widget is
+  still detached inside `toDOM`, where every offset reads 0, and those offsets are
+  layout-relative so they ignore a scroll container's `scrollLeft`. Both bit the
+  table: every row tab stacked at the top-left corner instead of beside its row,
+  and column tabs stayed put when a wide table scrolled sideways. →
+  table/tableControls.ts `positionTableControls`,
+  tests/table-controls-position.spec.ts
+- What CM6 sizes is the **line block**, not the widget element. CM6 brackets an
+  inline replace widget with two `cm-widgetBuffer` elements, so a block-level
+  widget between them splits the line into anonymous blocks and costs two extra
+  line boxes: the rule's `display: flex` made its line 111px around a 50px widget,
+  and the widget's own height agreed with `estimatedHeight` while the line CM6
+  recorded did not. A fixed-height widget on a shared line therefore owns the
+  whole line: the rule's line is a flex container, so it has no line boxes at all
+  — no strut to grow it, nothing for a hidden blockquote marker or CommonMark's
+  up-to-3 leading spaces to wrap, no baseline for a large font's descender space,
+  and no percentage width to overflow the text column sideways. The line is
+  deliberately *not* given a fixed height: that clamps its rect to the expected
+  number while the content inside overflows, hiding the very mismatch the rule
+  exists to prevent. The `!important` on that display is required because CM6
+  declares `.cm-line { display: block }` unlayered, which beats a layered rule of
+  any specificity. The decoration is only emitted in the rendered state, so a
+  caret on the line still reveals `---` at normal text height. →
+  markdown-blocks.css `.cm-md-hr-widget` / `.cm-md-hr-line`,
+  live-preview/blockDecorations.ts `decorateHorizontalRule`,
+  tests/editor-height-map.spec.ts
 - Image widgets re-measure on load. On the native shells an embedded image's
   bytes arrive asynchronously (fetched through the native scheme handler after
   the widget's first paint), so its real height is unknown when CM6 first
@@ -330,6 +377,18 @@ this file states the behaviors a human cares about.
   the shared size cache, and calls `view.requestMeasure()`; a zero-height
   measurement taken before the host has laid out is ignored so it cannot poison
   the cache. → live-preview/images.ts `ImageWidget`
+- On the native shells the embed page pins `body` to the web view with
+  `position: fixed` plus the four offset longhands, and `#editor` fills that body
+  the same way. Both rules live unlayered in `editor.html`, never as `inset` and
+  never behind `@layer`: a Chromium 80–98 Android System WebView discards every
+  layered rule (so `base.css`'s identical `body` rule never arrives) and one
+  below 87 also drops the `inset` shorthand, and that engine sizes the initial
+  containing block to zero — so without both rules `.cm-scroller` never becomes a
+  scroll container and CodeMirror scrolls the ROOT document to reveal the cursor,
+  sliding the note up under the shell's native title bar as the user types
+  (github#33, reported on 1.7.0 / Android 10; reproduced and fixed on a
+  Chromium-83 WebView 2026-08-21). → editor.html, tests/editor-embed-bridge.spec.ts
+  "pre-inset WebView"
 - On the native shells (iOS **and** Android — CM6 owns its own scroller), the
   editor warms CM6's height map on note load (and after font load / width change)
   by measuring every line's real height up front. Off-screen wrapped lines are
@@ -623,6 +682,18 @@ EditorWebView.swift, EditorWebView.kt
   commands mutate the doc and autosave; Indent/Outdent appear only on list
   lines; pickers open natively; chevron blurs). → EditorToolbar.swift,
   EditorWebView.swift `futo_overrideInputAccessoryView`
+- iOS native: the accessory takes its BACKDROP from the system, never from the
+  app palette — the container is a `UIInputView` with `inputViewStyle`
+  `.keyboard` and every subview is transparent, so the strip renders the OS's
+  own accessory backdrop and follows light/dark, Increase Contrast, and
+  `keyboardAppearance` without app code. The buttons float on it in Liquid
+  Glass capsules (`glassEffect` on iOS 26+, `.regularMaterial` below), one for
+  the scrolling formatting items and one for the dismiss chevron, with no fill
+  or hairline behind the band. Verified against Safari's own accessory on the
+  iOS 26.5 simulator 2026-08-26: Apple's band background matches the PAGE
+  behind it (242,242,247) rather than the keyboard slab (223,224,230), which
+  is why a bar painted an app color reads as pasted onto the keyboard.
+  → EditorToolbar.swift `ToolbarMetrics`, `futoToolbarGlass`
 - Android native: the toolbar is a Compose bar (generated ToolbarSpec.kt
   rendered by EditorToolbar.kt) docked above the soft keyboard via the editor
   screen's `imePadding`, shown only while the editor is focused (bridge
@@ -1165,11 +1236,57 @@ left open because closing it is a behavior change, not a refactor:
   _(Android)_
   > **Gap:** on some old Android System WebViews (the Chromium 80–98 tier that
   > runs the editor but predates `@layer`), users report the shift key re-arming
-  > after each character, the caret jumping to the start of the line after the
-  > first character, and content scrolling out of view while typing (github#8).
-  > These are CM6-on-old-engine input limitations. They did **not** reproduce on
-  > the Chromium-83 emulator even with FUTO Keyboard as the IME (per-keystroke,
-  > fast-burst, and glide typing all behaved), so the cause is likely
-  > physical-device IME timing or a specific WebView build. Unaddressed — the
-  > legacy-WebView work fixes the black-text half and the sub-floor blank-editor
-  > case, not these input glitches.
+  > after each character and the caret jumping to the start of the line, so words
+  > land in reverse order with no spaces between them (github#8, github#33).
+  > Unreproduced after two passes on Android 11 / Chromium 83 with FUTO Keyboard
+  > 0.1.29.1. Exercised there and correct: tapped-key composition, fast-burst
+  > typing, real glide typing, typing 9k characters into a virtualized document,
+  > a composition interrupted mid-flight, and the selection toolbar's Select all
+  > (whole document deleted, no leftovers). The third symptom reported alongside
+  > these — content scrolling out of view while typing — WAS reproduced and is
+  > fixed (the collapsed height chain above); rerunning every input path with that
+  > layout deliberately reinjected still typed correctly, so it is not upstream of
+  > these two.
+  >
+  > **The offsets Chromium reports to the IME are relative to the start of
+  > CodeMirror's contiguous rendered block, not the document — never read one as a
+  > note position.** A caret at document offset 2,748 was reported as 503, its
+  > distance from the first rendered line exactly. So the base moves as the note
+  > scrolls: caret pinned at line-148, changing only `scrollTop`, the reported
+  > cursor went 1,175 → 0 once line-148 became the first rendered line. From the
+  > IME's side that IS "the caret jumped to the start". It re-bases mid-composition
+  > too, not only between words — and it still misplaces nothing (160 keystrokes,
+  > four arms, zero split edits), because Blink maps back and ships a matching text
+  > window. A precondition, demonstrated; the corruption, not.
+  >
+  > What produces the exact signature is a whole-document `setContent` landing
+  > mid-typing: it replaces the document with `preserveSelection: false`,
+  > CodeMirror maps the caret to 0, and the next word lands at the HEAD of the
+  > note, capitalized and unspaced, because the IME now sees start-of-field.
+  > Engine-independent. Locked by tests in editorContentSync.test.ts rather than
+  > by a device run. **But the code trace says no user can reach it**:
+  > `preserveSelection: false` has exactly ONE call site in the repo — the bridge's
+  > own `FutoEditor.setContent` — so desktop cannot reach it at all, and on Android
+  > all three `host.setContent` sites are guarded (the `lastPushedContent` dedupe,
+  > page boot, and a renderer rebuild that lands in a fresh page with no live
+  > caret). A sync adopt is exempt by construction: it goes through
+  > `applyExternalContent`, which preserves the selection. It was provoked from a
+  > debugger, which bypasses those gates. Weakest remaining point, unproven: while
+  > a storage migration is latched, `acceptsEditorChange` drops editor changes, so
+  > Compose `content` and `lastPushedContent` freeze at the pre-migration text
+  > while the live document diverges — the invariant the dedupe rests on is
+  > deliberately broken there, and any write to `content` inside that window would
+  > push a caret-destroying `setContent` into a document being edited. No such
+  > write was found.
+  >
+  > Two traps for a re-test. The broken build only oscillates when the caret is FAR
+  > from the scroll position; near it, or at the document end, the same build on
+  > the same note moves the window zero times and looks calm. And do not score
+  > placement by diffing typed text against the document — autocorrect rewrites
+  > words, so a naive comparison reads as corruption; use
+  > `tests/lib/android/editPlacement.mjs`. Untested: Android 10 (API 29) with a
+  > Chromium ≥80 WebView (the stock AOSP image ships Chromium 74, below the
+  > editor's floor, so this needs a physical device or a platform-signed WebView
+  > APK), FUTO Keyboard 1.30 as the reporter runs, and Chromium 80–82 / 84–86. Ask
+  > a reporter to re-test on a build carrying the height-chain fix before spending
+  > more here.

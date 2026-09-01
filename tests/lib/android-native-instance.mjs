@@ -29,6 +29,15 @@ import { rewriteLoopbackHost } from './tauri-test-client.mjs';
 /** The emulator reaches host services (the harness sync server) through this. */
 const EMULATOR_HOST_LOOPBACK = '10.0.2.2';
 
+/**
+ * How a note-list screen is recognised: the create FAB's content description.
+ * The list is now a folder browser (root notes + top-level folders, tapping a
+ * folder pushes its contents), so there is no "All notes" title to anchor on and
+ * the top-bar title is whichever folder is showing. The FAB is on every folder
+ * screen and nowhere else.
+ */
+const NOTE_LIST_MARKER = 'Create';
+
 /** Every note this harness creates on the device starts with this, so cleanup
  *  can never touch a note the harness did not write. */
 export const HARNESS_NOTE_PREFIX = 'xsync-';
@@ -138,7 +147,7 @@ class AndroidNativeSyncClient {
       () => {
         const screen = this.device.screen();
         if (screen.has('Where should your notes live?')) return 'picker';
-        if (screen.has('All notes')) return 'list';
+        if (screen.has(NOTE_LIST_MARKER)) return 'list';
         return this.#stepTowardNoteList();
       },
     );
@@ -155,7 +164,7 @@ class AndroidNativeSyncClient {
   /** Walk back to the note list from wherever the app currently is. */
   async openNoteList() {
     await this.device.waitFor('the note list', UI_TIMEOUT_MS, () => {
-      if (this.device.isVisible('All notes')) return true;
+      if (this.device.isVisible(NOTE_LIST_MARKER)) return true;
       this.#stepTowardNoteList();
       return false;
     });
@@ -172,7 +181,7 @@ class AndroidNativeSyncClient {
     return null;
   }
 
-  /** Reach Settings → Sync from any screen: note list → drawer → Settings →
+  /** Reach Settings → Sync from any screen: note list → top-bar gear →
    *  Self-hosted sync, one dumped snapshot per step. */
   async openSyncScreen() {
     await this.device.waitFor('the sync screen', UI_TIMEOUT_MS, () => {
@@ -185,8 +194,7 @@ class AndroidNativeSyncClient {
       }
       const next =
         screen.node('Self-hosted sync') ??
-        (screen.has('LIBRARY') ? screen.node('Settings') : null) ??
-        (screen.has('All notes') ? screen.node('Folders') : null);
+        (screen.has(NOTE_LIST_MARKER) ? screen.node('Settings') : null);
       if (next) {
         this.device.tapPoint(next.x, next.y);
       } else {

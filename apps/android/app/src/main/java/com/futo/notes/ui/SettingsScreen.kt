@@ -39,8 +39,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +58,7 @@ import com.futo.notes.storage.StorageMode
 import com.futo.notes.SyncManager
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.MicroLabel
+import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -105,14 +104,13 @@ fun SettingsScreen(
     Scaffold(
         containerColor = c.surface,
         topBar = {
-            TopAppBar(
+            TopBar(
                 title = { Text("Settings", style = FutoType.title, color = c.textPrimary) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface),
             )
         },
     ) { padding ->

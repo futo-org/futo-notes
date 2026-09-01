@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getSyncErrorMessage } from './syncErrorMessage';
+import { classifySyncError, getSyncErrorMessage } from './syncErrorMessage';
 
 const ACTIONABLE = "Could not reach server — check the URL and make sure it's running";
 
@@ -61,5 +61,29 @@ describe('getSyncErrorMessage — real server/auth errors are NOT rewritten', ()
 
   it('stringifies other non-Error throwables verbatim', () => {
     expect(getSyncErrorMessage('plain string failure')).toBe('plain string failure');
+  });
+});
+
+describe('classifySyncError', () => {
+  it('classifies browser and Rust transport failures as transient', () => {
+    expect(classifySyncError(new TypeError('Load failed'))).toBe('transient');
+    expect(
+      classifySyncError(
+        'connect: error sending request for url (https://notes.example.com/objects)',
+      ),
+    ).toBe('transient');
+    expect(classifySyncError('transport error: operation timed out')).toBe('transient');
+  });
+
+  it('classifies auth, HTTP-status, and unknown failures as actionable', () => {
+    expect(classifySyncError('auth: HTTP 401 Unauthorized')).toBe('actionable');
+    expect(classifySyncError('HTTP 500 Internal Server Error')).toBe('actionable');
+    expect(classifySyncError('error sending request: HTTP 500 Internal Server Error')).toBe(
+      'actionable',
+    );
+    expect(getSyncErrorMessage('error sending request: HTTP 500 Internal Server Error')).toBe(
+      'error sending request: HTTP 500 Internal Server Error',
+    );
+    expect(classifySyncError('stream lost')).toBe('actionable');
   });
 });

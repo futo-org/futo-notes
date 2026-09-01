@@ -1,7 +1,7 @@
 # Note List — Spec
 
-The home screen: notes in the current folder, a folder drawer, and search /
-new-note affordances.
+The home screen: the vault root's folders and notes, folder browsing, and search
+/ new-note affordances.
 
 ## Home ("For You") _(Tauri)_
 
@@ -25,8 +25,10 @@ new-note affordances.
 
 ## List
 
-- Shows the notes in the current folder, or all notes when "All notes" is
-  selected. → NoteListScreen.kt
+- Shows the notes whose parent folder is exactly the folder being browsed
+  (see [Folder browsing](#folder-browsing)); on Tauri, the notes of the folder
+  selected in the sidebar tree. → NoteListScreen.kt _(Android)_,
+  NoteListView.swift _(iOS)_
 - Notes are sorted most-recently-modified first, id ascending on a modified
   tie. The sort rule lives **only in the Rust engine** (ADR-0001): snapshots
   arrive sorted, and every committed mutation carries each affected note's
@@ -58,15 +60,19 @@ new-note affordances.
   > `reloadAsync`, AppNavigation.kt `AppNavigator.goBack`
 - Tapping a note opens it in the editor (no autofocus). → NoteListScreen.kt /
   AppNavigation.kt
-- The list keeps its selected folder and scroll position through a note, Search,
-  or Settings. Returning restores both; after the initial vault load, a missing
-  folder falls back to All notes. → NoteListState.kt / NoteListStateTest.kt /
-  AppNavigationTest.kt _(Android)_; NoteListView.swift _(iOS)_
-- An empty folder shows an empty state. _(Tauri/Android: "Nothing here yet".
-  iOS native distinguishes the case: "No notes yet" at the vault root, "Empty
-  folder" inside a folder — NoteListView.swift.)_
-- The top bar is transparent at rest and gains a surface fill + bottom border
-  once the list is scrolled. _(Android)_
+- The list keeps the folder it is browsing and that folder's scroll position
+  through a note, Search, or Settings. Returning restores both; after the initial
+  vault load, a folder that no longer exists pops to the nearest surviving
+  ancestor (see [Folder browsing](#folder-browsing)). → NoteListState.kt /
+  NoteListStateTest.kt / AppNavigationTest.kt _(Android)_; NoteListView.swift
+  _(iOS)_
+- An empty folder shows an empty state, and **both native shells distinguish the
+  case**: "No notes yet" at the vault root, "Empty folder" inside a folder, both
+  subtitled "Tap + to add a note or folder." _(Tauri: "Nothing here yet".)_ The
+  empty state waits for the first scan (`hasBootstrapped`) so a cold start never
+  flashes it (M1). → NoteListView.swift, NoteListScreen.kt `EmptyState`
+- The top bar carries the page surface, and gains a bottom hairline once the
+  list is scrolled. _(Android)_ → NoteListScreen.kt
 - Each note row shows a **rich, multi-line** body preview rather than raw
   markdown: line breaks are preserved (up to 3 lines), heading/quote markers are
   stripped, task items render as ☐/☑, bullets as •, tables and rules are
@@ -99,27 +105,57 @@ new-note affordances.
   it from every run before render so the row's `NavigationLink` always gets
   the tap. → NoteListView.swift `NoteRow`
 
-## Folder drawer
+## Folder browsing
 
-- Opened from the menu icon (or an edge swipe). Lists "All notes" first, then
-  each folder path, each with a live note count. → NoteListScreen.kt _(Android
-  native)_
-- Selecting a folder filters the list and closes the drawer.
-- A Settings entry sits at the bottom of the drawer.
-- **Tauri** does not use this "All notes" + per-folder-count drawer. Its
-  sidebar is a **tabbed folder tree** (files / tags / images — see [Sidebar
-  tabs](#sidebar-tabs-tauri)): the files tab is a virtualized folder tree with
-  no "All notes" row and no per-folder note counts. → DrawerSidebar.svelte /
-  FolderTreeView.svelte
+**Both native shells browse folders by pushing screens**; neither has a drawer,
+an "All notes" entry, or per-folder note counts anywhere in the UI. _(Android
+gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
 
-**iOS native, by design, has no drawer** (intentional platform difference, not a
-gap): instead of the drawer / **"All notes"** entry / **live per-folder note
-counts** — which are the **Android-native** surface above — it uses a
-`NavigationStack` folder browser (the root shows folders-as-rows + root notes;
-tapping a folder pushes its contents) and reaches Settings via a nav-bar **gear
-icon**. `NotesStore.noteCount(under:)` exists but is only used for delete
-confirmation, not surfaced as a per-folder count. → NoteListView.swift
-`FolderContentsView`
+- A folder screen shows that folder's **immediate subfolders as a block above
+  its own notes**, in one scrolling list — never interleaved. Tapping a
+  subfolder row **pushes** a screen for that folder; the screen is recursive, so
+  any depth is reachable one level at a time. → NoteListView.swift
+  `FolderContentsView` _(iOS)_; NoteListScreen.kt `NoteListScreen(folder=…)`
+  _(Android)_
+- **The vault root IS the home screen** (root notes + top-level folders). There
+  is no flat cross-folder note list on the native shells; search is the
+  cross-folder view. → NoteListView.swift, NoteListScreen.kt
+- The subfolder block is derived **client-side** from the engine's flat list of
+  full folder paths by one prefix filter — no extra engine call. It arrives
+  alphabetical because Rust emits the folder projection from a `BTreeSet`, and
+  every ancestor path is present, which is what makes every folder reachable by
+  tapping down. Notes keep engine order verbatim (ADR-0001). → futo-notes-store
+  `vault::note_order_and_folders`; NotesStore.swift `subfolders(of:)`,
+  NotesStore.kt `immediateSubfolders` / FolderActionsTest
+- The screen is titled with the folder's **last path component**; the root is
+  titled "Notes". System Back (and, on Android, the top-bar up arrow) pops one
+  level; the root has no up affordance because it is the stack floor.
+  → NoteListView.swift, NoteListScreen.kt / AppNavigation.kt
+- **Settings is a nav/top-bar gear** on every folder screen, and Sync is reached
+  from Settings on Android / a nav-bar **cloud** button on iOS. → NoteListView.swift
+  toolbar _(iOS)_; NoteListScreen.kt top bar → SettingsScreen.kt → SyncScreen.kt
+  _(Android)_
+- Each folder screen keeps its **own** scroll position across a note, a deeper
+  folder, Search, or Settings. _(Android)_ → NoteListState.kt /
+  NoteListStateTest.kt
+- Browsing the folder being renamed or moved **follows it** (the pushed screens
+  rebase onto the new path); browsing a folder that stops existing — deleted
+  locally or by a sync pull — **pops to the nearest surviving ancestor**, never
+  to a dead screen. A note open above such a folder stays open; only where Back
+  lands changes. _(Android)_ → AppNavigation.kt `rebaseFolderRoutes` /
+  `pruneFolderRoutes`, AppNavStackTest.kt / AppNavigationTest.kt
+- A pulled deletion prunes the directories it vacates, exactly like the local
+  delete/move workflows: a folder deleted on one client does not survive as an
+  empty ghost folder on syncing peers, while an intentionally-empty folder no
+  pulled change touched is never pruned. →
+  futo-notes-store `refresh_external_changes` + `prune_empty_parents`,
+  crates/futo-notes-store/src/tests.rs
+  `reported_external_changes_prune_the_directories_the_pull_vacated`
+- `NotesStore.noteCount(under:)` exists on iOS but is only used for delete
+  confirmation text, never surfaced as a per-folder count. → NoteListView.swift
+- **Tauri** keeps its own model: a **tabbed folder tree** sidebar (files / tags /
+  images — see [Sidebar tabs](#sidebar-tabs-tauri)) with no "All notes" row and
+  no per-folder note counts. → DrawerSidebar.svelte / FolderTreeView.svelte
 
 ## Sidebar drag & drop _(desktop)_
 
@@ -154,9 +190,11 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 
 ## New note
 
-- The FAB creates an "Untitled" note in the current folder (the vault root when
-  "All notes" is selected) and opens it with the **body** focused for quick
-  capture (keyboard on the note text, not the title). → NoteListScreen.kt
+- The FAB creates an "Untitled" note in the folder being browsed (the vault root
+  on the root screen) and opens it with the **body** focused for quick capture
+  (keyboard on the note text, not the title). Its **New folder** sibling likewise
+  creates in the folder being browsed, so both are reachable at every depth.
+  → NoteListScreen.kt
 - On mobile-width shells, "+ New" opens the note with the **title** focused and
   "Untitled" select-all'd so typing replaces it immediately. Desktop keeps body
   focus; the wikilink-to-missing-note create path keeps body focus everywhere.
@@ -398,9 +436,11 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - A folder can be renamed; the rename updates every note path beneath it and
   rewrites wikilinks pointing at those notes. Every folder row exposes the same
   discoverable action set: **Rename**, **Move to Folder…**, **Delete** — through
-  right-click on desktop and long-press on iOS/Android. Rename validates the new
-  name against the shared folder-name rules and case-insensitive siblings before
-  committing one `rename_folder` mutation. → folderOperations.ts,
+  right-click on the desktop sidebar tree and long-press on an **in-list folder
+  row** on iOS/Android (Android's drawer rows carried it until 2026-08-25).
+  Rename validates the new name against the shared folder-name rules and
+  case-insensitive siblings before committing one `rename_folder` mutation. →
+  folderOperations.ts,
   NoteListView.swift, NoteListScreen.kt
 - _(desktop)_ Rename is also inline from a **double-click** on the row or **F2**
   on the focused row. The typed text is a NAME, not a path: a `/` in it is an
@@ -441,8 +481,10 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
     `apps/tauri/src-tauri/src/system_trash.rs`
   - **iOS native**: folder row swipe or long-press "Delete Folder…". →
     NoteListView.swift
-  - **Android native**: drawer folder row long-press → "Delete folder",
-    with a "Folder deleted; moved N notes" toast. → NoteListScreen.kt
+  - **Android native**: in-list folder row long-press → "Delete folder", with a
+    "Folder deleted; moved N notes" toast. Deleting the folder a pushed screen is
+    showing pops that screen (see [Folder browsing](#folder-browsing)). →
+    NoteListScreen.kt, FolderDeleteToastTest.kt
   - The native shells share the Rust primitive (rejects the vault root and
     path traversal; a missing folder is a no-op; relinks each moved note).
     → futo-notes-store `LocalNoteStore::delete_folder`, futo-notes-ffi

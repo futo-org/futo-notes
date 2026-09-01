@@ -509,6 +509,14 @@ impl LocalNoteStore {
                 }
                 None => {
                     self.notify(&FileChange::Removed(note_filename(id)));
+                    // The pull vacated this note's directory exactly as a local
+                    // delete or move would, so it gets the same cleanup — the
+                    // gone note's now-empty ancestors, nothing else. Without it
+                    // every peer that syncs a folder deletion keeps the emptied
+                    // directory forever in the reported `folders`.
+                    if let Ok(path) = paths::note_path(&self.root, id) {
+                        prune_empty_parents(&self.root, &path);
+                    }
                     removed.push(id.clone());
                 }
             }

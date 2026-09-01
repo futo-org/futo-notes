@@ -156,10 +156,11 @@ async function confirmOpeningExistingFolder() {
   await device.callHook('confirm-storage');
 }
 
-/** Settings → Storage location → <label> → Continue, through the real UI. */
+/** Settings → Storage location → <label> → Continue, through the real UI.
+ *  Settings is the note list's top-bar gear (the drawer it used to live in is
+ *  gone — the list is a folder browser now). */
 async function tapThroughStoragePicker(label) {
-  await device.tap('Folders', { scroll: false });
-  await device.tap('Settings');
+  await device.tap('Settings', { scroll: false });
   await device.tap('Storage location');
   await device.waitForLabel('Where should your notes live?');
   await device.tap(label);

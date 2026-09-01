@@ -694,21 +694,47 @@ test('the iOS touch sequence resolves off-text words before compatibility mouse 
   await context.close();
 });
 
-test('iOS notes keep a non-editable scroll tail at short and long lengths', async ({ browser }) => {
+// The tail exists so a LONG note's final line can clear the keyboard. It must
+// never buy a short note scrollable space: an absolutely positioned tail at
+// `top: 100%` resolved against the scroller's visible box rather than the end
+// of the text, so every note — a four-line one included — could be scrolled
+// completely off the top and reopened (via scroll restore) showing nothing.
+test('a note that fits the screen cannot be scrolled out of view', async ({ browser }) => {
   const { context, page: iosPage } = await openIosTouchEditor(browser);
-  await hostSetContent(iosPage, 'short note');
+  await hostSetContent(iosPage, '- one\n- two\n- three\n- four');
 
   const scroller = iosPage.locator('.cm-scroller');
-  const metrics = await scroller.evaluate((element) => ({
-    clientHeight: element.clientHeight,
-    scrollHeight: element.scrollHeight,
-  }));
-  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  const fits = await scroller.evaluate((element) => {
+    const content = element.querySelector('.cm-content');
+    if (!(content instanceof HTMLElement)) throw new Error('no content');
+    return content.getBoundingClientRect().height < element.clientHeight;
+  });
+  expect(fits).toBe(true);
 
   await scroller.evaluate((element) => {
-    element.scrollTop = 100;
+    element.scrollTop = element.scrollHeight;
   });
-  expect(await scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+  // Scrolled as far as it will go, every line of the note is still on screen.
+  const visibleLines = await iosPage.locator('.cm-scroller').evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const lines = [...element.querySelectorAll('.cm-line')].filter((line) =>
+      line.textContent?.trim(),
+    );
+    const visible = lines.filter((line) => {
+      const rect = line.getBoundingClientRect();
+      return rect.bottom > box.top + 1 && rect.top < box.bottom - 1;
+    });
+    return { total: lines.length, visible: visible.length };
+  });
+  expect(visibleLines.visible).toBe(visibleLines.total);
+  expect(visibleLines.total).toBe(4);
+
+  await context.close();
+});
+
+test('iOS notes keep a non-editable scroll tail after a long note', async ({ browser }) => {
+  const { context, page: iosPage } = await openIosTouchEditor(browser);
 
   await hostSetContent(
     iosPage,
@@ -727,7 +753,7 @@ test('iOS notes keep a non-editable scroll tail at short and long lengths', asyn
     });
   expect(trailingSpace).toBeGreaterThanOrEqual(250);
 
-  await scroller.evaluate((element) => {
+  await iosPage.locator('.cm-scroller').evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
   const longTailTarget = await iosPage
@@ -1074,4 +1100,114 @@ test('setNativeToolbar(true) hides the embed web toolbar shown on focus', async 
   expect(
     await page.evaluate(() => document.documentElement.classList.contains('futo-native')),
   ).toBe(true);
+});
+
+// ============================================================
+// Legacy WebView: the `inset` shorthand (github#33)
+// ============================================================
+
+/**
+ * The bundle as a Chromium 80–86 WebView sees it — the band that runs the whole
+ * bundle but predates two things the layout leans on, so BOTH have to go for
+ * this to be the real engine rather than a convenient half of it:
+ *
+ *  - `@layer` (Chromium 99): every layered rule is discarded, which takes
+ *    src/styles/base.css's `body { position: fixed; inset: 0 }` with it.
+ *  - the `inset` shorthand (Chromium 87): that one declaration is dropped and
+ *    the rest of its rule kept, exactly as an unsupported declaration is.
+ *
+ * Only the shorthand: `inset-inline`/`inset-block` are separate properties and
+ * are not what this emulates.
+ */
+function writePreInsetWebViewBundle(): string {
+  const html = readFileSync(EDITOR_BUNDLE_PATH, 'utf8');
+  const stripped = html.replace(
+    /<style([^>]*)>([\s\S]*?)<\/style>/g,
+    (_m, attrs: string, css: string) =>
+      `<style${attrs}>${stripCssLayerRules(css).replace(/(^|[;{\s])inset\s*:[^;}]*;?/g, '$1')}</style>`,
+  );
+  const legacyPath = path.join(path.dirname(EDITOR_BUNDLE_PATH), 'editor-pre-inset-test.html');
+  writeFileSync(legacyPath, stripped);
+  return `file://${legacyPath}`;
+}
+
+interface EmbedGeometry {
+  editorWidth: number;
+  editorHeight: number;
+  editorTop: number;
+  innerWidth: number;
+  innerHeight: number;
+  scrollerOverflow: number;
+  documentScrollTop: number;
+}
+
+async function embedGeometry(page: Page): Promise<EmbedGeometry> {
+  return page.evaluate(() => {
+    const editor = document.getElementById('editor') as HTMLElement;
+    const scroller = document.querySelector('.cm-scroller') as HTMLElement;
+    const box = editor.getBoundingClientRect();
+    return {
+      editorWidth: Math.round(box.width),
+      editorHeight: Math.round(box.height),
+      editorTop: Math.round(box.top),
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      scrollerOverflow: scroller.scrollHeight - scroller.clientHeight,
+      documentScrollTop: Math.round(document.scrollingElement?.scrollTop ?? 0),
+    };
+  });
+}
+
+// github#33: on an Android System WebView older than Chromium 87 the editor
+// pane filled itself with `inset: 0`, which that engine drops — so `#editor`
+// shrink-wrapped its text instead of filling the web view, `.cm-editor`'s
+// `height: 100%` resolved against an auto-height parent, and `.cm-scroller`
+// never became a scroll container. The note then grew past the bottom of the
+// pane with nothing to scroll, and CodeMirror's scroll-cursor-into-view moved
+// the ROOT document instead, sliding the note up under the shell's native
+// title bar. Reported on FUTO Notes 1.7.0 / Android 10.
+test('pre-inset WebView: the editor pane still fills the web view', async ({ browser }) => {
+  const context = await browser.newContext({
+    hasTouch: true,
+    viewport: { width: 393, height: 700 },
+  });
+  await context.addInitScript(installFakeAndroidHost);
+  const page = await context.newPage();
+  await page.goto(writePreInsetWebViewBundle());
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+  );
+  await hostSetContent(page, 'a short note');
+
+  const geometry = await embedGeometry(page);
+  expect(geometry.editorWidth).toBe(geometry.innerWidth);
+  expect(geometry.editorHeight).toBe(geometry.innerHeight);
+  await context.close();
+});
+
+// The consequence the user actually sees: with a definite height chain,
+// CodeMirror's own `.cm-scroller` takes the overflow, so revealing the cursor
+// never scrolls the root document out from under the native title.
+test('pre-inset WebView: a long note scrolls inside .cm-scroller, not the document', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    hasTouch: true,
+    viewport: { width: 393, height: 700 },
+  });
+  await context.addInitScript(installFakeAndroidHost);
+  const page = await context.newPage();
+  await page.goto(writePreInsetWebViewBundle());
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+  );
+  await hostSetContent(page, Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join('\n'));
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+  await flushFrames(page);
+
+  const geometry = await embedGeometry(page);
+  expect(geometry.scrollerOverflow).toBeGreaterThan(0);
+  expect(geometry.documentScrollTop).toBe(0);
+  expect(geometry.editorTop).toBe(0);
+  await context.close();
 });

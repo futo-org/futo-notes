@@ -1,7 +1,6 @@
 import type { PlatformFS } from './types';
 
-/** Browser development storage for non-note platform services. Notes use the
- * dedicated BrowserLocalNoteStore harness. */
+/** Browser development storage for non-note platform services. */
 export const webFS: PlatformFS = {
   async readAppData(_path: string): Promise<string | null> {
     return null;

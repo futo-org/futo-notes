@@ -55,7 +55,11 @@ export default defineConfig({
           {
             name: 'webkit-pointer',
             use: { ...devices['Desktop Safari'] },
-            testMatch: '**/editor-ux.spec.ts',
+            testMatch: [
+              '**/editor-ux.spec.ts',
+              '**/editor-height-map.spec.ts',
+              '**/table-controls-position.spec.ts',
+            ],
             // A tag, not a title: a rename must not silently empty the project.
             grep: /@webkit-pointer/,
           },

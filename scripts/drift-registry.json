@@ -134,21 +134,6 @@
       }
     },
     {
-      "concept": "sort-tiebreaker-modified-id",
-      "description": "Note sort order (modified desc, id asc). The Rust store is canonical: snapshots are emitted sorted and every mutation carries per-note sorted positions (issue #35 / ADR-0001), so the three former shell copies are deleted \u2014 shells apply engine positions as verbatim splices. The ONLY remaining twin is the browser in-memory dev/test harness, the LocalNoteStore seam's second engine adapter. Each side is pinned by its own contract tests (crates/futo-notes-store tests.rs; src/lib/localNoteStore.test.ts); no shared fixture locks the pair.",
-      "lockStatus": "unlocked",
-      "copies": [
-        {
-          "location": "crates/futo-notes-store/src/vault.rs",
-          "pattern": "fn note_list_order"
-        },
-        {
-          "location": "src/lib/localNoteStore.ts",
-          "pattern": "function compareNoteOrder"
-        }
-      ]
-    },
-    {
       "concept": "notes-root-triplet",
       "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
       "lockStatus": "unlocked",
@@ -223,21 +208,6 @@
       ]
     },
     {
-      "concept": "unique-id-collision-loop",
-      "description": "The '-2, -3, ...' unique-id suffix resolver. Rust is canonical for desktop and native (futo-notes-store paths::unique_note_id). The only other generator is the browser-only development/test note-store harness (localNoteStore.ts `unique`). Swift and Kotlin do NOT generate: they pass \"Untitled\" to the Rust createNote and only RECOGNIZE the suffix shape via isPlaceholderTitle \u2014 keep it that way. Separate tests protect each implementation; no shared fixture currently locks them.",
-      "lockStatus": "unlocked",
-      "copies": [
-        {
-          "location": "src/lib/localNoteStore.ts",
-          "pattern": "private unique\\(wanted"
-        },
-        {
-          "location": "crates/futo-notes-store/src/paths.rs",
-          "pattern": "pub\\(crate\\) fn unique_note_id"
-        }
-      ]
-    },
-    {
       "concept": "title-validation-constants",
       "description": "MAX_TITLE_LENGTH (200), the visible forbidden-character set, and the full C0/DEL/C1 control ranges shared by packages/editor/src/filename.ts and Rust, then generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts.",
       "lockStatus": "locked",
@@ -299,33 +269,8 @@
       }
     },
     {
-      "concept": "conflict-copy-naming",
-      "description": "Dated conflict-copy naming (\"<base> (conflict YYYY-MM-DD)\", counter on a same-day collision, never stacking on an existing conflict suffix). Rust rule in futo-notes-core conflict_names is used by sync parks and the note engine's flush_draft arm; both native shells delegate to that engine workflow. The browser LocalNoteStore harness plays the engine side of the seam and mirrors the dated-token subset (it never mints sync's object-id tokens). Partial: the Rust/TS pair has independent test pins rather than one shared fixture.",
-      "lockStatus": "partial",
-      "copies": [
-        {
-          "location": "crates/futo-notes-core/src/conflict_names.rs",
-          "pattern": "pub fn conflict_filename"
-        },
-        {
-          "location": "src/lib/localNoteStore.ts",
-          "pattern": "function conflictCopyTitle"
-        }
-      ],
-      "locks": [
-        {
-          "path": "crates/futo-notes-store/src/tests.rs",
-          "kind": "test"
-        },
-        {
-          "path": "src/lib/localNoteStore.test.ts",
-          "kind": "test"
-        }
-      ]
-    },
-    {
       "concept": "editor-exit-ordering",
-      "description": "The order an open note's exit runs in (admission -> latch -> cancel -> drain -> commit -> effect) so no async completion lands against a stale note identity. One EditorSession per native shell. This duplicate is permitted because every step being ordered is a host-runtime handle the engine cannot hold (a Compose coroutine, a Swift Task, a WebView round-trip, a vetoable navigation) — the engine still owns what a save MEANS via flush_draft/persist-or-park (ADR-0001), reached only through injected effects. The shells also legitimately differ: navigation commit order, where the committed body comes from, and move-picker drain timing. Partial: each shell is pinned by its OWN ordering tests, and the shared invariant is stated in prose in docs/spec/editor.md \"Editor exits\" — nothing mechanically holds the two implementations together. Changing one shell's exit ordering updates that spec section and checks the sibling in the same MR, or records the divergence there. The escalation threshold was reached in iOS v1.7.0: a cancelled Swift autosave resumed after a durable flush but skipped its baseline record, while Android's NonCancellable span already held the invariant; the resulting conflict-copy storm shipped as a device bug. The next architectural step is therefore the deferred Rust editor engine (crates/futo-notes-editor), not a bigger fixture; starting that engine remains a separate scope decision.",
+      "description": "The order an open note's exit runs in (admission -> latch -> cancel -> drain -> commit -> effect) so no async completion lands against a stale note identity. One EditorSession per native shell. This duplicate is permitted because every step being ordered is a host-runtime handle the engine cannot hold (a Compose coroutine, a Swift Task, a WebView round-trip, a vetoable navigation) \u2014 the engine still owns what a save MEANS via flush_draft/persist-or-park (ADR-0001), reached only through injected effects. The shells also legitimately differ: navigation commit order, where the committed body comes from, and move-picker drain timing. Partial: each shell is pinned by its OWN ordering tests, and the shared invariant is stated in prose in docs/spec/editor.md \"Editor exits\" \u2014 nothing mechanically holds the two implementations together. Changing one shell's exit ordering updates that spec section and checks the sibling in the same MR, or records the divergence there. The escalation threshold was reached in iOS v1.7.0: a cancelled Swift autosave resumed after a durable flush but skipped its baseline record, while Android's NonCancellable span already held the invariant; the resulting conflict-copy storm shipped as a device bug. The next architectural step is therefore the deferred Rust editor engine (crates/futo-notes-editor), not a bigger fixture; starting that engine remains a separate scope decision.",
       "lockStatus": "partial",
       "copies": [
         {
@@ -419,6 +364,21 @@
         "pattern": "md5[\\s\\S]{0,400}%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b|%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b[\\s\\S]{0,400}md5",
         "flags": "i"
       }
+    },
+    {
+      "concept": "embed-body-pin",
+      "description": "The rule that gives the editor page a real height: body pinned to the web view with position:fixed and all four offsets. src/styles/base.css owns it for the app; editor.html repeats it UNLAYERED because a Chromium 80-98 Android System WebView discards every @layer'd rule and would otherwise leave body static and zero-height, collapsing the whole #editor -> .cm-editor -> .cm-scroller height chain (github#33). Same declarations on purpose - change one, change the other.",
+      "lockStatus": "unlocked",
+      "copies": [
+        {
+          "location": "src/styles/base.css",
+          "pattern": "body \\{[\\s\\S]*?position: fixed;[\\s\\S]*?inset: 0;"
+        },
+        {
+          "location": "editor.html",
+          "pattern": "body \\{\\s*position: fixed;\\s*top: 0;\\s*right: 0;\\s*bottom: 0;\\s*left: 0;\\s*\\}"
+        }
+      ]
     }
   ]
 }

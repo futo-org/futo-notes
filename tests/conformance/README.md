@@ -110,10 +110,11 @@ A differential that skips something quietly is worse than no differential (M11):
    fixture file that is neither driven nor listed in
    `FIXTURES_OUTSIDE_THE_DIFFERENTIAL` (with the reason) fails the run — so a new
    corpus cannot arrive without a decision.
-2. **Visible suppression.** Every `KNOWN_DIVERGENCES` entry prints how many probes
-   it suppressed, on a _green_ run. A divergence nobody sees is a divergence
-   nobody fixes — and an exclusion whose cause was fixed shows up as a count that
-   should have reached zero, which is the cue to delete the entry.
+2. **Closure probes.** Each `KNOWN_DIVERGENCES` entry carries minimal inputs that
+   must STILL diverge. Fix the cause and the run goes red until the entry is
+   deleted, so an exclusion cannot outlive its reason.
+3. **Visible suppression.** Suppressed counts print on a _green_ run. A divergence
+   nobody sees is a divergence nobody fixes.
 
 ### What it deliberately does not compare
 
@@ -194,3 +195,8 @@ Its two jobs are now split, and both are stronger:
 - _Proving TypeScript and Rust agree_ → this differential, over ~22,800 adversarial
   probes across 21 ops instead of a few hundred curated ones. It found a real
   divergence the generator's corpus could not reach.
+
+Where the differential is red-proofed: perturb one side of one rule (drop a
+character from a class, shorten a limit, drop an extension) and it must fail naming
+the family, the op, the input, and both answers. Do that before trusting a green run
+you have changed the harness for.
