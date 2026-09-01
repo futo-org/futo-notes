@@ -121,6 +121,9 @@ final class EditorCompletionQueue {
 ///   { type: 'blockDrag', active: <bool> }              (Milkdown editor, unversioned,
 ///     iOS-only — same path; suspends WKWebView's text interaction so the OS
 ///     magnifier stays out of the drag)
+///   { type: 'blockPress', pressed: <bool> }            (Milkdown editor, unversioned,
+///     iOS-only — the same path's TOUCH-DOWN half; stands the delayed text
+///     interaction down before it can win the race the lift used to have to)
 ///
 /// The markdown toolbar is NATIVE on iOS: EditorHost installs
 /// EditorToolbarAccessory as the keyboard's inputAccessoryView (so it docks
@@ -397,36 +400,117 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         moveHapticFeedback.prepare()
     }
 
-    /// Recognisers this suspended for the current block drag, so exactly the
-    /// ones that were turned off get turned back on.
-    private var suspendedTextGestures: [UIGestureRecognizer] = []
-
-    /// Suspends (or restores) the WebView's text-interaction gestures — the
-    /// selection handles, the callout menu, and the magnifier loupe — for the
-    /// duration of an editor block drag.
+    /// How much of WKWebView's text interaction is currently stood down.
     ///
-    /// TWO levers, because the documented one is not sufficient on its own.
-    /// `isTextInteractionEnabled` (iOS 14.5+) is a live preference and stops the
-    /// NEXT gesture, but a gesture already tracking the finger runs to
-    /// completion: measured on iOS 26.0, the loupe still appeared over the
-    /// dragged block with the preference off, because WebKit commits to its long
-    /// press at touch-down and the editor's lift can only ever arrive after that
-    /// (340ms vs the loupe's ~500ms). Disabling a recogniser cancels it
-    /// immediately, which is the only thing that reaches an in-flight gesture.
-    private func setTextInteractionSuspended(_ suspended: Bool) {
-        webView.configuration.preferences.isTextInteractionEnabled = !suspended
-        if suspended {
-            guard suspendedTextGestures.isEmpty else { return }
+    /// TWO levels, because the two things the editor reports are not equally
+    /// safe to act on. A PRESS is only a maybe — it can still turn out to be a
+    /// tap that places a caret or a scroll — so only the gestures that need a
+    /// HOLD to recognise stand down, and the page stays fully selectable. A
+    /// DRAG is committed, so the whole stack goes, preference included.
+    private enum TextInteractionLevel {
+        /// Nothing suspended.
+        case none
+        /// A finger is down on a block: the DELAYED gestures only (the loupe
+        /// long press, tap-and-a-half select, UIKit's own drag lift). The tap
+        /// and pan recognisers — caret placement, double-tap word select,
+        /// selection-handle adjustment — are deliberately left alone.
+        case press
+        /// A block is airborne: every non-WebKit recogniser on the content
+        /// view, plus `isTextInteractionEnabled`.
+        case full
+    }
+
+    /// Recognisers this suspended, so exactly the ones that were turned off get
+    /// turned back on.
+    private var suspendedTextGestures: [UIGestureRecognizer] = []
+    private var appliedTextInteractionLevel: TextInteractionLevel = .none
+    /// The two halves of the editor's report, tracked separately: the drag ends
+    /// one message before the press does, and the level is recomputed from both
+    /// rather than toggled, so neither message can strand the other's work.
+    private var blockPressActive = false
+    private var blockDragActive = false
+
+    private func setBlockPressActive(_ active: Bool) {
+        blockPressActive = active
+        if !active { blockDragActive = false }  // no drag outlives its press
+        applyTextInteractionLevel()
+    }
+
+    private func setBlockDragActive(_ active: Bool) {
+        blockDragActive = active
+        applyTextInteractionLevel()
+    }
+
+    /// Applies the level the current press/drag state implies.
+    ///
+    /// Restores everything first and re-suspends from scratch, rather than
+    /// diffing: a level change is a handful of `isEnabled` writes on a gesture
+    /// that has already been cancelled, and "restore, then apply" is the only
+    /// shape in which no recogniser can be left disabled by a level that no
+    /// longer names it. Re-enabling mid-touch cannot resurrect a gesture — UIKit
+    /// does not hand an in-flight touch sequence to a recogniser that was
+    /// disabled during it.
+    private func applyTextInteractionLevel() {
+        let level: TextInteractionLevel =
+            blockDragActive ? .full : (blockPressActive ? .press : .none)
+        guard level != appliedTextInteractionLevel else { return }
+        appliedTextInteractionLevel = level
+
+        for gesture in suspendedTextGestures { gesture.isEnabled = true }
+        suspendedTextGestures = []
+        // `isTextInteractionEnabled` belongs to `.full` ALONE. It is a
+        // page-level "this content is not selectable" preference, not a gesture
+        // switch, and a tap that lands while it is off does not place a caret —
+        // which is the whole affordance `.press` exists to preserve.
+        webView.configuration.preferences.isTextInteractionEnabled = (level != .full)
+        switch level {
+        case .none:
+            break
+        case .press:
+            suspendedTextGestures = delayedTextInteractionGestures().filter(\.isEnabled)
+        case .full:
             suspendedTextGestures = textInteractionGestures().filter(\.isEnabled)
-            for gesture in suspendedTextGestures { gesture.isEnabled = false }
-        } else {
-            for gesture in suspendedTextGestures { gesture.isEnabled = true }
-            suspendedTextGestures = []
         }
-        let state = suspended ? "suspended" : "restored"
+        for gesture in suspendedTextGestures { gesture.isEnabled = false }
+
+        let names = suspendedTextGestures.map { String(describing: type(of: $0)) }.joined(
+            separator: ", ")
+        let label: String
+        switch level {
+        case .none: label = "restored"
+        case .press: label = "suspended for press"
+        case .full: label = "suspended"
+        }
         EditorHost.logger.info(
-            "text interaction \(state, privacy: .public) (\(self.suspendedTextGestures.count, privacy: .public) gestures)"
+            "text interaction \(label, privacy: .public) (\(self.suspendedTextGestures.count, privacy: .public) gestures: \(names, privacy: .public))"
         )
+    }
+
+    /// The subset of ``textInteractionGestures()`` that recognises on a HOLD —
+    /// the only ones that can take a long press away from the editor's own.
+    ///
+    /// Two rules, unioned, because neither alone is enough. Measured on the pool
+    /// simulator (iOS 26.5), this returns exactly four of the 32 non-WebKit
+    /// recognisers: `UITapAndAHalfRecognizer` and `UIVariableDelayLoupeGesture`
+    /// — the two delayed TEXT gestures, matched BY NAME because neither is a
+    /// `UILongPressGestureRecognizer` subclass — plus `_UIDragLiftGestureRecognizer`
+    /// and `_UIDragLiftPointerGestureRecognizer`, which the long-press rule
+    /// catches and which would otherwise start UIKit's own drag out of the block
+    /// the editor is about to lift. Everything else stays enabled, which is why
+    /// tap-to-place-caret, double-tap-to-select-a-word and its Cut/Copy/Paste
+    /// callout are unaffected (all verified on the device).
+    ///
+    /// The name rule is therefore load-bearing and the type rule is the hedge:
+    /// a future iOS that renames the loupe class but keeps it a long press is
+    /// still covered. Like its superset, this reports what it found, so a future
+    /// iOS that defeats both leaves a "0 gestures" line in the log rather than a
+    /// silent regression.
+    private func delayedTextInteractionGestures() -> [UIGestureRecognizer] {
+        let named: Set<String> = ["UIVariableDelayLoupeGesture", "UITapAndAHalfRecognizer"]
+        return textInteractionGestures().filter { gesture in
+            gesture is UILongPressGestureRecognizer
+                || named.contains(String(describing: type(of: gesture)))
+        }
     }
 
     /// UIKit's text-interaction recognisers on the WebView's content view.
@@ -461,11 +545,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// opaque/null origin that `baseURL: nil` produces, leaving the editor
     /// blank. A file:// origin is non-opaque, so the inline module runs.
     private func loadEditor() {
-        // A page that goes away mid-drag can never post its `blockDrag false`,
-        // and the WebView outlives the page (this is also the WebContent-crash
-        // recovery path). Text interaction the editor borrowed comes back here
-        // rather than staying suspended for the rest of the session.
-        setTextInteractionSuspended(false)
+        // A page that goes away mid-gesture can never post its `blockPress
+        // false`, and the WebView outlives the page (this is also the
+        // WebContent-crash recovery path). Text interaction the editor borrowed
+        // comes back here rather than staying suspended for the rest of the
+        // session.
+        setBlockPressActive(false)
         if let url = editorFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
@@ -734,8 +819,21 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // and drags a caret along behind it, on top of the drag the user is
             // actually performing. This is a shell duty because the page has no
             // lever on it — bridge.ts's BlockDragMessage records what was
-            // measured and rejected.
-            setTextInteractionSuspended((body["active"] as? Bool) == true)
+            // measured and rejected. The press-level suspension below has been
+            // holding the delayed gestures down since touch-down; this ESCALATES
+            // to the whole stack now that the gesture is committed.
+            setBlockDragActive((body["active"] as? Bool) == true)
+        case .blockPress:
+            // Milkdown editor, iOS-only — a finger is DOWN on a block (or has
+            // come off one) on the long-press block-drag path. Posted at
+            // touch-down, which is the point of it: `blockDrag` cannot arrive
+            // until the editor's 340ms timer has fired, and WKWebView's own text
+            // interaction fires at ~655ms whether or not it does, so a press
+            // that produced no lift used to hand the user the OS magnifier and a
+            // word selection with nothing suspended at all. Only the gestures
+            // that need a hold stand down here, so a tap still places a caret
+            // and a double-tap still selects a word.
+            setBlockPressActive((body["pressed"] as? Bool) == true)
         case .openNote:
             // User tapped a RESOLVED wikilink — the bound note view navigates.
             if let id = body["id"] as? String {
