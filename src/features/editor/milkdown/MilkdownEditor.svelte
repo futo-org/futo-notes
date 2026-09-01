@@ -80,6 +80,7 @@
     startProgressiveLoad,
     type ProgressiveLoad,
   } from './progressiveLoad';
+  import { assessOversizeNote, type OversizeNote } from './oversizeNote';
   import { tagDecorations } from './tagDecorations';
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
   import { createToolbarExec } from './toolbarExec';
@@ -200,6 +201,18 @@
   /* Set at load completion, consumed by the next change notification — see the
    * markdownUpdated listener for the stale-snapshot it defends against. */
   let listenerSnapshotMayBeStale = false;
+  /* Set when the note is past the parse cap (oversizeNote.ts): the editor holds
+   * a bounded, READ-ONLY prefix of it and will neither serialize nor save it.
+   * `$state` because the template renders the notice from it, and because
+   * `editable` below is re-read on every ProseMirror state update.
+   *
+   * SAVE LOCK (CRITICAL, same rule as a streaming tail): the document is a
+   * PREFIX of the note, so nothing may leave the editor except the host's own
+   * bytes. Unlike a streaming tail this one never lifts — the whole point is
+   * that the rest of the note is never parsed — which is why the document is
+   * also made non-editable rather than merely locked: a user edit into a prefix
+   * that can never be completed has nowhere safe to go. */
+  let oversize = $state<OversizeNote | null>(null);
   /* Whether the last load gave up on chunking mid-flight and reloaded the note
    * whole. Reported by `censusLoad` so the equivalence census cannot score a
    * fallback as proof that a chunked parse matched a whole one — it would be
@@ -247,6 +260,11 @@
    * desktop), so the teardown removes exactly what the mount added. */
   let ownsImageUrlResolver = false;
 
+  /* Explicitly en-US, not the WebView's locale: this is a fixed English string
+   * with numbers in it, so grouping the numbers by whatever locale the phone is
+   * set to would read as a bug, and the spec asserts the rendered text. */
+  const countOf = (n: number): string => n.toLocaleString('en-US');
+
   /* Sorted comma-joined snapshot of the last emitted format-state set, so
    * emitFormatState() below can dedupe without the caller tracking it. */
   let lastFormatStateKey: string | null = null;
@@ -275,6 +293,9 @@
      * would be per-chunk work on the load path for a highlight nobody asked
      * for. The completion path emits once, for the finished document. */
     if (progressive?.loading) return;
+    // Nor for a read-only prefix: no format applies to a document the user
+    // cannot edit.
+    if (oversize) return;
     const view = pmView();
     if (!view) return;
     const selection = selectionOverride ?? view.state.selection;
@@ -444,6 +465,13 @@
             },
             handlePaste: (_view, event) => pasteHandler?.(event) ?? false,
             handleKeyDown: (view, event) => handleParityKeyDown(view, event),
+            /* A note past the parse cap is mounted as a prefix, so it must not
+             * be editable: an edit into a document whose tail was never parsed
+             * cannot be serialized without truncating the note. ProseMirror
+             * re-reads this on every state update, so flipping `oversize` in
+             * `applyExternal` before its `replaceAll` is what makes the
+             * contenteditable follow the note being opened. */
+            editable: () => oversize === null,
           }));
 
           /* ...but not in code, as far as the engine will allow. Autocorrect
@@ -489,6 +517,10 @@
              * An edit made in this window is not lost: finishProgressiveLoad()
              * releases it against the complete document. */
             if (progressive?.loading) return;
+            /* SAME LOCK, permanently, for a note past the parse cap
+             * (oversizeNote.ts): the document is a prefix whose tail will never
+             * be parsed. Nothing but the host's own bytes may leave. */
+            if (oversize) return;
 
             let markdown = reported;
             if (listenerSnapshotMayBeStale) {
@@ -747,7 +779,41 @@
     progressive = null;
     streamingTail = false;
     abortedToWholeDocument = false;
+    oversize = null;
     markOpenStart();
+
+    /* THE PARSE CAP (oversizeNote.ts), decided before the chunk plan and
+     * independently of it. A note whose largest inline content run is past what
+     * micromark parses in bounded time cannot be opened at all — the reported
+     * failure was a 50,000-line note with no blank line anywhere: 28 s of
+     * blocked engine in chromium and minutes on a phone, during which the editor
+     * showed nothing. Chunking cannot help, because the note IS one block and
+     * cutting inside a paragraph changes both the document and its
+     * serialization.
+     *
+     * Not gated on `!plan.chunked` on purpose: a note the planner CAN chunk
+     * still stalls on a chunk holding one enormous run, and it would stall
+     * inside an idle slice where nothing is watching. */
+    const overCap = assessOversizeNote(text);
+    if (overCap) {
+      oversize = overCap;
+      /* The whole note, for `getContent()` — the editor holds a prefix, so the
+       * host's own bytes are the only complete answer it can give, and they are
+       * exactly what is on disk. `liveMarkdown` takes it too, so a re-push of
+       * the same note is deduped by `setContent`. `externalSerialization` stays
+       * null: no serialization of THIS document equals the note, and the
+       * read-only lock, not that field, is what protects it. */
+      hostMarkdown = text;
+      liveMarkdown = text;
+      externalSerialization = null;
+      /* `oversize` is set before this dispatch, so ProseMirror re-reads
+       * `editable` from this very transaction and the document mounts
+       * non-editable. */
+      editor.action(replaceAll(overCap.preview));
+      measureOpen(OPEN_INTERACTIVE_MEASURE);
+      measureOpen(OPEN_COMPLETE_MEASURE);
+      return;
+    }
 
     const plan = planMarkdownChunks(text, chunkOptions);
     if (!plan.chunked) {
@@ -932,6 +998,10 @@
      * of exactly two ways content leaves the editor (the other is the `change`
      * message, locked in the listener above). Neither branch below can return
      * a prefix. */
+    /* Past the parse cap: the document is a bounded prefix and is not editable,
+     * so the host's own bytes are both the complete note and — since nothing
+     * can have changed them — the correct one. Permanently, for this note. */
+    if (oversize) return hostMarkdown ?? '';
     if (progressive?.loading) {
       /* Untouched since the open: the host's own bytes ARE the whole note, and
        * they are exactly what is on disk. The correct answer, and free. */
@@ -966,7 +1036,7 @@
   }
 
   export function insertMarkdown(text: string): void {
-    if (!editor) return;
+    if (!editor || oversize) return;
     editor.action(insert(text));
     pmView()?.focus();
   }
@@ -1082,6 +1152,10 @@
   }
 
   export function exec(commandId: string): boolean {
+    /* A toolbar command dispatches a transaction directly, which ProseMirror's
+     * `editable` flag does not stop — so the read-only lock has to be stated
+     * here too, or a Bold tap on an over-cap note would edit a prefix. */
+    if (oversize) return true;
     const action = EXEC[commandId];
     if (!action) {
       console.warn(`MilkdownEditor.exec: unsupported command '${commandId}'`);
@@ -1112,9 +1186,23 @@
   class="futo-milkdown"
   class:mobile-dnd={useMobileBlockDnd}
   class:block-containment={skipOffscreenBlocks}
+  class:oversize={oversize !== null}
   style="--futo-checkbox-slot: {CHECKBOX_SIZE_PX}px"
   bind:this={container}
 >
+  <!-- A note past the parse cap (oversizeNote.ts). Pinned to the TOP, unlike
+       the streaming tail: this is not reassurance that something is coming, it
+       is the terms the note is open on, and it has to be the first thing read.
+       The two facts a user needs are that nothing here is saved and how much of
+       the note they are looking at. -->
+  {#if oversize}
+    <div class="milkdown-oversize-notice" role="status">
+      <strong>Read-only.</strong>
+      This note has a single block of {countOf(oversize.run.lines)} lines, which is more than the editor
+      can open. Showing the first {countOf(oversize.previewLines)} of {countOf(oversize.totalLines)} lines
+      — the note on disk is unchanged, and nothing typed here is saved.
+    </div>
+  {/if}
   <!-- The streaming tail of a large note (progressiveLoad.ts). Absolutely
        positioned so it never enters the editor's layout, and rendered inside
        the container the same way the block-drag ghost is. `polite` rather than
@@ -1443,6 +1531,28 @@
   :global(.futo-milkdown .milkdown-touch-drop-indicator--visible) {
     opacity: 1;
   }
+  /* Parse-cap notice. Absolutely positioned for the same reason as the
+     streaming tail — it must not enter the editor's layout — and the container's
+     `.oversize` class buys the first line room below it, so a banner the user
+     has to read is never sitting on top of their text. */
+  .milkdown-oversize-notice {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    z-index: 3;
+    padding: 0.6em calc(18px + env(safe-area-inset-right)) 0.6em
+      calc(18px + env(safe-area-inset-left));
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    color: var(--color-text, #0f0f0f);
+    background: var(--color-surface, #f3f4f6);
+    border-bottom: 1px solid var(--color-border, #e5e7eb);
+  }
+
+  :global(.futo-milkdown.oversize .ProseMirror) {
+    padding-top: 5.5rem;
+  }
+
   /* Streaming-tail affordance. Pinned to the bottom of the editor rather than
      placed at the end of the document: the document end is thousands of lines
      away while the tail streams, so a marker there would be invisible — which
