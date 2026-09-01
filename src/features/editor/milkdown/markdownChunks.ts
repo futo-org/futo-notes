@@ -34,6 +34,7 @@
  * | List item continuation | next line must start at column 0 |
  * | Loose list (`- a` / blank / `- b` is ONE list) | a list is never followed by a list marker |
  * | Link reference definitions, GFM footnote definitions | document-scoped, so the whole document declines |
+ * | A `---` fence | never a boundary: at the start of a chunk it would parse as FRONT MATTER |
  *
  * HTML blocks 6 and 7 end AT a blank line by definition, so a blank line after
  * one is a genuine boundary and needs no tracking.
@@ -118,6 +119,43 @@ const REFERENCE_DEFINITION = /^ {0,3}\[[^\]]*\]:/;
 
 /** Opening fence: 3+ backticks or tildes, indented at most 3, plus its info string. */
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/**
+ * A line that would open YAML front matter if it were the first line of a
+ * document: exactly `---` at column 0, nothing after it but whitespace
+ * (micromark-extension-frontmatter's opening condition — `----` and ` ---` are
+ * thematic breaks, not fences).
+ *
+ * Front matter is a document-START construct, and each chunk is parsed as its
+ * own little document (`packages/editor/src/milkdown-compat/frontmatter.ts`).
+ * So a chunk that BEGAN with one of these would turn a mid-note thematic break
+ * plus setext heading into a front matter node, which cannot be appended to a
+ * document that is already past its first position — ProseMirror would drop it,
+ * losing those bytes. Refusing the boundary costs one larger chunk; the planner
+ * has plenty of others, and a document with no other boundary declines and
+ * loads whole, which is exactly today's behavior.
+ */
+const FRONT_MATTER_FENCE = /^---[ \t]*$/;
+
+/**
+ * The line index the document's OWN front matter block ends after, or 0 when it
+ * has none. No boundary may fall at or before it.
+ *
+ * Front matter can contain a blank line followed by a column-0 line — which is
+ * exactly what the scanner reads as a top-level block start — so without this a
+ * `---\na: 1\n\nb: 2\n---` block would be cut in half, and each half parsed
+ * apart is neither front matter nor what it was. `remark-frontmatter` requires
+ * the closing fence to be exactly `---` too, and requires it to exist: with no
+ * closing fence there is no front matter, so there is nothing to protect.
+ */
+function frontMatterEndLine(lines: string[]): number {
+  if (lines.length === 0) return 0;
+  if (!FRONT_MATTER_FENCE.test(lines[0].replace(/\r?\n$/, ''))) return 0;
+  for (let i = 1; i < lines.length; i += 1) {
+    if (FRONT_MATTER_FENCE.test(lines[i].replace(/\r?\n$/, ''))) return i + 1;
+  }
+  return 0;
+}
 
 /** HTML block start conditions 1–5: the ones that can contain a blank line. */
 const HTML_BLOCK_STARTS: ReadonlyArray<{ start: RegExp; end: RegExp }> = [
@@ -275,6 +313,10 @@ export function planMarkdownChunks(
   /** Line indices a chunk may START at, in order. */
   const boundaries: number[] = [];
 
+  /* Everything up to and including the note's own front matter belongs to the
+   * first chunk (see {@link frontMatterEndLine}). */
+  const frontMatterEnd = frontMatterEndLine(lines);
+
   for (let i = 0; i < lines.length; i += 1) {
     const bare = lines[i].replace(/\r?\n$/, '');
     const inProtectedBlock = state.fence !== null || state.htmlEnd !== null;
@@ -294,7 +336,17 @@ export function planMarkdownChunks(
         const startsAtColumnZero = indentWidth(nextLine) === 0;
         const wouldFuseLists = state.inList && LIST_MARKER.test(nextLine);
         const dependsOnWhatPrecedes = EMPTY_LIST_ITEM.test(nextLine);
-        if (startsAtColumnZero && !wouldFuseLists && !dependsOnWhatPrecedes) boundaries.push(next);
+        const wouldOpenFrontMatter = FRONT_MATTER_FENCE.test(nextLine);
+        const insideOwnFrontMatter = next < frontMatterEnd;
+        if (
+          startsAtColumnZero &&
+          !wouldFuseLists &&
+          !dependsOnWhatPrecedes &&
+          !wouldOpenFrontMatter &&
+          !insideOwnFrontMatter
+        ) {
+          boundaries.push(next);
+        }
       }
     }
 

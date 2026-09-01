@@ -91,6 +91,19 @@ export function hasBulletBlockOpener(markdown) {
   return BULLET_BLOCK_OPENER_RE.test(stripCode(markdown));
 }
 
+/**
+ * A document-leading YAML front matter block, captured whole.
+ *
+ * Exactly the shape `micromark-extension-frontmatter` accepts: the opening and
+ * closing fences are each exactly three dashes at column 0 with nothing but
+ * whitespace after them (`----` and ` ---` are thematic breaks).
+ */
+const FRONT_MATTER_RE = /^---[ \t]*\n[\s\S]*?\n---[ \t]*(?:\n|$)/;
+
+export function leadingFrontMatter(markdown) {
+  return FRONT_MATTER_RE.exec(markdown)?.[0] ?? null;
+}
+
 const WIKILINK_RE = /\\?\[\\?\[[^\]\n]+\]\\?\]/g;
 
 export function countWikilinks(markdown) {
@@ -138,6 +151,21 @@ export function classify({ body, round1, round2, round3 }) {
   if (countHtmlTags(round1.markdown) < countHtmlTags(body)) flags.html_loss = true;
   if (countWikilinks(round1.markdown) < countWikilinks(body)) flags.wikilink_loss = true;
 
+  /* The one flag here that compares round1 against the ORIGINAL BYTES rather
+   * than against round2, and it has to: corrupted front matter is STABLE. With
+   * nothing in the parser recognising the construct, `---` parsed as a thematic
+   * break and the metadata lines as a setext heading, and `***` + a dash rule
+   * round-trips to itself forever — so every stability-based flag above stayed
+   * silent while `tags: [a, b]` was being rewritten to `tags: \[a, b]` on disk.
+   * That blind spot is why the first census reported "no eaten frontmatter-like
+   * content". Byte equality is the right bar for this construct specifically:
+   * front matter is not markdown, so there is no re-spelling of it that
+   * ADR-0002's normalize-once would accept. */
+  const frontMatter = leadingFrontMatter(body);
+  if (frontMatter !== null && !round1.markdown.startsWith(frontMatter)) {
+    flags.frontmatter_loss = true;
+  }
+
   return flags;
 }
 
@@ -152,4 +180,5 @@ export const FLAG_ORDER = [
   'empty_link_loss',
   'html_loss',
   'wikilink_loss',
+  'frontmatter_loss',
 ];

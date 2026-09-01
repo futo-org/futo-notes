@@ -30,7 +30,12 @@ const pmTableSpecs = tableNodes({
 
 export const testSchema = new Schema({
   nodes: {
-    doc: { content: 'block+' },
+    /* `frontmatter? block+`, exactly as the shipping schema narrows it (see
+     * packages/editor/src/milkdown-compat/frontmatter.ts): the front matter
+     * block is pinned to the document's first position and is deliberately NOT
+     * in group `block`, which is what makes that a restriction. */
+    doc: { content: 'frontmatter? block+' },
+    frontmatter: { atom: true, selectable: false, attrs: { value: { default: '' } } },
     paragraph: { group: 'block', content: 'inline*' },
     heading: {
       group: 'block',

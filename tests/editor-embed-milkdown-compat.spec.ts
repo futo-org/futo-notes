@@ -174,3 +174,96 @@ test.describe('a keystroke in a heading leaves the heading alone', () => {
     expect(shipped.sameElement).toBe(true);
   });
 });
+
+test.describe('YAML front matter survives the round trip', () => {
+  // The bug report's note, verbatim. Three separate harms on the unpatched
+  // preset: `---` → `***`, the closing `---` → a 16-dash setext underline, and
+  // `tags: [a, b]` → `tags: \[a, b]` — a changed metadata VALUE, because the
+  // serializer escapes what it reads as link syntax inside what it thinks is a
+  // heading. ADR-0002 accepts re-spelling markdown; it explicitly does not
+  // accept losing "constructs the editor's schema doesn't own (raw HTML,
+  // wikilinks, footnotes, frontmatter)".
+  const NOTE =
+    '---\n' +
+    'title: Front Matter Test\n' +
+    'tags: [a, b]\n' +
+    'date: 2026-09-01\n' +
+    '---\n' +
+    '\n' +
+    '# Body\n' +
+    '\n' +
+    'Content after front matter.\n';
+
+  test('canary: upstream rewrites the fences and escapes the metadata value', async ({ page }) => {
+    const out = await roundTrip(page, 'baseline', NOTE);
+    // Nothing in the unpatched parser recognises front matter, so the opening
+    // `---` is a thematic break and the metadata lines are a setext heading.
+    expect(out).toContain('***');
+    expect(out).toContain('tags: \\[a, b]');
+    expect(out).toMatch(/^-{16}$/m);
+  });
+
+  test('compat returns the note byte-for-byte', async ({ page }) => {
+    expect(await roundTrip(page, 'compat', NOTE)).toBe(NOTE);
+  });
+
+  // Every character class the serializer would otherwise escape or re-spell in
+  // prose. Front matter is YAML, not markdown: none of it may be touched.
+  const HOSTILE = [
+    ['bracket values', '---\ntags: [a, b]\n---\n\nbody\n'],
+    ['a leading hash', '---\ncomment: "# not a heading"\n---\n\nbody\n'],
+    ['asterisks and underscores', '---\nglob: "*.md"\nsnake: a_b_c\n---\n\nbody\n'],
+    ['single and double quotes', `---\nq: 'it''s'\nd: "say \\"hi\\""\n---\n\nbody\n`],
+    ['nested indentation', '---\nauthors:\n  - name: A\n    role: b\n---\n\nbody\n'],
+    ['a wikilink-looking value', '---\nrel: "[[Other Note]]"\n---\n\nbody\n'],
+    ['a blank line inside', '---\na: 1\n\nb: 2\n---\n\nbody\n'],
+    ['a trailing-space value', '---\na: 1 \n---\n\nbody\n'],
+    ['an empty block', '---\n---\n\nbody\n'],
+  ] as const;
+
+  for (const [label, markdown] of HOSTILE) {
+    test(`compat preserves ${label}`, async ({ page }) => {
+      expect(await roundTrip(page, 'compat', markdown)).toBe(markdown);
+    });
+  }
+
+  test('compat keeps the fences on a note with no body at all', async ({ page }) => {
+    // The one shape that is not byte-identical, and it is the accepted
+    // normalize-once class rather than a front matter defect: the doc's content
+    // expression is `frontmatter? block+`, so a document parsed as nothing but
+    // front matter gets ProseMirror's required empty paragraph filled in, and
+    // that serializes as one trailing blank line. Keeping the fill is the
+    // deliberate trade — without it the only selection such a note admits is a
+    // node selection ON the front matter, and the next keystroke would replace
+    // the metadata. Opening still hands back the host's own bytes (the
+    // load-echo guard); this is only what a real edit writes.
+    const out = await roundTrip(page, 'compat', '---\na: 1\n---\n');
+    expect(out).toBe('---\na: 1\n---\n\n');
+  });
+
+  test('compat leaves a mid-document `---` a thematic break', async ({ page }) => {
+    // Front matter is a document-start construct only. A horizontal rule
+    // further down is still a horizontal rule, and still normalizes to `***`
+    // the way it always did.
+    const out = await roundTrip(page, 'compat', 'intro\n\n---\n\nafter\n');
+    expect(out).toContain('***');
+    expect(out).not.toContain('---\n\nafter');
+  });
+
+  test('compat leaves an opening thematic break alone', async ({ page }) => {
+    // `---` followed by a blank line is not front matter (no closing fence),
+    // and must keep parsing as the rule it is rather than swallowing the note.
+    const out = await roundTrip(page, 'compat', '---\n\nbody\n');
+    expect(out).toContain('***');
+    expect(out).toContain('body');
+  });
+
+  test('compat leaves an unterminated `---` block alone', async ({ page }) => {
+    // No closing fence anywhere: CommonMark reads this as a thematic break
+    // plus a paragraph, and so must we — inventing a front matter block here
+    // would swallow the rest of the note into an inert node.
+    const out = await roundTrip(page, 'compat', '---\ntitle: x\n\nbody\n');
+    expect(out).toContain('title: x');
+    expect(out).toContain('body');
+  });
+});

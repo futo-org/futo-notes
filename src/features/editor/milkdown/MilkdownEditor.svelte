@@ -1367,6 +1367,35 @@
     padding: 0;
   }
 
+  /* YAML front matter (packages/editor/src/milkdown-compat/frontmatter.ts): an
+   * atomic, non-editable block holding the note's metadata bytes verbatim.
+   *
+   * Shown rather than hidden, because a hidden block is one a Backspace from
+   * the body can delete without the user ever seeing what went. Read as
+   * metadata rather than as content: muted, monospace, a left rule, and no
+   * caret — the `contenteditable="false"` in the node's own toDOM is what makes
+   * it inert; this only has to LOOK inert so the difference is not a surprise.
+   * `user-select: text` keeps it copyable, which reading metadata needs. */
+  :global(.futo-milkdown .ProseMirror pre.futo-frontmatter) {
+    background: var(--color-surface, #f2f2f2);
+    border-left: 3px solid var(--color-border, #e5e5e5);
+    border-radius: 0 6px 6px 0;
+    padding: 0.7em 0.9em;
+    margin: 0;
+    color: var(--color-muted, #737373);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    line-height: 1.5;
+    /* pre-wrap, not `pre`: a long metadata value wraps instead of forcing the
+     * whole editor to scroll sideways (the code-block rule above can afford
+     * `overflow-x: auto` because code lines are meant to stay unwrapped). */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    cursor: default;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
   :global(.futo-milkdown .ProseMirror ul),
   :global(.futo-milkdown .ProseMirror ol) {
     padding-left: 1.4em;

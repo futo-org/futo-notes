@@ -184,6 +184,48 @@ describe('planMarkdownChunks — context-dependent block starts', () => {
   });
 });
 
+describe('planMarkdownChunks — front matter fences', () => {
+  const opts = { minLines: 0, firstChunkLines: 1, chunkLines: 1 };
+
+  it('never cuts in front of a `---` fence', () => {
+    // Each chunk is parsed as its own document, and front matter is a
+    // document-START construct: a chunk that began with `---` would parse this
+    // thematic break plus setext heading as a front matter node, which cannot
+    // be appended past the document's first position and would be dropped
+    // (packages/editor/src/milkdown-compat/frontmatter.ts).
+    const md = '## A\n\n---\n\ntail\n';
+    const plan = planMarkdownChunks(md, opts);
+    expect(plan.chunks.join('')).toBe(md);
+    expect(plan.chunks.some((c) => c.startsWith('---'))).toBe(false);
+  });
+
+  it('still cuts in front of a longer dash rule, which cannot open front matter', () => {
+    // `----` is a thematic break in every position; the fence must be exactly
+    // three dashes, so nothing is at risk here.
+    const md = '## A\n\n----\n\ntail\n';
+    const plan = planMarkdownChunks(md, opts);
+    expect(plan.chunks.join('')).toBe(md);
+    expect(plan.chunks.some((c) => c.startsWith('----'))).toBe(true);
+  });
+
+  it("never cuts inside the note's own front matter, blank line and all", () => {
+    // A blank line inside front matter followed by a column-0 key looks exactly
+    // like a top-level block start to the scanner. Cutting there would split
+    // the block, and neither half parses as what it was.
+    const md = '---\na: 1\n\nb: 2\n---\n\n## A\n\ntail\n';
+    const plan = planMarkdownChunks(md, opts);
+    expect(plan.chunks.join('')).toBe(md);
+    expect(plan.chunks[0].startsWith('---\na: 1\n\nb: 2\n---\n')).toBe(true);
+  });
+
+  it("leaves the note's OWN front matter in the first chunk", () => {
+    const md = '---\ntitle: T\n---\n\n## A\n\ntail\n';
+    const plan = planMarkdownChunks(md, opts);
+    expect(plan.chunks.join('')).toBe(md);
+    expect(plan.chunks[0]).toBe('---\ntitle: T\n---\n\n');
+  });
+});
+
 describe('planMarkdownChunks — fence edge cases remark disagrees about', () => {
   const opts = { minLines: 0, firstChunkLines: 1, chunkLines: 1 };
 

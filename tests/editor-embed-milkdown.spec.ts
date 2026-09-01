@@ -266,6 +266,101 @@ test('a real keystroke posts exactly one change carrying the normalized document
   expect(changes[0].content).toBe('Hello worldX\n');
 });
 
+// ============================================================
+// YAML front matter (the block the editor's schema owns but never edits)
+// ============================================================
+
+// Front matter is not markdown, and normalize-once used to rewrite it: with
+// nothing in the parser recognising it, `---` was a thematic break and the
+// metadata lines a setext heading, so ANY edit elsewhere in the note wrote back
+// `***`, a 16-dash underline, and — the real harm — `tags: \[a, b]`, a changed
+// metadata VALUE. ADR-0002 accepts re-spelt markdown; it does not accept losing
+// constructs the schema does not own, and front matter is named there.
+const FRONT_MATTER_NOTE =
+  '---\n' +
+  'title: Front Matter Test\n' +
+  'tags: [a, b]\n' +
+  'date: 2026-09-01\n' +
+  '---\n' +
+  '\n' +
+  '# Body\n' +
+  '\n' +
+  'Content after front matter.\n';
+
+test('an edit elsewhere leaves the front matter block byte-identical', async ({ page }) => {
+  await hostSetContent(page, FRONT_MATTER_NOTE);
+  await clearMessages(page);
+
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('X');
+
+  const changes = await waitForMessages(page, 'change');
+  expect(changes).toHaveLength(1);
+  expect(changes[0].content).toBe(FRONT_MATTER_NOTE.replace(/\.\n$/, '.X\n'));
+});
+
+test('typing and deleting one character puts the note back exactly', async ({ page }) => {
+  // The reported repro, to the letter: any trivial edit, undone by hand.
+  await hostSetContent(page, FRONT_MATTER_NOTE);
+  await clearMessages(page);
+
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('X');
+  await page.keyboard.press('Backspace');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(FRONT_MATTER_NOTE);
+});
+
+test('the front matter block is rendered, and is not editable', async ({ page }) => {
+  await hostSetContent(page, FRONT_MATTER_NOTE);
+
+  const block = page.locator('.futo-frontmatter');
+  await expect(block).toHaveCount(1);
+  // Visible on purpose: hiding it would let a Backspace from the body delete
+  // metadata the user cannot see. Inert on purpose: the editor has no YAML
+  // model, so it must not offer a caret it would then have to serialize.
+  await expect(block).toBeVisible();
+  expect(await block.textContent()).toContain('tags: [a, b]');
+  expect(await block.getAttribute('contenteditable')).toBe('false');
+});
+
+test('clicking the front matter block puts the caret at the top of the body', async ({ page }) => {
+  // Two failures in one assertion, both measured.
+  //
+  // The block is atomic, so a click on a SELECTABLE one left a ProseMirror node
+  // selection sitting on the metadata and the next character REPLACED it:
+  // clicking and typing `zzz` left a note whose entire content was `zzz`.
+  // `selectable: false` closes that — and on its own opens the second one: with
+  // no caret to place, the tap focused the editor, raised the keyboard, and
+  // swallowed the keystroke (measured on the iOS simulator). So the click is
+  // handled explicitly and lands the caret after the block.
+  await hostSetContent(page, FRONT_MATTER_NOTE);
+  await page.locator('.futo-frontmatter').click();
+  await page.keyboard.type('zzz');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(FRONT_MATTER_NOTE.replace('# Body', '# zzzBody'));
+});
+
+test('backspace at the top of the body cannot eat the front matter', async ({ page }) => {
+  await hostSetContent(page, FRONT_MATTER_NOTE);
+  await clearMessages(page);
+
+  await focusEditor(page);
+  // Home of the document proper — the first body block — then backspace, which
+  // is where `joinBackward` would try to merge into whatever precedes it.
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('Backspace');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toContain(
+    '---\ntitle: Front Matter Test\ntags: [a, b]\ndate: 2026-09-01\n---\n',
+  );
+});
+
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {
   await hostSetContent(page, 'original');
   await clearMessages(page);
@@ -1053,6 +1148,46 @@ test('opening and closing a large note leaves it byte-identical', async ({ page 
 
   expect(await getContent(page)).toBe(note);
   expect(await messagesOfType(page, 'change')).toEqual([]);
+});
+
+test('a large note with front matter survives the chunked path and an edit', async ({ page }) => {
+  // Progressive open parses each chunk as its own little document, and front
+  // matter is a document-START construct — so a chunk that BEGAN with `---`
+  // would parse a mid-note thematic break as front matter, which cannot be
+  // appended past the document's first position. `markdownChunks.ts` refuses
+  // those boundaries; this is the end-to-end proof, with the note also carrying
+  // a `---` rule further down for the boundary the planner has to decline.
+  const note =
+    '---\ntitle: Big\ntags: [a, b]\n---\n\n' +
+    Array.from({ length: 400 }, (_, i) => `## Section ${i}\n\nBody ${i}.`).join('\n\n') +
+    '\n\n---\n\ntail paragraph.\n';
+
+  await initialize(page, hostConfig({ content: note }));
+  await waitForStreamComplete(page);
+
+  // Opening changes nothing (the load-echo guard), front matter included.
+  expect(await getContent(page)).toBe(note);
+  expect(await messagesOfType(page, 'change')).toEqual([]);
+
+  await clearMessages(page);
+  await focusEditor(page);
+  await page.keyboard.type('X');
+  const changes = await waitForMessages(page, 'change');
+  const written = changes[changes.length - 1].content as string;
+
+  // WHERE the character lands is deliberately not asserted: on a note this
+  // large the containment stylesheet makes the browser's own document-boundary
+  // motion stop inside the rendered region, so no keyboard shortcut puts the
+  // caret at a known offset. What matters is what the edit did to everything
+  // ELSE, and that is pinned exactly.
+  expect(written.startsWith('---\ntitle: Big\ntags: [a, b]\n---\n\n')).toBe(true);
+  // Exactly two `---` lines in the whole note: the front matter's own fences.
+  // A setext underline, or the block re-fenced anywhere, would break this.
+  expect(written.match(/^---$/gm)).toHaveLength(2);
+  // One character inserted, and otherwise only the normalization an unedited
+  // large note already gets: the mid-document rule spelled `***`.
+  const normalized = note.replace('\n\n---\n\ntail', '\n\n***\n\ntail');
+  expect(written.replace('X', '')).toBe(normalized);
 });
 
 test('streamed appends are not undoable — Ctrl-Z after an open keeps the note', async ({
