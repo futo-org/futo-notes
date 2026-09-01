@@ -442,6 +442,9 @@ mod tests {
         // Inline, and in a table cell: a line break reads as a space.
         assert_eq!(make_rich_preview("one.<br>two."), "one. two.");
         // Tight by design, exactly like the single-line preview.
-        assert_eq!(make_rich_preview("press <kbd>K</kbd>"), "press <kbd>K</kbd>");
+        assert_eq!(
+            make_rich_preview("press <kbd>K</kbd>"),
+            "press <kbd>K</kbd>"
+        );
     }
 }
