@@ -20,7 +20,7 @@ describe('shouldSuppressContextMenu', () => {
   // all live in the native menu the editor must keep.
   it('keeps the native menu inside the editor', () => {
     const editor = element(
-      '<div class="cm-editor"><div class="cm-content"><span>hi</span></div></div>',
+      '<div class="ProseMirror" contenteditable="true"><p><span>hi</span></p></div>',
     );
     const inner = editor.querySelector('span')!;
     expect(shouldSuppressContextMenu(inner, NO_SELECTION)).toBe(false);

@@ -164,10 +164,9 @@ function makeTitleDeps() {
     setEditorContent: vi.fn((text: string) => {
       titleEditorContent = text;
     }),
-    openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+    openEditorNote: vi.fn((text: string) => {
       titleEditorContent = text;
     }),
-    forgetEditorNote: vi.fn(),
     focusEditor: vi.fn(),
     isEditorFocused: () => false,
     isComposing: () => false,
@@ -377,10 +376,9 @@ describe('external unlink during an in-flight save', () => {
       setEditorContent: vi.fn((text: string) => {
         editorContent = text;
       }),
-      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+      openEditorNote: vi.fn((text: string) => {
         editorContent = text;
       }),
-      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,
@@ -472,10 +470,9 @@ describe('stale first-save completion after navigation', () => {
       setEditorContent: vi.fn((text: string) => {
         editorContent = text;
       }),
-      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+      openEditorNote: vi.fn((text: string) => {
         editorContent = text;
       }),
-      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,
@@ -519,7 +516,6 @@ describe('loadNote focus routing', () => {
       getEditorContent: () => '',
       setEditorContent: vi.fn(),
       openEditorNote: vi.fn(),
-      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,
@@ -564,7 +560,7 @@ describe('loadNote focus routing', () => {
     const session = createNoteSession(deps);
     await session.loadNote('missing note');
     expect(createNote).not.toHaveBeenCalled();
-    expect(deps.openEditorNote).toHaveBeenCalledWith('missing note', '');
+    expect(deps.openEditorNote).toHaveBeenCalledWith('');
     expect(session.originalId).toBe('missing note');
     expect(deps.focusEditor).not.toHaveBeenCalled();
   });
@@ -614,11 +610,11 @@ describe('loadNote focus routing', () => {
     expect(session.content).toBe('');
     expect(session.originalId).toBeNull();
     expect(session.loading).toBe(false);
-    expect(deps.openEditorNote).not.toHaveBeenCalledWith(expect.anything(), 'late content');
+    expect(deps.openEditorNote).not.toHaveBeenCalledWith('late content');
     expect(deps.navigate).toHaveBeenLastCalledWith('/');
   });
 
-  it('discards the undo history of a note that went away, and releases the editor', async () => {
+  it('releases the editor when the open note goes away', async () => {
     const deps = makeDeps('doomed');
     const session = createNoteSession(deps);
     await session.loadNote('doomed');
@@ -626,8 +622,7 @@ describe('loadNote focus routing', () => {
 
     session.cancelAndClear();
 
-    expect(deps.forgetEditorNote).toHaveBeenCalledWith('doomed');
-    expect(deps.openEditorNote).toHaveBeenCalledWith(null, '');
+    expect(deps.openEditorNote).toHaveBeenCalledWith('');
   });
 });
 
@@ -640,10 +635,9 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
       setEditorContent: vi.fn((text: string) => {
         editorDoc = text.replace(/\r\n?/g, '\n');
       }),
-      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+      openEditorNote: vi.fn((text: string) => {
         editorDoc = text.replace(/\r\n?/g, '\n');
       }),
-      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,

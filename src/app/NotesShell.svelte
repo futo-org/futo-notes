@@ -15,7 +15,6 @@
   import SyncStatusBar from '$features/sync/SyncStatusBar.svelte';
   import { tabsStore, type OpenMode } from '$features/tabs/tabsStore.svelte';
   import { keyboard } from '$features/editor/keyboard.svelte';
-  import { EXTERNAL_CONTENT_OPTS } from '$features/editor/editorContentSync';
   import { showGlobalToast, currentToastMessage } from '$shared/notifications/toastBus.svelte';
 
   import DesktopTopBand from './components/DesktopTopBand.svelte';
@@ -66,9 +65,8 @@
 
   const session = createNoteSession({
     getEditorContent: () => editor?.getContent(),
-    setEditorContent: (content) => editor?.setContent(content, EXTERNAL_CONTENT_OPTS),
-    openEditorNote: (noteId, content) => editor?.openNote(noteId, content),
-    forgetEditorNote: (noteId) => editor?.forgetNoteHistory([noteId]),
+    setEditorContent: (content) => editor?.setContent(content),
+    openEditorNote: (content) => editor?.openNote(content),
     focusEditor: () => editor?.focus(),
     isEditorFocused: () => testEditorFocused ?? editor?.hasFocus() ?? false,
     isComposing: () => editor?.isComposing() ?? false,
@@ -82,7 +80,6 @@
     onNoteRenamed: (fromId, toId) => {
       if (fromId) tabsStore.applyRename(fromId, toId);
       else tabsStore.replaceTabNoteId(tabsStore.activeTabId, toId);
-      editor?.retargetOpenNote(fromId, toId);
       // A rename landing mid-switch would otherwise stamp a note the transition
       // never loaded, and the next click on that row no-ops.
       if (tabsStore.activeNoteId === toId) tabTransition.setLoadedNoteId(toId);
@@ -96,12 +93,10 @@
     showToast: showGlobalToast,
     onRename: (fromId, toId) => {
       tabsStore.applyRename(fromId, toId);
-      editor?.retargetOpenNote(fromId, toId);
       if (session.originalId === fromId) tabTransition.setLoadedNoteId(toId);
     },
     pruneTabsForDeletedIds: (goneIds) => {
       const gone = new Set(goneIds);
-      editor?.forgetNoteHistory(goneIds);
       tabsStore.pruneMissingNoteIds((id) => !gone.has(id));
     },
   });
@@ -114,8 +109,6 @@
 
   function retargetActiveNote(fromId: string, toId: string, title: string): void {
     tabsStore.applyRename(fromId, toId);
-    // The stash follows the file whether or not the session still holds it.
-    editor?.retargetOpenNote(fromId, toId);
     // The session follows only a note it still holds; it may have moved on.
     if (session.originalId !== fromId) return;
     session.applyRemoteRename(toId, title);
@@ -125,13 +118,11 @@
   function applyLocalRenames(renames: Array<{ from: string; to: string }>): void {
     for (const rename of renames) {
       tabsStore.applyRename(rename.from, rename.to);
-      editor?.retargetOpenNote(rename.from, rename.to);
     }
   }
 
   function pruneLocalDeletes(ids: string[]): void {
     const deleted = new Set(ids);
-    editor?.forgetNoteHistory(ids);
     tabsStore.pruneMissingNoteIds((id) => !deleted.has(id));
   }
 
@@ -282,11 +273,11 @@
     handleFileChange: sync.handleFileChange,
     seedOpenNote: session.seedOpenNote,
     flushSave: session.flushSave,
-    getEditorView: () => editor?.getView() ?? null,
+    getEditor: () => editor ?? null,
     focusEditor: () => editor?.focus(),
     // A SYNTHETIC focus signal, and the only one two simultaneous desktop
-    // windows can have: CM6's `hasFocus` consults `document.hasFocus()`, so at
-    // most one of a harness's clients could ever report a focused editor. It
+    // windows can have: the editor's `hasFocus` consults `document.hasFocus()`,
+    // so at most one of a harness's clients could ever report a focused editor. It
     // overrides what `session.editorFocused` reads and drives the real
     // `handleEditorFocusChange`, which is why installing this hook is gated.
     setEditorFocused: async (focused) => {

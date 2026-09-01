@@ -23,8 +23,7 @@ export interface NoteSessionDeps {
   getEditorContent: () => string | undefined;
   setEditorContent: (text: string) => void;
   /** Points the editor at a note; a `null` id is an unsaved new note. */
-  openEditorNote: (noteId: string | null, text: string) => void;
-  forgetEditorNote: (noteId: string) => void;
+  openEditorNote: (text: string) => void;
   focusEditor: () => void;
   isEditorFocused: () => boolean;
   isComposing: () => boolean;
@@ -195,7 +194,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     flushSave: saveQueue.flush,
     getNotes: deps.getNotes,
     getEditorContent: deps.getEditorContent,
-    openNote: (noteId, value) => deps.openEditorNote(noteId, value),
+    openNote: (value) => deps.openEditorNote(value),
     getNoteBody: deps.getNoteBody,
     focusEditor: deps.focusEditor,
     autoResizeTitle: titleController.autoResizeTextarea,
@@ -272,7 +271,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     savedTitle = id;
     content = body;
     savedContent = body;
-    deps.openEditorNote(id, body);
+    deps.openEditorNote(body);
     deps.setPrevNoteId(id);
     titleController.clearWarning();
     deps.navigate(`/note/${encodeURIComponent(id)}`);
@@ -282,8 +281,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     noteLoader.cancel();
     saveQueue.cancelPending();
     titleController.clearWarning();
-    if (originalId) deps.forgetEditorNote(originalId);
-    deps.openEditorNote(null, '');
+    deps.openEditorNote('');
     resetSessionState();
     deps.navigate('/');
   }

@@ -13,7 +13,7 @@ import { isDesktop } from '$lib/platform';
 // Desktop only. The native iOS/Android shells host the editor directly and
 // never load this module; the browser dev server keeps its normal menu.
 const EDITABLE_SELECTOR =
-  'input, textarea, select, [contenteditable="true"], [contenteditable=""], .cm-editor';
+  'input, textarea, select, [contenteditable="true"], [contenteditable=""], .ProseMirror';
 
 export function shouldSuppressContextMenu(
   target: EventTarget | null,

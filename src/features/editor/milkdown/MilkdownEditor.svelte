@@ -1,15 +1,12 @@
 <script lang="ts">
   /*
-   * Milkdown (ProseMirror) WYSIWYG editor for the native embedded host.
+   * The FUTO Notes editor: Milkdown (ProseMirror), WYSIWYG.
    *
-   * The default engine `editor.html` mounts while the Milkdown transition is in
-   * flight (docs/plan/milkdown-transition.md); `editor.html?cm` still selects
-   * the shipping CodeMirror live-preview editor, and both are mounted from one
-   * props object by src/editor-embed/main.ts. This implements the same props
-   * plus the exported handle `createFutoEditorApi`/`EmbedToolbar` call.
-   * `getView()` returns null because there is no CodeMirror view here; every
-   * CM-specific caller already guards on that, and toolbar commands route
-   * through `exec()` instead.
+   * THE editor on every surface — the desktop shell mounts it through
+   * `NoteWorkspace.svelte`, and the native iOS/Android shells mount the same
+   * component inside `editor.html` through `src/editor-embed/main.ts`. There is
+   * one engine and one plugin set, so a behavior is identical on all three by
+   * construction rather than by three code paths agreeing.
    *
    * ROUND-TRIP CONTRACT (ADR-0002): Milkdown parses and re-serializes markdown
    * through remark, so saving normalizes syntax (list markers, emphasis
@@ -47,8 +44,7 @@
   import { block, BlockProvider } from '@milkdown/kit/plugin/block';
   import { getMarkdown, insert, replaceAll } from '@milkdown/kit/utils';
   import { history as proseHistory, redoDepth, undoDepth } from '@milkdown/kit/prose/history';
-  import { EditorState, type PluginKey } from '@milkdown/kit/prose/state';
-  import type { EditorView as CodeMirrorView } from '@codemirror/view';
+  import { EditorState, TextSelection, type PluginKey } from '@milkdown/kit/prose/state';
   import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
   import type { Node as ProseNode, Schema as ProseSchema } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
@@ -59,7 +55,7 @@
     uninstallVaultImageUrlResolver,
   } from '$features/images/vaultImageUrlResolver';
   import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
-  import type { EditorLinkGesture } from '../interactions/editorPointerInteractions';
+  import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockContainment } from './blockContainment';
   import { resolveBlockDragMode } from './blockDragMode';
   import { editorView, enclosingListItem, isTaskItem } from './caretContext';
@@ -93,7 +89,6 @@
     onfocuschange?: (focused: boolean) => void;
     oncompositionend?: () => void;
     oncursorcontext?: (ctx: { onListLine: boolean }) => void;
-    scrollParent?: HTMLElement | null;
     nativeShell?: boolean;
     onopenlink?: (title: string, gesture: EditorLinkGesture) => void;
     onopenurl?: (url: string) => void;
@@ -129,6 +124,7 @@
     content = '',
     onchange,
     onfocuschange,
+    oncompositionend,
     oncursorcontext,
     onopenlink,
     onopenurl,
@@ -401,18 +397,13 @@
           }));
 
           /* `-` for bullet markers, not remark-stringify's default `*`.
-           * The manifest's Bullet/Task buttons and the CodeMirror engine both
-           * emit `- `, and so does the overwhelming majority of the corpus, so
-           * `*` would make every edited note churn its list markers on the
-           * first save for no reason (ADR-0002 normalize-once). */
+           * The manifest's Bullet/Task buttons emit `- `, and so does the
+           * overwhelming majority of the corpus, so `*` would make every
+           * edited note churn its list markers on the first save for no reason
+           * (ADR-0002 normalize-once). */
           ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const }));
 
-          /* The editable's IME behavior, and it is the CodeMirror engine's
-           * decision restated for this one: `createMarkdownEditorRuntime.ts`
-           * puts exactly this set on `.cm-content` via
-           * `EditorView.contentAttributes` (registered as a drift pair in
-           * scripts/drift-registry.json — the two engines must answer a
-           * keyboard the same way while the transition is in flight).
+          /* The editable's IME behavior.
            *
            * Red squiggles off, iOS autocorrect ON. Those are separate
            * attributes and the first version of this hook set both off, which
@@ -443,9 +434,7 @@
               spellcheck: 'false',
               autocorrect: 'on',
               autocapitalize: 'sentences',
-              /* CodeMirror sets this one itself, so parity means declaring it:
-               * Apple's inline Writing Tools suggestions stay off in both
-               * engines. */
+              /* Apple's inline Writing Tools suggestions stay off. */
               writingsuggestions: 'false',
               enterkeyhint: 'return',
             },
@@ -992,6 +981,77 @@
   }
 
   /**
+   * Opens a note: load its text, then drop the undo stack that belonged to
+   * whatever was open before.
+   *
+   * The reset is the load-bearing half. Without it the first Ctrl-Z after a
+   * note switch replays the PREVIOUS note's steps into this document, and the
+   * save that follows writes them to THIS note's file. See `resetHistory`.
+   *
+   * There is no note id here, and no per-note undo stash: the CodeMirror
+   * editor kept one (`noteHistory.ts`, keyed by note id) and this engine does
+   * not. Recorded as a Gap in docs/spec/editor.md.
+   */
+  export function openNote(text: string): void {
+    if (!editor) {
+      pendingContent = text;
+      hostMarkdown = text;
+      liveMarkdown = text;
+      return;
+    }
+    applyExternal(text);
+    resetHistory();
+  }
+
+  /**
+   * Replace the whole document with `text` as the USER's own edit — undoable
+   * in one step, and reported through `onchange` straight away.
+   *
+   * `setContent` is the HOST handing us a note (echo-guarded, silent); this is
+   * the shell's chrome editing the note on the user's behalf. The desktop tag
+   * bar is the caller (NoteTagBar.svelte): it computes new markdown from
+   * `getContent()` and hands the whole document back, because a markdown
+   * character offset has no ProseMirror position to splice at.
+   *
+   * `onchange` fires synchronously rather than waiting on the listener's
+   * 200 ms debounce, so a tag the user just added is in the save queue before
+   * they can navigate away. The debounced echo that follows is suppressed the
+   * same way a completed progressive load suppresses its own.
+   */
+  export function applyEdit(text: string): void {
+    if (!editor) return;
+    editor.action(replaceAll(text));
+    const live = readSerialized() ?? text;
+    liveMarkdown = live;
+    // The document is no longer the host's bytes.
+    hostMarkdown = null;
+    externalSerialization = live;
+    onchange?.(live);
+  }
+
+  /** The editable element itself, for shell chrome that measures against it. */
+  export function contentElement(): HTMLElement | null {
+    return pmView()?.dom ?? null;
+  }
+
+  /**
+   * Put the caret at viewport coordinates, for shell chrome sitting OUTSIDE
+   * the editor whose slack reaches into it (the desktop tag bar). Returns
+   * false when the point resolves to no text position.
+   */
+  export function placeCaretAtCoords(x: number, y: number): boolean {
+    const view = pmView();
+    if (!view) return false;
+    const hit = view.posAtCoords({ left: x, top: y });
+    if (!hit) return false;
+    const { doc, tr } = view.state;
+    const selection = TextSelection.findFrom(doc.resolve(hit.pos), 1, true) ?? null;
+    if (!selection) return false;
+    view.dispatch(tr.setSelection(selection).scrollIntoView());
+    return true;
+  }
+
+  /**
    * Re-derive everything that depends on the HOST's state rather than the
    * document — today the note universe, which decides which wikilinks render as
    * broken. Reached from the bridge's `setNotes`/`setImageBaseUrl`, so it must
@@ -1071,16 +1131,6 @@
     };
   }
 
-  /** CodeMirror-only warm-up; there is no height map to warm here. */
-  export function warmScroll(): { grew: number; steps: number } | null {
-    return null;
-  }
-
-  /** No CodeMirror view exists — every CM-specific caller already guards null. */
-  export function getView(): CodeMirrorView | null {
-    return null;
-  }
-
   /**
    * The live ProseMirror view, for the editor gauntlet's Milkdown adapter
    * (tests/editor-gauntlet/milkdownAdapter.ts) — the permanent regression
@@ -1089,9 +1139,8 @@
    *
    * It exists because the gauntlet's two hardest jobs need the document model,
    * not the DOM: placing a caret at an exact position across 31k foreign notes,
-   * and timing one keystroke's SYNCHRONOUS cost against the same 16 ms budget
-   * CM6 is measured on (`cm6Adapter.measureKeystrokes` times `view.dispatch`).
-   * A DOM-selection approximation would measure a different thing and quietly
+   * and timing one keystroke's SYNCHRONOUS cost against the 16 ms budget. A
+   * DOM-selection approximation would measure a different thing and quietly
    * change what the budget means.
    *
    * Read-only by intent and not part of the futoBridge contract; no native
@@ -1134,6 +1183,7 @@
   class:block-containment={skipOffscreenBlocks}
   style="--futo-checkbox-slot: {CHECKBOX_SIZE_PX}px"
   bind:this={container}
+  oncompositionend={() => oncompositionend?.()}
 >
   <!-- The streaming tail of a large note (progressiveLoad.ts). Absolutely
        positioned so it never enters the editor's layout, and rendered inside

@@ -1,4 +1,3 @@
-import type { EditorView } from '@codemirror/view';
 import {
   createEditorHostBoot,
   imageReferenceMarkdown,
@@ -9,13 +8,7 @@ import {
   type FutoEditorApi,
 } from '@futo-notes/editor';
 
-import { preloadImages } from '$features/editor/liveMarkdownTransform';
 import { setVaultImageBaseUrl } from '$features/images/vaultImageSrc';
-import { TOOLBAR_EXEC } from '$features/editor/markdownToolbar';
-import {
-  EXTERNAL_CONTENT_OPTS,
-  type SetEditorContentOptions,
-} from '$features/editor/editorContentSync';
 import { setNotesUniverse } from '$features/notes/notes.svelte';
 import type { NotePreview } from '$shared/types/note';
 
@@ -23,17 +16,13 @@ export interface EmbeddedEditorHandle {
   blur: () => void;
   focus: () => void;
   getContent: () => string;
-  getView: () => EditorView | null;
+  insertMarkdown: (text: string) => void;
   refreshDecorations: () => void;
   resetHistory: () => void;
-  setContent: (text: string, options?: SetEditorContentOptions) => void;
-  warmScroll: () => { grew: number; steps: number } | null;
-  /* Editors with no CodeMirror view (the Milkdown editor) run toolbar
-   * commands themselves instead of through TOOLBAR_EXEC. */
-  exec?: (commandId: string) => boolean;
-  /* ProseMirror-backed editors only; the harness probe main.ts exposes. */
+  setContent: (text: string) => void;
+  exec: (commandId: string) => boolean;
+  /* The harness probe main.ts exposes for the editor gauntlet. */
   getProseMirrorView?: () => unknown;
-  insertMarkdown?: (text: string) => void;
 }
 
 export interface EmbeddedToolbarHandle {
@@ -44,7 +33,6 @@ export interface EmbeddedToolbarHandle {
 
 interface CreateFutoEditorApiOptions {
   editor: EmbeddedEditorHandle;
-  markExternalChange: () => void;
   setNativeToolbar: (enabled: boolean) => void;
 }
 
@@ -90,9 +78,10 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
         ?.setAttribute('content', theme === 'dark' ? '#000000' : '#ffffff');
     },
     applyImageBaseUrl(base: string): void {
+      /* The image node views re-resolve themselves off this
+       * (vaultImageView.ts subscribes to the same store), so there is nothing
+       * for the editor to redraw here. */
       setVaultImageBaseUrl(base);
-      preloadImages(editor.getContent(), undefined, () => editor.getView());
-      editor.refreshDecorations();
     },
     applyNotes(notesJson: string): void {
       const notes = parseBridgeNotes(notesJson);
@@ -101,8 +90,7 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       editor.refreshDecorations();
     },
     applyContent(markdown: string): void {
-      if (markdown !== editor.getContent()) options.markExternalChange();
-      editor.setContent(markdown, { preserveSelection: false });
+      editor.setContent(markdown);
     },
     readContent(): string {
       return editor.getContent();
@@ -136,40 +124,16 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       boot.setNotes(notesJson);
     },
     applyExternalContent(markdown: string): void {
-      if (markdown !== editor.getContent()) options.markExternalChange();
-      editor.setContent(markdown, EXTERNAL_CONTENT_OPTS);
+      editor.setContent(markdown);
     },
     insertImage(filename: string): void {
-      const insert = imageReferenceMarkdown(filename);
-      if (editor.insertMarkdown) {
-        editor.insertMarkdown(insert);
-        // No `getView`: preloadImages only uses it to nudge a CodeMirror view
-        // after an async `getImageUrl` resolve, and this branch passes neither.
-        preloadImages(insert);
-        return;
-      }
-      const view = editor.getView();
-      if (!view) return;
-      const position = view.state.selection.main.head;
-      view.dispatch({
-        changes: { from: position, insert },
-        selection: { anchor: position + insert.length },
-      });
-      view.focus();
-      preloadImages(insert, undefined, () => editor.getView());
+      editor.insertMarkdown(imageReferenceMarkdown(filename));
     },
     setImageBaseUrl(base: string): void {
       boot.setImageBaseUrl(base);
     },
     exec(commandId: string): void {
-      if (editor.exec?.(commandId)) return;
-      const run = TOOLBAR_EXEC[commandId];
-      if (!run) {
-        console.warn(`FutoEditor.exec: unknown command id '${commandId}', ignoring`);
-        return;
-      }
-      const view = editor.getView();
-      if (view) run(view);
+      editor.exec(commandId);
     },
     blur(): void {
       editor.blur();

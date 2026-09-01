@@ -22,9 +22,8 @@
  * Consumers: the Milkdown editor installs `createImagePasteHandler` as
  * ProseMirror's `handlePaste` prop and inserts the filename itself
  * (`milkdown/MilkdownEditor.svelte`); the CodeMirror editor inside a native
- * shell wraps the same handler in a capturing document listener
- * (`editor-embed/installNativeImagePaste.ts`), and on desktop reaches these
- * same sinks through `imagePaste.ts` `handlePasteEvent`.
+ * Reached from the editor's own ProseMirror `handlePaste` prop
+ * (MilkdownEditor.svelte) on every platform.
  */
 import {
   hasNativeBridgeHost,

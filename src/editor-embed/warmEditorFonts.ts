@@ -1,4 +1,4 @@
-export function warmEditorFonts(onready: () => void): void {
+export function warmEditorFonts(): void {
   const fonts = (document as unknown as { fonts?: FontFaceSet }).fonts;
   if (!fonts?.load) return;
   const specs = [
@@ -7,5 +7,5 @@ export function warmEditorFonts(onready: () => void): void {
     'italic 700 18px Barlow',
   ];
 
-  void Promise.allSettled(specs.map((spec) => fonts.load(spec))).then(onready);
+  void Promise.allSettled(specs.map((spec) => fonts.load(spec)));
 }

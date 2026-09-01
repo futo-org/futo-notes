@@ -1,10 +1,7 @@
 <script lang="ts">
-  import { EditorSelection, type SelectionRange } from '@codemirror/state';
-  import type { EditorView } from '@codemirror/view';
-  import type { SetEditorContentOptions } from '$features/editor/editorContentSync';
-  import type { EditorLinkGesture } from '$features/editor/interactions/editorPointerInteractions';
+  import type { EditorLinkGesture } from '$features/editor/editorLinkGesture';
 
-  import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
+  import MilkdownEditor from '$features/editor/milkdown/MilkdownEditor.svelte';
   import NoteTagBar from '$features/editor/NoteTagBar.svelte';
   import type { NoteSession } from '$features/notes/noteSession.svelte';
   import type { NotePreview } from '$shared/types/note';
@@ -13,20 +10,19 @@
   import type { createCurrentNoteActions } from '../createCurrentNoteActions.svelte';
   import NoteActionsMenu from './NoteActionsMenu.svelte';
 
-  // The subset of the (frozen) editor's imperative API the shell drives.
+  // The subset of the editor's imperative API the shell drives.
   export interface EditorApi {
-    setContent: (text: string, options?: SetEditorContentOptions) => void;
-    openNote: (noteId: string | null, text: string) => void;
-    retargetOpenNote: (fromId: string | null, toId: string) => void;
-    forgetNoteHistory: (noteIds: readonly string[]) => void;
+    setContent: (text: string) => void;
+    openNote: (text: string) => void;
+    applyEdit: (markdown: string) => void;
+    insertMarkdown: (text: string) => void;
     focus: () => void;
-    blur: () => void;
     getContent: () => string | undefined;
     hasFocus: () => boolean;
     isComposing: () => boolean;
-    getView: () => EditorView | null;
     refreshDecorations: () => void;
-    setCaret: (at: SelectionRange) => void;
+    contentElement: () => HTMLElement | null;
+    placeCaretAtCoords: (x: number, y: number) => boolean;
   }
 
   interface Props {
@@ -68,11 +64,6 @@
     return !(event.shiftKey || event.altKey || event.metaKey || event.ctrlKey);
   }
 
-  // No coords means a note that is nothing but its hidden tag block.
-  function canPlaceCaretAt(view: EditorView, at: number): boolean {
-    return view.coordsAtPos(at) !== null;
-  }
-
   // The side chrome is outside the editor surface and owns deselection. → docs/spec/editor.md
   function handleNoteBodyMouseDown(event: MouseEvent): void {
     if (!isPlainPress(event)) return;
@@ -88,16 +79,13 @@
 
   // The bar sits above the editor, so its slack reaches down into the first line.
   function reachFromTagBar(event: MouseEvent): boolean {
-    const view = editorApi?.getView();
-    if (!view) return false;
-    const top = view.contentDOM.getBoundingClientRect().top;
-    const at = view.posAtCoords({ x: event.clientX, y: top + 1 }, false);
-    if (!canPlaceCaretAt(view, at)) return false;
+    const contentEl = editorApi?.contentElement();
+    if (!contentEl) return false;
+    const top = contentEl.getBoundingClientRect().top;
 
     event.preventDefault();
     editorApi?.focus();
-    editorApi?.setCaret(EditorSelection.cursor(at));
-    return true;
+    return editorApi?.placeCaretAtCoords(event.clientX, top + 1) ?? false;
   }
 </script>
 
@@ -130,15 +118,14 @@
   <NoteTagBar
     bind:element={tagBarEl}
     content={session.content}
-    getEditorView={() => editorApi?.getView() ?? null}
+    readMarkdown={() => editorApi?.getContent()}
+    writeMarkdown={(markdown) => editorApi?.applyEdit(markdown)}
     {notes}
   />
 
   <div class="editor-container">
-    <MarkdownEditor
+    <MilkdownEditor
       bind:this={editorApi}
-      content={session.content}
-      scrollParent={noteBodyEl ?? null}
       onchange={(content) => session.debouncedSave(content)}
       onfocuschange={handleFocusChange}
       {oncompositionend}

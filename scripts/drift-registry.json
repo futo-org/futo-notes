@@ -1,9 +1,9 @@
 {
-  "_comment": "AGENTS.md 'Drift watchlist' as enforced code — architecture-hardening.md R1. Every PERMITTED same-logic-in->=2-places duplicate in this repo is enumerated here with its copies (file + a regex that must still match there) and its lock (the fixture/generated-file/test that catches drift, or 'unlocked' when none exists yet). scripts/drift-check.mjs (just check-drift / just check) enforces: (a) every copy exists where claimed, (b) every declared lock file exists and lockStatus is consistent with whether locks are registered, (c) for entries with a 'scan' block, no NEW file outside the registered copies matches the concept's detection pattern. Registration friction is the feature — do not add entries for concepts that haven't actually drifted or burned us; do not delete an entry because its pattern is inconvenient, tighten the pattern instead.",
+  "_comment": "AGENTS.md 'Drift watchlist' as enforced code \u2014 architecture-hardening.md R1. Every PERMITTED same-logic-in->=2-places duplicate in this repo is enumerated here with its copies (file + a regex that must still match there) and its lock (the fixture/generated-file/test that catches drift, or 'unlocked' when none exists yet). scripts/drift-check.mjs (just check-drift / just check) enforces: (a) every copy exists where claimed, (b) every declared lock file exists and lockStatus is consistent with whether locks are registered, (c) for entries with a 'scan' block, no NEW file outside the registered copies matches the concept's detection pattern. Registration friction is the feature \u2014 do not add entries for concepts that haven't actually drifted or burned us; do not delete an entry because its pattern is inconvenient, tighten the pattern instead.",
   "entries": [
     {
       "concept": "note-rules-ts-rust",
-      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) — the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; every family also crosses a broad deterministic TS/Rust differential (tests/conformance/README.md).",
+      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; every family also crosses a broad deterministic TS/Rust differential (tests/conformance/README.md).",
       "lockStatus": "locked",
       "copies": [
         {
@@ -135,9 +135,9 @@
     },
     {
       "concept": "notes-root-triplet",
-      "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification — registered so it's visible, not to be locked or collapsed.",
+      "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
       "lockStatus": "unlocked",
-      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md 'Named mistakes' non-goals — do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. The Android guard lives in storage/NotesStorage.kt's `deviceFolderName`, and its split works differently: DEVICE mode uses 'FUTO Notes Dev' vs 'FUTO Notes', while APP/INTERNAL modes already isolate through the `.dev` applicationId on package-scoped paths.",
+      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md 'Named mistakes' non-goals \u2014 do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. The Android guard lives in storage/NotesStorage.kt's `deviceFolderName`, and its split works differently: DEVICE mode uses 'FUTO Notes Dev' vs 'FUTO Notes', while APP/INTERNAL modes already isolate through the `.dev` applicationId on package-scoped paths.",
       "copies": [
         {
           "location": "apps/tauri/src-tauri/src/vault_location.rs",
@@ -388,9 +388,9 @@
     },
     {
       "concept": "wikilink-grammar",
-      "description": "What counts as a `[[wikilink]]`, stated twice in TypeScript: the scanner the rename rewriter mirrors (WIKILINK_RE / findWikilinks, itself a registered note-rules-ts-rust copy) and the micromark tokenizer the Milkdown editor parses with. They exist separately because a regex over raw text cannot be a micromark text construct; a disagreement is a data bug — the editor shows a chip the rewriter will not rewrite (a rename silently breaks the link), or the rewriter rewrites text the editor showed as prose. Why the tokenizer is hand-written rather than an adopted library: docs/plan/milkdown-transition.md §3.8 (the #101 survey).",
+      "description": "What counts as a `[[wikilink]]`, stated twice in TypeScript: the scanner the rename rewriter mirrors (WIKILINK_RE / findWikilinks, itself a registered note-rules-ts-rust copy) and the micromark tokenizer the Milkdown editor parses with. They exist separately because a regex over raw text cannot be a micromark text construct; a disagreement is a data bug \u2014 the editor shows a chip the rewriter will not rewrite (a rename silently breaks the link), or the rewriter rewrites text the editor showed as prose. Why the tokenizer is hand-written rather than an adopted library: docs/plan/milkdown-transition.md \u00a73.8 (the #101 survey).",
       "lockStatus": "locked",
-      "note": "LOCKED: syntax.test.ts asks both implementations the same corpus — 34 hand-picked inline edges plus a 10×8 target×frame cross-product — through a REAL Milkdown editor, and fails on any divergence. The one deliberate difference, wikilinks inside code spans and fences, is asserted separately: the editor is right there per docs/spec/editor.md, and the raw-text scanner has no notion of code.",
+      "note": "LOCKED: syntax.test.ts asks both implementations the same corpus \u2014 34 hand-picked inline edges plus a 10\u00d78 target\u00d7frame cross-product \u2014 through a REAL Milkdown editor, and fails on any divergence. The one deliberate difference, wikilinks inside code spans and fences, is asserted separately: the editor is right there per docs/spec/editor.md, and the raw-text scanner has no notion of code.",
       "copies": [
         {
           "location": "src/shared/note/wikilinks.ts",
@@ -409,39 +409,6 @@
         {
           "path": "tests/conformance/wikilinks.json",
           "kind": "fixture"
-        }
-      ]
-    },
-    {
-      "concept": "toolbar-block-transitions",
-      "description": "The markdown toolbar's block-format transition table — which kind a tap turns a line into (self-toggles off, cross-kind converts, Heading cycles h1->h2->h3->plain), and the one-prefix-per-line rule around it, INCLUDING which lines are eligible at all — a code block's content is literal text, so every command leaves a fence exactly as it is (docs/spec/editor.md 'Markdown toolbar'). One copy per editor engine, because the same user-visible rule has to be expressed against markdown SOURCE lines for CodeMirror and against a ProseMirror DOCUMENT for Milkdown; neither can consume the other. Dies back to one copy when CM6 is deleted at the Milkdown swap (docs/plan/milkdown-transition.md D9).",
-      "lockStatus": "locked",
-      "copies": [
-        {
-          "location": "src/features/editor/toolbar/blockFormatting.ts",
-          "pattern": "function transitionLineKind"
-        },
-        {
-          "location": "src/features/editor/milkdown/blockCommands.ts",
-          "pattern": "export function nextBlockFormat"
-        }
-      ],
-      "locks": [
-        {
-          "path": "src/features/editor/toolbar/blockFormatting.test.ts",
-          "kind": "test"
-        },
-        {
-          "path": "src/features/editor/milkdown/blockCommands.test.ts",
-          "kind": "test"
-        },
-        {
-          "path": "tests/editor-embed-bridge.spec.ts",
-          "kind": "engine parity test"
-        },
-        {
-          "path": "tests/editor-embed-milkdown-toolbar.spec.ts",
-          "kind": "engine parity test"
         }
       ]
     },
@@ -467,29 +434,8 @@
       ]
     },
     {
-      "concept": "editor-ime-attributes",
-      "description": "What the editor tells the on-screen keyboard: iOS autocorrect and sentence capitalisation ON, red spellcheck squiggles and Apple's inline writing suggestions OFF (docs/spec/editor.md 'Typing and IME'). One copy per editor engine, because the same decision has to be expressed as CodeMirror's `EditorView.contentAttributes` on `.cm-content` and as Milkdown's `editorViewOptionsCtx.attributes` on `.ProseMirror`; neither can consume the other. Registered because the copies drifted once already and it cost the feature: the Milkdown hook shipped `autocorrect: 'off'` alongside the squiggle fix, silently taking autocorrect and predictive text away from every note typed in the native shells. Dies back to one copy when CM6 is deleted at the Milkdown swap (docs/plan/milkdown-transition.md D9).",
-      "lockStatus": "locked",
-      "copies": [
-        {
-          "location": "src/features/editor/createMarkdownEditorRuntime.ts",
-          "pattern": "EditorView\\.contentAttributes\\.of"
-        },
-        {
-          "location": "src/features/editor/milkdown/MilkdownEditor.svelte",
-          "pattern": "autocapitalize: 'sentences'"
-        }
-      ],
-      "locks": [
-        {
-          "path": "tests/editor-embed-ime-parity.spec.ts",
-          "kind": "engine parity test"
-        }
-      ]
-    },
-    {
       "concept": "embed-body-pin",
-      "description": "The rule that gives the editor page a real height: body pinned to the web view with position:fixed and all four offsets. src/styles/base.css owns it for the app; editor.html repeats it UNLAYERED because a Chromium 80-98 Android System WebView discards every @layer'd rule and would otherwise leave body static and zero-height, collapsing the whole #editor -> .cm-editor -> .cm-scroller height chain (github#33). Same declarations on purpose - change one, change the other.",
+      "description": "The rule that gives the editor page a real height: body pinned to the web view with position:fixed and all four offsets. src/styles/base.css owns it for the app; editor.html repeats it UNLAYERED because a Chromium 80-98 Android System WebView discards every @layer'd rule and would otherwise leave body static and zero-height, collapsing the whole #editor -> .futo-milkdown -> .ProseMirror height chain (github#33). Same declarations on purpose - change one, change the other.",
       "lockStatus": "unlocked",
       "copies": [
         {

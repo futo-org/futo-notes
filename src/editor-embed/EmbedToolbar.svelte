@@ -1,7 +1,5 @@
 <script lang="ts">
   import { TOOLBAR_GROUPS, TOOLBAR_DISMISS, type ToolbarItem } from '@futo-notes/editor';
-  import { TOOLBAR_EXEC } from '$features/editor/markdownToolbar';
-  import type { EditorView } from '@codemirror/view';
   import type { Component } from 'svelte';
   import {
     Bold,
@@ -38,15 +36,13 @@
   };
 
   interface Props {
-    getView: () => EditorView | null;
-    /* Editors with no CodeMirror view (the Milkdown editor) run the command
-     * themselves; returns false when they don't support it. */
-    onexec?: (commandId: string) => boolean;
+    /** Runs the manifest command; false when the editor does not support it. */
+    onexec: (commandId: string) => boolean;
     onpickimage: (source: 'camera' | 'library') => void;
     ondismiss: () => void;
   }
 
-  let { getView, onexec, onpickimage, ondismiss }: Props = $props();
+  let { onexec, onpickimage, ondismiss }: Props = $props();
 
   function icon(item: ToolbarItem): Component {
     const c = ICONS[item.lucide];
@@ -63,17 +59,14 @@
     } else if (action.kind === 'pickImage') {
       onpickimage(action.source);
     } else {
-      if (onexec?.(item.id)) return;
-      const view = getView();
-      if (view) TOOLBAR_EXEC[item.id]?.(view);
+      onexec(item.id);
     }
   }
 
   let editorFocused = $state(false);
   let cursorOnListLine = $state(false);
   /* Manifest ids covering the caret — the bridge `formatState` set, fed by the
-   * embed host. Empty on the CodeMirror engine, which never reports it, so no
-   * button lights up there. */
+   * embed host. */
   let activeFormats = $state<string[]>([]);
 
   export function setFocused(focused: boolean): void {

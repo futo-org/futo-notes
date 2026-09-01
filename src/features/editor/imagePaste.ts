@@ -1,7 +1,4 @@
-import { EditorView } from '@codemirror/view';
-import { imageReferenceMarkdown } from '@futo-notes/editor';
 import { getFS } from '$lib/platform';
-import { registerVaultImageUrl } from '$features/images/vaultImageSrc';
 
 const IMAGE_TYPES = [
   'image/png',
@@ -14,7 +11,7 @@ const IMAGE_TYPES = [
   'image/heic',
 ];
 
-export function getImageFile(clipboardData: DataTransfer): File | null {
+function getImageFile(clipboardData: DataTransfer): File | null {
   for (let i = 0; i < clipboardData.items.length; i++) {
     const item = clipboardData.items[i];
     if (item.kind === 'file' && IMAGE_TYPES.includes(item.type)) {
@@ -66,7 +63,7 @@ export function resolveImagePasteFs(): ImagePasteFS | null {
   };
 }
 
-export function looksLikeImagePaste(
+function looksLikeImagePaste(
   clipboardData: Pick<DataTransfer, 'types' | 'items' | 'getData'>,
 ): boolean {
   const types = Array.from(clipboardData.types);
@@ -111,87 +108,3 @@ export function readFileAsBase64(file: Blob): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
-
-async function saveAndInsert(
-  view: Pick<EditorView, 'state' | 'dispatch' | 'focus'>,
-  buffer: ArrayBuffer,
-  ext: string,
-  fs: ImagePasteFS,
-): Promise<void> {
-  const filename = await fs.saveImageBytes(buffer, ext);
-  const webUrl = await fs.getImageUrl(filename);
-  registerVaultImageUrl(filename, webUrl);
-
-  const pos = view.state.selection.main.head;
-  const insert = imageReferenceMarkdown(filename);
-  view.dispatch({
-    changes: { from: pos, insert },
-    selection: { anchor: pos + insert.length },
-  });
-  view.focus();
-}
-
-export async function pasteImageIntoView(
-  view: Pick<EditorView, 'state' | 'dispatch' | 'focus'>,
-  imageFile: Pick<File, 'type' | 'arrayBuffer'>,
-  fs: ImagePasteFS,
-  reportError: (message: string, error: unknown) => void = console.error,
-): Promise<boolean> {
-  try {
-    const buffer = await imageFile.arrayBuffer();
-    await saveAndInsert(view, buffer, extFromMime(imageFile.type), fs);
-    return true;
-  } catch (err) {
-    reportError('Image paste failed:', err);
-    return false;
-  }
-}
-
-async function pasteFromNativeClipboard(view: EditorView, fs: ImagePasteFS): Promise<void> {
-  if (!fs.pasteClipboardImage) return;
-  const filename = await fs.pasteClipboardImage();
-  const webUrl = await fs.getImageUrl(filename);
-  registerVaultImageUrl(filename, webUrl);
-
-  const pos = view.state.selection.main.head;
-  const insert = imageReferenceMarkdown(filename);
-  view.dispatch({
-    changes: { from: pos, insert },
-    selection: { anchor: pos + insert.length },
-  });
-  view.focus();
-}
-
-export function handlePasteEvent(event: ClipboardEvent, view: EditorView): boolean {
-  const clipboardData = event.clipboardData;
-  if (!clipboardData) return false;
-
-  const fs = resolveImagePasteFs();
-  if (!fs) return false;
-
-  /* The SAME decision the Milkdown editor makes (milkdown/vaultImageView.ts's
-   * sibling, imagePasteSink.ts) — only the capture and the insert differ. */
-  const action = classifyImagePaste(clipboardData);
-
-  if (action.kind === 'file') {
-    event.preventDefault();
-    void pasteImageIntoView(view, action.file, fs);
-    return true;
-  }
-
-  /* A bitmap the paste event never exposed. Gated on the CAPABILITY rather than
-   * on `isTauri`: only the Tauri adapter has `pasteClipboardImage`, and
-   * suppressing the default paste for something we then cannot insert would
-   * lose the user's clipboard. */
-  if (action.kind === 'hiddenBitmap' && fs.pasteClipboardImage) {
-    event.preventDefault();
-    void pasteFromNativeClipboard(view, fs).catch((err) => {
-      console.error('Native clipboard image paste failed:', err);
-    });
-    return true;
-  }
-
-  return false;
-}
-
-export const imagePasteHandler = EditorView.domEventHandlers({ paste: handlePasteEvent });
