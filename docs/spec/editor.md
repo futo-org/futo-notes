@@ -281,10 +281,23 @@ this file states the behaviors a human cares about.
   block lifts, a light selection tick each time the drop indicator lands on a
   DIFFERENT top-level boundary, and one light impact when a release commits a
   reorder. A finger travelling inside one gap ticks nothing, a hold ticks
-  nothing, and a release back at the source is silent (it commits nothing). →
+  nothing, edge auto-scroll ticks nothing (an auto-scroll is a hold, and a tick
+  per boundary swept past would be a continuous buzz), and a release back at the
+  source is silent (it commits nothing). →
   src/features/editor/milkdown/mobileBlockDnd.ts,
   apps/ios/Sources/Editor/EditorWebView.swift `moveHapticFeedback`,
   tests/editor-embed-milkdown.spec.ts _(native shells, iOS, Milkdown only)_
+- A block drag holding the pointer within 64px of the editor scroller's top or
+  bottom edge scrolls the note continuously — 200px/s at the zone's inner lip
+  ramping to 1400px/s at the edge — so a block can be dropped at a boundary that
+  was off screen when it was lifted. It runs while the pointer holds still, stops
+  at the document's ends, and stops on every exit (commit, no-op release, cancel,
+  editor destroy). The drop indicator is recomputed each frame from the boundary
+  now under the stationary pointer. Both drag paths share it: the iOS long-press
+  drag and the ⠿ gutter handle's touch drag. →
+  src/features/editor/milkdown/blockDragGeometry.ts `createDragAutoScroller`,
+  src/features/editor/milkdown/blockDragGeometry.test.ts,
+  tests/editor-embed-milkdown.spec.ts _(native shells, Milkdown only)_
 - While a block is airborne in the iOS long-press block drag, the platform text
   interaction is suspended — no magnifier over the block being moved, no
   callout, no caret dragged along behind it — and restored the moment the

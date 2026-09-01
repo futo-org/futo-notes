@@ -694,6 +694,199 @@ mobileDndTest('the indicator ticks once per boundary, not once per move', async 
   await settleChangeDebounce(page);
 });
 
+// ---- edge auto-scroll (the off-screen half of the note) ------------------
+//
+// Without it, a block can only be moved to a boundary that is ALREADY on
+// screen: the finger has to stay down, so it cannot scroll the note first. The
+// original helper stepped `scrollTop` by 14px once per `pointermove`, which
+// means a finger PARKED in the edge zone — the whole gesture — produced no
+// events and therefore no scrolling at all. A device QA pass on a 250-block
+// note held the bottom edge for 20-25 seconds, re-approaching it from several
+// y positions, and the content never moved once.
+
+/** Enough blocks to overflow the editor's own scroller several times over, and
+ * numbered so the drop position is readable from the serialized note. Kept
+ * under progressive open's 400-line threshold so this exercises the ordinary
+ * whole-document load. */
+function scrollableNote(lines = 150): string {
+  return Array.from({ length: lines }, (_, i) => `Line ${i}`).join('\n\n') + '\n';
+}
+
+/** `.ProseMirror` owns overflow-y here (MilkdownEditor.svelte), so it — not the
+ * page — is the scroller edge auto-scroll drives. */
+function editorScroll(page: Page): Promise<{
+  top: number;
+  max: number;
+  topEdge: number;
+  bottomEdge: number;
+}> {
+  return page.evaluate(() => {
+    const dom = document.querySelector('.ProseMirror') as HTMLElement;
+    const rect = dom.getBoundingClientRect();
+    return {
+      top: dom.scrollTop,
+      max: dom.scrollHeight - dom.clientHeight,
+      topEdge: rect.top,
+      bottomEdge: rect.bottom,
+    };
+  });
+}
+
+mobileDndTest(
+  'a stationary finger held at the bottom edge scrolls the note and drops off-screen',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, scrollableNote());
+    await clearMessages(page);
+
+    const start = await editorScroll(page);
+    // Otherwise the assertions below would pass on a note that never scrolled
+    // because it never could (AGENTS.md M11).
+    expect(start.max).toBeGreaterThan(1500);
+    expect(start.top).toBe(0);
+
+    const first = await blockCenter(page, 'Line 0');
+    await touch(cdp, 'touchStart', first.x, first.y);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+    expect((await messagesOfType(page, 'haptic')).map((m) => m.kind)).toEqual(['lift']);
+
+    // ONE move into the bottom edge zone. After this the finger does not move
+    // again — which is exactly the gesture the old helper could not serve.
+    const edgeY = start.bottomEdge - 12;
+    await touch(cdp, 'touchMove', first.x, edgeY);
+    const engaged = (await editorScroll(page)).top;
+
+    await expect
+      .poll(async () => (await editorScroll(page)).top, { timeout: 8000 })
+      .toBeGreaterThan(engaged + 600);
+
+    // ...all the way to the end, and no further: it must not loop or fight the
+    // scroller once there is nothing left to reveal. Read against the CURRENT
+    // max and with a pixel of slack — `scrollHeight` is a rounded-up integer
+    // while `scrollTop` need not be, so the resting value is at most a hair
+    // under the arithmetic maximum.
+    await expect
+      .poll(
+        async () => {
+          const now = await editorScroll(page);
+          return now.max - now.top;
+        },
+        { timeout: 15000 },
+      )
+      .toBeLessThanOrEqual(1);
+    const clamped = (await editorScroll(page)).top;
+    await page.waitForTimeout(300);
+    const stillClamped = await editorScroll(page);
+    expect(stillClamped.top).toBe(clamped);
+    expect(stillClamped.top).toBeLessThanOrEqual(stillClamped.max);
+
+    // The boundary under the STATIONARY finger is recomputed as the document
+    // moves beneath it, so the release lands where the finger now points —
+    // deep in territory that was off screen when the block was lifted.
+    await touch(cdp, 'touchEnd', first.x, edgeY);
+    const changes = await waitForMessages(page, 'change');
+    const content = changes[changes.length - 1].content as string;
+    expect(content.indexOf('\nLine 0\n')).toBeGreaterThan(content.indexOf('\nLine 140\n'));
+
+    // And the loop is gone with the gesture: a leaked rAF that keeps writing
+    // scrollTop after the drop is a worse bug than the one this fixes.
+    await page.waitForTimeout(300);
+    const settled = (await editorScroll(page)).top;
+    await page.waitForTimeout(500);
+    expect((await editorScroll(page)).top).toBe(settled);
+  },
+);
+
+mobileDndTest(
+  'moving the finger to the other edge reverses the auto-scroll, and it stops at the start',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, scrollableNote());
+    await clearMessages(page);
+
+    const start = await editorScroll(page);
+    const first = await blockCenter(page, 'Line 0');
+    await touch(cdp, 'touchStart', first.x, first.y);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+
+    // Down first, so there is somewhere to come back FROM. Driving it with the
+    // gesture rather than by poking `scrollTop` keeps this a story a finger can
+    // actually tell.
+    await touch(cdp, 'touchMove', first.x, start.bottomEdge - 12);
+    await expect
+      .poll(async () => (await editorScroll(page)).top, { timeout: 15000 })
+      .toBeGreaterThan(800);
+
+    // Same held finger, other edge.
+    await touch(cdp, 'touchMove', first.x, start.topEdge + 12);
+    await expect.poll(async () => (await editorScroll(page)).top, { timeout: 15000 }).toBe(0);
+    await page.waitForTimeout(300);
+    expect((await editorScroll(page)).top).toBe(0);
+
+    // And parking the finger back in the middle stops it dead — no coasting.
+    await touch(cdp, 'touchMove', first.x, (start.topEdge + start.bottomEdge) / 2);
+    await page.waitForTimeout(200);
+    const parked = (await editorScroll(page)).top;
+    await page.waitForTimeout(500);
+    expect((await editorScroll(page)).top).toBe(parked);
+
+    await touch(cdp, 'touchCancel', first.x, (start.topEdge + start.bottomEdge) / 2);
+  },
+);
+
+// The tick means "the bar is somewhere new". While the note sweeps past a
+// stationary finger it would instead be a continuous buzz — hundreds of
+// boundaries a second — so auto-scroll redraws the indicator silently. The
+// spec already says a hold ticks nothing; an auto-scroll IS a hold.
+mobileDndTest(
+  'auto-scrolling past many boundaries does not machine-gun the haptic',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, scrollableNote());
+    await clearMessages(page);
+
+    const start = await editorScroll(page);
+    const first = await blockCenter(page, 'Line 0');
+    await touch(cdp, 'touchStart', first.x, first.y);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+    await touch(cdp, 'touchMove', first.x, start.bottomEdge - 12);
+    // Long enough to sweep the whole note past the finger.
+    await page.waitForTimeout(2500);
+
+    const ticks = (await messagesOfType(page, 'haptic')).filter((m) => m.kind === 'move').length;
+    // The one move that carried the finger to the bottom is allowed to tick.
+    expect(ticks).toBeLessThanOrEqual(1);
+    // ...and it really did scroll a long way, so the low count is restraint and
+    // not a broken auto-scroll.
+    expect((await editorScroll(page)).top).toBeGreaterThan(1000);
+
+    await touch(cdp, 'touchCancel', first.x, start.bottomEdge - 12);
+  },
+);
+
+// Cancel (an incoming call, a system gesture) takes the touch away mid-air
+// with no drop and no doc change — and must take the loop with it.
+mobileDndTest('a cancelled drag stops the auto-scroll', async ({ page, cdp }) => {
+  await hostSetContent(page, scrollableNote());
+  await clearMessages(page);
+
+  const start = await editorScroll(page);
+  const first = await blockCenter(page, 'Line 0');
+  await touch(cdp, 'touchStart', first.x, first.y);
+  await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+  await touch(cdp, 'touchMove', first.x, start.bottomEdge - 12);
+  // Cancel while there is still plenty of note left below, so a leaked loop
+  // would visibly keep going instead of sitting clamped at the end.
+  await expect
+    .poll(async () => (await editorScroll(page)).top, { timeout: 8000 })
+    .toBeGreaterThan(300);
+  await touch(cdp, 'touchCancel', first.x, start.bottomEdge - 12);
+
+  await page.waitForTimeout(200);
+  const stopped = (await editorScroll(page)).top;
+  expect(stopped).toBeLessThan(start.max);
+  await page.waitForTimeout(600);
+  expect((await editorScroll(page)).top).toBe(stopped);
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+});
+
 mobileDndTest('a scroll gesture never lifts a block', async ({ page, cdp }) => {
   await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
   await clearMessages(page);

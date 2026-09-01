@@ -25,7 +25,12 @@
  */
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
-import { autoScrollAtEdge, targetAtPointerY, type TopLevelTarget } from './blockDragGeometry';
+import {
+  createDragAutoScroller,
+  targetAtPointerY,
+  type DragAutoScroller,
+  type TopLevelTarget,
+} from './blockDragGeometry';
 import { moveTopLevelBlock } from './blockMove';
 
 const TOUCH_DRAG_THRESHOLD_PX = 6;
@@ -44,9 +49,11 @@ export interface HandleBlockDragOptions {
   getView: () => ProseView | null;
   getActiveBlock: () => ActiveBlock | null;
   /**
-   * Auto-scroll below moves `view.dom.scrollTop` directly, which fires a native
+   * Edge auto-scroll moves `view.dom.scrollTop` directly, which fires a native
    * `scroll` event — the component's scroll handler hides the handle, which
-   * would flicker it away mid-drag. Suspended for the drag's duration.
+   * would flicker it away mid-drag. Suspended for the drag's duration (the
+   * events now arrive once a frame for as long as the finger holds the edge,
+   * not just once per move).
    */
   setScrollHideSuspended: (suspended: boolean) => void;
 }
@@ -65,6 +72,9 @@ interface DragState {
    */
   sourceStart: number;
   sourceSize: number;
+  /** Last pointer y. Edge auto-scroll needs it to recompute the indicator on
+   * its own frames, when there is no event to read it from. */
+  lastY: number;
 }
 
 export interface HandleBlockDrag {
@@ -80,6 +90,7 @@ export function createHandleBlockDrag(options: HandleBlockDragOptions): HandleBl
   let handleEl: HTMLElement | null = null;
   let drag: DragState | null = null;
   let indicatorEl: HTMLDivElement | null = null;
+  let autoScroll: DragAutoScroller | null = null;
 
   function ensureIndicator(): HTMLDivElement {
     if (!indicatorEl) {
@@ -107,7 +118,14 @@ export function createHandleBlockDrag(options: HandleBlockDragOptions): HandleBl
     indicatorEl?.classList.remove('milkdown-touch-drop-indicator--visible');
   }
 
-  function beginDrag(): void {
+  /** Ends the edge auto-scroll loop. Reached from every drag exit and from
+   * `destroy()`: a loop that outlives its gesture keeps scrolling the note. */
+  function stopAutoScroll(): void {
+    autoScroll?.stop();
+    autoScroll = null;
+  }
+
+  function beginDrag(view: ProseView): void {
     const state = drag;
     if (!state) return;
     const active = getActiveBlock();
@@ -123,6 +141,14 @@ export function createHandleBlockDrag(options: HandleBlockDragOptions): HandleBl
     state.sourceSize = active.size;
     state.sourceEl.classList.add('milkdown-block-drag-source');
     setScrollHideSuspended(true);
+    // The finger holds still at the edge while the document moves, so the
+    // boundary under it is recomputed each frame rather than assumed.
+    autoScroll = createDragAutoScroller(view, () => {
+      const current = drag;
+      if (!current?.dragging) return;
+      const target = targetAtPointerY(view, current.lastY);
+      if (target) showIndicator(target);
+    });
   }
 
   const onPointerDown = (event: PointerEvent): void => {
@@ -145,6 +171,7 @@ export function createHandleBlockDrag(options: HandleBlockDragOptions): HandleBl
       sourceEl: null,
       sourceStart: 0,
       sourceSize: 0,
+      lastY: event.clientY,
     };
   };
 
@@ -154,23 +181,25 @@ export function createHandleBlockDrag(options: HandleBlockDragOptions): HandleBl
     event.preventDefault();
     const view = getView();
     if (!view) return;
+    state.lastY = event.clientY;
 
     if (!state.dragging) {
       const dx = event.clientX - state.startX;
       const dy = event.clientY - state.startY;
       if (Math.hypot(dx, dy) < TOUCH_DRAG_THRESHOLD_PX) return;
-      beginDrag();
+      beginDrag(view);
       if (!state.dragging) return; // no active block to drag (see beginDrag)
     }
 
     const target = targetAtPointerY(view, event.clientY);
     if (target) showIndicator(target);
-    autoScrollAtEdge(view, event.clientY);
+    autoScroll?.update(event.clientY);
   };
 
   function endDrag(event: PointerEvent, commit: boolean): void {
     const state = drag;
     if (!state || event.pointerId !== state.pointerId) return;
+    stopAutoScroll();
     drag = null;
     state.sourceEl?.classList.remove('milkdown-block-drag-source');
     hideIndicator();
@@ -215,6 +244,7 @@ export function createHandleBlockDrag(options: HandleBlockDragOptions): HandleBl
         handleEl.removeEventListener('pointercancel', onPointerCancel);
         handleEl = null;
       }
+      stopAutoScroll();
       drag = null;
       indicatorEl?.remove();
       indicatorEl = null;
