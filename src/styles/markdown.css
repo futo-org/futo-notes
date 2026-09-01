@@ -1,6 +1,2 @@
-@import './markdown-inline.css';
-@import './markdown-code.css';
 @import './code-tokens.css';
 @import './markdown-links.css';
-@import './markdown-blocks.css';
-@import './markdown-editor-state.css';

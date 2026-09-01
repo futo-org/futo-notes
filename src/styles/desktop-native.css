@@ -12,9 +12,9 @@
       harness untouched. It sits on the ROOT rather than on `.notes-shell`
       because popovers, dialogs and the settings screen render outside the
       shell element.
-   2. `.cm-editor` and its subtree are excluded from the cursor sweep. Inside a
-      note the web cursors are the correct ones: I-beam over text, pointer over
-      a link, grab over a table handle. */
+   2. `.futo-milkdown` and its subtree are excluded from the cursor sweep.
+      Inside a note the web cursors are the correct ones: I-beam over text,
+      pointer over a link, grab over a table handle. */
 
 @media (hover: hover) and (pointer: fine) {
   /* Native desktop controls do not use the hand cursor: a Finder sidebar row, a
@@ -31,7 +31,7 @@
      — so a layered `!important` is the one thing that wins. Cursor policy is
      consequently owned by this file: a surface that needs a different cursor
      declares it below. */
-  html.desktop-chrome *:not(:where(.cm-editor, .cm-editor *)) {
+  html.desktop-chrome *:not(:where(.futo-milkdown, .futo-milkdown *)) {
     cursor: default !important;
   }
 
@@ -42,7 +42,7 @@
      editable text. `auto` restores the document cursors: I-beam over text,
      and the editor's own rules (link pointer, table grab) still win over an
      inherited value because they declare on the element itself. */
-  html.desktop-chrome .cm-editor {
+  html.desktop-chrome .futo-milkdown {
     cursor: auto !important;
   }
 

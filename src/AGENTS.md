@@ -20,7 +20,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 
 ## Key Constraints
 
-- **Editor styling lives with the editor.** `MilkdownEditor.svelte`'s own `<style>` block owns the `.ProseMirror` surface; `src/styles/markdown-*.css` owns the shared element look (both the editor and any other markdown surface use those classes).
+- **Editor styling lives with the editor.** `MilkdownEditor.svelte`'s own `<style>` block owns the `.ProseMirror` surface and every element rendered inside it. What is left under `src/styles/` is only what is genuinely shared beyond that surface: `code-tokens.css` (the `tok-*` fence palette, also read by the highlighter) and `markdown-links.css` (the link and wikilink chips, whose `cm-md-*` class names are a legacy name from the CodeMirror engine, not a CodeMirror selector). `markdown.css` is the facade over those two.
 - **Svelte 5 reactivity**: Use `$state()` runes, not stores. Read `onchange` lazily inside callbacks (not in `$effect` body) to avoid tracking it as a dependency — prevents editor destruction/recreation.
 - **Editor responsiveness is sacred.** Never let background operations (sync, search indexing, save) block or delay typing.
 - **Images**: the editor's image node views resolve a vault filename to a URL through `vaultImageSrc.ts` and re-render themselves when it lands. Images are served via the Tauri asset protocol (`asset://`).
@@ -29,7 +29,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 
 ## Common Patterns
 
-- **Adding markdown elements**: a construct the editor should understand is a Milkdown/remark plugin under `src/features/editor/milkdown/` (see `wikilink/` for the full shape: micromark tokenizer, mdast from/to-markdown, schema node, node view, input rule). Anything that is only a paint over existing text is a decoration on `blockDecorations.ts`'s bounded repaint (see `tagDecorations.ts`), never a per-keystroke whole-document walk. Styling goes in the matching `src/styles/markdown-*.css` capability file, with `src/styles/markdown.css` as the public facade.
+- **Adding markdown elements**: a construct the editor should understand is a Milkdown/remark plugin under `src/features/editor/milkdown/` (see `wikilink/` for the full shape: micromark tokenizer, mdast from/to-markdown, schema node, node view, input rule). Anything that is only a paint over existing text is a decoration on `blockDecorations.ts`'s bounded repaint (see `tagDecorations.ts`), never a per-keystroke whole-document walk. Styling goes in `MilkdownEditor.svelte`'s `<style>` block, unless a surface outside the editor needs the same rule — then it goes behind the `src/styles/markdown.css` facade.
 - **Theme tokens**: Tailwind v4; `src/styles/theme.css` → `@theme` block (primary, text, border, surface, muted, bg). Dark mode is `[data-theme='dark']` overrides — there is no `dark:` variant.
 - **New persisted setting**: add the field to `AppState` (`src/shared/state/appState.ts`), guard it in `sanitize()`, default it in `defaultState()`, then thread it through the `AppPreferences` facade. UI-layout state (sidebar width, open folders, tabs) goes in `.app-config.json` via `getConfig`/`saveConfig` instead.
 - **Toasts and dialogs**: `showGlobalToast()` from non-component code; `confirmDialog()` / `ask()` / `message()` from `@tauri-apps/plugin-dialog`. `window.confirm()`/`alert()` do **not** block in Tauri's webview.

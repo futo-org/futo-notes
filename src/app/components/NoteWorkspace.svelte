@@ -6,6 +6,7 @@
   import type { NoteSession } from '$features/notes/noteSession.svelte';
   import type { NotePreview } from '$shared/types/note';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
+  import { openExternalUrl } from '$lib/platform/openExternalUrl';
 
   import type { createCurrentNoteActions } from '../createCurrentNoteActions.svelte';
   import NoteActionsMenu from './NoteActionsMenu.svelte';
@@ -130,6 +131,7 @@
       onfocuschange={handleFocusChange}
       {oncompositionend}
       {onopenlink}
+      onopenurl={openExternalUrl}
     />
   </div>
 </div>
