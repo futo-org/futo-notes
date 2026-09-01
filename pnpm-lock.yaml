@@ -21,9 +21,6 @@ importers:
 
   .:
     dependencies:
-      '@codemirror/commands':
-        specifier: 6.10.3
-        version: 6.10.3
       '@codemirror/lang-cpp':
         specifier: ^6.0.3
         version: 6.0.3
@@ -75,12 +72,6 @@ importers:
       '@codemirror/legacy-modes':
         specifier: ^6.5.2
         version: 6.5.2
-      '@codemirror/state':
-        specifier: 6.7.1
-        version: 6.7.1
-      '@codemirror/view':
-        specifier: 6.43.6
-        version: 6.43.6
       '@lezer/common':
         specifier: 1.5.1
         version: 1.5.1
@@ -252,9 +243,6 @@ packages:
 
   '@codemirror/autocomplete@6.20.1':
     resolution: {integrity: sha512-1cvg3Vz1dSSToCNlJfRA2WSI4ht3K+WplO0UMOgmUYPivCyy2oueZY6Lx7M9wThm7SDUBViRmuT+OG/i8+ON9A==}
-
-  '@codemirror/commands@6.10.3':
-    resolution: {integrity: sha512-JFRiqhKu+bvSkDLI+rUhJwSxQxYb759W5GBezE8Uc8mHLqC9aV/9aTC7yJSqCtB3F00pylrLCwnyS91Ap5ej4Q==}
 
   '@codemirror/lang-cpp@6.0.3':
     resolution: {integrity: sha512-URM26M3vunFFn9/sm6rzqrBzDgfWuDixp85uTY49wKudToc2jTHUrKIGGKs+QWND+YLofNNZpxcNGRynFJfvgA==}
@@ -2456,13 +2444,6 @@ snapshots:
       css-tree: 3.2.1
 
   '@codemirror/autocomplete@6.20.1':
-    dependencies:
-      '@codemirror/language': 6.12.2
-      '@codemirror/state': 6.7.1
-      '@codemirror/view': 6.43.6
-      '@lezer/common': 1.5.1
-
-  '@codemirror/commands@6.10.3':
     dependencies:
       '@codemirror/language': 6.12.2
       '@codemirror/state': 6.7.1

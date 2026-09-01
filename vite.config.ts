@@ -4,21 +4,23 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
 import { webPort } from './scripts/lib/slot.mjs';
 
-// The CodeMirror packages the editor imports statically. Everything else under
-// `@codemirror`/`@lezer` is a code-fence grammar, reached only through the
-// `import()` thunks in `src/features/editor/codeFenceLanguages.ts`.
-const CODEMIRROR_CORE = [
+// The only CodeMirror code the app still imports STATICALLY: the Lezer
+// tokenizer and highlighter that `milkdown/codeHighlight.ts` paints code
+// fences with, plus what `@codemirror/language` drags in behind it
+// (`@codemirror/state` and `@codemirror/view` are its own dependencies, not
+// ours — nothing in this repo imports them directly any more).
+//
+// Everything else under `@codemirror`/`@lezer` is a code-fence GRAMMAR,
+// reached only through the `import()` thunks in
+// `src/features/editor/codeFenceLanguages.ts` — `@codemirror/lang-markdown`
+// among them, now that no editor parses the note itself with it.
+const SYNTAX_HIGHLIGHT_CORE = [
+  '@codemirror/language/',
   '@codemirror/state',
   '@codemirror/view',
-  '@codemirror/language/',
-  '@codemirror/commands',
-  '@codemirror/autocomplete',
-  '@codemirror/search',
-  '@codemirror/lang-markdown',
   '@lezer/common',
   '@lezer/highlight',
   '@lezer/lr',
-  '@lezer/markdown',
 ];
 
 const IGNORED_WATCH_DIRS = [
@@ -50,18 +52,18 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
-    // CodeMirror's editor core is isolated as its own chunk. Keep the warning
-    // threshold above that known chunk so new unexpected growth still shows up
-    // in the asset table without noisy CI warnings.
+    // The syntax-highlighting core is isolated as its own chunk. Keep the
+    // warning threshold above that known chunk so new unexpected growth still
+    // shows up in the asset table without noisy CI warnings.
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('@codemirror') || id.includes('codemirror') || id.includes('@lezer')) {
-            // Only the editor core is eager. The fence grammars are reached
-            // solely through `import()`, so returning undefined lets Rollup
-            // give each its own chunk, fetched when a fence of that language
-            // first appears.
+            // Only the highlighter core is eager. The fence grammars are
+            // reached solely through `import()`, so returning undefined lets
+            // Rollup give each its own chunk, fetched when a fence of that
+            // language first appears.
             //
             // Do NOT collapse those into one named chunk: `lang-markdown`
             // statically imports `lang-html` (which pulls css + javascript),
@@ -69,7 +71,7 @@ export default defineConfig({
             // and Rollup correctly makes the whole thing eager again — putting
             // all 128 grammars back on the cold-start path. Measured: naming
             // them costs 1,027,178 raw / 357,724 gzip of extra startup work.
-            return CODEMIRROR_CORE.some((pkg) => id.includes(pkg)) ? 'codemirror' : undefined;
+            return SYNTAX_HIGHLIGHT_CORE.some((pkg) => id.includes(pkg)) ? 'codemirror' : undefined;
           }
           if (id.includes('node_modules/svelte')) {
             return 'svelte';
