@@ -1,5 +1,6 @@
 import type { FileDropEvent, PlatformFS, PlatformName } from './types';
 import type { ApplicationMenuLabels } from './tauri/appMenu';
+import type { LocalNoteMutation } from '../localNoteStore';
 export type {
   FileChangeEvent,
   FileDropEvent,
@@ -40,6 +41,105 @@ export const isIOS =
 // (titlebar styling, traffic-light insets) gate on `isDesktop && isMac`.
 export const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
+
+export type { WindowControl, WindowControlsLayout } from './tauri/windowControls';
+export type { ExternalFileOpenRequest } from './tauri/externalFileOpen';
+export type { LinuxDesktopSettings, SystemAccent } from './tauri/desktopSettings';
+
+let windowControlsLayoutPromise:
+  Promise<import('./tauri/windowControls').WindowControlsLayout | null> | undefined;
+
+export function getWindowControlsLayout(): Promise<
+  import('./tauri/windowControls').WindowControlsLayout | null
+> {
+  if (!isTauri || !isLinux) return Promise.resolve(null);
+  windowControlsLayoutPromise ??= import('./tauri/windowControls').then(
+    ({ readWindowControlsLayout }) => readWindowControlsLayout(),
+  );
+  return windowControlsLayoutPromise;
+}
+
+export function setAppWindowTitle(noteTitle?: string): void {
+  if (!isTauri) return;
+  void import('./tauri/windowControls')
+    .then(({ applyAppWindowTitle }) => applyAppWindowTitle(noteTitle))
+    .catch((error) => console.warn('Failed to update the app window title:', error));
+}
+
+export function closeAppWindow(): void {
+  if (!isTauri) return;
+  void import('./tauri/windowControls')
+    .then(({ closeAppWindow }) => closeAppWindow())
+    .catch((error) => console.warn('Failed to close the app window:', error));
+}
+
+export function minimizeAppWindow(): void {
+  if (!isTauri) return;
+  void import('./tauri/windowControls')
+    .then(({ minimizeAppWindow }) => minimizeAppWindow())
+    .catch((error) => console.warn('Failed to minimize the app window:', error));
+}
+
+export function toggleMaximizeAppWindow(): void {
+  if (!isTauri) return;
+  void import('./tauri/windowControls')
+    .then(({ toggleMaximizeAppWindow }) => toggleMaximizeAppWindow())
+    .catch((error) => console.warn('Failed to toggle the app window size:', error));
+}
+
+export function onExternalFileOpen(
+  handler: (request: import('./tauri/externalFileOpen').ExternalFileOpenRequest) => void,
+): () => void {
+  if (!isTauri) return () => {};
+  let unlisten: (() => void) | null = null;
+  let disposed = false;
+  void import('./tauri/externalFileOpen')
+    .then(({ subscribeToExternalFileOpen }) => subscribeToExternalFileOpen(handler))
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch((error) => console.warn('Failed to subscribe to external Markdown opens:', error));
+  return () => {
+    disposed = true;
+    unlisten?.();
+    unlisten = null;
+  };
+}
+
+export async function copyExternalNoteIntoVault(path: string): Promise<LocalNoteMutation> {
+  if (!isTauri) throw new Error('External Markdown import is available only in the desktop app');
+  const { importExternalNoteFile } = await import('./tauri/externalFileOpen');
+  return importExternalNoteFile(path);
+}
+
+export function onLinuxAccentChanged(
+  handler: (accent: import('./tauri/desktopSettings').SystemAccent | null) => void,
+): () => void {
+  if (!isTauri || !isLinux) return () => {};
+  let unlisten: (() => void) | null = null;
+  let disposed = false;
+  void import('./tauri/desktopSettings')
+    .then(({ subscribeToLinuxAccent }) => subscribeToLinuxAccent(handler))
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch((error) => console.warn('Failed to watch the Linux desktop accent:', error));
+  return () => {
+    disposed = true;
+    unlisten?.();
+    unlisten = null;
+  };
+}
+
+export async function readLinuxDesktopSettings(): Promise<
+  import('./tauri/desktopSettings').LinuxDesktopSettings | null
+> {
+  if (!isTauri || !isLinux) return null;
+  const settings = await import('./tauri/desktopSettings');
+  return settings.readLinuxDesktopSettings();
+}
 
 // Native application-menu commands (macOS). Off Tauri — the web dev server and
 // the native mobile editor embed — there is no menu, so this is a no-op

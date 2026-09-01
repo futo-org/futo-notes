@@ -15,11 +15,16 @@ const preferenceMocks = vi.hoisted(() => ({
   loadPreferences: vi.fn(() => new Promise(() => {})),
   saveSelectedLanguageTag: vi.fn(() => Promise.resolve()),
 }));
+vi.mock('$features/system/accent', () => ({
+  applySystemAccentPreference: vi.fn(),
+  watchSystemAccentTauri: vi.fn(() => vi.fn()),
+}));
+vi.mock('$features/system/interfaceFont', () => ({ applyInterfaceFontPreference: vi.fn() }));
 vi.mock('$shared/state/appState', () => ({
   loadPreferences: preferenceMocks.loadPreferences,
   saveSelectedLanguageTag: preferenceMocks.saveSelectedLanguageTag,
   getCachedPreferences: vi.fn(() => ({
-    appearance: { theme: 'auto' },
+    appearance: { theme: 'auto', followSystemAccent: true, interfaceFont: 'system' },
     language: { selectedLanguageTag: null },
   })),
 }));
@@ -86,6 +91,7 @@ describe('createAppBootstrap (M1 render gate)', () => {
   });
 
   it('forwards the OS-reported theme so auto follows the desktop theme on Linux', () => {
+    // getCachedPreferences() is mocked to an Auto appearance preference.
     themeMocks.applyThemePreference.mockClear();
     const bootstrap = createAppBootstrap({
       initializeCrashReporting: vi.fn(never),

@@ -262,7 +262,13 @@
         "moveFailed": "Couldn't move note. It remains in its current folder.",
         "deleteFailed": "Couldn't delete note. It remains in your notes.",
         "renameFailed": "Couldn't rename note.",
-        "confirmationUnavailable": "Unable to show confirmation dialog."
+        "confirmationUnavailable": "Unable to show confirmation dialog.",
+        "externalOpenFailed": "Could not open Markdown file: {detail}"
+      },
+      "externalOpen": {
+        "title": "Open Markdown File",
+        "confirmation": "Copy “{name}” into FUTO Notes? The original file will not be changed.",
+        "confirmLabel": "Copy into notes"
       },
       "delete": {
         "heading": "Delete note",

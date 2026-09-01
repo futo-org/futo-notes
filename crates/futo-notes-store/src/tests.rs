@@ -79,6 +79,37 @@ fn the_create_path_registers_no_watcher_suppression() {
     );
 }
 
+#[test]
+fn importing_markdown_preserves_the_filename_and_never_clobbers() {
+    let vault = TestRoot::new();
+    let external = TestRoot::new();
+    let source = external.0.join("grocery list.markdown");
+    fs::write(&source, "- milk\n").unwrap();
+    let store = store(&vault);
+
+    let first = store.import_markdown(&source).unwrap();
+    let second = store.import_markdown(&source).unwrap();
+
+    assert_eq!(first.final_id.as_deref(), Some("grocery list"));
+    assert_eq!(second.final_id.as_deref(), Some("grocery list-2"));
+    assert_eq!(store.read("grocery list"), "- milk\n");
+    assert_eq!(store.read("grocery list-2"), "- milk\n");
+    assert_eq!(fs::read_to_string(source).unwrap(), "- milk\n");
+}
+
+#[test]
+fn importing_rejects_non_markdown_files() {
+    let vault = TestRoot::new();
+    let external = TestRoot::new();
+    let source = external.0.join("grocery list.txt");
+    fs::write(&source, "not Markdown").unwrap();
+
+    let error = store(&vault).import_markdown(&source).unwrap_err();
+
+    assert_eq!(error, "only .md and .markdown files can be imported");
+    assert!(vault.0.read_dir().unwrap().next().is_none());
+}
+
 // A divergent parked backup (install-complete crash boundary: old backup bytes
 // ≠ live) must be parked as a VISIBLE recovered note, never left eligible for a
 // canonical restore that would resurrect the note if the user later deletes the

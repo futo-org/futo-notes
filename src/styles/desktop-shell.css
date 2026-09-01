@@ -39,6 +39,7 @@
 }
 
 .notes-shell.desktop-layout .topband-chrome {
+  position: relative;
   flex: 0 0 auto;
   width: var(--sidebar-width, 280px);
   display: flex;
@@ -46,7 +47,9 @@
   justify-content: flex-end;
   /* macOS traffic-light gutter — the one place the native buttons are
      reserved. 0 off macOS. */
-  padding-left: var(--macos-traffic-lights-width, 0px);
+  padding-left: calc(
+    var(--macos-traffic-lights-width, 0px) + var(--linux-window-controls-width, 0px)
+  );
   padding-right: 8px;
   /* When the sidebar is open the chrome extends its column colour up through
      the band; the seam falls on the existing sidebar border. */
@@ -58,12 +61,56 @@
 .notes-shell.desktop-layout.sidebar-collapsed .topband-chrome {
   /* No sidebar to mirror — shrink to just the gutter + toggle and blend into
      the strip so the whole band reads as one surface. */
-  width: calc(var(--macos-traffic-lights-width, 0px) + 11px + 32px + 11px);
-  padding-left: calc(var(--macos-traffic-lights-width, 0px) + 11px);
+  width: calc(
+    var(--macos-traffic-lights-width, 0px) + var(--linux-window-controls-width, 0px) + 11px + 32px +
+      11px
+  );
+  padding-left: calc(
+    var(--macos-traffic-lights-width, 0px) + var(--linux-window-controls-width, 0px) + 11px
+  );
   padding-right: 11px;
   background-color: var(--color-surface, var(--color-bg));
   border-right-width: 0;
   box-shadow: inset 0 -1px 0 var(--color-border);
+}
+
+.notes-shell.desktop-layout .window-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px;
+  background: var(--color-surface, var(--color-bg));
+  box-shadow: inset 0 -1px 0 var(--color-border);
+  user-select: none;
+}
+
+.notes-shell.desktop-layout .window-controls-left {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.notes-shell.desktop-layout .window-control-btn {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.notes-shell.desktop-layout .window-control-btn:hover {
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+  color: var(--color-text);
 }
 
 .notes-shell.desktop-layout .sidebar-toggle-btn {

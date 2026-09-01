@@ -100,6 +100,12 @@ export function _applyLocalMutation(mutation: LocalNoteMutation): void {
   for (const warning of mutation.warnings) console.warn(`[local-notes] ${warning}`);
 }
 
+/** Project the single committed mutation returned by the desktop's external
+ * Markdown import workflow. Kept here so the note cache remains a projection. */
+export function applyExternalImportMutation(mutation: LocalNoteMutation): void {
+  _applyLocalMutation(mutation);
+}
+
 function mtimeFor(mutation: LocalNoteMutation, id: string): number {
   return mutation.upserted.find((entry) => entry.note.id === id)?.note.modifiedMs ?? Date.now();
 }

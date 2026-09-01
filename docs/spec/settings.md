@@ -14,8 +14,21 @@
   provides a row that opens the app's system Settings instead of an in-app
   dropdown. Both native rows carry a globe icon. The selection is local to the
   device and never syncs.
-
-
+- On Linux desktop the current theme and later theme changes come from
+  `org.freedesktop.portal.Settings`; startup uses `ReadOne` with a `Read`
+  fallback, so Auto starts in the desktop's current appearance rather than
+  waiting for a later signal. → desktop_settings.rs, theme.ts
+- **Follow system accent color** is enabled by default on Linux desktop and
+  applies the portal accent to buttons, links, selection, and related primary
+  tokens; disabling it or receiving no portal preference restores brand orange.
+  The preference is persisted in `.app-state.json`. → accent.ts, appState.ts,
+  AppearanceSettingsSection.svelte
+- **Interface font** offers **System / Barlow** on Linux desktop, defaults to
+  **System**, and persists in `.app-state.json`. System uses `system-ui` on GNOME
+  and Fontconfig's `sans-serif` on Plasma because WebKitGTK's `system-ui`
+  resolves to Cantarell there. Editor content remains Barlow, and browser and
+  native-mobile embeds keep Barlow throughout. → interfaceFont.ts, appState.ts,
+  theme.css
 - The app version is shown.
 - **License**: the License card (Unlicensed / Licensed / Expired, Buy, Enter
   license key, Remove) follows [license.md](license.md). On the native shells it
@@ -171,14 +184,20 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   old root). →
   `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`, SettingsScreen.svelte,
   `apps/tauri/src-tauri/src/vault_location.rs`
-- **Storage in a sandbox:** **Change directory** works in sandboxed (Flatpak)
-  builds too. The folder picker routes through the FileChooser portal, so the chosen
+- **Storage chooser:** **Change directory** uses the XDG FileChooser portal on
+  Linux, so GNOME and Plasma show their own desktop chooser; macOS and Windows
+  keep their native dialog backends. It works in sandboxed (Flatpak) builds too,
+  where the chosen
   directory arrives as an XDG document-portal path, which is stored **verbatim**. The
   app registers nothing: the portal already grants a picked directory
   `PERSISTENT | REUSE_EXISTING` with `read,write,grant-permissions`, so the grant
   outlives the process and re-picking the same folder returns the same document id —
   no accumulation, and a stable vault path. →
   `apps/tauri/src-tauri/src/portal_vault.rs`, `vault_location::write_override_file`
+- Confirmations are app modals rather than native message boxes, because the
+  Linux portal backend has no message-box portal and optional `zenity`/`kdialog`
+  helpers cannot be assumed installed. → confirmDialog.ts,
+  ConfirmDialogHost.svelte
 - Nothing may re-register a picked vault to "make it persistent": the document portal
   refuses a descriptor pointing into its own FUSE mount
   (`org.freedesktop.portal.Error.InvalidArgument: Invalid fd passed`), so the attempt

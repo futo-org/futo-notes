@@ -46,6 +46,26 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "category": "Productivity",
+    "shortDescription": "Offline-first Markdown notes",
+    "longDescription": "A private, offline-first Markdown notes app with native desktop integration and optional encrypted sync.",
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown"],
+        "mimeType": "text/markdown",
+        "name": "Markdown document",
+        "description": "Markdown document",
+        "role": "Editor"
+      }
+    ],
+    "linux": {
+      "deb": {
+        "desktopTemplate": "linux/futo-notes.desktop.hbs"
+      },
+      "rpm": {
+        "desktopTemplate": "linux/futo-notes.desktop.hbs"
+      }
+    },
     "macOS": {
       "entitlements": "Entitlements.plist",
       "signingIdentity": "-",

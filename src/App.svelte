@@ -1,6 +1,5 @@
 <script lang="ts">
   import NotesShell from './app/NotesShell.svelte';
-  import TitleBar from './app/components/TitleBar.svelte';
   import { configureWindowChrome } from './app/configureWindowChrome';
   import { createAppBootstrap } from './app/createAppBootstrap.svelte';
   import { installDesktopContextMenuGuard } from './app/installDesktopContextMenuGuard';
@@ -16,6 +15,7 @@
   } from '$lib/platform';
   import { desktopLocalization, localizedText } from '$shared/localization';
   import { currentToastMessage, showGlobalToast } from '$shared/notifications/toastBus.svelte';
+  import ConfirmDialogHost from '$shared/dialogs/ConfirmDialogHost.svelte';
 
   const windowChrome = configureWindowChrome();
   const crashReporting = createCrashReporting(showGlobalToast);
@@ -76,15 +76,12 @@
   });
 </script>
 
-{#if windowChrome.chrome.showLinuxTitlebar}
-  <TitleBar />
-{/if}
-
 {#if bootstrap.initialized}
   <NotesShell />
 {/if}
 
 <UpdateBanner />
+<ConfirmDialogHost />
 
 {#if crashReporting.dialogOpen}
   <CrashReportDialog

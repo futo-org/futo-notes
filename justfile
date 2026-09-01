@@ -67,7 +67,7 @@ tauri-dev *args:
 
 tauri-prod:
   pnpm run build
-  cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.prod.conf.json
+  cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland cargo tauri dev --config src-tauri/tauri.prod.conf.json
 
 tauri-build:
   pnpm run build
