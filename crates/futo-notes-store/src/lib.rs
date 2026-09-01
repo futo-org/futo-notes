@@ -408,6 +408,35 @@ impl LocalNoteStore {
         Ok(self.upsert_mutation(metadata))
     }
 
+    /// Copy one external Markdown file into the vault as a new root note.
+    ///
+    /// The source filename is the title (M2): only the Markdown extension is
+    /// removed, and the normal collision allocator chooses a suffix rather
+    /// than overwriting an existing note. The source file is read-only input.
+    pub fn import_markdown(&self, source: &Path) -> Result<MutationResult, String> {
+        let extension = source
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if !extension.eq_ignore_ascii_case("md") && !extension.eq_ignore_ascii_case("markdown") {
+            return Err("only .md and .markdown files can be imported".to_owned());
+        }
+        if !source.is_file() {
+            return Err("Markdown import source is not a regular file".to_owned());
+        }
+        let title = source
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "Markdown import source has no usable filename".to_owned())?;
+        let content = fs::read_to_string(source).map_err(io_error)?;
+
+        let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
+        let metadata = self.install_new(&make_id("", title), &content, None)?;
+        Ok(self.upsert_mutation(metadata))
+    }
+
     pub fn write(
         &self,
         id: &str,

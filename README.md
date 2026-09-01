@@ -12,3 +12,15 @@ The sync server lives in a separate repo:
 
 New here? See [CONTRIBUTING.md](./CONTRIBUTING.md) for machine setup, then
 [AGENTS.md](./AGENTS.md) for architecture and conventions.
+
+## Linux troubleshooting
+
+If the window is blank or crashes during startup, force WebKitGTK's software-rendering path:
+
+```bash
+FUTO_NOTES_SOFTWARE_RENDER=1 futo-notes-tauri
+```
+
+FUTO Notes enables this workaround automatically when it detects an NVIDIA GPU. An explicit
+`WEBKIT_DISABLE_DMABUF_RENDERER` environment value always takes precedence. To test or force the
+GPU path despite NVIDIA detection, launch with `FUTO_NOTES_SOFTWARE_RENDER=0`.

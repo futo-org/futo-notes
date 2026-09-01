@@ -136,13 +136,23 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 - With the sidebar collapsed the toggle carries 20px of visible air on each
   side — to the last traffic light and to the first tab. → desktop-shell.css,
   tabsStrip.css
-- On Linux the app renders its own 36px title bar ("FUTO Notes" +
-  minimize/maximize/close) above the top band; macOS and Windows use native
-  window chrome instead. → configureWindowChrome.ts, TitleBar.svelte
+- On Linux the undecorated window uses one header row: minimize, maximize and
+  close live in the desktop top band rather than in a second title row. GNOME's
+  `org.gnome.desktop.wm.preferences button-layout` decides left/right placement
+  and button order; other desktops use the trailing
+  minimize/maximize/close default. → DesktopTopBand.svelte,
+  WindowControls.svelte, window_controls.rs
+- Left-side Linux controls reserve their own leading gutter through
+  `--linux-window-controls-width`, parallel to the macOS traffic-light gutter,
+  so the sidebar toggle and tabs never overlap them. → configureWindowChrome.ts,
+  desktop-shell.css
 - Every empty area of the top band drags the window — the gaps around the tabs
   and the whole chrome column, traffic-light gutter included; only the buttons
-  take clicks. Same on the Linux title bar. → DesktopTopBand.svelte,
-  TabsStrip.svelte, TitleBar.svelte
+  take clicks. → DesktopTopBand.svelte, TabsStrip.svelte,
+  WindowControls.svelte
+- The native window title is the active note title followed by "— FUTO Notes";
+  Home falls back to the app name. This is the title shown by the compositor in
+  Alt+Tab and overview surfaces. → TabsStrip.svelte, windowControls.ts
 - The window is not shown until the shell has painted: it is created hidden and
   revealed on first render, so launching never flashes the webview's white.
   Rust reveals it regardless after a timeout, so a frontend that never paints
@@ -156,9 +166,10 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   composites along the window's top edge: white@55% over our dark top band when
   the window is light (a bright hairline on a dark desktop) against white@20%
   when it is dark. On Windows it is the titlebar. On Linux the window carries no
-  native frame at all (decorations are off and the app draws its own title bar),
-  so it reaches only the GTK-drawn surfaces — the WebKitGTK context menu and GTK
-  dialogs. → theme.ts `windowAppearanceFor`, windowAppearance.ts
+  native frame at all (decorations are off and the app draws its own header
+  controls), so it reaches only GTK-drawn surfaces such as the WebKitGTK context
+  menu; file choosers are portal-owned and follow the desktop. → theme.ts
+  `windowAppearanceFor`, windowAppearance.ts
 - On **auto** the window is handed back to the OS on macOS and Windows and pinned
   to the resolved theme on Linux. Same outcome, opposite mechanism, because the
   platforms disagree about what "no preference" means: on macOS and Windows
@@ -167,7 +178,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   `gtk-application-prefer-dark-theme = false`, which WebKitGTK also reads as the
   page's own `prefers-color-scheme`, so handing the window back would make a dark
   Linux desktop render light. → theme.ts `windowAppearanceFor`,
-  platform_integration.rs (`linux-theme-changed`)
+  desktop_settings.rs (`linux-theme-changed`)
 - On **auto** the resolved theme comes from the system's own answer, which is a
   different signal per platform. macOS and Windows read the page's
   `prefers-color-scheme`: their `auto` hands the window back to the OS, so they
@@ -180,13 +191,30 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   `resolveAutoTheme`, platform_integration.rs `read_desktop_color_scheme`
 - One desktop light/dark change arrives as a **burst** of portal signals, not
   one, and every signal the app interprets agrees on the same theme, whatever
-  order they arrive in: `color-scheme` is read in both its `uint32` and its
-  `'prefer-dark'`/`'prefer-light'`/`'default'` string spelling, and settings that
-  merely look like a theme are ignored — `accent-color`, and KDE's `ColorScheme`
-  scheme *name*, whose value "BreezeDark" contains "dark" while "BreezeLight"
-  contains no "light". Overlapping theme applies are serialized so the newest
-  request wins, never whichever resolved last. → platform_integration.rs
-  `desktop_theme_from_setting_changed`, theme.ts `applyThemePreference`
+  order they arrive in: settings that merely look like a theme change are
+  ignored — `accent-color`, and KDE's `ColorScheme` scheme *name* signal, which
+  lives under a different D-Bus key entirely. Overlapping theme applies are
+  serialized so the newest request wins, never whichever resolved last. →
+  desktop_settings.rs (`read_snapshot`, filtered by exact namespace/key rather
+  than string matching), theme.ts `applyThemePreference`
+  <!-- NOTE (rebase judgment call, flagged for review): this paragraph
+  originally documented platform_integration.rs's `desktop_theme_from_setting_changed`,
+  a gdbus-output string parser main hardened independently. !277 replaces that
+  whole mechanism with desktop_settings.rs's typed zbus reads, which the rebase
+  resolution kept (see .rebase-log.md); the burst-signal guarantee still holds,
+  just via a different, more robust implementation, so the reference was
+  updated rather than left dangling. -->
+- Linux reads the portal's current colour scheme before relying on later change
+  signals, so switching Light/Dark back to Auto immediately resolves from the
+  desktop rather than from WebKitGTK's app-pinned media query. Older portals
+  fall back from `ReadOne` to `Read`. → desktop_settings.rs, theme.ts
+- Opening an `.md` already inside the active vault opens that safe note id in a
+  tab. Opening an outside `.md` or `.markdown` asks whether to copy it into the
+  vault; **Cancel** leaves it untouched, while **Copy into notes** uses the atomic Rust store
+  workflow, preserves the filename as the title, collision-suffixes rather than
+  overwriting, and opens the final id. Cold-launch arguments and later
+  single-instance launches share this policy. → external_file_open.rs,
+  externalFileOpen.ts, `LocalNoteStore::import_markdown`
 
 ### Application menu *(macOS)*
 
@@ -223,5 +251,9 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   open-in-background-tab modifier. → installDesktopContextMenuGuard.ts
 - Settings opens with ⌘, and the sidebar toggles with ⌘\ (Ctrl elsewhere). →
   registerNotesShellShortcuts.ts
+- Ctrl+Q closes the app window on Linux and Windows through the normal close
+  path, which flushes a pending note save before exit; macOS keeps its native
+  ⌘Q application-menu command. → registerNotesShellShortcuts.ts,
+  startNativeShell.ts
 - The system "Reduce Motion" setting removes the shell's transitions and
   animations. → desktop-native.css

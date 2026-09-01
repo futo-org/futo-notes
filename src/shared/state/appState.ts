@@ -7,7 +7,7 @@
  * exists. The legacy file is left in place for safety.
  */
 
-import { getPlatformFS, hasFileSystem } from '$lib/platform';
+import { getPlatformFS, hasFileSystem, isLinux, isTauri } from '$lib/platform';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -17,6 +17,8 @@ export interface AppState {
   preferences: {
     theme: 'auto' | 'dark' | 'light';
     selectedLanguageTag: string | null;
+    followSystemAccent: boolean;
+    interfaceFont: 'system' | 'barlow';
   };
 
   crashReporting: {
@@ -70,11 +72,14 @@ function generateDeviceId(): string {
 }
 
 function defaultState(): AppState {
+  const linuxDesktop = isTauri && isLinux;
   return {
     deviceId: generateDeviceId(),
     preferences: {
       theme: 'auto',
       selectedLanguageTag: null,
+      followSystemAccent: linuxDesktop,
+      interfaceFont: linuxDesktop ? 'system' : 'barlow',
     },
     crashReporting: {
       enabled: true,
@@ -191,6 +196,13 @@ function sanitize(raw: unknown): AppState {
         typeof rawPrefs.selectedLanguageTag === 'string' && rawPrefs.selectedLanguageTag.length > 0
           ? rawPrefs.selectedLanguageTag
           : null,
+      followSystemAccent:
+        typeof rawPrefs.followSystemAccent === 'boolean'
+          ? rawPrefs.followSystemAccent
+          : defaults.preferences.followSystemAccent,
+      interfaceFont: ['system', 'barlow'].includes(rawPrefs.interfaceFont as string)
+        ? (rawPrefs.interfaceFont as 'system' | 'barlow')
+        : defaults.preferences.interfaceFont,
     },
     crashReporting: {
       enabled: typeof rawCrash.enabled === 'boolean' ? rawCrash.enabled : true,
@@ -389,6 +401,8 @@ export async function updateAppState(
 export interface AppPreferences {
   appearance: {
     theme: 'auto' | 'dark' | 'light';
+    followSystemAccent: boolean;
+    interfaceFont: 'system' | 'barlow';
   };
   language: {
     selectedLanguageTag: string | null;
@@ -411,7 +425,11 @@ export interface AppPreferences {
 function stateToPrefs(): AppPreferences {
   const s = getAppState();
   return {
-    appearance: { theme: s.preferences.theme },
+    appearance: {
+      theme: s.preferences.theme,
+      followSystemAccent: s.preferences.followSystemAccent,
+      interfaceFont: s.preferences.interfaceFont,
+    },
     language: { selectedLanguageTag: s.preferences.selectedLanguageTag },
     crashReporting: { ...s.crashReporting },
     updates: { ...s.updates },
@@ -446,6 +464,8 @@ export async function savePreferences(prefs: AppPreferences): Promise<void> {
       ...getAppState().preferences,
       theme: prefs.appearance.theme,
       selectedLanguageTag: prefs.language.selectedLanguageTag,
+      followSystemAccent: prefs.appearance.followSystemAccent,
+      interfaceFont: prefs.appearance.interfaceFont,
     },
     crashReporting: prefs.crashReporting,
     updates: prefs.updates,

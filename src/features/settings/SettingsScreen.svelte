@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { isTauri } from '$lib/platform';
+  import { isLinux, isTauri } from '$lib/platform';
   import { setNotesDir, vaultDisplayPath, vaultStatus } from '$lib/platform/tauri';
   import { applyThemePreference } from '$features/system/theme';
+  import { applySystemAccentPreference } from '$features/system/accent';
+  import { applyInterfaceFontPreference } from '$features/system/interfaceFont';
   import { getAppVersion } from '$features/system/crashHandler';
   import { updateChecker } from '$features/system/updateChecker.svelte';
   import { selfUpdateSupported, updaterSupported } from '$features/system/updater';
@@ -131,6 +133,18 @@
   function changeTheme(theme: AppPreferences['appearance']['theme']): void {
     preferences.appearance.theme = theme;
     void applyThemePreference(theme);
+    void persistPreferences();
+  }
+
+  function toggleSystemAccent(): void {
+    preferences.appearance.followSystemAccent = !preferences.appearance.followSystemAccent;
+    applySystemAccentPreference(preferences.appearance.followSystemAccent);
+    void persistPreferences();
+  }
+
+  function changeInterfaceFont(font: AppPreferences['appearance']['interfaceFont']): void {
+    preferences.appearance.interfaceFont = font;
+    applyInterfaceFontPreference(font);
     void persistPreferences();
   }
 
@@ -288,7 +302,12 @@
         />
         <AppearanceSettingsSection
           preference={preferences.appearance.theme}
+          followSystemAccent={preferences.appearance.followSystemAccent}
+          interfaceFont={preferences.appearance.interfaceFont}
+          showLinuxDesktopOptions={isTauri && isLinux}
           onchange={changeTheme}
+          onfollowaccentchange={toggleSystemAccent}
+          oninterfacefontchange={changeInterfaceFont}
         />
         <LanguageSettingsSection
           selectedLanguageTag={desktopLocalization.selectedLanguageTag}

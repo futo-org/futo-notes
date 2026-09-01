@@ -28,7 +28,6 @@ const isWorktree = statSync(join(repoRoot, '.git')).isFile();
 const WAYLAND_ENV = {
   WINIT_UNIX_BACKEND: 'wayland',
   GDK_BACKEND: 'wayland',
-  WEBKIT_DISABLE_DMABUF_RENDERER: '1',
 };
 
 // Dev fake-update flag: `just tauri-dev --fake-update[=X.Y.Z]` (or FUTO_FAKE_UPDATE)

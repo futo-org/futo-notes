@@ -1,0 +1,34 @@
+// @vitest-environment jsdom
+
+import { describe, expect, it, vi } from 'vitest';
+
+const platform = vi.hoisted(() => ({
+  readAppData: vi.fn(async (path: string) =>
+    path === '.app-state.json'
+      ? JSON.stringify({ deviceId: 'existing-device', preferences: { theme: 'dark' } })
+      : null,
+  ),
+  writeAppData: vi.fn(),
+}));
+
+vi.mock('$lib/platform', () => ({
+  getPlatformFS: vi.fn(async () => ({
+    readAppData: platform.readAppData,
+    writeAppData: platform.writeAppData,
+  })),
+  hasFileSystem: true,
+  isLinux: true,
+  isTauri: true,
+}));
+
+import { loadPreferences } from './appState';
+
+describe('Linux desktop appearance defaults', () => {
+  it('adds Linux defaults when an existing state predates the new fields', async () => {
+    expect((await loadPreferences()).appearance).toEqual({
+      theme: 'dark',
+      followSystemAccent: true,
+      interfaceFont: 'system',
+    });
+  });
+});
