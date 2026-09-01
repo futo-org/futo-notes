@@ -29,7 +29,7 @@ import type { Command as ProseCommand } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { callCommand } from '@milkdown/kit/utils';
 
-import { blockCommand, type BlockCommandId } from './blockCommands';
+import { blockCommand, blockFormatAtPos, type BlockCommandId } from './blockCommands';
 import { editorView } from './caretContext';
 
 /** Command ids this editor can execute, mapped to their implementations. */
@@ -56,6 +56,26 @@ export function createToolbarExec(getEditor: () => Editor | null): ToolbarExecMa
 
   const block = (id: BlockCommandId) => () => dispatch(blockCommand(id));
 
+  /**
+   * Whether the caret sits inside a code block, where NO block command acts.
+   *
+   * `blockCommand` answers that itself (a `code` run has no transition, so the
+   * document is left untouched), but Indent/Outdent are the preset's own list
+   * commands and would happily restructure the list a fence is indented under
+   * — with the caret on a code line, which is not a list line. One rule for
+   * every block command instead: inside a fence, the note's bytes do not move
+   * (docs/spec/editor.md -> "Markdown toolbar").
+   */
+  function caretInCodeBlock(): boolean {
+    const current = view();
+    return current !== null && blockFormatAtPos(current.state.selection.$from).kind === 'code';
+  }
+
+  const listStructure = (command: { key: CmdKey<unknown> }) => () => {
+    if (caretInCodeBlock()) return;
+    run(command);
+  };
+
   return {
     bold: () => run(toggleStrongCommand),
     italic: () => run(toggleEmphasisCommand),
@@ -73,7 +93,7 @@ export function createToolbarExec(getEditor: () => Editor | null): ToolbarExecMa
     // preceding SIBLING item, so Indent is a no-op on the first item of a list.
     // Markdown source has no such rule, which is why the CodeMirror toolbar
     // could indent it — into a nested list with no parent.
-    indent: () => run(sinkListItemCommand),
-    outdent: () => run(liftListItemCommand),
+    indent: listStructure(sinkListItemCommand),
+    outdent: listStructure(liftListItemCommand),
   };
 }

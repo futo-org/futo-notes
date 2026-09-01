@@ -752,6 +752,31 @@ EditorWebView.swift, EditorWebView.kt
   src/features/editor/toolbar/blockFormatting.ts,
   src/features/editor/toolbar/blockFormatting.test.ts,
   src/features/editor/milkdown/blockCommands.ts
+- A block-format command never touches a CODE BLOCK. Its content is literal
+  text, so a `>` or `#` written there would BE code rather than a prefix:
+  Heading, Quote, Bullet, Ordered and Task with the caret anywhere inside a
+  fenced or indented code block — its fence markers included — leave the note's
+  bytes exactly as they are, and the toolbar lights nothing up. A selection that
+  spans a fence formats the prose either side of it and steps over the fence
+  rather than swallowing it. Both engines, same answer: the WYSIWYG engine reads
+  the fence as its own `code` kind, which no command has a transition for, and
+  the CodeMirror engine skips those source lines. →
+  src/features/editor/milkdown/blockCommands.ts,
+  src/features/editor/toolbar/blockFormatting.ts,
+  src/features/editor/toolbar/blockFormatting.test.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts, tests/editor-embed-bridge.spec.ts
+- WYSIWYG engine, the same holds inside a TABLE CELL: a GFM cell carries one
+  line of inline content, which no block prefix can apply to, so a block command
+  leaves the table untouched. (The CodeMirror engine edits table markdown as
+  source lines, where a cell is not a block of its own.) →
+  src/features/editor/milkdown/blockCommands.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- WYSIWYG engine, Indent/Outdent are no-ops inside a code block too, including a
+  fence indented under a list item — the caret is on a code line, not a list
+  line, so the enclosing list is not restructured. The CodeMirror engine's
+  Indent/Outdent remain source-line indentation, which inside a fence is
+  ordinary code indentation. → src/features/editor/milkdown/toolbarExec.ts,
+  src/features/editor/markdownToolbar.ts, tests/editor-embed-bridge.spec.ts
 - Bullet and task markers are written as `-`, never `*`, whichever engine
   produced them — the toolbar, the editor's own serializer, and the corpus all
   agree on one marker so an edit never churns a note's list markers. →

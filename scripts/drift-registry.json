@@ -414,7 +414,7 @@
     },
     {
       "concept": "toolbar-block-transitions",
-      "description": "The markdown toolbar's block-format transition table — which kind a tap turns a line into (self-toggles off, cross-kind converts, Heading cycles h1->h2->h3->plain), and the one-prefix-per-line rule around it (docs/spec/editor.md 'Markdown toolbar'). One copy per editor engine, because the same user-visible rule has to be expressed against markdown SOURCE lines for CodeMirror and against a ProseMirror DOCUMENT for Milkdown; neither can consume the other. Dies back to one copy when CM6 is deleted at the Milkdown swap (docs/plan/milkdown-transition.md D9).",
+      "description": "The markdown toolbar's block-format transition table — which kind a tap turns a line into (self-toggles off, cross-kind converts, Heading cycles h1->h2->h3->plain), and the one-prefix-per-line rule around it, INCLUDING which lines are eligible at all — a code block's content is literal text, so every command leaves a fence exactly as it is (docs/spec/editor.md 'Markdown toolbar'). One copy per editor engine, because the same user-visible rule has to be expressed against markdown SOURCE lines for CodeMirror and against a ProseMirror DOCUMENT for Milkdown; neither can consume the other. Dies back to one copy when CM6 is deleted at the Milkdown swap (docs/plan/milkdown-transition.md D9).",
       "lockStatus": "locked",
       "copies": [
         {

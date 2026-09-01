@@ -1,3 +1,5 @@
+import { syntaxTree } from '@codemirror/language';
+import type { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 
 export type LineKind =
@@ -131,6 +133,24 @@ function prefixLength(parsed: ParsedLine): number {
   return serializeLineKind(parsed.lineKind).length;
 }
 
+/**
+ * Whether `pos` sits inside a fenced or indented code block.
+ *
+ * Read off the markdown syntax tree rather than by scanning for fence markers,
+ * because the parser already knows where a fence opens and closes — the same
+ * ancestor walk `listContinuation.ts`'s Enter handler does. A tree that has not
+ * been parsed that far cannot say, and reports no code block; the caret is in
+ * the viewport, which is what CodeMirror parses first.
+ */
+function isInCodeBlock(state: EditorState, pos: number): boolean {
+  const tree = syntaxTree(state);
+  if (pos > tree.length) return false;
+  for (let node = tree.resolveInner(pos, 1); node.parent; node = node.parent) {
+    if (node.name === 'FencedCode' || node.name === 'CodeBlock') return true;
+  }
+  return false;
+}
+
 function applyBlockCommand(view: EditorView, command: BlockCommand): void {
   const { state } = view;
   const { from, to } = state.selection.main;
@@ -142,6 +162,17 @@ function applyBlockCommand(view: EditorView, command: BlockCommand): void {
   for (let lineNumber = startLine.number; lineNumber <= endLine.number; lineNumber++) {
     const line = state.doc.line(lineNumber);
     const parsed = parseLine(line.text);
+    // A code block's content is LITERAL TEXT: a `>` or `#` written onto one of
+    // its lines is code, not a block prefix, so the line is left exactly as it
+    // is — fence markers included. A selection that spans a fence still formats
+    // the prose around it. The Milkdown engine gives the same answer by having
+    // no transition for its `code` kind (milkdown/blockCommands.ts), and
+    // docs/spec/editor.md -> "Markdown toolbar" states the rule once.
+    //
+    // Asked at the line's CONTENT, not at `line.from`: an indented code block
+    // starts where its text does, so a position in the indentation is still
+    // outside the node.
+    if (isInCodeBlock(state, line.from + parsed.indent.length)) continue;
     const rewritten = { ...parsed, lineKind: transitionLineKind(parsed.lineKind, command) };
     const nextText = serializeLine(rewritten);
 
@@ -149,6 +180,13 @@ function applyBlockCommand(view: EditorView, command: BlockCommand): void {
     if (lineNumber === startLine.number) {
       selectionDelta = prefixLength(rewritten) - prefixLength(parsed);
     }
+  }
+
+  if (changes.length === 0) {
+    // Every selected line was inside a code block: leave the note, and the
+    // selection, exactly as they are.
+    view.focus();
+    return;
   }
 
   view.dispatch({
