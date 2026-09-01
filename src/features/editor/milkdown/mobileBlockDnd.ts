@@ -47,6 +47,18 @@
  *    removed on `pointerup`, which the Pointer Events spec dispatches BEFORE
  *    `touchend` and so before WebKit's tap gesture resolves a caret, leaving
  *    tap-to-place-caret untouched.
+ *  - THE MAGNIFIER LOUPE IS NOT THE PAGE'S TO CANCEL. WKWebView's own
+ *    long-press text interaction fires around 500ms — after this plugin's
+ *    340ms lift — and paints the OS magnifier plus a caret it drags along,
+ *    right on top of the block being moved; sometimes it takes the touch
+ *    outright and WebKit cancels our pointer stream mid-air. It is a UIKit
+ *    gesture recogniser, and WebKit commits to it at TOUCH-DOWN, so nothing
+ *    applied later reaches it: `pointer-events: none` and `touch-action:
+ *    pan-x pan-y` on the editable subtree were both measured on a simulator
+ *    with the loupe still appearing, on top of the levers already listed
+ *    above. The shell that owns the WebView suspends its text interaction
+ *    instead, told by `onDragActive` (bridge.ts BlockDragMessage). Do not
+ *    re-litigate this in CSS.
  *  - LISTEN ON THE DOCUMENT, NOT ON `view.dom`. Applying the source-dim
  *    decoration re-renders the pressed block, which can detach the very DOM
  *    node the touch sequence targets; a `touchmove` listener bound to
@@ -90,11 +102,21 @@ import {
 } from './blockDragGeometry';
 import { moveTopLevelBlock, type BlockMoveRange } from './blockMove';
 
-export type MobileDndHapticKind = 'lift' | 'drop';
+export type MobileDndHapticKind = 'lift' | 'move' | 'drop';
 
 export interface MobileBlockDndOptions {
-  /** Fired once on lift and once on a committed (non-no-op) drop. */
+  /** Fired on lift, on every boundary the drop indicator moves to, and on a
+   * committed (non-no-op) drop. See {@link MobileDndHapticKind}. */
   onHaptic: (kind: MobileDndHapticKind) => void;
+  /**
+   * True when a block goes airborne, false the moment the gesture resolves in
+   * ANY way — commit, no-op drop, or cancel. The iOS shell suspends WKWebView's
+   * text-interaction gestures for that window, which is the only thing that
+   * stops the OS magnifier appearing over the block being dragged (see the
+   * module doc's loupe note and bridge.ts BlockDragMessage). Optional: the
+   * plugin is fully functional without a listener, just with the loupe.
+   */
+  onDragActive?: (active: boolean) => void;
   /** Stationary hold (ms) before a touch lifts a block. Default 340 — must
    * beat iOS's own ~500ms text-selection long-press (see module doc). No
    * caller overrides either of these today; they exist because both numbers
@@ -234,6 +256,13 @@ function ensureStyles(): void {
   document.head.appendChild(style);
 }
 
+/** Identity of a drop boundary: the same gap resolved twice is the same place,
+ * and `pos` alone is not enough — a block's `after` and the next block's
+ * `before` are one boundary, but before/after of ONE block are two. */
+function indicatorKeyOf(target: TopLevelTarget): string {
+  return `${target.pos}:${target.corner}`;
+}
+
 type PressedBlock = { pos: number; size: number; dom: HTMLElement; clone: HTMLElement };
 
 /** Owns the whole long-press/lift/drag/drop state machine for one editor
@@ -252,6 +281,11 @@ class MobileBlockDndView {
   private dragging = false;
   private pressed: PressedBlock | null = null;
 
+  /** The boundary the indicator is currently drawn at, as `pos:corner`. Only a
+   * CHANGE of this fires a 'move' haptic, so a finger travelling inside one
+   * gap is silent and the ticks match what the eye sees. */
+  private indicatorKey: string | null = null;
+
   private ghostEl: HTMLDivElement | null = null;
   private indicatorEl: HTMLDivElement | null = null;
   private liftX = 0;
@@ -262,6 +296,7 @@ class MobileBlockDndView {
     this.doc = view.dom.ownerDocument;
     this.options = {
       onHaptic: options.onHaptic,
+      onDragActive: options.onDragActive ?? (() => {}),
       longPressMs: options.longPressMs ?? DEFAULT_LONG_PRESS_MS,
       moveCancelPx: options.moveCancelPx ?? DEFAULT_MOVE_CANCEL_PX,
     };
@@ -324,8 +359,14 @@ class MobileBlockDndView {
     this.removeGestureListeners();
     this.pointerId = null;
     this.pressed = null;
+    this.indicatorKey = null;
+    const wasDragging = this.dragging;
     this.dragging = false;
     this.view.dom.classList.remove(ARMED_CLASS);
+    // Paired with the lift's `true`, from the ONE exit every abandoned gesture
+    // goes through — a shell left suspended would swallow text selection for
+    // the rest of the session.
+    if (wasDragging) this.options.onDragActive(false);
   }
 
   /* ---- selection suppression -------------------------------------------- */
@@ -417,8 +458,16 @@ class MobileBlockDndView {
 
     this.updateGhostPosition(event.clientX, event.clientY);
     const target = this.computeTarget(event.clientY);
-    if (target) this.showIndicator(target);
-    else this.hideIndicator();
+    if (target) {
+      this.showIndicator(target);
+      const key = indicatorKeyOf(target);
+      if (key !== this.indicatorKey) {
+        this.indicatorKey = key;
+        this.options.onHaptic('move');
+      }
+    } else {
+      this.hideIndicator();
+    }
     autoScrollAtEdge(this.view, event.clientY);
   };
 
@@ -472,7 +521,14 @@ class MobileBlockDndView {
     );
 
     this.dragging = true;
+    /* Seeded from where the block already is, so the hold itself is silent: the
+     * first tick belongs to the first boundary the finger actually reaches. */
+    const restingTarget = targetAtPointerY(view, clientY);
+    this.indicatorKey = restingTarget ? indicatorKeyOf(restingTarget) : null;
     this.createGhost(clientX, clientY);
+    // Before the haptic: the shell has ~160ms to suspend its text interaction
+    // ahead of WebKit's own ~500ms long press.
+    this.options.onDragActive(true);
     this.options.onHaptic('lift');
   }
 

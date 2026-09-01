@@ -113,11 +113,101 @@ fn image_construct_end(bytes: &[u8], start: usize) -> Option<usize> {
     Some(target_end + 1)
 }
 
+/// The line-break tag spellings a preview turns back into a space.
+///
+/// These are exactly the four `@milkdown/preset-commonmark` writes for an empty
+/// paragraph — markdown cannot represent one, so its serializer parks a
+/// placeholder tag in the file (see `packages/editor/src/milkdown-compat/
+/// emptyLine.ts`, which owns the parse-side half). Blank lines the author typed
+/// therefore reach the vault as `<br />`, and a preview that showed it read
+/// `<br /> Some text` in the list. The same replacement covers an author's own
+/// `<br>` — the standard way to break a line inside a GFM table cell — which as
+/// preview text is a space and nothing else.
+///
+/// Deliberately NOT a general HTML-tag strip: `<kbd>K</kbd>` and
+/// `<!-- comment -->` still show, because a rule that eats anything between
+/// angle brackets also eats `a <b` in prose. Widen it when a real note asks for
+/// it, with the goldens to say what it means.
+/// The shape, as a scanner rather than a list: `<br`, then spaces/tabs, then an
+/// optional `/`, then spaces/tabs, then `>` — case-insensitive on `br`. That
+/// covers all four spellings the serializer emits (`<br />`, `<br>`, `<br >`,
+/// `<br/>`) and an author's own, and matches nothing with attributes.
+const LINE_BREAK_TAG: &[u8] = b"br";
+
+/// Replace every `<br>`-family tag with a single space.
+///
+/// Mirrored in TypeScript by `packages/editor/src/preview.ts`
+/// (`LINE_BREAK_TAG_PATTERN`, `/<br[ \t]*\/?[ \t]*>/giu`).
+fn replace_line_break_tags(content: &str) -> Cow<'_, str> {
+    if !content.contains('<') {
+        return Cow::Borrowed(content);
+    }
+    let bytes = content.as_bytes();
+    let mut out = String::new();
+    let mut copied = 0;
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if bytes[cursor] != b'<' {
+            cursor += 1;
+            continue;
+        }
+        match line_break_tag_end(bytes, cursor) {
+            Some(end) => {
+                if out.is_empty() {
+                    out.reserve(content.len());
+                }
+                out.push_str(&content[copied..cursor]);
+                out.push(' ');
+                copied = end;
+                cursor = end;
+            }
+            None => cursor += 1,
+        }
+    }
+    if copied == 0 {
+        return Cow::Borrowed(content);
+    }
+    out.push_str(&content[copied..]);
+    Cow::Owned(out)
+}
+
+/// Exclusive end of a `<br>`-family tag starting at `start`, or `None` when the
+/// `<` begins something else. Every byte examined is ASCII, so the offset
+/// returned is always a char boundary.
+fn line_break_tag_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut cursor = start + 1;
+    for expected in LINE_BREAK_TAG {
+        if !bytes.get(cursor)?.eq_ignore_ascii_case(expected) {
+            return None;
+        }
+        cursor += 1;
+    }
+    cursor = skip_tag_spacing(bytes, cursor);
+    if bytes.get(cursor) == Some(&b'/') {
+        cursor = skip_tag_spacing(bytes, cursor + 1);
+    }
+    if bytes.get(cursor) == Some(&b'>') {
+        Some(cursor + 1)
+    } else {
+        None
+    }
+}
+
+/// Spaces and tabs only — the same class `preview.ts`'s `[ \t]*` allows, so
+/// neither side has a Unicode-whitespace definition the other has to match.
+fn skip_tag_spacing(bytes: &[u8], mut cursor: usize) -> usize {
+    while matches!(bytes.get(cursor), Some(b' ' | b'\t')) {
+        cursor += 1;
+    }
+    cursor
+}
+
 /// The list preview contract is: stand every image construct in as
-/// [`IMAGE_PLACEHOLDER`], collapse CRLF/LF/tab to spaces, trim the whole
-/// result, then keep at most 100 Unicode scalar values.
+/// [`IMAGE_PLACEHOLDER`], turn every `<br>`-family tag into a space, collapse
+/// CRLF/LF/tab to spaces, trim the whole result, then keep at most 100 Unicode
+/// scalar values.
 pub fn make_preview(content: &str) -> String {
-    collapse_to_preview(&replace_images(content))
+    collapse_to_preview(&replace_line_break_tags(&replace_images(content)))
 }
 
 fn collapse_to_preview(content: &str) -> String {
@@ -165,7 +255,10 @@ fn collapse_to_preview(content: &str) -> String {
 }
 
 pub fn make_rich_preview(content: &str) -> String {
-    let content = replace_images(content);
+    // Same two stand-ins as the single-line preview, and for the same reason:
+    // a line that is nothing but the serializer's `<br />` placeholder becomes
+    // blank here and is skipped below, instead of being shown as a preview line.
+    let content = replace_line_break_tags(&replace_images(content)).into_owned();
     let mut lines = Vec::with_capacity(3);
     for raw in content.lines() {
         if lines.len() == 3 {
@@ -334,5 +427,21 @@ mod tests {
             make_rich_preview("# Heading\n- [ ] todo\n> - item\n| hidden |"),
             "Heading\n☐ todo\n• item"
         );
+    }
+
+    /// The Milkdown serializer parks `<br />` in the file for every blank line
+    /// the author typed (markdown cannot represent an empty paragraph), and this
+    /// is the preview the iOS and Android note lists actually show — so a note
+    /// whose first blank line came back as a placeholder previewed as `<br />`.
+    #[test]
+    fn rich_preview_drops_the_empty_paragraph_placeholder() {
+        assert_eq!(
+            make_rich_preview("<br />\nGrocery list\n<br />\n- milk"),
+            "Grocery list\n• milk"
+        );
+        // Inline, and in a table cell: a line break reads as a space.
+        assert_eq!(make_rich_preview("one.<br>two."), "one. two.");
+        // Tight by design, exactly like the single-line preview.
+        assert_eq!(make_rich_preview("press <kbd>K</kbd>"), "press <kbd>K</kbd>");
     }
 }

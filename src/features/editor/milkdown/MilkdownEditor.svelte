@@ -58,6 +58,7 @@
   } from '$features/images/vaultImageUrlResolver';
   import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
   import type { EditorLinkGesture } from '../interactions/editorPointerInteractions';
+  import { resolveBlockContainment } from './blockContainment';
   import { resolveBlockDragMode } from './blockDragMode';
   import { editorView, enclosingListItem, isTaskItem } from './caretContext';
   import { computeActiveFormats } from './formatState';
@@ -102,6 +103,10 @@
     /* Notion-style mobile block drag haptics (iOS long-press path only — see
      * bridge.ts HapticMessage / mobileBlockDnd.ts). */
     onhaptic?: (kind: MobileDndHapticKind) => void;
+    /* Whether a block is airborne on that same iOS long-press path. The shell
+     * suspends WKWebView's own text-interaction gestures while it is (bridge.ts
+     * BlockDragMessage) — nothing the page can do stops the OS magnifier. */
+    onblockdrag?: (active: boolean) => void;
     /* The editor engine is up and holding a document. Milkdown's
      * `Editor.make().create()` is ASYNC, so Svelte's `mount()` returns long
      * before this — and the Android WebView gate used to read the host API that
@@ -122,6 +127,7 @@
     onformatstate,
     nativeShell = false,
     onhaptic,
+    onblockdrag,
     onenginemounted,
   }: Props = $props();
 
@@ -137,6 +143,9 @@
    * mechanisms under a mounted ProseMirror view is not something this
    * supports. */
   const useMobileBlockDnd = $derived(resolveBlockDragMode(nativeShell) === 'long-press');
+  /* Apple WebKit paints holes where a contained block should be — see
+   * blockContainment.ts. The class, not the rule, is what varies. */
+  const skipOffscreenBlocks = resolveBlockContainment() === 'offscreen-skipped';
 
   let container: HTMLDivElement;
   let editor: Editor | null = null;
@@ -379,13 +388,26 @@
            * first save for no reason (ADR-0002 normalize-once). */
           ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const }));
 
-          /* Red squiggles off. `editorViewOptionsCtx` is Milkdown's sanctioned
-           * hook into the ProseMirror `DirectEditorProps` (they are spread
-           * straight into `new EditorView(...)`), so the attributes land on the
+          /* The editable's IME behavior, and it is the CodeMirror engine's
+           * decision restated for this one: `createMarkdownEditorRuntime.ts`
+           * puts exactly this set on `.cm-content` via
+           * `EditorView.contentAttributes` (registered as a drift pair in
+           * scripts/drift-registry.json — the two engines must answer a
+           * keyboard the same way while the transition is in flight).
+           *
+           * Red squiggles off, iOS autocorrect ON. Those are separate
+           * attributes and the first version of this hook set both off, which
+           * silently took autocorrect and predictive text away from every note
+           * typed in the native shells — the swap's most-noticed regression
+           * ("can we get autocorrect back?", 2026-09-01). `spellcheck: false`
+           * is the one that drops the underlines; `autocorrect`/
+           * `autocapitalize` are what the keyboard reads.
+           *
+           * `editorViewOptionsCtx` is Milkdown's sanctioned hook into the
+           * ProseMirror `DirectEditorProps` (they are spread straight into
+           * `new EditorView(...)`), so the attributes land on the
            * contenteditable through ProseMirror's own render instead of a DOM
-           * mutation WebKit's DOMObserver would fight. `autocapitalize` is
-           * deliberately NOT set: the ask is to drop the underlines, not to
-           * change how typing behaves. CM6 has its own path and is untouched. */
+           * mutation WebKit's DOMObserver would fight. */
           /* `handlePaste` rides the same hook. It has to be a DIRECT view prop
            * rather than a plugin: ProseMirror consults direct props before
            * plugin props, and `.use(clipboard)` below would otherwise claim an
@@ -400,7 +422,13 @@
             attributes: {
               ...(typeof prev.attributes === 'object' ? prev.attributes : {}),
               spellcheck: 'false',
-              autocorrect: 'off',
+              autocorrect: 'on',
+              autocapitalize: 'sentences',
+              /* CodeMirror sets this one itself, so parity means declaring it:
+               * Apple's inline Writing Tools suggestions stay off in both
+               * engines. */
+              writingsuggestions: 'false',
+              enterkeyhint: 'return',
             },
             handlePaste: (_view, event) => pasteHandler?.(event) ?? false,
             handleKeyDown: (view, event) => handleParityKeyDown(view, event),
@@ -484,6 +512,7 @@
         ? builder.use(
             createMobileBlockDndPlugin({
               onHaptic: (kind) => onhaptic?.(kind),
+              onDragActive: (active) => onblockdrag?.(active),
             }),
           )
         : builder.use(block);
@@ -1046,6 +1075,7 @@
 <div
   class="futo-milkdown"
   class:mobile-dnd={useMobileBlockDnd}
+  class:block-containment={skipOffscreenBlocks}
   style="--futo-checkbox-slot: {CHECKBOX_SIZE_PX}px"
   bind:this={container}
 >
@@ -1137,8 +1167,14 @@
    * scrolling back over visited content never jumps. Verified inside the real
    * editor chrome on all three shells (caret into skipped regions, scroll,
    * nested scroll containers) — the embed spec's containment test locks the
-   * rule and the caret behavior. */
-  :global(.futo-milkdown .ProseMirror > *) {
+   * rule and the caret behavior.
+   *
+   * ENGINE-GATED by `.block-containment` (blockContainment.ts): Apple's WebKit
+   * keeps a scrolled-in block's box but paints none of its text, so on iOS this
+   * rule left holes in the middle of a note until some later scroll filled them
+   * in. Chromium — Android's WebView, where the budgets above were measured,
+   * and every desktop/web surface — still gets it. */
+  :global(.futo-milkdown.block-containment .ProseMirror > *) {
     content-visibility: auto;
     contain-intrinsic-size: auto 24px;
   }

@@ -148,3 +148,29 @@ test.describe('unrelated inline HTML is untouched', () => {
     });
   }
 });
+
+test.describe('a keystroke in a heading leaves the heading alone', () => {
+  const NOTE = '# hello\n\nbody\n';
+
+  const churn = (page: Page, variant: 'compat' | 'baseline') =>
+    page.evaluate(([v, m]) => window.__futoCensus.headingEditChurn(v as 'compat' | 'baseline', m), [
+      variant,
+      NOTE,
+    ] as const);
+
+  test('canary: upstream still re-stamps the id and re-creates the block', async ({ page }) => {
+    const upstream = await churn(page, 'baseline');
+    expect(upstream.idBefore).toBe('hello');
+    expect(upstream.idAfter).not.toBe(upstream.idBefore);
+    // The element the caret is in, replaced mid-typing. On WKWebView the next
+    // character then lands at the START of the block, which is how `12345`
+    // typed into a heading came out as `# 54321` (see milkdown-compat's doc).
+    expect(upstream.sameElement).toBe(false);
+  });
+
+  test('compat keeps the same element and the same id', async ({ page }) => {
+    const shipped = await churn(page, 'compat');
+    expect(shipped.idAfter).toBe(shipped.idBefore);
+    expect(shipped.sameElement).toBe(true);
+  });
+});

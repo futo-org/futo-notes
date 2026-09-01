@@ -465,6 +465,27 @@
           "kind": "test"
         }
       ]
+    },
+    {
+      "concept": "editor-ime-attributes",
+      "description": "What the editor tells the on-screen keyboard: iOS autocorrect and sentence capitalisation ON, red spellcheck squiggles and Apple's inline writing suggestions OFF (docs/spec/editor.md 'Typing and IME'). One copy per editor engine, because the same decision has to be expressed as CodeMirror's `EditorView.contentAttributes` on `.cm-content` and as Milkdown's `editorViewOptionsCtx.attributes` on `.ProseMirror`; neither can consume the other. Registered because the copies drifted once already and it cost the feature: the Milkdown hook shipped `autocorrect: 'off'` alongside the squiggle fix, silently taking autocorrect and predictive text away from every note typed in the native shells. Dies back to one copy when CM6 is deleted at the Milkdown swap (docs/plan/milkdown-transition.md D9).",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "src/features/editor/createMarkdownEditorRuntime.ts",
+          "pattern": "EditorView\\.contentAttributes\\.of"
+        },
+        {
+          "location": "src/features/editor/milkdown/MilkdownEditor.svelte",
+          "pattern": "autocapitalize: 'sentences'"
+        }
+      ],
+      "locks": [
+        {
+          "path": "tests/editor-embed-ime-parity.spec.ts",
+          "kind": "engine parity test"
+        }
+      ]
     }
   ]
 }

@@ -256,12 +256,45 @@ this file states the behaviors a human cares about.
 - On-text double/triple-tap selection remains native on both shells; off-text
   multi-taps use the resolved word/paragraph rules above. _(native shells)_
 
+### Typing and IME
+
+- The editable asks the on-screen keyboard for autocorrect and sentence
+  capitalisation, and turns off red spellcheck squiggles and Apple's inline
+  writing suggestions — the same four instructions in both editor engines
+  (`autocorrect="on"`, `autocapitalize="sentences"`, `spellcheck="false"`,
+  `writingsuggestions="false"`). A keyboard is not an implementation detail of
+  the engine: the Milkdown hook first shipped with autocorrect off alongside the
+  squiggle fix, and every note typed in the native shells lost autocorrect and
+  predictive text until 2026-09-01. →
+  src/features/editor/createMarkdownEditorRuntime.ts,
+  src/features/editor/milkdown/MilkdownEditor.svelte,
+  tests/editor-embed-ime-parity.spec.ts, scripts/drift-registry.json
+  `editor-ime-attributes`
+
 ### Selection
 
 - Native shells keep platform selection, handles, loupe, and callout except for
   seeding the off-text double-tap range and the iOS paragraph range above.
   Verified on Android and iOS devices 2026-07-10. →
   interactions/editorPointerInteractions.ts _(native shells)_
+- The iOS long-press block drag is haptic three ways: one medium impact when the
+  block lifts, a light selection tick each time the drop indicator lands on a
+  DIFFERENT top-level boundary, and one light impact when a release commits a
+  reorder. A finger travelling inside one gap ticks nothing, a hold ticks
+  nothing, and a release back at the source is silent (it commits nothing). →
+  src/features/editor/milkdown/mobileBlockDnd.ts,
+  apps/ios/Sources/Editor/EditorWebView.swift `moveHapticFeedback`,
+  tests/editor-embed-milkdown.spec.ts _(native shells, iOS, Milkdown only)_
+- While a block is airborne in the iOS long-press block drag, the platform text
+  interaction is suspended — no magnifier over the block being moved, no
+  callout, no caret dragged along behind it — and restored the moment the
+  gesture resolves, however it resolves. Nothing on the page can suppress it, so
+  the editor reports the drag over the bridge and the shell suspends the
+  WebView's own gesture recognisers. Verified on the simulator 2026-08-31. →
+  src/features/editor/milkdown/mobileBlockDnd.ts,
+  apps/ios/Sources/Editor/EditorWebView.swift `setTextInteractionSuspended`,
+  packages/editor/src/bridge.ts `BlockDragMessage`
+  _(native shells, iOS, Milkdown only)_
 - Desktop drag-selection across a rendered Markdown element expands through its
   hidden source markers so copy/delete preserve valid Markdown. →
   interactions/selectionSnap.ts _(desktop)_

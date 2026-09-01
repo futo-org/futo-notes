@@ -272,6 +272,51 @@ test('heading cycles h1 -> h2 -> h3 -> plain', async ({ page }) => {
   expect(await afterExec(page, 'hello', 'heading', 'heading', 'heading', 'heading')).toBe('hello');
 });
 
+/**
+ * The user-facing bug behind dropping `syncHeadingIdPlugin`
+ * (packages/editor/src/milkdown-compat): new note, Heading, type — and the
+ * characters came out BACKWARDS on iOS (`12345` landed as `# 54321`).
+ *
+ * The upstream plugin re-stamped the heading's slug `id` attribute in a second
+ * transaction after every keystroke, so the block the caret was in had its
+ * markup changed and ProseMirror re-created its DOM element mid-typing.
+ * WKWebView then inserted the next character at the start of the block. The
+ * REVERSAL is WebKit-only, so what this asserts in Chromium is the mechanism:
+ * the element the caret is in survives a keystroke, and the id does not churn.
+ * Both engines assert the typed order, which is the claim that matters.
+ */
+test('typing in a heading keeps its order and never re-creates the block', async ({ page }) => {
+  await hostSetContent(page, 'hello');
+  await focusEditor(page);
+  await exec(page, 'heading');
+
+  // A live handle on the heading element, so a re-created node is visible as a
+  // detached one rather than needing an identity comparison across evaluates.
+  await page.evaluate(() => {
+    const h1 = document.querySelector('.ProseMirror h1');
+    (window as unknown as { __h1: Element | null }).__h1 = h1;
+  });
+
+  await page.keyboard.press('End');
+  await page.keyboard.type('12345', { delay: 40 });
+  await settle(page);
+
+  expect((await getContent(page)).trimEnd()).toBe('# hello12345');
+
+  const heading = await page.evaluate(() => {
+    const tracked = (window as unknown as { __h1: Element | null }).__h1;
+    const live = document.querySelector('.ProseMirror h1');
+    return {
+      sameElement: tracked === live,
+      stillAttached: tracked?.isConnected ?? false,
+      idChurned: (tracked as HTMLElement | null)?.id !== (live as HTMLElement | null)?.id,
+    };
+  });
+  expect(heading.stillAttached).toBe(true);
+  expect(heading.sameElement).toBe(true);
+  expect(heading.idChurned).toBe(false);
+});
+
 // ============================================================
 // Block formats — converting between kinds
 // ============================================================

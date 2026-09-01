@@ -26,6 +26,8 @@ class BridgeCoverageTest {
             "pasteClipboardImage" to "Android never receives it by design (bridge.ts:199-202)",
             "haptic" to
                 "emitted only by the iOS long-press block drag; Android mounts the gutter-handle drag and never sends it",
+            "blockDrag" to
+                "same iOS-only long-press block drag; it exists so the iOS shell can suspend WKWebView's text interaction, and Chromium's WebView shows no loupe over the gutter-handle drag",
         )
     }
 

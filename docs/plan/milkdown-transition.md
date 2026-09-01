@@ -703,10 +703,34 @@ content rather than a `contain-intrinsic-size` estimate.
   could not have given: the scroll container really is `.ProseMirror` itself (clientHeight 742,
   scrollHeight 184,209 over 5,000 top-level blocks), so the shell's chrome introduces no competing
   scroll container; and the caret's block renders at its true 27 px rather than the 24 px estimate.
-- **iOS** — not covered. Milkdown reaches a shell only through `editor.html`, WKWebView is a
-  different engine from both of the above, and this run had no Mac-side build. Playwright's WebKit
-  could stand in for the engine but needs system libraries this Linux box cannot install without
-  sudo. That leg is outstanding.
+- **iOS** — covered on 2026-08-31, and the answer is that the rule cannot run there. See below.
+
+### Containment is OFF on Apple WebKit (2026-08-31, the outstanding iOS leg)
+
+WKWebView does not merely render the rule differently — it drops text on the floor. Scrolling a
+40-paragraph note in the real iOS app, recorded off the simulator's display pipeline (`xcrun simctl
+io recordVideo`, so no screenshot could force a repaint and hide it), left **seven frames whose
+topmost visible paragraph was mid-document with 127–327 px of blank above it**: the previous
+paragraph kept its box in the flow and painted nothing, and the hole stayed while the view was
+still, filling in on some later scroll. That is the user report "some text will appear to be gone
+and then mysteriously re-appear".
+
+Nothing on the page can see it: the DOM reports every block present at full height, and
+`checkVisibility({ contentVisibilityAuto: true })` calls them all visible. It does not reproduce in
+Playwright's WebKit (whose scrolling is not the async, tiled iOS one) or in Chromium — this is the
+UI-process compositor.
+
+So the rule is engine-gated rather than dropped (`src/features/editor/milkdown/blockContainment.ts`,
+applied as `.futo-milkdown.block-containment`): Chromium — Android's WebView, where §5's budgets
+were measured, and every desktop/web surface — keeps it, and Apple WebKit renders every block
+eagerly. iOS therefore has no containment perf property, and if keystroke cost at real note sizes
+ever needs one there, it has to come from something WebKit paints correctly (an
+IntersectionObserver-driven window that sets `content-visibility: visible` well before a block
+enters the viewport is the obvious candidate — it never asks WebKit to decide relevance for
+on-screen content). Blank text is not a trade worth making for a perf budget.
+
+The measurement is repeatable: the OCR oracle counts frames whose visible paragraph numbers skip
+one, or that start mid-note with a band of blank above the first line (0 after the gate, 7 before).
 
 > **Open item (Android), carried to #111:** on the phone, the FIRST `scrollIntoView` to the far end of a 10k-line note
 > lands ~350 px short and leaves the caret's block just below the fold; a second scroll against the

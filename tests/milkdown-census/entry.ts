@@ -102,12 +102,76 @@ async function loadOnce(variant: CensusVariant, markdown: string): Promise<Round
   }
 }
 
+/** What one keystroke inside a heading does to that heading's own markup. */
+export interface HeadingEditChurn {
+  /** The heading's `id` attribute before and after the edit. */
+  idBefore: string;
+  idAfter: string;
+  /** False when the edit re-created the element the caret was in. */
+  sameElement: boolean;
+}
+
+/**
+ * Types one character into a heading and reports whether the heading's markup
+ * changed underneath it.
+ *
+ * The measurement behind dropping upstream's `syncHeadingIdPlugin` (see
+ * `@futo-notes/editor/milkdown-compat`): it re-stamps every heading's slug `id`
+ * after any document change, which changes the caret's own block, and
+ * ProseMirror answers an attribute change by re-creating the element. On
+ * WKWebView the next character then lands at the start of the block, so typing
+ * comes out reversed. Deliberately NOT a keyboard test — the ProseMirror
+ * transaction is the input the plugin reacts to, and asserting on it is
+ * engine-independent, so the canary runs anywhere the suite does.
+ */
+async function headingEditChurn(
+  variant: CensusVariant,
+  markdown: string,
+): Promise<HeadingEditChurn> {
+  const root = document.createElement('div');
+  document.body.appendChild(root);
+  const preset = variant === 'compat' ? commonmarkWithCompat() : commonmark;
+  const editor = await Editor.make()
+    .config((ctx) => {
+      ctx.set(rootCtx, root);
+      ctx.set(defaultValueCtx, markdown);
+    })
+    .use(preset)
+    .use(gfm)
+    .use(history)
+    .use(listener)
+    .use(clipboard)
+    .use(cursor)
+    .use(trailing)
+    .create();
+  try {
+    editor.action(replaceAll(markdown));
+    const view = editor.ctx.get(editorViewCtx);
+    const before = view.dom.querySelector('h1');
+    const idBefore = before?.id ?? '';
+    // At the end of the heading's text, which is where a user types.
+    const heading = view.state.doc.firstChild;
+    const at = (heading?.nodeSize ?? 1) - 1;
+    view.dispatch(view.state.tr.insertText('X', at));
+    const after = view.dom.querySelector('h1');
+    return {
+      idBefore,
+      idAfter: after?.id ?? '',
+      sameElement: before !== null && before === after,
+    };
+  } finally {
+    await editor.destroy();
+    root.remove();
+  }
+}
+
 declare global {
   interface Window {
     __futoCensus: {
       load: (variant: CensusVariant, markdown: string) => Promise<RoundTrip>;
+      headingEditChurn: (variant: CensusVariant, markdown: string) => Promise<HeadingEditChurn>;
     };
   }
 }
 
-window.__futoCensus = { load: loadOnce };
+window.__futoCensus = { load: loadOnce, headingEditChurn };

@@ -471,13 +471,14 @@ test('formatState reports bold for a caret inside bold text', async ({ page }) =
  */
 async function touch(
   cdp: CDPSession,
-  type: 'touchStart' | 'touchMove' | 'touchEnd',
+  type: 'touchStart' | 'touchMove' | 'touchEnd' | 'touchCancel',
   x: number,
   y: number,
 ): Promise<void> {
+  const released = type === 'touchEnd' || type === 'touchCancel';
   await cdp.send('Input.dispatchTouchEvent', {
     type,
-    touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }],
+    touchPoints: released ? [] : [{ x, y, id: 1 }],
   });
 }
 
@@ -578,7 +579,7 @@ const mobileDndTest = base.extend<{ page: Page; cdp: CDPSession }>({
 });
 
 mobileDndTest(
-  'a long-press drag reorders the block and posts lift then drop haptics',
+  'a long-press drag reorders the block and posts lift, a tick per boundary, then drop',
   async ({ page, cdp }) => {
     await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
     await clearMessages(page);
@@ -594,7 +595,15 @@ mobileDndTest(
 
     const changes = await waitForMessages(page, 'change');
     expect(changes[changes.length - 1].content).toBe('bravo\n\ncharlie\n\nalpha\n');
-    expect((await messagesOfType(page, 'haptic')).map((m) => m.kind)).toEqual(['lift', 'drop']);
+    /* One pickup, a tick per boundary the bar crossed on the way, one landing. */
+    const kinds = (await messagesOfType(page, 'haptic')).map((m) => m.kind);
+    expect(kinds[0]).toBe('lift');
+    expect(kinds[kinds.length - 1]).toBe('drop');
+    expect(kinds.slice(1, -1).every((kind) => kind === 'move')).toBe(true);
+    expect(kinds.filter((kind) => kind === 'move').length).toBeGreaterThan(0);
+    /* The shell suspends WKWebView's text interaction between these two, so
+     * the OS magnifier stays out of the drag (bridge.ts BlockDragMessage). */
+    expect((await messagesOfType(page, 'blockDrag')).map((m) => m.active)).toEqual([true, false]);
   },
 );
 
@@ -609,10 +618,81 @@ mobileDndTest(
     await settleChangeDebounce(page);
 
     expect(await messagesOfType(page, 'change')).toHaveLength(0);
+    /* Lift only: no `drop` (nothing was committed) and no `move` either — the
+     * finger never left the gap the block already sat in, so there was no new
+     * place to tell the thumb about. */
     expect((await messagesOfType(page, 'haptic')).map((m) => m.kind)).toEqual(['lift']);
+    /* `haptic` is deliberately silent on a no-op drop; `blockDrag` must NOT be.
+     * The shell has text interaction suspended, and a gesture that ended
+     * without saying so leaves the note unselectable for the rest of the
+     * session. */
+    expect((await messagesOfType(page, 'blockDrag')).map((m) => m.active)).toEqual([true, false]);
     expect(await getContent(page)).toBe('alpha\n\nbravo\n\ncharlie');
   },
 );
+
+// The system can take the touch away mid-air (an incoming call, a system
+// gesture). That path posts no change and no drop haptic — and still has to
+// hand the shell's suspended text interaction back.
+mobileDndTest('a cancelled drag reports the drag as over', async ({ page, cdp }) => {
+  await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+  await clearMessages(page);
+
+  const alpha = await blockCenter(page, 'alpha');
+  const charlie = await blockCenter(page, 'charlie');
+  await touch(cdp, 'touchStart', alpha.x, alpha.y);
+  await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+  await touch(cdp, 'touchMove', charlie.x, charlie.y);
+  await page.waitForTimeout(16);
+  await touch(cdp, 'touchCancel', charlie.x, charlie.y);
+  await settleChangeDebounce(page);
+
+  expect((await messagesOfType(page, 'blockDrag')).map((m) => m.active)).toEqual([true, false]);
+  /* The finger travelled, so the indicator ticked on the way; what a cancel
+   * must NOT produce is the landing haptic, because nothing landed. */
+  const kinds = (await messagesOfType(page, 'haptic')).map((m) => m.kind);
+  expect(kinds[0]).toBe('lift');
+  expect(kinds).not.toContain('drop');
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+  expect(await getContent(page)).toBe('alpha\n\nbravo\n\ncharlie');
+});
+
+mobileDndTest('the indicator ticks once per boundary, not once per move', async ({ page, cdp }) => {
+  await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie\n\ndelta');
+  await clearMessages(page);
+
+  const ticks = async () =>
+    (await messagesOfType(page, 'haptic')).filter((m) => m.kind === 'move').length;
+
+  const alpha = await blockCenter(page, 'alpha');
+  const bravo = await blockCenter(page, 'bravo');
+  const charlie = await blockCenter(page, 'charlie');
+
+  await touch(cdp, 'touchStart', alpha.x, alpha.y);
+  await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+  // The hold itself is silent: the bar is where the block already is.
+  expect(await ticks()).toBe(0);
+
+  await touch(cdp, 'touchMove', bravo.x, bravo.y);
+  await page.waitForTimeout(32);
+  const afterFirstBoundary = await ticks();
+  expect(afterFirstBoundary).toBe(1);
+
+  // Two more moves that resolve to the SAME boundary — no thumb should feel
+  // anything, because nothing moved as far as the eye is concerned.
+  await touch(cdp, 'touchMove', bravo.x, bravo.y + 2);
+  await page.waitForTimeout(32);
+  await touch(cdp, 'touchMove', bravo.x, bravo.y + 3);
+  await page.waitForTimeout(32);
+  expect(await ticks()).toBe(afterFirstBoundary);
+
+  await touch(cdp, 'touchMove', charlie.x, charlie.y);
+  await page.waitForTimeout(32);
+  expect(await ticks()).toBe(afterFirstBoundary + 1);
+
+  await touch(cdp, 'touchEnd', charlie.x, charlie.y);
+  await settleChangeDebounce(page);
+});
 
 mobileDndTest('a scroll gesture never lifts a block', async ({ page, cdp }) => {
   await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
@@ -630,6 +710,9 @@ mobileDndTest('a scroll gesture never lifts a block', async ({ page, cdp }) => {
 
   expect(await messagesOfType(page, 'haptic')).toHaveLength(0);
   expect(await messagesOfType(page, 'change')).toHaveLength(0);
+  /* And no drag was reported, so the shell never suspended its text
+   * interaction: a tap and a scroll both have to leave selection alone. */
+  expect(await messagesOfType(page, 'blockDrag')).toHaveLength(0);
   expect(await getContent(page)).toBe('alpha\n\nbravo\n\ncharlie');
 });
 
@@ -938,8 +1021,17 @@ test('offscreen blocks are containment-skipped and the caret can still reach the
     return {
       contentVisibility: computed.getPropertyValue('content-visibility'),
       containIntrinsicSize: computed.getPropertyValue('contain-intrinsic-size'),
+      /* The rule is engine-gated: it only applies under this class, which
+       * `blockContainment.ts` withholds on Apple WebKit (where a scrolled-in
+       * block keeps its box and paints no text). Chromium — this project, and
+       * the Android WebView the budgets were measured on — must carry it, so
+       * assert the wiring and not just the computed value: a class renamed on
+       * one side of the pair would otherwise turn containment off everywhere
+       * and this test would still pass on the fallback.  */
+      gated: !!document.querySelector('.futo-milkdown.block-containment'),
     };
   });
+  expect(styles.gated).toBe(true);
   expect(styles.contentVisibility).toBe('auto');
   expect(styles.containIntrinsicSize).toContain('auto');
 
@@ -1010,9 +1102,17 @@ test('offscreen blocks are containment-skipped and the caret can still reach the
  * test red.
  */
 base('killing the app mid-stream leaves the note file byte-untouched', async ({ browser }) => {
+  const SECTIONS = 4000;
+  /* Heading + list + paragraph per section. Named, because the "still partial"
+   * assertion below is about the note's own size: the absolute block count it
+   * used to carry was tuned to a slower load, and dropping upstream's
+   * `syncHeadingIdPlugin` — which re-stamped every heading id after every
+   * appended chunk — made the stream fast enough to blow through it while the
+   * load was still genuinely partial. */
+  const TOP_LEVEL_BLOCKS = SECTIONS * 3;
   const note =
     Array.from(
-      { length: 4000 },
+      { length: SECTIONS },
       (_, i) => `## Section ${i}\n\n*   loose item ${i}\n\nBody __${i}__ text.`,
     ).join('\n\n') + '\n';
 
@@ -1066,7 +1166,7 @@ base('killing the app mid-stream leaves the note file byte-untouched', async ({ 
     expect(await page.locator('.milkdown-stream-tail').count()).toBe(1);
     expect(
       await page.evaluate(() => document.querySelectorAll('.ProseMirror > *').length),
-    ).toBeLessThan(8000);
+    ).toBeLessThan(TOP_LEVEL_BLOCKS);
   } finally {
     await context.close();
   }

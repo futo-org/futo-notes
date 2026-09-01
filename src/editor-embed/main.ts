@@ -141,6 +141,13 @@ const editor = mount(EmbeddedEditor, {
     onhaptic: (kind: 'lift' | 'drop') => {
       post({ type: 'haptic', kind });
     },
+    // Same path, and the message the iOS shell acts on rather than merely
+    // reports: it suspends WKWebView's text-interaction gestures while a block
+    // is airborne, because the page cannot stop the OS magnifier itself
+    // (bridge.ts BlockDragMessage).
+    onblockdrag: (active: boolean) => {
+      post({ type: 'blockDrag', active });
+    },
     onenginemounted: () => {
       window.__futoEditorMounted = true;
     },

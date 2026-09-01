@@ -66,6 +66,18 @@
  * emitted only by the Milkdown editor's iOS long-press block-drag path
  * (`mobileBlockDnd.ts`). A host without a case for it just drops the message
  * (no haptic, exactly today's behavior).
+ *
+ * `blockDrag` ({@link BlockDragMessage}) is the third of that family, and the
+ * one the page cannot do without: WKWebView's own long-press text interaction
+ * — the magnifier loupe and the caret it drags — is a UIKit gesture the page
+ * has no way to cancel (measured: neither `pointer-events`, `touch-action`,
+ * `user-select`, cancelling `selectstart`/`selectionchange`, nor
+ * `preventDefault()` on the touch stream stops it, because WebKit commits to
+ * the gesture at touch-down). Only the shell that owns the WebView can suspend
+ * it, so the editor reports when a block is airborne and the shell decides what
+ * that means. Additive, no version bump: a host without a case for it just
+ * drops the message and keeps exactly today's behavior — including today's
+ * loupe.
  */
 export const BRIDGE_VERSION = 7 as const;
 
@@ -321,21 +333,50 @@ export interface FormatStateMessage {
 
 /**
  * Emitted by the iOS long-press mobile block-drag path (`mobileBlockDnd.ts`)
- * at the two moments the interaction wants tactile feedback:
- * `'lift'` when a ~330-350ms hold picks the block up (the moment it visibly
- * scales/shadows), and `'drop'` when a release COMMITS an actual reorder as
- * one transaction. A release back at the source position is a true no-op
- * (no transaction, no history entry) and posts no `'drop'` — see the module
- * doc comment there. iOS-only BY CONSTRUCTION, which is the difference from
- * `formatState`: Android and desktop mount the ⠿ gutter-handle drag instead
- * and never construct this plugin, so there is no Android consumer to add
- * unless Android adopts the long-press gesture too (unlike `formatState`,
- * which #104 gave one). A host without a case for
- * it just drops it.
+ * at the moments the interaction wants tactile feedback:
+ *
+ * - `'lift'` when a ~330-350ms hold picks the block up (the moment it visibly
+ *   scales/shadows).
+ * - `'move'` each time the drop indicator lands on a DIFFERENT top-level
+ *   boundary while the finger travels — the tick that tells a thumb the block
+ *   would land somewhere new without looking. Consecutive resolutions to the
+ *   same boundary are silent, so the rate is "once per place", not once per
+ *   pointermove.
+ * - `'drop'` when a release COMMITS an actual reorder as one transaction. A
+ *   release back at the source position is a true no-op (no transaction, no
+ *   history entry) and posts no `'drop'` — see the module doc comment there.
+ *
+ * iOS-only BY CONSTRUCTION, which is the difference from `formatState`: Android
+ * and desktop mount the ⠿ gutter-handle drag instead and never construct this
+ * plugin, so there is no Android consumer to add unless Android adopts the
+ * long-press gesture too (unlike `formatState`, which #104 gave one). A host
+ * without a case for a kind just drops it, which is why `'move'` needed no
+ * version bump: a host that only knows lift/drop keeps exactly its old feel.
  */
 export interface HapticMessage {
   type: 'haptic';
-  kind: 'lift' | 'drop';
+  kind: 'lift' | 'move' | 'drop';
+}
+
+/**
+ * Emitted by the same iOS long-press block-drag path (`mobileBlockDnd.ts`) when
+ * a block LEAVES the page (`active: true`, at the lift) and again the moment
+ * the gesture resolves in any way at all — committed reorder, drop back at the
+ * source, or a cancel the system forced (`active: false`). Every exit posts it,
+ * unlike `haptic`, which is silent on a no-op drop: a host that suspends
+ * something for the duration of a drag must be told when the drag is over even
+ * if nothing happened.
+ *
+ * What the iOS shell does with it: suspends the WebView's text-interaction
+ * gestures, so the OS magnifier does not appear on top of the block being
+ * dragged (see {@link BRIDGE_VERSION}'s doc comment). iOS-only by construction,
+ * the same way `haptic` is — Android and desktop mount the ⠿ gutter-handle drag
+ * and never construct this plugin.
+ */
+export interface BlockDragMessage {
+  type: 'blockDrag';
+  /** True while a block is airborne. */
+  active: boolean;
 }
 
 /**
@@ -355,7 +396,8 @@ export type FutoEditorOutboundMessage =
   | SaveImageDataMessage
   | PasteClipboardImageMessage
   | FormatStateMessage
-  | HapticMessage;
+  | HapticMessage
+  | BlockDragMessage;
 
 /**
  * Every `type` value {@link FutoEditorOutboundMessage} can carry. Consumed by
@@ -380,6 +422,7 @@ export const OUTBOUND_MESSAGE_TYPES = [
   'pasteClipboardImage',
   'formatState',
   'haptic',
+  'blockDrag',
 ] as const;
 
 // Distributive-conditional mutual-extends trick for exact type equality —

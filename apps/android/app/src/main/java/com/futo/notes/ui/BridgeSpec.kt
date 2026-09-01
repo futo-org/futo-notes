@@ -29,5 +29,6 @@ object BridgeSpec {
         "pasteClipboardImage",
         "formatState",
         "haptic",
+        "blockDrag",
     )
 }

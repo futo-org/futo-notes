@@ -115,8 +115,12 @@ final class EditorCompletionQueue {
 ///   { type: 'pasteClipboardImage' }                            (v5)
 ///   { type: 'formatState', active: [<toolbar id>] }   (Milkdown editor, unversioned —
 ///     see bridge.ts's BRIDGE_VERSION doc comment; drives toolbar highlighting below)
-///   { type: 'haptic', kind: 'lift' | 'drop' }          (Milkdown editor, unversioned,
-///     iOS-only — the long-press mobile block-drag path; drives UIImpactFeedbackGenerator below)
+///   { type: 'haptic', kind: 'lift' | 'move' | 'drop' } (Milkdown editor, unversioned,
+///     iOS-only — the long-press mobile block-drag path; drives the impact and
+///     selection feedback generators below)
+///   { type: 'blockDrag', active: <bool> }              (Milkdown editor, unversioned,
+///     iOS-only — same path; suspends WKWebView's text interaction so the OS
+///     magnifier stays out of the drag)
 ///
 /// The markdown toolbar is NATIVE on iOS: EditorHost installs
 /// EditorToolbarAccessory as the keyboard's inputAccessoryView (so it docks
@@ -316,12 +320,19 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// cursorContext drives Indent/Outdent visibility).
     let toolbarState = EditorToolbarState()
 
-    /// iOS long-press mobile block-drag haptics (bridge 'haptic'). Two generators (not one reused instance) so `.medium`
-    /// (lift) and `.light` (drop) each stay primed for their own style;
-    /// `prepare()` ahead of `impactOccurred()` minimizes the click's latency,
-    /// re-primed immediately after firing for the next lift/drop.
+    /// iOS long-press mobile block-drag haptics (bridge 'haptic'). Separate
+    /// generators (not one reused instance) so `.medium` (lift) and `.light`
+    /// (drop) each stay primed for their own style; `prepare()` ahead of
+    /// `impactOccurred()` minimizes the click's latency, re-primed immediately
+    /// after firing for the next lift/drop.
     private let liftHapticFeedback = UIImpactFeedbackGenerator(style: .medium)
     private let dropHapticFeedback = UIImpactFeedbackGenerator(style: .light)
+    /// The tick as the drop indicator passes each boundary. A SELECTION
+    /// generator rather than a third impact: this is UIKit's "the value under
+    /// your finger changed" feedback — the same one a picker wheel uses — and it
+    /// is deliberately lighter than the lift and the drop so a drag reads as
+    /// one pickup, a run of ticks, and one landing.
+    private let moveHapticFeedback = UISelectionFeedbackGenerator()
     /// The native toolbar, installed as the keyboard's inputAccessoryView via
     /// futo_overrideInputAccessoryView. Lazy: the closure captures self.
     private lazy var toolbarAccessory = EditorToolbarAccessory(
@@ -383,6 +394,62 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // the property doc comment.
         liftHapticFeedback.prepare()
         dropHapticFeedback.prepare()
+        moveHapticFeedback.prepare()
+    }
+
+    /// Recognisers this suspended for the current block drag, so exactly the
+    /// ones that were turned off get turned back on.
+    private var suspendedTextGestures: [UIGestureRecognizer] = []
+
+    /// Suspends (or restores) the WebView's text-interaction gestures — the
+    /// selection handles, the callout menu, and the magnifier loupe — for the
+    /// duration of an editor block drag.
+    ///
+    /// TWO levers, because the documented one is not sufficient on its own.
+    /// `isTextInteractionEnabled` (iOS 14.5+) is a live preference and stops the
+    /// NEXT gesture, but a gesture already tracking the finger runs to
+    /// completion: measured on iOS 26.0, the loupe still appeared over the
+    /// dragged block with the preference off, because WebKit commits to its long
+    /// press at touch-down and the editor's lift can only ever arrive after that
+    /// (340ms vs the loupe's ~500ms). Disabling a recogniser cancels it
+    /// immediately, which is the only thing that reaches an in-flight gesture.
+    private func setTextInteractionSuspended(_ suspended: Bool) {
+        webView.configuration.preferences.isTextInteractionEnabled = !suspended
+        if suspended {
+            guard suspendedTextGestures.isEmpty else { return }
+            suspendedTextGestures = textInteractionGestures().filter(\.isEnabled)
+            for gesture in suspendedTextGestures { gesture.isEnabled = false }
+        } else {
+            for gesture in suspendedTextGestures { gesture.isEnabled = true }
+            suspendedTextGestures = []
+        }
+        let state = suspended ? "suspended" : "restored"
+        EditorHost.logger.info(
+            "text interaction \(state, privacy: .public) (\(self.suspendedTextGestures.count, privacy: .public) gestures)"
+        )
+    }
+
+    /// UIKit's text-interaction recognisers on the WebView's content view.
+    ///
+    /// WebKit installs recognisers of its own on that view — including the one
+    /// that FORWARDS touch events to the page — so every WK-prefixed class is
+    /// left alone: disabling those would kill the very drag this protects. What
+    /// remains is UIKit's text interaction stack (the long press that magnifies,
+    /// the pans that drag a caret or a selection), which is exactly what has to
+    /// stand down while a block is airborne.
+    ///
+    /// Reached by class name rather than by a private API, and it reports what
+    /// it found: a future iOS that rearranges this leaves a "0 gestures" line in
+    /// the log instead of a silent regression.
+    private func textInteractionGestures() -> [UIGestureRecognizer] {
+        let subviews = webView.scrollView.subviews
+        let content =
+            subviews.first { String(describing: type(of: $0)).contains("WKContentView") }
+            ?? subviews.first
+        guard let content else { return [] }
+        return (content.gestureRecognizers ?? []).filter { gesture in
+            !String(describing: type(of: gesture)).hasPrefix("WK")
+        }
     }
 
     /// Load the bundled editor into the WebView. Used at init and again to
@@ -394,6 +461,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// opaque/null origin that `baseURL: nil` produces, leaving the editor
     /// blank. A file:// origin is non-opaque, so the inline module runs.
     private func loadEditor() {
+        // A page that goes away mid-drag can never post its `blockDrag false`,
+        // and the WebView outlives the page (this is also the WebContent-crash
+        // recovery path). Text interaction the editor borrowed comes back here
+        // rather than staying suspended for the rest of the session.
+        setTextInteractionSuspended(false)
         if let url = editorFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
@@ -644,6 +716,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             case "lift":
                 liftHapticFeedback.impactOccurred()
                 liftHapticFeedback.prepare()
+            case "move":
+                moveHapticFeedback.selectionChanged()
+                moveHapticFeedback.prepare()
             case "drop":
                 dropHapticFeedback.impactOccurred()
                 dropHapticFeedback.prepare()
@@ -651,6 +726,16 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 break
             }
             EditorHost.logger.info("haptic received: \(kind, privacy: .public)")
+        case .blockDrag:
+            // Milkdown editor, iOS-only — a block is airborne (or has landed)
+            // on the long-press block-drag path. Suspend the WebView's own text
+            // interaction for that window: WKWebView's long-press gesture
+            // otherwise magnifies the block under the finger (the system loupe)
+            // and drags a caret along behind it, on top of the drag the user is
+            // actually performing. This is a shell duty because the page has no
+            // lever on it — bridge.ts's BlockDragMessage records what was
+            // measured and rejected.
+            setTextInteractionSuspended((body["active"] as? Bool) == true)
         case .openNote:
             // User tapped a RESOLVED wikilink — the bound note view navigates.
             if let id = body["id"] as? String {
