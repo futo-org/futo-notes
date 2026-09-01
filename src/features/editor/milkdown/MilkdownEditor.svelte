@@ -35,6 +35,8 @@
     remarkStringifyOptionsCtx,
     rootCtx,
   } from '@milkdown/kit/core';
+  import { codeBlockAttr, inlineCodeAttr } from '@milkdown/kit/preset/commonmark';
+
   import { commonmarkWithCompat } from '@futo-notes/editor/milkdown-compat';
   import { gfm } from '@milkdown/kit/preset/gfm';
   import { history } from '@milkdown/kit/plugin/history';
@@ -146,6 +148,16 @@
   /* Apple WebKit paints holes where a contained block should be — see
    * blockContainment.ts. The class, not the rule, is what varies. */
   const skipOffscreenBlocks = resolveBlockContainment() === 'offscreen-skipped';
+
+  /** What the keyboard is told inside code, where its help is corruption.
+   * Deliberately the inverse of the editable root's set (see the
+   * `editorViewOptionsCtx` block below): squiggles stay off in both. */
+  const CODE_IME_ATTRIBUTES = {
+    autocorrect: 'off',
+    autocapitalize: 'off',
+    spellcheck: 'false',
+    writingsuggestions: 'false',
+  } as const;
 
   let container: HTMLDivElement;
   let editor: Editor | null = null;
@@ -433,6 +445,30 @@
             handlePaste: (_view, event) => pasteHandler?.(event) ?? false,
             handleKeyDown: (view, event) => handleParityKeyDown(view, event),
           }));
+
+          /* ...but not in code, as far as the engine will allow. Autocorrect
+           * belongs to prose: the first adversarial pass after turning it on
+           * caught the keyboard rewriting a fence's contents — `dont` became
+           * `don't` and `teh` became `Teh` inside a code block, which is silent
+           * corruption of the one kind of text a user most needs left alone.
+           *
+           * MEASURED, iOS 26 simulator, 2026-09-01: WKWebView IGNORES these.
+           * It reads the traits from the editing HOST (the contenteditable
+           * root), not from the element the caret is in, so typing `teh dont`
+           * inside a fence still lands `The don't` with these attributes set.
+           * They are declared anyway because they are what the HTML spec says
+           * (autocapitalize inherits down the tree), they cost nothing, and
+           * Blink — Android's WebView — is expected to honour them, though that
+           * is UNVERIFIED here: no Android device was available. Do not read
+           * this block as "autocorrect is scoped to prose on iOS"; it is not.
+           * Suppressing it there needs the caret's context to reach the shell
+           * so it can call `reloadInputViews()` after the root's own attribute
+           * flips — a bigger change than this one, not yet made. */
+          ctx.set(codeBlockAttr.key, () => ({
+            pre: CODE_IME_ATTRIBUTES,
+            code: CODE_IME_ATTRIBUTES,
+          }));
+          ctx.set(inlineCodeAttr.key, () => ({ ...CODE_IME_ATTRIBUTES }));
 
           const listeners = ctx.get(listenerCtx);
           listeners.markdownUpdated((_ctx, reported) => {
