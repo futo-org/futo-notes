@@ -273,14 +273,21 @@ plugins` mid-render and the editor kept showing the previously opened note.
   tests/editor-embed-ime-parity.spec.ts, scripts/drift-registry.json
   `editor-ime-attributes`
 
-  > **Gap:** on iOS the keyboard still rewrites text inside CODE, where its help
-  > is corruption. The code surfaces DECLARE the inverse set
-  > (`autocorrect="off"`, `autocapitalize="off"` on `<pre>`, `<code>` and inline
-  > `<code>`) and Blink — Android's WebView — is expected to honour it
-  > (UNVERIFIED: no Android device), but WKWebView reads its input traits from
-  > the editing HOST and latches them when the input session begins. Typing
-  > `teh dont` through the software keyboard into a fenced code block lands
-  > `The don't` on disk. Four mechanisms were built and measured on the iOS 26
+  > **Gap:** on BOTH native shells the keyboard still rewrites text inside
+  > CODE, where its help is corruption. The code surfaces DECLARE the inverse
+  > set (`autocorrect="off"`, `autocapitalize="off"` on `<pre>`, `<code>` and
+  > inline `<code>`), and neither engine reads it from the element the caret is
+  > in: WKWebView and Blink alike take the input traits from the editing HOST
+  > and latch them when the input session begins. Typing `teh dont` through the
+  > software keyboard into a fenced code block lands `The don't` on disk on iOS;
+  > on Android (moto g play 2023, System WebView 151, FUTO Keyboard, measured
+  > 2026-09-01 with `FutoEditor.getContent()` as the oracle) `teh ` typed inside
+  > a fence lands `the ` exactly as it does in prose. Android has a SECOND
+  > layer to the same failure: Chromium does honour the ROOT's attribute — with
+  > `autocorrect="off"` on the editable the keyboard's `EditorInfo.inputType`
+  > drops `TYPE_TEXT_FLAG_AUTO_CORRECT` (`0x2c0a1` → `0x240a1`) — and the FUTO
+  > Keyboard autocorrects anyway, so on that keyboard even a per-caret root flip
+  > would change nothing. Four mechanisms were built and measured on the iOS 26
   > simulator on 2026-09-01 with the vault bytes as the oracle, and ALL FOUR
   > still wrote `The don't`: (1) the per-element attributes above; (2) the same
   > attributes on the contenteditable ROOT, flipped with the caret, plus
@@ -295,7 +302,8 @@ plugins` mid-render and the editor kept showing the previously opened note.
   > entirely; with the shell's force-keyboard gate armed so the keyboard stays
   > up, autocorrect fires again). The remaining avenue is making a fence its own
   > editing host — a code-block node view with its own `contenteditable` — which
-  > WebKit computes fresh focus information for. _(native shells, iOS)_
+  > WebKit computes fresh focus information for, and which on Android would
+  > also need a keyboard that honours the flag. _(native shells)_
 
 ### Selection
 
