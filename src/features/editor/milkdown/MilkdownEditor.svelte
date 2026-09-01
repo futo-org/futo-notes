@@ -489,9 +489,20 @@
            * Blink — Android's WebView — is expected to honour them, though that
            * is UNVERIFIED here: no Android device was available. Do not read
            * this block as "autocorrect is scoped to prose on iOS"; it is not.
-           * Suppressing it there needs the caret's context to reach the shell
-           * so it can call `reloadInputViews()` after the root's own attribute
-           * flips — a bigger change than this one, not yet made. */
+           *
+           * Nor is it a matter of telling the shell. Four mechanisms were built
+           * and measured on the iOS 26 simulator on 2026-09-01, typing `teh
+           * dont` through the software keyboard into a fence, with the vault
+           * bytes as the oracle; all four still wrote `The don't`. The list, so
+           * nobody pays for it twice, is in docs/spec/editor.md under the
+           * "autocorrect still rewrites code on iOS" Gap. The short version:
+           * the traits are latched when the input session begins, UIKit never
+           * asks the WKContentView for them, and a blur+refocus only appears to
+           * work because it dismisses the keyboard. Flipping the ROOT's
+           * attribute with the caret is therefore not just useless on iOS but
+           * HARMFUL — a note whose caret opens inside a fence loses autocorrect
+           * for the whole session, prose included (measured) — which is why the
+           * attributes here are per-element and static. */
           ctx.set(codeBlockAttr.key, () => ({
             pre: CODE_IME_ATTRIBUTES,
             code: CODE_IME_ATTRIBUTES,
@@ -1359,6 +1370,70 @@
   :global(.futo-milkdown .ProseMirror ul),
   :global(.futo-milkdown .ProseMirror ol) {
     padding-left: 1.4em;
+  }
+
+  /* Nesting indentation is CAPPED, because an unbounded one walks the note off
+   * the screen — and a `padding-left` bigger than its container does not
+   * overflow, it SHRINKS the content box to nothing, so there is not even
+   * anything to scroll to.
+   *
+   * MEASURED, 402px viewport (iPhone 16/17 CSS pixels), 20-level bullet list,
+   * at a flat 1.4em per level: level 13 computed to ZERO width and levels
+   * 14-19 started past the right edge, with `scrollWidth === clientWidth`. The
+   * note mounted all 20 items and the user saw a blank body — the reported
+   * defect.
+   *
+   * The tiers: levels 1-4 keep the full step, so every ordinary list (the
+   * common case is one to three) is pixel-identical to before; 5-8 taper to
+   * half, still visibly nesting; from 9 down the indent stops growing
+   * altogether. Total inset is therefore at most 8.4em (143px), leaving ~187px
+   * of readable column on the narrowest phone at ANY depth. Past level 8 the
+   * levels are no longer told apart by their left edge — a deliberate trade:
+   * a 20-deep outline is pathological, and seeing the text is worth more than
+   * counting the depth by eye.
+   *
+   * `:is(ul, ol)` chains rather than a JS-computed depth attribute: the depth
+   * that matters is exactly "how many list ancestors", which the cascade
+   * already knows. One `:is()` per level, so the chain LENGTH is the level it
+   * applies from, and a longer chain is automatically more specific — the
+   * tiers cannot be defeated by source order. No per-node decoration work on
+   * the load or keystroke path (AGENTS.md M5).
+   *
+   * The flat tier keeps `list-style-position: outside` (the default): with no
+   * padding for the marker to hang in, the bullet draws just left of the item's
+   * content edge, in the flat column's own left margin — which reads correctly,
+   * since every flat level shares that column. `inside` was tried first and is
+   * wrong here: a list item's first child is a block `<p>`, so an inside marker
+   * takes a line box of its OWN and every deep item renders as a lone bullet
+   * with its text on the next line.
+   *
+   * What this does NOT reach: a nested TASK list also pays its own 28px
+   * checkbox slot per level (`li[data-checked]` below), and that slot is a
+   * minimum tap target, so unlike indentation it cannot taper. Capping the
+   * list indent moves the depth at which a nested task list runs out of column
+   * from 6 to 8; past that it still collapses. Overflowing instead is not a way
+   * out either — a top-level block carries `contain: paint` from the
+   * containment rule above in Chromium, which clips the overflow rather than
+   * making it scrollable. Recorded as a Gap in docs/spec/editor.md; closing it
+   * is a checkbox-layout decision, not an indentation one. */
+  :global(.futo-milkdown .ProseMirror :is(ul, ol) :is(ul, ol) :is(ul, ol) :is(ul, ol) :is(ul, ol)) {
+    padding-left: 0.7em;
+  }
+
+  :global(
+    .futo-milkdown
+      .ProseMirror
+      :is(ul, ol)
+      :is(ul, ol)
+      :is(ul, ol)
+      :is(ul, ol)
+      :is(ul, ol)
+      :is(ul, ol)
+      :is(ul, ol)
+      :is(ul, ol)
+      :is(ul, ol)
+  ) {
+    padding-left: 0;
   }
 
   :global(.futo-milkdown .ProseMirror ul) {

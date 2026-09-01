@@ -100,6 +100,7 @@ this file states the behaviors a human cares about.
   > therefore still shows a blank editor pane with no notice. The break this
   > work found (`@milkdown/transformer`'s `Array.prototype.at`) happens to fail
   > at mount as well, so it is caught; a parse-only failure would not be.
+
 - A note whose editor can't run shows the native "update Android System WebView"
   notice in place of a blank editor pane — when the engine reported a missing
   capability, never produced a mounted editor, or there is no WebView provider at
@@ -132,10 +133,10 @@ this file states the behaviors a human cares about.
   link node, `![](\n)` one image node — and CodeMirror forbids a view plugin
   from replacing a line break, so hiding those markers threw
   `RangeError: Decorations that replace line breaks may not be specified via
-  plugins` mid-render and the editor kept showing the previously opened note.
+plugins` mid-render and the editor kept showing the previously opened note.
   Opening such a note threw, and so did typing or pasting the same text and then
   moving the caret off it. Both paths now render the syntax rather than hiding
-  it; a link whose *text* wraps across lines (`[a\nb](c)`) still hides normally.
+  it; a link whose _text_ wraps across lines (`[a\nb](c)`) still hides normally.
   → live-preview/decorationSet.ts `replacementCrossesLineBreak`,
   live-preview/inlineDecorations.ts `decorateLink`,
   liveMarkdownTransform.decorations.test.ts,
@@ -183,6 +184,7 @@ this file states the behaviors a human cares about.
   > input for the transition's spec MR rather than a defect with an obvious fix; it is
   > recorded because the destructive half is user-visible. _(native shells)_ →
   > docs/plan/milkdown-transition.md, docs/evidence/milkdown-bucket1-parity-audit.md
+
 - Pressing Enter in a continued list item scrolls the new item into view. →
   docs/learnings/ios-keyboard-editor-jump.md _(iOS)_
 
@@ -270,6 +272,30 @@ this file states the behaviors a human cares about.
   src/features/editor/milkdown/MilkdownEditor.svelte,
   tests/editor-embed-ime-parity.spec.ts, scripts/drift-registry.json
   `editor-ime-attributes`
+
+  > **Gap:** on iOS the keyboard still rewrites text inside CODE, where its help
+  > is corruption. The code surfaces DECLARE the inverse set
+  > (`autocorrect="off"`, `autocapitalize="off"` on `<pre>`, `<code>` and inline
+  > `<code>`) and Blink — Android's WebView — is expected to honour it
+  > (UNVERIFIED: no Android device), but WKWebView reads its input traits from
+  > the editing HOST and latches them when the input session begins. Typing
+  > `teh dont` through the software keyboard into a fenced code block lands
+  > `The don't` on disk. Four mechanisms were built and measured on the iOS 26
+  > simulator on 2026-09-01 with the vault bytes as the oracle, and ALL FOUR
+  > still wrote `The don't`: (1) the per-element attributes above; (2) the same
+  > attributes on the contenteditable ROOT, flipped with the caret, plus
+  > `reloadInputViews()` — and the latch is symmetrical, so a note whose caret
+  > opens inside a fence then loses autocorrect in PROSE for the whole session,
+  > which is why the declarations are per-element and static; (3) overriding
+  > `autocorrectionType` / `autocapitalizationType` on the private
+  > `WKContentView` runtime subclass the shell already uses for the accessory
+  > bar — instrumented, and UIKit never calls the getter; (4) a page-side
+  > blur+refocus to start a new input session, which only appears to work
+  > because it DISMISSES the keyboard (typing then bypasses the input session
+  > entirely; with the shell's force-keyboard gate armed so the keyboard stays
+  > up, autocorrect fires again). The remaining avenue is making a fence its own
+  > editing host — a code-block node view with its own `contenteditable` — which
+  > WebKit computes fresh focus information for. _(native shells, iOS)_
 
 ### Selection
 
@@ -362,6 +388,32 @@ this file states the behaviors a human cares about.
   is too shallow to nest and CommonMark renders it level with its parent as a
   sibling. → live-preview/listDecorations.ts `listIndentLevel` /
   `parseListMarker`, markdown-spec/cases/06-lists/unordered.yaml
+- Nesting indentation is BOUNDED, so a deeply nested list stays readable at
+  phone width: levels one to four indent 1.4em each, five to eight 0.7em, and
+  from level nine the indent stops growing — at most 8.4em (143px) in total,
+  which leaves ~187px of column at ANY depth on a 402px screen. Before this, a
+  590-byte note holding one bullet nested 20 levels deep opened to a completely
+  blank body: a `padding-left` larger than its container shrinks the content box
+  instead of overflowing it, so levels 13+ computed to ZERO width, 14+ started
+  past the right edge, `scrollWidth === clientWidth` left nothing to scroll to,
+  and the load-time viewport parked in the empty region. Ordinary one-to-three
+  level lists are unchanged; past level eight the levels stop being told apart
+  by their left edge, which is the deliberate half of the trade. Measured at
+  402x874. → src/features/editor/milkdown/MilkdownEditor.svelte,
+  tests/editor-embed-milkdown-deep-nesting.spec.ts _(Milkdown)_
+
+  > **Gap:** a nested TASK list is not bounded. Each level also pays the 28px
+  > checkbox slot, and that slot is a minimum tap target, so unlike indentation
+  > it cannot taper: the content column still runs out, at level 8 rather than
+  > the level 6 it collapsed at before the cap (measured, 402px). Overflowing
+  > instead is not available — Chromium's containment rule puts `contain: paint`
+  > on the top-level block, which CLIPS horizontal overflow rather than making
+  > it scrollable. Closing this is a checkbox-layout decision (deep levels
+  > sharing one checkbox column, or a slot that overlaps the text) rather than
+  > an indentation one. The CodeMirror engine has the same unbounded shape at
+  > 24px per level (`INDENT_STEP`, live-preview/listDecorations.ts); it is
+  > untested at depth and unchanged here. _(Milkdown, native shells)_
+
 - Tapping/clicking a bullet or number marker places the caret at the marker
   (revealing the dimmed `-`/`N.` source — the same state as arrowing onto
   it); a marker tap must never be a no-op. The markers are
@@ -977,6 +1029,7 @@ EditorWebView.swift, EditorWebView.kt
   itself generates is space-free, so this only reaches notes written elsewhere.
   → shared/media/imageFiles.ts `createImageFilename`,
   tests/editor-embed-milkdown.spec.ts
+
   > **Gap:** an image destination that is ALREADY percent-encoded in the file
   > (`![](my%20photo.png)`, as some other editors write it) does not render.
   > _(native shells)_ the base-URL branch encodes it a second time
@@ -992,6 +1045,7 @@ EditorWebView.swift, EditorWebView.kt
   opening the note leaves it byte-identical on disk. Android also verified
   end-to-end for paste — the host wrote the file and `insertImage` put
   `![](image-…png)` in the note.
+
   > **Gap:** the WYSIWYG image behaviors above are live only where the WYSIWYG
   > editor is mounted, which today is the native shells' embedded editor. The
   > desktop app still mounts the CodeMirror editor directly, so on desktop the
@@ -1001,6 +1055,7 @@ EditorWebView.swift, EditorWebView.kt
 
 - iOS clipboard image paste is covered at the bundle seam and, for the shared
   decision and bridge sink, end-to-end against the real Android host.
+
   > **Gap:** iOS clipboard image paste is unverified on a simulator — nothing in
   > `simctl` or `axe` can put an image UTI on the simulator pasteboard
   > (`simctl pbcopy` writes stdin as text), so ⌘V cannot reach the image path
