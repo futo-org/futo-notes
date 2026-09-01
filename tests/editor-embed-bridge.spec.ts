@@ -402,6 +402,43 @@ test('exec converts task, bullet, and ordered line kinds without accumulating pr
   expect(await getContent(page)).toBe('1. hello');
 });
 
+/*
+ * A fenced code block's lines are literal text — no block prefix applies.
+ *
+ * The Milkdown engine answers the same tap the same way (its `code` kind has no
+ * transition, tests/editor-embed-milkdown-toolbar.spec.ts); here the fence is a
+ * run of SOURCE lines the command skips. docs/spec/editor.md → "Markdown
+ * toolbar" states the rule once for both.
+ */
+const FENCE = '```\ncode line one\n```';
+
+/** Put the caret on the fence's code line in the source. */
+async function caretOnCodeLine(page: Page): Promise<void> {
+  await page.getByText('code line one').first().click();
+  await flushFrames(page);
+}
+
+for (const commandId of ['heading', 'quote', 'bullet-list', 'ordered-list', 'task-list']) {
+  test(`exec ${commandId} leaves a line inside a fenced code block untouched`, async ({ page }) => {
+    await hostSetContent(page, FENCE);
+    await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+    await caretOnCodeLine(page);
+    await exec(page, commandId);
+    expect(await getContent(page)).toBe(FENCE);
+  });
+}
+
+// Indent/Outdent are the one pair that stays engine-specific: in the SOURCE
+// engine they indent the line (docs/spec/editor.md), and indenting a code line
+// is legitimate code indentation rather than a block prefix.
+test('exec indent still indents a code line in the source engine', async ({ page }) => {
+  await hostSetContent(page, FENCE);
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+  await caretOnCodeLine(page);
+  await exec(page, 'indent');
+  expect(await getContent(page)).toMatch(/^```\n\s+code line one\n```$/);
+});
+
 test('exec link wraps a selection as [sel]() with the caret in the URL slot', async ({ page }) => {
   await hostSetContent(page, 'word');
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());

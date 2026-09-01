@@ -458,6 +458,97 @@ test('the Task command renders and removes the checkbox widget', async ({ page }
 });
 
 // ============================================================
+// Block formats — a fenced code block is literal text
+// ============================================================
+
+/*
+ * A block command tapped inside a code block leaves the note's BYTES alone.
+ *
+ * The reported bug: with the caret on the blank second line of an open fence,
+ * Quote wrapped the WHOLE fence in `>` markers (`> \`\`\`` / `> code line one`),
+ * the toolbar then reported Quote active, and the text typed next became a
+ * third CODE line. A fence's content is literal text, so no markdown block
+ * prefix can apply to it (docs/spec/editor.md → "Markdown toolbar").
+ */
+
+const FENCE = '```\ncode line one\n```';
+
+/** Put the caret inside the rendered code block. */
+async function caretInFence(page: Page): Promise<void> {
+  await page.locator('.ProseMirror pre').first().click();
+  await flushFrames(page);
+}
+
+const BLOCK_IDS = ['heading', 'quote', 'bullet-list', 'ordered-list', 'task-list'];
+
+for (const id of [...BLOCK_IDS, 'indent', 'outdent']) {
+  test(`${id} inside a fenced code block leaves the note untouched`, async ({ page }) => {
+    await hostSetContent(page, FENCE);
+    await focusEditor(page);
+    await caretInFence(page);
+    const before = await getContent(page);
+    expect(before).toContain('```');
+
+    await exec(page, id);
+    expect(await getContent(page)).toBe(before);
+  });
+}
+
+// Indent/Outdent are the preset's list commands, so a fence INDENTED UNDER a
+// list item is the case where they could still restructure the list while the
+// caret sits on a code line.
+for (const id of [...BLOCK_IDS, 'indent', 'outdent']) {
+  test(`${id} inside a fence nested in a list item leaves the note untouched`, async ({ page }) => {
+    await hostSetContent(page, '- one\n- two\n\n  ```\n  nested code\n  ```');
+    await focusEditor(page);
+    await caretInFence(page);
+    const before = await getContent(page);
+    expect(before).toContain('nested code');
+
+    await exec(page, id);
+    expect(await getContent(page)).toBe(before);
+  });
+}
+
+// The toolbar highlight has to agree with what the button DID: nothing. The
+// reported bug lit Quote up, because the tap really had wrapped the fence.
+// `formatState` is deduped, so an unchanged empty set posts nothing at all —
+// what this asserts is that no post after the tap names any block command.
+test('a tap inside a fence never lights a block button up', async ({ page }) => {
+  await hostSetContent(page, FENCE);
+  await focusEditor(page);
+  await caretInFence(page);
+  await clearMessages(page);
+
+  await exec(page, 'quote');
+  const posted = await messagesOfType(page, 'formatState');
+  expect(posted.flatMap((message) => (message.active as string[] | undefined) ?? [])).toEqual([]);
+});
+
+test('quote across a fence formats the prose around it and skips the fence', async ({ page }) => {
+  await hostSetContent(page, 'before\n\n```\ncode\n```\n\nafter');
+  await focusEditor(page);
+  await selectAll(page);
+  await exec(page, 'quote');
+  expect((await getContent(page)).trimEnd()).toBe('> before\n\n```\ncode\n```\n\n> after');
+});
+
+// A GFM table cell holds one line of inline content, so no block prefix can
+// apply there either.
+for (const id of BLOCK_IDS) {
+  test(`${id} inside a table cell leaves the note untouched`, async ({ page }) => {
+    await hostSetContent(page, '| head |\n| ---- |\n| body |');
+    await focusEditor(page);
+    await caretIn(page, 'body');
+    const before = await getContent(page);
+    expect(before).toContain('body');
+
+    await exec(page, id);
+    expect(await getContent(page)).toBe(before);
+  });
+}
+
+// ============================================================
 // Indent / outdent
 // ============================================================
 

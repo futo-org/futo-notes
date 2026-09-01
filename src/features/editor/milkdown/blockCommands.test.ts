@@ -17,6 +17,13 @@ const item = (text: string, checked: boolean | null = null): ProseNode =>
 const bullets = (...items: ProseNode[]): ProseNode => s.nodes.bullet_list.create(null, items);
 const ordered = (...items: ProseNode[]): ProseNode => s.nodes.ordered_list.create(null, items);
 const doc = (...blocks: ProseNode[]): ProseNode => s.nodes.doc.create(null, blocks);
+const code = (text: string): ProseNode => s.nodes.code_block.create(null, s.text(text));
+/** A one-column GFM table: a header cell, then one body cell. */
+const table = (header: string, body: string): ProseNode =>
+  s.nodes.table.create(null, [
+    s.nodes.table_header_row.create(null, [s.nodes.table_header.create(null, p(header))]),
+    s.nodes.table_row.create(null, [s.nodes.table_cell.create(null, p(body))]),
+  ]);
 
 /**
  * A state whose caret sits at the first text position of the deepest first
@@ -31,6 +38,18 @@ function stateAtFirstText(root: ProseNode): EditorState {
   }
   const state = EditorState.create({ doc: root });
   return state.apply(state.tr.setSelection(TextSelection.create(root, pos + 1)));
+}
+
+/** A state whose caret sits inside the textblock reading `text`. */
+function stateAtText(root: ProseNode, text: string): EditorState {
+  let found = -1;
+  root.descendants((node, pos) => {
+    if (found === -1 && node.isTextblock && node.textContent === text) found = pos + 1;
+    return found === -1;
+  });
+  if (found === -1) throw new Error(`no textblock reading '${text}'`);
+  const state = EditorState.create({ doc: root });
+  return state.apply(state.tr.setSelection(TextSelection.create(root, found)));
 }
 
 /** Run one toolbar block command and return the resulting document. */
@@ -208,18 +227,6 @@ describe('blockCommand — nesting', () => {
     bullets(item('a'), s.nodes.list_item.create(null, [p('b'), bullets(item('c'))])),
   );
 
-  /** A state whose caret sits inside the textblock reading `text`. */
-  function stateAtText(root: ProseNode, text: string): EditorState {
-    let found = -1;
-    root.descendants((node, pos) => {
-      if (found === -1 && node.isTextblock && node.textContent === text) found = pos + 1;
-      return found === -1;
-    });
-    if (found === -1) throw new Error(`no textblock reading '${text}'`);
-    const state = EditorState.create({ doc: root });
-    return state.apply(state.tr.setSelection(TextSelection.create(root, found)));
-  }
-
   function applyAt(root: ProseNode, text: string, command: BlockCommandId): EditorState {
     const state = stateAtText(root, text);
     let after = state;
@@ -367,5 +374,98 @@ describe('blockCommand — a selection spanning several blocks', () => {
 
   it('leaves two same-level headings on the same cycle step', () => {
     expect(runAcross(doc(h(2, 'a'), h(2, 'b')), 'heading')).toEqual(['h3:a', 'h3:b']);
+  });
+});
+
+describe('blockCommand — a code block is literal text', () => {
+  const ALL: BlockCommandId[] = ['heading', 'quote', 'bullet', 'ordered', 'task'];
+
+  /** The command run at `text`, as `[applied, resulting shapes]`. */
+  function runAt(root: ProseNode, text: string, command: BlockCommandId): [boolean, unknown[]] {
+    let state = stateAtText(root, text);
+    const applied = blockCommand(command)(state, (tr: Transaction) => {
+      state = state.apply(tr);
+    });
+    return [applied, state.doc.children.map(shape)];
+  }
+
+  it('reads a code block as its own kind, not as plain text', () => {
+    expect(blockFormatAt(stateAtFirstText(doc(code('one\ntwo')))).kind).toBe('code');
+  });
+
+  // The caret's OWN textblock is the innermost structure, so a fence indented
+  // under a list item is code — not the bullet the list item would report.
+  it('reads a code block inside a list item as code, not as a bullet', () => {
+    const inItem = doc(bullets(s.nodes.list_item.create({ checked: null }, [p('a'), code('cc')])));
+    expect(blockFormatAt(stateAtText(inItem, 'cc')).kind).toBe('code');
+  });
+
+  // The reported bug: Quote on the blank line of an open fence wrapped the
+  // WHOLE fence in a blockquote (`> \`\`\``), and Heading turned the fence into
+  // a heading, collapsing its newlines into spaces.
+  it.each(ALL)('%s leaves a top-level code block untouched', (command) => {
+    const root = doc(code('code line one\n'));
+    const [applied, shapes] = runAt(root, 'code line one\n', command);
+    expect(applied).toBe(false);
+    expect(shapes).toEqual(['code_block:code line one\n']);
+  });
+
+  it.each(ALL)('%s leaves a code block inside a list item untouched', (command) => {
+    const root = doc(bullets(s.nodes.list_item.create({ checked: null }, [p('a'), code('cc')])));
+    const [applied, shapes] = runAt(root, 'cc', command);
+    expect(applied).toBe(false);
+    expect(shapes).toEqual([{ bullet_list: [{ list_item: ['paragraph:a', 'code_block:cc'] }] }]);
+  });
+
+  // A GFM table cell holds one line of inline content: no markdown prefix can
+  // apply to it either, and the schema is what says so.
+  it.each(ALL)('%s leaves a table cell untouched', (command) => {
+    const root = doc(table('H', 'cell'));
+    const [applied, shapes] = runAt(root, 'cell', command);
+    expect(applied).toBe(false);
+    expect(shapes).toEqual([
+      {
+        table: [
+          { table_header_row: [{ table_header: ['paragraph:H'] }] },
+          { table_row: [{ table_cell: ['paragraph:cell'] }] },
+        ],
+      },
+    ]);
+  });
+});
+
+describe('blockCommand — a selection spanning a code block', () => {
+  /** Select from the first textblock to the last, then run `command`. */
+  function runAcrossAll(root: ProseNode, command: BlockCommandId): unknown[] {
+    const blocks: { start: number; end: number }[] = [];
+    root.descendants((node, pos) => {
+      if (node.isTextblock) blocks.push({ start: pos + 1, end: pos + 1 + node.content.size });
+      return true;
+    });
+    let state = EditorState.create({ doc: root });
+    state = state.apply(
+      state.tr.setSelection(
+        TextSelection.create(root, blocks[0].start, blocks[blocks.length - 1].end),
+      ),
+    );
+    const applied = blockCommand(command)(state, (tr: Transaction) => {
+      state = state.apply(tr);
+    });
+    return (applied ? state.doc : root).children.map(shape);
+  }
+
+  it('quotes the prose either side of a fence and leaves the fence alone', () => {
+    expect(runAcrossAll(doc(p('a'), code('cc'), p('b')), 'quote')).toEqual([
+      { blockquote: ['paragraph:a'] },
+      'code_block:cc',
+      { blockquote: ['paragraph:b'] },
+    ]);
+  });
+
+  it('does not swallow a fence into a list built from the prose around it', () => {
+    expect(runAcrossAll(doc(p('a'), code('cc')), 'bullet')).toEqual([
+      { bullet_list: [{ list_item: ['paragraph:a'] }] },
+      'code_block:cc',
+    ]);
   });
 });

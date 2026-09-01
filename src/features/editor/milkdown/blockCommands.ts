@@ -10,6 +10,13 @@
  * document, so both engines answer a toolbar tap the same way while the
  * Milkdown transition is in flight.
  *
+ * A CODE BLOCK is the one block that rule cannot touch: its content is literal
+ * text, so a `>` or `#` written there is code rather than a prefix. Every
+ * command therefore leaves it — and every line of it, fence markers included —
+ * exactly as it is, and a selection that spans one formats the prose around it
+ * without swallowing the fence. Same answer as the CodeMirror engine, which
+ * skips those lines in `toolbar/blockFormatting.ts`.
+ *
  * Milkdown's own preset commands are NOT toggles — `wrapInBulletListCommand`
  * is a bare `wrapIn`, so tapping Bullet on a bullet did nothing and tapping
  * Quote on a quote produced `> > text`. Everything here is built from
@@ -33,8 +40,11 @@ import {
 } from '@milkdown/kit/prose/state';
 import { Mapping, type Step } from '@milkdown/kit/prose/transform';
 
-/** The block kinds a single line can be, mirroring `blockFormatting.ts`. */
-export type BlockKind = 'none' | 'bullet' | 'ordered' | 'task' | 'heading' | 'quote';
+/**
+ * The block kinds a single line can be, mirroring `blockFormatting.ts`, plus
+ * `code` for the one block whose lines can carry NO markdown prefix at all.
+ */
+export type BlockKind = 'none' | 'bullet' | 'ordered' | 'task' | 'heading' | 'quote' | 'code';
 
 export interface BlockFormat {
   kind: BlockKind;
@@ -64,6 +74,22 @@ function ancestorDepth(at: ResolvedPos, name: string): number {
 }
 
 /**
+ * Whether the textblock containing `at` is a code block.
+ *
+ * `spec.code` rather than the node NAME, because that flag is the schema's own
+ * statement that the node's content is literal text — the property this module
+ * actually depends on (the commonmark preset sets it on `code_block`, alongside
+ * `marks: ''`).
+ */
+function isCodeTextblock(at: ResolvedPos): boolean {
+  for (let depth = at.depth; depth >= 0; depth -= 1) {
+    const node = at.node(depth);
+    if (node.isTextblock) return node.type.spec.code === true;
+  }
+  return false;
+}
+
+/**
  * The block kind at `at`, innermost structure first.
  *
  * A list item wins over a heading, which wins over a blockquote — the order the
@@ -71,6 +97,11 @@ function ancestorDepth(at: ResolvedPos, name: string): number {
  * the same way `blockFormatting.ts`'s `parseLine` reads it.
  */
 export function blockFormatAtPos(at: ResolvedPos): BlockFormat {
+  // A code block is read BEFORE any wrapper, because the caret's own textblock
+  // is the innermost structure there is: a fence indented under a list item is
+  // code, not the bullet the list item would otherwise report.
+  if (isCodeTextblock(at)) return { kind: 'code' };
+
   const itemDepth = ancestorDepth(at, 'list_item');
   if (itemDepth > 0) {
     const item = at.node(itemDepth);
@@ -99,6 +130,14 @@ export function blockFormatAt(state: EditorState): BlockFormat {
  * h1 → h2 → h3 → plain.
  */
 export function nextBlockFormat(current: BlockFormat, command: BlockCommandId): BlockFormat {
+  // A code block's content is LITERAL TEXT: `>` or `#` written into it is code,
+  // not a prefix, so no command has anything to turn it into. Reported unchanged
+  // so `applyTransition` finds nothing to strip and nothing to apply, and the
+  // tap lands on `blockCommand`'s document-untouched path — the same answer the
+  // CodeMirror engine gives by skipping the fence's lines
+  // (`toolbar/blockFormatting.ts`, and docs/spec/editor.md -> "Markdown toolbar").
+  if (current.kind === 'code') return current;
+
   switch (command) {
     case 'bullet':
       return { kind: current.kind === 'bullet' ? 'none' : 'bullet' };
@@ -315,6 +354,7 @@ function retargetList(target: BlockFormat): Command {
 
 /** The command that removes `current`'s block prefix, or null when there is none. */
 function stripCommand(current: BlockFormat, schema: Schema): Command | null {
+  // `code` falls through to null with the other prefix-less kinds.
   if (isListKind(current.kind)) return liftOutOfLists;
   if (current.kind === 'quote') return liftOutOfQuotes;
   if (current.kind === 'heading') {
@@ -324,10 +364,18 @@ function stripCommand(current: BlockFormat, schema: Schema): Command | null {
   return null;
 }
 
-/** The command that applies `target`'s block prefix, or null for plain text. */
+/**
+ * The command that applies `target`'s block prefix, or null when there is no
+ * prefix to write — plain text, and code, whose lines can carry none.
+ */
 function applyCommand(target: BlockFormat, schema: Schema): Command | null {
   switch (target.kind) {
+    // Plain text writes no prefix — and neither does code, which is only ever
+    // its own target (`nextBlockFormat`): with `stripCommand` finding nothing
+    // to remove either, the chain comes out empty and the run is left exactly
+    // as it was.
     case 'none':
+    case 'code':
       return null;
     case 'bullet':
     case 'task': {

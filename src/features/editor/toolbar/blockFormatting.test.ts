@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { EditorView } from '@codemirror/view';
 
+import { markdownEditorLanguageExtensions } from '../codeMirrorMarkdown';
+
 import {
   cycleHeading,
   isListLine,
@@ -168,5 +170,74 @@ describe('line parsing and serialization', () => {
 
   it.each(['plain', '  # heading', '> quote'])('rejects non-list line %j', (text) => {
     expect(isListLine(text)).toBe(false);
+  });
+});
+
+/*
+ * A code block's lines carry no block prefix.
+ *
+ * The mirror of `milkdown/blockCommands.ts`'s `code` kind: there the fence is
+ * one document node a command has no transition for, here it is a run of
+ * SOURCE lines a command must skip. Same user-visible outcome — the note's
+ * bytes do not move (docs/spec/editor.md → "Markdown toolbar").
+ *
+ * These views carry the editor's own markdown language, because the fence is
+ * read off the syntax tree rather than re-parsed by hand.
+ */
+describe('a code block is literal text', () => {
+  function setupMarkdown(doc: string, anchor: number, head?: number): EditorView {
+    const view = new EditorView({
+      doc,
+      selection: { anchor, head },
+      extensions: markdownEditorLanguageExtensions(),
+      parent: document.body,
+    });
+    views.push(view);
+    return view;
+  }
+
+  /** `command` run with the caret on the line containing `needle`. */
+  function applyOnLineWith(doc: string, needle: string, command: (v: EditorView) => void): string {
+    const view = setupMarkdown(doc, doc.indexOf(needle));
+    command(view);
+    return view.state.doc.toString();
+  }
+
+  const COMMANDS: Array<[string, (view: EditorView) => void]> = [
+    ['quote', toggleBlockquote],
+    ['heading', cycleHeading],
+    ['bullet', toggleBulletList],
+    ['ordered', toggleOrderedList],
+    ['task', toggleTaskList],
+  ];
+
+  const FENCE = '```\ncode line one\n\n```';
+
+  for (const [name, command] of COMMANDS) {
+    it(`${name} leaves a line inside a fence untouched`, () => {
+      expect(applyOnLineWith(FENCE, 'code line one', command)).toBe(FENCE);
+    });
+
+    it(`${name} leaves a blank line inside a fence untouched`, () => {
+      const view = setupMarkdown(FENCE, FENCE.indexOf('code line one') + 'code line one\n'.length);
+      command(view);
+      expect(view.state.doc.toString()).toBe(FENCE);
+    });
+
+    it(`${name} leaves the fence's own marker line untouched`, () => {
+      expect(applyOnLineWith(FENCE, '```', command)).toBe(FENCE);
+    });
+
+    it(`${name} leaves an indented code block untouched`, () => {
+      const indented = 'para\n\n    indented code';
+      expect(applyOnLineWith(indented, 'indented code', command)).toBe(indented);
+    });
+  }
+
+  it('formats the prose around a fence and skips the fence itself', () => {
+    const doc = 'before\n\n```\ncode\n```\n\nafter';
+    const view = setupMarkdown(doc, 0, doc.length);
+    toggleBlockquote(view);
+    expect(view.state.doc.toString()).toBe('> before\n> \n```\ncode\n```\n> \n> after');
   });
 });
