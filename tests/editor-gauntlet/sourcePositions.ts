@@ -2,7 +2,7 @@
  * Markdown source offset -> a position a rich-text candidate can actually use.
  *
  * The gauntlet's runners speak markdown source offsets, because the source IS
- * the document for a source-mode editor like CM6. A WYSIWYG candidate has no
+ * the document for a source-mode editor. A WYSIWYG editor has no
  * such coordinate: its document is a node tree whose text never contains the
  * syntax characters. This module translates between the two in the only way
  * that survives round-trip normalization — by counting reader-visible

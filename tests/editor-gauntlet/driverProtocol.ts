@@ -1,18 +1,16 @@
 // The state contract an editor exposes so the gauntlet's oracles can read it.
-// The CodeMirror editor attaches an instance to window.__driver in dev builds
-// (installDriver, futoNotes.ts); the Milkdown adapter synthesizes the same
-// shape off the rendered ProseMirror DOM.
+// The adapter synthesizes it off the rendered ProseMirror DOM
+// (milkdownAdapter.ts).
 //
 // Two design constraints:
 //   1. State must be extractable from the live DOM, because the editor
 //      applies decorations through plugins we don't control end-to-end.
 //   2. Semantic kinds (bold-marker, heading-text-2, etc.) are derived
-//      from raw classes at capture time. Class-to-kind mapping lives in
-//      semanticKind.ts.
+//      from raw classes at capture time.
 //
-// This contract and its CodeMirror implementation were the FUTO-side half of
-// the deleted factory/ Obsidian parity judge (docs/learnings/factory-obsidian-
-// judge.md); the gauntlet is the only remaining consumer, so they live here.
+// This contract was the FUTO-side half of the deleted factory/ Obsidian parity
+// judge (docs/learnings/factory-obsidian-judge.md); the gauntlet is the only
+// remaining consumer, so it lives here.
 
 export interface Position {
   line: number;

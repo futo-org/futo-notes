@@ -1,12 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Dedicated config for the editor gauntlet's MILKDOWN adapter.
+// Dedicated config for the editor gauntlet.
 //
-// The gauntlet's CodeMirror adapter drives the full Svelte app through the dev
-// server (playwright.config.ts). Milkdown does not run there yet — during the
-// transition it lives only in the single-file `editor.html` the native shells
-// ship (docs/plan/milkdown-transition.md D9) — so these specs need the same
-// no-dev-server, build-the-bundle setup the editor-embed harness uses.
+// The gauntlet drives the single-file `editor.html` the native shells ship
+// rather than the desktop app shell, so that it measures exactly the bytes
+// that ship. That needs the same no-dev-server, build-the-bundle setup the
+// editor-embed harness uses.
 //
 // Kept apart from playwright.editor-embed.config.ts because these runs are
 // long: the perf floor opens a 10 MiB document and the foreign sweep can run

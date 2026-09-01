@@ -1,8 +1,8 @@
 # Editor gauntlet
 
-This is the durable, candidate-neutral harness from the rich-text editor bakeoff. Candidate code is
-kept behind `EditorGauntletAdapter`; the matrix and oracles do not import CodeMirror, TipTap, or a
-native editor model.
+This is the durable, candidate-neutral harness from the rich-text editor bakeoff, and the editor's
+permanent regression suite. Candidate code is kept behind `EditorGauntletAdapter`; the matrix and
+oracles do not import a specific editor model.
 
 ## Components
 
@@ -19,23 +19,21 @@ native editor model.
   edited-block rewrites, and rewrites outside the edited block. Candidate case IDs use only the
   record ordinal; corpus titles, hashes, URLs, and content never enter reports.
 - `performanceFloor.ts`: the generated line and TipTap-benchmark-shaped adversarial fixtures, with
-  the bakeoff's 1,000 ms settled-open and 16 ms synchronous keystroke-p95 budgets. Two ladders:
-  CM6 keeps a hard open budget at every size, and Milkdown uses the policy
+  the bakeoff's 1,000 ms settled-open and 16 ms synchronous keystroke-p95 budgets, under the policy
   docs/plan/milkdown-transition.md §5 sets — hard budgets at sizes real notes reach (1k/10k lines,
   1 MiB), and "scales linearly, no cliff" at 50k lines and 10 MiB, each measured against a
   hard-gated fixture built by the same generator. The keystroke budget applies at every size.
   Settled-to-paint is reported separately but is not gated: a raw one-frame sample is phase-dependent
   and already approaches 16.7 ms on a 60 Hz display even when the editor does no work.
-- `driver/`: the `DriverState` contract every adapter reports through, plus the CodeMirror
-  implementation that installs `window.__driver` in dev builds. It is the FUTO-side half of the
-  deleted `factory/` Obsidian parity judge (docs/learnings/factory-obsidian-judge.md); the gauntlet
-  is its only remaining consumer, so it lives here.
-- `cm6Adapter.ts`: current-main CM6 implementation of the shared boundary.
-- `milkdownAdapter.ts`: the Milkdown implementation. It drives the single-file `editor.html` the
-  native shells ship, over `file://`, with the editor-embed harness's fake native host — that is
-  where Milkdown lives during the transition, so there is no app shell to drive. Two translations
-  it owns: markdown source offsets become (top-level block, visible-character offset) via
-  `sourcePositions.ts`, and the `DriverState` is read off the rendered ProseMirror DOM.
+- `driverProtocol.ts`: the `DriverState` contract every adapter reports through. It is the
+  FUTO-side half of the deleted `factory/` Obsidian parity judge
+  (docs/learnings/factory-obsidian-judge.md); the gauntlet is its only remaining consumer, so it
+  lives here.
+- `milkdownAdapter.ts`: the adapter for the shipping editor. It drives the single-file
+  `editor.html` the native shells ship, over `file://`, with the editor-embed harness's fake
+  native host, so it measures exactly the bytes that ship. Two translations it owns: markdown
+  source offsets become (top-level block, visible-character offset) via `sourcePositions.ts`, and
+  the `DriverState` is read off the rendered ProseMirror DOM.
 - `lossOracle.ts`: "did any writing disappear?", as a token multiset containment check. This is the
   bar a WYSIWYG candidate is held to instead of byte fidelity (ADR-0002), and it is the same
   question the round-trip corpus census asked.
@@ -48,10 +46,9 @@ native editor model.
 Every recipe is in the justfile; reports land in the gitignored `local/`.
 
 ```sh
-just gauntlet-milkdown        # 56-case split-torture matrix, scored against the ledger
-just gauntlet-milkdown-perf   # performance floor
-just gauntlet-cm6             # the same matrix against the shipping CodeMirror editor
-just gauntlet-cm6-perf
+just gauntlet-milkdown          # 56-case split-torture matrix, scored against the ledger
+just gauntlet-milkdown-perf     # performance floor
+just gauntlet-milkdown-foreign  # foreign-corpus sweep (see below for the corpus)
 ```
 
 ### Where Milkdown stands (recorded 2026-08-28, desktop chromium)
@@ -95,34 +92,29 @@ Two things about how the floor is judged, both deliberate:
 The floor is asserted, not ledgered: three numbers you read directly, where a stale perf ledger
 would rot and a noisy one would flake.
 
-### The CM6 baseline
-
-Run the current CM6 split baseline from the repository root:
+### The foreign-corpus sweep
 
 ```sh
-pnpm exec playwright test tests/editor-gauntlet/split-torture.spec.ts
-pnpm run test:editor-gauntlet:perf
-
 # Read ~/Developer/futo-notes-ml/NOTICE.md first. Start with sample.jsonl;
 # point at notes_corpus.jsonl.gz for the complete census.
 EDITOR_GAUNTLET_CORPUS=~/Developer/futo-notes-ml/dataset/sample.jsonl \
-  EDITOR_GAUNTLET_CORPUS_LIMIT=100 pnpm run test:editor-gauntlet:foreign
+  EDITOR_GAUNTLET_CORPUS_LIMIT=100 just gauntlet-milkdown-foreign
 ```
 
 Omit `EDITOR_GAUNTLET_CORPUS_LIMIT` for a complete sweep. Long runs can be split into deterministic
-modulo shards. Each process needs its own dev port, Playwright run ID, and report path:
+modulo shards. Each process needs its own Playwright run ID and report path:
 
 ```sh
-FUTO_DEV_PORT=5400 PW_RUN_ID=foreign-0 \
+PW_RUN_ID=foreign-0 \
   EDITOR_GAUNTLET_CORPUS=~/Developer/futo-notes-ml/dataset/notes_corpus.jsonl.gz \
   EDITOR_GAUNTLET_EXPECTED_RECORDS=30995 \
   EDITOR_GAUNTLET_ARTIFACT_CAPTURE=off-retry-on-failure \
   EDITOR_GAUNTLET_SHARD_COUNT=4 EDITOR_GAUNTLET_SHARD_INDEX=0 \
   EDITOR_GAUNTLET_REPORT_PATH=tests/editor-gauntlet/local/foreign-0.json \
-  pnpm run test:editor-gauntlet:foreign
+  just gauntlet-milkdown-foreign
 
 pnpm run test:editor-gauntlet:foreign:aggregate -- --output \
-  tests/editor-gauntlet/local/current-cm6-foreign-preservation.aggregate.json \
+  tests/editor-gauntlet/local/foreign-preservation.aggregate.json \
   tests/editor-gauntlet/local/foreign-0.json \
   tests/editor-gauntlet/local/foreign-1.json \
   tests/editor-gauntlet/local/foreign-2.json \

@@ -1,4 +1,4 @@
-import type { DriverState, ElementKind } from './driver/protocol';
+import type { DriverState, ElementKind } from './driverProtocol';
 
 export type GauntletSemanticKind =
   'bold' | 'italic' | 'strikethrough' | 'inline-code' | 'wikilink' | 'link';

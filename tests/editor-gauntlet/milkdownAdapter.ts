@@ -1,6 +1,6 @@
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 
-import type { DecoratedRange, DriverState } from './driver/protocol';
+import type { DecoratedRange, DriverState } from './driverProtocol';
 import { EDITOR_URL } from '../editorEmbedBundle';
 import { installFakeAndroidHost, type FakeHostWindow } from '../lib/editorEmbedHost';
 import { resolveSourceOffset } from './sourcePositions';
@@ -18,13 +18,11 @@ import type {
  * The Milkdown implementation of `EditorGauntletAdapter`.
  *
  * It drives the SAME single-file `editor.html` the native shells ship, over
- * `file://`, with the fake native host the editor-embed specs use. That is
- * where Milkdown actually lives during the transition — the desktop Svelte
- * shell is still CodeMirror (docs/plan/milkdown-transition.md D9), so an
- * app-shell adapter like `cm6Adapter` would be testing an engine the app does
- * not run yet.
+ * `file://`, with the fake native host the editor-embed specs use, so it
+ * measures exactly the bytes that ship rather than a dev-server build of them.
  *
- * Three things the CodeMirror adapter gets for free and this one has to build:
+ * Three things a markdown-source editor would get for free and this one has to
+ * build:
  *
  * - **Positions.** The runners speak markdown source offsets. Milkdown's
  *   document has no such coordinate, so `sourcePositions.ts` translates an
@@ -36,7 +34,7 @@ import type {
  *   from every debounced `change`, and writes that copy on save. `savedSource`
  *   is therefore the bytes a real shell's autosave would have written.
  * - **Decorations.** `checkSemanticIntent` asks which text carries which
- *   semantic kind. CodeMirror answers from its driver's decoration
+ *   semantic kind. A source-mode editor answers from its decoration
  *   set; here the rendered ProseMirror DOM is the answer.
  */
 
@@ -318,9 +316,9 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
   /**
    * Flush the shell's pending change, then snapshot.
    *
-   * `refused` means what it means for CodeMirror — the edit did not become
-   * saveable — but the shape is different here, and getting it wrong makes the
-   * sweep's "never refuse" line unfalsifiable. There is no throwing save path
+   * `refused` means the edit did not become saveable. Getting that definition
+   * wrong makes the sweep's "never refuse" line unfalsifiable, and the shape
+   * is not the obvious one: there is no throwing save path
    * to catch: the embed's only route from an edit to the file is the debounced
    * `change` post. So a refusal is exactly that route failing — no new change
    * arrived, and the editor is holding content the shell has never been told
@@ -371,10 +369,9 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
   }
 
   /**
-   * Times the SAME unit `cm6Adapter` times: one editor transaction, measured
-   * synchronously in the page. Real key presses would fold in Playwright's
-   * round trip and the browser's own input handling, which the 16 ms budget
-   * was never written against.
+   * Times one editor transaction, measured synchronously in the page — the
+   * unit the 16 ms budget was written against. Real key presses would fold in
+   * Playwright's round trip and the browser's own input handling.
    */
   async measureKeystrokes(count: number): Promise<KeystrokeMeasurement> {
     return this.requirePage().evaluate(async (sampleCount) => {
@@ -511,7 +508,7 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
   }
 
   /**
-   * The `DriverState` shape (driver/protocol.ts), read off the rendered
+   * The `DriverState` shape (driverProtocol.ts), read off the rendered
    * ProseMirror DOM.
    * `doc` is the markdown the editor would save; `decorations` are the semantic
    * spans `checkSemanticIntent` looks for, keyed by the HTML the schema emits.

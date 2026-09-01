@@ -18,7 +18,7 @@ import { runForeignPreservationSweep } from './foreignPreservation';
 /**
  * The foreign-corpus preservation sweep against Milkdown, on the LOSS-ONLY bar.
  *
- * The CodeMirror sweep asserts byte fidelity: an edit rewrites its own block
+ * A source-mode sweep would assert byte fidelity: an edit rewrites its own block
  * and nothing else, byte for byte. ADR-0002 retires that bar for a WYSIWYG
  * candidate — a round trip through Milkdown legitimately renormalizes markdown
  * syntax across the whole document — so what this run gates is what the corpus

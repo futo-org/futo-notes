@@ -127,27 +127,7 @@ function adversarialFixture(targetBytes: number): string {
 }
 
 /**
- * The CodeMirror ladder, unchanged: every fixture is hard-gated on open.
- * CM6 has met that bar since the bakeoff and relaxing it would only lose
- * coverage on an editor that is about to be deleted anyway.
- */
-export const CM6_FLOOR_FIXTURES: FloorFixture[] = [
-  ...[1_000, 10_000, 50_000].map((lines): FloorFixture => ({
-    name: `${lines / 1_000}k-lines`,
-    unit: 'lines',
-    openPolicy: { kind: 'hard' },
-    build: () => lineFixture(lines),
-  })),
-  {
-    name: '10mb-adversarial',
-    unit: 'bytes',
-    openPolicy: { kind: 'hard' },
-    build: () => adversarialFixture(10 * MIB),
-  },
-];
-
-/**
- * The Milkdown ladder, per docs/plan/milkdown-transition.md §5: hard budgets at
+ * The performance ladder, per docs/plan/milkdown-transition.md §5: hard budgets at
  * sizes real notes actually reach, and "scales linearly, no cliff" above them.
  *
  * The size line comes from the note-size population in the plan's §2, which is

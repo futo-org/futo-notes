@@ -19,9 +19,9 @@ export default defineConfig({
     '**/editor-embed-*.spec.ts',
     '**/*.test.mjs',
     'editor-gauntlet/**/*.test.ts',
-    // The Milkdown gauntlet adapter drives the built editor.html bundle over
-    // file://, so it runs under playwright.editor-gauntlet.config.ts (which
-    // builds that bundle) rather than against this config's dev server.
+    // The gauntlet adapter drives the built editor.html bundle over file://,
+    // so it runs under playwright.editor-gauntlet.config.ts (which builds that
+    // bundle) rather than against this config's dev server.
     'editor-gauntlet/milkdown-*.spec.ts',
   ],
   timeout: isCI ? 90000 : 30000,
