@@ -95,9 +95,10 @@ import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import {
-  autoScrollAtEdge,
+  createDragAutoScroller,
   targetAtPointerY,
   topLevelBlockAt,
+  type DragAutoScroller,
   type TopLevelTarget,
 } from './blockDragGeometry';
 import { moveTopLevelBlock, type BlockMoveRange } from './blockMove';
@@ -286,6 +287,10 @@ class MobileBlockDndView {
    * gap is silent and the ticks match what the eye sees. */
   private indicatorKey: string | null = null;
 
+  /** Continuous edge auto-scroll while dragging. Owned per editor view and
+   * stopped from `disarm()`, the one exit every gesture goes through. */
+  private readonly autoScroll: DragAutoScroller;
+
   private ghostEl: HTMLDivElement | null = null;
   private indicatorEl: HTMLDivElement | null = null;
   private liftX = 0;
@@ -300,6 +305,7 @@ class MobileBlockDndView {
       longPressMs: options.longPressMs ?? DEFAULT_LONG_PRESS_MS,
       moveCancelPx: options.moveCancelPx ?? DEFAULT_MOVE_CANCEL_PX,
     };
+    this.autoScroll = createDragAutoScroller(view, this.onAutoScrollStep);
     ensureStyles();
     view.dom.addEventListener('pointerdown', this.onPointerDown);
   }
@@ -356,6 +362,7 @@ class MobileBlockDndView {
    * unselectable. */
   private disarm(): void {
     this.cancelTimer();
+    this.autoScroll.stop();
     this.removeGestureListeners();
     this.pointerId = null;
     this.pressed = null;
@@ -457,18 +464,41 @@ class MobileBlockDndView {
     }
 
     this.updateGhostPosition(event.clientX, event.clientY);
-    const target = this.computeTarget(event.clientY);
-    if (target) {
-      this.showIndicator(target);
-      const key = indicatorKeyOf(target);
-      if (key !== this.indicatorKey) {
-        this.indicatorKey = key;
-        this.options.onHaptic('move');
-      }
-    } else {
+    this.syncIndicator(event.clientY, true);
+    this.autoScroll.update(event.clientY);
+  };
+
+  /** Redraws the drop indicator for `clientY`, ticking once per NEW boundary
+   * when `tick` is true.
+   *
+   * Auto-scroll passes false. The finger is holding still while the document
+   * sweeps past underneath it, and at auto-scroll speeds that is hundreds of
+   * boundaries a second: a tick each would be one continuous buzz, and would
+   * destroy the meaning of the tick, which is "you have put the bar somewhere
+   * new". The spec already says a hold ticks nothing, and an auto-scroll IS a
+   * hold. The key is still updated, so the first tick after the finger resumes
+   * moving belongs to a genuinely new boundary rather than to one the eye
+   * already saw slide by. */
+  private syncIndicator(clientY: number, tick: boolean): void {
+    const target = this.computeTarget(clientY);
+    if (!target) {
       this.hideIndicator();
+      return;
     }
-    autoScrollAtEdge(this.view, event.clientY);
+    this.showIndicator(target);
+    const key = indicatorKeyOf(target);
+    if (key === this.indicatorKey) return;
+    this.indicatorKey = key;
+    if (tick) this.options.onHaptic('move');
+  }
+
+  /** After every frame edge auto-scroll actually moved the scroller. The
+   * pointer has not moved, so the ghost stays put — but the boundary UNDER it
+   * has changed, and the indicator (and the position a release would commit to)
+   * must be recomputed from the new geometry rather than assumed. */
+  private onAutoScrollStep = (): void => {
+    if (!this.dragging) return;
+    this.syncIndicator(this.lastY, false);
   };
 
   private onPointerUp = (event: PointerEvent): void => {
