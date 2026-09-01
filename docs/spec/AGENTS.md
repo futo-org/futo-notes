@@ -1,8 +1,7 @@
 # Working on these specs
 
-Conventions live in [README.md](README.md); the gap workflow (`just
-spec-gaps` / `spec-gaps-check`) is described there and in the root
-AGENTS.md. This file is for verification discipline.
+Conventions live in [README.md](README.md), including how gaps are recorded
+and listed. This file is for verification discipline.
 
 ## Before recording a Gap, check the hidden affordances
 
@@ -30,5 +29,6 @@ Verify in the code, not just the UI: grep for the store/core method
 "Exists in core but no caller" is a real gap; "no caller I noticed while
 clicking around" is not evidence.
 
-When you do record a gap, make it cheap to catch its closure: word it so a
-probe can match it, and add the probe to `scripts/spec-gaps.mjs`.
+When you do record a gap, word it so its closure is cheap to recognize: name
+the surface and the missing behavior concretely enough that someone reading the
+note next to changed code can tell whether that change closed it.

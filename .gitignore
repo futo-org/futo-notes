@@ -131,10 +131,9 @@ test-screenshots
 .perf-course-cache/
 perf-results/
 
-# Factory run captures — screenshots, last-run.json, parity matrices. Only the
-# captures/ dirs: factories/*/ itself holds tracked source (see the
-# rich-text-factory), so a blanket `factories/` ignore would hide real code.
-# Mirrors the existing `factory/captures` rsync exclude.
+# Factory run captures — screenshots, parity matrices. Only the captures/ dirs:
+# factories/*/ itself holds tracked source (see the rich-text-factory), so a
+# blanket `factories/` ignore would hide real code.
 factories/*/captures/
 
 # Docker testing

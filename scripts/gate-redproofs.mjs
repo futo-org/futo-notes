@@ -1,4 +1,4 @@
-// Gate red-proof harness — the meta-gate that proves the other gates work.
+// Targeted gate red-proof harness — proves changed gates work.
 //
 //   node scripts/gate-redproofs.mjs                (just gate-redproofs)
 //   node scripts/gate-redproofs.mjs --self-test    (only the harness self-test)
@@ -12,8 +12,10 @@
 // unmatched JSON entry, so a retired counter could never be retired),
 // db31586c (the docs-only CI fast path skipped check-agent-docs). Every one of
 // those gates was GREEN while stepping over a real violation. Every gate this
-// repo has added later needed a red-proof it did not originally have — this is
-// that standing red-proof (AGENTS.md M11: no silent green).
+// repo has added later needed a red-proof it did not originally have. This
+// harness remains available for gate changes, but is deliberately outside the
+// routine `just check`/`prepush` path so unchanged conclusions are not re-proved
+// on every commit (AGENTS.md M11: no silent green).
 //
 // WHAT IT PROVES. For each covered gate, both directions:
 //   GREEN — the gate exits 0 on a pristine checkout (otherwise a red-proof is
@@ -64,7 +66,6 @@ const GATES = {
   'drift-check': ['node', ['scripts/drift-check.mjs']],
   'agent-docs': ['node', ['scripts/check-agent-docs.mjs']],
   'qa-input-safety': ['node', ['scripts/check-qa-input-safety.mjs']],
-  'spec-gaps': ['node', ['scripts/spec-gaps.mjs', '--check']],
   'toolbar-spec': ['node_modules/.bin/tsx', ['scripts/gen-toolbar-spec.ts', '--check']],
   'title-spec': ['node_modules/.bin/tsx', ['scripts/gen-title-spec.ts', '--check']],
   'bridge-spec': ['node_modules/.bin/tsx', ['scripts/gen-bridge-spec.ts', '--check']],
@@ -73,8 +74,8 @@ const GATES = {
 };
 
 // Gates whose proof needs a Rust toolchain. Kept out of the default run so the
-// harness can live in `check:arch-gate:portable`, which CI runs in an image
-// with no cargo.
+// default command stays usable on machines and CI images without cargo. The
+// `just gate-redproofs` recipe opts into these proofs explicitly.
 const CARGO_GATES = new Set(['rust-dependency-boundaries']);
 
 // Gates this harness deliberately does NOT cover, printed on every run so the
@@ -97,23 +98,6 @@ const TITLE_SWIFT = 'apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift'
 const TITLE_KOTLIN = 'apps/android/app/src/main/java/com/futo/notes/ui/TitleSpec.kt';
 const BRIDGE_SWIFT = 'apps/ios/Sources/Editor/GeneratedContracts/BridgeSpec.swift';
 const BRIDGE_KOTLIN = 'apps/android/app/src/main/java/com/futo/notes/ui/BridgeSpec.kt';
-
-// The live closure probe the `spec-gaps/closure-probe-fires` proof borrows (issue
-// #80, the Android dropped-keystroke divergence). A closure probe fires only when
-// BOTH halves line up — a gap note its `match` hits, and codebase evidence its
-// `closed()` finds — so the proof has to seed both. These name the two halves:
-// the phrase the probe matches on, and the file plus the vocabulary its
-// `closed()` greps for.
-//
-// A probe is retired the moment its gap closes, which is a NORMAL, healthy
-// event — so the proof asserts the coupling itself and fails loudly with
-// instructions when this probe goes. Do not silently delete the proof: repoint
-// these four constants at another live probe in scripts/spec-gaps.mjs.
-const CLOSURE_PROBE_GAP_PHRASE = 'destructive latch is DROPPED on Android';
-const CLOSURE_PROBE_EVIDENCE_FILE =
-  'apps/android/app/src/main/java/com/futo/notes/ui/EditorSession.kt';
-const CLOSURE_PROBE_EVIDENCE_ANCHOR = 'package com.futo.notes.ui';
-const CLOSURE_PROBE_EVIDENCE_VOCAB = 'quarantine';
 
 // ---------------------------------------------------------------------------
 // Seeding helpers — every mutation goes through these so revert stays simple
@@ -517,67 +501,6 @@ const PROOFS = [
     expect: ['README.md', 'relative-newermt', 'touch -t'],
     absent: ['cliclick'],
     fix: "the relative-newermt rule stopped firing. This is the check that produced the incident's false all-clear on the user's vault — a safety check that cannot fail is worse than none.",
-  },
-  {
-    gate: 'spec-gaps',
-    id: 'closure-probe-fires',
-    seeded:
-      'added a `> **Gap:**` note to docs/spec/settings.md AND the codebase evidence that makes its closure probe fire',
-    claim: 'a recorded gap the codebase shows as implemented must fail, so the spec gets updated',
-    // BOTH halves are seeded deliberately. A closure probe fires only when a gap
-    // note matches AND `closed()` finds evidence in the tree, so seeding the note
-    // alone can never turn one red — which is exactly how this proof shipped:
-    // it asserted the `iOS.* app has no Settings surface` probe that had been
-    // retired (correctly — iOS grew a Settings surface) long before, so it was
-    // red from the moment it merged, and its `fix:` line sent readers after a
-    // probe that no longer existed. Seeding the evidence too makes the proof
-    // exercise the PROBES mechanism instead of depending on whichever real gap
-    // happens to be open.
-    inject: (wt) => {
-      // Assert the borrowed probe still exists BEFORE seeding, so its retirement
-      // reads as `inject-failed` with instructions rather than a bare
-      // `marker-missing` that leaves the next person guessing.
-      if (!seed.read(wt, 'scripts/spec-gaps.mjs').includes(CLOSURE_PROBE_GAP_PHRASE)) {
-        throw new Error(
-          `no closure probe in scripts/spec-gaps.mjs matches ` +
-            `${JSON.stringify(CLOSURE_PROBE_GAP_PHRASE)} — it was almost certainly retired ` +
-            `when its gap closed, which is normal. Repoint the CLOSURE_PROBE_* constants in ` +
-            `scripts/gate-redproofs.mjs at another live probe and the evidence its closed() ` +
-            `greps for. Do not delete this proof.`,
-        );
-      }
-      seed.append(
-        wt,
-        'docs/spec/settings.md',
-        `\n> **Gap:** REDPROOF-SENTINEL ${CLOSURE_PROBE_GAP_PHRASE}.\n`,
-      );
-      seed.replace(
-        wt,
-        CLOSURE_PROBE_EVIDENCE_FILE,
-        CLOSURE_PROBE_EVIDENCE_ANCHOR,
-        `${CLOSURE_PROBE_EVIDENCE_ANCHOR}\n\n// ${CLOSURE_PROBE_EVIDENCE_VOCAB}: seeded by scripts/gate-redproofs.mjs`,
-      );
-    },
-    expect: ['Closure probe fired for settings.md:', 'REDPROOF-SENTINEL'],
-    fix: `the PROBES loop in scripts/spec-gaps.mjs stopped running, or the probe matching ${JSON.stringify(CLOSURE_PROBE_GAP_PHRASE)} no longer reports its hits. Closure probes are what stop docs/spec/ recording gaps that were fixed months ago. If that probe was retired because its gap closed, this proof throws from inject() with repointing instructions instead of reaching here.`,
-  },
-  {
-    gate: 'spec-gaps',
-    id: 'stale-gap-inventory',
-    seeded: 'added a `> **Gap:**` note to docs/spec/settings.md without regenerating GAPS.md',
-    claim: 'GAPS.md that no longer matches the inline gap notes must fail',
-    inject: (wt) =>
-      seed.append(
-        wt,
-        'docs/spec/settings.md',
-        '\n> **Gap:** REDPROOF-SENTINEL placeholder, no closure probe matches this text.\n',
-      ),
-    // The gate reports staleness without echoing the gap text, so this proof
-    // asserts on the gate's own claim sentence — it still separates "detected"
-    // from "crashed", which is the line that matters.
-    expect: ['GAPS.md is stale'],
-    marker: 'claim',
-    fix: 'the render()-vs-file comparison in scripts/spec-gaps.mjs --check stopped firing, or GAP_LINE_RE no longer matches a plain `> **Gap:**` line (the qualified-gap bug this regex was widened for).',
   },
   {
     gate: 'toolbar-spec',
@@ -1010,7 +933,7 @@ function main() {
       if (CARGO_GATES.has(name) && !includeCargo) {
         skipped.push({
           gate: name,
-          why: 'needs a Rust toolchain, and CI runs the portable arch-gate in an image without cargo. Re-run with --include-cargo (`just gate-redproofs` does).',
+          why: 'needs a Rust toolchain, so the default portable command omits it. Re-run with --include-cargo (`just gate-redproofs` does).',
         });
         return false;
       }

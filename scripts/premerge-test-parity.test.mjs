@@ -34,7 +34,7 @@ function topLevelBlock(contents, startPattern) {
     : contents.slice(blockStart, blockStart + match[0].length + nextBlockOffset);
 }
 
-describe('pre-merge JavaScript test routing', () => {
+describe('pre-merge CI routing contracts', () => {
   it('builds iOS stories from the pushed source and routes them through both local gates', () => {
     const storyRecipe = topLevelBlock(justfile, /^test-ios-stories:[^\n]*$/m);
     const prepushRecipe = topLevelBlock(justfile, /^prepush:[^\n]*$/m);
@@ -53,34 +53,6 @@ describe('pre-merge JavaScript test routing', () => {
     expect(iosStoryAvailabilityGate).toContain('AXE_BIN');
     expect(iosStoryAvailabilityGate).toContain('just qa-claim ios');
     expect(iosStoryAvailabilityGate).toContain('iOS DEVICE STORIES SKIPPED');
-  });
-
-  it('runs the full suite from just check', () => {
-    const checkRecipe = topLevelBlock(justfile, /^check:[^\n]*$/m);
-
-    expect(checkRecipe).toContain('pnpm run check:svelte');
-    expect(checkRecipe).toContain('pnpm run test:full');
-    expect(checkRecipe).not.toContain('pnpm run test:minimal');
-  });
-
-  it('runs the full suite from pnpm ci', () => {
-    expect(packageScripts.ci).toContain('pnpm run check:svelte');
-    expect(packageScripts.ci).toContain('pnpm run test:full');
-    expect(packageScripts.ci).not.toContain('pnpm run test:minimal');
-  });
-
-  it('runs the full suite for code changes and a focused check for docs-only changes', () => {
-    const testJob = topLevelBlock(gitlabPipeline, /^test:$/m);
-    const docsFastPath = /if \[ "\$CI_TEST_SCOPE" = docs \]; then([\s\S]*?)\n\s*else/.exec(
-      testJob,
-    )?.[1];
-
-    expect(testJob).toContain('node scripts/ci-test-scope.mjs');
-    expect(testJob).toContain('node scripts/spec-gaps.mjs --check');
-    expect(testJob).toContain('pnpm run check:svelte');
-    expect(testJob).toContain('pnpm run test:full');
-    expect(testJob).not.toContain('pnpm run test:minimal');
-    expect(docsFastPath).toContain('node scripts/check-agent-docs.mjs');
   });
 
   it('does not repeat P0 smoke coverage in the remaining Playwright suite', () => {

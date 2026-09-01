@@ -45,10 +45,10 @@
 // is not an identity — so it is the same gate, not a sibling.
 //
 // SCOPE / LIMITS. This gate reads instruction surfaces (Markdown + agent/skill
-// definitions) plus the root `justfile`, not source code: `factory/`'s Obsidian
-// and Apple Notes oracles legitimately script OTHER applications, and banning
-// the mechanism in TypeScript would be a different rule with different
-// trade-offs. The justfile is in because AGENTS.md imports it by reference
+// definitions) plus the root `justfile`, not source code: a comparison harness
+// may legitimately script a DIFFERENT application (the removed factory/ judge
+// drove Obsidian that way), and banning the mechanism in TypeScript would be a
+// different rule with different trade-offs. The justfile is in because AGENTS.md imports it by reference
 // (`@justfile`), so it is loaded into every agent's context as instruction, and
 // because it is the one file in this repo that demonstrates a pattern kill —
 // `deploy-deb`/`deploy-rpm` legitimately stop every instance right before

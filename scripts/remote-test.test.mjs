@@ -96,7 +96,7 @@ describe('macOS-only deny-list', () => {
   });
 
   it('refuses the desktop suites whose whole point is the shipped web engine', () => {
-    for (const recipe of ['test-desktop-smoke', 'perf-course', 'factory-judge']) {
+    for (const recipe of ['test-desktop-smoke', 'perf-course']) {
       const verdict = classify(recipe);
       expect(verdict.allowed).toBe(false);
       expect(verdict.reason).toMatch(/WKWebView/);
@@ -126,7 +126,7 @@ describe('macOS-only deny-list', () => {
   });
 
   it('the regex matchers cover the families they claim', () => {
-    for (const recipe of ['sim-boot', 'sim-screenshot', 'factory-judge', 'factory-visual']) {
+    for (const recipe of ['sim-boot', 'sim-screenshot', 'sim-udid', 'sim-logs']) {
       expect(recipes.has(recipe), `${recipe} is no longer a justfile recipe`).toBe(true);
       expect(classify(recipe).allowed).toBe(false);
     }

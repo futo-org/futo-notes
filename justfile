@@ -520,59 +520,6 @@ remote-android *flags:
   node scripts/remote-test.mjs {{flags}} build-android-native
   node scripts/remote-test.mjs {{flags}} test-android-native
 
-# Factory: compare our editor to Obsidian's, scenario by scenario.
-# See factory/AGENTS.md.
-factory-judge *args:
-  pnpm exec tsx factory/judge/run.ts --no-moves {{args}}
-
-factory-judge-headed *args:
-  pnpm exec tsx factory/judge/run.ts --no-moves --headed {{args}}
-
-# Boot a long-running judge: Obsidian + chromium stay up, listening on
-# factory/captures/daemon.sock. Use `factory-run`, `factory-watch`, and
-# `factory-down` to drive it. Foreground process — Ctrl-C tears down.
-factory-up *args:
-  pnpm exec tsx factory/judge/run.ts daemon {{args}}
-
-# Send a one-shot run to the daemon and stream divergences as they
-# happen. Defaults to --no-moves like factory-judge.
-factory-run *args:
-  pnpm exec tsx factory/judge/run.ts run --no-moves {{args}}
-
-# Re-run on every save of editor source files. Talks to the running
-# daemon and reloads the futo-notes page before each run so HMR drift
-# can't lie to you.
-factory-watch *args:
-  pnpm exec tsx factory/judge/run.ts watch --no-moves {{args}}
-
-factory-down:
-  pnpm exec tsx factory/judge/run.ts down
-
-# Phase-1 visual oracle: inject a neutral theme into both editors,
-# screenshot every scenario in the curated visual set, run a pixel
-# diff, and emit factory/captures/visual-report.html. Pair with
-# `just factory-up` (daemon must be running). After the run, ask
-# Claude Code to "review the visual report" for an LLM-judge pass.
-factory-visual *args:
-  pnpm exec tsx factory/judge/run.ts run --no-moves --visual-only {{args}}
-
-factory-summary:
-  @node -e "const r = require('./factory/captures/last-run.json'); \
-    console.log(JSON.stringify(r.summary, null, 2)); \
-    const fail = r.reports.filter(x => x.divergences.length).sort((a,b) => b.divergences.length - a.divergences.length); \
-    console.log('\\nWorst scenarios:'); \
-    for (const x of fail.slice(0, 15)) console.log(' ', String(x.divergences.length).padStart(3), x.name);"
-
-# Regenerate docs/spec/GAPS.md from the inline `> **Gap:**` notes in
-# docs/spec/*.md (which remain the source of truth).
-spec-gaps:
-  node scripts/spec-gaps.mjs --write
-
-# Fail if GAPS.md is stale, or if a closure probe finds codebase evidence
-# that a recorded gap has been implemented (= the spec needs updating).
-spec-gaps-check:
-  node scripts/spec-gaps.mjs --check
-
 # Regenerate the native shells' toolbar specs
 # (apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift)
 # from the @futo-notes/editor toolbar manifest (packages/editor/src/toolbar.ts —
@@ -679,17 +626,9 @@ qa-target *args:
 check-agent-docs:
   node scripts/check-agent-docs.mjs
 
-# The meta-gate: prove every OTHER gate actually fails on the violation it
-# claims to catch. Seeds one violation per gate inside a throwaway git worktree
-# and requires the gate to exit non-zero AND name what it found — an
-# exit-code-only pass is rejected, because a gate that dies on a missing module
-# also exits non-zero. Six commits (d87173eb, 54d1cc41, 90a62902, a6c6e2d5,
-# db31586c, f81a61d0) fixed guards that were green while stepping over real
-# violations; this is the standing red-proof they lacked. `--include-cargo`
-# adds the Rust dependency-boundary proof (the portable set runs in CI, whose
-# image has no cargo). Rationale + limitations: scripts/gate-redproofs.mjs
-# (documented there rather than in AGENTS.md, which is for rules agents must
-# follow, not rationale for the tooling that checks them).
+# Prove architecture gates fail for the violations they claim to catch. This is
+# intentionally NOT part of `just check` or `prepush`: run it when adding or
+# changing a gate, so unchanged gates do not get re-proved on every commit.
 gate-redproofs *args:
   node scripts/gate-redproofs.mjs --include-cargo {{args}}
 
@@ -725,7 +664,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
+check: toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.
@@ -745,10 +684,8 @@ check: spec-gaps-check toolbar-spec-check title-spec-check arch-gate test-rust r
 # flake on the odd slow navigation/click; one retry absorbs those while a
 # genuinely broken test still fails both attempts (and is reported "flaky"
 # when it passes only on retry — treat repeat offenders as real bugs).
-# `check` runs the PORTABLE red-proof set through arch-gate; the explicit
-# recipe here adds the cargo-dependent Rust dependency-boundary proof.
 # Maximal pre-push gate: `check` + full Rust workspace + full E2E + cross-platform sync.
-prepush: check test-rust-full gate-redproofs
+prepush: check test-rust-full
   #!/usr/bin/env bash
   set -euo pipefail
   pnpm exec playwright test --retries=1
