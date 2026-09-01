@@ -574,13 +574,11 @@ test:e2e:rest:
   rules:
     - if: $CI_COMMIT_TAG
     # Same web surface as test:e2e:smoke, plus any spec edit re-runs the
-    # suite that contains it. Includes the markdown-spec corpus (formerly its
-    # own job) — one dev server + browser install instead of two.
+    # suite that contains it.
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - src/**/*
         - packages/editor/**/*
-        - markdown-spec/**/*
         - tests/**/*.spec.ts
         - tests/lib/**/*
         - playwright.config.ts
@@ -1920,7 +1918,6 @@ release:gate:
     # past a failed test:cross-platform-sync).
     - job: test
     - job: test:e2e:smoke
-    # markdown-spec corpus runs inside test:e2e:rest (merged 2026-08)
     - job: test:e2e:rest
     - job: test:e2e:editor-embed
     - job: test:rust:workspace

@@ -161,7 +161,7 @@ The differential covers title, tags, image, preview, and wikilink rules; on a re
 it names the family, op, and input. Orientation: `tests/conformance/README.md`.
 
 ### unit-tests: `just test-unit 2>&1 | tail -30`
-### editor: `just test-markdown-spec 2>&1 | tail -20` and `just toolbar-spec-check` (toolbar manifest changes)
+### editor: `pnpm run test:e2e:editor-embed 2>&1 | tail -20` and `just toolbar-spec-check` (toolbar manifest changes)
 ### rust-core:
 ```bash
 just test-rust 2>&1 | tail -20        # conformance (fast); broad changes: just test-rust-full

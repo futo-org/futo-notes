@@ -22,7 +22,7 @@ describe('package safety policy', () => {
     });
   });
 
-  it('pins the shared Lezer runtime used by CodeMirror', () => {
+  it('pins the shared Lezer runtime the fence highlighter uses', () => {
     expect(packageManifest.dependencies['@lezer/common']).toBe('1.5.1');
   });
 });

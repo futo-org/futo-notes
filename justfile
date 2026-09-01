@@ -485,9 +485,6 @@ test-cross-platform:
 chunk-census *args:
   node scripts/milkdown-chunk-census.mjs {{args}}
 
-test-markdown-spec:
-  pnpm run test:markdown-spec
-
 test-headed:
   pnpm run test:headed
 
@@ -562,11 +559,9 @@ remote-android *flags:
   node scripts/remote-test.mjs {{flags}} test-android-native
 
 # ── Editor gauntlet (the permanent editor regression suite) ──
-# Candidate-neutral: the matrix and oracles live behind EditorGauntletAdapter,
-# with one adapter per editor. `gauntlet-cm6*` drives the shipping CodeMirror
-# editor through the dev server; `gauntlet-milkdown*` drives the SAME
-# single-file editor.html the native shells ship (it builds the bundle first),
-# which is where Milkdown lives during the transition.
+# The matrix and oracles live behind EditorGauntletAdapter, with one adapter
+# per editor. `gauntlet-milkdown*` drives the SAME single-file editor.html the
+# native shells ship (it builds the bundle first).
 # Reports land in tests/editor-gauntlet/local/ (gitignored). Full details,
 # including corpus sharding: tests/editor-gauntlet/README.md.
 
@@ -584,18 +579,6 @@ gauntlet-milkdown-perf:
 # Milkdown foreign-corpus sweep (never-refuse/never-warn/never-lose).
 gauntlet-milkdown-foreign *args:
   pnpm run test:editor-gauntlet:milkdown:foreign {{args}}
-
-# The same three against the shipping CodeMirror editor, for comparison.
-gauntlet-cm6:
-  pnpm run test:editor-gauntlet:cm6
-
-# CodeMirror performance floor (a hard open budget at every size).
-gauntlet-cm6-perf:
-  pnpm run test:editor-gauntlet:perf
-
-# CodeMirror foreign-corpus sweep, on the original byte-fidelity bar.
-gauntlet-cm6-foreign *args:
-  pnpm run test:editor-gauntlet:foreign {{args}}
 
 # ── Milkdown round-trip census ──
 # Run a corpus of real notes through the real Milkdown editor and report what

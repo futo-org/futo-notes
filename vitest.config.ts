@@ -11,7 +11,6 @@ export default defineConfig({
     globals: true,
     include: [
       'src/**/*.test.ts',
-      'markdown-spec/**/*.test.ts',
       'scripts/**/*.test.mjs',
       'tests/lib/**/*.test.mjs',
       'tests/editor-gauntlet/**/*.test.ts',

@@ -94,9 +94,9 @@ drifts mid-session.
 1. **Static gate first, across all worktrees at once, before any device
    build**: `tsc --noEmit` + the MR's targeted unit tests. Dependency bump →
    duplicate-dependency check (`find node_modules/.pnpm -maxdepth 1 -name
-   '@codemirror+view@*'` — M22's blank-editor failure). Editor/CM change →
-   `pnpm run test:markdown-spec` is the key gate, but it runs in Chromium — the
-   leg must still confirm decorations live in Tauri's WebKit.
+   '@milkdown+kit@*'` — M22's blank-editor failure). Editor change →
+   `pnpm run test:e2e:editor-embed` is the key gate, but it runs in Chromium —
+   the leg must still confirm rendering live in Tauri's WebKit.
 2. **Worktree**: resolve the MR's source branch, then
    `git worktree add .claude/worktrees/mr-<iid> origin/<branch>` and
    `pnpm install` (installs run concurrently across worktrees).
