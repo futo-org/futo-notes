@@ -67,6 +67,13 @@ export class TableEditorWidget extends WidgetType {
 
     const table = document.createElement('table');
     scroll.appendChild(table);
+    // CodeMirror discards a block widget's DOM when it leaves the rendered
+    // viewport and calls toDOM on this same instance when it returns. The cell
+    // elements cached from the previous DOM describe a detached tree, so forget
+    // them: renderInto must build the fresh <table> from scratch, not "update"
+    // the old cells and leave this one empty (github#41).
+    this.cellEls = [];
+    this.headerEls = [];
     this.renderInto(root, table);
 
     this.dom = root;
