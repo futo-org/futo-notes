@@ -139,7 +139,10 @@ test('exec warns about an unknown command and leaves the note alone', async ({ p
   await exec(page, 'not-a-command');
 
   expect(await getContent(page)).toBe('x');
-  expect(warnings.join('\n')).toContain("unknown command id 'not-a-command'");
+  // The editor's own `exec` is what warns now: `createFutoEditorApi`'s
+  // TOOLBAR_EXEC fallback went with the CodeMirror engine (ea65cf5a), so every
+  // command runs through the editor and the message moved with it.
+  expect(warnings.join('\n')).toContain("MilkdownEditor.exec: unsupported command 'not-a-command'");
 });
 
 // ============================================================

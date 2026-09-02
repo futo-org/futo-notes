@@ -49,14 +49,37 @@ export async function editorMarkdown(page: Page): Promise<string> {
   );
 }
 
-/** Wait until the note's markdown settles on `expected`. */
+/**
+ * Wait until the note's markdown settles on `expected`.
+ *
+ * Compared with trailing blank lines stripped from BOTH sides: the editor
+ * always keeps one empty paragraph at the end of the document so the bottom of
+ * a note stays tappable, and it serializes as a trailing newline that no caller
+ * means to assert on. `withoutTrailingBlank` is the same rule, exported for
+ * specs that read the note directly.
+ */
 export async function waitForMarkdown(page: Page, expected: string): Promise<void> {
   await page.waitForFunction(
-    (want) =>
-      (window as unknown as TestHookWindow).__notesShellTest?.getState().editorContent === want,
+    (want) => {
+      const live =
+        (window as unknown as TestHookWindow).__notesShellTest?.getState().editorContent ?? '';
+      return live.replace(/\n+$/, '') === want.replace(/\n+$/, '');
+    },
     expected,
     { timeout: 10_000 },
   );
+}
+
+/**
+ * Open a new note WITHOUT reloading the page, so in-memory test state (notes
+ * injected through `__testNotes._injectTestNote`) survives. `openNewNote` does
+ * a full `page.goto`, which wipes it.
+ */
+export async function openNewNoteInPlace(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.location.hash = '#/note/new';
+  });
+  await waitForEditor(page);
 }
 
 /** Replace the whole note, as one undoable edit. */
@@ -78,8 +101,33 @@ export async function focusEditor(page: Page): Promise<void> {
   }, EDITOR);
 }
 
-/** Click into the editor and type — a real user's keystrokes. */
+/**
+ * Per-keystroke delay for `typeInEditor`.
+ *
+ * Playwright's default `type()` has NO delay, which outruns ProseMirror's input
+ * rules: `> ` and `- ` are recognised in a transaction that has to land before
+ * the next character arrives, so a zero-delay `'> hello'` produces a quote whose
+ * text never got in. 40 ms is well inside human cadence and was measured to be
+ * enough (a 120 ms run produces the same document).
+ */
+export const TYPE_DELAY_MS = 40;
+
+/** Click into the editor and type at a cadence the input rules can keep up with. */
 export async function typeInEditor(page: Page, text: string): Promise<void> {
   await page.locator(EDITOR).click();
-  await page.keyboard.type(text);
+  await page.keyboard.type(text, { delay: TYPE_DELAY_MS });
+}
+
+/** Type at the caret, without clicking first (which would move it). */
+export async function typeAtCaret(page: Page, text: string): Promise<void> {
+  await page.keyboard.type(text, { delay: TYPE_DELAY_MS });
+}
+
+/**
+ * The editor always keeps one empty trailing paragraph so the end of a note is
+ * tappable, which serializes as a trailing blank line. Specs that assert a whole
+ * document want the note without it.
+ */
+export function withoutTrailingBlank(markdown: string): string {
+  return markdown.replace(/\n+$/, '');
 }

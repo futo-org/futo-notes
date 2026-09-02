@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 
-import { EDITOR, openNewNote, setEditorMarkdown } from './lib/desktopEditor';
+import { EDITOR, openNewNote, openNewNoteInPlace, setEditorMarkdown } from './lib/desktopEditor';
 
 /**
  * Wikilinks on the DESKTOP shell.
@@ -81,12 +81,19 @@ test.describe('Wikilinks on desktop', () => {
       await page.evaluate(() => (window as any).__testNotes?.getAllNotes?.()?.length ?? 0),
     ).toBeGreaterThanOrEqual(3);
 
-    await openNewNote(page);
+    // In place, NOT `openNewNote`: a `page.goto` reloads and wipes the notes
+    // that were just injected into the in-memory cache, leaving the popup with
+    // nothing to offer and nothing to assert.
+    await openNewNoteInPlace(page);
     await page.locator(EDITOR).click();
     await page.keyboard.type('[[', { delay: 100 });
 
     const popup = page.locator('.futo-wikilink-suggest');
     await expect(popup).toBeVisible({ timeout: 3000 });
-    await expect(popup).toContainText('grocery list');
+    // Order is the suggestion module's business (and has its own coverage in
+    // the embed suite); what this asserts is that the DESKTOP note cache is
+    // what feeds the popup at all.
+    const labels = await popup.locator('.futo-wikilink-suggest-label').allInnerTexts();
+    expect(labels.sort()).toEqual(['grocery list', 'meeting notes', 'project ideas']);
   });
 });

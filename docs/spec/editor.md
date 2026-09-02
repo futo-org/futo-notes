@@ -534,6 +534,23 @@ native shells edit tags as text in the body, which is not a gap.
 - Removing a chip removes the tag; removing the last tag removes the entire
   header block.
 
+  > **Gap:** an UNDERSCORE in a tag does not survive being written. The tag bar
+  > normalizes `dog problems` to `dog_problems` correctly and shows that in the
+  > Create row, but it commits the note through `EditorApi.applyEdit`, which
+  > re-parses and re-serializes the whole document — and remark-stringify
+  > escapes the underscore, so the file gets `#dog\_problems`, which no longer
+  > parses as a tag at all. Every chip on the note then disappears. The
+  > CodeMirror tag bar spliced markdown into the source and never round-tripped,
+  > so this is new since the swap. It is WIDER than the tag bar and applies to
+  > every platform: typing `a #dog_problems tag` saves `a #dog\_problems tag`,
+  > and a single keystroke in a note containing `snake_case_word` rewrites it to
+  > `snake\_case\_word`. The round-trip census dispositioned intra-word
+  > underscore escaping as acceptable normalization for prose, which it is; it
+  > is not acceptable for a tag. Closing this is a narrowed `_` escape next to
+  > `withNarrowedAtxHashEscape`, measured with `just milkdown-census --diff`.
+  > → packages/editor/src/milkdown-compat/stringifyHandlers.ts,
+  > NoteTagBar.svelte, tests/tags.spec.ts (a `test.fixme` naming this Gap)
+
 ## Wikilinks — navigation & integrity
 
 - Clicking/tapping a wikilink navigates to the target note (desktop:

@@ -1,6 +1,12 @@
 import { test, expect } from '@playwright/test';
 
-import { EDITOR, openNewNote, setEditorMarkdown } from './lib/desktopEditor';
+import {
+  EDITOR,
+  openNewNote,
+  setEditorMarkdown,
+  typeAtCaret,
+  typeInEditor,
+} from './lib/desktopEditor';
 
 /**
  * List markers and the hanging indent, measured in a real browser.
@@ -84,10 +90,18 @@ test.describe('List markers and hanging indent', () => {
 
     const rows = await page.evaluate((selector) => {
       const paragraph = document.querySelectorAll(`${selector} li > p`)[1];
-      // One client rect per rendered visual row.
       const range = document.createRange();
       range.selectNodeContents(paragraph);
-      return [...range.getClientRects()].map((rect) => Math.round(rect.left));
+      // A visual row can produce SEVERAL client rects — the text run, plus a
+      // few-pixel sliver for the trailing space. Group by `top` and take each
+      // row's leftmost edge, which is the one the hang is about.
+      const leftByRow = new Map<number, number>();
+      for (const rect of range.getClientRects()) {
+        const row = Math.round(rect.top);
+        const left = Math.round(rect.left);
+        leftByRow.set(row, Math.min(leftByRow.get(row) ?? left, left));
+      }
+      return [...leftByRow.entries()].sort((a, b) => a[0] - b[0]).map(([, left]) => left);
     }, EDITOR);
 
     expect(rows.length, 'the item must actually wrap for this to mean anything').toBeGreaterThan(1);
@@ -101,11 +115,10 @@ test.describe('List markers and hanging indent', () => {
   test('Tab nests the item under the one above it', async ({ page }) => {
     await openNewNote(page);
 
-    await page.locator(EDITOR).click();
-    await page.keyboard.type('- parent');
+    await typeInEditor(page, '- parent');
     await page.keyboard.press('Enter');
     // List continuation carries the marker, so only the content is typed.
-    await page.keyboard.type('child');
+    await typeAtCaret(page, 'child');
     await page.keyboard.press('Tab');
 
     // The nesting is what Tab means — asserted on the document, not on a glyph.

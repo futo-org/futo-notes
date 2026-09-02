@@ -1,6 +1,12 @@
 import { test, expect, Page } from '@playwright/test';
 
-import { EDITOR, editorMarkdown, openNewNote, waitForEditor } from './lib/desktopEditor';
+import {
+  EDITOR,
+  editorMarkdown,
+  openNewNote,
+  typeInEditor,
+  waitForEditor,
+} from './lib/desktopEditor';
 
 /**
  * P2 regressions: title/rename commit behaviour, and the task checkbox.
@@ -277,9 +283,9 @@ test.describe('P2 Header + Formatting Regressions', () => {
   test('checkbox toggle does not focus editor when it was unfocused', async ({ page }) => {
     await openNewNote(page);
 
-    const editor = page.locator(EDITOR);
-    await editor.click();
-    await page.keyboard.type('- [ ] Buy milk');
+    // Typed at human cadence: `- [ ] ` is an input rule, and a zero-delay
+    // `type()` outruns the transaction that turns it into a task item.
+    await typeInEditor(page, '- [ ] Buy milk');
 
     // Blur the editor so nothing is focused inside it
     await blurEditor(page);
