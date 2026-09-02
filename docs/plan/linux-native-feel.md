@@ -1,8 +1,9 @@
 # Linux native feel — plan
 
 Status: implemented and locally verified 2026-09-02. Branch `linux-native-feel`, worktree
-`~/Developer/futo-notes-linux-native-feel`, based on `main` at f063c98e. The KDE/RPM path was
-verified on Fedora; GNOME and non-Linux desktop checks remain CI/manual follow-up coverage.
+`~/Developer/futo-notes-linux-native-feel`, based on `main` at f063c98e. The RPM was verified on
+Fedora KDE and in a Fedora 43 GNOME Wayland VM; non-Linux desktop checks remain CI/manual follow-up
+coverage.
 
 Seven workstreams that make the Tauri desktop app read as a Linux application instead of a web
 page in a frame. All of them stay inside the current architecture: Svelte in a WebKitGTK webview
