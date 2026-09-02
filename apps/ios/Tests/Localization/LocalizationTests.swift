@@ -187,6 +187,26 @@ struct LocalizationTests {
         }
     }
 
+    // iOS reads the app bundle's localized resource directories to decide which
+    // languages its per-app Language page may offer. The catalogs are generated
+    // into <tag>.lproj/InfoPlist.strings, so a break in that generation would
+    // silently leave the page with English only. (Whether iOS shows the row at
+    // all is the operating system's call — it requires more than one preferred
+    // language on the device; see docs/spec/localization.md.)
+    @Test("the app bundle advertises every generated catalog language to iOS")
+    func bundleAdvertisesEveryCatalogLanguage() throws {
+        let advertised = Set(Bundle.main.localizations)
+        #expect(advertised.contains("en"))
+        for catalog in GeneratedLanguageCatalogs.catalogs {
+            for tag in [catalog.tag] + catalog.aliases {
+                #expect(
+                    advertised.contains(tag),
+                    "bundle does not advertise \(tag); localized resources are missing"
+                )
+            }
+        }
+    }
+
     @Test("file sizes follow shared cases")
     func fileSizes() throws {
         let cases = try loadLocalizationCases()

@@ -169,6 +169,15 @@ editor resolve from the catalogs on desktop, Android, and iOS.
   Settings, where the operating system owns selection. Returning to the app or
   relaunching resolves the change immediately and preserves the existing
   background draft behavior.
+- iOS itself decides whether that system Settings page offers a per-app language
+  choice: the row appears only while the device lists more than one preferred
+  language, so a single-language device sees no Language row and the app follows
+  that one language. This is operating-system behavior, not an app setting. →
+  SettingsView.swift _(iOS)_
+- The generated `<language-tag>.lproj/InfoPlist.strings` resources are what
+  advertise the app's supported languages to iOS, so the per-app Language page
+  lists every catalog once the operating system shows the row. →
+  generate-native-language-resources.mjs / LocalizationTests.swift _(iOS)_
 - Android and iOS let the operating system discard an override for a catalog that
   is no longer available.
 
