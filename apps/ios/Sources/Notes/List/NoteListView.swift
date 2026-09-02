@@ -306,30 +306,34 @@ struct FolderContentsView: View {
         .background(Theme.background)
         .navigationTitle(title)
         .toolbar {
-            ToolbarItem(id: "create", placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        // Quick capture: create + open straight into the body,
-                        // no blocking title prompt (desktop parity). [list.md]
-                        createNote()
-                    } label: {
-                        Label("New Note", systemImage: "square.and.pencil")
-                    }
-                    Button {
-                        newFolderName = ""
-                        setNewFolderDialog(visible: true)
-                    } label: {
-                        Label("New Folder", systemImage: "folder.badge.plus")
-                    }
+            // Two SEPARATE nav-bar buttons (desktop parity, github#5): a
+            // folder button and a compose button, the way Notes/Files expose
+            // them. New Note is one tap — quick capture never sits behind a
+            // menu. iOS groups adjacent trailing items into one control
+            // cluster, so this reads as native rather than as two loose icons.
+            ToolbarItem(id: "create-folder", placement: .topBarTrailing) {
+                Button {
+                    newFolderName = ""
+                    setNewFolderDialog(visible: true)
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "folder.badge.plus")
                 }
                 .tint(Theme.primary)
-                // Explicit AX so VoiceOver/idb can read + activate the create
-                // menu (it otherwise collapses into an unlabeled container).
-                // [nav.md:13]
-                .accessibilityLabel("New note or folder")
-                .accessibilityAddTraits(.isButton)
+                // Explicit AX so VoiceOver/AXe can read + activate it. [nav.md]
+                .accessibilityLabel("New folder")
+                .accessibilityIdentifier("nav-create-folder")
+            }
+            ToolbarItem(id: "create", placement: .topBarTrailing) {
+                Button {
+                    // Quick capture: create + open straight into the body,
+                    // no blocking title prompt (desktop parity). [list.md]
+                    createNote()
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .tint(Theme.primary)
+                // Explicit AX so VoiceOver/AXe can read + activate it. [nav.md]
+                .accessibilityLabel("New note")
                 .accessibilityIdentifier("nav-create")
             }
         }
@@ -532,7 +536,7 @@ struct FolderContentsView: View {
                 .foregroundStyle(Theme.primary)
             Text(folder.isEmpty ? "No notes yet" : "Empty folder")
                 .font(.title2.bold())
-            Text("Tap + to add a note or folder.")
+            Text("Tap the compose button to add a note.")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
