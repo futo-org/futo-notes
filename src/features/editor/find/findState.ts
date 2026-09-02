@@ -101,9 +101,28 @@ export function scanFindResults(view: EditorView, selectMatch: boolean): void {
       currentIndex,
       anchor: current?.from ?? value.anchor,
     }),
-    selection: selectMatch && current ? { anchor: current.from, head: current.to } : undefined,
+    selection: selectMatch ? nextFindSelection(view, current) : undefined,
     scrollIntoView: Boolean(selectMatch && current),
   });
+}
+
+/**
+ * Where the caret goes after a query change. A match takes the selection so
+ * the current match reads as current. With NO match the previous one's
+ * selection has to collapse: the mark decorations vanish with the query, but
+ * the drawn selection does not, so the last match kept a duller version of the
+ * highlight the user had just deleted (Mason, MR !267) — and
+ * docs/spec/editor.md allows no lingering current-match decoration once the
+ * query stops matching. Collapsing to its start leaves the caret where
+ * searching resumes rather than jumping the user somewhere else.
+ */
+function nextFindSelection(
+  view: EditorView,
+  current: FindMatch | undefined,
+): { anchor: number; head?: number } | undefined {
+  if (current) return { anchor: current.from, head: current.to };
+  const selection = view.state.selection.main;
+  return selection.empty ? undefined : { anchor: selection.from };
 }
 
 export const openFind: Command = (view) => {

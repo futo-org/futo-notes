@@ -121,6 +121,31 @@ test.describe('Find in note', () => {
     await expect(page.locator('.cm-find-match-current')).toHaveText('hidden');
   });
 
+  // Regression (Mason, MR !267): the mark decorations went away with the query
+  // but the drawn selection did not, so backspacing the query to empty left the
+  // last match wearing a duller copy of the highlight the user had just
+  // removed. Asserted in the DOM because the residue was the selection layer,
+  // not a find decoration.
+  test('leaves no highlight or selection behind when the query is emptied', async ({ page }) => {
+    await openNewNote(page);
+    await setBody(page, '# FindQA needle test\n\nneedle one is here.\nSecond needle appears.');
+
+    await page.keyboard.press('Control+f');
+    const query = page.locator('.cm-find-query');
+    await query.fill('needle');
+    await expect(page.locator('.cm-find-count')).toHaveText(/of 3$/);
+    await expect(page.locator('.cm-find-match')).toHaveCount(3);
+    await expect(page.locator('.cm-selectionBackground')).toHaveCount(1);
+
+    await query.fill('');
+
+    await expect(page.locator('.cm-find-count')).toHaveText('0');
+    await expect(page.locator('.cm-find-match')).toHaveCount(0);
+    await expect(page.locator('.cm-find-match-current')).toHaveCount(0);
+    await expect(page.locator('.cm-selectionBackground')).toHaveCount(0);
+    await expect(page.locator('.cm-find-panel')).toHaveCount(1);
+  });
+
   // Stepping moves a real selection, so the formatting bubble used to pop over
   // the text on every step, follow the stepping, and outlive the bar (Escape
   // leaves the selection on the match by spec).

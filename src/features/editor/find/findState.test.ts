@@ -210,3 +210,51 @@ describe('host overlay inset (docs/spec/editor.md — the current match is alway
     panel.remove();
   });
 });
+
+describe('clearing the query (docs/spec/editor.md — no lingering current-match decoration)', () => {
+  // Regression (Mason, MR !267): emptying the query cleared the match
+  // decorations but left the last current match SELECTED, so the drawn
+  // selection stayed on screen as a duller version of the highlight the user
+  // had just removed. docs/spec/editor.md requires no lingering current-match
+  // decoration once the query stops matching.
+  it('collapses the current-match selection when the query stops matching', () => {
+    const view = setup('cat dog CAT');
+    openFind(view);
+    setFindQuery(view, 'cat');
+    scanFindResults(view, true);
+    expect(view.state.selection.main).toEqual(EditorSelection.range(0, 3));
+
+    setFindQuery(view, '');
+    scanFindResults(view, true);
+
+    expect(view.state.field(findState)).toMatchObject({ matches: [], currentIndex: -1 });
+    expect(view.state.selection.main.empty).toBe(true);
+    expect(view.state.selection.main.from).toBe(0);
+  });
+
+  it('collapses the current-match selection when a non-empty query matches nothing', () => {
+    const view = setup('cat dog CAT');
+    openFind(view);
+    setFindQuery(view, 'dog');
+    scanFindResults(view, true);
+    expect(view.state.selection.main).toEqual(EditorSelection.range(4, 7));
+
+    setFindQuery(view, 'dogx');
+    scanFindResults(view, true);
+
+    expect(view.state.selection.main.empty).toBe(true);
+    expect(view.state.selection.main.from).toBe(4);
+  });
+
+  it('leaves the selection alone when only the document changed', () => {
+    const view = setup('cat dog CAT');
+    openFind(view);
+    setFindQuery(view, 'cat');
+    scanFindResults(view, true);
+    view.dispatch({ selection: EditorSelection.range(4, 7) });
+
+    scanFindResults(view, false);
+
+    expect(view.state.selection.main).toEqual(EditorSelection.range(4, 7));
+  });
+});
