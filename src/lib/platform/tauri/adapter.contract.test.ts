@@ -208,7 +208,9 @@ describe('Tauri adapter public contract', () => {
     native.open.mockResolvedValueOnce('/tmp/payload.exe');
     native.readFile.mockClear();
 
-    await expect(tauriFS.pickImages!({ limit: 1, filterName: 'Images' })).rejects.toThrow('disallowed image extension');
+    await expect(tauriFS.pickImages!({ limit: 1, filterName: 'Images' })).rejects.toThrow(
+      'disallowed image extension',
+    );
     expect(native.readFile).not.toHaveBeenCalled();
   });
 
