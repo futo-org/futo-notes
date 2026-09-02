@@ -425,6 +425,22 @@
         "inlineCode": "Inline code",
         "link": "Link"
       },
+      "find": {
+        "open": "Find in note",
+        "queryLabel": "Find in note",
+        "queryHint": "Find",
+        "clearQuery": "Clear find query",
+        "previousMatch": "Previous match",
+        "nextMatch": "Next match",
+        "close": "Close find",
+        "matchCount": {
+          "plural": "total",
+          "variants": {
+            "=0": "0",
+            "other": "{current} of {total}"
+          }
+        }
+      },
       "slashMenu": {
         "heading": "Insert block",
         "noMatches": "No matching blocks",

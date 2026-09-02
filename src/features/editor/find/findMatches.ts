@@ -1,6 +1,8 @@
 import { SearchCursor } from '@codemirror/search';
 import type { Text } from '@codemirror/state';
 
+import { localizedText } from '$shared/localization';
+
 export interface FindMatch {
   from: number;
   to: number;
@@ -41,12 +43,22 @@ export function wrapFindMatchIndex(index: number, length: number): number {
   return ((index % length) + length) % length;
 }
 
+/**
+ * The count label both native find bars render verbatim, so it is localized
+ * HERE rather than in each shell: one catalog message, one plural rule, and a
+ * language change re-posts it because the editor's reconfigure runs the find
+ * lifecycle's update (findExtension.ts).
+ */
 export function createFindMatchReport(
   query: string,
   currentIndex: number,
   total: number,
 ): FindMatchReport {
-  if (total === 0) return { query, current: 0, total: 0, label: '0' };
-  const current = currentIndex + 1;
-  return { query, current, total, label: `${current} of ${total}` };
+  const current = total === 0 ? 0 : currentIndex + 1;
+  return {
+    query,
+    current,
+    total,
+    label: localizedText('editor.find.matchCount', { current, total }),
+  };
 }

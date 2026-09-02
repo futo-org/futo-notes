@@ -790,7 +790,7 @@ fun NoteEditorScreen(
                     // Overflow parity with the list rows [list.md:62].
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
-                            text = { Text("Find in note") },
+                            text = { Text(localization.localizedText("editor.find.open")) },
                             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = c.textSecondary) },
                             onClick = {
                                 menu = false
@@ -1183,8 +1183,9 @@ private class FindQueryEditText(context: Context) : EditText(context) {
 
     init {
         isSingleLine = true
-        hint = "Find"
-        contentDescription = "Find in note"
+        // hint/contentDescription are catalog-resolved by the composable, in
+        // `update` as well as `factory`, so an interface-language change
+        // re-labels a bar that is already on screen.
         imeOptions = EditorInfo.IME_ACTION_SEARCH
         addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -1234,6 +1235,9 @@ private fun FindInNoteBar(
 ) {
     val c = FutoTheme.colors
     val context = LocalContext.current
+    val localization = LocalLocalization.current
+    val queryHint = localization.localizedText("editor.find.queryHint")
+    val queryLabel = localization.localizedText("editor.find.queryLabel")
 
     Column(
         modifier = Modifier
@@ -1252,6 +1256,8 @@ private fun FindInNoteBar(
                 factory = {
                     FindQueryEditText(context).apply {
                         background = null
+                        hint = queryHint
+                        contentDescription = queryLabel
                         setPadding(0, 0, 0, 0)
                         setTextColor(c.textPrimary.toArgb())
                         setHintTextColor(c.textMuted.toArgb())
@@ -1275,6 +1281,8 @@ private fun FindInNoteBar(
                     }
                 },
                 update = { field ->
+                    field.hint = queryHint
+                    field.contentDescription = queryLabel
                     field.onQueryChange = onQueryChange
                     field.onStep = onStep
                     field.onClose = onClose
@@ -1307,7 +1315,7 @@ private fun FindInNoteBar(
             ) {
                 Icon(
                     Icons.Filled.KeyboardArrowUp,
-                    contentDescription = "Previous match",
+                    contentDescription = localization.localizedText("editor.find.previousMatch"),
                     tint = if (canStepFind(total)) c.textSecondary else c.textMuted,
                 )
             }
@@ -1318,7 +1326,7 @@ private fun FindInNoteBar(
             ) {
                 Icon(
                     Icons.Filled.KeyboardArrowDown,
-                    contentDescription = "Next match",
+                    contentDescription = localization.localizedText("editor.find.nextMatch"),
                     tint = if (canStepFind(total)) c.textSecondary else c.textMuted,
                 )
             }
@@ -1328,7 +1336,7 @@ private fun FindInNoteBar(
             ) {
                 Icon(
                     Icons.Filled.Close,
-                    contentDescription = "Close find",
+                    contentDescription = localization.localizedText("editor.find.close"),
                     tint = c.textPrimary,
                     modifier = Modifier.size(26.dp),
                 )

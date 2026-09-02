@@ -1,13 +1,15 @@
 import { showPanel, type Panel, type PanelConstructor, type ViewUpdate } from '@codemirror/view';
 
+import { localizedText } from '$shared/localization';
+
 import { closeFind, findState, requestFindFocusEffect, setFindQuery, stepFind } from './findState';
 import { createFindMatchReport } from './findMatches';
 
-function button(label: string, text: string, onclick: () => void): HTMLButtonElement {
+function button(labelPath: string, text: string, onclick: () => void): HTMLButtonElement {
   const element = document.createElement('button');
   element.type = 'button';
   element.className = 'cm-find-button';
-  element.setAttribute('aria-label', label);
+  element.dataset.labelPath = labelPath;
   element.textContent = text;
   element.onclick = onclick;
   return element;
@@ -22,8 +24,6 @@ export function createFindPanel(onQueryFocus?: () => void): PanelConstructor {
     query.className = 'cm-find-query';
     query.dataset.editorBodyFocus = 'false';
     query.type = 'text';
-    query.placeholder = 'Find in note';
-    query.setAttribute('aria-label', 'Find in note');
     query.setAttribute('autocomplete', 'off');
     query.setAttribute('autocapitalize', 'off');
     query.setAttribute('spellcheck', 'false');
@@ -47,10 +47,25 @@ export function createFindPanel(onQueryFocus?: () => void): PanelConstructor {
     dom.append(
       query,
       count,
-      button('Previous match', '↑', () => stepFind(view, -1)),
-      button('Next match', '↓', () => stepFind(view, 1)),
-      button('Close find', '×', () => closeFind(view, true)),
+      button('editor.find.previousMatch', '↑', () => stepFind(view, -1)),
+      button('editor.find.nextMatch', '↓', () => stepFind(view, 1)),
+      button('editor.find.close', '×', () => closeFind(view, true)),
     );
+
+    /**
+     * Re-resolve every label from the catalog. Called on each update, not only
+     * at construction, because the panel outlives an interface-language change:
+     * the reconfigure that swaps the editor's phrases produces an update here.
+     */
+    function renderLabels(): void {
+      const fieldLabel = localizedText('editor.find.queryLabel');
+      query.placeholder = fieldLabel;
+      query.setAttribute('aria-label', fieldLabel);
+      for (const element of dom.querySelectorAll<HTMLButtonElement>('.cm-find-button')) {
+        const labelPath = element.dataset.labelPath;
+        if (labelPath) element.setAttribute('aria-label', localizedText(labelPath));
+      }
+    }
 
     /**
      * How long after focusing the query a collapsed selection is still read as
@@ -105,6 +120,7 @@ export function createFindPanel(onQueryFocus?: () => void): PanelConstructor {
     }
 
     function render(): void {
+      renderLabels();
       const value = view.state.field(findState);
       if (query.value !== value.query) query.value = value.query;
       count.textContent = createFindMatchReport(

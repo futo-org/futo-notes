@@ -307,7 +307,10 @@ struct NoteEditorView: View {
                         findOverlayInset = 0
                         EditorHost.shared.openFind()
                     } label: {
-                        Label("Find in note", systemImage: "magnifyingglass")
+                        Label(
+                            localization.localizedText("editor.find.open"),
+                            systemImage: "magnifyingglass"
+                        )
                     }
                     Button {
                         renameField = splitId(id: noteId).title
@@ -352,7 +355,7 @@ struct NoteEditorView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
-                .accessibilityLabel("More")
+                .accessibilityLabel(localization.localizedText("notes.actions.moreAccessibilityLabel"))
                 .tint(Theme.primary)
                 .disabled(interactionLocked)
             }
@@ -1005,6 +1008,7 @@ private struct FindInNoteBar: View {
     let onStep: (Int) -> Void
     let onClose: () -> Void
 
+    @Environment(\.localization) private var localization
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
@@ -1017,7 +1021,7 @@ private struct FindInNoteBar: View {
                     .background(Theme.primary, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Close find")
+            .accessibilityLabel(localization.localizedText("editor.find.close"))
 
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass")
@@ -1028,7 +1032,7 @@ private struct FindInNoteBar: View {
                 // keyboard must not shape it: autocapitalization turned typed
                 // "example" into "Example" on device, and autocorrect can
                 // silently rewrite a query into one that matches nothing.
-                TextField("Find", text: $query)
+                TextField(localization.localizedText("editor.find.queryHint"), text: $query)
                     .textFieldStyle(.plain)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -1041,7 +1045,7 @@ private struct FindInNoteBar: View {
                         onStep(-1)
                         return .handled
                     }
-                    .accessibilityLabel("Find in note")
+                    .accessibilityLabel(localization.localizedText("editor.find.queryLabel"))
 
                 Text(label)
                     .font(.callout.monospacedDigit())
@@ -1055,7 +1059,7 @@ private struct FindInNoteBar: View {
                             .foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Clear find query")
+                    .accessibilityLabel(localization.localizedText("editor.find.clearQuery"))
                 }
             }
             .padding(.horizontal, 12)
@@ -1067,13 +1071,13 @@ private struct FindInNoteBar: View {
                     Image(systemName: "chevron.up")
                         .frame(width: 42, height: 46)
                 }
-                .accessibilityLabel("Previous match")
+                .accessibilityLabel(localization.localizedText("editor.find.previousMatch"))
 
                 Button { onStep(1) } label: {
                     Image(systemName: "chevron.down")
                         .frame(width: 42, height: 46)
                 }
-                .accessibilityLabel("Next match")
+                .accessibilityLabel(localization.localizedText("editor.find.nextMatch"))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)

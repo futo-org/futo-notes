@@ -40,6 +40,15 @@ test.describe('Find in note', () => {
     expect(panelPlacement.panelRect.x).toBe(panelPlacement.editorPaneRect?.x);
     expect(panelPlacement.panelRect.width).toBe(panelPlacement.editorPaneRect?.width);
     expect(panelPlacement.panelRect.bottom).toBe(panelPlacement.editorPaneRect?.bottom);
+    // Every label the panel renders comes from the catalog (editor.find.*),
+    // re-resolved on each update rather than only at construction, so a
+    // language change relabels a bar that is already open.
+    await expect(query).toHaveAttribute('placeholder', 'Find in note');
+    await expect(query).toHaveAttribute('aria-label', 'Find in note');
+    await expect(page.getByLabel('Previous match')).toBeVisible();
+    await expect(page.getByLabel('Next match')).toBeVisible();
+    await expect(page.getByLabel('Close find')).toBeVisible();
+
     await query.fill('cat');
     const count = page.locator('.cm-find-count');
     await expect(count).toHaveText(/^[1-3] of 3$/);

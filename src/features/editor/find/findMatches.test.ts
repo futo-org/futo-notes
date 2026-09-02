@@ -1,5 +1,7 @@
 import { Text } from '@codemirror/state';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { desktopLocalization } from '$shared/localization';
 
 import {
   createFindMatchReport,
@@ -9,6 +11,10 @@ import {
 } from './findMatches';
 
 describe('findMatches', () => {
+  afterEach(() => {
+    desktopLocalization.setSelectedLanguageTag(null);
+  });
+
   it('formats the canonical native count label', () => {
     expect(createFindMatchReport('missing', -1, 0)).toEqual({
       query: 'missing',
@@ -22,6 +28,15 @@ describe('findMatches', () => {
       total: 17,
       label: '3 of 17',
     });
+  });
+
+  // Both native find bars render `label` verbatim, so an English literal here
+  // would be an untranslatable bar on every platform at once.
+  it('resolves the count label from the catalog, not an English literal', () => {
+    expect(desktopLocalization.setSelectedLanguageTag('zh-Hans')).toBe('zh-Hans');
+
+    expect(createFindMatchReport('cat', 2, 17).label).toBe('第 3 个，共 17 个');
+    expect(createFindMatchReport('missing', -1, 0).label).toBe('0');
   });
   it('finds case-insensitive literal substrings in source markdown', () => {
     const doc = Text.of(['Cat concatenate CAT', '[label](Aug URL)']);
