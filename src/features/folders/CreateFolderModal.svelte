@@ -2,27 +2,28 @@
   import { onMount, untrack } from 'svelte';
 
   import Modal from '$shared/dialogs/Modal.svelte';
+  import {
+    localizedText,
+    resolveLocalizedMessage,
+    type LocalizedMessage,
+  } from '$shared/localization';
 
   interface Props {
     initialValue?: string;
     title?: string;
     confirmLabel?: string;
-    onsubmit: (value: string) => Promise<string | null> | string | null;
-    validate?: (value: string) => string | null;
+    onsubmit: (value: string) => Promise<LocalizedMessage | null> | LocalizedMessage | null;
+    validate?: (value: string) => LocalizedMessage | null;
     oncancel: () => void;
   }
 
-  let {
-    initialValue = '',
-    title = 'New folder',
-    confirmLabel = 'Create',
-    onsubmit,
-    validate,
-    oncancel,
-  }: Props = $props();
+  let { initialValue = '', title, confirmLabel, onsubmit, validate, oncancel }: Props = $props();
+
+  const resolvedTitle = $derived(title ?? localizedText('folders.createHeading'));
+  const resolvedConfirmLabel = $derived(confirmLabel ?? localizedText('common.actions.create'));
 
   let value = $state(untrack(() => initialValue));
-  let error = $state<string | null>(null);
+  let error = $state<LocalizedMessage | null>(null);
   let submitting = $state(false);
   let inputEl: HTMLInputElement | undefined = $state();
 
@@ -43,8 +44,9 @@
       if (result !== null) {
         error = result;
       }
-    } catch (err) {
-      error = (err as Error).message ?? 'Failed';
+    } catch (cause) {
+      console.warn('Create folder dialog failed', cause);
+      error = { path: 'folders.errors.createFailed' };
     } finally {
       submitting = false;
     }
@@ -59,9 +61,9 @@
   }
 </script>
 
-<Modal {title} ondismiss={oncancel}>
+<Modal title={resolvedTitle} ondismiss={oncancel}>
   <label class="modal-label">
-    Folder name
+    {localizedText('folders.nameField')}
     <input
       bind:this={inputEl}
       bind:value
@@ -79,16 +81,18 @@
     />
   </label>
   {#if shownError}
-    <div class="modal-error" role="alert">{shownError}</div>
+    <div class="modal-error" role="alert">{resolveLocalizedMessage(shownError)}</div>
   {/if}
   <div class="modal-actions">
-    <button type="button" class="modal-btn modal-btn-secondary" onclick={oncancel}>Cancel</button>
+    <button type="button" class="modal-btn modal-btn-secondary" onclick={oncancel}
+      >{localizedText('common.actions.cancel')}</button
+    >
     <button
       type="button"
       class="modal-btn modal-btn-primary"
       onclick={handleSubmit}
       disabled={submitting || liveError !== null}
-      data-testid="create-folder-confirm">{confirmLabel}</button
+      data-testid="create-folder-confirm">{resolvedConfirmLabel}</button
     >
   </div>
 </Modal>

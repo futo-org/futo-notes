@@ -1,0 +1,738 @@
+{
+  "$schema": "./catalog.schema.json",
+  "language": {
+    "englishName": "Simplified Chinese",
+    "nativeName": "简体中文",
+    "direction": "ltr",
+    "aliases": []
+  },
+  "messages": {
+    "app": {
+      "name": "FUTO 笔记",
+      "android": {
+        "displayName": "FUTO 笔记",
+        "debugDisplayName": "FUTO 笔记开发版"
+      },
+      "ios": {
+        "displayName": "FUTO 笔记",
+        "debugDisplayName": "FUTO 笔记开发版"
+      },
+      "desktop": {
+        "debugDisplayName": "FUTO 笔记（开发版）",
+        "developmentBadge": "开发版",
+        "minimizeWindowAccessibilityLabel": "最小化窗口",
+        "maximizeWindowAccessibilityLabel": "最大化窗口",
+        "closeWindowAccessibilityLabel": "关闭窗口",
+        "menu": {
+          "file": "文件",
+          "edit": "编辑",
+          "view": "显示",
+          "window": "窗口",
+          "settings": "设置…",
+          "newNote": "新建笔记",
+          "newTab": "新建标签页",
+          "reopenClosedTab": "重新打开关闭的标签页",
+          "searchNotes": "搜索笔记…",
+          "closeTab": "关闭标签页",
+          "closeWindow": "关闭窗口",
+          "toggleSidebar": "切换边栏"
+        }
+      }
+    },
+    "common": {
+      "actions": {
+        "back": "返回",
+        "cancel": "取消",
+        "close": "关闭",
+        "continue": "继续",
+        "create": "创建",
+        "delete": "删除",
+        "done": "完成",
+        "move": "移动",
+        "rename": "重命名",
+        "send": "发送"
+      },
+      "errors": {
+        "renameFailed": "无法重命名此项目。"
+      }
+    },
+    "settings": {
+      "heading": "设置",
+      "openAccessibilityLabel": "打开设置",
+      "closeAccessibilityLabel": "关闭设置",
+      "sections": {
+        "sync": "同步",
+        "appearance": "外观",
+        "issueReporting": "问题报告",
+        "storage": "存储",
+        "about": "关于",
+        "dangerZone": "危险操作"
+      },
+      "sync": {
+        "selfHosted": "自托管同步",
+        "localDescription": "连接同步之前，笔记只保存在此设备上。",
+        "syncedBadge": "已同步",
+        "localBadge": "本地"
+      },
+      "appearance": {
+        "theme": "主题",
+        "light": "浅色",
+        "dark": "深色",
+        "auto": "自动",
+        "autoHint": "自动模式会跟随系统主题。"
+      },
+      "issueReporting": {
+        "shareCrashReports": "共享崩溃报告",
+        "reportsSavedLocallyFirst": "报告会先保存在本地",
+        "shareHelp": "发生崩溃时共享匿名日志，帮助改进 FUTO 笔记",
+        "sendAutomatically": "自动发送崩溃报告",
+        "skipCrashDialog": "跳过崩溃报告对话框",
+        "sendWithoutAsking": "每次不再询问并直接发送报告",
+        "reportIssue": "报告问题",
+        "openGitHubIssueTracker": "打开 GitHub 问题跟踪器"
+      },
+      "storage": {
+        "notesFolder": "笔记文件夹",
+        "storageLocation": "存储位置",
+        "folder": "文件夹",
+        "sharedFolderDescription": "共享文件夹 · 可在“文件”中查看",
+        "appFolderDescription": "应用文件夹 · 私有",
+        "legacyInternalDescription": "内部存储 · 私有（旧版）",
+        "unreachableCurrentWarning": "此文件夹已无法访问。请重新选择它，或恢复默认位置。",
+        "loading": "正在加载…",
+        "memoryVault": "内存测试笔记库",
+        "unableToRead": "无法读取笔记目录",
+        "useFolderFailed": "无法使用该文件夹。",
+        "changeDirectory": "更改目录",
+        "resetToDefault": "恢复默认位置"
+      },
+      "about": {
+        "openSource": "开源代码",
+        "version": "版本",
+        "versionLine": "FUTO 笔记 v{version}"
+      },
+      "danger": {
+        "fullReset": "完全重置",
+        "permanentlyRemoveAll": "永久删除所有笔记和应用数据",
+        "confirmation": "要永久删除所有笔记和应用数据吗？此操作无法撤销。",
+        "deleteEverything": "全部删除",
+        "deleting": "正在删除所有笔记…",
+        "failed": "完全重置失败。部分笔记或设置可能尚未删除。"
+      },
+      "debug": {
+        "heading": "调试",
+        "testCrash": {
+          "title": "测试崩溃",
+          "desktop": {
+            "description": "抛出错误以测试崩溃报告功能"
+          },
+          "android": {
+            "description": "抛出 RuntimeException 以测试崩溃处理流程"
+          }
+        },
+        "syncErrorTest": {
+          "heading": "同步错误测试（开发）",
+          "description": "通过真实处理程序触发模拟的同步结果——⚠ 指示器、通知和“同步失败”状态的行为与服务器抛出错误时完全相同。“同步成功”会清除该状态（也可点击 ⚠）。",
+          "scenarios": {
+            "uploadHttp500": "上传 500",
+            "uploadHttp403": "上传 403",
+            "deleteHttp500": "删除 500",
+            "networkWithoutStatus": "网络（无状态码）",
+            "threeFailures": "3 项失败"
+          },
+          "successfulSync": "同步成功"
+        }
+      },
+      "dialogs": {
+        "changeDirectoryTitle": "更改笔记目录",
+        "changeDirectoryConfirmation": "要将笔记目录更改为：\n{directory}\n\n当前目录中的现有笔记不会被移动。应用将重新启动。",
+        "resetDirectoryTitle": "重置笔记目录",
+        "resetDirectoryConfirmation": "要将笔记目录恢复为默认位置吗？\n\n应用将重新启动。"
+      },
+      "language": {
+        "heading": "语言",
+        "systemOption": "跟随系统",
+        "saveFailed": "语言已更改，但无法保存此偏好设置。",
+        "android": {
+          "draftSaveFailed": "语言未更改：无法保存当前打开的笔记。"
+        },
+        "ios": {
+          "openSystemSettings": "打开 iOS 设置"
+        }
+      },
+      "updates": {
+        "heading": "更新",
+        "description": "定期检查新版本，并在有可用更新时通知你",
+        "automaticChecks": "自动检查更新",
+        "checking": "正在检查更新…",
+        "downloading": "正在下载更新…",
+        "installing": "正在安装更新…",
+        "installVersion": "安装 v{version}",
+        "downloadingProgress": "正在下载… {percent}%",
+        "restarting": "正在重新启动…",
+        "updateAndRestart": "更新并重新启动",
+        "restartNow": "立即重新启动以完成更新",
+        "retryVersion": "重试更新 — v{currentVersion} → v{newVersion}",
+        "checkForUpdates": "检查更新",
+        "latestVersion": "你正在使用最新版本（v{version}）。",
+        "versionTransition": "版本：v{currentVersion} → v{newVersion}",
+        "pleaseWait": "请稍候，应用将自动重新启动。",
+        "installedRestart": "更新已安装。请重新启动以完成更新。",
+        "currentVersion": "当前运行版本为 v{version}。",
+        "failed": "更新失败"
+      }
+    },
+    "notes": {
+      "heading": "笔记",
+      "forYou": {
+        "heading": "为你推荐",
+        "empty": "从侧边栏创建第一篇笔记即可开始使用。"
+      },
+      "newNote": "新建笔记",
+      "newNoteShort": "新建",
+      "untitledPlaceholder": "无标题",
+      "list": {
+        "rootEmptyHeading": "还没有笔记",
+        "folderEmptyHeading": "空文件夹",
+        "android": {
+          "emptyActionHint": "轻点 + 添加笔记。"
+        },
+        "ios": {
+          "emptyActionHint": "轻点撰写按钮添加笔记。"
+        },
+        "desktopEmptyHint": "还没有笔记。轻点 + 新建一篇。"
+      },
+      "actions": {
+        "optionsAccessibilityLabel": "笔记选项",
+        "graphView": "关系图",
+        "copyFilePath": "复制文件路径",
+        "moveToFolder": "移至文件夹",
+        "moveToFolderEllipsis": "移至文件夹…",
+        "deleteNote": "删除笔记",
+        "share": "共享",
+        "moreAccessibilityLabel": "更多"
+      },
+      "shareChooserTitle": "共享笔记",
+      "graphComingSoon": "关系图功能即将推出。",
+      "pathCopied": "已复制路径",
+      "unavailable": "该笔记已不可用。",
+      "movedTo": "已移至{destination}",
+      "movedToNotes": "已移至“笔记”",
+      "movedToRoot": "已移至根目录",
+      "moveNamedHeading": "移动“{noteTitle}”",
+      "deleted": "已删除笔记",
+      "deletedElsewhere": "笔记已在其他位置删除",
+      "title": {
+        "fieldLabel": "标题",
+        "fieldAccessibilityLabel": "笔记标题",
+        "empty": "标题不能为空",
+        "forbiddenCharacter": "笔记标题不能使用该字符",
+        "leadingDot": "标题不能以句点开头",
+        "trailingDot": "标题不能以句点结尾",
+        "tooLong": "标题不能超过 {maxLength} 个字符",
+        "duplicate": "已存在同名笔记",
+        "renameHeading": "重命名笔记",
+        "renamePrompt": "请输入此笔记的新名称。",
+        "renameFailed": "无法重命名笔记。你的标题仍在等待保存。"
+      },
+      "save": {
+        "failedPending": "无法保存笔记。你的更改仍在等待保存。",
+        "conflictCopy": "冲突的编辑已保存为副本",
+        "localEditsKept": "正在保留你的本地编辑",
+        "peerDeletedDraftOpen": "此笔记已在其他位置删除。你的草稿仍处于打开状态。",
+        "peerChangedDraftOpen": "此笔记已在其他位置更改。你的草稿仍处于打开状态。",
+        "refreshFailedDraftOpen": "无法刷新当前笔记。你的草稿仍处于打开状态。",
+        "openNoteDeletedKeepingDraft": "当前笔记已被删除；正在保留本地草稿"
+      },
+      "navigation": {
+        "renamePending": "无法重命名笔记。标题仍在等待保存，因此已暂停导航。",
+        "captureFailed": "无法读取笔记的最新内容。更改仍在等待保存，因此已暂停导航。",
+        "saveFailed": "无法保存笔记。更改仍在等待保存，因此已暂停导航。"
+      },
+      "move": {
+        "createAndMove": "创建并移动",
+        "createFolderPrompt": "新建一个文件夹并将笔记移入其中。",
+        "createFolderInPrompt": "在 {folderName} 中新建一个文件夹，并将笔记移入其中。",
+        "captureFailed": "无法读取笔记的最新内容。更改仍在等待保存，因此已暂停移动。",
+        "saveFailed": "无法保存笔记。更改仍在等待保存，因此已暂停移动。"
+      },
+      "errors": {
+        "createFailed": "无法创建笔记。请重试。",
+        "moveFailed": "无法移动笔记。笔记仍在当前文件夹中。",
+        "deleteFailed": "无法删除笔记。笔记仍保留在你的笔记中。",
+        "renameFailed": "无法重命名笔记。",
+        "confirmationUnavailable": "无法显示确认对话框。"
+      },
+      "delete": {
+        "heading": "删除笔记",
+        "thisNoteQuestion": "要删除此笔记吗？",
+        "thisNoteRecoverableConfirmation": "要删除此笔记吗？此操作无法撤销。",
+        "thisNotePermanentConfirmation": "要删除此笔记吗？这会永久删除文件，不会将其移至回收站。",
+        "namedNoteRecoverableConfirmation": "要删除笔记“{noteTitle}”吗？此操作无法撤销。",
+        "namedNotePermanentConfirmation": "要删除笔记“{noteTitle}”吗？这会永久删除文件，不会将其移至回收站。",
+        "recoverableWarning": "此操作无法撤销。",
+        "savePending": "无法保存笔记。更改仍在等待保存，因此已暂停删除。",
+        "captureFailed": "无法读取笔记的最新内容。更改仍在等待保存，因此已暂停删除。"
+      }
+    },
+    "folders": {
+      "heading": "文件夹",
+      "newFolder": "新建文件夹",
+      "newFolderTitleCase": "新建文件夹",
+      "newFolderEllipsis": "新建文件夹…",
+      "newFolderIn": "在“{folderName}”中新建文件夹",
+      "createHeading": "新建文件夹",
+      "renameHeading": "重命名文件夹",
+      "nameField": "文件夹名称",
+      "nameFieldShort": "名称",
+      "duplicateName": "已存在同名文件夹",
+      "invalidName": "请输入有效的文件夹名称",
+      "createInNotesPrompt": "在“笔记”中新建文件夹。",
+      "createInFolderPrompt": "在 {folderName} 中新建文件夹。",
+      "renamePrompt": "请输入新的文件夹名称。",
+      "validation": {
+        "empty": "文件夹名称不能为空",
+        "forbiddenCharacter": "文件夹名称不能使用该字符",
+        "leadingDot": "文件夹名称不能以句点开头",
+        "trailingDot": "文件夹名称不能以句点结尾",
+        "tooLong": "文件夹名称不能超过 {maxLength} 个字符",
+        "reservedName": "“{folderName}”是 Windows 保留名称，不能用作文件夹名称",
+        "tooDeep": "文件夹深度不能超过 {maxDepth} 层",
+        "duplicateAtLevel": "此层级已存在名为“{folderName}”的文件夹"
+      },
+      "root": "根目录",
+      "notesDestination": "笔记",
+      "empty": "这里还没有内容",
+      "rowAccessibilityLabel": "文件夹：{folderName}",
+      "actions": {
+        "moveToFolder": "移至文件夹",
+        "moveToFolderEllipsis": "移至文件夹…",
+        "deleteFolder": "删除文件夹",
+        "deleteFolderEllipsis": "删除文件夹…"
+      },
+      "movePickerHeading": "移至文件夹",
+      "moveNamedHeading": "移动“{folderName}”",
+      "created": "已创建文件夹",
+      "renamed": "已重命名文件夹",
+      "deleted": "已删除文件夹",
+      "movedTo": "已移至{destination}",
+      "movedToNotes": "已移至“笔记”",
+      "movedToRoot": "已移至根目录",
+      "errors": {
+        "createFailed": "无法创建文件夹。请重试。",
+        "renameFailed": "无法重命名文件夹。",
+        "moveFailed": "无法移动文件夹，未进行任何更改。",
+        "deleteFailed": "无法删除文件夹，未进行任何更改。",
+        "confirmationUnavailable": "无法显示确认对话框。"
+      },
+      "delete": {
+        "heading": "删除文件夹",
+        "thisFolderQuestion": "要删除此文件夹吗？",
+        "moveNotesWarning": "其中的笔记将移至上一级文件夹。",
+        "recoverableConfirmation": "要删除此文件夹吗？其中的笔记将移至上一级文件夹。",
+        "permanentConfirmation": "要删除此文件夹吗？其中的笔记将移至上一级文件夹，其他内容将被永久删除。",
+        "movedNotes": {
+          "plural": "count",
+          "variants": {
+            "other": "文件夹已删除；已移动 {count} 篇笔记"
+          }
+        }
+      }
+    },
+    "search": {
+      "heading": "搜索",
+      "placeholder": "搜索笔记...",
+      "android": {
+        "placeholder": "搜索你的笔记"
+      },
+      "ios": {
+        "placeholder": "搜索笔记"
+      },
+      "clearAccessibilityLabel": "清除搜索",
+      "noNotesFound": "未找到笔记",
+      "noMatches": "没有匹配项",
+      "recent": "最近",
+      "resultCount": {
+        "plural": "count",
+        "variants": {
+          "other": "{count} 个结果"
+        }
+      }
+    },
+    "sidebar": {
+      "expandAccessibilityLabel": "展开侧边栏",
+      "collapseAccessibilityLabel": "折叠侧边栏",
+      "resizeAccessibilityLabel": "调整侧边栏大小",
+      "views": {
+        "notesAccessibilityLabel": "笔记视图",
+        "tagsAccessibilityLabel": "标签视图",
+        "imagesAccessibilityLabel": "图片视图"
+      },
+      "tags": {
+        "empty": "还没有标签"
+      },
+      "images": {
+        "empty": "没有图片",
+        "loading": "正在加载图片…",
+        "failed": "无法加载图片。",
+        "backAccessibilityLabel": "返回",
+        "optionsAccessibilityLabel": "图片选项",
+        "closeMenuAccessibilityLabel": "关闭图片菜单",
+        "delete": "删除图片"
+      }
+    },
+    "tabs": {
+      "accessibilityLabel": "标签页",
+      "home": "主页",
+      "newNote": "新建笔记",
+      "closeAccessibilityLabel": "关闭标签页",
+      "newAccessibilityLabel": "新建标签页"
+    },
+    "editor": {
+      "tags": {
+        "removeAccessibilityLabel": "移除标签 {tagName}",
+        "inputPlaceholder": "标签名称",
+        "createTag": "创建 #{tagName}",
+        "addTag": "添加标签",
+        "addTagShort": "+ 标签"
+      },
+      "toolbar": {
+        "bold": "粗体",
+        "italic": "斜体",
+        "strikethrough": "删除线",
+        "heading": "标题",
+        "bulletList": "项目符号列表",
+        "orderedList": "有序列表",
+        "taskList": "任务列表",
+        "blockQuote": "块引用",
+        "link": "链接",
+        "outdent": "减少缩进",
+        "indent": "增加缩进",
+        "takePhoto": "拍照",
+        "chooseFromLibrary": "从图库中选择",
+        "dismissKeyboard": "收起键盘"
+      },
+      "selectionToolbar": {
+        "accessibilityLabel": "文本格式",
+        "bold": "粗体",
+        "boldTitle": "粗体（Mod-B）",
+        "italic": "斜体",
+        "italicTitle": "斜体（Mod-I）",
+        "strikethrough": "删除线",
+        "strikethroughTitle": "删除线（Mod-Shift-S）",
+        "inlineCode": "行内代码",
+        "link": "链接"
+      },
+      "slashMenu": {
+        "heading": "插入内容块",
+        "noMatches": "没有匹配的内容块",
+        "commands": {
+          "paragraph": "段落",
+          "paragraphHint": "纯文本",
+          "headingOne": "一级标题",
+          "headingOneHint": "大型章节标题",
+          "headingTwo": "二级标题",
+          "headingTwoHint": "中型章节标题",
+          "headingThree": "三级标题",
+          "headingThreeHint": "小型章节标题",
+          "bulletList": "项目符号列表",
+          "bulletListHint": "无序列表",
+          "numberedList": "编号列表",
+          "numberedListHint": "有序列表",
+          "taskList": "任务列表",
+          "taskListHint": "复选框列表",
+          "blockQuote": "块引用",
+          "blockQuoteHint": "引用块",
+          "codeBlock": "代码块",
+          "codeBlockHint": "围栏代码",
+          "divider": "分隔线",
+          "dividerHint": "水平分隔线",
+          "table": "表格",
+          "tableHint": "Markdown 表格",
+          "image": "图片",
+          "imageHint": "从文件插入图片"
+        }
+      },
+      "images": {
+        "unsupportedType": "不支持的图片类型",
+        "pasteFailed": "无法粘贴图片",
+        "cameraUnavailable": "没有可用的相机应用",
+        "filePickerFilter": "图片"
+      },
+      "tableControls": {
+        "dragColumn": "拖动列",
+        "addColumnToRight": "在右侧添加列",
+        "cycleAlignment": "切换对齐方式",
+        "deleteColumn": "删除列",
+        "dragRow": "拖动行",
+        "addRowBelow": "在下方添加行",
+        "deleteRow": "删除行"
+      },
+      "android": {
+        "bridgeVersionMismatch": "桥接版本不匹配：编辑器 v{editorVersion}，原生端 v{nativeVersion}",
+        "legacyWebView": {
+          "heading": "更新 Android System WebView",
+          "body": "编辑器无法在此设备的 WebView 中启动。它需要 Chromium {minimumVersion} 或更高版本；当前版本报告为 Chromium {currentVersion}。WebView 提供程序：{provider}。请从应用商店更新 System WebView，然后重新打开笔记。",
+          "bodyWithoutVersion": "编辑器无法在此设备的 WebView 中启动。它需要 Chromium {minimumVersion} 或更高版本。WebView 提供程序：{provider}。请从应用商店更新 System WebView，然后重新打开笔记。",
+          "bodyWithoutProvider": "编辑器无法在此设备的 WebView 中启动。它需要 Chromium {minimumVersion} 或更高版本；当前版本报告为 Chromium {currentVersion}。请从应用商店更新 System WebView，然后重新打开笔记。",
+          "bodyGeneric": "编辑器无法在此设备的 WebView 中启动。它需要 Chromium {minimumVersion} 或更高版本。请从应用商店更新 System WebView，然后重新打开笔记。",
+          "updateAction": "更新 WebView"
+        }
+      },
+      "ios": {
+        "bundleMissing": "编辑器不可用，因为应用包中缺少 editor.html。"
+      }
+    },
+    "codeMirror": {
+      "phrases": {
+        "completions": "补全",
+        "controlCharacter": "控制字符",
+        "selectionDeleted": "所选内容已删除",
+        "foldedLines": "已折叠行",
+        "unfoldedLines": "已展开行",
+        "rangeSeparator": "至",
+        "foldedCode": "已折叠代码",
+        "unfold": "展开",
+        "foldLine": "折叠行",
+        "unfoldLine": "展开行"
+      }
+    },
+    "sync": {
+      "heading": "同步",
+      "serverSection": "服务器",
+      "serverUrl": "服务器 URL",
+      "password": "密码",
+      "serverSetupLink": "请使用 FUTO Notes Server 设置同步。",
+      "passwordHelp": "请使用安装 FUTO Notes Server 时配置的密码。",
+      "statusSection": "状态",
+      "notesFolderSection": "笔记文件夹",
+      "connectAndSync": "连接并同步",
+      "syncNow": "立即同步",
+      "disconnect": "断开连接",
+      "forgetPassword": "忘记密码",
+      "resetConnection": "重置连接",
+      "vaultPassword": "笔记库密码",
+      "serverPasswordPlaceholder": "服务器密码",
+      "restartPasswordPlaceholder": "重新启动后必填",
+      "passwordSaved": "密码已保存",
+      "passwordSavedOnDevice": "密码已保存在此设备上。",
+      "working": "正在处理...",
+      "connect": "连接",
+      "lastSyncValue": "上次同步：{time}",
+      "never": "从未",
+      "status": {
+        "notConnected": "未连接",
+        "connecting": "正在连接…",
+        "reconnecting": "正在重新连接…",
+        "reconnectingAccessibilityLabel": "正在重新连接同步服务器",
+        "connectedAndSyncing": "已连接（{authMode}）· 正在同步…",
+        "syncing": "正在同步…",
+        "complete": "同步完成",
+        "error": "错误",
+        "upToDateAccessibilityLabel": "同步已是最新状态"
+      },
+      "confirmations": {
+        "forgetPasswordTitle": "忘记密码",
+        "forgetPasswordBody": "要忘记已保存的同步密码吗？下次重新启动后同步时，需要重新输入密码。",
+        "resetConnectionTitle": "重置连接",
+        "resetConnectionBody": "确定要重置连接吗？"
+      },
+      "progress": {
+        "connectingToServer": "正在连接服务器...",
+        "syncingNotes": "正在同步笔记...",
+        "reconciling": "正在协调 {current}/{total}…",
+        "uploading": "正在上传 {current}/{total}…",
+        "downloading": "正在下载 {current}/{total}…"
+      },
+      "errors": {
+        "enterServerUrl": "请输入服务器 URL。",
+        "addServerScheme": "请在服务器 URL 开头添加 http:// 或 https://。",
+        "connectFailed": "无法连接或同步。请检查服务器 URL 和密码。",
+        "syncFailed": "同步失败。请重试。",
+        "previousFailure": "上次同步失败。请重试。",
+        "completedWithErrors": "同步已完成，但出现错误。部分更改无法发送到服务器。",
+        "liveUnavailable": "实时同步暂时不可用。FUTO 笔记将继续重试。",
+        "forgetPasswordFailed": "无法移除已保存的同步密码。",
+        "dismissWithMessageAccessibilityLabel": "同步错误：{message}。点击可关闭。",
+        "dismissTitle": "{message} — 点击可关闭"
+      }
+    },
+    "storage": {
+      "onboarding": {
+        "heading": "你的笔记应保存在哪里？",
+        "description": "你的笔记是纯 Markdown 文件。请选择保存位置。",
+        "deviceStorage": "设备存储空间",
+        "deviceStorageAccess": "可以从“文件”应用及其他应用打开、备份和同步笔记。",
+        "deviceStoragePermission": "需要“所有文件访问权限”。",
+        "appStorage": "应用存储空间",
+        "appStoragePrivacy": "你的笔记仅供 FUTO 笔记访问。",
+        "appStorageUninstallWarning": "卸载应用时，Android 会删除你的笔记。",
+        "recommended": "推荐"
+      },
+      "android": {
+        "permission": {
+          "heading": "允许访问你的文件",
+          "explanation": "为了将笔记保存在可通过“文件”应用打开、备份并与其他应用同步的文件夹中，FUTO 笔记需要 Android 的“所有文件访问权限”。\n\n请在下一个屏幕中开启“允许管理所有文件”。",
+          "privacy": "FUTO 笔记只会访问自己的笔记文件夹。除非你设置同步，否则笔记不会离开此设备。",
+          "grantAccess": "授予访问权限",
+          "usePrivateStorage": "改用私有应用存储空间",
+          "denied": "FUTO 笔记需要“所有文件访问权限”才能使用共享文件夹。",
+          "unsupported": "设备存储空间需要 Android 11 或更高版本。"
+        },
+        "movingNotes": "正在移动笔记…",
+        "openExistingHeading": "要打开其中已有的笔记吗？",
+        "openExistingAction": "打开该文件夹",
+        "adoption": {
+          "plural": "destinationNotes",
+          "variants": {
+            "=0": "该文件夹中已有文件，但没有笔记。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。",
+            "other": "该文件夹中已有 {destinationNotes} 篇笔记。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。"
+          }
+        },
+        "adoptionWithLastChanged": {
+          "plural": "destinationNotes",
+          "variants": {
+            "other": "该文件夹中已有 {destinationNotes} 篇笔记。最后修改：{lastChanged}。\n\nFUTO 笔记将打开该文件夹。当前文件夹中有 {currentNotes} 篇笔记；这些笔记不会移动或删除，仍保留在 {currentPath}。"
+          }
+        },
+        "saveInProgress": "一篇笔记或一张图片仍在保存中。请稍后再尝试更改存储位置。",
+        "disconnectSyncFirst": "切换到已有笔记的文件夹前，请先断开同步连接。",
+        "folderUnavailable": "无法使用该笔记文件夹。请检查是否有其他程序正在使用此路径。",
+        "migrationFailed": "无法移动笔记文件夹。原始笔记未发生更改。",
+        "activationFailed": "无法启用新的存储位置。原始笔记文件夹仍处于活动状态。",
+        "recoveryFailed": "无法恢复上一次存储位置移动。两个笔记文件夹均已保留。",
+        "recoverySourceUnavailable": "无法检查之前的笔记文件夹。请重新连接其存储设备并重新启动。",
+        "recoverySaveFailed": "无法保存恢复的笔记文件夹。两个笔记文件夹均已保留。",
+        "recoveryRecordFailed": "无法记录恢复后的存储状态。两个笔记文件夹均已保留。",
+        "adoptionSaveFailed": "无法先保存你的笔记，因此未更改笔记文件夹。",
+        "adoptionRecordFailed": "无法结束上一次移动，因此未更改笔记文件夹。",
+        "adoptionPreferenceFailed": "无法将该文件夹保存为笔记位置，因此未进行更改。"
+      }
+    },
+    "crashReporting": {
+      "heading": "崩溃报告",
+      "prompt": "FUTO 笔记上次运行时发生崩溃。要发送崩溃报告以帮助我们修复问题吗？",
+      "viewReport": "查看报告",
+      "hideReport": "隐藏报告",
+      "activityPrompt": "当时你在做什么？",
+      "activityPromptOptional": "当时你在做什么？（可选）",
+      "optionalDetails": "可选详情",
+      "optionalDescriptionPlaceholder": "可选：描述发生崩溃时你正在做什么",
+      "sendAutomatically": "自动发送崩溃报告",
+      "dontSend": "不发送",
+      "sendReport": "发送报告",
+      "copyReport": "复制报告",
+      "copied": "已复制！",
+      "details": {
+        "error": "错误",
+        "stack": "调用栈",
+        "type": "类型",
+        "platform": "平台"
+      },
+      "desktopPrompt": {
+        "plural": "count",
+        "variants": {
+          "other": "应用发生了崩溃（{count} 份报告）。要发送报告以帮助我们修复问题吗？"
+        }
+      },
+      "sentCount": {
+        "plural": "count",
+        "variants": {
+          "other": "已发送 {count} 份崩溃报告"
+        }
+      },
+      "sendFailed": "无法发送崩溃报告。报告仍保存在此设备上。",
+      "disabled": "崩溃报告已关闭。可在“设置”中重新开启。"
+    },
+    "system": {
+      "watcherUnavailable": "重新启动之前，将无法检测外部文件更改。",
+      "notesFolderUnavailable": "找不到你的保管库文件夹 {folderPath}。请在“设置”中重新配置。"
+    },
+    "permissions": {
+      "ios": {
+        "cameraUsageDescription": "拍摄照片并将其添加到笔记中。",
+        "photoLibraryUsageDescription": "将照片图库中的照片添加到笔记中。"
+      }
+    },
+    "units": {
+      "fileSize": {
+        "byte": "{value} B",
+        "kilobyte": "{value} KB",
+        "megabyte": "{value} MB",
+        "gigabyte": "{value} GB",
+        "terabyte": "{value} TB"
+      }
+    },
+    "time": {
+      "relative": {
+        "now": "刚刚",
+        "past": {
+          "minute": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}分钟前"
+            }
+          },
+          "hour": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}小时前"
+            }
+          },
+          "day": {
+            "plural": "count",
+            "variants": {
+              "=1": "昨天",
+              "other": "{count}天前"
+            }
+          },
+          "month": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}个月前"
+            }
+          },
+          "year": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}年前"
+            }
+          }
+        },
+        "future": {
+          "minute": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}分钟后"
+            }
+          },
+          "hour": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}小时后"
+            }
+          },
+          "day": {
+            "plural": "count",
+            "variants": {
+              "=1": "明天",
+              "other": "{count}天后"
+            }
+          },
+          "month": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}个月后"
+            }
+          },
+          "year": {
+            "plural": "count",
+            "variants": {
+              "other": "{count}年后"
+            }
+          }
+        }
+      }
+    }
+  }
+}

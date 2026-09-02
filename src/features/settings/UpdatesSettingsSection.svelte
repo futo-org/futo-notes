@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getAppVersion } from '$features/system/crashHandler';
   import { updateChecker } from '$features/system/updateChecker.svelte';
+  import { localizedText } from '$shared/localization';
 
   interface Props {
     enabled: boolean;
@@ -22,7 +23,7 @@
 </script>
 
 <section class="settings-section">
-  <h3 class="settings-section-title">Updates</h3>
+  <h3 class="settings-section-title">{localizedText('settings.updates.heading')}</h3>
   <div
     class="settings-toggle-row"
     class:disabled={locked}
@@ -32,10 +33,8 @@
     onkeydown={(event) => event.key === 'Enter' && ontoggle()}
   >
     <span class="settings-toggle-text">
-      <span class="settings-btn-label">Automatically check for updates</span>
-      <span class="settings-btn-desc"
-        >Periodically check for new versions and notify you when one is available</span
-      >
+      <span class="settings-btn-label">{localizedText('settings.updates.automaticChecks')}</span>
+      <span class="settings-btn-desc">{localizedText('settings.updates.description')}</span>
     </span>
     <div class="settings-switch" class:on={enabled}><div class="settings-switch-thumb"></div></div>
   </div>
@@ -45,35 +44,44 @@
       <span class="settings-btn-text">
         <span class="settings-btn-label">
           {#if updateChecker.phase === 'checking'}
-            Checking for updates…
+            {localizedText('settings.updates.checking')}
           {:else if updateChecker.phase === 'available'}
-            Update &amp; restart
+            {localizedText('settings.updates.updateAndRestart')}
           {:else if updateChecker.phase === 'downloading'}
-            Downloading…{updateChecker.percent != null ? ` ${updateChecker.percent}%` : ''}
+            {updateChecker.percent != null
+              ? localizedText('settings.updates.downloadingProgress', {
+                  percent: updateChecker.percent,
+                })
+              : localizedText('settings.updates.downloading')}
           {:else if updateChecker.phase === 'installing'}
-            Installing…
+            {localizedText('settings.updates.installing')}
           {:else if updateChecker.phase === 'restart'}
-            Restart now to finish
+            {localizedText('settings.updates.restartNow')}
           {:else if updateChecker.phase === 'error' && updateChecker.pending}
-            Retry update — v{updateChecker.pending.currentVersion} → v{updateChecker.pending
-              .version}
+            {localizedText('settings.updates.retryVersion', {
+              currentVersion: updateChecker.pending.currentVersion,
+              newVersion: updateChecker.pending.version,
+            })}
           {:else}
-            Check for updates
+            {localizedText('settings.updates.checkForUpdates')}
           {/if}
         </span>
         <span class="settings-btn-desc">
           {#if updateChecker.phase === 'up-to-date'}
-            You're on the latest version (v{getAppVersion()}).
+            {localizedText('settings.updates.latestVersion', { version: getAppVersion() })}
           {:else if updateChecker.phase === 'available'}
-            v{updateChecker.pending?.currentVersion} → v{updateChecker.pending?.version}
+            {localizedText('settings.updates.versionTransition', {
+              currentVersion: updateChecker.pending?.currentVersion ?? '',
+              newVersion: updateChecker.pending?.version ?? '',
+            })}
           {:else if updateChecker.phase === 'downloading' || updateChecker.phase === 'installing'}
-            Please wait — the app will restart automatically.
+            {localizedText('settings.updates.pleaseWait')}
           {:else if updateChecker.phase === 'restart'}
-            Update installed. Restart to finish.
+            {localizedText('settings.updates.installedRestart')}
           {:else if updateChecker.phase === 'error'}
-            {updateChecker.error || 'Update failed.'}
+            {localizedText('settings.updates.failed')}
           {:else}
-            Currently running v{getAppVersion()}.
+            {localizedText('settings.updates.currentVersion', { version: getAppVersion() })}
           {/if}
         </span>
       </span>

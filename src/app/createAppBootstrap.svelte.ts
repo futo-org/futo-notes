@@ -1,6 +1,12 @@
 import { getPlatformFS } from '$lib/platform';
 import { recordPerfEvent } from '$shared/perf/perfEvents';
-import { getCachedPreferences, loadPreferences } from '$shared/state/appState';
+import { desktopLocalization } from '$shared/localization';
+import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
+import {
+  getCachedPreferences,
+  loadPreferences,
+  saveSelectedLanguageTag,
+} from '$shared/state/appState';
 import { initNotes } from '$features/notes/notes.svelte';
 import { initSyncPassword } from '$features/sync/syncServiceE2ee';
 import {
@@ -13,11 +19,19 @@ import { updateChecker } from '$features/system/updateChecker.svelte';
 export interface AppBootstrapDeps {
   initializeCrashReporting: () => Promise<void>;
   installDevelopmentHooks: () => void | Promise<void>;
+  showToast: (message: ToastMessage) => void;
 }
 
 export interface AppBootstrap {
   readonly initialized: boolean;
   start: () => () => void;
+}
+
+function watchDesktopSystemLanguage(): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const refreshLanguage = () => desktopLocalization.refreshSystemLanguage();
+  window.addEventListener('focus', refreshLanguage);
+  return () => window.removeEventListener('focus', refreshLanguage);
 }
 
 // M1 render gate: `initialized` flips true synchronously as start()'s first
@@ -31,6 +45,8 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
     initialized = true;
 
     let disposeThemeWatch = () => {};
+    const disposeLanguageWatch = watchDesktopSystemLanguage();
+    const initialLanguageSelectionRevision = desktopLocalization.selectionRevision;
 
     // Everything below is background work; none of it gates the render above.
     // Forward the OS-reported theme: on Linux the webview's matchMedia can't see
@@ -57,7 +73,22 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
     // depend on notes succeeding.
     queueMicrotask(() => {
       void loadPreferences()
-        .then((prefs) => applyThemePreference(prefs.appearance.theme))
+        .then(async (preferences) => {
+          const themeApplication = applyThemePreference(preferences.appearance.theme);
+          if (desktopLocalization.selectionRevision === initialLanguageSelectionRevision) {
+            const storedLanguageTag = preferences.language.selectedLanguageTag;
+            const selectedLanguageTag =
+              desktopLocalization.setSelectedLanguageTag(storedLanguageTag);
+            if (selectedLanguageTag !== storedLanguageTag) {
+              try {
+                await saveSelectedLanguageTag(selectedLanguageTag);
+              } catch {
+                deps.showToast({ path: 'settings.language.saveFailed' });
+              }
+            }
+          }
+          await themeApplication;
+        })
         .catch((error) => console.warn('Failed to load preferences:', error));
       void getPlatformFS().catch((error) => console.warn('Platform FS unavailable:', error));
       void deps
@@ -69,6 +100,7 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
 
     return () => {
       disposeThemeWatch();
+      disposeLanguageWatch();
       updateChecker.stop();
     };
   }

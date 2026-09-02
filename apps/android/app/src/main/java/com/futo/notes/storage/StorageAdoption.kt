@@ -5,7 +5,7 @@ internal sealed interface StorageAdoptionOutcome {
     data object Restart : StorageAdoptionOutcome
 
     /** Nothing was re-pointed; stay on the current folder and say why. */
-    data class KeepCurrent(val feedback: String) : StorageAdoptionOutcome
+    data class KeepCurrent(val failure: StorageAdoptionFailure) : StorageAdoptionOutcome
 }
 
 /**
@@ -26,12 +26,12 @@ internal suspend fun adoptExistingVault(
 ): StorageAdoptionOutcome {
     // Sync could have connected while the confirmation dialog was up, and
     // opening a folder adopts whatever checkpoint that folder carries.
-    if (isSyncConnected()) return StorageAdoptionOutcome.KeepCurrent(SYNC_CONNECTED_STORAGE_REFUSAL)
+    if (isSyncConnected()) {
+        return StorageAdoptionOutcome.KeepCurrent(StorageAdoptionFailure.SYNC_CONNECTED)
+    }
 
     if (!flushDrafts()) {
-        return StorageAdoptionOutcome.KeepCurrent(
-            "Your notes could not be saved first, so the folder was not changed."
-        )
+        return StorageAdoptionOutcome.KeepCurrent(StorageAdoptionFailure.DRAFT_FLUSH_FAILED)
     }
 
     // Retire any migration record BEFORE re-pointing the preference. The journal
@@ -42,9 +42,7 @@ internal suspend fun adoptExistingVault(
     // Nothing is lost by clearing it: adopting a different folder is what makes
     // that pending cleanup moot.
     if (!clearJournal()) {
-        return StorageAdoptionOutcome.KeepCurrent(
-            "The previous move could not be closed out, so the folder was not changed."
-        )
+        return StorageAdoptionOutcome.KeepCurrent(StorageAdoptionFailure.JOURNAL_CLEAR_FAILED)
     }
 
     // Unlike [activateStagedStorageMigration], the commit result is load-bearing
@@ -55,9 +53,7 @@ internal suspend fun adoptExistingVault(
     // folder with nothing left to correct it — the exact silent revert this
     // switch exists to stop.
     if (!commitPreference(mode)) {
-        return StorageAdoptionOutcome.KeepCurrent(
-            "That folder could not be saved as the notes location, so it was not changed."
-        )
+        return StorageAdoptionOutcome.KeepCurrent(StorageAdoptionFailure.PREFERENCE_SAVE_FAILED)
     }
 
     return StorageAdoptionOutcome.Restart

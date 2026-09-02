@@ -7,11 +7,12 @@ import {
   toggleBlockquote,
   insertImageFromFile,
 } from '../markdownToolbar';
+import { localizedText } from '$shared/localization';
 
 export interface EditorCommand {
   id: string;
-  label: string;
-  hint?: string;
+  labelPath: string;
+  hintPath?: string;
   keywords?: string[];
   icon: string;
   run(view: EditorView, at: number): void;
@@ -79,96 +80,96 @@ function insertTable(view: EditorView, at: number): void {
 export const EDITOR_COMMANDS: EditorCommand[] = [
   {
     id: 'paragraph',
-    label: 'Paragraph',
-    hint: 'Plain text',
+    labelPath: 'editor.slashMenu.commands.paragraph',
+    hintPath: 'editor.slashMenu.commands.paragraphHint',
     keywords: ['text', 'body', 'p'],
     icon: 'Pilcrow',
     run: setParagraph,
   },
   {
     id: 'heading-1',
-    label: 'Heading 1',
-    hint: 'Large section heading',
+    labelPath: 'editor.slashMenu.commands.headingOne',
+    hintPath: 'editor.slashMenu.commands.headingOneHint',
     keywords: ['h1', 'title'],
     icon: 'Heading1',
     run: setHeading(1),
   },
   {
     id: 'heading-2',
-    label: 'Heading 2',
-    hint: 'Medium section heading',
+    labelPath: 'editor.slashMenu.commands.headingTwo',
+    hintPath: 'editor.slashMenu.commands.headingTwoHint',
     keywords: ['h2'],
     icon: 'Heading2',
     run: setHeading(2),
   },
   {
     id: 'heading-3',
-    label: 'Heading 3',
-    hint: 'Small section heading',
+    labelPath: 'editor.slashMenu.commands.headingThree',
+    hintPath: 'editor.slashMenu.commands.headingThreeHint',
     keywords: ['h3'],
     icon: 'Heading3',
     run: setHeading(3),
   },
   {
     id: 'bullet-list',
-    label: 'Bullet list',
-    hint: 'Unordered list',
+    labelPath: 'editor.slashMenu.commands.bulletList',
+    hintPath: 'editor.slashMenu.commands.bulletListHint',
     keywords: ['ul', 'unordered', 'list'],
     icon: 'List',
     run: (view) => toggleBulletList(view),
   },
   {
     id: 'ordered-list',
-    label: 'Numbered list',
-    hint: 'Ordered list',
+    labelPath: 'editor.slashMenu.commands.numberedList',
+    hintPath: 'editor.slashMenu.commands.numberedListHint',
     keywords: ['ol', 'ordered', 'number', 'list'],
     icon: 'ListOrdered',
     run: (view) => toggleOrderedList(view),
   },
   {
     id: 'task-list',
-    label: 'Task list',
-    hint: 'Checkbox list',
+    labelPath: 'editor.slashMenu.commands.taskList',
+    hintPath: 'editor.slashMenu.commands.taskListHint',
     keywords: ['todo', 'checklist', 'checkbox'],
     icon: 'ListChecks',
     run: (view) => toggleTaskList(view),
   },
   {
     id: 'quote',
-    label: 'Blockquote',
-    hint: 'Quote block',
+    labelPath: 'editor.slashMenu.commands.blockQuote',
+    hintPath: 'editor.slashMenu.commands.blockQuoteHint',
     keywords: ['quote', 'blockquote'],
     icon: 'TextQuote',
     run: (view) => toggleBlockquote(view),
   },
   {
     id: 'code-block',
-    label: 'Code block',
-    hint: 'Fenced code',
+    labelPath: 'editor.slashMenu.commands.codeBlock',
+    hintPath: 'editor.slashMenu.commands.codeBlockHint',
     keywords: ['code', 'pre', 'fence'],
     icon: 'Code',
     run: insertCodeBlock,
   },
   {
     id: 'divider',
-    label: 'Divider',
-    hint: 'Horizontal rule',
+    labelPath: 'editor.slashMenu.commands.divider',
+    hintPath: 'editor.slashMenu.commands.dividerHint',
     keywords: ['hr', 'horizontal', 'rule', 'separator'],
     icon: 'Minus',
     run: insertDivider,
   },
   {
     id: 'table',
-    label: 'Table',
-    hint: 'Markdown table',
+    labelPath: 'editor.slashMenu.commands.table',
+    hintPath: 'editor.slashMenu.commands.tableHint',
     keywords: ['grid', 'cells'],
     icon: 'Table',
     run: insertTable,
   },
   {
     id: 'image',
-    label: 'Image',
-    hint: 'Insert image from file',
+    labelPath: 'editor.slashMenu.commands.image',
+    hintPath: 'editor.slashMenu.commands.imageHint',
     keywords: ['img', 'picture', 'photo'],
     icon: 'Image',
     run: (view) => {
@@ -193,7 +194,7 @@ export function filterCommands(
 
   const scored: Array<{ cmd: EditorCommand; score: number }> = [];
   for (const cmd of commands) {
-    const label = cmd.label.toLowerCase();
+    const label = localizedText(cmd.labelPath).toLowerCase();
     const idLc = cmd.id.toLowerCase();
     let score = 0;
     if (label.startsWith(q)) score = 100;

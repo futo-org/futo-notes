@@ -23,7 +23,6 @@ import {
   saveAppState,
 } from '$shared/state/appState';
 import { getPlatformFS, isTauri } from '$lib/platform';
-import { getSyncErrorMessage } from './syncErrorMessage';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import type {
   E2eeConnectInput,
@@ -121,7 +120,7 @@ async function deleteStoredPassword(): Promise<void> {
     // Orphaned OS credential: don't fail the flow, but don't let it vanish
     // silently either — tell the user and persist a marker so the next launch
     // retries the delete (see initSyncPassword).
-    showGlobalToast(`Couldn't remove the saved sync password: ${getSyncErrorMessage(e)}`);
+    showGlobalToast({ path: 'sync.errors.forgetPasswordFailed' });
     console.warn('[e2ee] could not delete vault password from keyring:', e);
     await saveAppState({ ...getAppState(), pendingKeyringDeletion: true });
   }

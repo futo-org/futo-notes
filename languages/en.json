@@ -1,0 +1,752 @@
+{
+  "$schema": "./catalog.schema.json",
+  "language": {
+    "englishName": "English",
+    "nativeName": "English",
+    "direction": "ltr",
+    "aliases": []
+  },
+  "messages": {
+    "app": {
+      "name": "FUTO Notes",
+      "android": {
+        "displayName": "FUTO Notes",
+        "debugDisplayName": "FUTO Notes Dev"
+      },
+      "ios": {
+        "displayName": "FUTO Notes",
+        "debugDisplayName": "FUTO Notes Dev"
+      },
+      "desktop": {
+        "debugDisplayName": "FUTO Notes (dev)",
+        "developmentBadge": "DEV",
+        "minimizeWindowAccessibilityLabel": "Minimize window",
+        "maximizeWindowAccessibilityLabel": "Maximize window",
+        "closeWindowAccessibilityLabel": "Close window",
+        "menu": {
+          "file": "File",
+          "edit": "Edit",
+          "view": "View",
+          "window": "Window",
+          "settings": "Settings…",
+          "newNote": "New Note",
+          "newTab": "New Tab",
+          "reopenClosedTab": "Reopen Closed Tab",
+          "searchNotes": "Search Notes…",
+          "closeTab": "Close Tab",
+          "closeWindow": "Close Window",
+          "toggleSidebar": "Toggle Sidebar"
+        }
+      }
+    },
+    "common": {
+      "actions": {
+        "back": "Back",
+        "cancel": "Cancel",
+        "close": "Close",
+        "continue": "Continue",
+        "create": "Create",
+        "delete": "Delete",
+        "done": "Done",
+        "move": "Move",
+        "rename": "Rename",
+        "send": "Send"
+      },
+      "errors": {
+        "renameFailed": "Couldn't rename this item."
+      }
+    },
+    "settings": {
+      "heading": "Settings",
+      "openAccessibilityLabel": "Open settings",
+      "closeAccessibilityLabel": "Close settings",
+      "sections": {
+        "sync": "Sync",
+        "appearance": "Appearance",
+        "issueReporting": "Issue reporting",
+        "storage": "Storage",
+        "about": "About",
+        "dangerZone": "Danger zone"
+      },
+      "sync": {
+        "selfHosted": "Self-hosted sync",
+        "localDescription": "Notes stay on this device until you connect sync.",
+        "syncedBadge": "SYNCED",
+        "localBadge": "LOCAL"
+      },
+      "appearance": {
+        "theme": "Theme",
+        "light": "Light",
+        "dark": "Dark",
+        "auto": "Auto",
+        "autoHint": "Auto follows your system theme."
+      },
+      "issueReporting": {
+        "shareCrashReports": "Share crash reports",
+        "reportsSavedLocallyFirst": "Reports are saved locally first",
+        "shareHelp": "Help improve FUTO Notes by sharing anonymous crash logs when they occur",
+        "sendAutomatically": "Send crashes automatically",
+        "skipCrashDialog": "Skip the crash dialog",
+        "sendWithoutAsking": "Send reports without asking each time",
+        "reportIssue": "Report an issue",
+        "openGitHubIssueTracker": "Open the GitHub issue tracker"
+      },
+      "storage": {
+        "notesFolder": "Notes folder",
+        "storageLocation": "Storage location",
+        "folder": "Folder",
+        "sharedFolderDescription": "Shared folder · visible in Files",
+        "appFolderDescription": "App folder · private",
+        "legacyInternalDescription": "Internal · private (legacy)",
+        "unreachableCurrentWarning": "This folder is no longer reachable. Choose it again, or reset to the default location.",
+        "loading": "Loading…",
+        "memoryVault": "In-memory test vault",
+        "unableToRead": "Unable to read notes directory",
+        "useFolderFailed": "Could not use that folder.",
+        "changeDirectory": "Change directory",
+        "resetToDefault": "Reset to default"
+      },
+      "about": {
+        "openSource": "Open source",
+        "version": "Version",
+        "versionLine": "FUTO Notes v{version}"
+      },
+      "danger": {
+        "fullReset": "Full reset",
+        "permanentlyRemoveAll": "Permanently remove all notes and app data",
+        "confirmation": "Permanently delete all notes and app data? This cannot be undone.",
+        "deleteEverything": "Delete everything",
+        "deleting": "Deleting all notes…",
+        "failed": "Full reset failed. Your notes and settings may not have been fully removed."
+      },
+      "debug": {
+        "heading": "Debug",
+        "testCrash": {
+          "title": "Test crash",
+          "desktop": {
+            "description": "Throw an error to test crash reporting"
+          },
+          "android": {
+            "description": "Throws RuntimeException to exercise the crash pipeline"
+          }
+        },
+        "syncErrorTest": {
+          "heading": "Sync error test (dev)",
+          "description": "Fires a fabricated sync result through the real handler — the ⚠ indicator, toast, and \"Sync failed\" line behave exactly as a server-thrown error. \"Successful sync\" clears it (or click the ⚠).",
+          "scenarios": {
+            "uploadHttp500": "Upload 500",
+            "uploadHttp403": "Upload 403",
+            "deleteHttp500": "Delete 500",
+            "networkWithoutStatus": "Network (no status)",
+            "threeFailures": "3 failures"
+          },
+          "successfulSync": "Successful sync"
+        }
+      },
+      "dialogs": {
+        "changeDirectoryTitle": "Change notes directory",
+        "changeDirectoryConfirmation": "Move your notes directory to:\n{directory}\n\nExisting notes in the current directory will NOT be moved. The app will restart.",
+        "resetDirectoryTitle": "Reset notes directory",
+        "resetDirectoryConfirmation": "Reset notes directory to the default location?\n\nThe app will restart."
+      },
+      "language": {
+        "heading": "Language",
+        "systemOption": "System",
+        "saveFailed": "Language changed, but the preference could not be saved.",
+        "android": {
+          "draftSaveFailed": "Language unchanged: your open note could not be saved."
+        },
+        "ios": {
+          "openSystemSettings": "Open iOS Settings"
+        }
+      },
+      "updates": {
+        "heading": "Updates",
+        "description": "Periodically check for new versions and notify you when one is available",
+        "automaticChecks": "Automatically check for updates",
+        "checking": "Checking for updates…",
+        "downloading": "Downloading update…",
+        "installing": "Installing update…",
+        "installVersion": "Install v{version}",
+        "downloadingProgress": "Downloading… {percent}%",
+        "restarting": "Restarting…",
+        "updateAndRestart": "Update & restart",
+        "restartNow": "Restart now to finish",
+        "retryVersion": "Retry update — v{currentVersion} → v{newVersion}",
+        "checkForUpdates": "Check for updates",
+        "latestVersion": "You're on the latest version (v{version}).",
+        "versionTransition": "v{currentVersion} → v{newVersion}",
+        "pleaseWait": "Please wait — the app will restart automatically.",
+        "installedRestart": "Update installed. Restart to finish.",
+        "currentVersion": "Currently running v{version}.",
+        "failed": "Update failed"
+      }
+    },
+    "notes": {
+      "heading": "Notes",
+      "forYou": {
+        "heading": "For You",
+        "empty": "Create your first note from the sidebar to get started."
+      },
+      "newNote": "New note",
+      "newNoteShort": "New",
+      "untitledPlaceholder": "Untitled",
+      "list": {
+        "rootEmptyHeading": "No notes yet",
+        "folderEmptyHeading": "Empty folder",
+        "android": {
+          "emptyActionHint": "Tap + to add a note."
+        },
+        "ios": {
+          "emptyActionHint": "Tap the compose button to add a note."
+        },
+        "desktopEmptyHint": "No notes yet. Tap + to create one."
+      },
+      "actions": {
+        "optionsAccessibilityLabel": "Note options",
+        "graphView": "Graph view",
+        "copyFilePath": "Copy file path",
+        "moveToFolder": "Move to folder",
+        "moveToFolderEllipsis": "Move to folder…",
+        "deleteNote": "Delete note",
+        "share": "Share",
+        "moreAccessibilityLabel": "More"
+      },
+      "shareChooserTitle": "Share note",
+      "graphComingSoon": "Graph view is coming soon.",
+      "pathCopied": "Path copied",
+      "unavailable": "That note is no longer available.",
+      "movedTo": "Moved to {destination}",
+      "movedToNotes": "Moved to Notes",
+      "movedToRoot": "Moved to Root",
+      "moveNamedHeading": "Move “{noteTitle}”",
+      "deleted": "Note deleted",
+      "deletedElsewhere": "Note deleted elsewhere",
+      "title": {
+        "fieldLabel": "Title",
+        "fieldAccessibilityLabel": "Note title",
+        "empty": "Title cannot be empty",
+        "forbiddenCharacter": "That character can't be used in a note title",
+        "leadingDot": "Title cannot start with a dot",
+        "trailingDot": "Title cannot end with a dot",
+        "tooLong": "Title cannot exceed {maxLength} characters",
+        "duplicate": "A note with this name already exists",
+        "renameHeading": "Rename note",
+        "renamePrompt": "Enter a new name for this note.",
+        "renameFailed": "Couldn't rename note. Your title is still pending."
+      },
+      "save": {
+        "failedPending": "Couldn't save note. Your changes are still pending.",
+        "conflictCopy": "Conflicting edits saved to a copy",
+        "localEditsKept": "Keeping your local edits",
+        "peerDeletedDraftOpen": "This note was deleted elsewhere. Your draft is still open.",
+        "peerChangedDraftOpen": "This note changed elsewhere. Your draft is still open.",
+        "refreshFailedDraftOpen": "Couldn't refresh the open note. Your draft is still open.",
+        "openNoteDeletedKeepingDraft": "Open note was deleted; keeping local draft"
+      },
+      "navigation": {
+        "renamePending": "Couldn't rename note. Navigation is paused while your title remains pending.",
+        "captureFailed": "Couldn't read the latest note. Navigation is paused while your changes remain pending.",
+        "saveFailed": "Couldn't save note. Navigation is paused while your changes remain pending."
+      },
+      "move": {
+        "createAndMove": "Create & Move",
+        "createFolderPrompt": "Create a folder and move the note into it.",
+        "createFolderInPrompt": "Create a folder in {folderName} and move the note into it.",
+        "captureFailed": "Couldn't read the latest note. Move is paused while your changes remain pending.",
+        "saveFailed": "Couldn't save note. Move is paused while your changes remain pending."
+      },
+      "errors": {
+        "createFailed": "Couldn't create note. Try again.",
+        "moveFailed": "Couldn't move note. It remains in its current folder.",
+        "deleteFailed": "Couldn't delete note. It remains in your notes.",
+        "renameFailed": "Couldn't rename note.",
+        "confirmationUnavailable": "Unable to show confirmation dialog."
+      },
+      "delete": {
+        "heading": "Delete note",
+        "thisNoteQuestion": "Delete this note?",
+        "thisNoteRecoverableConfirmation": "Delete this note? This action cannot be undone.",
+        "thisNotePermanentConfirmation": "Delete this note? This deletes the file for good — it does not go to the trash.",
+        "namedNoteRecoverableConfirmation": "Delete note “{noteTitle}”? This action cannot be undone.",
+        "namedNotePermanentConfirmation": "Delete note “{noteTitle}”? This deletes the file for good — it does not go to the trash.",
+        "recoverableWarning": "This action cannot be undone.",
+        "savePending": "Couldn't save note. Delete is paused while your changes remain pending.",
+        "captureFailed": "Couldn't read the latest note. Delete is paused while your changes remain pending."
+      }
+    },
+    "folders": {
+      "heading": "Folders",
+      "newFolder": "New folder",
+      "newFolderTitleCase": "New Folder",
+      "newFolderEllipsis": "New Folder…",
+      "newFolderIn": "New folder in “{folderName}”",
+      "createHeading": "New folder",
+      "renameHeading": "Rename folder",
+      "nameField": "Folder name",
+      "nameFieldShort": "Name",
+      "duplicateName": "A folder with this name already exists",
+      "invalidName": "Enter a valid folder name",
+      "createInNotesPrompt": "Create a folder in Notes.",
+      "createInFolderPrompt": "Create a folder in {folderName}.",
+      "renamePrompt": "Enter a new folder name.",
+      "validation": {
+        "empty": "Folder name cannot be empty",
+        "forbiddenCharacter": "That character can't be used in a folder name",
+        "leadingDot": "Folder name cannot start with a dot",
+        "trailingDot": "Folder name cannot end with a dot",
+        "tooLong": "Folder name cannot exceed {maxLength} characters",
+        "reservedName": "“{folderName}” is reserved on Windows and cannot be used as a folder name",
+        "tooDeep": "Folder depth cannot exceed {maxDepth}",
+        "duplicateAtLevel": "A folder named “{folderName}” already exists at this level"
+      },
+      "root": "Root",
+      "notesDestination": "Notes",
+      "empty": "Nothing here yet",
+      "rowAccessibilityLabel": "Folder {folderName}",
+      "actions": {
+        "moveToFolder": "Move to folder",
+        "moveToFolderEllipsis": "Move to Folder…",
+        "deleteFolder": "Delete folder",
+        "deleteFolderEllipsis": "Delete Folder…"
+      },
+      "movePickerHeading": "Move to folder",
+      "moveNamedHeading": "Move “{folderName}”",
+      "created": "Folder created",
+      "renamed": "Folder renamed",
+      "deleted": "Folder deleted",
+      "movedTo": "Moved to {destination}",
+      "movedToNotes": "Moved to Notes",
+      "movedToRoot": "Moved to Root",
+      "errors": {
+        "createFailed": "Couldn't create folder. Try again.",
+        "renameFailed": "Couldn't rename folder.",
+        "moveFailed": "Couldn't move folder — nothing was changed.",
+        "deleteFailed": "Couldn't delete folder — nothing was changed.",
+        "confirmationUnavailable": "Unable to show confirmation dialog."
+      },
+      "delete": {
+        "heading": "Delete folder",
+        "thisFolderQuestion": "Delete this folder?",
+        "moveNotesWarning": "Notes inside it will be moved to the parent folder.",
+        "recoverableConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder.",
+        "permanentConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder. Anything else inside it is deleted for good.",
+        "movedNotes": {
+          "plural": "count",
+          "variants": {
+            "one": "Folder deleted; moved {count} note",
+            "other": "Folder deleted; moved {count} notes"
+          }
+        }
+      }
+    },
+    "search": {
+      "heading": "Search",
+      "placeholder": "Search notes...",
+      "android": {
+        "placeholder": "Search your notes"
+      },
+      "ios": {
+        "placeholder": "Search notes"
+      },
+      "clearAccessibilityLabel": "Clear search",
+      "noNotesFound": "No notes found",
+      "noMatches": "No matches",
+      "recent": "Recent",
+      "resultCount": {
+        "plural": "count",
+        "variants": {
+          "one": "{count} result",
+          "other": "{count} results"
+        }
+      }
+    },
+    "sidebar": {
+      "expandAccessibilityLabel": "Expand sidebar",
+      "collapseAccessibilityLabel": "Collapse sidebar",
+      "resizeAccessibilityLabel": "Resize sidebar",
+      "views": {
+        "notesAccessibilityLabel": "Notes view",
+        "tagsAccessibilityLabel": "Tags view",
+        "imagesAccessibilityLabel": "Images view"
+      },
+      "tags": {
+        "empty": "No tags yet"
+      },
+      "images": {
+        "empty": "No images",
+        "loading": "Loading images…",
+        "failed": "Couldn't load images.",
+        "backAccessibilityLabel": "Back",
+        "optionsAccessibilityLabel": "Image options",
+        "closeMenuAccessibilityLabel": "Close image menu",
+        "delete": "Delete image"
+      }
+    },
+    "tabs": {
+      "accessibilityLabel": "Tabs",
+      "home": "Home",
+      "newNote": "New note",
+      "closeAccessibilityLabel": "Close tab",
+      "newAccessibilityLabel": "New tab"
+    },
+    "editor": {
+      "tags": {
+        "removeAccessibilityLabel": "Remove tag {tagName}",
+        "inputPlaceholder": "tag name",
+        "createTag": "Create #{tagName}",
+        "addTag": "Add tag",
+        "addTagShort": "+ Tag"
+      },
+      "toolbar": {
+        "bold": "Bold",
+        "italic": "Italic",
+        "strikethrough": "Strikethrough",
+        "heading": "Heading",
+        "bulletList": "Bullet list",
+        "orderedList": "Ordered list",
+        "taskList": "Task list",
+        "blockQuote": "Block quote",
+        "link": "Link",
+        "outdent": "Outdent",
+        "indent": "Indent",
+        "takePhoto": "Take photo",
+        "chooseFromLibrary": "Choose from library",
+        "dismissKeyboard": "Dismiss keyboard"
+      },
+      "selectionToolbar": {
+        "accessibilityLabel": "Text formatting",
+        "bold": "Bold",
+        "boldTitle": "Bold (Mod-B)",
+        "italic": "Italic",
+        "italicTitle": "Italic (Mod-I)",
+        "strikethrough": "Strikethrough",
+        "strikethroughTitle": "Strikethrough (Mod-Shift-S)",
+        "inlineCode": "Inline code",
+        "link": "Link"
+      },
+      "slashMenu": {
+        "heading": "Insert block",
+        "noMatches": "No matching blocks",
+        "commands": {
+          "paragraph": "Paragraph",
+          "paragraphHint": "Plain text",
+          "headingOne": "Heading 1",
+          "headingOneHint": "Large section heading",
+          "headingTwo": "Heading 2",
+          "headingTwoHint": "Medium section heading",
+          "headingThree": "Heading 3",
+          "headingThreeHint": "Small section heading",
+          "bulletList": "Bullet list",
+          "bulletListHint": "Unordered list",
+          "numberedList": "Numbered list",
+          "numberedListHint": "Ordered list",
+          "taskList": "Task list",
+          "taskListHint": "Checkbox list",
+          "blockQuote": "Blockquote",
+          "blockQuoteHint": "Quote block",
+          "codeBlock": "Code block",
+          "codeBlockHint": "Fenced code",
+          "divider": "Divider",
+          "dividerHint": "Horizontal rule",
+          "table": "Table",
+          "tableHint": "Markdown table",
+          "image": "Image",
+          "imageHint": "Insert image from file"
+        }
+      },
+      "images": {
+        "unsupportedType": "Unsupported image type",
+        "pasteFailed": "Couldn't paste image",
+        "cameraUnavailable": "No camera app available",
+        "filePickerFilter": "Images"
+      },
+      "tableControls": {
+        "dragColumn": "Drag column",
+        "addColumnToRight": "Add column to right",
+        "cycleAlignment": "Cycle alignment",
+        "deleteColumn": "Delete column",
+        "dragRow": "Drag row",
+        "addRowBelow": "Add row below",
+        "deleteRow": "Delete row"
+      },
+      "android": {
+        "bridgeVersionMismatch": "Bridge version mismatch: editor v{editorVersion} vs native v{nativeVersion}",
+        "legacyWebView": {
+          "heading": "Update Android System WebView",
+          "body": "The editor couldn't start in this device's WebView. It needs Chromium {minimumVersion} or newer; this one reports Chromium {currentVersion}. WebView provider: {provider}. Update the System WebView from your app store, then reopen the note.",
+          "bodyWithoutVersion": "The editor couldn't start in this device's WebView. It needs Chromium {minimumVersion} or newer. WebView provider: {provider}. Update the System WebView from your app store, then reopen the note.",
+          "bodyWithoutProvider": "The editor couldn't start in this device's WebView. It needs Chromium {minimumVersion} or newer; this one reports Chromium {currentVersion}. Update the System WebView from your app store, then reopen the note.",
+          "bodyGeneric": "The editor couldn't start in this device's WebView. It needs Chromium {minimumVersion} or newer. Update the System WebView from your app store, then reopen the note.",
+          "updateAction": "Update WebView"
+        }
+      },
+      "ios": {
+        "bundleMissing": "The editor is unavailable because editor.html is missing from the app bundle."
+      }
+    },
+    "codeMirror": {
+      "phrases": {
+        "completions": "Completions",
+        "controlCharacter": "Control character",
+        "selectionDeleted": "Selection deleted",
+        "foldedLines": "Folded lines",
+        "unfoldedLines": "Unfolded lines",
+        "rangeSeparator": "to",
+        "foldedCode": "folded code",
+        "unfold": "unfold",
+        "foldLine": "Fold line",
+        "unfoldLine": "Unfold line"
+      }
+    },
+    "sync": {
+      "heading": "Sync",
+      "serverSection": "Server",
+      "serverUrl": "Server URL",
+      "password": "Password",
+      "serverSetupLink": "To set up sync, use FUTO Notes server.",
+      "passwordHelp": "Use the password you configured when installing your FUTO Notes server.",
+      "statusSection": "Status",
+      "notesFolderSection": "Notes folder",
+      "connectAndSync": "Connect & Sync",
+      "syncNow": "Sync now",
+      "disconnect": "Disconnect",
+      "forgetPassword": "Forget password",
+      "resetConnection": "Reset connection",
+      "vaultPassword": "Vault password",
+      "serverPasswordPlaceholder": "Server password",
+      "restartPasswordPlaceholder": "Required after restart",
+      "passwordSaved": "Password saved",
+      "passwordSavedOnDevice": "Password saved on this device.",
+      "working": "Working...",
+      "connect": "Connect",
+      "lastSyncValue": "Last sync: {time}",
+      "never": "Never",
+      "status": {
+        "notConnected": "Not connected",
+        "connecting": "Connecting…",
+        "reconnecting": "Reconnecting…",
+        "reconnectingAccessibilityLabel": "Reconnecting to sync server",
+        "connectedAndSyncing": "Connected ({authMode}) · syncing…",
+        "syncing": "Syncing…",
+        "complete": "Sync complete",
+        "error": "Error",
+        "upToDateAccessibilityLabel": "Sync up to date"
+      },
+      "confirmations": {
+        "forgetPasswordTitle": "Forget password",
+        "forgetPasswordBody": "Forget the saved sync password? You will be asked to re-enter it to sync after the next restart.",
+        "resetConnectionTitle": "Reset connection",
+        "resetConnectionBody": "Are you sure you want to reset the connection?"
+      },
+      "progress": {
+        "connectingToServer": "Connecting to server...",
+        "syncingNotes": "Syncing notes...",
+        "reconciling": "Reconciling {current}/{total}…",
+        "uploading": "Uploading {current}/{total}…",
+        "downloading": "Downloading {current}/{total}…"
+      },
+      "errors": {
+        "enterServerUrl": "Enter a server URL.",
+        "addServerScheme": "Add http:// or https:// to the start of the server URL.",
+        "connectFailed": "Couldn't connect or sync. Check the server URL and password.",
+        "syncFailed": "Sync failed. Try again.",
+        "previousFailure": "The last sync failed. Try again.",
+        "completedWithErrors": "Sync completed with errors. Some changes could not reach the server.",
+        "liveUnavailable": "Live sync is temporarily unavailable. FUTO Notes will keep retrying.",
+        "forgetPasswordFailed": "Couldn't remove the saved sync password.",
+        "dismissWithMessageAccessibilityLabel": "Sync error: {message}. Click to dismiss.",
+        "dismissTitle": "{message} — click to dismiss"
+      }
+    },
+    "storage": {
+      "onboarding": {
+        "heading": "Where should your notes live?",
+        "description": "Your notes are plain Markdown files. Choose where to keep them.",
+        "deviceStorage": "Device storage",
+        "deviceStorageAccess": "Open, back up, and sync your notes from your Files app and other apps.",
+        "deviceStoragePermission": "Requires the “All files access” permission.",
+        "appStorage": "App storage",
+        "appStoragePrivacy": "Your notes stay private to FUTO Notes.",
+        "appStorageUninstallWarning": "Android deletes your notes if you uninstall the app.",
+        "recommended": "RECOMMENDED"
+      },
+      "android": {
+        "permission": {
+          "heading": "Allow access to your files",
+          "explanation": "To keep your notes in a folder you can open from the Files app, back up, and sync with other apps, FUTO Notes needs Android’s “All files access” permission.\n\nOn the next screen, turn on “Allow access to manage all files”.",
+          "privacy": "FUTO Notes only ever touches its own notes folder. Your notes never leave your device unless you set up sync.",
+          "grantAccess": "Grant access",
+          "usePrivateStorage": "Use private app storage instead",
+          "denied": "FUTO Notes needs “All files access” to use a shared folder.",
+          "unsupported": "Device storage requires Android 11 or newer."
+        },
+        "movingNotes": "Moving notes…",
+        "openExistingHeading": "Open the notes already there?",
+        "openExistingAction": "Open that folder",
+        "adoption": {
+          "plural": "destinationNotes",
+          "variants": {
+            "=0": "That folder already has files in it, but no notes.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
+            "one": "That folder already has {destinationNotes} note.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
+            "other": "That folder already has {destinationNotes} notes.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}."
+          }
+        },
+        "adoptionWithLastChanged": {
+          "plural": "destinationNotes",
+          "variants": {
+            "one": "That folder already has {destinationNotes} note. Last changed: {lastChanged}.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}.",
+            "other": "That folder already has {destinationNotes} notes. Last changed: {lastChanged}.\n\nFUTO Notes will open it. Your current folder's note count is {currentNotes}. Those notes are not moved or deleted; they stay in {currentPath}."
+          }
+        },
+        "saveInProgress": "A note or image is still being saved. Try changing storage again.",
+        "disconnectSyncFirst": "Disconnect sync before switching to a folder that already has notes.",
+        "folderUnavailable": "That notes folder can't be used. Check that nothing else is using that path.",
+        "migrationFailed": "The notes folder could not be moved. The original notes are unchanged.",
+        "activationFailed": "The storage move could not be activated. The original notes remain active.",
+        "recoveryFailed": "The previous storage move could not be recovered. Both note folders were retained.",
+        "recoverySourceUnavailable": "The previous notes folder cannot be inspected. Reconnect its storage and restart.",
+        "recoverySaveFailed": "The recovered notes folder could not be saved. Both note folders were retained.",
+        "recoveryRecordFailed": "The recovered storage state could not be recorded. Both note folders were retained.",
+        "adoptionSaveFailed": "Your notes could not be saved first, so the notes folder was not changed.",
+        "adoptionRecordFailed": "The previous move could not be closed out, so the notes folder was not changed.",
+        "adoptionPreferenceFailed": "That folder could not be saved as the notes location, so it was not changed."
+      }
+    },
+    "crashReporting": {
+      "heading": "Crash Report",
+      "prompt": "FUTO Notes crashed last time it ran. Send the crash report so we can fix it?",
+      "viewReport": "View report",
+      "hideReport": "Hide report",
+      "activityPrompt": "What were you doing?",
+      "activityPromptOptional": "What were you doing? (optional)",
+      "optionalDetails": "Optional details",
+      "optionalDescriptionPlaceholder": "Optional: describe what you were doing when the crash happened",
+      "sendAutomatically": "Send crashes automatically",
+      "dontSend": "Don't Send",
+      "sendReport": "Send Report",
+      "copyReport": "Copy report",
+      "copied": "Copied!",
+      "details": {
+        "error": "Error",
+        "stack": "Stack",
+        "type": "Type",
+        "platform": "Platform"
+      },
+      "desktopPrompt": {
+        "plural": "count",
+        "variants": {
+          "one": "The app crashed. Send a report to help us fix it?",
+          "other": "The app crashed ({count} reports). Send a report to help us fix it?"
+        }
+      },
+      "sentCount": {
+        "plural": "count",
+        "variants": {
+          "one": "Sent {count} crash report",
+          "other": "Sent {count} crash reports"
+        }
+      },
+      "sendFailed": "Couldn't send crash reports. They remain saved on this device.",
+      "disabled": "Crash reporting disabled. Re-enable it in Settings."
+    },
+    "system": {
+      "watcherUnavailable": "External file changes will not be detected until you restart.",
+      "notesFolderUnavailable": "Can't find your vault folder at {folderPath}. Please reconfigure in settings."
+    },
+    "permissions": {
+      "ios": {
+        "cameraUsageDescription": "Take a photo and attach it to a note.",
+        "photoLibraryUsageDescription": "Attach photos from your library to notes."
+      }
+    },
+    "units": {
+      "fileSize": {
+        "byte": "{value} B",
+        "kilobyte": "{value} KB",
+        "megabyte": "{value} MB",
+        "gigabyte": "{value} GB",
+        "terabyte": "{value} TB"
+      }
+    },
+    "time": {
+      "relative": {
+        "now": "Just now",
+        "past": {
+          "minute": {
+            "plural": "count",
+            "variants": {
+              "one": "{count} minute ago",
+              "other": "{count} minutes ago"
+            }
+          },
+          "hour": {
+            "plural": "count",
+            "variants": {
+              "one": "{count} hour ago",
+              "other": "{count} hours ago"
+            }
+          },
+          "day": {
+            "plural": "count",
+            "variants": {
+              "=1": "Yesterday",
+              "other": "{count} days ago"
+            }
+          },
+          "month": {
+            "plural": "count",
+            "variants": {
+              "one": "{count} month ago",
+              "other": "{count} months ago"
+            }
+          },
+          "year": {
+            "plural": "count",
+            "variants": {
+              "one": "{count} year ago",
+              "other": "{count} years ago"
+            }
+          }
+        },
+        "future": {
+          "minute": {
+            "plural": "count",
+            "variants": {
+              "one": "In {count} minute",
+              "other": "In {count} minutes"
+            }
+          },
+          "hour": {
+            "plural": "count",
+            "variants": {
+              "one": "In {count} hour",
+              "other": "In {count} hours"
+            }
+          },
+          "day": {
+            "plural": "count",
+            "variants": {
+              "=1": "Tomorrow",
+              "other": "In {count} days"
+            }
+          },
+          "month": {
+            "plural": "count",
+            "variants": {
+              "one": "In {count} month",
+              "other": "In {count} months"
+            }
+          },
+          "year": {
+            "plural": "count",
+            "variants": {
+              "one": "In {count} year",
+              "other": "In {count} years"
+            }
+          }
+        }
+      }
+    }
+  }
+}

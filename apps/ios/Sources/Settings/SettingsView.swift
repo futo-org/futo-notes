@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// App settings sheet (gear button in the note list). Mirrors the desktop
 /// Settings surface (settings.md): a single "Self-hosted sync" row, appearance,
@@ -6,10 +7,12 @@ import SwiftUI
 /// Sync details/actions stay in SyncView — the Sync row just opens it.
 struct SettingsView: View {
     private let issueTrackerURL = URL(string: "https://github.com/futo-org/futo-notes/issues")!
+    static let systemSettingsURL = URL(string: UIApplication.openSettingsURLString)!
 
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.localization) private var localization
 
     /// "light" | "dark" | "auto". Applied app-wide by FutoNotesApp's
     /// appearanceOverride; the editor WebView follows automatically because
@@ -35,7 +38,7 @@ struct SettingsView: View {
                 // icon, connected-vs-local status, SYNCED/LOCAL badge. No
                 // separate account header, no separate "Server" row
                 // (settings.md). Tapping opens SyncView.
-                Section("Sync") {
+                Section(localization.localizedText("settings.sections.sync")) {
                     Button {
                         showSync = true
                     } label: {
@@ -44,12 +47,13 @@ struct SettingsView: View {
                                 .font(.title3)
                                 .foregroundStyle(Theme.primary)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Self-hosted sync")
+                                Text(localization.localizedText("settings.sync.selfHosted"))
                                     .foregroundStyle(.primary)
                                 Text(
                                     sync.connected
-                                        ? sync.status
-                                        : "Notes stay on this device until you connect sync."
+                                        ? sync.localizedStatus(localization)
+                                        : localization.localizedText(
+                                            "settings.sync.localDescription")
                                 )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -61,18 +65,43 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Appearance") {
-                    Picker("Theme", selection: $themeMode) {
-                        Text("Light").tag(ThemeMode.light.rawValue)
-                        Text("Dark").tag(ThemeMode.dark.rawValue)
-                        Text("Auto").tag(ThemeMode.auto.rawValue)
+                Section(localization.localizedText("settings.sections.appearance")) {
+                    Picker(
+                        localization.localizedText("settings.appearance.theme"),
+                        selection: $themeMode
+                    ) {
+                        Text(localization.localizedText("settings.appearance.light"))
+                            .tag(ThemeMode.light.rawValue)
+                        Text(localization.localizedText("settings.appearance.dark"))
+                            .tag(ThemeMode.dark.rawValue)
+                        Text(localization.localizedText("settings.appearance.auto"))
+                            .tag(ThemeMode.auto.rawValue)
                     }
                     .pickerStyle(.segmented)
                 }
 
-                Section("Storage") {
+                Section(localization.localizedText("settings.language.heading")) {
+                    Link(destination: Self.systemSettingsURL) {
+                        HStack {
+                            Image(systemName: "globe")
+                                .foregroundStyle(Theme.primary)
+                            Text(
+                                localization.localizedText(
+                                    "settings.language.ios.openSystemSettings"
+                                )
+                            )
+                            Spacer()
+                            Text(localization.effectiveLanguage.nativeName)
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "arrow.up.right")
+                        }
+                    }
+                    .accessibilityIdentifier("settings-language")
+                }
+
+                Section(localization.localizedText("settings.sections.storage")) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Notes folder")
+                        Text(localization.localizedText("settings.storage.notesFolder"))
                         Text(store.notesRoot.path)
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
@@ -80,45 +109,55 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Issue reporting") {
-                    Toggle("Share crash reports", isOn: $crashEnabled)
-                    Toggle("Send crashes automatically", isOn: $crashAlwaysSend)
-                        .disabled(!crashEnabled)
+                Section(localization.localizedText("settings.sections.issueReporting")) {
+                    Toggle(
+                        localization.localizedText("settings.issueReporting.shareCrashReports"),
+                        isOn: $crashEnabled
+                    )
+                    Toggle(
+                        localization.localizedText("settings.issueReporting.sendAutomatically"),
+                        isOn: $crashAlwaysSend
+                    )
+                    .disabled(!crashEnabled)
                     Link(destination: issueTrackerURL) {
                         HStack {
-                            Text("Report an issue")
+                            Text(localization.localizedText("settings.issueReporting.reportIssue"))
                             Spacer()
                             Image(systemName: "arrow.up.right")
                         }
                     }
                 }
 
-                Section("About") {
+                Section(localization.localizedText("settings.sections.about")) {
                     Link(
-                        "Open source",
+                        localization.localizedText("settings.about.openSource"),
                         destination: URL(string: "https://gitlab.futo.org/futo-notes/futo-notes")!)
                     HStack {
-                        Text("Version")
+                        Text(localization.localizedText("settings.about.version"))
                         Spacer()
                         Text(appVersion).foregroundStyle(.secondary)
                     }
                 }
 
-                Section("Danger zone") {
+                Section(localization.localizedText("settings.sections.dangerZone")) {
                     Button(role: .destructive) {
                         showResetConfirm = true
                     } label: {
-                        Text("Full reset")
+                        Text(localization.localizedText("settings.danger.fullReset"))
                     }
                     .disabled(resetting)
                     .confirmationDialog(
-                        "Permanently delete all notes and app data? This cannot be undone.",
+                        localization.localizedText("settings.danger.confirmation"),
                         isPresented: $showResetConfirm, titleVisibility: .visible
                     ) {
-                        Button("Delete Everything", role: .destructive) {
+                        Button(
+                            localization.localizedText("settings.danger.deleteEverything"),
+                            role: .destructive
+                        ) {
                             Task { await runFullReset() }
                         }
-                        Button("Cancel", role: .cancel) {}
+                        Button(localization.localizedText("common.actions.cancel"), role: .cancel) {
+                        }
                     }
                     #if DEBUG
                         // On-device verification hook for the crash pipeline: traps
@@ -127,17 +166,17 @@ struct SettingsView: View {
                         Button(role: .destructive) {
                             fatalError("Test crash from Settings (DEBUG)")
                         } label: {
-                            Text("Test crash")
+                            Text(localization.localizedText("settings.debug.testCrash.title"))
                         }
                     #endif
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle(localization.localizedText("settings.heading"))
             .navigationBarTitleDisplayMode(.inline)
             .tint(Theme.primary)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button(localization.localizedText("common.actions.done")) { dismiss() }
                         .disabled(resetting)
                 }
             }
@@ -153,7 +192,8 @@ struct SettingsView: View {
                         Color.black.opacity(0.45).ignoresSafeArea()
                         VStack(spacing: 12) {
                             ProgressView()
-                            Text("Deleting all notes…").font(.headline)
+                            Text(localization.localizedText("settings.danger.deleting"))
+                                .font(.headline)
                         }
                         .padding(24)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
@@ -166,14 +206,18 @@ struct SettingsView: View {
 
     /// SYNCED / LOCAL pill shown on the single "Self-hosted sync" row.
     private var syncBadge: some View {
-        Text(sync.connected ? "SYNCED" : "LOCAL")
-            .font(.caption2.bold())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(sync.connected ? Color.green : Color.secondary)
-            .background(
-                (sync.connected ? Color.green : Color.secondary).opacity(0.15),
-                in: Capsule())
+        Text(
+            sync.connected
+                ? localization.localizedText("settings.sync.syncedBadge")
+                : localization.localizedText("settings.sync.localBadge")
+        )
+        .font(.caption2.bold())
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .foregroundStyle(sync.connected ? Color.green : Color.secondary)
+        .background(
+            (sync.connected ? Color.green : Color.secondary).opacity(0.15),
+            in: Capsule())
     }
 
     private var appVersion: String {

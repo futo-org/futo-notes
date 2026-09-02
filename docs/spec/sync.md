@@ -58,9 +58,8 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
   transport error. All three shells pre-validate identically: Android
   `SyncManager.validateServerUrl`, iOS `SyncManager.validateServerURL` (guards
   `connectAndSync`), and desktop `validateSyncServerUrl` (thrown from
-  `connectE2ee` before the `e2ee_connect` invoke; surfaced via
-  `getSyncErrorMessage`). → SyncManager.kt / SyncManager.swift /
-  syncServiceE2ee.ts
+  `connectE2ee` before the `e2ee_connect` invoke; surfaced as a catalog
+  message). → SyncManager.kt / SyncManager.swift / syncServiceE2ee.ts
 - **A plain-`http://` sync server is permitted on every build type, including
   production.** Self-hosters and testers can point at a server without TLS (a
   LAN box, a VPS, or localhost); note content is E2EE-encrypted client-side
@@ -87,10 +86,6 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
   `Synced — ↑a ↓b ✕c ⚠d`, and Tauri desktop previously showed `Synced: N
 uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
   SyncManager.kt / SyncManager.swift `describe`, syncManager.svelte.ts _(desktop)_
-  - **Exemption:** the "no counts" rule covers _success_ reporting only. A
-    **failure** count/status (e.g. "3 changes couldn't reach the server (HTTP
-    500)") is a distinct, actionable signal and IS surfaced — see the
-    per-item failure bullet below.
   - **Desktop has a SINGLE completion reporter.** All sync-outcome feedback
     (the "Sync complete" toast, the failure indicator/toast, the large-sync
     banner) is decided in ONE place — the sync manager's `handleSyncComplete`,
@@ -111,26 +106,27 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
 - **Desktop sync failures escalate by recourse, not by first failure.** A
   transport-class background failure (the shared `RUST_TRANSPORT_ERROR` match
   or an opaque fetch `TypeError`) first enters a visible-but-quiet reconnecting
-  state: the status bar shows a muted spinner, Settings says "Reconnecting…",
+  state: the status bar shows a muted spinner, Settings shows the localized
+  reconnecting message,
   and neither the ⚠ state nor a toast fires. Retries remain active; if the same
   source is still failing after 3 minutes, the next retry promotes it to the
-  existing loud state with the muted ⚠ indicator, hover message, Settings
-  "Sync failed: …" line, and toast. A clean cycle clears cycle reconnecting;
+  existing loud state with the muted ⚠ indicator, localized hover and Settings
+  messages, and a localized toast. A clean cycle clears cycle reconnecting;
   a stream reconnect clears stream reconnecting. Failures are never swallowed:
   the quiet state is visible and self-escalates without user action. Manual
   "Sync now" / Settings-connect cycle failures, auth failures, errors carrying
   an HTTP status, and completed-cycle per-item failures are actionable and loud
-  immediately. Pre-sync bad-URL/password failures remain the local
-  "Connect failed: …" line. The ⚠ is click-to-dismiss (`clearSyncError`) — a
-  dismiss, not a mute, so a later failure can raise it again. Before display,
-  live-stream messages pass through `getSyncErrorMessage`, so transport details
-  normalize to the safe actionable message rather than exposing a server URL or
-  reqwest internals. Download-per-item retry failures remain immediately
-  actionable for now. → syncErrorMessage.ts (`classifySyncError`,
-  `getSyncErrorMessage`), syncManager.svelte.ts (`reportFailure`,
+  immediately. Pre-sync bad-URL/password failures remain local to Settings. The
+  ⚠ is click-to-dismiss (`clearSyncError`) — a dismiss, not a mute, so a later
+  failure can raise it again. Raw failures remain English diagnostics for
+  classification, deduplication, logging, and crash reports; the user-facing
+  boundary resolves a stable source-specific catalog message and does not expose
+  server URLs or reqwest internals. Download-per-item retry failures remain immediately
+  actionable for now. → syncErrorClassification.ts (`classifySyncError`,
+  `syncErrorDedupeKey`), syncManager.svelte.ts (`reportFailure`,
   `reconnecting`, `syncError`), SyncStatusBar.svelte, SyncSettingsSection.svelte
 
-  > **Gap:** iOS/Android SyncManagers still escalate on the first failure with no transient/actionable classification (single lastError bucket); desktop-only as of 2026-08-24.
+  > **Gap:** iOS/Android SyncManagers still escalate on the first failure with no transient/actionable classification (single error bucket); desktop-only as of 2026-08-24.
   - **A transport failure retains its complete cause chain in the engine and
     journal.** Anything that never reached a status line — DNS,
     no route, a refused or reset connection, a stale pooled socket, TLS, a
@@ -380,21 +376,20 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   `replay_hydration_rechecks_the_local_revision_before_writing`; F-series
   `f_batch_upload_first_push`; server: futo-notes-server
   `src/objects/batch-upload/`
-- **A loud failure signal fires a toast on message change.** Actionable failures
+- **A loud failure signal fires a localized toast on diagnostic change.** Actionable failures
   toast immediately; a transient background failure toasts only when its
-  reconnecting state reaches the 3-minute escalation threshold. The toast is
-  prefixed **"Sync error: "** so the source is clear outside the sync UI
-  ("Sync error: N change(s) couldn't reach the server …"). It appears on the
-  first loud failure and on every subsequent failure whose **message differs**
-  (count or dominant HTTP
-  status changed). An **identical** repeat stays silent — auto-sync retries a
+  reconnecting state reaches the 3-minute escalation threshold. The toast uses
+  the stable catalog message for the failing source; the underlying English
+  diagnostic is retained only for logs and deduplication. It appears on the
+  first loud failure and on every subsequent failure whose diagnostic differs.
+  An **identical** repeat stays silent — auto-sync retries a
   persistent outage every ~15s, and per-cycle toasting would spam. After a
   clear (clean sync or click-to-dismiss) the message resets, so the next
   failure toasts again. Errors are cleared **per source**: a clean completed
   sync clears cycle-failure errors but NOT a live-stream error (the stream is
   still down — clearing it would re-arm the toast and spam every reconnect
   attempt); a stream error clears when the stream reconnects or on dismiss.
-  Stream and cycle messages are normalized before this comparison, so alternating
+  Stream and cycle diagnostics are normalized before this comparison, so alternating
   raw and browser transport wording cannot defeat dedupe. → syncManager.svelte.ts
   (`reportFailure`, `raiseSyncError`, `clearSyncError`)
 - **Desktop shows a persistent idle sync indicator.** While the live SSE stream

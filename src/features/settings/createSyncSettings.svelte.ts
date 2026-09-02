@@ -1,7 +1,11 @@
 import { getAppState, getCachedPreferences } from '$shared/state/appState';
 import { requestSyncV2, wasSyncErrorReported } from '$features/sync/autoSyncV2';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
-import { getSyncErrorMessage } from '$features/sync/syncErrorMessage';
+import {
+  localizedText,
+  resolveLocalizedMessage,
+  type LocalizedMessage,
+} from '$shared/localization';
 import {
   connectE2ee,
   disconnectE2ee,
@@ -9,7 +13,19 @@ import {
   hasStoredSyncPassword,
   reauthenticateE2ee,
   setSyncProgressListener,
+  type SyncProgress,
 } from '$features/sync/syncServiceE2ee';
+
+function syncProgressMessage(progress: SyncProgress): LocalizedMessage {
+  const argumentsMap = { current: progress.current, total: progress.total };
+  if (progress.phase === 'reconciling') {
+    return { path: 'sync.progress.reconciling', arguments: argumentsMap };
+  }
+  if (progress.phase === 'pushing') {
+    return { path: 'sync.progress.uploading', arguments: argumentsMap };
+  }
+  return { path: 'sync.progress.downloading', arguments: argumentsMap };
+}
 
 export function createSyncSettings() {
   const appState = getAppState();
@@ -19,33 +35,27 @@ export function createSyncSettings() {
   let password = $state('');
   let busy = $state(false);
   const lastError = preferences.sync.lastError;
-  let status = $state(lastError ? `Last error: ${lastError}` : '');
+  let status = $state<LocalizedMessage | null>(
+    lastError ? { path: 'sync.errors.previousFailure' } : null,
+  );
   let lastSyncedAt = $state<number | null>(preferences.sync.lastSyncedAt);
   let connected = $state(Boolean(appState.e2eeAuthToken));
   let passwordSaved = $state(hasStoredSyncPassword());
   let connecting = $state(false);
-  let connectPhase = $state('');
-  let connectError = $state('');
+  let connectPhase = $state<LocalizedMessage | null>(null);
+  let connectError = $state<LocalizedMessage | null>(null);
   async function connect(): Promise<void> {
     if (busy) return;
     busy = true;
     connecting = true;
-    connectPhase = 'Connecting to server...';
-    connectError = '';
+    connectPhase = { path: 'sync.progress.connectingToServer' };
+    connectError = null;
     try {
       await connectE2ee(url, password);
       connected = true;
       passwordSaved = hasStoredSyncPassword();
-      connectPhase = 'Syncing notes...';
-      setSyncProgressListener((progress) => {
-        const label =
-          progress.phase === 'reconciling'
-            ? 'Reconciling'
-            : progress.phase === 'pushing'
-              ? 'Uploading'
-              : 'Downloading';
-        connectPhase = `${label} ${progress.current}/${progress.total}…`;
-      });
+      connectPhase = { path: 'sync.progress.syncingNotes' };
+      setSyncProgressListener((progress) => (connectPhase = syncProgressMessage(progress)));
       try {
         await requestSyncV2();
       } finally {
@@ -54,41 +64,43 @@ export function createSyncSettings() {
       password = '';
       lastSyncedAt = getCachedPreferences().sync.lastSyncedAt;
       connecting = false;
-      status = '';
+      status = null;
     } catch (error) {
       console.error('[e2ee] connect/sync failed:', error);
-      connectError = getSyncErrorMessage(error);
+      connectError = connected
+        ? { path: 'sync.errors.syncFailed' }
+        : { path: 'sync.errors.connectFailed' };
       status = !connected
-        ? `Connect failed: ${connectError}`
+        ? { path: 'sync.errors.connectFailed' }
         : wasSyncErrorReported(error)
-          ? ''
-          : `Sync failed: ${connectError}`;
+          ? null
+          : { path: 'sync.errors.syncFailed' };
     } finally {
       busy = false;
     }
   }
   function cancelConnect(): void {
     connecting = false;
-    connectError = '';
+    connectError = null;
   }
   async function resetConnection(): Promise<void> {
-    const confirmed = await confirmDialog('Are you sure you want to reset the connection?', {
-      title: 'Reset connection',
+    const confirmed = await confirmDialog(localizedText('sync.confirmations.resetConnectionBody'), {
+      title: localizedText('sync.confirmations.resetConnectionTitle'),
       kind: 'warning',
     });
     if (!confirmed) return;
     connected = false;
     password = '';
-    status = '';
+    status = null;
     await disconnectE2ee();
     passwordSaved = false;
   }
 
   async function forgetPassword(): Promise<void> {
-    const confirmed = await confirmDialog(
-      'Forget the saved sync password? You will be asked to re-enter it to sync after the next restart.',
-      { title: 'Forget password', kind: 'warning' },
-    );
+    const confirmed = await confirmDialog(localizedText('sync.confirmations.forgetPasswordBody'), {
+      title: localizedText('sync.confirmations.forgetPasswordTitle'),
+      kind: 'warning',
+    });
     if (!confirmed) return;
 
     await forgetStoredSyncPassword();
@@ -102,7 +114,7 @@ export function createSyncSettings() {
   async function syncNow(): Promise<void> {
     if (busy) return;
     busy = true;
-    status = 'Syncing...';
+    status = { path: 'sync.status.syncing' };
     try {
       if (password) {
         await reauthenticateE2ee(password);
@@ -113,9 +125,10 @@ export function createSyncSettings() {
       await requestSyncV2();
       connected = Boolean(getAppState().e2eeAuthToken);
       lastSyncedAt = getCachedPreferences().sync.lastSyncedAt;
-      status = '';
+      status = null;
     } catch (error) {
-      status = wasSyncErrorReported(error) ? '' : `Sync failed: ${getSyncErrorMessage(error)}`;
+      console.error('[e2ee] manual sync failed');
+      status = wasSyncErrorReported(error) ? null : { path: 'sync.errors.syncFailed' };
     } finally {
       busy = false;
     }
@@ -138,7 +151,7 @@ export function createSyncSettings() {
       return busy;
     },
     get status() {
-      return status;
+      return status ? resolveLocalizedMessage(status) : '';
     },
     get lastSyncedAt() {
       return lastSyncedAt;
@@ -153,10 +166,10 @@ export function createSyncSettings() {
       return connecting;
     },
     get connectPhase() {
-      return connectPhase;
+      return connectPhase ? resolveLocalizedMessage(connectPhase) : '';
     },
     get connectError() {
-      return connectError;
+      return connectError ? resolveLocalizedMessage(connectError) : '';
     },
     connect,
     cancelConnect,

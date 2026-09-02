@@ -1,5 +1,3 @@
-const UNREACHABLE_MESSAGE = "Could not reach server — check the URL and make sure it's running";
-
 const RUST_TRANSPORT_ERROR =
   /^transport error:|error sending request|error trying to connect|connection refused|dns error|operation timed out|network is unreachable/i;
 const HTTP_STATUS_ERROR = /\bHTTP\s+\d{3}\b/i;
@@ -19,7 +17,7 @@ export function classifySyncError(error: unknown): SyncErrorClass {
   return isTransportError(error) ? 'transient' : 'actionable';
 }
 
-export function getSyncErrorMessage(error: unknown): string {
-  if (isTransportError(error)) return UNREACHABLE_MESSAGE;
+export function syncErrorDedupeKey(error: unknown): string {
+  if (isTransportError(error)) return 'transport';
   return error instanceof Error ? error.message : String(error);
 }

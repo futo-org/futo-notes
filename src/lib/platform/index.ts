@@ -1,4 +1,5 @@
 import type { PlatformFS, PlatformName } from './types';
+import type { ApplicationMenuLabels } from './tauri/appMenu';
 export type {
   FileChangeEvent,
   PlatformFS,
@@ -59,6 +60,20 @@ export function onAppMenuCommand(handler: (command: string) => void): () => void
     unlisten?.();
     unlisten = null;
   };
+}
+
+export function setApplicationMenuLabels(labels: ApplicationMenuLabels): void {
+  if (platformName !== 'tauri' || !isMac) return;
+  void import('./tauri/appMenu')
+    .then(({ applyApplicationMenuLabels }) => applyApplicationMenuLabels(labels))
+    .catch((error) => console.warn('Failed to localize the app menu:', error));
+}
+
+export function setApplicationWindowTitle(title: string): void {
+  if (platformName !== 'tauri') return;
+  void import('./tauri/windowTitle')
+    .then(({ applyApplicationWindowTitle }) => applyApplicationWindowTitle(title))
+    .catch((error) => console.warn('Failed to localize the app window title:', error));
 }
 
 // Reveal the desktop window once the shell has painted. The window is created

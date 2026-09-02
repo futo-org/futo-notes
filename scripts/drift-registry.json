@@ -1,9 +1,9 @@
 {
-  "_comment": "AGENTS.md 'Drift watchlist' as enforced code \u2014 architecture-hardening.md R1. Every PERMITTED same-logic-in->=2-places duplicate in this repo is enumerated here with its copies (file + a regex that must still match there) and its lock (the fixture/generated-file/test that catches drift, or 'unlocked' when none exists yet). scripts/drift-check.mjs (just check-drift / just check) enforces: (a) every copy exists where claimed, (b) every declared lock file exists and lockStatus is consistent with whether locks are registered, (c) for entries with a 'scan' block, no NEW file outside the registered copies matches the concept's detection pattern. Registration friction is the feature \u2014 do not add entries for concepts that haven't actually drifted or burned us; do not delete an entry because its pattern is inconvenient, tighten the pattern instead.",
+  "_comment": "AGENTS.md 'Drift watchlist' as enforced code — architecture-hardening.md R1. Every PERMITTED same-logic-in->=2-places duplicate in this repo is enumerated here with its copies (file + a regex that must still match there) and its lock (the fixture/generated-file/test that catches drift, or 'unlocked' when none exists yet). scripts/drift-check.mjs (just check-drift / just check) enforces: (a) every copy exists where claimed, (b) every declared lock file exists and lockStatus is consistent with whether locks are registered, (c) for entries with a 'scan' block, no NEW file outside the registered copies matches the concept's detection pattern. Registration friction is the feature — do not add entries for concepts that haven't actually drifted or burned us; do not delete an entry because its pattern is inconvenient, tighten the pattern instead.",
   "entries": [
     {
       "concept": "note-rules-ts-rust",
-      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; every family also crosses a broad deterministic TS/Rust differential (tests/conformance/README.md).",
+      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) — the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; every family also crosses a broad deterministic TS/Rust differential (tests/conformance/README.md).",
       "lockStatus": "locked",
       "copies": [
         {
@@ -120,24 +120,54 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "src",
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".ts",
-          ".swift",
-          ".kt"
-        ],
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
         "pattern": "(function validateSyncServerUrl|fun validateServerUrl|func validateServerURL)\\b"
       }
     },
     {
+      "concept": "language-catalog-runtime",
+      "description": "Shared JSON catalog behavior implemented in the web, Android, and iOS shells. Platform locale engines remain native, while all three adapters execute tests/localization/cases.json for matching, messages, plurals, file sizes, and relative time.",
+      "lockStatus": "partial",
+      "copies": [
+        {
+          "location": "src/shared/localization/localization.ts",
+          "pattern": "export function createLocalizationModule"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/localization/Localization.kt",
+          "pattern": "class Localization private constructor"
+        },
+        {
+          "location": "apps/ios/Sources/Localization/Localization.swift",
+          "pattern": "final class Localization"
+        }
+      ],
+      "locks": [
+        {
+          "path": "tests/localization/cases.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "src/shared/localization/localization.test.ts",
+          "kind": "test"
+        },
+        {
+          "path": "apps/android/app/src/androidTest/java/com/futo/notes/localization/AndroidLocalizationTest.kt",
+          "kind": "platform test"
+        },
+        {
+          "path": "apps/ios/Tests/Localization/LocalizationTests.swift",
+          "kind": "test"
+        }
+      ],
+      "note": "Partial, not locked: tests/localization/cases.json is a happy-path fixture. It does NOT cover missing messages, missing or invalid plural arguments, =N exact selectors, {{ }} escaping, unmatched braces, alias matching, or the generic-catalog fallback hop, so the three interpreters can diverge on any of those without the fixture noticing. A real divergence already existed on this axis: localization.ts falls back regionalLanguageTag ?? requestedLanguageTag when no regional tag is supplied, while both shells pass the regional tag straight through — every fixture message case supplies regionalLanguageTag, so the fixture is structurally unable to see it. Extend cases.json to those error paths before claiming locked."
+    },
+    {
       "concept": "notes-root-triplet",
-      "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
+      "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification — registered so it's visible, not to be locked or collapsed.",
       "lockStatus": "unlocked",
-      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md 'Named mistakes' non-goals \u2014 do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. The Android guard lives in storage/NotesStorage.kt's `deviceFolderName`, and its split works differently: DEVICE mode uses 'FUTO Notes Dev' vs 'FUTO Notes', while APP/INTERNAL modes already isolate through the `.dev` applicationId on package-scoped paths.",
+      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md 'Named mistakes' non-goals — do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. The Android guard lives in storage/NotesStorage.kt's `deviceFolderName`, and its split works differently: DEVICE mode uses 'FUTO Notes Dev' vs 'FUTO Notes', while APP/INTERNAL modes already isolate through the `.dev` applicationId on package-scoped paths.",
       "copies": [
         {
           "location": "apps/tauri/src-tauri/src/vault_location.rs",
@@ -253,24 +283,14 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "packages/editor/src",
-          "crates",
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".ts",
-          ".rs",
-          ".swift",
-          ".kt"
-        ],
+        "dirs": ["packages/editor/src", "crates", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".rs", ".swift", ".kt"],
         "pattern": "MAX_TITLE_LENGTH\\s*[:=]\\s*(usize\\s*=\\s*)?200|TITLE_MAX_LENGTH\\s*=\\s*200|titleMaxLength\\s*=\\s*200|maxLength\\s*=\\s*200"
       }
     },
     {
       "concept": "editor-exit-ordering",
-      "description": "The order an open note's exit runs in (admission -> latch -> cancel -> drain -> commit -> effect) so no async completion lands against a stale note identity. One EditorSession per native shell. This duplicate is permitted because every step being ordered is a host-runtime handle the engine cannot hold (a Compose coroutine, a Swift Task, a WebView round-trip, a vetoable navigation) \u2014 the engine still owns what a save MEANS via flush_draft/persist-or-park (ADR-0001), reached only through injected effects. The shells also legitimately differ: navigation commit order, where the committed body comes from, and move-picker drain timing. Partial: each shell is pinned by its OWN ordering tests, and the shared invariant is stated in prose in docs/spec/editor.md \"Editor exits\" \u2014 nothing mechanically holds the two implementations together. Changing one shell's exit ordering updates that spec section and checks the sibling in the same MR, or records the divergence there. The escalation threshold was reached in iOS v1.7.0: a cancelled Swift autosave resumed after a durable flush but skipped its baseline record, while Android's NonCancellable span already held the invariant; the resulting conflict-copy storm shipped as a device bug. The next architectural step is therefore the deferred Rust editor engine (crates/futo-notes-editor), not a bigger fixture; starting that engine remains a separate scope decision.",
+      "description": "The order an open note's exit runs in (admission -> latch -> cancel -> drain -> commit -> effect) so no async completion lands against a stale note identity. One EditorSession per native shell. This duplicate is permitted because every step being ordered is a host-runtime handle the engine cannot hold (a Compose coroutine, a Swift Task, a WebView round-trip, a vetoable navigation) — the engine still owns what a save MEANS via flush_draft/persist-or-park (ADR-0001), reached only through injected effects. The shells also legitimately differ: navigation commit order, where the committed body comes from, and move-picker drain timing. Partial: each shell is pinned by its OWN ordering tests, and the shared invariant is stated in prose in docs/spec/editor.md \"Editor exits\" — nothing mechanically holds the two implementations together. Changing one shell's exit ordering updates that spec section and checks the sibling in the same MR, or records the divergence there. The escalation threshold was reached in iOS v1.7.0: a cancelled Swift autosave resumed after a durable flush but skipped its baseline record, while Android's NonCancellable span already held the invariant; the resulting conflict-copy storm shipped as a device bug. The next architectural step is therefore the deferred Rust editor engine (crates/futo-notes-editor), not a bigger fixture; starting that engine remains a separate scope decision.",
       "lockStatus": "partial",
       "copies": [
         {
@@ -297,14 +317,8 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".swift",
-          ".kt"
-        ],
+        "dirs": ["apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".swift", ".kt"],
         "pattern": "enum (class )?EditorExit\\b"
       }
     },
@@ -350,17 +364,8 @@
         }
       ],
       "scan": {
-        "dirs": [
-          ".",
-          ".claude"
-        ],
-        "extensions": [
-          ".mjs",
-          ".ts",
-          ".js",
-          ".md",
-          "justfile"
-        ],
+        "dirs": [".", ".claude"],
+        "extensions": [".mjs", ".ts", ".js", ".md", "justfile"],
         "pattern": "md5[\\s\\S]{0,400}%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b|%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b[\\s\\S]{0,400}md5",
         "flags": "i"
       }
@@ -382,7 +387,7 @@
     },
     {
       "concept": "kitchensink-image-digest",
-      "description": "The futocore/ci/kitchensink digest. `.gitlab-ci.yml` runs jobs on it directly and both CI image Dockerfiles build FROM it, so a bump that moves one copy silently leaves jobs and images on different bases. Nothing enforces agreement but this entry \u2014 bump all three together.",
+      "description": "The futocore/ci/kitchensink digest. `.gitlab-ci.yml` runs jobs on it directly and both CI image Dockerfiles build FROM it, so a bump that moves one copy silently leaves jobs and images on different bases. Nothing enforces agreement but this entry — bump all three together.",
       "lockStatus": "unlocked",
       "copies": [
         {
@@ -396,6 +401,40 @@
         {
           "location": "ci/android.Dockerfile",
           "pattern": "kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f"
+        }
+      ]
+    },
+    {
+      "concept": "localization-template-grammar",
+      "description": "The catalog placeholder grammar ({name}, {{ and }} escapes, ^[a-z][A-Za-z0-9]*$ names) is scanned by the three runtime interpreters and, separately, by the catalog validator and the native resource generator, which pre-tokenize the same templates at build time.",
+      "lockStatus": "partial",
+      "note": "The two build-time copies are what the runtime copies are generated from and validated by, so a grammar change must touch all five together or the generator silently emits tokens the runtimes cannot reproduce. Nothing mechanically ties the build-time pair to the runtime trio; the runtime trio is covered by tests/localization/cases.json, and the build-time pair by its own script tests.",
+      "copies": [
+        {
+          "location": "src/shared/localization/localization.ts",
+          "pattern": "function parseTemplate"
+        },
+        {
+          "location": "scripts/language-catalogs.mjs",
+          "pattern": "function inspectMessageTemplate"
+        },
+        {
+          "location": "scripts/generate-native-language-resources.mjs",
+          "pattern": "function templateTokens"
+        }
+      ],
+      "locks": [
+        {
+          "path": "tests/localization/cases.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "scripts/language-catalogs.test.mjs",
+          "kind": "test"
+        },
+        {
+          "path": "scripts/generate-native-language-resources.test.mjs",
+          "kind": "test"
         }
       ]
     }

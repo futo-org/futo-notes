@@ -17,7 +17,7 @@ enum ToolbarItemAction: Equatable {
 struct ToolbarItemSpec: Identifiable, Equatable {
     let id: String
     /// Accessibility label — same text as the web toolbar's aria-label.
-    let label: String
+    let localizationPath: String
     let sfSymbol: String
     /// Only visible while the cursor is on a list line (bridge cursorContext).
     let onlyOnListLine: Bool
@@ -30,28 +30,28 @@ enum ToolbarSpec {
         [
             ToolbarItemSpec(
                 id: "bold",
-                label: "Bold",
+                localizationPath: "editor.toolbar.bold",
                 sfSymbol: "bold",
                 onlyOnListLine: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "italic",
-                label: "Italic",
+                localizationPath: "editor.toolbar.italic",
                 sfSymbol: "italic",
                 onlyOnListLine: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "strikethrough",
-                label: "Strikethrough",
+                localizationPath: "editor.toolbar.strikethrough",
                 sfSymbol: "strikethrough",
                 onlyOnListLine: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "link",
-                label: "Link",
+                localizationPath: "editor.toolbar.link",
                 sfSymbol: "link",
                 onlyOnListLine: false,
                 action: .exec
@@ -60,14 +60,14 @@ enum ToolbarSpec {
         [
             ToolbarItemSpec(
                 id: "heading",
-                label: "Heading",
+                localizationPath: "editor.toolbar.heading",
                 sfSymbol: "textformat.size",
                 onlyOnListLine: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "quote",
-                label: "Block quote",
+                localizationPath: "editor.toolbar.blockQuote",
                 sfSymbol: "text.quote",
                 onlyOnListLine: false,
                 action: .exec
@@ -76,35 +76,35 @@ enum ToolbarSpec {
         [
             ToolbarItemSpec(
                 id: "bullet-list",
-                label: "Bullet list",
+                localizationPath: "editor.toolbar.bulletList",
                 sfSymbol: "list.bullet",
                 onlyOnListLine: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "ordered-list",
-                label: "Ordered list",
+                localizationPath: "editor.toolbar.orderedList",
                 sfSymbol: "list.number",
                 onlyOnListLine: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "task-list",
-                label: "Task list",
+                localizationPath: "editor.toolbar.taskList",
                 sfSymbol: "checklist",
                 onlyOnListLine: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "outdent",
-                label: "Outdent",
+                localizationPath: "editor.toolbar.outdent",
                 sfSymbol: "decrease.indent",
                 onlyOnListLine: true,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "indent",
-                label: "Indent",
+                localizationPath: "editor.toolbar.indent",
                 sfSymbol: "increase.indent",
                 onlyOnListLine: true,
                 action: .exec
@@ -113,14 +113,14 @@ enum ToolbarSpec {
         [
             ToolbarItemSpec(
                 id: "camera",
-                label: "Take photo",
+                localizationPath: "editor.toolbar.takePhoto",
                 sfSymbol: "camera",
                 onlyOnListLine: false,
                 action: .pickImage(source: "camera")
             ),
             ToolbarItemSpec(
                 id: "image",
-                label: "Choose from library",
+                localizationPath: "editor.toolbar.chooseFromLibrary",
                 sfSymbol: "photo",
                 onlyOnListLine: false,
                 action: .pickImage(source: "library")
@@ -131,7 +131,7 @@ enum ToolbarSpec {
     /// The fixed (non-scrolling) collapse chevron at the right edge.
     static let dismiss = ToolbarItemSpec(
         id: "dismiss",
-        label: "Dismiss keyboard",
+        localizationPath: "editor.toolbar.dismissKeyboard",
         sfSymbol: "keyboard.chevron.compact.down",
         onlyOnListLine: false,
         action: .dismiss

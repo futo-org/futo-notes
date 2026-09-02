@@ -38,7 +38,9 @@ describe('SidebarImageView size + date metadata', () => {
       expect(target.querySelector('.sidebar-image-thumb-meta')).toBeTruthy();
     });
     expect(target.querySelector('.sidebar-image-thumb-label')?.textContent).toBe('photo.png');
-    expect(target.querySelector('.sidebar-image-thumb-meta')?.textContent).toBe('2.0 KB · 3d ago');
+    expect(target.querySelector('.sidebar-image-thumb-meta')?.textContent).toBe(
+      '2 KB · 3 days ago',
+    );
   });
 
   it('shows name, size, and date in the detail view', async () => {
@@ -52,6 +54,6 @@ describe('SidebarImageView size + date metadata', () => {
     flushSync();
 
     expect(target.querySelector('.sidebar-image-info-name')?.textContent).toBe('photo.png');
-    expect(target.querySelector('.sidebar-image-info-size')?.textContent).toBe('2.0 KB · 3d ago');
+    expect(target.querySelector('.sidebar-image-info-size')?.textContent).toBe('2 KB · 3 days ago');
   });
 });

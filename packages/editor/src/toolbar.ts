@@ -41,7 +41,7 @@ export interface ToolbarItem {
    * Accessibility label — aria-label on web, accessibilityLabel on iOS,
    * contentDescription on Android. Identical text on every platform.
    */
-  label: string;
+  localizationPath: string;
   /** Icon name in `@lucide/svelte` (web renderers). */
   lucide: string;
   /** SF Symbol name (native iOS renderer). */
@@ -63,7 +63,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   [
     {
       id: 'bold',
-      label: 'Bold',
+      localizationPath: 'editor.toolbar.bold',
       lucide: 'Bold',
       sfSymbol: 'bold',
       material: 'format_bold',
@@ -72,7 +72,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'italic',
-      label: 'Italic',
+      localizationPath: 'editor.toolbar.italic',
       lucide: 'Italic',
       sfSymbol: 'italic',
       material: 'format_italic',
@@ -81,7 +81,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'strikethrough',
-      label: 'Strikethrough',
+      localizationPath: 'editor.toolbar.strikethrough',
       lucide: 'Strikethrough',
       sfSymbol: 'strikethrough',
       material: 'format_strikethrough',
@@ -90,7 +90,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'link',
-      label: 'Link',
+      localizationPath: 'editor.toolbar.link',
       lucide: 'Link',
       sfSymbol: 'link',
       material: 'link',
@@ -101,7 +101,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   [
     {
       id: 'heading',
-      label: 'Heading',
+      localizationPath: 'editor.toolbar.heading',
       lucide: 'Heading',
       sfSymbol: 'textformat.size',
       material: 'format_h1',
@@ -110,7 +110,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'quote',
-      label: 'Block quote',
+      localizationPath: 'editor.toolbar.blockQuote',
       lucide: 'TextQuote',
       sfSymbol: 'text.quote',
       material: 'format_quote',
@@ -121,7 +121,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   [
     {
       id: 'bullet-list',
-      label: 'Bullet list',
+      localizationPath: 'editor.toolbar.bulletList',
       lucide: 'List',
       sfSymbol: 'list.bullet',
       material: 'format_list_bulleted',
@@ -130,7 +130,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'ordered-list',
-      label: 'Ordered list',
+      localizationPath: 'editor.toolbar.orderedList',
       lucide: 'ListOrdered',
       sfSymbol: 'list.number',
       material: 'format_list_numbered',
@@ -139,7 +139,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'task-list',
-      label: 'Task list',
+      localizationPath: 'editor.toolbar.taskList',
       lucide: 'ListChecks',
       sfSymbol: 'checklist',
       material: 'checklist',
@@ -148,7 +148,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'outdent',
-      label: 'Outdent',
+      localizationPath: 'editor.toolbar.outdent',
       lucide: 'ListIndentDecrease',
       sfSymbol: 'decrease.indent',
       material: 'format_indent_decrease',
@@ -157,7 +157,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'indent',
-      label: 'Indent',
+      localizationPath: 'editor.toolbar.indent',
       lucide: 'ListIndentIncrease',
       sfSymbol: 'increase.indent',
       material: 'format_indent_increase',
@@ -168,7 +168,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   [
     {
       id: 'camera',
-      label: 'Take photo',
+      localizationPath: 'editor.toolbar.takePhoto',
       lucide: 'Camera',
       sfSymbol: 'camera',
       material: 'photo_camera',
@@ -177,7 +177,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'image',
-      label: 'Choose from library',
+      localizationPath: 'editor.toolbar.chooseFromLibrary',
       lucide: 'ImageIcon',
       sfSymbol: 'photo',
       material: 'image',
@@ -190,7 +190,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
 /** The fixed (non-scrolling) collapse chevron at the toolbar's right edge. */
 export const TOOLBAR_DISMISS: ToolbarItem = {
   id: 'dismiss',
-  label: 'Dismiss keyboard',
+  localizationPath: 'editor.toolbar.dismissKeyboard',
   lucide: 'ChevronDown',
   sfSymbol: 'keyboard.chevron.compact.down',
   material: 'keyboard_hide',

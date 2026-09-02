@@ -43,10 +43,67 @@ pub(crate) const FRONTEND_COMMANDS: &[&str] = &[
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const CLOSE_WINDOW: &str = "close-window";
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) struct ApplicationMenuLabels {
+    file: String,
+    edit: String,
+    view: String,
+    window: String,
+    settings: String,
+    new_note: String,
+    new_tab: String,
+    reopen_closed_tab: String,
+    search_notes: String,
+    close_tab: String,
+    close_window: String,
+    toggle_sidebar: String,
+}
+
+impl ApplicationMenuLabels {
+    fn english() -> Result<Self, Box<dyn std::error::Error>> {
+        let catalog: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../languages/en.json"
+        )))?;
+        let text = |path: &str| {
+            path.split('.')
+                .try_fold(&catalog["messages"], |current, segment| {
+                    current.get(segment)
+                })
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("missing English application menu message {path}"),
+                    )
+                })
+        };
+        Ok(Self {
+            file: text("app.desktop.menu.file")?,
+            edit: text("app.desktop.menu.edit")?,
+            view: text("app.desktop.menu.view")?,
+            window: text("app.desktop.menu.window")?,
+            settings: text("app.desktop.menu.settings")?,
+            new_note: text("app.desktop.menu.newNote")?,
+            new_tab: text("app.desktop.menu.newTab")?,
+            reopen_closed_tab: text("app.desktop.menu.reopenClosedTab")?,
+            search_notes: text("app.desktop.menu.searchNotes")?,
+            close_tab: text("app.desktop.menu.closeTab")?,
+            close_window: text("app.desktop.menu.closeWindow")?,
+            toggle_sidebar: text("app.desktop.menu.toggleSidebar")?,
+        })
+    }
+}
+
 #[cfg(target_os = "macos")]
-pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+fn apply_labels(
+    app: &tauri::AppHandle,
+    labels: &ApplicationMenuLabels,
+) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{AboutMetadata, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-    use tauri::{Emitter, Manager};
 
     let package = app.package_info();
     let about = AboutMetadata {
@@ -57,32 +114,32 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
         ..Default::default()
     };
 
-    let settings = MenuItemBuilder::with_id("settings", "Settings…")
+    let settings = MenuItemBuilder::with_id("settings", labels.settings.as_str())
         .accelerator("CmdOrCtrl+Comma")
         .build(app)?;
-    let new_note = MenuItemBuilder::with_id("new-note", "New Note")
+    let new_note = MenuItemBuilder::with_id("new-note", labels.new_note.as_str())
         .accelerator("CmdOrCtrl+N")
         .build(app)?;
-    let new_tab = MenuItemBuilder::with_id("new-tab", "New Tab")
+    let new_tab = MenuItemBuilder::with_id("new-tab", labels.new_tab.as_str())
         .accelerator("CmdOrCtrl+T")
         .build(app)?;
-    let reopen_tab = MenuItemBuilder::with_id("reopen-tab", "Reopen Closed Tab")
+    let reopen_tab = MenuItemBuilder::with_id("reopen-tab", labels.reopen_closed_tab.as_str())
         .accelerator("Shift+CmdOrCtrl+T")
         .build(app)?;
-    let search = MenuItemBuilder::with_id("search", "Search Notes…")
+    let search = MenuItemBuilder::with_id("search", labels.search_notes.as_str())
         .accelerator("CmdOrCtrl+P")
         .build(app)?;
     // ⌘W closes the TAB (Safari's model). Deliberately not
     // `PredefinedMenuItem::close_window`, whose accelerator is hard-wired to
     // ⌘W in muda and cannot be re-bound — including it anywhere in the menu
     // would take ⌘W back off the tab.
-    let close_tab = MenuItemBuilder::with_id("close-tab", "Close Tab")
+    let close_tab = MenuItemBuilder::with_id("close-tab", labels.close_tab.as_str())
         .accelerator("CmdOrCtrl+W")
         .build(app)?;
-    let close_window = MenuItemBuilder::with_id(CLOSE_WINDOW, "Close Window")
+    let close_window = MenuItemBuilder::with_id(CLOSE_WINDOW, labels.close_window.as_str())
         .accelerator("Shift+CmdOrCtrl+W")
         .build(app)?;
-    let toggle_sidebar = MenuItemBuilder::with_id("toggle-sidebar", "Toggle Sidebar")
+    let toggle_sidebar = MenuItemBuilder::with_id("toggle-sidebar", labels.toggle_sidebar.as_str())
         .accelerator("CmdOrCtrl+Backslash")
         .build(app)?;
 
@@ -100,7 +157,7 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
         .quit()
         .build()?;
 
-    let file_menu = SubmenuBuilder::new(app, "File")
+    let file_menu = SubmenuBuilder::new(app, labels.file.as_str())
         .item(&new_note)
         .item(&new_tab)
         .item(&reopen_tab)
@@ -113,7 +170,7 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
 
     // The standard Edit items are load-bearing, not decoration: on macOS
     // ⌘X/⌘C/⌘V/⌘Z/⌘A only reach a webview through these predefined items.
-    let edit_menu = SubmenuBuilder::new(app, "Edit")
+    let edit_menu = SubmenuBuilder::new(app, labels.edit.as_str())
         .undo()
         .redo()
         .separator()
@@ -123,13 +180,13 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
         .select_all()
         .build()?;
 
-    let view_menu = SubmenuBuilder::new(app, "View")
+    let view_menu = SubmenuBuilder::new(app, labels.view.as_str())
         .item(&toggle_sidebar)
         .separator()
         .fullscreen()
         .build()?;
 
-    let window_menu = SubmenuBuilder::new(app, "Window")
+    let window_menu = SubmenuBuilder::new(app, labels.window.as_str())
         .minimize()
         .maximize()
         .build()?;
@@ -143,6 +200,15 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
         .build()?;
 
     app.set_menu(menu)?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::{Emitter, Manager};
+
+    apply_labels(app, &ApplicationMenuLabels::english()?)?;
     app.on_menu_event(|app, event| {
         let id = event.id.0.as_str();
         if id == CLOSE_WINDOW {
@@ -159,8 +225,23 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub(crate) fn app_menu_set_labels(
+    app: tauri::AppHandle,
+    labels: ApplicationMenuLabels,
+) -> Result<(), String> {
+    apply_labels(&app, &labels).map_err(|error| error.to_string())
+}
+
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn install(_app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub(crate) fn app_menu_set_labels(_labels: ApplicationMenuLabels) -> Result<(), String> {
     Ok(())
 }
 
@@ -191,5 +272,13 @@ mod tests {
     #[test]
     fn close_window_is_not_forwarded_to_the_frontend() {
         assert!(!FRONTEND_COMMANDS.contains(&CLOSE_WINDOW));
+    }
+
+    #[test]
+    fn initial_menu_labels_come_from_the_english_catalog() {
+        let labels = ApplicationMenuLabels::english().expect("English menu labels are valid");
+        assert_eq!(labels.settings, "Settings…");
+        assert_eq!(labels.new_note, "New Note");
+        assert_eq!(labels.toggle_sidebar, "Toggle Sidebar");
     }
 }

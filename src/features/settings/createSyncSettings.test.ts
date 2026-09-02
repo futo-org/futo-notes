@@ -105,7 +105,7 @@ describe('createSyncSettings', () => {
     expect(progressListener).toBeNull();
   });
 
-  it('reports a failed connect inline as "Connect failed: …"', async () => {
+  it('reports a failed connect without exposing the diagnostic', async () => {
     connectE2ee.mockRejectedValue(new Error('bad password'));
     const sync = createSyncSettings();
     sync.url = 'http://server:3100';
@@ -114,7 +114,7 @@ describe('createSyncSettings', () => {
     await sync.connect();
 
     expect(sync.connected).toBe(false);
-    expect(sync.status).toBe('Connect failed: bad password');
+    expect(sync.status).toBe("Couldn't connect or sync. Check the server URL and password.");
   });
 
   it('stays quiet when the sync manager already reported the failure (single-reporter contract)', async () => {
@@ -177,7 +177,7 @@ describe('createSyncSettings', () => {
   it('seeds status from the persisted last sync error', () => {
     preferencesMock.sync.lastError = 'server exploded';
     const sync = createSyncSettings();
-    expect(sync.status).toBe('Last error: server exploded');
+    expect(sync.status).toBe('The last sync failed. Try again.');
   });
 
   it('syncNow updates lastSyncedAt and clears status on success', async () => {

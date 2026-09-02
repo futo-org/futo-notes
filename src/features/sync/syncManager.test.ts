@@ -48,7 +48,8 @@ import {
   type NoteSessionDeps,
 } from '$features/notes/noteSession.svelte';
 import { writeSuppressor } from '$lib/platform/writeSuppression';
-import { createSyncManager, getSyncErrorMessage, type SyncManagerDeps } from './syncManager.svelte';
+import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
+import { createSyncManager, type SyncManagerDeps } from './syncManager.svelte';
 import type { SyncSummary } from './syncServiceE2ee';
 
 const emptySummary: SyncSummary = {
@@ -162,7 +163,7 @@ function makeManager(
   sessionBundle = makeSession(),
   overrides: Partial<Omit<SyncManagerDeps, 'session'>> = {},
 ) {
-  const toasts: string[] = [];
+  const toasts: ToastMessage[] = [];
   const onRename = vi.fn();
   const pruneTabsForDeletedIds = vi.fn();
   const manager = createSyncManager({
@@ -253,10 +254,6 @@ afterEach(() => {
 });
 
 describe('sync outcome state', () => {
-  it('rewrites opaque fetch TypeErrors to an actionable message', () => {
-    expect(getSyncErrorMessage(new TypeError('Failed to fetch'))).toMatch(/Could not reach server/);
-  });
-
   it('keeps a background transport error quiet and clears it on the next clean cycle', async () => {
     const { manager } = makeManager();
     const cleanup = manager.start();
@@ -285,9 +282,9 @@ describe('sync outcome state', () => {
     await manager.handleSyncComplete(failure(500), 'poll');
 
     expect(toasts).toEqual([
-      "Sync error: 1 change couldn't reach the server (HTTP 500)",
-      "Sync error: 1 change couldn't reach the server (HTTP 403)",
-      "Sync error: 1 change couldn't reach the server (HTTP 500)",
+      { path: 'sync.errors.completedWithErrors' },
+      { path: 'sync.errors.completedWithErrors' },
+      { path: 'sync.errors.completedWithErrors' },
     ]);
   });
 });
@@ -328,9 +325,7 @@ describe('sync transport grace period', () => {
       autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
     }
 
-    expect(toasts).toEqual([
-      "Sync error: Could not reach server — check the URL and make sure it's running",
-    ]);
+    expect(toasts).toEqual([{ path: 'sync.errors.liveUnavailable' }]);
     expect(manager.syncError).toBe(true);
   });
 
@@ -369,7 +364,7 @@ describe('sync error escalation policy', () => {
     expect(toasts).toHaveLength(1);
   });
 
-  it('surfaces live authentication failures immediately without normalizing them', () => {
+  it('surfaces live authentication failures immediately without exposing the diagnostic', () => {
     const { manager, toasts } = makeManager();
 
     manager.handleLiveState({
@@ -379,8 +374,10 @@ describe('sync error escalation policy', () => {
     });
 
     expect(manager.reconnecting).toBe(false);
-    expect(manager.syncErrorMessage).toBe('auth: HTTP 401 Unauthorized');
-    expect(toasts).toEqual(['Sync error: auth: HTTP 401 Unauthorized']);
+    expect(manager.syncErrorMessage).toBe(
+      'Live sync is temporarily unavailable. FUTO Notes will keep retrying.',
+    );
+    expect(toasts).toEqual([{ path: 'sync.errors.liveUnavailable' }]);
   });
 
   it('surfaces completed-cycle per-item failures immediately', async () => {
@@ -397,7 +394,7 @@ describe('sync error escalation policy', () => {
 
     expect(manager.reconnecting).toBe(false);
     expect(manager.syncError).toBe(true);
-    expect(toasts).toEqual(["Sync error: 1 change couldn't reach the server (HTTP 500)"]);
+    expect(toasts).toEqual([{ path: 'sync.errors.completedWithErrors' }]);
   });
 
   it('normalizes stream and cycle transport wording before toast dedupe', () => {
@@ -420,9 +417,7 @@ describe('sync error escalation policy', () => {
     });
     autoSyncCallbacks!.onSyncError(new TypeError('Load failed'), 'poll');
 
-    expect(toasts).toEqual([
-      "Sync error: Could not reach server — check the URL and make sure it's running",
-    ]);
+    expect(toasts).toEqual([{ path: 'sync.errors.liveUnavailable' }]);
   });
 
   it('re-raises an escalated transient failure after click-to-dismiss', () => {
@@ -469,7 +464,7 @@ describe('sync outcome source clearing', () => {
     await manager.handleSyncComplete(emptySummary, 'poll');
     manager.handleLiveState({ live: false, status: 'reconnecting', message: 'stream lost' });
     expect(manager.syncError).toBe(true);
-    expect(toasts).toEqual(['Sync error: stream lost']);
+    expect(toasts).toEqual([{ path: 'sync.errors.liveUnavailable' }]);
   });
 
   it('a stream reconnect clears stream errors while a cycle error keeps live true', () => {
@@ -492,7 +487,7 @@ describe('sync outcome source clearing', () => {
     await manager.handleSyncComplete(emptySummary, 'poll');
     await manager.handleSyncComplete(emptySummary);
     await manager.handleSyncComplete(emptySummary, 'manual');
-    expect(toasts).toEqual(['Sync complete']);
+    expect(toasts).toEqual([{ path: 'sync.status.complete' }]);
   });
 
   it('stamps lastSyncedAt for every completed cycle', async () => {
@@ -659,7 +654,7 @@ describe('peer projections', () => {
       'Old (conflict deadbeef)',
     );
     expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
-    expect(bundle.toasts).toContain('Note was deleted');
+    expect(bundle.toasts).toContainEqual({ path: 'notes.deletedElsewhere' });
     expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith(['Old (conflict deadbeef)']);
   });
 
@@ -1196,7 +1191,7 @@ describe('peer deletion safety', () => {
     });
     expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    expect(bundle.toasts).toContain('Note was deleted');
+    expect(bundle.toasts).toContainEqual({ path: 'notes.deletedElsewhere' });
   });
 
   it('keeps an unsaved draft and excludes it from tab pruning', async () => {
@@ -1341,7 +1336,7 @@ describe('open-note fate stays with the engine verdict', () => {
     const live = makeLiveNoteSession('Parked', 'peer text');
     const onRename = vi.fn();
     const pruneTabsForDeletedIds = vi.fn();
-    const toasts: string[] = [];
+    const toasts: ToastMessage[] = [];
     const manager = createSyncManager({
       session: live.session,
       showToast: (message) => toasts.push(message),

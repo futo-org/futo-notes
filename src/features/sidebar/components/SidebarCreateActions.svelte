@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { localizedText } from '$shared/localization';
+
   interface Props {
     onclicknewfolder: () => void;
     onclicknewnote: () => void;
@@ -8,7 +10,7 @@
 </script>
 
 <div class="fab-row">
-  <button class="fab" aria-label="New note" onclick={onclicknewnote}>
+  <button class="fab" aria-label={localizedText('notes.newNote')} onclick={onclicknewnote}>
     <svg
       width="18"
       height="18"
@@ -22,11 +24,11 @@
       <line x1="12" y1="5" x2="12" y2="19" />
       <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
-    New
+    {localizedText('notes.newNoteShort')}
   </button>
   <button
     class="fab fab-folder"
-    aria-label="New folder"
+    aria-label={localizedText('folders.newFolder')}
     data-testid="new-folder-btn"
     onclick={onclicknewfolder}
   >

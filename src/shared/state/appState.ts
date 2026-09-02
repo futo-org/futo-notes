@@ -16,6 +16,7 @@ export interface AppState {
 
   preferences: {
     theme: 'auto' | 'dark' | 'light';
+    selectedLanguageTag: string | null;
   };
 
   crashReporting: {
@@ -73,6 +74,7 @@ function defaultState(): AppState {
     deviceId: generateDeviceId(),
     preferences: {
       theme: 'auto',
+      selectedLanguageTag: null,
     },
     crashReporting: {
       enabled: true,
@@ -89,6 +91,7 @@ function defaultState(): AppState {
 // ── In-memory cache ────────────────────────────────────────────────────
 
 let cached: AppState | null = null;
+let loadPromise: Promise<AppState> | null = null;
 
 // Legacy plaintext vault password read out of `.app-state.json` on load, held
 // as a "holdover" until `syncServiceE2ee.initSyncPassword()` confirms it into
@@ -184,6 +187,10 @@ function sanitize(raw: unknown): AppState {
       theme: ['auto', 'dark', 'light'].includes(rawPrefs.theme as string)
         ? (rawPrefs.theme as 'auto' | 'dark' | 'light')
         : 'auto',
+      selectedLanguageTag:
+        typeof rawPrefs.selectedLanguageTag === 'string' && rawPrefs.selectedLanguageTag.length > 0
+          ? rawPrefs.selectedLanguageTag
+          : null,
     },
     crashReporting: {
       enabled: typeof rawCrash.enabled === 'boolean' ? rawCrash.enabled : true,
@@ -247,9 +254,7 @@ async function migrateFromLegacy(): Promise<AppState | null> {
 
 // ── Public API ─────────────────────────────────────────────────────────
 
-export async function loadAppState(): Promise<AppState> {
-  if (cached) return cached;
-
+async function hydrateAppState(): Promise<AppState> {
   if (!hasFileSystem) {
     cached = defaultState();
     return cached;
@@ -293,6 +298,16 @@ export async function loadAppState(): Promise<AppState> {
 
   cached = defaultState();
   return cached;
+}
+
+export async function loadAppState(): Promise<AppState> {
+  if (cached) return cached;
+  loadPromise ??= hydrateAppState();
+  try {
+    return await loadPromise;
+  } finally {
+    loadPromise = null;
+  }
 }
 
 export function getAppState(): AppState {
@@ -363,6 +378,7 @@ export async function updateAppState(
     >
   >,
 ): Promise<void> {
+  await loadAppState();
   const current = getAppState();
   const next = { ...current, ...updates };
   await saveAppState(next);
@@ -373,6 +389,9 @@ export async function updateAppState(
 export interface AppPreferences {
   appearance: {
     theme: 'auto' | 'dark' | 'light';
+  };
+  language: {
+    selectedLanguageTag: string | null;
   };
   crashReporting: {
     enabled: boolean;
@@ -393,6 +412,7 @@ function stateToPrefs(): AppPreferences {
   const s = getAppState();
   return {
     appearance: { theme: s.preferences.theme },
+    language: { selectedLanguageTag: s.preferences.selectedLanguageTag },
     crashReporting: { ...s.crashReporting },
     updates: { ...s.updates },
     sync: {
@@ -413,9 +433,20 @@ export function getCachedPreferences(): AppPreferences {
   return stateToPrefs();
 }
 
+export async function saveSelectedLanguageTag(selectedLanguageTag: string | null): Promise<void> {
+  await loadAppState();
+  await updateAppState({
+    preferences: { ...getAppState().preferences, selectedLanguageTag },
+  });
+}
+
 export async function savePreferences(prefs: AppPreferences): Promise<void> {
   await updateAppState({
-    preferences: { ...getAppState().preferences, theme: prefs.appearance.theme },
+    preferences: {
+      ...getAppState().preferences,
+      theme: prefs.appearance.theme,
+      selectedLanguageTag: prefs.language.selectedLanguageTag,
+    },
     crashReporting: prefs.crashReporting,
     updates: prefs.updates,
     lastSyncedAt: prefs.sync.lastSyncedAt,

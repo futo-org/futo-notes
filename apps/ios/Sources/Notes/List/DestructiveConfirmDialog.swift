@@ -16,6 +16,7 @@ struct DestructiveConfirmDialog: View {
     let destructiveLabel: String
     let onCancel: () -> Void
     let onDestructive: () -> Void
+    @Environment(\.localization) private var localization
 
     var body: some View {
         ZStack {
@@ -32,7 +33,7 @@ struct DestructiveConfirmDialog: View {
                 Divider()
                 HStack(spacing: 0) {
                     Button(action: onCancel) {
-                        Text("Cancel")
+                        Text(localization.localizedText("common.actions.cancel"))
                             .fontWeight(.semibold)
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }

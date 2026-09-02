@@ -10,6 +10,8 @@ object Prefs {
 
     const val THEME = "theme_mode"
 
+    const val LANGUAGE = "language"
+
     // Vault storage location [app.md]. One of StorageMode (DEVICE/APP/INTERNAL).
     // Absent = undecided: a fresh install shows the storage picker; an existing
     // install (non-empty internal vault) is grandfathered on INTERNAL.

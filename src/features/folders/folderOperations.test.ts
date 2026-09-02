@@ -101,7 +101,7 @@ describe('renameFolderInPlace', () => {
 
     expect(result).toEqual({
       ok: false,
-      error: "That character can't be used in a folder name",
+      error: { path: 'folders.validation.forbiddenCharacter' },
     });
     expect(mocks.renameFolder).not.toHaveBeenCalled();
   });
@@ -111,21 +111,21 @@ describe('renameFolderInPlace', () => {
   it('rejects an empty name instead of renaming the folder onto its parent', async () => {
     const result = await renameFolderInPlace('Projects/Work', '   ', []);
 
-    expect(result).toEqual({ ok: false, error: 'Folder name cannot be empty' });
+    expect(result).toEqual({ ok: false, error: { path: 'folders.validation.empty' } });
     expect(mocks.renameFolder).not.toHaveBeenCalled();
   });
 
   it('reports a forbidden character against a folder, not a note title', async () => {
     await expect(renameFolderInPlace('Work', 'a:b', [])).resolves.toEqual({
       ok: false,
-      error: "That character can't be used in a folder name",
+      error: { path: 'folders.validation.forbiddenCharacter' },
     });
   });
 
   it('rejects a case-insensitive sibling collision', async () => {
     await expect(renameFolderInPlace('Work', 'archive', ['Archive'])).resolves.toEqual({
       ok: false,
-      error: 'A folder with this name already exists',
+      error: { path: 'folders.duplicateName' },
     });
     expect(mocks.renameFolder).not.toHaveBeenCalled();
   });

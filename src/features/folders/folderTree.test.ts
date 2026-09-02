@@ -149,14 +149,16 @@ describe('validateNewFolderName', () => {
   });
 
   it('rejects a case-insensitive sibling duplicate', () => {
-    expect(validateNewFolderName('', 'Projects', ['projects'])).toBe(
-      'A folder with this name already exists',
-    );
-    expect(validateNewFolderName('parent', 'FOO', ['foo', 'bar'])).toMatch(/already exists/);
+    expect(validateNewFolderName('', 'Projects', ['projects'])).toEqual({
+      path: 'folders.duplicateName',
+    });
+    expect(validateNewFolderName('parent', 'FOO', ['foo', 'bar'])).toEqual({
+      path: 'folders.duplicateName',
+    });
   });
 
   it('rejects an empty name', () => {
-    expect(validateNewFolderName('', '', [])).toMatch(/empty/i);
+    expect(validateNewFolderName('', '', [])).toEqual({ path: 'folders.validation.empty' });
   });
 
   it('rejects names the shared rules refuse (forbidden chars, trailing dots)', () => {
@@ -166,6 +168,9 @@ describe('validateNewFolderName', () => {
 
   it('rejects names that exceed the folder depth limit', () => {
     const parent = Array.from({ length: MAX_FOLDER_DEPTH }, (_, i) => `d${i}`).join('/');
-    expect(validateNewFolderName(parent, 'deep', [])).toMatch(/depth/i);
+    expect(validateNewFolderName(parent, 'deep', [])).toEqual({
+      path: 'folders.validation.tooDeep',
+      arguments: { maxDepth: MAX_FOLDER_DEPTH },
+    });
   });
 });

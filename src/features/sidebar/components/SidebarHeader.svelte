@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { localizedText } from '$shared/localization';
+
   interface Props {
     oncollapse: () => void;
     onhome: () => void;
@@ -13,11 +15,17 @@
 <div class="sidebar-header">
   <div class="sidebar-brand">
     <button class="brand-text" onclick={onhome}
-      >FUTO Notes{#if import.meta.env.DEV}<span class="dev-badge">DEV</span>{/if}</button
+      >{localizedText('app.name')}{#if import.meta.env.DEV}<span class="dev-badge"
+          >{localizedText('app.desktop.developmentBadge')}</span
+        >{/if}</button
     >
   </div>
   <div class="sidebar-header-actions">
-    <button class="sidebar-settings-btn" aria-label="Settings" onclick={onsettings}>
+    <button
+      class="sidebar-settings-btn"
+      aria-label={localizedText('settings.openAccessibilityLabel')}
+      onclick={onsettings}
+    >
       <svg
         width="20"
         height="20"
@@ -35,7 +43,11 @@
       </svg>
     </button>
     {#if showCollapse}
-      <button class="sidebar-collapse-btn" aria-label="Collapse sidebar" onclick={oncollapse}>
+      <button
+        class="sidebar-collapse-btn"
+        aria-label={localizedText('sidebar.collapseAccessibilityLabel')}
+        onclick={oncollapse}
+      >
         <svg
           width="18"
           height="18"

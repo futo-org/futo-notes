@@ -1,0 +1,240 @@
+{
+  "languageMatching": [
+    {
+      "requestedLanguageTags": [
+        "zh"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
+      "expectedLanguageTag": "zh-Hans"
+    },
+    {
+      "requestedLanguageTags": [
+        "zh-CN"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
+      "expectedLanguageTag": "zh-Hans"
+    },
+    {
+      "requestedLanguageTags": [
+        "zh-SG"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
+      "expectedLanguageTag": "zh-Hans"
+    },
+    {
+      "requestedLanguageTags": [
+        "zh-TW",
+        "en-US"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
+      "expectedLanguageTag": "en"
+    },
+    {
+      "requestedLanguageTags": [
+        "zh-Hant"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
+      "expectedLanguageTag": "en"
+    },
+    {
+      "requestedLanguageTags": [
+        "en-US"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "zh-Hans"
+      ],
+      "expectedLanguageTag": "en"
+    },
+    {
+      "requestedLanguageTags": [
+        "pt"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "pt-BR",
+        "pt-PT"
+      ],
+      "expectedLanguageTag": "en"
+    },
+    {
+      "requestedLanguageTags": [
+        "pt"
+      ],
+      "availableLanguageTags": [
+        "en",
+        "pt",
+        "pt-BR",
+        "pt-PT"
+      ],
+      "expectedLanguageTag": "pt"
+    }
+  ],
+  "messages": [
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "path": "settings.language.heading",
+      "expected": "Language"
+    },
+    {
+      "languageTag": "zh-Hans",
+      "regionalLanguageTag": "zh-CN",
+      "path": "settings.language.heading",
+      "expected": "语言"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "path": "time.relative.future.minute",
+      "arguments": {
+        "count": 1
+      },
+      "expected": "In 1 minute"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "path": "time.relative.future.minute",
+      "arguments": {
+        "count": 2
+      },
+      "expected": "In 2 minutes"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "ar-EG",
+      "regionalNumberingSystem": "arab",
+      "path": "time.relative.future.minute",
+      "arguments": {
+        "count": 2
+      },
+      "expected": "In ٢ minutes"
+    },
+    {
+      "languageTag": "zh-Hans",
+      "regionalLanguageTag": "zh-CN",
+      "path": "time.relative.past.day",
+      "arguments": {
+        "count": 1
+      },
+      "expected": "昨天"
+    },
+    {
+      "languageTag": "zh-Hans",
+      "regionalLanguageTag": "zh-CN",
+      "path": "time.relative.past.day",
+      "arguments": {
+        "count": 2
+      },
+      "expected": "2天前"
+    },
+    {
+      "languageTag": "en-IN",
+      "path": "search.resultCount",
+      "arguments": {
+        "count": 1234567
+      },
+      "expected": "1,234,567 results"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "path": "search.resultCount",
+      "arguments": {
+        "count": 1234567
+      },
+      "expected": "1,234,567 results"
+    }
+  ],
+  "fileSizes": [
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "bytes": 999,
+      "expected": "999 B"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "bytes": 1000,
+      "expected": "1 KB"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "bytes": 1050,
+      "expected": "1.1 KB"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "bytes": 1500,
+      "expected": "1.5 KB"
+    },
+    {
+      "languageTag": "zh-Hans",
+      "regionalLanguageTag": "zh-CN",
+      "bytes": 1000000,
+      "expected": "1 MB"
+    },
+    {
+      "languageTag": "en-DE",
+      "bytes": 1234567,
+      "expected": "1.2 MB"
+    }
+  ],
+  "relativeTimes": [
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "secondsFromNow": -59,
+      "expected": "Just now"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "secondsFromNow": -60,
+      "expected": "1 minute ago"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "secondsFromNow": -86400,
+      "expected": "Yesterday"
+    },
+    {
+      "languageTag": "en",
+      "regionalLanguageTag": "en-US",
+      "secondsFromNow": 86400,
+      "expected": "Tomorrow"
+    },
+    {
+      "languageTag": "zh-Hans",
+      "regionalLanguageTag": "zh-CN",
+      "secondsFromNow": -7200,
+      "expected": "2小时前"
+    },
+    {
+      "languageTag": "zh-Hans",
+      "regionalLanguageTag": "zh-CN",
+      "secondsFromNow": 2592000,
+      "expected": "1个月后"
+    }
+  ]
+}

@@ -9,6 +9,7 @@
   import type { NoteSession } from '$features/notes/noteSession.svelte';
   import type { NotePreview } from '$shared/types/note';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
+  import { localizedText } from '$shared/localization';
 
   import type { createCurrentNoteActions } from '../createCurrentNoteActions.svelte';
   import NoteActionsMenu from './NoteActionsMenu.svelte';
@@ -104,6 +105,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="note-body"
+  dir="ltr"
   class:is-hidden={!active}
   bind:this={noteBodyEl}
   data-editor-focused={editorFocused ? '' : undefined}
@@ -116,7 +118,7 @@
       value={session.title}
       rows="1"
       spellcheck="false"
-      placeholder="Untitled"
+      placeholder={localizedText('notes.untitledPlaceholder')}
       oninput={session.handleTitleInput}
       onkeydown={session.handleTitleKeydown}
       onblur={session.handleTitleBlur}

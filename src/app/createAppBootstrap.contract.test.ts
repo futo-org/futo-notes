@@ -7,6 +7,7 @@ const dependencies = vi.hoisted(() => ({
   initNotes: vi.fn(() => new Promise<void>(() => undefined)),
   initSyncPassword: vi.fn(() => new Promise<void>(() => undefined)),
   loadPreferences: vi.fn(() => new Promise(() => undefined)),
+  saveSelectedLanguageTag: vi.fn(() => Promise.resolve()),
   stopUpdates: vi.fn(),
   startUpdates: vi.fn(() => new Promise<void>(() => undefined)),
   watchSystemThemeTauri: vi.fn(() => vi.fn()),
@@ -19,8 +20,12 @@ vi.mock('$features/sync/syncServiceE2ee', () => ({
   initSyncPassword: dependencies.initSyncPassword,
 }));
 vi.mock('$shared/state/appState', () => ({
-  getCachedPreferences: () => ({ appearance: { theme: 'auto' } }),
+  getCachedPreferences: () => ({
+    appearance: { theme: 'auto' },
+    language: { selectedLanguageTag: null },
+  }),
   loadPreferences: dependencies.loadPreferences,
+  saveSelectedLanguageTag: dependencies.saveSelectedLanguageTag,
 }));
 vi.mock('$features/notes/notes.svelte', () => ({ initNotes: dependencies.initNotes }));
 vi.mock('$lib/platform', () => ({
@@ -39,6 +44,7 @@ describe('application first-render contract', () => {
     const bootstrap = createAppBootstrap({
       initializeCrashReporting: () => new Promise<void>(() => undefined),
       installDevelopmentHooks: vi.fn(),
+      showToast: vi.fn(),
     });
 
     const stop = bootstrap.start();

@@ -2,14 +2,16 @@ import { getPlatformFS, isTauri } from '$lib/platform';
 import { idLeaf, safeNotePath } from '$lib/platform/pathSafety';
 import { getConfig } from '$lib/platform/tauri';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
-import { noteDeleteWarning } from '$features/notes/deleteConfirmation';
+import { noteDeleteIsPermanent } from '$features/notes/deleteConfirmation';
 import { pickNoteForAction } from '$features/notes/noteActionTarget';
 import { deleteNote as deleteNoteFromVault, moveNote } from '$features/notes/notes.svelte';
+import { localizedText } from '$shared/localization';
+import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
 
 export interface CurrentNoteActionsDeps {
   getActiveNoteId: () => string | null;
   runWithActiveNoteLock: <T>(operation: () => Promise<T>) => Promise<T>;
-  showToast: (message: string) => void;
+  showToast: (message: ToastMessage) => void;
   onMoved: (fromId: string, toId: string, title: string) => void;
   onDeleted: (id: string) => void;
   onDeleteConfirmed: () => void;
@@ -29,7 +31,7 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
 
   function graphView(): void {
     closeMenu();
-    deps.showToast('coming soon');
+    deps.showToast({ path: 'notes.graphComingSoon' });
   }
 
   async function copyFilePath(): Promise<void> {
@@ -43,7 +45,7 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
       } else {
         await navigator.clipboard?.writeText(`${id}.md`);
       }
-      deps.showToast('Path copied');
+      deps.showToast({ path: 'notes.pathCopied' });
     } catch (error) {
       console.warn('Failed to copy file path:', error);
     }
@@ -63,16 +65,21 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
     const pick = pickNoteForAction(deps.getActiveNoteId());
     await deps.runWithActiveNoteLock(async () => {
       const fromId = pick.resolve();
-      if (!fromId) return deps.showToast('That note is no longer available');
+      if (!fromId) return deps.showToast({ path: 'notes.unavailable' });
       const leaf = idLeaf(fromId);
       const wantedId = folderPath ? `${folderPath}/${leaf}` : leaf;
       if (wantedId === fromId) return;
       try {
         const result = await moveNote(fromId, wantedId);
         deps.onMoved(fromId, result.id, idLeaf(result.id));
-        deps.showToast(`Moved to ${folderPath || 'Notes'}`);
-      } catch (error) {
-        deps.showToast(error instanceof Error ? error.message : 'Move failed');
+        deps.showToast(
+          folderPath
+            ? { path: 'notes.movedTo', arguments: { destination: folderPath } }
+            : { path: 'notes.movedToNotes' },
+        );
+      } catch (cause) {
+        console.warn('Failed to move current note', cause);
+        deps.showToast({ path: 'notes.errors.moveFailed' });
       }
     });
   }
@@ -80,21 +87,25 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
   async function deleteCurrentNote(): Promise<void> {
     closeMenu();
     const pick = pickNoteForAction(deps.getActiveNoteId());
-    const confirmed = await confirmDialog(`Delete this note? ${await noteDeleteWarning()}`, {
-      title: 'Delete note',
+    const confirmation = (await noteDeleteIsPermanent())
+      ? localizedText('notes.delete.thisNotePermanentConfirmation')
+      : localizedText('notes.delete.thisNoteRecoverableConfirmation');
+    const confirmed = await confirmDialog(confirmation, {
+      title: localizedText('notes.delete.heading'),
       kind: 'warning',
     });
     if (!confirmed) return;
     await deps.runWithActiveNoteLock(async () => {
       const id = pick.resolve();
-      if (!id) return deps.showToast('That note is no longer available');
+      if (!id) return deps.showToast({ path: 'notes.unavailable' });
       try {
         await deleteNoteFromVault(id);
         deps.onDeleteConfirmed();
         deps.onDeleted(id);
-        deps.showToast('Note deleted');
-      } catch (error) {
-        deps.showToast(error instanceof Error ? error.message : 'Delete failed');
+        deps.showToast({ path: 'notes.deleted' });
+      } catch (cause) {
+        console.warn('Failed to delete current note', cause);
+        deps.showToast({ path: 'notes.errors.deleteFailed' });
       }
     });
   }

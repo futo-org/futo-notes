@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SyncSummary } from '$features/sync/syncServiceE2ee';
+  import { localizedText } from '$shared/localization';
 
   interface Props {
     simulate: (summary: SyncSummary, trigger?: 'manual') => void | Promise<void>;
@@ -29,27 +30,27 @@
 
   const scenarios = [
     {
-      label: 'Upload 500',
+      label: () => localizedText('settings.debug.syncErrorTest.scenarios.uploadHttp500'),
       failures: [{ filename: 'note.md', kind: 'upload' as const, statusCode: 500 }],
       message: "1 change couldn't reach the server (HTTP 500)",
     },
     {
-      label: 'Upload 403',
+      label: () => localizedText('settings.debug.syncErrorTest.scenarios.uploadHttp403'),
       failures: [{ filename: 'note.md', kind: 'upload' as const, statusCode: 403 }],
       message: "1 change couldn't reach the server (HTTP 403)",
     },
     {
-      label: 'Delete 500',
+      label: () => localizedText('settings.debug.syncErrorTest.scenarios.deleteHttp500'),
       failures: [{ filename: 'note.md', kind: 'delete' as const, statusCode: 500 }],
       message: "1 change couldn't reach the server (HTTP 500)",
     },
     {
-      label: 'Network (no status)',
+      label: () => localizedText('settings.debug.syncErrorTest.scenarios.networkWithoutStatus'),
       failures: [{ filename: 'note.md', kind: 'upload' as const, statusCode: null }],
       message: "1 change couldn't reach the server",
     },
     {
-      label: '3 failures',
+      label: () => localizedText('settings.debug.syncErrorTest.scenarios.threeFailures'),
       failures: [
         { filename: 'a.md', kind: 'upload' as const, statusCode: 500 },
         { filename: 'b.md', kind: 'upload' as const, statusCode: 500 },
@@ -61,24 +62,25 @@
 </script>
 
 <section class="settings-section">
-  <h3 class="settings-section-title">Sync error test (dev)</h3>
+  <h3 class="settings-section-title">
+    {localizedText('settings.debug.syncErrorTest.heading')}
+  </h3>
   <div class="settings-card">
     <p class="settings-btn-desc settings-hint">
-      Fires a fabricated sync result through the real handler — the ⚠ indicator, toast, and "Sync
-      failed" line behave exactly as a server-thrown error. "Successful sync" clears it (or click
-      the ⚠).
+      {localizedText('settings.debug.syncErrorTest.description')}
     </p>
     <div class="settings-actions" style="flex-wrap: wrap; gap: 8px; margin-top: 10px">
       {#each scenarios as scenario}
         <button
           class="settings-btn settings-btn-inline"
           onclick={() => void simulate(fakeSummary(scenario.failures, scenario.message))}
-          >{scenario.label}</button
+          >{scenario.label()}</button
         >
       {/each}
       <button
         class="settings-btn settings-btn-inline"
-        onclick={() => void simulate(fakeSummary([]), 'manual')}>Successful sync</button
+        onclick={() => void simulate(fakeSummary([]), 'manual')}
+        >{localizedText('settings.debug.syncErrorTest.successfulSync')}</button
       >
     </div>
   </div>

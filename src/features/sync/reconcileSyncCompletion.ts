@@ -6,6 +6,8 @@ import type { SyncTrigger } from './autoSyncV2';
 import type { createExternalChangeCoordinator } from './createExternalChangeCoordinator';
 import type { SyncSummary } from './syncServiceE2ee';
 import type { WriteSuppressor } from '$lib/platform/writeSuppression';
+import type { LocalizedMessage } from '$shared/localization';
+import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
 
 type ExternalChangeCoordinator = Pick<
   ReturnType<typeof createExternalChangeCoordinator>,
@@ -14,7 +16,7 @@ type ExternalChangeCoordinator = Pick<
 
 interface SyncCompletionDependencies {
   session: NoteSession;
-  showToast: (message: string) => void;
+  showToast: (message: ToastMessage) => void;
   /** Applies one engine-reported rename completely — tab/route AND the open
    * session while it is still bound to `fromId` (syncManager
    * `applyReportedRename`). Retargeting only the route is what left the URL on
@@ -29,8 +31,8 @@ interface SyncCompletionOptions {
   externalChanges: ExternalChangeCoordinator;
   getSyncStartEditVersion: (trigger?: SyncTrigger) => number;
   raiseSyncError: (message: string) => void;
-  setCompletionStatus: (message: string, durationMs: number) => void;
-  setSyncStatusMessage: (message: string) => void;
+  setCompletionStatus: (message: LocalizedMessage, durationMilliseconds: number) => void;
+  setSyncStatusMessage: (message: LocalizedMessage | null) => void;
   writeSuppressor: WriteSuppressor;
 }
 
@@ -134,7 +136,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
       options.raiseSyncError(summary.failureMessage);
     } else {
       options.clearSyncError();
-      if (trigger === 'manual') dependencies.showToast('Sync complete');
+      if (trigger === 'manual') dependencies.showToast({ path: 'sync.status.complete' });
     }
     void updateAppState({ lastSyncedAt: Date.now() }).catch((error) => {
       console.warn('Failed to persist lastSyncedAt:', error);
@@ -164,9 +166,9 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     const totalChanges =
       summary.updatedIds.length + summary.deletedIds.length + summary.renamed.length;
     if (totalChanges > 20 && !summary.failureMessage) {
-      options.setCompletionStatus('Sync complete', 3000);
+      options.setCompletionStatus({ path: 'sync.status.complete' }, 3000);
     } else {
-      options.setSyncStatusMessage('');
+      options.setSyncStatusMessage(null);
     }
   }
 

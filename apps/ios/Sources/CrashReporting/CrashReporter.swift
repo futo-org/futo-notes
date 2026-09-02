@@ -274,6 +274,7 @@ final class CrashReporter: ObservableObject {
 /// Send (Don't Send = permanent opt-out, re-enable in Settings).
 struct CrashReportSheet: View {
     @ObservedObject var reporter: CrashReporter
+    @Environment(\.localization) private var localization
 
     @State private var userNote = ""
     @State private var alwaysSend = false
@@ -285,11 +286,14 @@ struct CrashReportSheet: View {
             Form {
                 Section {
                     Text(
-                        "FUTO Notes crashed last time it ran. Send the crash report so we can fix it?"
+                        localization.localizedText("crashReporting.prompt")
                     )
                 }
                 Section {
-                    DisclosureGroup("View report", isExpanded: $showDetails) {
+                    DisclosureGroup(
+                        localization.localizedText("crashReporting.viewReport"),
+                        isExpanded: $showDetails
+                    ) {
                         ForEach(reporter.pendingReports) { pending in
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(pending.summary)
@@ -302,12 +306,19 @@ struct CrashReportSheet: View {
                         }
                     }
                 }
-                Section("What were you doing?") {
-                    TextField("Optional details", text: $userNote, axis: .vertical)
-                        .lineLimit(2...5)
+                Section(localization.localizedText("crashReporting.activityPrompt")) {
+                    TextField(
+                        localization.localizedText("crashReporting.optionalDetails"),
+                        text: $userNote,
+                        axis: .vertical
+                    )
+                    .lineLimit(2...5)
                 }
                 Section {
-                    Toggle("Send crashes automatically", isOn: $alwaysSend)
+                    Toggle(
+                        localization.localizedText("crashReporting.sendAutomatically"),
+                        isOn: $alwaysSend
+                    )
                 }
                 Section {
                     Button {
@@ -316,17 +327,19 @@ struct CrashReportSheet: View {
                         if sending {
                             ProgressView()
                         } else {
-                            Text("Send")
+                            Text(localization.localizedText("common.actions.send"))
                         }
                     }
                     .disabled(sending)
-                    Button("Don't Send", role: .destructive) {
+                    Button(
+                        localization.localizedText("crashReporting.dontSend"), role: .destructive
+                    ) {
                         finish(send: false)
                     }
                     .disabled(sending)
                 }
             }
-            .navigationTitle("Crash Report")
+            .navigationTitle(localization.localizedText("crashReporting.heading"))
             .navigationBarTitleDisplayMode(.inline)
             .tint(Theme.primary)
         }

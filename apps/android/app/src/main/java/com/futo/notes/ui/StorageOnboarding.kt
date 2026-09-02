@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.StorageMode
+import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -67,13 +68,14 @@ fun StorageOnboarding(
     }
     var showRationale by remember { mutableStateOf(false) }
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
 
     Surface(color = c.surface, modifier = Modifier.fillMaxSize()) {
         if (showRationale && deviceModeSupported) {
             RationaleScreen(
-                primaryLabel = "Continue",
+                primaryLabel = localization.localizedText("common.actions.continue"),
                 onPrimary = { onConfirm(StorageMode.DEVICE) },
-                secondaryLabel = "Back",
+                secondaryLabel = localization.localizedText("common.actions.back"),
                 onSecondary = { showRationale = false },
             )
             return@Surface
@@ -86,10 +88,14 @@ fun StorageOnboarding(
                 .padding(24.dp),
         ) {
             Spacer(Modifier.height(24.dp))
-            Text("Where should your notes live?", style = FutoType.display, color = c.textPrimary)
+            Text(
+                localization.localizedText("storage.onboarding.heading"),
+                style = FutoType.display,
+                color = c.textPrimary,
+            )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Your notes are plain Markdown files. Choose where to keep them.",
+                localization.localizedText("storage.onboarding.description"),
                 style = FutoType.body,
                 color = c.textMuted,
             )
@@ -97,26 +103,26 @@ fun StorageOnboarding(
 
             if (deviceModeSupported) {
                 StorageOptionCard(
-                    title = "Device storage",
+                    title = localization.localizedText("storage.onboarding.deviceStorage"),
                     icon = Icons.Filled.Folder,
                     recommended = true,
                     selected = selected == StorageMode.DEVICE,
                     bullets = listOf(
-                        "Open, back up, and sync your notes from your Files app and other apps.",
-                        "Requires the “All files access” permission.",
+                        localization.localizedText("storage.onboarding.deviceStorageAccess"),
+                        localization.localizedText("storage.onboarding.deviceStoragePermission"),
                     ),
                     onClick = { selected = StorageMode.DEVICE },
                 )
                 Spacer(Modifier.height(12.dp))
             }
             StorageOptionCard(
-                title = "App storage",
+                title = localization.localizedText("storage.onboarding.appStorage"),
                 icon = Icons.Filled.Lock,
                 recommended = !deviceModeSupported,
                 selected = selected == StorageMode.APP,
                 bullets = listOf(
-                    "Your notes stay private to FUTO Notes.",
-                    "Android deletes your notes if you uninstall the app.",
+                    localization.localizedText("storage.onboarding.appStoragePrivacy"),
+                    localization.localizedText("storage.onboarding.appStorageUninstallWarning"),
                 ),
                 onClick = { selected = StorageMode.APP },
             )
@@ -137,7 +143,11 @@ fun StorageOnboarding(
                 shape = RoundedCornerShape(FutoRadius.pill),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
-                Text("Continue", style = FutoType.body, fontWeight = FontWeight.SemiBold)
+                Text(
+                    localization.localizedText("common.actions.continue"),
+                    style = FutoType.body,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
             if (onCancel != null) {
                 Spacer(Modifier.height(8.dp))
@@ -147,7 +157,11 @@ fun StorageOnboarding(
                     border = BorderStroke(1.dp, c.border),
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                 ) {
-                    Text("Cancel", style = FutoType.body, color = c.textSecondary)
+                    Text(
+                        localization.localizedText("common.actions.cancel"),
+                        style = FutoType.body,
+                        color = c.textSecondary,
+                    )
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -163,11 +177,12 @@ fun StorageOnboarding(
  */
 @Composable
 fun StorageRegrantScreen(onGrant: () -> Unit, onUseAppStorage: () -> Unit) {
+    val localization = LocalLocalization.current
     Surface(color = FutoTheme.colors.surface, modifier = Modifier.fillMaxSize()) {
         RationaleScreen(
-            primaryLabel = "Grant access",
+            primaryLabel = localization.localizedText("storage.android.permission.grantAccess"),
             onPrimary = onGrant,
-            secondaryLabel = "Use private app storage instead",
+            secondaryLabel = localization.localizedText("storage.android.permission.usePrivateStorage"),
             onSecondary = onUseAppStorage,
         )
     }
@@ -181,6 +196,7 @@ private fun RationaleScreen(
     onSecondary: () -> Unit,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -190,19 +206,20 @@ private fun RationaleScreen(
         Spacer(Modifier.height(32.dp))
         Icon(Icons.Filled.Folder, contentDescription = null, tint = c.textAccent, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(16.dp))
-        Text("Allow access to your files", style = FutoType.display, color = c.textPrimary)
+        Text(
+            localization.localizedText("storage.android.permission.heading"),
+            style = FutoType.display,
+            color = c.textPrimary,
+        )
         Spacer(Modifier.height(12.dp))
         Text(
-            "To keep your notes in a folder you can open from the Files app, back up, " +
-                "and sync with other apps, FUTO Notes needs Android’s “All files access” " +
-                "permission.\n\nOn the next screen, turn on “Allow access to manage all files”.",
+            localization.localizedText("storage.android.permission.explanation"),
             style = FutoType.body,
             color = c.textSecondary,
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "FUTO Notes only ever touches its own notes folder. Your notes never leave " +
-                "your device unless you set up sync.",
+            localization.localizedText("storage.android.permission.privacy"),
             style = FutoType.caption,
             color = c.textMuted,
         )
@@ -271,9 +288,10 @@ private fun StorageOptionCard(
 @Composable
 private fun RecommendedBadge() {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     Surface(color = c.success.copy(alpha = 0.16f), shape = RoundedCornerShape(FutoRadius.pill)) {
         Text(
-            "RECOMMENDED",
+            localization.localizedText("storage.onboarding.recommended"),
             style = FutoType.micro,
             color = c.success,
             fontWeight = FontWeight.SemiBold,

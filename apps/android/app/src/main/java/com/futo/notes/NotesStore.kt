@@ -110,6 +110,18 @@ internal fun immediateSubfolders(folders: List<String>, of: String): List<String
     }
 }
 
+internal suspend fun settlePendingDrafts(
+    drafts: List<PendingDraft>,
+    persist: suspend (PendingDraft) -> Boolean,
+    onPersisted: (PendingDraft) -> Unit,
+): Boolean {
+    var allPersisted = true
+    for (draft in drafts) {
+        if (persist(draft)) onPersisted(draft) else allPersisted = false
+    }
+    return allPersisted
+}
+
 /** The open editor's unsaved-draft derivation — the ONE definition of "is there
  *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
  *  LIVE [noteId] (so it re-keys by construction after a rename) whenever the body
@@ -402,6 +414,13 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  Best-effort: the write is fire-and-forget, so an immediate process death
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
+
+    suspend fun settlePendingEditorDrafts(): Boolean =
+        settlePendingDrafts(
+            drafts = pendingEditor.currentDrafts(),
+            persist = { flushDraft(it) != null },
+            onPersisted = pendingEditor::complete,
+        )
 
     /** Claim exclusive vault access for migration. Refuse while a write is
      * active because image saves include their later WebView insertion. */

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { idLeaf } from '$lib/platform/pathSafety';
+  import { localizedText, type LocalizedMessage } from '$shared/localization';
 
   import type { FolderNode } from './folderTree';
   import TreeRowRename from './TreeRowRename.svelte';
@@ -12,7 +13,10 @@
     renameRequest?: { path: string; nonce: number } | null;
     onclick: () => void;
     oncontextmenu: (event: MouseEvent) => void;
-    onrename?: (path: string, newName: string) => Promise<string | null> | string | null;
+    onrename?: (
+      path: string,
+      newName: string,
+    ) => Promise<LocalizedMessage | null> | LocalizedMessage | null;
     ondragstart: (event: DragEvent) => void;
     ondragend: () => void;
     ondragover: (event: DragEvent) => void;
@@ -124,7 +128,7 @@
   {#if isEditing}
     <TreeRowRename
       initialValue={idLeaf(node.path)}
-      label="Folder name"
+      label={localizedText('folders.nameField')}
       testId="folder-rename-input"
       onsubmit={(value) => onrename?.(node.path, value) ?? null}
       onclose={() => {

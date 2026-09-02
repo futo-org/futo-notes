@@ -62,8 +62,10 @@ class StorageSwitchPlanTest {
 
     @Test
     fun anUnusableDestinationIsRefused() {
-        val plan = storageSwitchPlan(StorageDestination.Unusable, isSyncConnected = false)
-        assertTrue(plan is StorageSwitchPlan.Refuse)
+        assertEquals(
+            StorageSwitchPlan.Refuse(StorageRefusalReason.DESTINATION_UNUSABLE),
+            storageSwitchPlan(StorageDestination.Unusable, isSyncConnected = false),
+        )
     }
 
     /**
@@ -78,10 +80,9 @@ class StorageSwitchPlanTest {
             StorageDestination.Occupied(notes = 5, lastModifiedMs = 1_700_000_000_000),
             isSyncConnected = true,
         )
-        assertTrue(plan is StorageSwitchPlan.Refuse)
-        assertTrue(
-            "the refusal has to say what to do about sync",
-            (plan as StorageSwitchPlan.Refuse).message.contains("sync", ignoreCase = true),
+        assertEquals(
+            StorageSwitchPlan.Refuse(StorageRefusalReason.SYNC_CONNECTED),
+            plan,
         )
     }
 

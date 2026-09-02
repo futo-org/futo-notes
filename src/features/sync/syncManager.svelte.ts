@@ -10,14 +10,18 @@ import {
   createExternalChangeCoordinator,
   type OpenNoteReconcileResult,
 } from './createExternalChangeCoordinator';
-import { classifySyncError, getSyncErrorMessage, type SyncErrorClass } from './syncErrorMessage';
+import {
+  classifySyncError,
+  syncErrorDedupeKey,
+  type SyncErrorClass,
+} from './syncErrorClassification';
 import { createSyncCompletionReconciler } from './reconcileSyncCompletion';
-
-export { getSyncErrorMessage } from './syncErrorMessage';
+import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
+import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
 
 export interface SyncManagerDeps {
   session: NoteSession;
-  showToast: (message: string) => void;
+  showToast: (message: ToastMessage) => void;
   onRename: (fromId: string, toId: string, title: string) => void;
   pruneTabsForDeletedIds: (goneIds: string[]) => void;
 }
@@ -65,9 +69,16 @@ export type SyncErrorSource = 'sync' | 'stream';
 // server still becomes actionable during the same working session.
 const RECONNECTING_GRACE_MS = 180_000;
 
-function createSyncFailureState(showToast: (message: string) => void) {
+function syncErrorForSource(source: SyncErrorSource): LocalizedMessage {
+  return source === 'stream'
+    ? { path: 'sync.errors.liveUnavailable' }
+    : { path: 'sync.errors.completedWithErrors' };
+}
+
+function createSyncFailureState(showToast: (message: ToastMessage) => void) {
   let syncError = $state(false);
-  let syncErrorMessage = $state('');
+  let syncErrorMessage = $state<LocalizedMessage | null>(null);
+  let syncErrorDiagnostic = '';
   let reconnecting = $state(false);
   const syncErrors: Partial<Record<SyncErrorSource, string>> = {};
   const reconnectingSince: Record<SyncErrorSource, number | null> = {
@@ -80,11 +91,12 @@ function createSyncFailureState(showToast: (message: string) => void) {
   };
 
   function raiseSyncError(message: string, source: SyncErrorSource = 'sync'): void {
-    const changed = message !== syncErrorMessage;
+    const changed = message !== syncErrorDiagnostic;
     syncError = true;
-    syncErrorMessage = message;
+    syncErrorMessage = syncErrorForSource(source);
+    syncErrorDiagnostic = message;
     syncErrors[source] = message;
-    if (changed) showToast(`Sync error: ${message}`);
+    if (changed) showToast(syncErrorMessage);
   }
 
   function clearSyncError(source?: SyncErrorSource): void {
@@ -99,10 +111,12 @@ function createSyncFailureState(showToast: (message: string) => void) {
     );
     if (remainingSource) {
       syncError = true;
-      syncErrorMessage = syncErrors[remainingSource] ?? '';
+      syncErrorMessage = syncErrorForSource(remainingSource);
+      syncErrorDiagnostic = syncErrors[remainingSource] ?? '';
     } else {
       syncError = false;
-      syncErrorMessage = '';
+      syncErrorMessage = null;
+      syncErrorDiagnostic = '';
     }
   }
 
@@ -179,15 +193,13 @@ function createSyncFailureState(showToast: (message: string) => void) {
 }
 
 export function createSyncManager(deps: SyncManagerDeps): SyncManager {
-  let syncStatusMessage = $state('');
+  let syncStatus = $state<LocalizedMessage | null>(null);
   let syncIndicatorVisible = $state(false);
   let syncOffline = $state(false);
   let live = $state(false);
   const failureState = createSyncFailureState(deps.showToast);
 
-  const notifySaved = () => {
-    notifySavedV2();
-  };
+  const notifySaved = notifySavedV2;
 
   // The one way an engine-reported rename reaches the UI, whichever path
   // applies it: the executor's FollowRename verdict or sync completion's
@@ -223,7 +235,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     live = payload.live;
     if (payload.message) {
       const source = payload.status === 'cycle-error' ? 'sync' : 'stream';
-      const message = getSyncErrorMessage(payload.message);
+      const message = syncErrorDedupeKey(payload.message);
       const errorClass =
         payload.status === 'reconnecting' || payload.status === 'cycle-error'
           ? classifySyncError(payload.message)
@@ -248,9 +260,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         : (syncCoord?.getSyncStartEditVersion() ?? 0),
     setCompletionStatus: (message, durationMs) =>
       syncCoord?.setStatusWithTimeout(message, durationMs),
-    setSyncStatusMessage: (message) => {
-      syncStatusMessage = message;
-    },
+    setSyncStatusMessage: (message) => (syncStatus = message),
   });
 
   function start(): () => void {
@@ -263,9 +273,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         getLastEditTime: () => deps.session.lastEditTime,
       },
       {
-        onStatusMessage: (msg) => {
-          syncStatusMessage = msg;
-        },
+        onStatusMessage: (message) => (syncStatus = message),
         onIndicatorChange: (visible) => {
           syncIndicatorVisible = visible;
         },
@@ -278,7 +286,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     startAutoSyncV2({
       onSyncComplete: (summary, trigger) => void handleSyncComplete(summary, trigger),
       onSyncError: (err, trigger) => {
-        failureState.reportFailure(getSyncErrorMessage(err), {
+        failureState.reportFailure(syncErrorDedupeKey(err), {
           source: 'sync',
           class: classifySyncError(err),
           immediate: trigger === 'manual',
@@ -322,7 +330,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
   return {
     get syncStatusMessage() {
-      return syncStatusMessage;
+      return syncStatus ? resolveLocalizedMessage(syncStatus) : '';
     },
     get syncIndicatorVisible() {
       return syncIndicatorVisible;
@@ -334,7 +342,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       return failureState.syncError;
     },
     get syncErrorMessage() {
-      return failureState.syncErrorMessage;
+      return failureState.syncErrorMessage
+        ? resolveLocalizedMessage(failureState.syncErrorMessage)
+        : '';
     },
     get reconnecting() {
       return failureState.reconnecting;

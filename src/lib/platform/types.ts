@@ -31,7 +31,7 @@ export interface PickedImage {
 }
 
 export interface NativeCapabilities {
-  pickImages?(options?: { limit?: number }): Promise<PickedImage[]>;
+  pickImages?(options: { limit?: number; filterName: string }): Promise<PickedImage[]>;
 }
 
 export interface PlatformFS extends PlatformStorage, NativeCapabilities {

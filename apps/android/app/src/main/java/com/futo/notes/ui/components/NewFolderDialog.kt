@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
+import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -34,11 +35,12 @@ fun NewFolderDialog(
     onCreate: (path: String) -> Unit,
     onDismiss: () -> Unit,
     initialName: String = "",
-    title: String = "New folder",
-    confirmLabel: String = "Create",
+    title: String? = null,
+    confirmLabel: String? = null,
     excludePath: String? = null,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     // Read here (activity window) — the dialog window's insets lie (github#23).
     val imeVisible = imeTargetVisible()
     var name by remember(initialName) { mutableStateOf(initialName) }
@@ -56,7 +58,13 @@ fun NewFolderDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = c.surface,
-        title = { Text(title, style = FutoType.title, color = c.textPrimary) },
+        title = {
+            Text(
+                title ?: localization.localizedText("folders.createHeading"),
+                style = FutoType.title,
+                color = c.textPrimary,
+            )
+        },
         text = {
             Column {
                 // The dialog is its own window — the app-root install (#24)
@@ -65,21 +73,21 @@ fun NewFolderDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.replace("\n", "") },
-                    label = { Text("Name") },
+                    label = { Text(localization.localizedText("folders.nameFieldShort")) },
                     singleLine = true,
                     shape = RoundedCornerShape(FutoRadius.md),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (duplicate) {
                     Text(
-                        "A folder with this name already exists",
+                        localization.localizedText("folders.duplicateName"),
                         style = FutoType.caption,
                         color = c.danger,
                         modifier = Modifier.padding(top = 6.dp),
                     )
                 } else if (sanitizesAway && raw.isNotEmpty()) {
                     Text(
-                        "Enter a valid folder name",
+                        localization.localizedText("folders.invalidName"),
                         style = FutoType.caption,
                         color = c.danger,
                         modifier = Modifier.padding(top = 6.dp),
@@ -95,10 +103,17 @@ fun NewFolderDialog(
             TextButton(
                 enabled = canCreate,
                 onClick = { onCreate(if (parent.isEmpty()) clean else "$parent/$clean") },
-            ) { Text(confirmLabel, color = if (canCreate) c.textAccent else c.textMuted) }
+            ) {
+                Text(
+                    confirmLabel ?: localization.localizedText("common.actions.create"),
+                    color = if (canCreate) c.textAccent else c.textMuted,
+                )
+            }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", color = c.textSecondary) }
+            TextButton(onClick = onDismiss) {
+                Text(localization.localizedText("common.actions.cancel"), color = c.textSecondary)
+            }
         },
     )
 }

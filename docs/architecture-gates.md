@@ -143,3 +143,11 @@ not automatic: a wrong "no longer detected" would delete hand-written analysis, 
 `just audit` means a self-healing CI job. How that is detected without trusting a tool that
 under-reports is documented in `scripts/audit.mjs`, which `just audit` and `test:audit` both run —
 the pinned CI image has no `just`, the same reason arch-gate's command list lives in `package.json`.
+
+## Not here: the localization completeness audit
+
+`pnpm run audit:languages` reports missing, extra, unchanged, and placeholder-omitting translations.
+It stays outside `arch-gate` because these are translation-quality findings, not invalid catalogs or
+broken runtime behavior. `test:localization-audit` is `allow_failure: true` and deliberately absent
+from `release:gate.needs`. Catalog syntax and executable message structure remain blocking through
+the language-catalog unit test in the mandatory `test` job.

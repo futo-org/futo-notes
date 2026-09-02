@@ -20,17 +20,17 @@ final class SyncManager: ObservableObject {
         #endif
     }
     @Published private(set) var connected = false
-    @Published private(set) var status = "Not connected"
+    @Published private(set) var statusMessage = LocalizedMessage("sync.status.notConnected")
     @Published private(set) var busy = false
     /// A real pull/push/connect failure — shown in alarming red.
-    @Published var lastError: String?
+    @Published private(set) var lastErrorMessage: LocalizedMessage?
 
-    /// Live-stream (SSE) health, separate from `lastError`. A live-connect/stream
+    /// Live-stream (SSE) health, separate from the sync error. A live-connect/stream
     /// error is NOT a sync failure: the loop reconnects with backoff and the
     /// periodic safety poll keeps reconciling. Kept distinct so a server without
     /// SSE (HTTP 404 on /api/sync/events) or a transient stream drop surfaces as
     /// a muted "live sync unavailable" hint, not a red "your sync broke" alarm.
-    @Published private(set) var liveError: String?
+    @Published private(set) var liveErrorMessage: LocalizedMessage?
 
     /// Whether the SSE live stream is currently connected.
     @Published private(set) var live = false
@@ -50,6 +50,22 @@ final class SyncManager: ObservableObject {
     /// can surface from both the manual sync path and the live loop at once.
     private var healing = false
 
+    func localizedStatus(_ localization: Localization) -> String {
+        localization.localizedText(statusMessage.path, arguments: statusMessage.arguments)
+    }
+
+    func localizedLastError(_ localization: Localization) -> String? {
+        lastErrorMessage.map {
+            localization.localizedText($0.path, arguments: $0.arguments)
+        }
+    }
+
+    func localizedLiveError(_ localization: Localization) -> String? {
+        liveErrorMessage.map {
+            localization.localizedText($0.path, arguments: $0.arguments)
+        }
+    }
+
     /// Invoked on the main actor after any completed cycle that changed the
     /// local notes tree. The lossless summary is carried to the note projection
     /// and open-note reconciler; neither re-derives rename/delete intent from
@@ -58,16 +74,16 @@ final class SyncManager: ObservableObject {
 
     /// Single reporter for a completed cycle's outcome (docs/spec/sync.md):
     /// clean → just "Sync complete" (never uploaded/downloaded/deleted/conflict
-    /// counts); per-item failures → the red `lastError`, using
+    /// counts); per-item failures → the red error line, using
     /// `failureMessage` (computed once in the Rust core so every shell shows
     /// identical wording). Cleared by the next clean cycle.
     private func applyOutcome(_ s: SyncSummary) {
-        if let message = s.failureMessage {
-            lastError = message
-            status = "Error"
+        if s.failureMessage != nil {
+            statusMessage = LocalizedMessage("sync.status.error")
+            lastErrorMessage = LocalizedMessage("sync.errors.completedWithErrors")
         } else {
-            status = "Sync complete"
-            lastError = nil
+            statusMessage = LocalizedMessage("sync.status.complete")
+            lastErrorMessage = nil
         }
     }
 
@@ -103,16 +119,19 @@ final class SyncManager: ObservableObject {
     /// Connect (login + unwrap vault key) then run an initial sync.
     func connectAndSync(notesRoot: String, password: String) async {
         busy = true
-        lastError = nil
-        liveError = nil
-        status = "Connecting…"
+        lastErrorMessage = nil
+        liveErrorMessage = nil
+        statusMessage = LocalizedMessage("sync.status.connecting")
         self.notesRoot = notesRoot
         defer { busy = false }
         // Reject a schemeless URL up front with an actionable message instead
         // of letting the client fail with an opaque transport error. → sync.md
-        if let urlError = SyncManager.validateServerURL(serverURL) {
-            lastError = urlError
-            status = "Error"
+        if SyncManager.validateServerURL(serverURL) != nil {
+            statusMessage = LocalizedMessage("sync.status.error")
+            lastErrorMessage =
+                serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? LocalizedMessage("sync.errors.enterServerUrl")
+                : LocalizedMessage("sync.errors.addServerScheme")
             return
         }
         // Connect with (and persist) the trimmed URL, mirroring Android.
@@ -129,7 +148,10 @@ final class SyncManager: ObservableObject {
             // Persist the (now-validated) password so a cold relaunch can
             // auto-reconnect — see `restoreSession`. Cleared on `disconnect`.
             Keychain.syncPassword = password
-            status = "Connected (\(info.authMode)) · syncing…"
+            statusMessage = LocalizedMessage(
+                "sync.status.connectedAndSyncing",
+                arguments: ["authMode": info.authMode]
+            )
             let summary = try await c.syncNow()
             applyOutcome(summary)
             // Refresh the list/editor if the initial (catch-up) sync changed
@@ -139,9 +161,10 @@ final class SyncManager: ObservableObject {
             if Self.wroteLocalChanges(summary) { onLocalTreeChanged?(summary) }
             await startLive()
         } catch {
+            NSLog("[Sync] connect failed: %@", describe(error))
             connected = client != nil
-            lastError = describe(error)
-            status = "Error"
+            statusMessage = LocalizedMessage("sync.status.error")
+            lastErrorMessage = LocalizedMessage("sync.errors.connectFailed")
         }
     }
 
@@ -158,8 +181,8 @@ final class SyncManager: ObservableObject {
     func syncNow() async {
         guard let c = client else { return }
         busy = true
-        lastError = nil
-        status = "Syncing…"
+        lastErrorMessage = nil
+        statusMessage = LocalizedMessage("sync.status.syncing")
         defer { busy = false }
         do {
             let summary = try await c.syncNow()
@@ -170,11 +193,12 @@ final class SyncManager: ObservableObject {
             // connect() reuses the persisted cursor/map for the same vault, so
             // auth expiry stays incremental instead of forcing a reconcile.
             if isRecoverableSessionError(error) {
-                healSession(orReport: describe(error))
+                healSession()
                 return
             }
-            lastError = describe(error)
-            status = "Error"
+            NSLog("[Sync] sync failed: %@", describe(error))
+            statusMessage = LocalizedMessage("sync.status.error")
+            lastErrorMessage = LocalizedMessage("sync.errors.syncFailed")
         }
     }
 
@@ -188,11 +212,11 @@ final class SyncManager: ObservableObject {
 
     /// Re-login with the stored password to recover an expired session or
     /// collapsed vault without deleting state. Guarded against re-entry. → sync.md
-    private func healSession(orReport message: String) {
+    private func healSession() {
         guard !healing else { return }
         guard let root = notesRoot, let password = Keychain.syncPassword else {
-            lastError = message
-            status = "Error"
+            statusMessage = LocalizedMessage("sync.status.error")
+            lastErrorMessage = LocalizedMessage("sync.errors.previousFailure")
             return
         }
         healing = true
@@ -207,15 +231,20 @@ final class SyncManager: ObservableObject {
 
     /// Open the SSE live stream. The Rust task does all the reconnect/backoff/
     /// safety-poll work and reports back via `LiveListener`; `onConnected` flips
-    /// `live`. A live-start failure only surfaces as `lastError` — it must not
+    /// `live`. A live-start failure only surfaces as the sync error line — it must not
     /// look like the whole connection failed.
     private func startLive() async {
         guard let c = client else { return }
         let listener = LiveListener(manager: self)
         liveListener = listener
         // A live-start failure is a live-stream-health issue, not a sync
-        // failure — route it to the muted `liveError`, never the red `lastError`.
-        do { try await c.startLive(listener: listener) } catch { liveError = describe(error) }
+        // failure — route it to the muted live error line, never the red sync error line.
+        do {
+            try await c.startLive(listener: listener)
+        } catch {
+            NSLog("[Sync] live start failed: %@", describe(error))
+            liveErrorMessage = LocalizedMessage("sync.errors.liveUnavailable")
+        }
     }
 
     /// Re-open the stream after returning to the foreground. No-op unless we have
@@ -245,7 +274,7 @@ final class SyncManager: ObservableObject {
 
     func applyLiveSummary(_ s: SyncSummary) {
         applyOutcome(s)
-        liveError = nil  // a completed live pull means the stream is healthy
+        liveErrorMessage = nil
         // A live cycle wrote to disk — refresh the note list + open editor
         // (only on an actual change, incl. push-side merges; F2).
         if Self.wroteLocalChanges(s) { onLocalTreeChanged?(s) }
@@ -253,24 +282,26 @@ final class SyncManager: ObservableObject {
 
     fileprivate func setLive(_ v: Bool) {
         live = v
-        if v { liveError = nil }  // a clean (re)connect clears the live-health hint
+        if v {
+            liveErrorMessage = nil
+        }
     }
 
     /// Sink for the Rust live loop's per-reconnect errors. Connect/stream
     /// failures (`connect:` / `stream:` — the loop is retrying, the safety poll
-    /// still runs) are live-stream health and go to the muted `liveError`.
-    /// Anything else is a genuine failure and gets the red `lastError`.
+    /// still runs) are live-stream health and go to the muted live error line.
+    /// Anything else is a genuine failure and gets the red sync error line.
     fileprivate func setLastError(_ m: String) {
         // Auth expiry and collection-gone are terminal for the old live loop,
         // but recoverable from the securely stored password.
         if m.contains("collection-gone") || m.hasPrefix("auth:") {
-            healSession(orReport: m)
+            healSession()
             return
         }
         if m.hasPrefix("connect:") || m.hasPrefix("stream:") {
-            liveError = m
+            liveErrorMessage = LocalizedMessage("sync.errors.liveUnavailable")
         } else {
-            lastError = m
+            lastErrorMessage = LocalizedMessage("sync.errors.syncFailed")
         }
     }
 
@@ -283,9 +314,9 @@ final class SyncManager: ObservableObject {
         // Clear the stored password so we don't auto-reconnect after an explicit
         // disconnect.
         Keychain.syncPassword = nil
-        status = "Not connected"
-        lastError = nil
-        liveError = nil
+        statusMessage = LocalizedMessage("sync.status.notConnected")
+        lastErrorMessage = nil
+        liveErrorMessage = nil
         healing = false  // clear any stalled heal so a future session can heal
     }
 

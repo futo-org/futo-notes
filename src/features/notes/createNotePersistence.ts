@@ -1,9 +1,11 @@
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
+import type { LocalizedMessage } from '$shared/localization';
 
 import { normalizeTitleForPersistence, shouldWriteNoteToDisk } from './noteSessionChanges';
 import type { ParkedDraftSnapshot } from './noteSession.svelte';
 import { _applyLocalMutation, recordSaveIdentityChange, updateNote } from './notes.svelte';
+import { titleValidationMessage } from './titleValidationMessage';
 
 interface NotePersistenceState {
   originalId: string | null;
@@ -28,7 +30,7 @@ interface CreateNotePersistenceOptions {
   hasDuplicateTitle: (title: string) => boolean;
   onSaved: (state: SavedNoteState) => void;
   reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<unknown>;
-  showTitleWarning: (message: string) => void;
+  showTitleWarning: (message: LocalizedMessage) => void;
 }
 
 export function createNotePersistence(options: CreateNotePersistenceOptions) {
@@ -44,7 +46,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
       const newTitle = normalizeTitleForPersistence(state.title);
       const blockingTitleIssue = validateTitle(newTitle).find((issue) => issue.kind !== 'empty');
       if (blockingTitleIssue) {
-        options.showTitleWarning(blockingTitleIssue.message);
+        options.showTitleWarning(titleValidationMessage(blockingTitleIssue.kind));
         return false;
       }
 
@@ -68,7 +70,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         return false;
       }
       if (options.hasDuplicateTitle(newTitle)) {
-        options.showTitleWarning('A note with this name already exists');
+        options.showTitleWarning({ path: 'notes.title.duplicate' });
         return false;
       }
 

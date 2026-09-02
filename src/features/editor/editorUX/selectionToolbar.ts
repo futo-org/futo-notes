@@ -6,6 +6,7 @@ import { syntaxTree } from '@codemirror/language';
 import { toggleBold, toggleItalic, toggleStrikethrough } from '../markdownToolbar';
 import { toggleCodeInline, toggleLink } from './linkCommand';
 import { renderIcon } from './icons';
+import { localizedText } from '$shared/localization';
 
 export const setTableFocusEffect = StateEffect.define<boolean>();
 
@@ -48,13 +49,13 @@ function createToolbarDom(view: EditorView): HTMLElement {
   const dom = document.createElement('div');
   dom.className = 'sf-selection-toolbar';
   dom.setAttribute('role', 'toolbar');
-  dom.setAttribute('aria-label', 'Text formatting');
+  dom.setAttribute('aria-label', localizedText('editor.selectionToolbar.accessibilityLabel'));
 
-  function addButton(label: string, iconName: string, onClick: () => void, key?: string): void {
+  function addButton(label: string, title: string, iconName: string, onClick: () => void): void {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.setAttribute('aria-label', label);
-    btn.title = key ? `${label} (${key})` : label;
+    btn.title = title;
     btn.innerHTML = renderIcon(iconName);
     btn.addEventListener('mousedown', (e) => {
       e.preventDefault();
@@ -72,12 +73,37 @@ function createToolbarDom(view: EditorView): HTMLElement {
     dom.appendChild(sep);
   }
 
-  addButton('Bold', 'Bold', () => toggleBold(view), 'Mod-B');
-  addButton('Italic', 'Italic', () => toggleItalic(view), 'Mod-I');
-  addButton('Strikethrough', 'Strikethrough', () => toggleStrikethrough(view), 'Mod-Shift-S');
+  addButton(
+    localizedText('editor.selectionToolbar.bold'),
+    localizedText('editor.selectionToolbar.boldTitle'),
+    'Bold',
+    () => toggleBold(view),
+  );
+  addButton(
+    localizedText('editor.selectionToolbar.italic'),
+    localizedText('editor.selectionToolbar.italicTitle'),
+    'Italic',
+    () => toggleItalic(view),
+  );
+  addButton(
+    localizedText('editor.selectionToolbar.strikethrough'),
+    localizedText('editor.selectionToolbar.strikethroughTitle'),
+    'Strikethrough',
+    () => toggleStrikethrough(view),
+  );
   addSeparator();
-  addButton('Inline code', 'Code', () => toggleCodeInline(view));
-  addButton('Link', 'Link', () => toggleLink(view));
+  addButton(
+    localizedText('editor.selectionToolbar.inlineCode'),
+    localizedText('editor.selectionToolbar.inlineCode'),
+    'Code',
+    () => toggleCodeInline(view),
+  );
+  addButton(
+    localizedText('editor.selectionToolbar.link'),
+    localizedText('editor.selectionToolbar.link'),
+    'Link',
+    () => toggleLink(view),
+  );
 
   return dom;
 }
@@ -100,7 +126,12 @@ const selectionToolbarField = StateField.define<Tooltip | null>({
     return buildTooltip(state);
   },
   update(value, tr) {
-    if (!tr.docChanged && !tr.selection && !tr.effects.some((e) => e.is(setTableFocusEffect))) {
+    if (
+      !tr.docChanged &&
+      !tr.selection &&
+      !tr.reconfigured &&
+      !tr.effects.some((e) => e.is(setTableFocusEffect))
+    ) {
       return value;
     }
     return buildTooltip(tr.state);

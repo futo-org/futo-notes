@@ -23,6 +23,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -41,12 +43,19 @@ import com.futo.notes.storage.StorageAdoptionSummary
 import com.futo.notes.storage.StorageMigrationJournal
 import com.futo.notes.storage.StorageMigrationPhase
 import com.futo.notes.storage.StorageMode
+import com.futo.notes.storage.StorageRecoveryFailure
+import com.futo.notes.storage.storageAdoptionFailureMessage
+import com.futo.notes.storage.storageRefusalMessage
 import com.futo.notes.storage.StorageStartupRecovery
 import com.futo.notes.storage.StorageSwitchPlan
+import com.futo.notes.storage.StorageSwitchFailureStage
 import com.futo.notes.storage.activateStagedStorageMigration
 import com.futo.notes.storage.adoptExistingVault
-import com.futo.notes.storage.describeStorageAdoption
+import com.futo.notes.storage.storageAdoptionMessage
 import com.futo.notes.storage.recoverStorageStartup
+import com.futo.notes.storage.storageRecoveryMessage
+import com.futo.notes.storage.storageSwitchFailureMessage
+import com.futo.notes.storage.storageSwitchFailureStage
 import com.futo.notes.storage.storageSwitchPlan
 import com.futo.notes.testhook.TestHooks
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
@@ -63,6 +72,10 @@ import com.futo.notes.ui.ThemeMode
 import com.futo.notes.ui.navigation.AppNavigation
 import com.futo.notes.ui.navigation.Screen
 import com.futo.notes.ui.theme.FutoNotesTheme
+import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.localization.Localization
+import com.futo.notes.localization.AppLanguageController
+import com.futo.notes.localization.ProvideLocalization
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -89,6 +102,8 @@ private data class PendingStorageAdoption(
 )
 
 class MainActivity : ComponentActivity() {
+    private lateinit var localization: Localization
+    private lateinit var appLanguage: AppLanguageController
     // Hoisted so onStart/onStop can pause/resume the SSE live stream — the
     // stream shouldn't stay open while backgrounded; re-foregrounding gets a
     // fresh `ready` that drives a catch-up pull.
@@ -114,7 +129,7 @@ class MainActivity : ComponentActivity() {
     private val showRegrant = mutableStateOf(false)
     private val storageSwitching = mutableStateOf(false)
     private val storageResolving = mutableStateOf(true)
-    private val storageRecoveryError = mutableStateOf<String?>(null)
+    private val storageRecoveryFailure = mutableStateOf<StorageRecoveryFailure?>(null)
     private val pendingStorageAdoption = mutableStateOf<PendingStorageAdoption?>(null)
     private val themeMode = mutableStateOf(ThemeMode.AUTO)
 
@@ -174,10 +189,15 @@ class MainActivity : ComponentActivity() {
         // setters internally, so the Play warning would persist (see build.gradle.kts).
         enableEdgeToEdge()
 
+        localization = Localization.system(
+            resources.configuration.locales.toLanguageTags().split(',').filter(String::isNotBlank),
+        )
+
         // Construct the preferences handle synchronously, but do not read it
         // before the first composition. Theme and storage recovery load on IO
         // after setContent, preserving the never-gate-render invariant.
         prefs = getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE)
+        appLanguage = AppLanguageController(this, prefs)
 
         // Re-check the All-files grant when we return from the system settings
         // screen, then run whatever device-storage action was pending.
@@ -189,100 +209,116 @@ class MainActivity : ComponentActivity() {
             } else {
                 Toast.makeText(
                     this,
-                    "FUTO Notes needs “All files access” to use a shared folder.",
+                    localization.localizedText("storage.android.permission.denied"),
                     Toast.LENGTH_LONG,
                 ).show()
             }
         }
 
-        imagePicker = ImagePicker(this)
+        imagePicker = ImagePicker(this) { localization }
 
         TestHooks.install(this, testHooks())
 
         setContent {
-            if (BuildConfig.DEBUG) {
-                LaunchedEffect(Unit) { android.util.Log.i("FutoStartup", "first composition reached") }
-            }
-            LaunchedEffect(Unit) { EditorHost.prewarm(this@MainActivity) }
-            val selectedTheme = themeMode.value
-            val dark = when (selectedTheme) {
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK -> true
-                ThemeMode.AUTO -> isSystemInDarkTheme()
-            }
-
-            FutoNotesTheme(darkTheme = dark) {
-                SystemBarAppearance(dark)
-                // App-wide: back-gesture keyboard dismissal must drop the
-                // focused field's caret (#24) — native fields via clearFocus,
-                // the editor WebView's DOM caret via a bridge blur (it
-                // survives clearFocus). Dialog windows install their own.
-                ClearFocusOnImeDismiss(imeTargetVisible()) {
-                    val editorHost = EditorHost.get(this)
-                    if (editorHost.editorFocused) editorHost.blur()
+            ProvideLocalization(appLanguage.selectedLanguageTag) {
+                val currentLocalization = LocalLocalization.current
+                SideEffect { localization = currentLocalization }
+                val configuration = LocalConfiguration.current
+                LaunchedEffect(configuration) { appLanguage.refresh() }
+                if (BuildConfig.DEBUG) {
+                    LaunchedEffect(Unit) {
+                        android.util.Log.i("FutoStartup", "first composition reached")
+                    }
                 }
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    val s = store.value
-                    val vaultSurface = vaultSurfaceState(
-                        hasStore = s != null,
-                        needsRegrant = showRegrant.value,
-                        storageSwitching = storageSwitching.value,
-                    )
-                    when {
-                        storageRecoveryError.value != null -> Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            Text(storageRecoveryError.value!!)
-                        }
-                        storageResolving.value -> Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            CircularProgressIndicator()
-                        }
-                        vaultSurface.renderShell -> Box(modifier = Modifier.fillMaxSize()) {
-                            AppShell(s!!, selectedTheme, onThemeMode = {
-                                themeMode.value = it
-                                prefs.edit().putString(Prefs.THEME, it.name).apply()
-                            }, dark = dark)
-                            if (vaultSurface.showMovingOverlay) {
-                                // The tap swallow below has a Back twin: without
-                                // it Back reaches the shell underneath and pops
-                                // (or, at the list, finishes the activity) while
-                                // the vault is being moved.
-                                BackHandler {}
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clickable(onClick = {}),
-                                ) {
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier.fillMaxSize(),
+                LaunchedEffect(currentLocalization.effectiveLanguage.tag) {
+                    EditorHost.prewarm(this@MainActivity)
+                    EditorHost.get(this@MainActivity).setLocalization(currentLocalization)
+                }
+                val selectedTheme = themeMode.value
+                val dark = when (selectedTheme) {
+                    ThemeMode.LIGHT -> false
+                    ThemeMode.DARK -> true
+                    ThemeMode.AUTO -> isSystemInDarkTheme()
+                }
+
+                FutoNotesTheme(darkTheme = dark) {
+                    SystemBarAppearance(dark)
+                    // App-wide: back-gesture keyboard dismissal must drop the
+                    // focused field's caret (#24) — native fields via clearFocus,
+                    // the editor WebView's DOM caret via a bridge blur (it
+                    // survives clearFocus). Dialog windows install their own.
+                    ClearFocusOnImeDismiss(imeTargetVisible()) {
+                        val editorHost = EditorHost.get(this)
+                        if (editorHost.editorFocused) editorHost.blur()
+                    }
+                    Surface(modifier = Modifier.fillMaxSize()) {
+                        val s = store.value
+                        val vaultSurface = vaultSurfaceState(
+                            hasStore = s != null,
+                            needsRegrant = showRegrant.value,
+                            storageSwitching = storageSwitching.value,
+                        )
+                        val recoveryFailure = storageRecoveryFailure.value
+                        when {
+                            recoveryFailure != null -> Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                Text(
+                                    storageRecoveryMessage(recoveryFailure).let {
+                                        currentLocalization.localizedText(it.path, it.arguments)
+                                    },
+                                )
+                            }
+                            storageResolving.value -> Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                            vaultSurface.renderShell -> Box(modifier = Modifier.fillMaxSize()) {
+                                AppShell(s!!, selectedTheme, onThemeMode = {
+                                    themeMode.value = it
+                                    prefs.edit().putString(Prefs.THEME, it.name).apply()
+                                }, dark = dark)
+                                if (vaultSurface.showMovingOverlay) {
+                                    // The tap swallow below has a Back twin: without
+                                    // it Back reaches the shell underneath and pops
+                                    // (or, at the list, finishes the activity) while
+                                    // the vault is being moved.
+                                    BackHandler {}
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clickable(onClick = {}),
                                     ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            CircularProgressIndicator()
-                                            Text("Moving notes…")
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.fillMaxSize(),
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                CircularProgressIndicator()
+                                                Text(currentLocalization.localizedText("storage.android.movingNotes"))
+                                            }
                                         }
                                     }
                                 }
                             }
+                            showRegrant.value -> StorageRegrantScreen(
+                                onGrant = { requestDeviceAccess { showRegrant.value = false; initVault(NotesStorage.deviceRoot(BuildConfig.DEBUG)) } },
+                                onUseAppStorage = {
+                                    // commit() — restartApp() kills the process before an
+                                    // async apply() would flush (see performSwitch).
+                                    prefs.edit().putString(Prefs.STORAGE_MODE, StorageMode.APP.name).commit()
+                                    restartApp()
+                                },
+                            )
+                            s == null -> StorageOnboarding(
+                                initialMode = StorageMode.DEVICE,
+                                deviceModeSupported = NotesStorage.deviceModeSupported(),
+                                onConfirm = { chooseStorage(it) },
+                            )
                         }
-                        showRegrant.value -> StorageRegrantScreen(
-                            onGrant = { requestDeviceAccess { showRegrant.value = false; initVault(NotesStorage.deviceRoot(BuildConfig.DEBUG)) } },
-                            onUseAppStorage = {
-                                // commit() — restartApp() kills the process before an
-                                // async apply() would flush (see performSwitch).
-                                prefs.edit().putString(Prefs.STORAGE_MODE, StorageMode.APP.name).commit()
-                                restartApp()
-                            },
-                        )
-                        s == null -> StorageOnboarding(
-                            initialMode = StorageMode.DEVICE,
-                            deviceModeSupported = NotesStorage.deviceModeSupported(),
-                            onConfirm = { chooseStorage(it) },
-                        )
                     }
                 }
             }
@@ -309,7 +345,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyStorageStartup(recovery: StorageStartupRecovery) {
-        storageRecoveryError.value = recovery.error
+        storageRecoveryFailure.value = recovery.failure
+        if (recovery.failure != null) android.util.Log.e("FutoStorage", "Storage recovery failed")
         val startup = recovery.startup
         if (startup == null) {
             storageResolving.value = false
@@ -329,6 +366,20 @@ class MainActivity : ComponentActivity() {
             }
         }
         storageResolving.value = false
+    }
+
+    private fun selectLanguage(store: NotesStore, languageTag: String?) {
+        lifecycleScope.launch {
+            if (store.settlePendingEditorDrafts()) {
+                appLanguage.select(languageTag)
+            } else {
+                Toast.makeText(
+                    this@MainActivity,
+                    localization.localizedText("settings.language.android.draftSaveFailed"),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     }
 
     /** The normal app once the vault location is known. */
@@ -377,6 +428,8 @@ class MainActivity : ComponentActivity() {
                     sync = sync,
                     themeMode = themeMode,
                     onThemeMode = onThemeMode,
+                    selectedLanguageTag = appLanguage.selectedLanguageTag,
+                    onSelectLanguage = { languageTag -> selectLanguage(s, languageTag) },
                     onOpenSync = navigator::openSync,
                     storageMode = currentMode(),
                     onChangeStorage = navigator::openStorageLocation,
@@ -429,18 +482,24 @@ class MainActivity : ComponentActivity() {
         // copying. Both folders are named with what they hold so the user can
         // tell a current vault from a leftover one before committing.
         pendingStorageAdoption.value?.let { adoption ->
-            ConfirmDialog(
-                title = "Open the notes already there?",
-                body = describeStorageAdoption(
-                    StorageAdoptionSummary(
-                        destinationNotes = adoption.plan.notes,
-                        destinationLastModifiedMs = adoption.plan.lastModifiedMs,
-                        currentPath = notesRoot.path,
-                        currentNotes = store.value?.notes?.size ?: 0,
-                        nowMs = System.currentTimeMillis(),
-                    ),
+            val currentLocalization = LocalLocalization.current
+            val adoptionMessage = storageAdoptionMessage(
+                StorageAdoptionSummary(
+                    destinationNotes = adoption.plan.notes,
+                    destinationLastModifiedMillis = adoption.plan.lastModifiedMs,
+                    currentPath = notesRoot.path,
+                    currentNotes = store.value?.notes?.size ?: 0,
+                    currentTimeMillis = System.currentTimeMillis(),
                 ),
-                confirmLabel = "Open that folder",
+                currentLocalization::localizedRelativeTime,
+            )
+            ConfirmDialog(
+                title = currentLocalization.localizedText("storage.android.openExistingHeading"),
+                body = currentLocalization.localizedText(
+                    adoptionMessage.path,
+                    adoptionMessage.arguments,
+                ),
+                confirmLabel = currentLocalization.localizedText("storage.android.openExistingAction"),
                 onConfirm = {
                     pendingStorageAdoption.value = null
                     adoptExistingStorage(adoption)
@@ -586,7 +645,11 @@ class MainActivity : ComponentActivity() {
     private fun performStorageChange(mode: StorageMode) {
         if (mode == currentMode()) return
         if (mode == StorageMode.DEVICE && !NotesStorage.deviceModeSupported()) {
-            Toast.makeText(this, "Device storage requires Android 11 or newer.", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                localization.localizedText("storage.android.permission.unsupported"),
+                Toast.LENGTH_LONG,
+            ).show()
             return
         }
         if (mode == StorageMode.DEVICE) requestDeviceAccess { planStorageChange(StorageMode.DEVICE) }
@@ -606,8 +669,14 @@ class MainActivity : ComponentActivity() {
                 StorageSwitchPlan.Migrate -> performSwitch(newMode)
                 is StorageSwitchPlan.OpenExisting ->
                     pendingStorageAdoption.value = PendingStorageAdoption(newMode, plan)
-                is StorageSwitchPlan.Refuse ->
-                    Toast.makeText(this@MainActivity, plan.message, Toast.LENGTH_LONG).show()
+                is StorageSwitchPlan.Refuse -> {
+                    android.util.Log.e("FutoStorage", "Storage switch refused: ${plan.reason}")
+                    Toast.makeText(
+                        this@MainActivity,
+                        localization.localizedText(storageRefusalMessage(plan.reason).path),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
             }
         }
     }
@@ -630,7 +699,7 @@ class MainActivity : ComponentActivity() {
             storageSwitching.value = false
             Toast.makeText(
                 this,
-                "A note or image is still being saved. Try changing storage again.",
+                localization.localizedText("storage.android.saveInProgress"),
                 Toast.LENGTH_LONG,
             ).show()
             return
@@ -656,9 +725,16 @@ class MainActivity : ComponentActivity() {
             when (outcome) {
                 StorageAdoptionOutcome.Restart -> restartApp()
                 is StorageAdoptionOutcome.KeepCurrent -> {
+                    android.util.Log.e("FutoStorage", "Storage adoption failed: ${outcome.failure}")
                     current.resumeAfterStorageMigrationFailure()
                     storageSwitching.value = false
-                    Toast.makeText(this@MainActivity, outcome.feedback, Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        localization.localizedText(
+                            storageAdoptionFailureMessage(outcome.failure).path,
+                        ),
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }
             }
         }
@@ -674,7 +750,7 @@ class MainActivity : ComponentActivity() {
             storageSwitching.value = false
             Toast.makeText(
                 this,
-                "A note or image is still being saved. Try changing storage again.",
+                localization.localizedText("storage.android.saveInProgress"),
                 Toast.LENGTH_LONG,
             ).show()
             return
@@ -702,6 +778,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             val decision = NotesStorage.storageSwitchDecision(outcome)
+            val failureStage = storageSwitchFailureStage(decision)
             val activation = activateStagedStorageMigration(
                 prepared = prepared,
                 decision = decision,
@@ -747,10 +824,17 @@ class MainActivity : ComponentActivity() {
             sync.resumeAfterStorageMigrationFailure()
             Toast.makeText(
                 this@MainActivity,
-                (activation as? StorageActivationOutcome.KeepSource)?.feedback
-                    ?: "The storage move could not be activated. The original notes remain active.",
+                storageSwitchFailureMessage(failureStage).let {
+                    localization.localizedText(it.path, it.arguments)
+                },
                 Toast.LENGTH_LONG,
             ).show()
+            if (activation is StorageActivationOutcome.KeepSource) {
+                android.util.Log.e(
+                    "FutoStorage",
+                    "Storage switch failed at $failureStage: ${activation.failure}",
+                )
+            }
         }
     }
 
@@ -761,7 +845,11 @@ class MainActivity : ComponentActivity() {
      */
     private fun requestDeviceAccess(onGranted: () -> Unit) {
         if (!NotesStorage.deviceModeSupported()) {
-            Toast.makeText(this, "Device storage requires Android 11 or newer.", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                localization.localizedText("storage.android.permission.unsupported"),
+                Toast.LENGTH_LONG,
+            ).show()
             return
         }
         if (NotesStorage.hasDeviceAccess()) { onGranted(); return }

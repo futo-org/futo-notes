@@ -3,6 +3,7 @@
 
   import { flushSync, onDestroy } from 'svelte';
   import type { NotePreview } from '$shared/types/note';
+  import { localizedText, type LocalizedMessage } from '$shared/localization';
   import { isFolderOpen, toggleFolderOpen } from './folderExpansion.svelte';
   import { buildFolderTree, flattenFolderTree, type FlatNode, type FolderNode } from './folderTree';
   import { getEmptyFolders } from './emptyFolders.svelte';
@@ -19,8 +20,14 @@
     onnotecontextmenu?: (id: string, x: number, y: number) => void;
     onnotedragstart?: (id: string, e: DragEvent) => void;
     onfolderdragstart?: (path: string, e: DragEvent) => void;
-    onrenamefolder?: (path: string, newName: string) => Promise<string | null> | string | null;
-    onrenamenote?: (id: string, newTitle: string) => Promise<string | null> | string | null;
+    onrenamefolder?: (
+      path: string,
+      newName: string,
+    ) => Promise<LocalizedMessage | null> | LocalizedMessage | null;
+    onrenamenote?: (
+      id: string,
+      newTitle: string,
+    ) => Promise<LocalizedMessage | null> | LocalizedMessage | null;
     renameRequest?: { path: string; nonce: number } | null;
     noteRenameRequest?: { id: string; nonce: number } | null;
     ondropnoteonfolder?: (noteId: string, folderPath: string) => void;
@@ -257,7 +264,7 @@
   ondrop={(event) => drag.handleRowDrop(event, '')}
 >
   {#if flat.length === 0}
-    <div class="empty-state">No notes yet. Tap + to create one.</div>
+    <div class="empty-state">{localizedText('notes.list.desktopEmptyHint')}</div>
   {:else}
     {#if window_.padTop > 0}
       <div class="tree-spacer" style:height={`${window_.padTop}px`} aria-hidden="true"></div>
