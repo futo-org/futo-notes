@@ -139,8 +139,7 @@ just test-android-native
 
 The build profiles are safety constraints:
 
-- iOS uses the development profile.
-- Android uses `release-ffi`.
+- iOS and Android use `release-ffi`.
 - Do not switch FFI builds to the workspace's ordinary release profile because
   its aborting panic behavior is incompatible with UniFFI's unwind boundary.
 

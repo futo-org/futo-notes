@@ -29,7 +29,7 @@ echo "==> JS deps"
 [ -d node_modules ] || pnpm install
 
 echo "==> Building Rust note + sync core (UniFFI) -> FutoNotesFfi.xcframework + Swift bindings"
-bash apps/ios/build-rust-ios.sh
+FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" bash apps/ios/build-rust-ios.sh
 
 echo "==> Building embedded editor web bundle (single self-contained editor.html)"
 node_modules/.bin/vite build --config vite.editor.config.ts
