@@ -68,7 +68,8 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   _(iOS)_
 - An empty folder shows an empty state, and **both native shells distinguish the
   case**: "No notes yet" at the vault root, "Empty folder" inside a folder, both
-  subtitled "Tap + to add a note or folder." _(Tauri: "Nothing here yet".)_ The
+  subtitled "Tap + to add a note." on Android and "Tap the compose button to add
+  a note." on iOS. _(Tauri: "Nothing here yet".)_ The
   empty state waits for the first scan (`hasBootstrapped`) so a cold start never
   flashes it (M1). → NoteListView.swift, NoteListScreen.kt `EmptyState`
 - The top bar carries the page surface, and gains a bottom hairline once the
@@ -190,11 +191,21 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
 
 ## New note
 
-- The FAB creates an "Untitled" note in the folder being browsed (the vault root
-  on the root screen) and opens it with the **body** focused for quick capture
-  (keyboard on the note text, not the title). Its **New folder** sibling likewise
-  creates in the folder being browsed, so both are reachable at every depth.
-  → NoteListScreen.kt
+- **New note and New folder are two separate one-tap controls on every
+  platform** (github#5: a "+" that opened a menu put quick capture behind an
+  extra tap). Desktop: the "+ New" button and its folder-icon sibling
+  (SidebarCreateActions.svelte). Android: the "+" FAB is a plain "New note" and a
+  folder-plus action icon ("New folder") sits in the top app bar before Search
+  and Settings (the Material 3 home for a secondary create action; a stacked
+  small FAB was tried and rejected as a non-M3 speed dial). iOS: a folder-badge-plus
+  button and a compose button side by side in the trailing nav bar. Neither
+  shell has a create menu any more. → SidebarCreateActions.svelte,
+  NoteListScreen.kt, NoteListView.swift
+- The New-note control creates an "Untitled" note in the folder being browsed
+  (the vault root on the root screen) and opens it with the **body** focused for
+  quick capture (keyboard on the note text, not the title). The New-folder
+  control likewise creates in the folder being browsed, so both are reachable at
+  every depth. → NoteListScreen.kt, NoteListView.swift
 - On mobile-width shells, "+ New" opens the note with the **title** focused and
   "Untitled" select-all'd so typing replaces it immediately. Desktop keeps body
   focus; the wikilink-to-missing-note create path keeps body focus everywhere.
@@ -321,8 +332,8 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   only on a committed create, and a failed create says "Couldn't create note.
   Try again." rather than leaving the list unchanged with no message — the
   silence github#13 reported. → NotesStore.kt `createNote`, NoteListScreen.kt
-- **Both native shells create notes as quick capture** (iOS "+" menu → New
-  Note; Android FAB → New note): an "Untitled" note is created in the current
+- **Both native shells create notes as quick capture** (iOS compose button;
+  Android "+" FAB): an "Untitled" note is created in the current
   folder and the editor opens with the **body** focused — no blocking title
   prompt, keyboard straight on the note text (desktop parity). An **untouched**
   quick-capture note — opened brand-new, never renamed, body still empty — is
@@ -376,10 +387,10 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   (`sanitizeTitle` / `sanitize_title`). → packages/editor `filename.ts`,
   futo-notes-core `files::sanitize_title`;
   tests/conformance/{filename.json,title-rules-differential.mjs}
-- **Android native**'s FAB opens a New note / New folder menu; New folder
-  shows a name dialog that sanitizes via the shared rules and rejects
-  case-insensitive sibling duplicates inline (verified on emulator
-  2026-06-09). → NoteListScreen.kt, NewFolderDialog.kt
+- **Android native**'s top-bar New-folder action shows a name dialog that sanitizes
+  via the shared rules and rejects case-insensitive sibling duplicates inline
+  (verified on emulator 2026-06-09, as a FAB-menu item then). →
+  NoteListScreen.kt, NewFolderDialog.kt
 
 ## Sidebar tabs _(Tauri)_
 

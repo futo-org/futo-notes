@@ -16,16 +16,17 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   Settings sheet and the cloud button presents the Sync sheet (see settings.md).
   → NoteListView.swift *(iOS)*
   The list nav-bar controls are exposed to accessibility and to automation: the
-  **gear** (Settings), **cloud** (Sync), and **"+"** create-note menu each carry
-  an `accessibilityLabel` ("Settings" / "Sync" / "New note or folder"), a stable
-  `accessibilityIdentifier` (`nav-settings` / `nav-sync` / `nav-create`), and a
+  **gear** (Settings), **cloud** (Sync), **folder-badge-plus** (New folder), and
+  **compose** (New note) buttons each carry an `accessibilityLabel` ("Settings" /
+  "Sync" / "New folder" / "New note"), a stable `accessibilityIdentifier`
+  (`nav-settings` / `nav-sync` / `nav-create-folder` / `nav-create`), and a
   distinct `ToolbarItem(id:)`. Confirmed at runtime on the iOS 26.5 simulator
   2026-07-27: `axe describe-ui` reports each as a `Button` carrying both its
   label and its identifier, `axe tap --id nav-settings --element-type Button`
-  opens the Settings sheet, and `--id nav-create` opens the create menu whose
-  "New Note" item is itself tappable. Every nav item also appears as a wrapping
-  `Group`, so automation must pass `--element-type`. → NoteListView.swift
-  toolbar
+  opens the Settings sheet, and `--id nav-create` creates and opens a note in
+  one tap (it was a New Note / New Folder menu until 2026-09-02, github#5).
+  Every nav item also appears as a wrapping `Group`, so automation must pass
+  `--element-type`. → NoteListView.swift toolbar
 - A typed nav stack holds entries. Note ids and folder paths contain `/`, which
   would break string-based routes, so the stack holds typed `Screen` values
   (`Screen.Folder(path)`, `Screen.Editor(noteId, …)`), not path strings. →

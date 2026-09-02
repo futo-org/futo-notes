@@ -143,6 +143,11 @@ internal fun NoteListScreen(
                     }
                 },
                 actions = {
+                    // New folder, created in THIS folder — the secondary create
+                    // action; the FAB is the primary one. [list.md]
+                    IconButton(onClick = { newFolderDialog = true }) {
+                        Icon(Icons.Filled.CreateNewFolder, contentDescription = "New folder", tint = c.textSecondary)
+                    }
                     IconButton(onClick = onOpenSearch) {
                         Icon(Icons.Filled.Search, contentDescription = "Search", tint = c.textSecondary)
                     }
@@ -161,78 +166,61 @@ internal fun NoteListScreen(
             )
         },
         floatingActionButton = {
-            // Expandable create menu [list.md]: New note / New folder, both
-            // landing in THIS folder.
-            var fabMenu by remember { mutableStateOf(false) }
+            // ONE plain FAB: New note, in THIS folder, one tap (github#5 — quick
+            // capture never sits behind a menu). New folder lives in the top
+            // app bar as an action icon, the Material 3 home for a secondary
+            // create action (Files by Google does the same). [list.md]
             val interaction = remember { MutableInteractionSource() }
             val scale = pressScale(interaction, 0.97f)
-            Box {
-                FloatingActionButton(
-                    onClick = { fabMenu = true },
-                    interactionSource = interaction,
-                    containerColor = c.accent,
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(FutoRadius.lg),
-                    modifier = Modifier.padding(2.dp).graphicsLayer { scaleX = scale; scaleY = scale },
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = "Create")
-                }
-                DropdownMenu(expanded = fabMenu, onDismissRequest = { fabMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("New note") },
-                        leadingIcon = { Icon(Icons.Filled.Description, contentDescription = null, tint = c.textSecondary) },
-                        onClick = {
-                            fabMenu = false
-                            // `createNote`'s reload inserts the new note at index 0
-                            // while this list is STILL composed (the editor push hasn't
-                            // removed it yet), so LazyColumn's key-based anchoring would
-                            // keep the old top row pinned and park the new note above
-                            // the viewport — corrupting the position the return-to-list
-                            // re-pin later reads. Capture at-top-ness NOW (the last
-                            // measure reflects the user's real position) and QUEUE a
-                            // top snap for the next measure. requestScrollToItem, NOT
-                            // scrollToItem: scrollToItem force-remeasures immediately —
-                            // before recomposition has delivered the reloaded list to
-                            // the LazyColumn — so it re-records the OLD top row as the
-                            // key anchor and the next real measure follows it down
-                            // anyway. requestScrollToItem defers the snap to the next
-                            // measure (which runs AFTER the recomposition carrying the
-                            // new list) and disables key anchoring for it.
-                            val atTop = isAtListTop(
-                                listState.firstVisibleItemIndex,
-                                listState.firstVisibleItemScrollOffset,
-                            )
-                            // `createNote` is suspend (FFI write on IO). Launch on the
-                            // composable's main scope; the navigate callback runs after
-                            // it returns (resumes on Main, safe for Compose state).
-                            scope.launch {
-                                // Consume the explicit outcome: open the note only on a
-                                // committed create, and SAY SO when it failed. A silent
-                                // no-op here is what github#13 reports.
-                                when (val outcome = store.createNote("Untitled", folder)) {
-                                    is NoteMutationOutcome.Committed -> {
-                                        if (atTop) listState.requestScrollToItem(0)
-                                        onCreate(outcome.value)
-                                    }
-                                    NoteMutationOutcome.Failed ->
-                                        Toast.makeText(
-                                            context,
-                                            "Couldn't create note. Try again.",
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                }
+            FloatingActionButton(
+                onClick = {
+                    // `createNote`'s reload inserts the new note at index 0
+                    // while this list is STILL composed (the editor push hasn't
+                    // removed it yet), so LazyColumn's key-based anchoring would
+                    // keep the old top row pinned and park the new note above
+                    // the viewport — corrupting the position the return-to-list
+                    // re-pin later reads. Capture at-top-ness NOW (the last
+                    // measure reflects the user's real position) and QUEUE a
+                    // top snap for the next measure. requestScrollToItem, NOT
+                    // scrollToItem: scrollToItem force-remeasures immediately —
+                    // before recomposition has delivered the reloaded list to
+                    // the LazyColumn — so it re-records the OLD top row as the
+                    // key anchor and the next real measure follows it down
+                    // anyway. requestScrollToItem defers the snap to the next
+                    // measure (which runs AFTER the recomposition carrying the
+                    // new list) and disables key anchoring for it.
+                    val atTop = isAtListTop(
+                        listState.firstVisibleItemIndex,
+                        listState.firstVisibleItemScrollOffset,
+                    )
+                    // `createNote` is suspend (FFI write on IO). Launch on the
+                    // composable's main scope; the navigate callback runs after
+                    // it returns (resumes on Main, safe for Compose state).
+                    scope.launch {
+                        // Consume the explicit outcome: open the note only on a
+                        // committed create, and SAY SO when it failed. A silent
+                        // no-op here is what github#13 reports.
+                        when (val outcome = store.createNote("Untitled", folder)) {
+                            is NoteMutationOutcome.Committed -> {
+                                if (atTop) listState.requestScrollToItem(0)
+                                onCreate(outcome.value)
                             }
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("New folder") },
-                        leadingIcon = { Icon(Icons.Filled.CreateNewFolder, contentDescription = null, tint = c.textSecondary) },
-                        onClick = {
-                            fabMenu = false
-                            newFolderDialog = true
-                        },
-                    )
-                }
+                            NoteMutationOutcome.Failed ->
+                                Toast.makeText(
+                                    context,
+                                    "Couldn't create note. Try again.",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                        }
+                    }
+                },
+                interactionSource = interaction,
+                containerColor = c.accent,
+                contentColor = Color.White,
+                shape = RoundedCornerShape(FutoRadius.lg),
+                modifier = Modifier.padding(2.dp).graphicsLayer { scaleX = scale; scaleY = scale },
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "New note")
             }
         },
     ) { padding ->
@@ -562,7 +550,7 @@ private fun EmptyState(isRoot: Boolean) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Tap + to add a note or folder.",
+                "Tap + to add a note.",
                 style = FutoType.small,
                 color = c.textTertiary,
             )
