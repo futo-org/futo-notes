@@ -23,7 +23,6 @@ export function configureWindowChrome(): { dispose: () => void } {
     root.style.setProperty('--macos-traffic-lights-width', MACOS_TRAFFIC_LIGHTS_WIDTH);
   }
   if (isTauri && isLinux) {
-    root.classList.add('linux-desktop');
     void getWindowControlsLayout()
       .then((layout) => {
         if (disposed || layout?.side !== 'left') return;
@@ -41,7 +40,6 @@ export function configureWindowChrome(): { dispose: () => void } {
     dispose() {
       disposed = true;
       root.classList.remove(DESKTOP_CHROME_CLASS);
-      root.classList.remove('linux-desktop');
       root.style.removeProperty('--macos-traffic-lights-width');
       root.style.removeProperty('--linux-window-controls-width');
     },

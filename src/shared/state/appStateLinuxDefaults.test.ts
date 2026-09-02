@@ -5,7 +5,10 @@ import { describe, expect, it, vi } from 'vitest';
 const platform = vi.hoisted(() => ({
   readAppData: vi.fn(async (path: string) =>
     path === '.app-state.json'
-      ? JSON.stringify({ deviceId: 'existing-device', preferences: { theme: 'dark' } })
+      ? JSON.stringify({
+          deviceId: 'existing-device',
+          preferences: { theme: 'dark', interfaceFont: 'system' },
+        })
       : null,
   ),
   writeAppData: vi.fn(),
@@ -24,11 +27,10 @@ vi.mock('$lib/platform', () => ({
 import { loadPreferences } from './appState';
 
 describe('Linux desktop appearance defaults', () => {
-  it('adds Linux defaults when an existing state predates the new fields', async () => {
+  it('adds the accent default and drops the removed interface-font preference', async () => {
     expect((await loadPreferences()).appearance).toEqual({
       theme: 'dark',
       followSystemAccent: true,
-      interfaceFont: 'system',
     });
   });
 });

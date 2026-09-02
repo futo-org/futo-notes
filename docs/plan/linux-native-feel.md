@@ -220,6 +220,10 @@ Rust tests for the layout parser. Spec: rewrite the three Linux lines in `docs/s
 
 ## WS4 — System font for the interface
 
+**Outcome (2026-09-02).** Dropped after review of the installed build. The interface and editor
+both retain the original Barlow styling, there is no font preference, and previously persisted
+`interfaceFont` values are ignored and removed on the next preference save.
+
 **Today.** `src/styles/theme.css:28` sets `--font-sans: 'Barlow', system-ui, ...` for the whole
 UI, and `src/features/editor/createMarkdownEditorRuntime.ts:99` hardcodes `'Barlow', system-ui,
 sans-serif` for the editor content separately. GNOME renders in Cantarell and Plasma in Noto
@@ -392,8 +396,9 @@ mtime and content). Vitest alongside the existing shortcut tests. Spec: the shor
 ## Recorded implementation decisions
 
 1. Follow the system accent by default on Linux, with a persisted opt-out.
-2. Keep the editor on Barlow; the interface alone offers System / Barlow.
+2. Keep both the interface and editor on Barlow, with no font changer.
 3. Prompt to copy an outside-vault markdown file into notes or cancel; never edit it in place or
    copy it silently.
-4. Keep the existing `FUTO Notes.desktop` filename and `futo-notes-tauri` startup class. Rename the
-   installed file only if the remaining GNOME grouping check demonstrates that it is necessary.
+4. Installed KDE testing showed a generic Alt+Tab icon because `FUTO Notes.desktop` did not match
+   the `futo-notes-tauri` Wayland app ID. Keep that visible launcher for existing pins and add a
+   hidden `futo-notes-tauri.desktop` identity alias to Debian and RPM packages.

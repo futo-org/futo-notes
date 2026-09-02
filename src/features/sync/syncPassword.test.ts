@@ -117,7 +117,6 @@ const PREFS = {
   appearance: {
     theme: 'dark' as const,
     followSystemAccent: false,
-    interfaceFont: 'barlow' as const,
   },
   language: { selectedLanguageTag: null },
   crashReporting: { enabled: true, alwaysSend: false },

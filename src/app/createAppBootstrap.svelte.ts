@@ -10,7 +10,6 @@ import {
 import { initNotes } from '$features/notes/notes.svelte';
 import { initSyncPassword } from '$features/sync/syncServiceE2ee';
 import { applySystemAccentPreference, watchSystemAccentTauri } from '$features/system/accent';
-import { applyInterfaceFontPreference } from '$features/system/interfaceFont';
 import {
   applyThemePreference,
   watchSystemThemeTauri,
@@ -60,7 +59,6 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
     disposeThemeWatch = watchSystemThemeTauri(applyCurrentTheme);
     applySystemAccentPreference(getCachedPreferences().appearance.followSystemAccent);
     disposeAccentWatch = watchSystemAccentTauri();
-    applyInterfaceFontPreference(getCachedPreferences().appearance.interfaceFont);
 
     void initNotes((label) => {
       const elapsed = performance.now();
@@ -82,7 +80,6 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
         .then(async (preferences) => {
           const themeApplication = applyThemePreference(preferences.appearance.theme);
           applySystemAccentPreference(preferences.appearance.followSystemAccent);
-          applyInterfaceFontPreference(preferences.appearance.interfaceFont);
           if (desktopLocalization.selectionRevision === initialLanguageSelectionRevision) {
             const storedLanguageTag = preferences.language.selectedLanguageTag;
             const selectedLanguageTag =

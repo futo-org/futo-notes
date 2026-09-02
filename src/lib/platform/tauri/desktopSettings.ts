@@ -10,7 +10,6 @@ export interface SystemAccent {
 export interface LinuxDesktopSettings {
   theme: 'dark' | 'light';
   accent: SystemAccent | null;
-  interfaceFont: 'systemUi' | 'sansSerif';
 }
 
 export function readLinuxDesktopSettings(): Promise<LinuxDesktopSettings> {

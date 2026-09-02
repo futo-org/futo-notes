@@ -21,23 +21,20 @@ describe('AppearanceSettingsSection', () => {
 
   function render(showLinuxDesktopOptions: boolean) {
     const onfollowaccentchange = vi.fn();
-    const oninterfacefontchange = vi.fn();
     app = mount(AppearanceSettingsSection, {
       target,
       props: {
         preference: 'auto',
         followSystemAccent: true,
-        interfaceFont: 'system',
         showLinuxDesktopOptions,
         onchange: vi.fn(),
         onfollowaccentchange,
-        oninterfacefontchange,
       },
     });
-    return { onfollowaccentchange, oninterfacefontchange };
+    return { onfollowaccentchange };
   }
 
-  it('shows the persisted Linux accent and interface-font controls', () => {
+  it('shows the persisted Linux accent control without a font changer', () => {
     const callbacks = render(true);
 
     const accent = target.querySelector(
@@ -46,18 +43,12 @@ describe('AppearanceSettingsSection', () => {
     expect(accent.textContent).toBe('Follow system accent color');
     accent.closest('button')?.click();
     expect(callbacks.onfollowaccentchange).toHaveBeenCalledOnce();
-
-    const barlow = Array.from(target.querySelectorAll('button')).find(
-      (button) => button.textContent === 'Barlow',
-    );
-    barlow?.click();
-    expect(callbacks.oninterfacefontchange).toHaveBeenCalledWith('barlow');
+    expect(target.textContent).not.toContain('Interface font');
   });
 
   it('keeps Linux-only controls out of browser and native-mobile surfaces', () => {
     render(false);
 
     expect(target.textContent).not.toContain('Follow system accent color');
-    expect(target.textContent).not.toContain('Interface font');
   });
 });

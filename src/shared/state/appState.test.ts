@@ -120,19 +120,16 @@ describe('Linux appearance preferences', () => {
     expect(getCachedPreferences().appearance).toEqual({
       theme: 'auto',
       followSystemAccent: false,
-      interfaceFont: 'barlow',
     });
   });
 
-  it('round-trips the approved accent and interface-font preferences', async () => {
+  it('round-trips the approved accent preference', async () => {
     const { getCachedPreferences, savePreferences } = await fresh();
     const preferences = getCachedPreferences();
     preferences.appearance.followSystemAccent = true;
-    preferences.appearance.interfaceFont = 'system';
 
     await savePreferences(preferences);
 
     expect(getCachedPreferences().appearance.followSystemAccent).toBe(true);
-    expect(getCachedPreferences().appearance.interfaceFont).toBe('system');
   });
 });

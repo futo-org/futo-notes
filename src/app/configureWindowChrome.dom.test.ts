@@ -53,7 +53,7 @@ describe('desktop chrome class', () => {
     expect(document.documentElement.classList.contains(DESKTOP_CHROME_CLASS)).toBe(false);
   });
 
-  it('marks Linux desktop and reserves leading controls from the parsed layout', async () => {
+  it('reserves leading Linux controls from the parsed layout', async () => {
     platform.isLinux = true;
     platform.windowControlsLayout = {
       side: 'left',
@@ -66,10 +66,7 @@ describe('desktop chrome class', () => {
         '86px',
       );
     });
-    expect(document.documentElement.classList.contains('linux-desktop')).toBe(true);
-
     dispose();
-    expect(document.documentElement.classList.contains('linux-desktop')).toBe(false);
     expect(document.documentElement.style.getPropertyValue('--linux-window-controls-width')).toBe(
       '',
     );
