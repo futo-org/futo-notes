@@ -33,7 +33,9 @@ you what is missing and prints the exact commands for anything needing root, so 
 is cheap to add.
 
 Every invocation re-establishes the environment, because `ssh host cmd` gets a non-interactive shell
-that reads no profile: nvm is sourced (node is otherwise **absent from `PATH`**), `~/.local/bin` and
+that reads no profile: the fnm environment is loaded (node is otherwise **absent from `PATH`**), and
+the exact version in `.nvmrc` is activated once the worktree is checked out. The box needs `fnm`
+installed once — `just remote-doctor` reports it as required and prints the command. `~/.local/bin` and
 `~/.cargo/bin` are prepended (plus `~/.bun/bin` — the E2EE sync test server is a bun project),
 `ANDROID_NDK_HOME` is pinned, and a repo-root `dist/` is created (M20 — `cargo build` needs it to
 exist).

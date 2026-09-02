@@ -15,6 +15,9 @@ FROM gitlab.futo.org:5050/futocore/ci/kitchensink:latest
 ENV ANDROID_HOME=/opt/android-sdk
 ENV JAVA_HOME=/opt/jdk-21
 ENV NDK_HOME=/opt/android-sdk/ndk/28.2.13676358
+ENV FNM_DIR=/root/.local/share/fnm
+# Makes the baked Node the image default, for jobs that never run `fnm use`.
+ENV PATH=$FNM_DIR/aliases/default/bin:$PATH
 
 # JDK 21
 RUN curl -sL https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.tar.gz | tar xz -C /opt && \
@@ -93,3 +96,13 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       docker-ce-cli docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
+
+# Baked so every job's `fnm use` is an offline no-op. fnm is installed rather
+# than inherited, because the base image belongs to another team. COPY rather
+# than a literal keeps .nvmrc the only place the version is written.
+COPY .nvmrc /tmp/.nvmrc
+COPY ci/install-fnm.sh /tmp/install-fnm.sh
+RUN sh /tmp/install-fnm.sh && \
+    cd /tmp && fnm install && fnm alias "$(cat /tmp/.nvmrc)" default && \
+    rm /tmp/.nvmrc /tmp/install-fnm.sh && \
+    node --version

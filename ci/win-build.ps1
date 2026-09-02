@@ -68,7 +68,6 @@ function Invoke-Step([string]$Name, [scriptblock]$Action) {
 Refresh-Path
 Add-ToPath (Join-Path $env:USERPROFILE ".cargo\bin")
 Add-ToPath "C:\Program Files\Git\cmd"
-Add-ToPath "C:\Program Files\nodejs"
 Add-ToPath "C:\Program Files (x86)\NSIS"
 Add-ToPath "C:\Program Files\NSIS"
 
@@ -91,6 +90,28 @@ Invoke-Step "Cloning repo (branch: $Branch)" {
 }
 
 Set-Location C:\build\futo-notes
+
+# .nvmrc only exists now that the repo is cloned; that is why win-install-deps
+# installs fnm but no version. One native command per step: PowerShell 5.1
+# ignores $ErrorActionPreference for native exit codes, so a failed `fnm use`
+# followed by a passing `corepack` would leave $LASTEXITCODE at 0. -Width because
+# the emitted line inlines the whole expanded PATH, and 5.1 wraps Out-String at
+# the console width by default.
+Invoke-Step "Loading the fnm environment" {
+    fnm env --shell powershell | Out-String -Width 8192 | Invoke-Expression
+}
+Invoke-Step "Activating Node from .nvmrc" { fnm use --install-if-missing }
+Invoke-Step "Enabling corepack" { corepack enable }
+Invoke-Step "Pinning pnpm" { corepack prepare pnpm@10.29.2 --activate }
+
+# Redundant with `fnm use` by design: activation here goes through
+# Invoke-Expression of piped output, which is the one step no test covers.
+$expectedNode = (Get-Content .nvmrc -Raw).Trim()
+$activeNode = ((node --version) -replace '^v', '').Trim()
+if ($activeNode -ne $expectedNode) {
+    throw "Node $expectedNode is pinned in .nvmrc but $activeNode is active. The shipped Windows build must not be produced on an unpinned Node."
+}
+Write-Host "Node $activeNode | pnpm $(pnpm --version)"
 
 Write-Host "=== Setting desktop version to $Version ==="
 node scripts\desktop-version.mjs $Version
