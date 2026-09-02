@@ -14,10 +14,11 @@ final class AppLaunchTests: XCTestCase {
         let app = makeIsolatedApplication()
         app.launch()
 
-        let create = app.buttons["New note or folder"]
+        // Quick capture is one tap: the compose nav button creates the note and
+        // opens straight into its body, so there is no menu step to go through.
+        let create = app.buttons["nav-create"]
         XCTAssertTrue(create.waitForExistence(timeout: 5))
         create.tap()
-        app.buttons["New Note"].tap()
 
         let more = app.buttons["More"]
         XCTAssertTrue(more.waitForExistence(timeout: 5))
