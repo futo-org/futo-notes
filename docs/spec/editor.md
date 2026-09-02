@@ -340,6 +340,14 @@ this file states the behaviors a human cares about.
   and column tabs stayed put when a wide table scrolled sideways. →
   table/tableControls.ts `positionTableControls`,
   tests/table-controls-position.spec.ts
+- A block widget's `toDOM` builds a complete element every time it is called,
+  from the widget's model alone — never from element references cached by an
+  earlier call. CM6 discards a block widget's DOM once it scrolls out of the
+  rendered viewport and asks the *same* widget instance for a fresh one when it
+  scrolls back, so in a note long enough to scroll a table off-screen the table
+  came back as an empty `<table>` (a hairline, with its source text still hidden
+  under the replace decoration) until the caret entered it (github#41). →
+  table/tableEditorWidget.ts `toDOM`, table/tableEditorWidget.test.ts
 - What CM6 sizes is the **line block**, not the widget element. CM6 brackets an
   inline replace widget with two `cm-widgetBuffer` elements, so a block-level
   widget between them splits the line into anonymous blocks and costs two extra
