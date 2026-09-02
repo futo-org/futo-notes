@@ -52,9 +52,56 @@ export function createFindPanel(onQueryFocus?: () => void): PanelConstructor {
       button('Close find', '×', () => closeFind(view, true)),
     );
 
+    /**
+     * How long after focusing the query a collapsed selection is still read as
+     * the engine's doing rather than the user's.
+     */
+    const SELECTION_REPAIR_MS = 400;
+
+    let cancelSelectionRepair: (() => void) | null = null;
+
+    function selectAll(): void {
+      query.setSelectionRange(0, query.value.length);
+    }
+
+    /**
+     * Hold the seeded query selected across the focus commit.
+     *
+     * WebKitGTK — the desktop webview — commits a focus move away from the
+     * editor body a frame AFTER the `focus()` call, and commits it by dropping
+     * the caret at the end of the input, wiping the selection made in the same
+     * task. It lands after every animation frame that ran in that frame, so a
+     * one-shot re-select loses to it too; Chromium never does it at all, which
+     * is why only the real app showed the bug. So watch for the collapse
+     * instead of guessing when it arrives, briefly, and stand down the moment
+     * the field is the user's (a key, a pointer, or a query they have edited) —
+     * their caret always wins.
+     */
+    function repairSelection(seeded: string): void {
+      cancelSelectionRepair?.();
+      let timer = 0;
+      const stop = (): void => {
+        clearTimeout(timer);
+        document.removeEventListener('selectionchange', onSelectionChange);
+        query.removeEventListener('keydown', stop);
+        query.removeEventListener('pointerdown', stop);
+        if (cancelSelectionRepair === stop) cancelSelectionRepair = null;
+      };
+      const onSelectionChange = (): void => {
+        if (document.activeElement !== query || query.value !== seeded) stop();
+        else if (query.selectionStart !== 0 || query.selectionEnd !== seeded.length) selectAll();
+      };
+      timer = window.setTimeout(stop, SELECTION_REPAIR_MS);
+      cancelSelectionRepair = stop;
+      document.addEventListener('selectionchange', onSelectionChange);
+      query.addEventListener('keydown', stop);
+      query.addEventListener('pointerdown', stop);
+    }
+
     function focusQuery(): void {
       query.focus();
-      query.select();
+      selectAll();
+      repairSelection(query.value);
     }
 
     function render(): void {
@@ -72,6 +119,9 @@ export function createFindPanel(onQueryFocus?: () => void): PanelConstructor {
       dom,
       top: false,
       mount: focusQuery,
+      destroy() {
+        cancelSelectionRepair?.();
+      },
       update(update: ViewUpdate) {
         render();
         if (

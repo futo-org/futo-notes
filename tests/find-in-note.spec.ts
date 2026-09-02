@@ -152,6 +152,52 @@ test.describe('Find in note', () => {
     await expect(bubble).toHaveCount(1);
   });
 
+  // The seeded query must arrive SELECTED, so the first keystroke replaces it.
+  // Desktop QA found it merely focused with the caret at the end (WebKitGTK
+  // collapses the selection when it commits the focus move a frame later), so
+  // typing appended to the seed. Chromium never collapses it — this locks the
+  // contract; findExtension.test.ts covers the collapse itself.
+  // → docs/spec/editor.md "Find in note"
+  test('selects the seeded query on open, on reopen, and on Ctrl+F while open', async ({
+    page,
+  }) => {
+    await openNewNote(page);
+    await setBody(page, 'cat dog CAT concatenate');
+    const query = page.locator('.cm-find-query');
+    const selection = (): Promise<[number | null, number | null, string]> =>
+      query.evaluate((input: HTMLInputElement) => [
+        input.selectionStart,
+        input.selectionEnd,
+        input.value,
+      ]);
+
+    // Seeded from the editor's selection.
+    await page.locator('.cm-content').click();
+    await page.keyboard.press('Control+Home');
+    for (let index = 0; index < 3; index += 1) await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Control+f');
+    await expect(query).toBeFocused();
+    await expect.poll(selection).toEqual([0, 3, 'cat']);
+
+    // Ctrl+F with the bar already open refocuses AND reselects.
+    await query.evaluate((input: HTMLInputElement) => input.setSelectionRange(3, 3));
+    await page.keyboard.press('Control+f');
+    await expect(query).toBeFocused();
+    await expect.poll(selection).toEqual([0, 3, 'cat']);
+
+    // Seeded from the previous query, with no editor selection.
+    await query.press('Escape');
+    await expect(page.locator('.cm-find-panel')).toHaveCount(0);
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.press('Control+f');
+    await expect(query).toBeFocused();
+    await expect.poll(selection).toEqual([0, 3, 'cat']);
+
+    // And the first keystroke replaces the seed rather than appending to it.
+    await page.keyboard.type('dog');
+    await expect(query).toHaveValue('dog');
+  });
+
   test('does nothing on the Home tab', async ({ page }) => {
     await page.goto('/#/');
     await page.waitForLoadState('domcontentloaded');

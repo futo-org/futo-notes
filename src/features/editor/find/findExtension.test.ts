@@ -193,3 +193,92 @@ describe('find extension', () => {
     expect(container?.querySelector('.cm-find-match')).toBeNull();
   });
 });
+
+// Regression: the desktop webview (WebKitGTK) commits a focus move away from
+// the editor body a frame after `focus()`, and commits it by dropping the
+// caret at the END of the query — so the bar opened with the seeded query
+// merely focused, not selected, and the next keystroke appended to it
+// instead of replacing it. Reproduced 3/3 on the real app; Chromium and
+// jsdom never collapse it, so the collapse is simulated here.
+// → docs/spec/editor.md "Find in note"
+function collapseSelectionToEnd(input: HTMLInputElement): void {
+  input.setSelectionRange(input.value.length, input.value.length);
+  document.dispatchEvent(new Event('selectionchange'));
+}
+
+describe('find panel — seeded query selection', () => {
+  it('selects the query the editor selection seeded', () => {
+    const editor = setup('cat dog CAT', EditorSelection.single(0, 3));
+
+    openFind(editor);
+
+    const input = container!.querySelector<HTMLInputElement>('.cm-find-query')!;
+    expect(input.value).toBe('cat');
+    expect(document.activeElement).toBe(input);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 3]);
+  });
+
+  it('puts the selection back when the engine collapses it to the end', () => {
+    const editor = setup('cat dog CAT', EditorSelection.single(0, 3));
+    openFind(editor);
+    const input = container!.querySelector<HTMLInputElement>('.cm-find-query')!;
+
+    collapseSelectionToEnd(input);
+
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 3]);
+  });
+
+  it('reselects the previous query on a reopen, collapse and all', () => {
+    const editor = setup('cat dog CAT', EditorSelection.cursor(0));
+    openFind(editor);
+    const input = container!.querySelector<HTMLInputElement>('.cm-find-query')!;
+    input.value = 'cat';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    closeFind(editor);
+
+    openFind(editor);
+
+    const reopened = container!.querySelector<HTMLInputElement>('.cm-find-query')!;
+    expect(reopened.value).toBe('cat');
+    expect([reopened.selectionStart, reopened.selectionEnd]).toEqual([0, 3]);
+    collapseSelectionToEnd(reopened);
+    expect([reopened.selectionStart, reopened.selectionEnd]).toEqual([0, 3]);
+  });
+
+  it('reselects the query when find is reopened while already open', () => {
+    const editor = setup('cat dog CAT', EditorSelection.single(0, 3));
+    openFind(editor);
+    const input = container!.querySelector<HTMLInputElement>('.cm-find-query')!;
+    input.setSelectionRange(3, 3);
+
+    openFind(editor);
+
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 3]);
+    collapseSelectionToEnd(input);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 3]);
+  });
+
+  it("leaves the user's own caret alone once they touch the field", () => {
+    const editor = setup('cat dog CAT', EditorSelection.single(0, 3));
+    openFind(editor);
+    const input = container!.querySelector<HTMLInputElement>('.cm-find-query')!;
+
+    input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    collapseSelectionToEnd(input);
+
+    expect([input.selectionStart, input.selectionEnd]).toEqual([3, 3]);
+  });
+
+  it('never reselects a query the user has edited', () => {
+    const editor = setup('cat dog CAT', EditorSelection.single(0, 3));
+    openFind(editor);
+    const input = container!.querySelector<HTMLInputElement>('.cm-find-query')!;
+
+    input.value = 'cats';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    input.setSelectionRange(4, 4);
+    document.dispatchEvent(new Event('selectionchange'));
+
+    expect([input.selectionStart, input.selectionEnd]).toEqual([4, 4]);
+  });
+});
