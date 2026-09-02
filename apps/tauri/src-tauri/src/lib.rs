@@ -14,6 +14,8 @@ mod filesystem_watcher;
 mod image_commands;
 mod instance_journal;
 mod license;
+#[cfg(test)]
+mod linux_packaging;
 mod local_notes;
 mod panic_reporter;
 mod platform_integration;

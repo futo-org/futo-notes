@@ -153,6 +153,11 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 - The native window title is the active note title followed by "— FUTO Notes";
   Home falls back to the app name. This is the title shown by the compositor in
   Alt+Tab and overview surfaces. → TabsStrip.svelte, windowControls.ts
+- Debian and RPM packages install a hidden `futo-notes-tauri.desktop` identity
+  alias matching the native Wayland app ID, so compositors resolve the FUTO
+  Notes icon in Alt+Tab. The visible `FUTO Notes.desktop` launcher remains in
+  place for existing taskbar pins and Markdown associations. →
+  linux/futo-notes-tauri.desktop, tauri.conf.json, linux_packaging.rs
 - The window is not shown until the shell has painted: it is created hidden and
   revealed on first render, so launching never flashes the webview's white.
   Rust reveals it regardless after a timeout, so a frontend that never paints
