@@ -39,13 +39,27 @@ variables:
   # a new digest through project registry repository 163.
   IMAGE_ANDROID: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android@sha256:afed1a7a22a312e1948a7f3b464b138b516dd1149aa3bd8d0aa69827496b7f42
   #
-  # quay garbage-collects untagged manifests, so a digest that only `:stable`
-  # pointed at stops resolving the moment that tag moves — the first one pinned
-  # here was gone from the registry within days. Pin a digest an exact version
-  # tag also holds (this one is v1.43.2, v1.43 and v1 as well as latest), which
-  # survives the next rebuild. Both jobs using it are manual, so no MR pipeline
-  # would have caught the dead digest.
-  IMAGE_BUILDAH: quay.io/buildah/stable@sha256:8eca9c2b0adc0ac729980c68d84a2449e2199e303091a60957c11b792ddd49bf
+  # quay garbage-collects manifests no tag points at, and this pin is EXPECTED
+  # TO DIE PERIODICALLY. Picking a digest that an exact version tag also held
+  # was tried and did not help: sha256:8eca9c2b… was shared by v1.43.2, v1.43,
+  # v1 and latest when it was pinned, and 12 days later it 404'd
+  # ("manifest unknown") because upstream had rebuilt and moved every one of
+  # those tags off it. There is no digest here that stays resolvable forever.
+  #
+  # So: when `build:ci-android-image` or `build:ci-test-image` fails to pull
+  # with "manifest unknown", the pin is dead — re-resolve and update this line
+  # (do NOT switch it back to a floating tag; the point of the pin is that a
+  # registry `:latest` cannot swap the toolchain under a pipeline):
+  #   skopeo inspect --raw docker://quay.io/buildah/stable:v1.43.2 | sha256sum
+  # or read the `Docker-Content-Digest` response header from
+  #   GET https://quay.io/v2/buildah/stable/manifests/v1.43.2
+  # (Accept: application/vnd.oci.image.index.v1+json). Both must agree, and the
+  # raw manifest must be an OCI index containing a linux/amd64 entry — the
+  # runners are amd64 and the index lists ppc64le first.
+  #
+  # Both jobs using this are `when: manual` and web-pipeline only, so no MR
+  # pipeline pulls the image; a dead pin surfaces only when someone rebuilds.
+  IMAGE_BUILDAH: quay.io/buildah/stable@sha256:83045a38da942948cbe8ce53fcf32d76b2d9bfad33bc4586d804522030efc64f
 
 # Pinned by digest, not `:latest`, so a manual rebuild cannot silently change
 # the MR environment. Resolve deliberate updates through project registry
