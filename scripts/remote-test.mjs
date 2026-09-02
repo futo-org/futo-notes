@@ -36,6 +36,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // The justfile recipe parser already exists (the agent-docs gate validates
 // every `just <recipe>` reference with it); a second copy here would be drift.
 import { parseJustRecipes } from './check-agent-docs.mjs';
+import { PINNED_SERVER_VERSION } from './lib/sync-server.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -240,12 +241,13 @@ export function ndkVersionFromGradle(gradleText) {
  */
 export function remoteEnvPreamble({ ndkVersion }) {
   return [
-    // .bun/bin is here because the E2EE sync test server is a bun project —
-    // tests/lib/sync-test-server.mjs shells out to `bun src/index.ts hash`, and
-    // without it the cross-platform suite dies AFTER booting both clients.
+    // No .bun/bin any more: the sync test server used to be a bun project, and
+    // its absence from a non-interactive PATH killed the cross-platform suite
+    // after both clients were already up. It is a pinned Go binary the harness
+    // downloads now (scripts/lib/sync-server.mjs), so nothing here needs bun.
     // .local/share/fnm and linuxbrew cover fnm's two install layouts; this must
     // precede the `fnm env` below, which needs fnm itself on PATH.
-    'export PATH="$HOME/.local/bin:$HOME/.local/share/fnm:/home/linuxbrew/.linuxbrew/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"',
+    'export PATH="$HOME/.local/bin:$HOME/.local/share/fnm:/home/linuxbrew/.linuxbrew/bin:$HOME/.cargo/bin:$PATH"',
     // A missing fnm is not fatal here; it fails at `fnm use` in the runner script,
     // which is under `set -e`. remote-doctor lists fnm as required and prints the
     // install command, because the box needs it once.
@@ -577,7 +579,6 @@ have cargo       'cargo'        'cargo --version'
 have rustup      'rustup'       'rustup --version'
 have just        'just'         'just --version'
 have git         'git'          'git --version'
-have bun         'bun (sync server)' 'bun --version'
 have rsync       'rsync'        'rsync --version'
 if [ -n "\${JAVA_HOME:-}" ]; then
   emit 'gradle JDK' ok "$("$JAVA_HOME/bin/java" -version 2>&1 | head -1) — $JAVA_HOME"
@@ -622,20 +623,18 @@ else
   emit '/dev/kvm' missing 'no /dev/kvm — Android emulators will be software-rendered'
 fi
 
+SYNC_SERVER_BIN="\${XDG_CACHE_HOME:-$HOME/.cache}/futo-notes/sync-server/${PINNED_SERVER_VERSION}/futo-notes-server"
+if [ -x "$SYNC_SERVER_BIN" ]; then
+  emit 'sync server' ok "${PINNED_SERVER_VERSION} cached at $SYNC_SERVER_BIN"
+else
+  emit 'sync server' warn "${PINNED_SERVER_VERSION} not cached — the first sync run downloads it from gitlab.futo.org"
+fi
+
 if [ -x "$ANDROID_HOME/emulator/emulator" ]; then
   AVDS="$("$ANDROID_HOME/emulator/emulator" -list-avds 2>/dev/null | tr '\\n' ' ')"
   emit 'android emulator' ok "AVDs: $AVDS"
 else
   emit 'android emulator' missing "$ANDROID_HOME/emulator/emulator"
-fi
-
-PG_STATUS="$(docker inspect -f '{{.State.Status}} {{if .State.Health}}({{.State.Health.Status}}){{end}}' futo-notes-postgres 2>/dev/null)"
-if [ -z "$PG_STATUS" ]; then
-  emit 'postgres container' missing 'no container named futo-notes-postgres'
-elif docker exec futo-notes-postgres pg_isready >/dev/null 2>&1; then
-  emit 'postgres container' ok "futo-notes-postgres $PG_STATUS, pg_isready OK"
-else
-  emit 'postgres container' warn "futo-notes-postgres $PG_STATUS but pg_isready failed"
 fi
 
 if pkg-config --modversion webkit2gtk-4.1 >/dev/null 2>&1; then
@@ -699,12 +698,11 @@ const SUDO_HINTS = {
   'gradle JDK': 'sudo dnf install -y java-21-openjdk-devel   # Gradle 8.14 cannot run on Java 25',
   adb: 'sudo dnf install -y android-tools',
   ffmpeg: 'sudo dnf install -y ffmpeg',
+  'sync server':
+    'node scripts/lib/sync-server.mjs path   # pre-downloads the pinned release; the suite does it anyway',
   docker: 'sudo dnf install -y docker && sudo systemctl enable --now docker',
-  'postgres container':
-    "docker start futo-notes-postgres  # or recreate it per futo-notes-server's README",
   'playwright browsers':
     'pnpm exec playwright install chromium webkit   # NOT --with-deps: that needs root',
-  'bun (sync server)': 'curl -fsSL https://bun.sh/install | bash   # the sync test server is bun',
   fnm: "curl -fsSL https://fnm.vercel.app/install | bash   # supplies .nvmrc's exact Node",
 };
 

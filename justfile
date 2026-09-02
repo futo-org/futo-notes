@@ -225,7 +225,7 @@ test-ios-stories:
 
 # ── Parallel QA isolation (multiple worktrees, one machine) ──
 # Worktree path → slot → pooled devices (futo-qa-0..6 per platform) + a
-# per-slot sync server with its own Postgres database. Your personal
+# per-slot sync server with its own SQLite database. Your personal
 # simulators/AVDs are never touched. See scripts/qa.mjs and the /verify
 # skill's "Isolation model" section.
 
@@ -269,11 +269,13 @@ qa-clone-target dest:
   cp -Rc target '{{dest}}/target'
   echo "Cloned target/ → {{dest}}/target (APFS copy-on-write)"
 
-# Start this worktree's isolated sync server (own port + own Postgres DB).
+# Start this worktree's isolated sync server (own port + own SQLite DB). Runs
+# the futo-notes-server release pinned in scripts/sync-server-pin.json,
+# downloaded on first use — no checkout, no database server, no Docker.
 qa-server:
   @node scripts/qa.mjs server-start
 
-# Stop it (add --drop to also drop its database and blobs).
+# Stop it (add --drop to also delete its database and blobs).
 qa-server-stop *flags:
   @node scripts/qa.mjs server-stop {{flags}}
 
@@ -485,7 +487,7 @@ test-rust-full:
 
 # Prints the exact commands a human with sudo must run; start here when adding
 # a second Linux box.
-# Report what is present/missing on the remote (node, cargo, NDK, KVM, Postgres…).
+# Report what is present/missing on the remote (node, cargo, NDK, KVM…).
 remote-doctor *flags:
   node scripts/remote-test.mjs --doctor {{flags}}
 
@@ -507,10 +509,11 @@ remote-rust *flags:
   node scripts/remote-test.mjs {{flags}} test-rust-full
 
 # Sync state and files are engine-independent; rendering is not (see the doc).
-# Ports and the Postgres database are slot-derived, so different worktrees don't
-# collide; two runs in the SAME remote worktree share a slot, which the worktree
-# lock prevents (and the harness now refuses loudly instead of adopting).
-# Cross-platform E2EE sync against the box's own Postgres + server checkout.
+# Ports are slot-derived and every server gets its own SQLite database, so
+# different worktrees don't collide; two runs in the SAME remote worktree share a
+# slot, which the worktree lock prevents (and the harness refuses loudly instead
+# of adopting).
+# Cross-platform E2EE sync against the pinned sync-server release.
 remote-sync *flags:
   node scripts/remote-test.mjs {{flags}} test-cross-platform
 
@@ -677,8 +680,8 @@ check: toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
 
-# Cross-platform sync needs the server repo at ~/Developer/futo-notes-server
-# (+ Postgres); the full Playwright run needs installed browsers. Budget
+# Cross-platform sync downloads the pinned server release on first use; the
+# full Playwright run needs installed browsers. Budget
 # 30-60 min. What it still can't see: native-shell runtime behavior (device
 # QA) and Windows/WebView2 (scripts/win-vm/).
 # --retries=1: the local 30s test timeout (CI gets 90s) makes a ~250-test run

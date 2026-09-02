@@ -42,7 +42,8 @@ Their nested manuals own build, device, release, and test variants. Missing
 - `docs/spec/`: behavioral truth; `tests/` and `markdown-spec/`: fixture/oracle systems.
 
 Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
-at `~/Developer/futo-notes-server` receives only client-encrypted opaque blobs.
+(its own Go repo) receives only client-encrypted opaque blobs; sync tests download the release
+pinned in `scripts/sync-server-pin.json`, so no checkout of it is needed here.
 
 ## 4. Where logic lives (decision procedure)
 

@@ -82,11 +82,16 @@ AGENTS.md §9; the driving playbook is the `/verify` skill's `references/desktop
 
 ## 5. Sync server (for sync tests only)
 
-The E2EE sync server is a **separate repo**:
-<https://gitlab.futo.org/futo-notes/futo-notes-server>. Clone it to
-`~/Developer/futo-notes-server` (or set `FUTO_NOTES_E2EE_SERVER_REPO` to wherever
-you put it). It's only needed for `just test-cross-platform`; everything else
-runs without it.
+Nothing to set up. The E2EE sync server is a **separate repo**
+(<https://gitlab.futo.org/futo-notes/futo-notes-server>) that publishes a static
+Go binary per release; `just test-cross-platform` and `just qa-server` download
+the release pinned in `scripts/sync-server-pin.json` on first use (~15 MB,
+cached in `~/.cache/futo-notes`) and give each server its own SQLite database.
+No checkout, no Postgres, no Docker.
+
+To run an unreleased server change instead, point
+`FUTO_NOTES_E2EE_SERVER_REPO` at your checkout — it is built with `go build` —
+or `FUTO_NOTES_E2EE_SERVER_BIN` at a binary you already have.
 
 ## 6. Where to go next
 

@@ -1,0 +1,27 @@
+{
+  "comment": "The futo-notes-server release every sync harness runs against. Bump `version` and the five sha256s together (scripts/lib/sync-server.mjs --refresh prints the new block). Checksums are pinned here, not fetched, so a rebuilt or tampered asset fails the download instead of silently changing what the suite tested.",
+  "version": "v0.7.0",
+  "packageUrl": "https://gitlab.futo.org/api/v4/projects/547/packages/generic/futo-notes-server",
+  "binaries": {
+    "linux-x64": {
+      "asset": "futo-notes-server_v0.7.0_linux_amd64",
+      "sha256": "2ceb9922984af3976218d4eccd14e552a9ba4afa1d176d6daed6a6f9389dd629"
+    },
+    "linux-arm64": {
+      "asset": "futo-notes-server_v0.7.0_linux_arm64",
+      "sha256": "0f071102258448879abfcea8251534f1517d824360eb35b4273c8d7ed30aedf9"
+    },
+    "darwin-x64": {
+      "asset": "futo-notes-server_v0.7.0_darwin_amd64",
+      "sha256": "8b9a1473b7f7affb248d9c6e4b2201e41377e9e9fd7e197e630d06d66f7722b3"
+    },
+    "darwin-arm64": {
+      "asset": "futo-notes-server_v0.7.0_darwin_arm64",
+      "sha256": "4ebd47fa27d8bf1dc6b35acdf5d737989067b2ca6f83c976c928c7412438423a"
+    },
+    "win32-x64": {
+      "asset": "futo-notes-server_v0.7.0_windows_amd64.exe",
+      "sha256": "0ed7e87607efad1fc1b7176c7699c19b97ea71b1856be503ebdf24ae1da37bab"
+    }
+  }
+}

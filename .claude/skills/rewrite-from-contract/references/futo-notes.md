@@ -18,19 +18,20 @@ Pick the highest-fidelity black-box suites that exercise the scope from outside:
 
 ## Isolated real server (never :3005 demo, never elitedesk)
 
-Preferred: the repo's own per-worktree isolation — `just qa-server` (own port + own Postgres DB
+Preferred: the repo's own per-worktree isolation — `just qa-server` (own port + own SQLite DB
 for this worktree; `just qa-server-stop --drop` to tear down).
 
-Manual alternative (what the sync rewrite used), from `~/Developer/futo-notes-server`:
+Manual alternative, for a suite that needs `AUTH_MODE=dev` rather than the password mode
+`just qa-server` uses. `scripts/lib/sync-server.mjs path` prints the pinned server binary,
+downloading it on first use:
 
-<!-- src/index.ts below is a path in that separate futo-notes-server repo, not this one. -->
 <!-- check-agent-docs: ignore-next-block -->
 ```sh
-docker compose up -d postgres
-DATABASE_URL=postgres://futo_notes:futo_notes@localhost:5433/futo_notes bun run migrate
-AUTH_MODE=dev PORT=3155 BLOB_DIR=/tmp/futo-notes-rewrite-acceptance \
-DATABASE_URL=postgres://futo_notes:futo_notes@localhost:5433/futo_notes \
-BLOB_GC_ENABLED=false bun src/index.ts
+mkdir -p /tmp/futo-notes-rewrite-acceptance/blobs
+cd /tmp/futo-notes-rewrite-acceptance
+AUTH_MODE=dev PORT=3155 BLOB_DIR=/tmp/futo-notes-rewrite-acceptance/blobs \
+DATABASE_URL=sqlite:/tmp/futo-notes-rewrite-acceptance/notes.db \
+BLOB_GC_ENABLED=false "$(node ~/Developer/futo-notes/scripts/lib/sync-server.mjs path)"
 ```
 
 Then in the client worktree:

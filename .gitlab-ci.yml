@@ -280,26 +280,27 @@ collect-secrets-from-op:
       echo "Building desktop version $VERSION"
       node "$CI_PROJECT_DIR/scripts/desktop-version.mjs" "$VERSION"
 
-# Clone the E2EE sync server (separate repo, public) and install its deps.
-# tests/lib/sync-test-server.mjs reads FUTO_NOTES_E2EE_SERVER_REPO to locate it.
-# The server migrated to Bun (no pnpm-lock.yaml), so it installs with `bun
-# install` and the harness boots it via `bun src/index.ts`. The kitchensink
-# image has no bun, so install it and put it on PATH for the rest of the job.
+# Fetch the E2EE sync server (separate repo, public). It is a Go project that
+# publishes a static binary per release, so this downloads the release pinned in
+# scripts/sync-server-pin.json — no checkout, no toolchain, no database server,
+# and every job in the pipeline runs the exact server the pin names.
+# scripts/lib/sync-server.mjs owns the resolution and verifies the sha256; the
+# jobs below read the server through $FUTO_NOTES_E2EE_SERVER_BIN.
+#
+# It used to clone the repo and `bun install` it. That broke twice over when the
+# server was rewritten in Go: the harness's `bun src/index.ts` no longer existed,
+# AND `bun install` in a directory with no package.json walks UP to the client's
+# own package.json and overwrites pnpm's node_modules — which is why the Android
+# leg failed with "TS2307: Cannot find module '@codemirror/autocomplete'".
 .setup-futo-notes-server:
   script:
     - |
-      if ! command -v bun >/dev/null 2>&1; then
-        curl -fsSL https://bun.sh/install | bash
-      fi
-      export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
-      export PATH="$BUN_INSTALL/bin:$PATH"
-      bun --version
-      SERVER_DIR="$CI_PROJECT_DIR/.futo-notes-server"
-      git clone --depth 1 \
-        https://gitlab.futo.org/futo-notes/futo-notes-server.git \
-        "$SERVER_DIR"
-      (cd "$SERVER_DIR" && bun install)
-      export FUTO_NOTES_E2EE_SERVER_REPO="$SERVER_DIR"
+      FUTO_NOTES_E2EE_SERVER_BIN="$(node "$CI_PROJECT_DIR/scripts/lib/sync-server.mjs" path)"
+      export FUTO_NOTES_E2EE_SERVER_BIN
+      # An empty or unusable path must stop the job here, not surface later as
+      # a server that never became healthy (M11).
+      test -x "$FUTO_NOTES_E2EE_SERVER_BIN" || { echo "sync server binary not resolved" >&2; exit 1; }
+      echo "sync server: $FUTO_NOTES_E2EE_SERVER_BIN ($(node "$CI_PROJECT_DIR/scripts/lib/sync-server.mjs" version))"
 
 .setup-playwright:
   script:
@@ -916,12 +917,6 @@ test:cross-platform-sync:
   # Pin to the fast office runner — see build:android-native.
   tags:
     - dind_fast
-  services:
-    # Digest-pinned so if-not-present can never serve a stale postgres; the
-    # unpinned :15 tag was re-pulled from Docker Hub on every run.
-    - name: postgres:15@sha256:8b2bad884a8156e63d942305d0c547baa41f81953c93dbfc9e6cfe6f90bb8277
-      alias: postgres
-      pull_policy: if-not-present
   variables:
     # Nothing in this job reads git history (the changed-file classifier runs
     # in the `test` job); a full fetch cost ~70s of the job wall.
@@ -930,11 +925,6 @@ test:cross-platform-sync:
     # Source-only MRs consume it without spending ~90s recompressing target/;
     # tags and lockfile changes refresh it in the rules below.
     CARGO_CACHE_POLICY: pull
-    POSTGRES_DB: futo_notes
-    POSTGRES_USER: futo_notes
-    POSTGRES_PASSWORD: futo_notes
-    FUTO_NOTES_E2EE_DATABASE_URL: postgres://futo_notes:futo_notes@postgres:5432/futo_notes
-    PGPASSWORD: futo_notes
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-sync, cache]
@@ -943,23 +933,23 @@ test:cross-platform-sync:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - |
-      if command -v Xvfb >/dev/null 2>&1 && command -v psql >/dev/null 2>&1; then
-        echo "Xvfb and PostgreSQL client already present in the image"
+      if command -v Xvfb >/dev/null 2>&1; then
+        echo "Xvfb already present in the image"
       else
-        DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb postgresql-client
+        DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
       fi
     - !reference [.setup-futo-notes-server, script]
     # Rust server-backed integration suite (futo-notes-sync orchestrator
     # against a REAL server — e.g. the disconnect→reconnect conflict-spam
-    # regressions). Dev-mode server instance on its own database so it can't
-    # interfere with the password-mode server the cross-platform run boots.
-    - psql -h postgres -U futo_notes -d postgres -c 'CREATE DATABASE futo_notes_rust_it'
-    - export PATH="${BUN_INSTALL:-$HOME/.bun}/bin:$PATH"
+    # regressions). Dev-mode instance with its own SQLite database and blob
+    # directory, so it cannot interfere with the password-mode servers the
+    # cross-platform run boots per scenario.
+    - mkdir -p /tmp/rust-it/blobs
     - >-
-      (cd "$CI_PROJECT_DIR/.futo-notes-server" &&
-      AUTH_MODE=dev PORT=3009 BLOB_DIR=/tmp/rust-it-blobs
-      DATABASE_URL=postgres://futo_notes:futo_notes@postgres:5432/futo_notes_rust_it
-      bun src/index.ts &> /tmp/rust-it-server.log &)
+      (cd /tmp/rust-it &&
+      AUTH_MODE=dev PORT=3009 BLOB_DIR=/tmp/rust-it/blobs
+      DATABASE_URL=sqlite:/tmp/rust-it/notes.db
+      "$FUTO_NOTES_E2EE_SERVER_BIN" &> /tmp/rust-it-server.log &)
     - for i in $(seq 1 30); do curl -sf http://127.0.0.1:3009/health && break; sleep 1; done
     - >-
       FUTO_TEST_SERVER=http://127.0.0.1:3009
@@ -1018,6 +1008,10 @@ test:cross-platform-sync:
         - src/features/sync/sync*
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
+        # Which server the suite runs against, and how it is resolved. A pin
+        # bump changes what every sync job proves, so it must re-run them.
+        - scripts/sync-server-pin.json
+        - scripts/lib/sync-server.mjs
         - .gitlab-ci.yml
       variables:
         SYNC_SCENARIO_FLAGS: --skip-slow
@@ -1068,10 +1062,6 @@ test:cross-platform-sync:android:
   # Share the desktop suite's exclusion: both run Tauri clients on the one
   # pinned runner, and overlapping starves timing-sensitive scenarios (M15).
   resource_group: cross-platform-sync
-  services:
-    - name: postgres:15@sha256:8b2bad884a8156e63d942305d0c547baa41f81953c93dbfc9e6cfe6f90bb8277
-      alias: postgres
-      pull_policy: if-not-present
   variables:
     GIT_DEPTH: "20"
     # Only build:android-native writes the native archive; this job reads the
@@ -1082,11 +1072,6 @@ test:cross-platform-sync:android:
     JAVA_HOME: /opt/jdk-21
     # The AVD baked into ci/android.Dockerfile.
     ANDROID_CI_AVD: ci
-    POSTGRES_DB: futo_notes
-    POSTGRES_USER: futo_notes
-    POSTGRES_PASSWORD: futo_notes
-    FUTO_NOTES_E2EE_DATABASE_URL: postgres://futo_notes:futo_notes@postgres:5432/futo_notes
-    PGPASSWORD: futo_notes
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-sync, cache]
@@ -1095,15 +1080,13 @@ test:cross-platform-sync:android:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     # xvfb + WebKitGTK are baked into the Android image's desktop layer; the
-    # Mesa software-GL drivers and the psql client used by the harness server
-    # helper are not.
+    # Mesa software-GL drivers are not.
     - |
-      if command -v psql >/dev/null 2>&1 && dpkg -s libgl1-mesa-dri >/dev/null 2>&1; then
-        echo "psql and Mesa DRI drivers already present in the image"
+      if dpkg -s libgl1-mesa-dri >/dev/null 2>&1; then
+        echo "Mesa DRI drivers already present in the image"
       else
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-          postgresql-client libgl1-mesa-dri
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libgl1-mesa-dri
       fi
     - !reference [.setup-futo-notes-server, script]
     # Boots the emulator, installs the APK, runs the harness with
@@ -1136,6 +1119,8 @@ test:cross-platform-sync:android:
         - scripts/build-rust-android.sh
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
+        - scripts/sync-server-pin.json
+        - scripts/lib/sync-server.mjs
         - scripts/ci-android-emulator.sh
         - scripts/ci-android-sync-leg.sh
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -1573,6 +1558,8 @@ build:android-native:
         - scripts/ci-android-sync-leg.sh
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
+        - scripts/sync-server-pin.json
+        - scripts/lib/sync-server.mjs
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-android-changes
       variables:

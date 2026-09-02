@@ -76,8 +76,8 @@ module, so a plain `pnpm run dev` or `playwright test` already lands on
 | Web Vite (per worktree) | 5250–5299 | `just ports`; config-derived, no flags needed |
 | MCP bridge (desktop) | 9223–9322 | loopback-only; per-worktree base (`just ports`), scans up; discover after launch |
 | Android CDP forward | 9330–9379 | `just cdp-forward` prints `export CDP_PORT=…` |
-| Sync server | 3100–3149 + own Postgres DB | `just qa-server` (see sync section) |
-| Cross-platform sync harness | 21000–25999, a band of 100 per worktree, + own Postgres DB (`futo_notes_xplat_s<slot>`) | `pnpm run test:cross-platform`; it allocates from its own band and refuses a port someone else holds rather than adopting it |
+| Sync server | 3100–3149 + own SQLite DB | `just qa-server` (see sync section) |
+| Cross-platform sync harness | 21000–25999, a band of 100 per worktree; each server gets its own SQLite DB in a temp dir | `pnpm run test:cross-platform`; it allocates from its own band and refuses a port someone else holds rather than adopting it |
 | iOS simulator / Android AVD | pool `futo-qa-0..6` per platform | `just qa-claim` prints `export SIM=…` / `export ANDROID_SERIAL=…` |
 | Windows qemu VM | singleton | one session at a time |
 
@@ -252,23 +252,25 @@ they break most often.
 
 ### Features that need a sync server
 
-`just qa-server` starts **this worktree's isolated server**: a bun process on
-port `3100 + slot` with its **own Postgres database** (`futo_notes_qa_s<slot>`)
-and blob dir. The per-slot database matters: test tooling TRUNCATEs its
-tables, so parallel sessions sharing one database would wipe each other
-mid-run. Password: `testing123`. Stop with `just qa-server-stop` (`--drop`
-also drops the database).
+`just qa-server` starts **this worktree's isolated server**: the pinned
+futo-notes-server release on port `3100 + slot`, with its **own SQLite database
+and blob dir** under the slot's state directory. Nothing is shared between
+worktrees, so parallel sessions cannot disturb each other. Password:
+`testing123`. Stop with `just qa-server-stop` (`--drop` also deletes that
+slot's database and blobs).
 
-Prereqs: the sibling server repo (set `FUTO_NOTES_E2EE_SERVER_REPO` when it's
-not at `~/Developer/futo-notes-server`) + any reachable Postgres — the
-recipe tries the repo's `docker compose up -d postgres` itself; a native
-Postgres works too via `FUTO_NOTES_QA_PG=postgres://user:pass@localhost:5432`.
+Prereqs: none. The binary is downloaded on first use from the server project's
+package registry (~15 MB, cached in `~/.cache/futo-notes`, sha256 checked
+against `scripts/sync-server-pin.json`) — no checkout, no Postgres, no Docker.
+To run your own server build instead, set `FUTO_NOTES_E2EE_SERVER_REPO` to a
+checkout (built with `go build`) or `FUTO_NOTES_E2EE_SERVER_BIN` to a binary.
 
 - **Client sync-stack changes**: prefer `just test-cross-platform` — it boots
   two real Tauri instances plus a fresh server per scenario by itself.
-- **No Docker/Postgres available** (true of some QA machines): record sync
-  happy-path stories as **Blocked**, not failed — the deeper sync logic is
-  already covered by cross-platform + server-side suites.
+- **No network to reach the package registry** (an offline QA machine with a
+  cold `~/.cache/futo-notes`): record sync happy-path stories as **Blocked**,
+  not failed — the deeper sync logic is already covered by cross-platform +
+  server-side suites.
 - Reaching the server: desktop/iOS-simulator use `http://127.0.0.1:<port>`;
   the **Android emulator needs `http://10.0.2.2:<port>`**; physical devices
   need the machine's LAN IP.

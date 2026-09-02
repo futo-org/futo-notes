@@ -1,47 +1,30 @@
 /**
  * Sync test server launcher.
  *
- * Starts the E2EE futo-notes-server process with isolated blob storage.
- * Used by cross-platform sync tests to get a fresh server per scenario.
+ * Starts the E2EE futo-notes-server process with isolated storage. Used by
+ * cross-platform sync tests to get a fresh server per scenario.
  *
- * Isolation is per worktree and enforced, not assumed: the port must be free
- * (never adopted from whoever answers), the healthy responder must be the child
- * we spawned, and the database is slot-derived so the per-scenario TRUNCATE can
- * only ever wipe this worktree's own rows.
+ * Isolation is per server, not per worktree, and enforced rather than assumed:
+ * the port must be free (never adopted from whoever answers), the healthy
+ * responder must be the child we spawned, and each server gets its own SQLite
+ * database under its own temp directory — so there is no shared state for a
+ * concurrent run to wipe.
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
-import { join, resolve } from 'node:path';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { PG_BASE, pgQuery } from '../../scripts/lib/pg.mjs';
-import { slotOf } from '../../scripts/lib/slot.mjs';
-import { formatSpawnFailure } from '../../scripts/lib/spawn-result.mjs';
-
-const PASSWORD = 'testing123';
-
-const hashCache = new Map();
-const readyComposeProjects = new Set();
-const readyDatabases = new Set();
-
-function hashPassword(serverRepo, password) {
-  const cacheKey = `${serverRepo}\0${password}`;
-  const cached = hashCache.get(cacheKey);
-  if (cached) return cached;
-  const result = spawnSync('bun', ['src/index.ts', 'hash', password], {
-    cwd: serverRepo,
-    encoding: 'utf8',
-  });
-  if (result.status !== 0) {
-    throw new Error(`Failed to hash test server password: ${formatSpawnFailure(result, 'bun')}`);
-  }
-  const hash = result.stdout.trim();
-  hashCache.set(cacheKey, hash);
-  return hash;
-}
+import {
+  PINNED_SERVER_VERSION,
+  SERVER_PASSWORD,
+  reportedServerVersion,
+  syncServerBinary,
+  syncServerEnv,
+} from '../../scripts/lib/sync-server.mjs';
 
 /**
  * Start a fresh sync server on the given port.
@@ -51,11 +34,10 @@ function hashPassword(serverRepo, password) {
  * to it, so callers must allocate ports in pairs.
  *
  * @param {number} port
- * @param {string} repoRoot — client monorepo root
  * @param {{ syncDelayMs?: number }} [options]
  * @returns {Promise<{proc, port, dataDir, url, password, stop}>}
  */
-export async function startServer(port, repoRoot, options = {}) {
+export async function startServer(port, options = {}) {
   const syncDelayMs = options.syncDelayMs ?? 0;
   // When a delay proxy is requested, the real server moves one port up and the
   // proxy takes `port` (the address the clients were handed).
@@ -63,70 +45,19 @@ export async function startServer(port, repoRoot, options = {}) {
 
   // Before anything else: refuse a port we do not own. A health check alone is
   // satisfied by a stranger, and adopting one is how two worktrees ended up
-  // sharing a server and a database.
+  // sharing a server, and with it one vault's worth of state.
   await assertPortAvailable(serverPort, 'sync server');
   if (serverPort !== port) await assertPortAvailable(port, 'sync delay proxy');
 
   const dataDir = mkdtempSync(join(tmpdir(), 'sf-test-server-'));
-  const blobDir = join(dataDir, 'blobs');
-  const serverRepo = resolve(
-    process.env.FUTO_NOTES_E2EE_SERVER_REPO || join(homedir(), 'Developer', 'futo-notes-server'),
-  );
+  const { path: binary, expectedVersion } = await syncServerBinary();
 
-  if (!existsSync(join(serverRepo, 'package.json'))) {
-    throw new Error(
-      `E2EE server repo not found at ${serverRepo}. Set FUTO_NOTES_E2EE_SERVER_REPO to the futo-notes-server checkout.`,
-    );
-  }
-
-  // If the caller provides a DATABASE_URL (e.g. CI with a services: postgres
-  // sidecar), trust it and skip docker compose — the dind runner can't reach
-  // a host-level compose container at localhost:5433 anyway.
-  const externalDb = !!process.env.FUTO_NOTES_E2EE_DATABASE_URL;
-  if (!externalDb && !readyComposeProjects.has(serverRepo)) {
-    // Reachability FIRST, compose only as a fallback — the same order
-    // scripts/qa.mjs already uses.
-    //
-    // One Postgres serves every worktree (the databases are slot-derived), so a
-    // second checkout does not need a second container. Going straight to
-    // `docker compose up` made a second server checkout fail outright: its
-    // compose file pins `container_name: futo-notes-postgres`, so compose in
-    // another directory conflicts with the container already running from the
-    // first (pc_9ffe03593dcd). Pinging first makes that case a no-op instead.
-    const reachable = () => pgQuery(serverRepo, `${PG_BASE}/postgres`, 'select 1').status === 0;
-    if (!reachable()) {
-      const compose = spawnSync('docker', ['compose', 'up', '-d', 'postgres'], {
-        cwd: serverRepo,
-        encoding: 'utf8',
-      });
-      if (compose.status !== 0 && !reachable()) {
-        throw new Error(
-          `Failed to start E2EE server Postgres: ${formatSpawnFailure(compose, 'docker')}\n` +
-            `If another checkout already runs it, that container is shared — this should not have ` +
-            `needed compose at all, so Postgres is probably not reachable at ${PG_BASE}. ` +
-            `Set FUTO_NOTES_QA_PG to point at it, or FUTO_NOTES_E2EE_DATABASE_URL to skip compose.`,
-        );
-      }
-    }
-    readyComposeProjects.add(serverRepo);
-  }
-
-  const passwordHash = hashPassword(serverRepo, PASSWORD);
-  const dbUrl = databaseUrl(repoRoot);
-  if (!externalDb) ensureDatabase(serverRepo, dbUrl);
-
-  const env = {
-    ...process.env,
-    PORT: String(serverPort),
-    BLOB_DIR: blobDir,
-    DATABASE_URL: dbUrl,
-    AUTH_MODE: 'password',
-    FUTO_NOTES_PASSWORD_HASH: passwordHash,
-  };
-
-  const proc = spawn('bun', ['src/index.ts'], {
-    cwd: serverRepo,
-    env,
+  // cwd is the server's own data directory: the binary reads a `.env` from
+  // wherever it is started, and neither this repo's root nor a server checkout
+  // is a place we want config picked up from.
+  const proc = spawn(binary, [], {
+    cwd: dataDir,
+    env: { ...process.env, ...syncServerEnv({ port: serverPort, dataDir }) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -141,9 +72,8 @@ export async function startServer(port, repoRoot, options = {}) {
   });
 
   // Wait for OUR server to be healthy: waitForHealth aborts if the child dies,
-  // and assertListenerIsOurs covers the case measured on macOS, where a bun that
-  // could not bind neither exits nor serves — it sits retrying Postgres while a
-  // stranger answers /health on the port.
+  // and assertListenerIsOurs covers the case where a server that could not bind
+  // neither exits nor serves, while a stranger answers /health on the port.
   const upstreamUrl = `http://127.0.0.1:${serverPort}`;
   await waitForHealth(`${upstreamUrl}/health`, 30_000, proc).catch((err) => {
     proc.kill('SIGKILL');
@@ -152,16 +82,7 @@ export async function startServer(port, repoRoot, options = {}) {
     );
   });
   assertListenerIsOurs(serverPort, proc.pid);
-
-  // Only ever against this worktree's own database: on a shared one this wipes
-  // a concurrent run's session rows, which that run reports as a spurious
-  // "HTTP 401: session expired".
-  const truncateSql = 'TRUNCATE orphaned_blobs, objects, collections, sessions, users CASCADE;';
-  const reset = pgQuery(serverRepo, dbUrl, truncateSql);
-  if (reset.status !== 0) {
-    proc.kill('SIGKILL');
-    throw new Error(`Failed to reset E2EE server database: ${formatSpawnFailure(reset, 'bun')}`);
-  }
+  await assertServerVersion(upstreamUrl, expectedVersion, proc);
 
   let proxyServer = null;
   if (syncDelayMs > 0) {
@@ -228,7 +149,7 @@ export async function startServer(port, repoRoot, options = {}) {
     port,
     dataDir,
     url,
-    password: PASSWORD,
+    password: SERVER_PASSWORD,
     stop() {
       try {
         proxyServer?.close();
@@ -277,9 +198,9 @@ async function waitForHealth(url, timeoutMs, proc) {
 // ── Port ownership ──────────────────────────────────────────────
 //
 // The harness must start its own server or fail. Adopting whatever answers on
-// the port makes two runs share one server (and one database), and they then
-// TRUNCATE each other's tables between scenarios — a false red that reads
-// exactly like a product auth bug.
+// the port makes two runs share one server and one vault, so each sees the
+// other's notes appear mid-scenario — a false red that reads exactly like a
+// product sync bug.
 
 async function assertPortAvailable(port, role) {
   // Two probes, because either alone can be fooled: a listener bound with
@@ -319,8 +240,7 @@ function portConflict(port, role) {
   return new Error(
     `Port ${port} (${role}) is already in use by ${describePortHolder(port)}.\n` +
       `Refusing to adopt a server this harness did not start: sharing one means sharing one ` +
-      `database, and the per-scenario TRUNCATE then wipes the other run's sessions ` +
-      `("HTTP 401: session expired" in whichever run loses the race).\n` +
+      `vault, so each run would see the other's notes arrive mid-scenario.\n` +
       `Look for another run (pgrep -af cross-platform-sync) and let it finish, or free the port. ` +
       `Each worktree allocates from its own slot band — see xplatSyncBand in scripts/lib/slot.mjs.`,
   );
@@ -354,26 +274,27 @@ function assertListenerIsOurs(port, pid) {
   }
 }
 
-// ── Database ownership ──────────────────────────────────────────
+// ── Server identity ─────────────────────────────────────────────
+//
+// A healthy responder we spawned can still be the WRONG server: an override
+// pointing at a stale build, or a cache holding a binary from a different
+// release. The capability document names the version, so ask it rather than
+// trusting the file we launched (M11 — assert what the run exists to prove).
 
-// Per-worktree database, exactly like scripts/qa.mjs's per-slot sync server:
-// the reset above TRUNCATEs, so a shared database is a shared destructive
-// surface even when the ports are isolated.
-function databaseUrl(repoRoot) {
-  return (
-    process.env.FUTO_NOTES_E2EE_DATABASE_URL || `${PG_BASE}/futo_notes_xplat_s${slotOf(repoRoot)}`
-  );
-}
-
-function ensureDatabase(serverRepo, dbUrl) {
-  if (readyDatabases.has(dbUrl)) return;
-  const database = dbUrl.slice(dbUrl.lastIndexOf('/') + 1);
-  const create = pgQuery(serverRepo, `${PG_BASE}/postgres`, `CREATE DATABASE ${database}`);
-  if (create.status !== 0 && !/already exists|42P04/.test(create.stderr || '')) {
+async function assertServerVersion(baseUrl, expectedVersion, proc) {
+  if (!expectedVersion) return; // caller supplied their own build; it carries no release stamp
+  let reported;
+  try {
+    reported = await reportedServerVersion(baseUrl);
+  } catch (err) {
+    proc.kill('SIGKILL');
+    throw new Error(`Could not read the sync server's version at ${baseUrl}/: ${err.message}`);
+  }
+  if (reported !== expectedVersion) {
+    proc.kill('SIGKILL');
     throw new Error(
-      `Failed to create the harness database ${database}:\n${create.stderr || create.stdout}`,
+      `Sync server at ${baseUrl} reports version ${reported}, but this repo pins ` +
+        `${PINNED_SERVER_VERSION} (scripts/sync-server-pin.json). Refusing to run against it.`,
     );
   }
-  // The server runs migrateToLatest() on boot, so no separate migrate step.
-  readyDatabases.add(dbUrl);
 }

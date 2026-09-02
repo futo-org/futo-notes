@@ -194,9 +194,10 @@ describe('remote environment', () => {
     expect(preamble).toContain('eval "$(fnm env --shell bash)"');
     expect(preamble).toContain('$HOME/.local/bin');
     expect(preamble).toContain('$HOME/.cargo/bin');
-    // The sync test server shells out to `bun`, which lives in ~/.bun/bin and
-    // is absent from a non-interactive PATH — the suite died there once.
-    expect(preamble).toContain('$HOME/.bun/bin');
+    // The sync test server no longer shells out to anything on PATH: it is the
+    // pinned Go binary scripts/lib/sync-server.mjs downloads. Its predecessor
+    // needed bun from ~/.bun/bin, whose absence killed the suite mid-run.
+    expect(preamble).not.toContain('.bun/bin');
     // fnm has to be on PATH before `fnm env` runs, so the export must precede it.
     expect(preamble.indexOf('.local/share/fnm')).toBeLessThan(preamble.indexOf('eval "$(fnm env'));
     // The version itself is activated in the run script, after the checkout —
@@ -372,7 +373,7 @@ describe('doctor', () => {
       'rust android targets',
       'pinned NDK',
       '/dev/kvm',
-      'postgres container',
+      'sync server',
       'webkit2gtk-4.1',
       'playwright browsers',
       'android emulator',
