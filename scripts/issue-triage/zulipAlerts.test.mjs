@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { formatAlert, postAlert, topicForIssue } from './zulipAlerts.mjs';
+import {
+  HEALTH_TOPIC,
+  formatAlert,
+  formatFailureAlert,
+  formatRecoveryAlert,
+  postAlert,
+  topicForIssue,
+} from './zulipAlerts.mjs';
+
+const NOW = Date.parse('2026-09-02T12:00:00Z');
 
 describe('topicForIssue', () => {
   it('builds gh#<number>: <title>', () => {
@@ -97,5 +106,82 @@ describe('postAlert', () => {
       json: async () => ({ result: 'error', msg: 'bad stream' }),
     }));
     await expect(postAlert({ topic: 't', content: 'c', fetchImpl })).rejects.toThrow(/bad stream/);
+  });
+});
+
+describe('health messages', () => {
+  it('keeps every health message on one stable topic', () => {
+    // A per-outage topic would scatter the history and could collide with an
+    // issue topic; this one is followable and mutable on its own.
+    expect(HEALTH_TOPIC).toBe('poller health');
+    expect(HEALTH_TOPIC).not.toMatch(/^gh#/);
+  });
+
+  describe('formatFailureAlert', () => {
+    it('leads with the consequence, not the error', () => {
+      const content = formatFailureAlert({
+        error: 'GitHub 401: Bad credentials',
+        sinceIso: '2026-08-22T17:06:28Z',
+        nowMs: NOW,
+        alertCount: 0,
+      });
+      expect(content.split('\n')[0]).toContain('NOT reaching this channel');
+      expect(content).toContain('Failing since: 2026-08-22T17:06:28Z');
+      expect(content).toContain('GitHub 401: Bad credentials');
+    });
+
+    it('marks a repeat as still failing, with the elapsed time', () => {
+      const content = formatFailureAlert({
+        error: 'GitHub 401',
+        sinceIso: '2026-08-22T17:06:28Z',
+        nowMs: NOW,
+        alertCount: 3,
+      });
+      expect(content).toContain('still failing');
+      expect(content).toMatch(/failing for \d+ days/);
+    });
+
+    it('quotes a multi-line reason as one block', () => {
+      const content = formatFailureAlert({
+        error: 'line one\nline two',
+        sinceIso: null,
+        nowMs: NOW,
+        alertCount: 0,
+      });
+      expect(content).toContain('> line one\n> line two');
+    });
+
+    it('says the reason is missing rather than printing nothing', () => {
+      const content = formatFailureAlert({
+        error: null,
+        sinceIso: null,
+        nowMs: NOW,
+        alertCount: 0,
+      });
+      expect(content).toContain('without recording a reason');
+    });
+  });
+
+  describe('formatRecoveryAlert', () => {
+    it('reports the duration and the catch-up count', () => {
+      const content = formatRecoveryAlert({
+        sinceIso: '2026-08-22T17:06:28Z',
+        nowMs: NOW,
+        postedCount: 9,
+      });
+      expect(content).toContain('working again');
+      expect(content).toContain('failing for 11 days');
+      expect(content).toContain('Caught up 9 issues, posted above.');
+    });
+
+    it('says plainly when nothing was missed', () => {
+      const content = formatRecoveryAlert({ sinceIso: null, nowMs: NOW, postedCount: 0 });
+      expect(content).toContain('No issues were missed.');
+    });
+
+    it('singularizes one issue', () => {
+      const content = formatRecoveryAlert({ sinceIso: null, nowMs: NOW, postedCount: 1 });
+      expect(content).toContain('Caught up 1 issue,');
+    });
   });
 });

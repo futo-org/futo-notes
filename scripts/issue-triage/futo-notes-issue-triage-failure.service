@@ -1,0 +1,13 @@
+[Unit]
+Description=Report a FUTO Notes issue-triage poll failure to Zulip
+Documentation=file:__REPO_DIR__/scripts/issue-triage/README.md
+# Deliberately NO OnFailure= of its own. When Zulip is the thing that is down,
+# this alert cannot post either, and the right outcome is one red unit in the
+# journal — not a unit that keeps triggering itself.
+
+[Service]
+Type=oneshot
+# The node and repo paths below are substituted by install-timer.sh so this
+# unit carries no machine-specific (nvm) path in git.
+ExecStart=__NODE_BIN__ __REPO_DIR__/scripts/issue-triage/alertFailure.mjs
+EnvironmentFile=%h/.config/futo-notes-issue-triage/env

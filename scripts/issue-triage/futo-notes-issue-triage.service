@@ -4,6 +4,10 @@ Documentation=file:__REPO_DIR__/scripts/issue-triage/README.md
 # Don't run when the workstation has no network; the timer retries next cycle.
 Wants=network-online.target
 After=network-online.target
+# A red unit is not an alarm if nobody reads systemd: the old GitHub PAT expired
+# on 2026-08-22 and 11 days of 401s went unnoticed. Route the failure to the
+# same Zulip channel the poller feeds (throttled — see healthState.mjs).
+OnFailure=futo-notes-issue-triage-failure.service
 
 [Service]
 Type=oneshot
