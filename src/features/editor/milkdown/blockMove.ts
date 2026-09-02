@@ -2,7 +2,7 @@
  * The one place a block drag turns into a document change.
  *
  * Both drag paths — the iOS long-press plugin (`mobileBlockDnd.ts`) and the ⠿
- * gutter handle's touch/pen fallback (`handleBlockDrag.ts`) — resolve a drop
+ * gutter handle's own HTML5 drag — resolve a drop
  * target with `blockDragGeometry.ts` and then commit through here, so a guard
  * added for one path can never be missing from the other.
  *

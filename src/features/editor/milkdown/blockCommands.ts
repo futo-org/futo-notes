@@ -1,21 +1,21 @@
 /*
  * The toolbar's BLOCK-format commands, as ProseMirror commands.
  *
- * The markdown source model the CodeMirror toolbar implements
- * (`toolbar/blockFormatting.ts`) is "one line, one block prefix": a line is
- * plain, a bullet, an ordered item, a task, a heading or a quote, never two at
- * once; a command rewrites that one prefix, and a multi-line selection gets the
- * transition applied per line ([editor.md](../../../../docs/spec/editor.md) →
- * "Markdown toolbar"). This is the same rule expressed against a ProseMirror
- * document, so both engines answer a toolbar tap the same way while the
- * Milkdown transition is in flight.
+ * The rule is "one line, one block prefix": a line is plain, a bullet, an
+ * ordered item, a task, a heading or a quote, never two at once; a command
+ * rewrites that one prefix, and a multi-line selection gets the transition
+ * applied per line ([editor.md](../../../../docs/spec/editor.md) → "Markdown
+ * toolbar"). The spec is the source of that rule — this used to be one of two
+ * engines implementing it, alongside the CodeMirror toolbar's markdown-source
+ * model in `toolbar/blockFormatting.ts`, and carried a drift-registry entry to
+ * keep the pair honest. That engine was deleted with the Milkdown swap, so
+ * there is one implementation now and no registry entry.
  *
  * A CODE BLOCK is the one block that rule cannot touch: its content is literal
  * text, so a `>` or `#` written there is code rather than a prefix. Every
  * command therefore leaves it — and every line of it, fence markers included —
  * exactly as it is, and a selection that spans one formats the prose around it
- * without swallowing the fence. Same answer as the CodeMirror engine, which
- * skips those lines in `toolbar/blockFormatting.ts`.
+ * without swallowing the fence.
  *
  * Milkdown's own preset commands are NOT toggles — `wrapInBulletListCommand`
  * is a bare `wrapIn`, so tapping Bullet on a bullet did nothing and tapping
@@ -23,11 +23,8 @@
  * prosemirror-commands / prosemirror-schema-list instead, so the transitions
  * are the standard, well-tested primitives.
  *
- * The transition table lives in TWO places by necessity, once per engine — this
- * file and `toolbar/blockFormatting.ts` — and is registered as such in
- * `scripts/drift-registry.json` (`toolbar-block-transitions`). The lock that
- * keeps them honest is `tests/editor-embed-milkdown-toolbar.spec.ts`, which
- * asserts the same user-visible outcomes the CodeMirror suite asserts.
+ * `tests/editor-embed-milkdown-toolbar.spec.ts` asserts the user-visible
+ * outcomes.
  */
 import { lift, setBlockType, wrapIn } from '@milkdown/kit/prose/commands';
 import type { Node as ProseNode, NodeType, ResolvedPos, Schema } from '@milkdown/kit/prose/model';

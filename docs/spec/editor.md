@@ -286,13 +286,18 @@ about.
   src/features/editor/milkdown/blockDragMode.test.ts
   _(native shells)_
 - On desktop a ⠿ handle appears in the left gutter beside the block under the
-  pointer, and dragging it reorders blocks. Where there is no hover — a touch or
-  pen drag in the same build — the handle is surfaced for the block that was
-  just tapped or that the caret moved into, and the drag starts after a 6px
-  threshold. Only TOP-LEVEL blocks move, on this gesture and on the native
+  pointer, and dragging it with a mouse reorders blocks. Where there is no
+  hover, the handle is still surfaced for the block that was just tapped or
+  that the caret moved into, but dragging it needs a mouse: the handle's drag
+  is @milkdown/plugin-block's HTML5 drag, which no touch or pen gesture
+  starts. Only TOP-LEVEL blocks move, on this gesture and on the native
   shells' long press. → MilkdownEditor.svelte,
-  src/features/editor/milkdown/handleBlockDrag.ts,
   src/features/editor/milkdown/blockMove.ts _(desktop)_
+  > **Gap:** a touch or pen drag of the ⠿ handle does nothing on a touchscreen
+  > desktop build. The 253-line touch/pen fallback that implemented it was
+  > removed on 2026-09-02 as dead weight once both native shells moved to the
+  > long press; desktop touch reorder is unimplemented, not broken. Reorder by
+  > mouse, or use a native shell's long press.
 - A block drag is haptic three ways on both native shells: one firmer impact
   when the block lifts, a light tick each time the drop indicator lands on a
   DIFFERENT top-level boundary, and one light impact when a release commits a

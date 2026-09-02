@@ -611,22 +611,24 @@ async function longPressDrag(
 }
 
 // ============================================================
-// The ⠿ gutter handle's touch drag (desktop browser)
+// The ⠿ gutter handle's mouse drag (desktop browser)
 // ============================================================
 
-// The other drag path, and the only page a harness can load is `editor.html`,
-// which declares itself a native shell and therefore long-presses — hence the
+// The other drag path. The only page a harness can load is `editor.html`, which
+// declares itself a native shell and therefore long-presses — hence the
 // explicit `?blockDragMode=gutter-handle` (blockDragMode.ts): its test-only
 // override is what keeps this path reachable at all from here.
 //
-// It shares `blockDragGeometry.ts` and `blockMove.ts` with the long-press one,
-// and this is the case that proves the sharing: the handle path used to trust
-// positions captured at pointerdown and insert a re-fitted slice, so a heading
-// dropped where it did not fit was silently unwrapped into the surrounding
-// paragraph.
+// The drag itself is @milkdown/plugin-block's own HTML5 drag; nothing in this
+// repo implements it. This case exists because that is easy to break from the
+// outside without noticing: the handle is OUR element, positioned by OUR
+// getOffset, surfaced by OUR synthetic pointermove. Until 2026-09-02 a
+// 253-line touch/pen fallback (handleBlockDrag.ts) sat on the same handle and
+// owned the only test of this mode; when it went, the mouse drag it left
+// behind had no coverage at all. This is that coverage.
 const gutterHandleTest = base.extend<{ page: Page }>({
   page: async ({ browser }, use) => {
-    const context = await browser.newContext({ hasTouch: true });
+    const context = await browser.newContext();
     await context.addInitScript(installFakeAndroidHost);
     const page = await context.newPage();
     await page.goto(`${EDITOR_URL}?blockDragMode=gutter-handle`);
@@ -638,38 +640,30 @@ const gutterHandleTest = base.extend<{ page: Page }>({
   },
 });
 
-gutterHandleTest('a touch drag on the ⠿ handle reorders the block', async ({ page }) => {
-  const cdp = await page.context().newCDPSession(page);
+gutterHandleTest('a mouse drag on the ⠿ handle reorders the block', async ({ page }) => {
   await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
   await clearMessages(page);
 
-  // No hover on touch: a tap is what surfaces the handle for a block.
+  // Hover is what surfaces the handle for a block under a mouse.
   const alpha = await blockCenter(page, 'alpha');
-  await page.touchscreen.tap(alpha.x, alpha.y);
+  await page.mouse.move(alpha.x, alpha.y);
   const handle = page.locator('.milkdown-block-handle[data-show="true"]');
   await handle.waitFor({ state: 'attached' });
-  const handleBox = await handle.boundingBox();
-  if (!handleBox) throw new Error('no handle geometry');
 
-  const charlie = await blockCenter(page, 'charlie');
-  const from = { x: handleBox.x + handleBox.width / 2, y: handleBox.y + handleBox.height / 2 };
-  await touch(cdp, 'touchStart', from.x, from.y);
-  for (let step = 1; step <= 4; step += 1) {
-    await touch(
-      cdp,
-      'touchMove',
-      from.x + ((charlie.x - from.x) * step) / 4,
-      from.y + ((charlie.y + 4 - from.y) * step) / 4,
-    );
-    await page.waitForTimeout(16);
-  }
-  await touch(cdp, 'touchEnd', charlie.x, charlie.y + 4);
+  // plugin-block marks its own content draggable; if that ever stops being
+  // true the drag below is a no-op rather than a failure, so assert it.
+  await expect(handle).toHaveAttribute('draggable', 'true');
+
+  // y=4 is charlie's UPPER half, so the drop lands above charlie rather than
+  // after it — the same half-block rule the long-press path uses.
+  const charlie = page.getByText('charlie', { exact: true }).first();
+  await handle.dragTo(charlie, { targetPosition: { x: 4, y: 4 } });
 
   const changes = await waitForMessages(page, 'change');
   const content = changes[changes.length - 1].content as string;
-  // Still a heading, and now last.
-  expect(content).toBe('bravo\n\ncharlie\n\n# alpha\n');
-  await cdp.detach();
+  // Moved off the top, and STILL A HEADING — a re-fitted slice would have
+  // unwrapped it into the surrounding paragraph.
+  expect(content).toBe('bravo\n\n# alpha\n\ncharlie\n');
 });
 
 // The long-press path is what a bare `editor.html` mounts — the page both

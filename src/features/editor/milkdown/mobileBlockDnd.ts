@@ -1,7 +1,7 @@
 /*
  * Notion-style mobile block drag-and-drop — the native shells' long-press path.
  *
- * The desktop browser (handleBlockDrag.ts) drives drag off a dedicated ⠿ gutter
+ * The desktop browser (@milkdown/plugin-block) drives drag off a dedicated ⠿ gutter
  * handle (BlockProvider). On a phone the product ask is different: there is no
  * handle at all — THE BLOCK ITSELF is the handle. Touch-and-hold a block
  * (~330-350ms; any real movement before the timer cancels it, so ordinary
@@ -98,7 +98,7 @@
  *    is refused by `blockMove.ts`.
  *
  * Geometry and commit are both SHARED with the ⠿-handle drag path
- * (`handleBlockDrag.ts`): `blockDragGeometry.ts` resolves the target and
+ * (the desktop ⠿ handle): `blockDragGeometry.ts` resolves the target and
  * `blockMove.ts` performs the move, so the two paths can never disagree about
  * where a block may land or about which drops are refused.
  *

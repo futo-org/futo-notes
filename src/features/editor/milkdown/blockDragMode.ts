@@ -2,11 +2,11 @@
  * Which block-drag gesture this editor instance mounts.
  *
  * There are two, and they never coexist for one editor: a ⠿ gutter handle you
- * press and drag (`handleBlockDrag.ts`, on top of @milkdown/plugin-block), and
- * a Notion-style long press anywhere on the block, where the block itself is
+ * press and drag, which is @milkdown/plugin-block's own HTML5 drag, and a
+ * Notion-style long press anywhere on the block, where the block itself is
  * the handle (`mobileBlockDnd.ts`). The long press is BOTH native shells'
- * gesture — iOS and Android alike; the pointer-precise desktop browser, and
- * the CodeMirror editor, which has neither, get the handle.
+ * gesture — iOS and Android alike; the pointer-precise desktop browser gets
+ * the handle, and drags it with a mouse.
  *
  * The decision lives here rather than in the component because `src/AGENTS.md`
  * says components never branch on platform; the CodeMirror editor keeps its own
@@ -16,7 +16,7 @@
  */
 
 export type BlockDragMode =
-  /** ⠿ handle in the left gutter; mouse drag natively, touch/pen via handleBlockDrag.ts. */
+  /** ⠿ handle in the left gutter, dragged with a mouse (@milkdown/plugin-block). */
   | 'gutter-handle'
   /** Long-press the block itself; the native shells' gesture. */
   | 'long-press';
@@ -30,9 +30,11 @@ function asMode(value: string | null | undefined): BlockDragMode | null {
 /**
  * TEST-ONLY escape hatch, and it must be able to force EITHER mode. The one
  * page a headless harness can load is `editor.html`, whose host flag is a
- * hard-coded `nativeShell: true` — so without this the long-press path is the
- * only one a Playwright run could ever reach, and the ⠿ handle's touch drag
- * would lose its only harness. `editor.html?blockDragMode=gutter-handle` (or
+ * hard-coded `nativeShell: true`, so the long-press path is the only one a
+ * Playwright run reaches by default. Its only current caller is this module's
+ * own unit test: the e2e case that forced `gutter-handle` went away with the
+ * handle's touch/pen drag on 2026-09-02, and the mouse drag it left behind has
+ * no e2e coverage. `editor.html?blockDragMode=gutter-handle` (or
  * `=long-press`), or `window.__futoBlockDragMode`; never set by production
  * hosts, and the sole extra input to the one gate below rather than a second
  * ad-hoc platform check. An unrecognised value is ignored, not obeyed.

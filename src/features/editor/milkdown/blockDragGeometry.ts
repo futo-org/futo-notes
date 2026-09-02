@@ -1,6 +1,6 @@
 /*
  * Shared TOP-LEVEL block-boundary geometry for Milkdown's two block-drag
- * paths — the ⠿ gutter handle's touch/pen fallback (handleBlockDrag.ts) and
+ * paths — formerly the ⠿ gutter handle's touch/pen fallback, and today
  * the iOS long-press plugin (mobileBlockDnd.ts) — so both resolve drop targets
  * identically instead of maintaining two copies that could silently disagree.
  * The move itself is equally shared, in blockMove.ts.

@@ -17,10 +17,10 @@
    * `editor-embed-milkdown.spec.ts` locks that.
    *
    * What lives elsewhere: drop-target geometry (`blockDragGeometry.ts`), the
-   * block move itself (`blockMove.ts`), the two drag gestures
-   * (`handleBlockDrag.ts` for the ⠿ gutter handle, `mobileBlockDnd.ts` for the
-   * native shells' long-press), toolbar commands (`toolbarExec.ts`) and the native
-   * toolbar's active-state (`formatState.ts`).
+   * block move itself (`blockMove.ts`), the native shells' long-press drag
+   * (`mobileBlockDnd.ts`; the desktop ⠿ handle's drag is @milkdown/plugin-block's
+   * own), toolbar commands (`toolbarExec.ts`) and the native toolbar's
+   * active-state (`formatState.ts`).
    */
   import { onMount } from 'svelte';
   import {
@@ -60,7 +60,6 @@
   import { resolveBlockDragMode } from './blockDragMode';
   import { editorView, enclosingListItem, isTaskItem } from './caretContext';
   import { computeActiveFormats } from './formatState';
-  import { createHandleBlockDrag, type HandleBlockDrag } from './handleBlockDrag';
   import { handleParityKeyDown } from './keyboardParity';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
@@ -215,13 +214,8 @@
    * hover, nudge it to show for the block under the cursor/tap by dispatching a
    * synthetic pointermove — the SAME event the plugin's own hover detection
    * listens for, so selection/tap and mouse-hover resolve to identical block
-   * boundaries. The touch/pen drag itself is handleBlockDrag.ts. */
+   * boundaries. Dragging the handle is the block plugin's own HTML5 drag. */
   let blockProvider: BlockProvider | null = null;
-  let handleDrag: HandleBlockDrag | null = null;
-  /* Suspended for the duration of a touch drag: its auto-scroll moves
-   * `view.dom.scrollTop` directly, which fires a native 'scroll' event that
-   * would otherwise flicker the handle away mid-drag. */
-  let scrollHideSuspended = false;
 
   /* prosemirror-history keeps its PluginKey module-private, so take it off a
    * throwaway instance of the very same plugin factory Milkdown's history
@@ -334,7 +328,6 @@
    * without this it would visually drift over the wrong block while the user
    * scrolls the ProseMirror-internal scroller. */
   function handleBlockScroll(): void {
-    if (scrollHideSuspended) return;
     blockProvider?.hide();
   }
 
@@ -602,20 +595,6 @@
         created.ctx
           .get(editorViewCtx)
           .dom.addEventListener('scroll', handleBlockScroll, { passive: true });
-
-        handleDrag = createHandleBlockDrag({
-          container,
-          getView: pmView,
-          getActiveBlock: () => {
-            const active = blockProvider?.active;
-            if (!active) return null;
-            return { el: active.el, pos: active.$pos.pos, size: active.node.nodeSize };
-          },
-          setScrollHideSuspended: (suspended) => {
-            scrollHideSuspended = suspended;
-          },
-        });
-        handleDrag.attach(handleEl);
       }
     })().catch((error: unknown) => {
       // An engine that cannot build the editor is the whole reason the WebView
@@ -637,8 +616,6 @@
       container.removeEventListener('click', handleClick);
       container.removeEventListener('touchend', handleTouchEnd);
       pmView()?.dom.removeEventListener('scroll', handleBlockScroll);
-      handleDrag?.destroy();
-      handleDrag = null;
       blockProvider?.destroy();
       blockProvider = null;
       const current = editor;
@@ -1578,34 +1555,6 @@
     border-radius: 2px;
   }
 
-  /* Touch drag fallback — cheap "this block is being moved" affordance for
-   * the source block while a touch drag is in flight (handleBlockDrag.ts);
-   * cleared on drop/cancel. */
-  :global(.futo-milkdown .milkdown-block-drag-source) {
-    opacity: 0.35;
-    transition: opacity 0.1s ease;
-  }
-
-  /* Touch drag fallback's own drop indicator (handleBlockDrag.ts): a plain
-   * absolutely-positioned line rather than the reused `.use(cursor)` one
-   * above, because that plugin only shows wherever ProseMirror's dropPoint()
-   * would land — the more permissive, non-top-level-only position this
-   * fallback deliberately does NOT use for the actual drop (see that module's
-   * doc comment). Same color/thickness as dropCursorConfig for consistency. */
-  :global(.futo-milkdown .milkdown-touch-drop-indicator) {
-    position: absolute;
-    height: 3px;
-    margin-top: -1.5px;
-    border-radius: 2px;
-    background: var(--color-primary, #f26b1f);
-    opacity: 0;
-    pointer-events: none;
-    z-index: 6;
-  }
-
-  :global(.futo-milkdown .milkdown-touch-drop-indicator--visible) {
-    opacity: 1;
-  }
   /* Streaming-tail affordance. Pinned to the bottom of the editor rather than
      placed at the end of the document: the document end is thousands of lines
      away while the tail streams, so a marker there would be invisible — which
