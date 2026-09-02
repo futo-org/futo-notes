@@ -79,10 +79,15 @@ pub(crate) fn default_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(documents.join("futo-notes"))
 }
 
-/// The message every command returns once the active vault has gone missing.
-/// `vault_status` is the recovery path: the frontend keeps Settings' Storage
-/// section usable so the user can re-pick a folder or reset to the default.
-pub(crate) const VAULT_UNAVAILABLE: &str = "Notes folder unavailable";
+/// The stable opening of the message every command returns once the active
+/// vault has gone missing. `vault_status` is the recovery path: the frontend
+/// keeps Settings' Storage section usable so the user can re-pick a folder or
+/// reset to the default, and the sentence has to send the user there — github#44
+/// spent a whole issue on a server audit because nothing said which folder was
+/// the problem. Same wording as the engine's `SyncErrorKind::VaultMissing`, so a
+/// user who meets this from a note command and one who meets it from a sync
+/// cycle read the same thing.
+pub(crate) const VAULT_UNAVAILABLE: &str = "Can't find your vault folder at";
 
 pub(crate) fn root(app: &AppHandle) -> Result<PathBuf, String> {
     resolve_root(load_override(app), || {
@@ -116,7 +121,13 @@ fn resolve_root(
             if custom.is_dir() {
                 Ok(custom)
             } else {
-                Err(format!("{VAULT_UNAVAILABLE}: {}", custom.display()))
+                // The folder the user picked, not the document-portal path it
+                // resolves to — the message is useless if it names a path they
+                // have never seen.
+                Err(format!(
+                    "{VAULT_UNAVAILABLE} {}. Please reconfigure in settings.",
+                    crate::portal_vault::display_path(&custom)
+                ))
             }
         }
         None => default(),
@@ -244,6 +255,14 @@ mod tests {
         assert!(
             error.starts_with(VAULT_UNAVAILABLE),
             "the frontend keys the recovery UI off this message, got {error}"
+        );
+        assert!(
+            error.contains(&vanished.display().to_string()),
+            "the message must name the folder that went missing, got {error}"
+        );
+        assert!(
+            error.ends_with("Please reconfigure in settings."),
+            "the message must say where the way out is, got {error}"
         );
         assert!(
             !vanished.exists(),

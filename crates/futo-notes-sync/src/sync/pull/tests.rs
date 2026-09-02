@@ -206,3 +206,190 @@ async fn pull_skips_current_objects_before_download() {
         [(0, 0)]
     );
 }
+
+/// github#44: a self-hoster's desktop reported "3 notes couldn't be downloaded
+/// (will retry)" while every blob downloaded and decrypted correctly. The notes
+/// folder the app was pointed at was not there, and `apply_remote`'s
+/// `open vault root …: no such file or directory` was discarded one frame up and
+/// refiled as a download failure — so the user spent the issue looking at his
+/// server, his nginx config and his logs for a fault that was never there.
+///
+/// A local write failure must never claim the download failed, and a missing
+/// vault folder must say which folder and where to fix it.
+#[tokio::test]
+async fn a_missing_vault_folder_is_reported_as_a_missing_folder_not_a_failed_download() {
+    const KEY: [u8; 32] = [5; 32];
+    let server = MockServer::start().await;
+    let holder = TempRoot::new();
+    let root = holder.path().join("vault-gone");
+
+    let blobs: Vec<_> = ["one.md", "two.md", "three.md"]
+        .iter()
+        .map(|name| e2ee::aes_gcm_encrypt(&KEY, &e2ee::pack_note_v2(name, "body")).unwrap())
+        .collect();
+    Mock::given(method("GET"))
+        .and(path("/api/collections/collection/objects"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "objects": [
+                {"id":"o1","version":1,"change_seq":1,"blob_key":"b1","size_bytes":blobs[0].len(),"updated_at":""},
+                {"id":"o2","version":1,"change_seq":2,"blob_key":"b2","size_bytes":blobs[1].len(),"updated_at":""},
+                {"id":"o3","version":1,"change_seq":3,"blob_key":"b3","size_bytes":blobs[2].len(),"updated_at":""}
+            ]
+        })))
+        .mount(&server)
+        .await;
+    let mut batch = batch_frame("b1", &blobs[0]);
+    batch.extend(batch_frame("b2", &blobs[1]));
+    batch.extend(batch_frame("b3", &blobs[2]));
+    Mock::given(method("POST"))
+        .and(path("/api/blobs/batch"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(batch))
+        .mount(&server)
+        .await;
+
+    let state = connected_state(&server, KEY);
+    let (summary, next) = pull(&state, &root, 0, &|_| {}, &|_| {}).await.unwrap();
+
+    // One clause naming the folder, not one bullet per note: the folder is a
+    // single condition and it explains all three.
+    assert_eq!(
+        summary.failure_message().as_deref(),
+        Some(&*format!(
+            "Can't find your vault folder at {}. Please reconfigure in settings.",
+            root.display()
+        ))
+    );
+    assert!(
+        summary
+            .failures
+            .iter()
+            .all(|failure| failure.kind == FailureKind::VaultMissing),
+        "a missing folder is not a download failure: {:?}",
+        summary.failures
+    );
+    // The retry promise from the cursor cap still has to hold.
+    assert_eq!(next.pull_cursor, 0);
+
+    // And the journal must carry the real cause, not just "apply_error".
+    let detail = summary
+        .decisions()
+        .iter()
+        .find(|entry| entry.decision == decision::FAILED)
+        .and_then(|entry| entry.detail.clone())
+        .expect("a failed apply must journal its cause");
+    assert!(
+        detail.contains("open vault root"),
+        "journal detail lost the engine's own error: {detail}"
+    );
+}
+
+/// The same misreporting for a fault the up-front folder check cannot catch:
+/// the vault folder is there and writable, but the note arrives inside a
+/// SUBFOLDER that cannot be written — here a plain FILE sits where the folder
+/// belongs, which is what a half-finished restore or a sync client that wrote
+/// the folder name as a file leaves behind. The blob is in hand and only the
+/// local write fails, which is the residue github#44 leaves behind: a per-note
+/// local fault that still claimed the download had failed.
+///
+/// The obstacle is deliberately uid-independent. An earlier revision made the
+/// subfolder mode 0o500 and CI, which runs as root, wrote into it anyway
+/// (CAP_DAC_OVERRIDE) — the note applied, `failure_message()` was None and job
+/// 246420 failed on an assertion that holds for every non-root developer. A
+/// file where a directory belongs is ENOTDIR for root too.
+#[tokio::test]
+async fn a_note_under_a_file_where_a_folder_belongs_is_a_local_apply_failure_not_a_download() {
+    const KEY: [u8; 32] = [5; 32];
+    let server = MockServer::start().await;
+    let root = TempRoot::new();
+    let locked = root.path().join("Locked");
+    std::fs::write(&locked, "not a folder").unwrap();
+
+    let blob = e2ee::aes_gcm_encrypt(&KEY, &e2ee::pack_note_v2("Locked/note.md", "body")).unwrap();
+    Mock::given(method("GET"))
+        .and(path("/api/collections/collection/objects"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "objects": [{"id":"o1","version":1,"change_seq":1,"blob_key":"b1","updated_at":""}]
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/blobs/b1"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(blob))
+        .mount(&server)
+        .await;
+
+    // The vault root itself stays a writable directory, so the up-front folder
+    // check passes, the checkpoint still saves and the cycle still completes.
+    let state = connected_state(&server, KEY);
+    let (summary, next) = pull(&state, root.path(), 0, &|_| {}, &|_| {})
+        .await
+        .unwrap();
+
+    assert_eq!(
+        summary.failure_message().as_deref(),
+        Some("1 change couldn't be applied to your notes folder (will retry)")
+    );
+    assert_eq!(summary.failures[0].kind, FailureKind::LocalApply);
+    assert_eq!(summary.failures[0].filename, "Locked/note.md");
+    assert_eq!(
+        next.pull_cursor, 0,
+        "the cursor cap must still promise a retry"
+    );
+    let detail = summary
+        .decisions()
+        .iter()
+        .find(|entry| entry.decision == decision::FAILED)
+        .and_then(|entry| entry.detail.clone())
+        .expect("a failed apply must journal its cause");
+    assert!(
+        !detail.is_empty(),
+        "journal detail lost the engine's own error: {detail}"
+    );
+}
+
+/// A genuine download failure has to stay a download failure — and carry the
+/// status the engine already collects. `failure_message` printed the count and
+/// silently dropped `status_code`, so an nginx 502 and a missing folder rendered
+/// identically; the reqwest cause chain never reached the journal at all.
+#[tokio::test]
+async fn a_failed_blob_download_names_its_status_and_journals_its_cause() {
+    const KEY: [u8; 32] = [5; 32];
+    let server = MockServer::start().await;
+    let root = TempRoot::new();
+
+    Mock::given(method("GET"))
+        .and(path("/api/collections/collection/objects"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "objects": [{"id":"o1","version":1,"change_seq":1,"blob_key":"b1","updated_at":""}]
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/blobs/b1"))
+        .respond_with(ResponseTemplate::new(502).set_body_string("bad gateway"))
+        .mount(&server)
+        .await;
+
+    let state = connected_state(&server, KEY);
+    let (summary, next) = pull(&state, root.path(), 0, &|_| {}, &|_| {})
+        .await
+        .unwrap();
+
+    assert_eq!(
+        summary.failure_message().as_deref(),
+        Some("1 note couldn't be downloaded (HTTP 502) (will retry)")
+    );
+    assert_eq!(summary.failures[0].kind, FailureKind::Download);
+    assert_eq!(next.pull_cursor, 0);
+    let failed = summary
+        .decisions()
+        .iter()
+        .find(|entry| entry.decision == decision::FAILED)
+        .expect("a failed download must reach the journal");
+    assert_eq!(failed.reason, "download_failed");
+    assert!(
+        failed.detail.as_deref().is_some_and(|d| d.contains("502")),
+        "journal detail lost the download cause: {:?}",
+        failed.detail
+    );
+}

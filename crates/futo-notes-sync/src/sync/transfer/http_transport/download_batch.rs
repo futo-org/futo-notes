@@ -107,7 +107,11 @@ fn classify_batch_response(
             BatchBlobStatus::Ok => {
                 completed.push((object.clone(), decrypt_bytes(key, object, &entry.bytes)))
             }
-            BatchBlobStatus::Missing => completed.push(download_failure(object.clone(), Some(404))),
+            BatchBlobStatus::Missing => completed.push(download_failure(
+                object.clone(),
+                Some(404),
+                format!("server has no blob for key {}", entry.key),
+            )),
             BatchBlobStatus::Omitted => omitted.push(object.clone()),
         }
     }
@@ -228,7 +232,7 @@ where
         .into_iter()
         .map(|object| {
             completed_ids.insert(object.id.clone());
-            download_failure(object, None)
+            download_failure(object, None, "batch download task panicked")
         })
         .collect();
     complete(failed)

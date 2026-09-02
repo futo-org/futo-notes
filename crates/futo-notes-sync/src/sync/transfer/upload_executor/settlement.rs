@@ -30,6 +30,7 @@ fn record_upload_failure(
         filename: candidate.file.name.clone(),
         kind: FailureKind::Upload,
         status_code,
+        detail: Some(status_detail(status_code)),
     });
     context.summary.decide_with(
         SyncPhase::Push,

@@ -17,11 +17,12 @@ use super::{create_from_content, reason};
 fn conflict_copy_name(context: &mut PushContext<'_>, file: &LocalFile) -> Option<String> {
     let names: HashSet<String> = match local_files(context.root) {
         Ok(files) => files.into_iter().map(|file| file.name).collect(),
-        Err(_) => {
+        Err(error) => {
             context.summary.failures.push(SyncFailure {
                 filename: file.name.clone(),
                 kind: FailureKind::Upload,
                 status_code: None,
+                detail: Some(error),
             });
             return None;
         }
@@ -47,11 +48,12 @@ async fn create_conflict_copy(
         context.pre_write,
     );
     if !matches!(copied, Ok(true)) {
-        if copied.is_err() {
+        if let Err(error) = copied {
             context.summary.failures.push(SyncFailure {
                 filename: file.name.clone(),
                 kind: FailureKind::Upload,
                 status_code: None,
+                detail: Some(error),
             });
         }
         return Ok(None);
@@ -160,11 +162,12 @@ pub(super) async fn write_conflict_pair(
     ) {
         Ok(Some(settled_name)) => Ok(Some((settled_name, state_from_remote(remote)))),
         Ok(None) => Ok(Some(preserve_changed_source(context, file, &copy, remote))),
-        Err(_) => {
+        Err(error) => {
             context.summary.failures.push(SyncFailure {
                 filename: file.name.clone(),
                 kind: FailureKind::Upload,
                 status_code: None,
+                detail: Some(error),
             });
             Ok(None)
         }

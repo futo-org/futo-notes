@@ -52,7 +52,7 @@ fn collect_single_task_result(
         }
         Err(error) => spawned
             .remove(&error.id())
-            .map(|object| download_failure(object, None))
+            .map(|object| download_failure(object, None, "single download task panicked"))
             .into_iter()
             .collect(),
     }

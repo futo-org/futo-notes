@@ -143,7 +143,43 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
     from a dead server, a poisoned connection pool, or a vanished route. →
     futo-notes-sync `server/mod.rs` (`transport_error` / `error_chain`, guarded
     by "a refused connection names its cause not just the url")
+  - **Every per-item failure carries its cause to the journal.** `SyncFailure`
+    has a `detail` field holding the engine's own error text — the `HttpError`
+    chain for a download, the vault-relative write error for a local apply, the
+    status detail for an upload — and each pull-side failure records a
+    `decision: "failed"` line with it. Journal-only: neither shell contract
+    projects `detail` (guarded by
+    "every failure field is either projected or deliberately internal"), and the
+    user-facing string stays the core-computed `failure_message`. Before this a
+    download or decrypt failure journaled NOTHING at all and a local apply
+    journaled only `reason: "apply_error"`, so `just journal last-sync` showed a
+    failure count and no cause — the exact gap github#44 was closed without.
+    → futo-notes-sync `sync/pull/mod.rs` (`record_apply_failure`,
+    `apply_live_object`), `sync/outcome.rs` (`SyncFailure::detail`)
 
+- **A cycle with no vault folder stops before its first write, names the folder,
+  and leaves it alone.** `cycle_with_checkpoint` checks `root.is_dir()` ahead of
+  the bootstrap pull, the push and the pull, and fails the whole cycle with
+  "Can't find your vault folder at <path>. Please reconfigure in settings."
+  — the same sentence the desktop's own `resolve_root` returns for a vanished
+  custom root, so the two entry points read alike. Nothing in the cycle may
+  create the folder: `checkpoint::save` goes through `write_atomic_text`, which
+  does `create_dir_all` on the parent, so a missing vault used to be silently
+  replaced by a stub holding only `.e2ee-state.json` — directly against the
+  desktop rule that a vanished custom vault is never replaced by an empty
+  directory (an unmounted drive or a revoked portal grant would get notes
+  written into a fresh empty directory standing where the vault was).
+  github#44: the reporter's desktop instead said "3 notes couldn't be downloaded
+  (will retry)" while every blob downloaded and decrypted correctly, and he
+  audited a healthy server, a healthy nginx and his server logs before creating
+  the folder by hand.
+  → futo-notes-sync `sync/mod.rs` (`cycle_with_checkpoint`,
+  `SyncErrorKind::VaultMissing`), guarded by
+  "a cycle with no vault folder names it and does not recreate it";
+  `apps/tauri/src-tauri/src/vault_location.rs` (`VAULT_UNAVAILABLE`,
+  `resolve_root`), `src/app/startNativeShell.ts`
+
+  > **Gap:** the native shells fold this into UniFFI's generic `SyncError::Io`, so iOS/Android render it as an I/O error rather than naming the folder — a new `SyncError` variant needs regenerated Swift + Kotlin bindings and a branch in both hosts; as of 2026-09-02 the sentence survives only in the payload.
 - **Per-item sync failures surface — a cycle that COMPLETES is not assumed
   healthy.** When individual operations fail (an upload/create/update, a
   push-side delete, a duplicate-move loser takedown, an object-map
@@ -160,8 +196,19 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   reach the server", with the most common HTTP status appended when one
   exists (ties keep the first-seen code, deterministically on every
   platform); pull-side download failures read "N note(s) couldn't be
-  downloaded (will retry)" — the retry promise is real, see the cursor-cap
-  bullet below; decrypt failures read "N note(s) couldn't be decrypted",
+  downloaded (will retry)", with the most common HTTP status appended the same
+  way — the status was collected and silently dropped until 2026-09-02, so an
+  nginx 502 and a vanished folder rendered identically — and the retry promise
+  is real, see the cursor-cap bullet below; a remote change that arrived intact
+  and could not be applied to the vault reads "N change(s) couldn't be applied
+  to your notes folder (will retry)", never the network wording, because the
+  bytes are already in hand and a read-only mount, a full disk, an unwritable
+  subfolder, a local edit that landed mid-pull, or a remote deletion this client
+  cannot carry out has nothing to do with the server, and "change" rather than
+  "note" because a failed deletion lands here too (github#44: all of these
+  reported as failed downloads); a missing vault folder answers ALONE and by
+  path, per the bullet above, because it explains every other failure in the
+  cycle; decrypt failures read "N note(s) couldn't be decrypted",
   kept out of the network wording because they indicate key material or
   corruption, not connectivity; a checkpoint failure is a LOCAL persist
   error — the data did

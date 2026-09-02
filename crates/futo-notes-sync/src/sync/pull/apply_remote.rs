@@ -66,11 +66,12 @@ fn requested_path(remote: &RemoteNote, summary: &mut SyncSummary) -> Option<Stri
         }
         IncomingSyncPath::Accept => Some(remote.name.clone()),
         IncomingSyncPath::Sanitize(name) => Some(name),
-        IncomingSyncPath::Reject(_) => {
+        IncomingSyncPath::Reject(why) => {
             summary.failures.push(SyncFailure {
                 filename: remote.name.clone(),
                 kind: FailureKind::Rejected,
                 status_code: None,
+                detail: Some(why.to_string()),
             });
             summary.decide(
                 SyncPhase::Pull,

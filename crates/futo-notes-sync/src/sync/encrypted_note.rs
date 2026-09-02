@@ -20,6 +20,7 @@ pub(super) async fn decrypt(
         filename: String::new(),
         kind: FailureKind::Download,
         status_code: None,
+        detail: Some(format!("object {} has no blob key", object.id)),
     })?;
     let ciphertext = http
         .blob(blob_key, object.size_bytes.unwrap_or(0))
@@ -28,6 +29,10 @@ pub(super) async fn decrypt(
             filename: String::new(),
             kind: FailureKind::Download,
             status_code: error.status,
+            // The whole `source()` chain `transport_error` went to the trouble
+            // of keeping — otherwise only the status survives, and a transport
+            // failure has no status at all.
+            detail: Some(error.message),
         })?;
     decrypt_bytes(key, object, &ciphertext)
 }
@@ -41,11 +46,13 @@ pub(super) fn decrypt_bytes(
         filename: String::new(),
         kind: FailureKind::Decrypt,
         status_code: None,
+        detail: Some(format!("decrypt failed for object {}", object.id)),
     })?;
     let note = e2ee::unpack_note(&plaintext).map_err(|_| SyncFailure {
         filename: String::new(),
         kind: FailureKind::Decrypt,
         status_code: None,
+        detail: Some(format!("unpack failed for object {}", object.id)),
     })?;
     Ok(RemoteNote {
         object: object.clone(),

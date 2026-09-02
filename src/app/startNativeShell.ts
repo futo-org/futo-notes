@@ -47,11 +47,15 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
 
   // An unreachable vault leaves the note list empty and every action failing, so
   // say what happened and where the way out is. Settings' Storage section keeps
-  // working on purpose — see vault_location::VAULT_UNAVAILABLE.
+  // working on purpose — see vault_location::VAULT_UNAVAILABLE, whose wording
+  // this matches: github#44 showed that a message which does not name the folder
+  // sends the user auditing their server instead of looking at their disk.
   void vaultStatus()
     .then((status) => {
       if (!status.available) {
-        showGlobalToast('Notes folder unavailable — choose a folder in Settings');
+        showGlobalToast(
+          `Can't find your vault folder at ${status.displayPath}. Please reconfigure in settings.`,
+        );
       }
     })
     .catch((error) => console.warn('Failed to read vault status:', error));
