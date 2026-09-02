@@ -27,6 +27,39 @@ variables:
   CARGO_CACHE_POLICY: pull-push
   PNPM_STORE_DIR: $CI_PROJECT_DIR/.pnpm-store
   PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.cache-ms-playwright
+  # Base images are pinned by digest so a registry `:latest` cannot swap the
+  # toolchain under a pipeline. These two are referenced by several jobs each, so
+  # the digest lives here and the jobs carry no copy of it. The AppImage signing
+  # jobs deliberately do NOT use a variable: `variables:` here loses to a
+  # run-pipeline variable, and those two jobs hold the production updater key.
+  #
+  # ci/android is OURS, rebuilt by `build:ci-android-image` (manual). That job
+  # pushes `:latest`; moving consumers onto the new bytes is a deliberate edit of
+  # this line, the same follow-up-commit dance `.ci-test-image` documents. Resolve
+  # a new digest through project registry repository 163.
+  IMAGE_ANDROID: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android@sha256:afed1a7a22a312e1948a7f3b464b138b516dd1149aa3bd8d0aa69827496b7f42
+  #
+  # quay garbage-collects manifests no tag points at, and this pin is EXPECTED
+  # TO DIE PERIODICALLY. Picking a digest that an exact version tag also held
+  # was tried and did not help: sha256:8eca9c2b… was shared by v1.43.2, v1.43,
+  # v1 and latest when it was pinned, and 12 days later it 404'd
+  # ("manifest unknown") because upstream had rebuilt and moved every one of
+  # those tags off it. There is no digest here that stays resolvable forever.
+  #
+  # So: when `build:ci-android-image` or `build:ci-test-image` fails to pull
+  # with "manifest unknown", the pin is dead — re-resolve and update this line
+  # (do NOT switch it back to a floating tag; the point of the pin is that a
+  # registry `:latest` cannot swap the toolchain under a pipeline):
+  #   skopeo inspect --raw docker://quay.io/buildah/stable:v1.43.2 | sha256sum
+  # or read the `Docker-Content-Digest` response header from
+  #   GET https://quay.io/v2/buildah/stable/manifests/v1.43.2
+  # (Accept: application/vnd.oci.image.index.v1+json). Both must agree, and the
+  # raw manifest must be an OCI index containing a linux/amd64 entry — the
+  # runners are amd64 and the index lists ppc64le first.
+  #
+  # Both jobs using this are `when: manual` and web-pipeline only, so no MR
+  # pipeline pulls the image; a dead pin surfaces only when someone rebuilds.
+  IMAGE_BUILDAH: quay.io/buildah/stable@sha256:83045a38da942948cbe8ce53fcf32d76b2d9bfad33bc4586d804522030efc64f
 
 # Pinned by digest, not `:latest`, so a manual rebuild cannot silently change
 # the MR environment. Resolve deliberate updates through project registry
@@ -64,7 +97,7 @@ collect-secrets-from-op:
   # runs.
   before_script: []
   image:
-    name: 1password/op
+    name: 1password/op@sha256:3cd5a1febc662c93d46b944b983b301e710da5c016ef63be9d436cf2b1ed30d5
     docker:
       user: root
   variables:
@@ -794,7 +827,7 @@ test:rust:ffi-android:
   # exclusion, not longer timeouts. The needs: above orders the two within a
   # pipeline so the exclusion never delays the sync suite itself.
   resource_group: cross-platform-sync
-  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  image: $IMAGE_ANDROID
   # Own single-ABI cache namespace instead of the fat 3-ABI + host `native`
   # archive: restoring that one costs more than this job's warm compile. Safe
   # to pull-push — the resource_group serializes every holder of this key, so
@@ -991,7 +1024,7 @@ test:cross-platform-sync:android:
   # may only point at the current or an earlier stage — the debug APK comes from
   # build:android-native. It is still a blocking test job (release:gate.needs).
   stage: build
-  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  image: $IMAGE_ANDROID
   # Both tags resolve to the office runner: dind_fast for the warm cargo cache
   # (see build:android-native), android_kvm because the emulator wants /dev/kvm.
   # The boot falls back to unaccelerated with a warning if it is missing.
@@ -1125,7 +1158,7 @@ build:linux-packages:
     - dind_fast
   needs:
     - job: test
-  image: ubuntu:22.04
+  image: ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
   before_script: &linux-before-script
     # Protected tag variables are present before setup begins. Preserve the
     # updater key only as a non-exported shell value, then remove both signing
@@ -1183,7 +1216,7 @@ build:linux-appimage:
     - dind_fast
   needs:
     - job: test
-  image: ubuntu:22.04
+  image: ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
   before_script: *linux-before-script
   cache:
     - !reference [.cache-pnpm, cache]
@@ -1275,7 +1308,7 @@ build:ci-android-image:
   # Image rebuilds are intentionally manual and expensive. A new branch push
   # must not discard a nearly-complete registry image build.
   interruptible: false
-  image: quay.io/buildah/stable:latest
+  image: $IMAGE_BUILDAH
   before_script: []
   variables:
     STORAGE_DRIVER: vfs
@@ -1302,7 +1335,7 @@ build:ci-test-image:
   # Image rebuilds are intentionally manual and expensive. A new branch push
   # must not discard a nearly-complete registry image build.
   interruptible: false
-  image: quay.io/buildah/stable:latest
+  image: $IMAGE_BUILDAH
   before_script: []
   variables:
     STORAGE_DRIVER: vfs
@@ -1361,7 +1394,7 @@ build:android-native:
   # Native verification is independent of the JavaScript suite; starting it
   # immediately removes that suite from the native MR critical path.
   needs: []
-  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  image: $IMAGE_ANDROID
   cache:
     - !reference [.cache-pnpm, cache]
     # Native cargo work (NDK targets + host lib) is disjoint from the Tauri
@@ -1795,7 +1828,7 @@ windows:sign:
   stage: build
   tags:
     - dind
-  image: debian:trixie-slim
+  image: debian@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
   needs:
     - job: build:windows
       artifacts: true
@@ -2055,7 +2088,7 @@ publish:ios:main:
 publish:android:
   stage: release
   interruptible: false
-  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  image: $IMAGE_ANDROID
   needs:
     - job: release:gate
     - job: build:android-native
@@ -2281,7 +2314,7 @@ release:
 # the signer, so an unsigned/debug-signed build would break updates.
 update-fdroid:
   stage: trigger
-  image: alpine:latest
+  image: alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
   interruptible: false
   needs:
     - job: release # ensure the package asset is uploaded first
