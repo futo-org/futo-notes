@@ -70,7 +70,7 @@ infrastructure owner.
 - The note cache (`notesCache` in `src/features/notes/notes.svelte.ts`) is a projection. Apply the
   complete post-commit `LocalNoteMutation`; do not optimistically reconstruct collision or backlink
   outcomes.
-- FFI requires the iOS dev profile / Android `release-ffi`; plain release uses `panic = "abort"`
+- FFI builds (iOS and Android) use the `release-ffi` profile; plain release uses `panic = "abort"`
   and breaks UniFFI unwinding. Errors crossing the boundary are `uniffi::Error` enums.
 - Commits use `type(scope): imperative summary` — types `feat|fix|docs|chore|ci|perf|refactor|build|test`,
   scope is a surface or platform. A nontrivial fix's body names the exact failure (pipeline number,
