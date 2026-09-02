@@ -65,11 +65,6 @@ export function createNodeFS(): TestPlatformFS {
     async deleteFile(filename) {
       fs.rmSync(full(filename), { force: true });
     },
-    async saveImage(sourcePath) {
-      const filename = path.basename(sourcePath);
-      fs.copyFileSync(sourcePath, full(filename));
-      return filename;
-    },
     async getImageUrl(filename) {
       return full(filename);
     },

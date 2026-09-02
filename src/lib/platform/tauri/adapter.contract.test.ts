@@ -51,7 +51,6 @@ function installCommandDefaults(): void {
     if (command === 'notes_dir_override_save') return undefined;
     if (command === 'resolve_default_notes_root') return DEFAULT_ROOT;
     if (command === 'fs_start_watcher') return undefined;
-    if (command === 'fs_save_image') return 'image-imported.png';
     throw new Error(`unexpected invoke: ${command}`);
   });
 }
@@ -88,12 +87,11 @@ describe('Tauri adapter public contract', () => {
       'listAppData',
       'listDirFiles',
       'deleteFile',
-      'saveImage',
       'getImageUrl',
       'getAppVersion',
       'writeClipboardText',
       'saveImageBytes',
-      'pickImage',
+      'pickImages',
     ] as const) {
       expect(tauriFS[operation], operation).toBeTypeOf('function');
     }
@@ -170,18 +168,43 @@ describe('Tauri adapter public contract', () => {
   it('delegates native capabilities and preserves command failures', async () => {
     const { tauriFS } = await import('../tauri');
     native.open.mockResolvedValueOnce('/tmp/photo.png');
+    native.readFile.mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
 
-    expect(await tauriFS.saveImage('/tmp/source.png')).toBe('image-imported.png');
-    expect(native.invoke).toHaveBeenCalledWith('fs_save_image', {
-      sourcePath: '/tmp/source.png',
-    });
-    expect(await tauriFS.pickImage!()).toBe('/tmp/photo.png');
+    expect(await tauriFS.pickImages!({ limit: 1 })).toEqual([
+      { bytes: expect.any(ArrayBuffer), extension: 'png' },
+    ]);
+    expect(native.open).toHaveBeenCalledWith(expect.objectContaining({ multiple: false }));
     expect(await tauriFS.getAppVersion()).toBe('1.2.3');
+  });
 
-    native.invoke.mockRejectedValueOnce(new Error('backend denied image import'));
-    await expect(tauriFS.saveImage('/tmp/denied.png')).rejects.toThrow(
-      'backend denied image import',
-    );
+  it('picks several images and never returns more than the limit', async () => {
+    const { tauriFS } = await import('../tauri');
+    native.open.mockResolvedValueOnce(['/tmp/a.png', '/tmp/b.jpg', '/tmp/c.webp', '/tmp/d.gif']);
+    native.readFile.mockResolvedValue(new Uint8Array([9]));
+
+    const picked = await tauriFS.pickImages!({ limit: 3 });
+
+    expect(picked.map((image) => image.extension)).toEqual(['png', 'jpg', 'webp']);
+    expect(native.open).toHaveBeenCalledWith(expect.objectContaining({ multiple: true }));
+  });
+
+  it('reads the extension off the basename, falling back to jpg when there is none', async () => {
+    const { tauriFS } = await import('../tauri');
+    native.open.mockResolvedValueOnce(['/Users/a.b/photo', '/tmp/shot.PNG', '/tmp/.png']);
+    native.readFile.mockResolvedValue(new Uint8Array([7]));
+
+    const picked = await tauriFS.pickImages!({ limit: 3 });
+
+    expect(picked.map((image) => image.extension)).toEqual(['jpg', 'png', 'jpg']);
+  });
+
+  it('rejects a picked file whose extension is not an accepted image type', async () => {
+    const { tauriFS } = await import('../tauri');
+    native.open.mockResolvedValueOnce('/tmp/payload.exe');
+    native.readFile.mockClear();
+
+    await expect(tauriFS.pickImages!({ limit: 1 })).rejects.toThrow('disallowed image extension');
+    expect(native.readFile).not.toHaveBeenCalled();
   });
 
   it('preserves the shipped open-tab persistence shape in .app-config.json', async () => {

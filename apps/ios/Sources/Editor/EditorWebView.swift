@@ -709,15 +709,13 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let targetGeneration = generation
         completionQueue.enqueue { [weak self] in
             guard let self else { return }
-            let picked: (Data?, String) = await withCheckedContinuation { continuation in
-                ImagePicker.present(source: source) { data, ext in
-                    continuation.resume(returning: (data, ext))
-                }
+            let picked: [PickedImage] = await withCheckedContinuation { continuation in
+                ImagePicker.present(source: source) { continuation.resume(returning: $0) }
             }
-            guard let data = picked.0 else { return }
+            guard let image = picked.first else { return }
             guard
                 let filename = await VaultImages.save(
-                    data: data, preferredExtension: picked.1)
+                    data: image.data, preferredExtension: image.ext)
             else { return }
             let inserted = await self.insertImage(filename, for: targetGeneration)
             if !inserted {
