@@ -45,24 +45,6 @@ pub(crate) struct AccentColor {
 pub(crate) struct DesktopSettingsSnapshot {
     theme: &'static str,
     accent: Option<AccentColor>,
-    interface_font: &'static str,
-}
-
-fn interface_font_for(current_desktop: Option<&str>) -> &'static str {
-    let is_plasma = current_desktop.is_some_and(|desktop| {
-        desktop.split([':', ';']).any(|name| {
-            let name = name.trim().to_ascii_lowercase();
-            name.contains("kde") || name.contains("plasma")
-        })
-    });
-    if is_plasma {
-        // WebKitGTK 2.52 on Plasma resolves `system-ui` to GTK's Cantarell,
-        // while the generic sans face resolves through Fontconfig to Plasma's
-        // configured Noto Sans. GNOME's system-ui correctly follows GTK.
-        "sansSerif"
-    } else {
-        "systemUi"
-    }
 }
 
 #[cfg(target_os = "linux")]
@@ -138,7 +120,6 @@ fn read_snapshot(proxy: &zbus::blocking::Proxy<'_>) -> DesktopSettingsSnapshot {
             Accent::None => None,
             Accent::Rgb(r, g, b) => Some(AccentColor { r, g, b }),
         },
-        interface_font: interface_font_for(std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref()),
     }
 }
 
@@ -218,15 +199,5 @@ mod tests {
         assert_eq!(parse_accent(&Value::from((-0.1, 0.2, 0.3))), Accent::None);
         assert_eq!(parse_accent(&Value::from((0.1, 1.2, 0.3))), Accent::None);
         assert_eq!(parse_accent(&Value::U32(1)), Accent::None);
-    }
-
-    #[test]
-    fn chooses_the_native_generic_font_for_gnome_and_plasma() {
-        assert_eq!(interface_font_for(Some("GNOME")), "systemUi");
-        assert_eq!(interface_font_for(Some("ubuntu:GNOME")), "systemUi");
-        assert_eq!(interface_font_for(Some("KDE")), "sansSerif");
-        assert_eq!(interface_font_for(Some("X-KDE-Plasma")), "sansSerif");
-        assert_eq!(interface_font_for(Some("KDE:wayland")), "sansSerif");
-        assert_eq!(interface_font_for(None), "systemUi");
     }
 }

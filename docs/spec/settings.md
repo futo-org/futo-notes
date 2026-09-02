@@ -23,12 +23,6 @@
   tokens; disabling it or receiving no portal preference restores brand orange.
   The preference is persisted in `.app-state.json`. → accent.ts, appState.ts,
   AppearanceSettingsSection.svelte
-- **Interface font** offers **System / Barlow** on Linux desktop, defaults to
-  **System**, and persists in `.app-state.json`. System uses `system-ui` on GNOME
-  and Fontconfig's `sans-serif` on Plasma because WebKitGTK's `system-ui`
-  resolves to Cantarell there. Editor content remains Barlow, and browser and
-  native-mobile embeds keep Barlow throughout. → interfaceFont.ts, appState.ts,
-  theme.css
 - The app version is shown.
 - **License**: the License card (Unlicensed / Licensed / Expired, Buy, Enter
   license key, Remove) follows [license.md](license.md). On the native shells it

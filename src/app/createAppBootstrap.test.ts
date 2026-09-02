@@ -19,12 +19,11 @@ vi.mock('$features/system/accent', () => ({
   applySystemAccentPreference: vi.fn(),
   watchSystemAccentTauri: vi.fn(() => vi.fn()),
 }));
-vi.mock('$features/system/interfaceFont', () => ({ applyInterfaceFontPreference: vi.fn() }));
 vi.mock('$shared/state/appState', () => ({
   loadPreferences: preferenceMocks.loadPreferences,
   saveSelectedLanguageTag: preferenceMocks.saveSelectedLanguageTag,
   getCachedPreferences: vi.fn(() => ({
-    appearance: { theme: 'auto', followSystemAccent: true, interfaceFont: 'system' },
+    appearance: { theme: 'auto', followSystemAccent: true },
     language: { selectedLanguageTag: null },
   })),
 }));

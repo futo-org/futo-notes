@@ -5,21 +5,17 @@
   interface Props {
     preference: ThemePreference;
     followSystemAccent: boolean;
-    interfaceFont: 'system' | 'barlow';
     showLinuxDesktopOptions: boolean;
     onchange: (theme: ThemePreference) => void;
     onfollowaccentchange: () => void;
-    oninterfacefontchange: (font: 'system' | 'barlow') => void;
   }
 
   let {
     preference,
     followSystemAccent,
-    interfaceFont,
     showLinuxDesktopOptions,
     onchange,
     onfollowaccentchange,
-    oninterfacefontchange,
   }: Props = $props();
 </script>
 
@@ -66,26 +62,5 @@
         <span class="settings-switch-thumb"></span>
       </span>
     </button>
-
-    <div class="settings-card settings-appearance-card">
-      <span class="settings-input-label">Interface font</span>
-      <div
-        class="settings-segmented settings-segmented-two"
-        role="tablist"
-        aria-label="Interface font"
-      >
-        {#each ['system', 'barlow'] as font}
-          <button
-            class="settings-segment"
-            class:active={interfaceFont === font}
-            onclick={() => oninterfacefontchange(font as 'system' | 'barlow')}
-            aria-pressed={interfaceFont === font}>{font === 'system' ? 'System' : 'Barlow'}</button
-          >
-        {/each}
-      </div>
-      <p class="settings-btn-desc settings-hint">
-        The editor keeps Barlow for consistent note layout.
-      </p>
-    </div>
   {/if}
 </section>

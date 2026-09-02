@@ -18,7 +18,6 @@ export interface AppState {
     theme: 'auto' | 'dark' | 'light';
     selectedLanguageTag: string | null;
     followSystemAccent: boolean;
-    interfaceFont: 'system' | 'barlow';
   };
 
   crashReporting: {
@@ -79,7 +78,6 @@ function defaultState(): AppState {
       theme: 'auto',
       selectedLanguageTag: null,
       followSystemAccent: linuxDesktop,
-      interfaceFont: linuxDesktop ? 'system' : 'barlow',
     },
     crashReporting: {
       enabled: true,
@@ -200,9 +198,6 @@ function sanitize(raw: unknown): AppState {
         typeof rawPrefs.followSystemAccent === 'boolean'
           ? rawPrefs.followSystemAccent
           : defaults.preferences.followSystemAccent,
-      interfaceFont: ['system', 'barlow'].includes(rawPrefs.interfaceFont as string)
-        ? (rawPrefs.interfaceFont as 'system' | 'barlow')
-        : defaults.preferences.interfaceFont,
     },
     crashReporting: {
       enabled: typeof rawCrash.enabled === 'boolean' ? rawCrash.enabled : true,
@@ -402,7 +397,6 @@ export interface AppPreferences {
   appearance: {
     theme: 'auto' | 'dark' | 'light';
     followSystemAccent: boolean;
-    interfaceFont: 'system' | 'barlow';
   };
   language: {
     selectedLanguageTag: string | null;
@@ -428,7 +422,6 @@ function stateToPrefs(): AppPreferences {
     appearance: {
       theme: s.preferences.theme,
       followSystemAccent: s.preferences.followSystemAccent,
-      interfaceFont: s.preferences.interfaceFont,
     },
     language: { selectedLanguageTag: s.preferences.selectedLanguageTag },
     crashReporting: { ...s.crashReporting },
@@ -465,7 +458,6 @@ export async function savePreferences(prefs: AppPreferences): Promise<void> {
       theme: prefs.appearance.theme,
       selectedLanguageTag: prefs.language.selectedLanguageTag,
       followSystemAccent: prefs.appearance.followSystemAccent,
-      interfaceFont: prefs.appearance.interfaceFont,
     },
     crashReporting: prefs.crashReporting,
     updates: prefs.updates,

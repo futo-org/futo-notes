@@ -69,7 +69,6 @@ describe('system accent preference', () => {
     platform.readLinuxDesktopSettings.mockResolvedValue({
       theme: 'light',
       accent: { r: 0.1, g: 0.2, b: 0.3 },
-      interfaceFont: 'systemUi',
     });
 
     applySystemAccentPreference(true, onChange);
