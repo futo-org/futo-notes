@@ -30,12 +30,13 @@
   eager whole-doc DOM. Typing passes even at 50k with cv (+ filtering the preset's two whole-doc
   per-transaction walkers, not needed ≤16k). Numbers are from a fast desktop — low-end Android
   multiplies them, which is why D7 exists.
-- **Round-trip corpus census** (`spike-notes/milkdown-corpus-report.md` on the spike): 31k notes,
+- **Round-trip corpus census** (the spike's corpus report; its numbers are reproduced in
+  `docs/editor/milkdown-roundtrip-census.md`): 31k notes,
   zero crashes/hangs. Two real loss classes — inline `<br>` deleted (word fusion; the standard
   multi-line table-cell idiom) and `[](url)` links deleted href-and-all — plus one corruption class
-  (spurious `<br />` on `* 0.`-style bullets). All three root-caused in
-  `spike-notes/roundtrip/roundtrip-findings.md`, fixes ~90% done as string guards (parked, with
-  resume steps). §3 below replaces the string-guard approach.
+  (spurious `<br />` on `* 0.`-style bullets). All three root-caused in the spike's
+  round-trip findings, fixes ~90% done as string guards (parked). §3 below replaces the
+  string-guard approach.
 - **Note-size population**: foreign corpus max 19,295 lines (2 notes >10k of 30,995); Justin's
   vault max 13,876 lines (next largest 978, of 2,511).
 - Spike already has: `MilkdownEditor.svelte` mounted through the shared embed, bridge extensions in
@@ -55,9 +56,10 @@ same code). Known debts the review pays down:
   explicit spec gap — the spike's "no consumer yet" exemption is not a shippable end state.
   **Both paid: `formatState` in #104, `haptic` on 2026-09-01 when Android took the long-press block
   drag (§4) and gained `performBlockDragHaptic`.**
-- The parked string guards in `spike-notes/roundtrip/` are replaced by §3's plugin set, not resumed.
-- The `?cm` escape switch and the `spike-notes/` directory die at swap time; their content
-  graduates into this plan, spec lines, and test fixtures.
+- The spike's parked string guards are replaced by §3's plugin set, not resumed.
+- **Done.** The `?cm` escape switch and the `spike-notes/` directory are gone; their content
+  graduated into this plan, spec lines, `docs/editor/milkdown-roundtrip-census.md`, and test
+  fixtures.
 - Rebase onto main and rename to a `feat/` branch when execution starts.
 
 ### T1 outcome (#98, done)
@@ -410,7 +412,8 @@ the corpus harness consume the same module — the ADR-0002 "one serializer" rul
    (local, never committed). Diff against `corpus-results-baseline.jsonl` (regenerated baseline on
    the spike). Target: the two real-loss classes at zero, zero new regressions, the 16
    uninvestigated `html_loss` notes dispositioned. Per D4 this is tracked, not gating — but the
-   report is a required deliverable (`spike-notes` successor doc or `tests/` local artifact).
+   report is a required deliverable (`docs/editor/milkdown-roundtrip-census.md` or a `tests/`
+   local artifact).
 
 ### T2 outcome (#99, done)
 

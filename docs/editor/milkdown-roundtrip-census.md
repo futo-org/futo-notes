@@ -51,7 +51,7 @@ Obsidian syntax).
 ### The harness reproduces the first census
 
 `unstable` 117, `unstable_persistent` 8, `doc_mismatch` 660 and
-`structural_diff` 541 match `spike-notes/milkdown-corpus-report.md` exactly, on
+`structural_diff` 541 match the spike's original corpus report exactly, on
 a harness rewritten from scratch. `text_loss` (482 vs 524), `html_loss` (61 vs
 64) and `wikilink_loss` (1 vs 1, after a detector fix — see below) differ
 because those heuristics had to be re-derived; the original harness is gone.
@@ -176,8 +176,8 @@ inline code spans with embedded newlines collapsing to a space (CommonMark
 mandates it), bare URLs wrapping as autolinks, list-marker and table-spacing
 normalization, Setext heading recognition, Obsidian `[[wikilink]]` and LaTeX
 underscores being backslash-escaped to keep them literal, MkDocs admonitions
-flattening, and CRLF normalizing to LF. See
-`spike-notes/milkdown-corpus-report.md` §5 for the full breakdown.
+flattening, and CRLF normalizing to LF. That list is the whole breakdown — the
+spike report it originally cited went away with `spike-notes/` at swap time.
 
 Zero notes crashed the parser, zero hung, zero were dropped — in either variant,
 on either corpus.
