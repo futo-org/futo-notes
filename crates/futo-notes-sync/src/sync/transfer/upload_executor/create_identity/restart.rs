@@ -54,6 +54,7 @@ async fn recover_missing_pending_create(
                 filename: name,
                 kind: FailureKind::Upload,
                 status_code: error.status,
+                detail: Some(error.message.clone()),
             });
             return Err(pending_create_recovery_error(&error));
         }
@@ -129,6 +130,7 @@ pub(in crate::sync) async fn recover_pending_creates(
                 filename: name,
                 kind: FailureKind::Upload,
                 status_code: None,
+                detail: Some("more than one local successor claims this pending create".into()),
             });
             continue;
         }

@@ -70,6 +70,17 @@ fn download_failures(summary: &SyncSummary) -> usize {
         .count()
 }
 
+/// A remote change that arrived intact and could not be applied to the vault.
+/// Distinct from [`download_failures`] since github#44: an unapplicable
+/// tombstone is a LOCAL fault and used to be reported as a failed download.
+fn local_apply_failures(summary: &SyncSummary) -> usize {
+    summary
+        .failures
+        .iter()
+        .filter(|failure| failure.kind == FailureKind::LocalApply)
+        .count()
+}
+
 fn write_ancestry(root: &Path, name: &str, object_id: &str, hash: &str) {
     let ancestry = HashMap::from([(
         name.to_owned(),
@@ -227,7 +238,12 @@ async fn unverifiable_tombstone_keeps_ancestry_and_caps_the_cursor() {
         summary.deleted, 0,
         "an unverifiable delete is not convergence"
     );
-    assert_eq!(download_failures(&summary), 1);
+    assert_eq!(
+        local_apply_failures(&summary),
+        1,
+        "an unverifiable local delete is not a download failure"
+    );
+    assert_eq!(download_failures(&summary), 0);
     assert!(root.path().join("note.md").is_dir());
     assert_eq!(
         next.pull_cursor, 4,
@@ -273,7 +289,12 @@ async fn tombstone_cleanup_failure_still_reports_the_parked_note() {
         std::fs::read_to_string(root.path().join(format!("{parked}.md"))).unwrap(),
         "local edit"
     );
-    assert_eq!(download_failures(&summary), 1);
+    assert_eq!(
+        local_apply_failures(&summary),
+        1,
+        "a failed local cleanup is not a download failure"
+    );
+    assert_eq!(download_failures(&summary), 0);
     assert_eq!(next.pull_cursor, 4);
 }
 

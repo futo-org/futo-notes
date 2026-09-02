@@ -85,6 +85,24 @@ pub(crate) async fn cycle_with_checkpoint(
         }
     };
 
+    // The vault folder has to be there before anything in the cycle touches
+    // disk. github#44: it was not, every apply failed, the user was told "3
+    // notes couldn't be downloaded (will retry)" and audited a healthy server —
+    // and then `checkpoint::save` recreated the folder behind him as a side
+    // effect of `write_atomic_text`'s `create_dir_all`, leaving a stub holding
+    // nothing but `.e2ee-state.json`. The desktop's own rule is that a vanished
+    // vault is never replaced by an empty directory (`vault_location.rs`
+    // `resolve_root`, guarded by "a vanished custom vault must never be
+    // replaced by an empty directory"), so the engine must not do it either:
+    // stop before the first write and say which folder and where to fix it.
+    if !root.is_dir() {
+        return Err(abandon(
+            SyncErrorKind::VaultMissing(root.display().to_string()),
+            state,
+            phases,
+        ));
+    }
+
     let (bootstrap, ready) = if needs_bootstrap(state) {
         let started = std::time::Instant::now();
         let bootstrapped =

@@ -64,19 +64,56 @@ struct PullContext<'a> {
     cursor: &'a mut PullCursor,
 }
 
-fn record_apply_failure(context: &mut PullContext<'_>, object: &Object, filename: String) {
+/// A local write failed after the blob was already downloaded and decrypted.
+///
+/// The kind turns on one question — is the vault folder still there? — because
+/// that is the only cause the user can act on from the message alone, and it is
+/// checked here rather than at the start of the cycle so a folder that goes away
+/// mid-cycle (an unmounted drive, a revoked document-portal grant, a
+/// cloud-sync client renaming it) is caught too. Everything else is a local
+/// write fault: no permission, a read-only mount, a full disk, a symlink or a
+/// plain file where a folder belongs, or a local edit that landed mid-pull.
+///
+/// Neither is a download failure, which is what all of them used to report
+/// (github#44). The engine's own error text goes to the journal — nowhere else
+/// records it, and "apply_error" alone answered nothing.
+fn record_apply_failure(
+    context: &mut PullContext<'_>,
+    object: &Object,
+    filename: String,
+    error: String,
+) {
     context.cursor.fail(object.change_seq);
-    context.summary.decide(
+    let vault_missing = !context.root.is_dir();
+    let (kind, reason) = if vault_missing {
+        (FailureKind::VaultMissing, reason::VAULT_MISSING)
+    } else {
+        (FailureKind::LocalApply, apply_remote::reason::APPLY_ERROR)
+    };
+    context.summary.decide_with(
         SyncPhase::Pull,
         &filename,
         decision::FAILED,
-        apply_remote::reason::APPLY_ERROR,
+        reason,
+        error.clone(),
     );
     context.summary.failures.push(SyncFailure {
-        filename,
-        kind: FailureKind::Download,
+        // The vault clause names the folder, so that is what its failure
+        // carries; a per-note fault still names the note.
+        filename: if vault_missing {
+            context.root.display().to_string()
+        } else {
+            filename
+        },
+        kind,
         status_code: None,
+        detail: Some(error),
     });
+}
+
+pub(super) mod reason {
+    pub(super) const VAULT_MISSING: &str = "vault_folder_missing";
+    pub(super) const DOWNLOAD_FAILED: &str = "download_failed";
 }
 
 fn apply_live_object(
@@ -94,7 +131,7 @@ fn apply_live_object(
 
     match downloaded {
         Ok(remote) => {
-            if apply_remote(
+            if let Err(error) = apply_remote(
                 context.state,
                 context.root,
                 &remote,
@@ -102,10 +139,8 @@ fn apply_live_object(
                 context.bootstrap,
                 context.pre_write,
                 context.summary,
-            )
-            .is_err()
-            {
-                record_apply_failure(context, object, remote.name);
+            ) {
+                record_apply_failure(context, object, remote.name, error);
             }
         }
         Err(mut failure) => {
@@ -117,6 +152,22 @@ fn apply_live_object(
             } else {
                 context.cursor.fail(object.change_seq);
             }
+            // A download or decrypt failure journaled nothing at all, so the
+            // one channel built to answer "why is that note not on this device"
+            // was silent for the two causes it was most needed for. The status
+            // is the fallback when the transport gave no message.
+            let detail = failure.detail.clone().unwrap_or_else(|| {
+                failure
+                    .status_code
+                    .map_or_else(|| failure.kind.as_str().to_owned(), |s| format!("HTTP {s}"))
+            });
+            context.summary.decide_with(
+                SyncPhase::Pull,
+                &failure.filename,
+                decision::FAILED,
+                reason::DOWNLOAD_FAILED,
+                detail,
+            );
             context.summary.failures.push(failure);
         }
     }
@@ -141,17 +192,15 @@ fn apply_remote_tombstones(
             context.cursor.fail(object.change_seq);
             continue;
         }
-        if apply_tombstone(
+        if let Err(error) = apply_tombstone(
             context.state,
             context.root,
             object,
             context.ancestry,
             context.pre_write,
             context.summary,
-        )
-        .is_err()
-        {
-            record_apply_failure(context, object, String::new());
+        ) {
+            record_apply_failure(context, object, String::new(), error);
         }
         context.state.pull_cursor = restart_cursor;
         checkpoint::save(context.root, context.state).map_err(SyncErrorKind::Io)?;

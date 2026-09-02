@@ -383,6 +383,8 @@ mod tests {
                 filename: "note.md".to_owned(),
                 kind: futo_notes_sync::FailureKind::Upload,
                 status_code: Some(500),
+                // Journal-only: the projection below must NOT carry this.
+                detail: Some("engine-internal cause".to_owned()),
             }];
             summary.updated_ids = vec!["updated".to_owned()];
             summary.deleted_ids = vec!["deleted".to_owned()];

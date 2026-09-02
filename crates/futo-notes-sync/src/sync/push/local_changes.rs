@@ -138,11 +138,12 @@ pub(in crate::sync) fn prepare_upload(
     }
     let content = match read_content(context.root, &file.name) {
         Ok(content) => content,
-        Err(_) => {
+        Err(error) => {
             context.summary.failures.push(SyncFailure {
                 filename: file.name.clone(),
                 kind: FailureKind::Upload,
                 status_code: None,
+                detail: Some(error),
             });
             context.summary.decide(
                 SyncPhase::Push,
@@ -162,11 +163,12 @@ pub(in crate::sync) fn prepare_upload(
     }
     let ciphertext = match encrypt(&context.state.vault_key, &file.name, &content) {
         Ok(ciphertext) => ciphertext,
-        Err(_) => {
+        Err(error) => {
             context.summary.failures.push(SyncFailure {
                 filename: file.name.clone(),
                 kind: FailureKind::Upload,
                 status_code: None,
+                detail: Some(error.message()),
             });
             context.summary.decide(
                 SyncPhase::Push,

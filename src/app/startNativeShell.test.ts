@@ -135,7 +135,7 @@ describe('startNativeShell', () => {
     // that names the way out would leave the user with nothing actionable.
     await vi.waitFor(() =>
       expect(mocks.showGlobalToast).toHaveBeenCalledWith(
-        'Notes folder unavailable — choose a folder in Settings',
+        "Can't find your vault folder at /vault. Please reconfigure in settings.",
       ),
     );
     expect(mocks.showGlobalToast).not.toHaveBeenCalledWith(
@@ -143,13 +143,15 @@ describe('startNativeShell', () => {
     );
   });
 
-  it('points at Settings when the notes folder is unreachable', async () => {
+  // The folder has to be NAMED: github#44's reporter read an unnamed failure as
+  // a server fault and audited a healthy server before looking at his disk.
+  it('names the unreachable notes folder and points at Settings', async () => {
     mocks.vaultStatus.mockResolvedValue(vaultStatus({ available: false }));
     startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
 
     await vi.waitFor(() =>
       expect(mocks.showGlobalToast).toHaveBeenCalledWith(
-        'Notes folder unavailable — choose a folder in Settings',
+        "Can't find your vault folder at /vault. Please reconfigure in settings.",
       ),
     );
   });
