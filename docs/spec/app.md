@@ -316,11 +316,19 @@ Behaviors and constraints that hold across every surface and platform.
 
 ## Feedback & crash reporting
 
-- Action feedback uses transient toasts (~3 s, one at a time, auto-dismiss):
+- Action feedback uses transient toasts (**5 s** on the web surfaces, one at a time,
+  auto-dismiss; a second toast replaces the first and restarts the clock so the newer
+  message still gets its full read time):
   "Note deleted", "Moved to {folder}", "Folder created", "Path copied", etc. _(Tauri; Android
   native shows the same platform toasts — delete now toasts "Note deleted" from
-  both the editor ⋮ menu and the list long-press)_ → shared/notifications/toastBus.svelte.ts,
+  both the editor ⋮ menu and the list long-press)_ → shared/notifications/toastBus.svelte.ts
+  (`TOAST_DURATION_MS`, guarded by "holds a message for five seconds, then clears it"),
   NoteEditorScreen.kt, NoteListScreen.kt
+  - Raised from 3 s on 2026-09-02. The same slot carries the sync failure toasts, which are
+    the only warning that the notes folder has gone missing, and that message names a full
+    path before saying where to fix it — a capture taken 3.4 s after such a failure caught
+    nothing but the ⚠ indicator (github#44 follow-up). Android keeps `Toast.LENGTH_LONG`,
+    whose duration the OS owns, so the two surfaces are close but not identical.
 - Android emits delete/move success feedback only after the Rust store returns
   a committed mutation. A failed action instead reports that the note remains
   in place; it never navigates away from the editor or dismisses the move
