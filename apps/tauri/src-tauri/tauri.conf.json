@@ -60,10 +60,16 @@
     ],
     "linux": {
       "deb": {
-        "desktopTemplate": "linux/futo-notes.desktop.hbs"
+        "desktopTemplate": "linux/futo-notes.desktop.hbs",
+        "files": {
+          "/usr/share/applications/futo-notes-tauri.desktop": "linux/futo-notes-tauri.desktop"
+        }
       },
       "rpm": {
-        "desktopTemplate": "linux/futo-notes.desktop.hbs"
+        "desktopTemplate": "linux/futo-notes.desktop.hbs",
+        "files": {
+          "/usr/share/applications/futo-notes-tauri.desktop": "linux/futo-notes-tauri.desktop"
+        }
       }
     },
     "macOS": {
