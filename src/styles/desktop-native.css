@@ -59,10 +59,6 @@
     cursor: col-resize !important;
   }
 
-  html.desktop-chrome [draggable='true']:active {
-    cursor: grabbing !important;
-  }
-
   /* A link that leaves the app is the one place the pointer is still right. */
   html.desktop-chrome a[href^='http'],
   html.desktop-chrome a[href^='mailto'] {

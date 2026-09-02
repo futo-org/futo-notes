@@ -195,9 +195,10 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 ### Desktop chrome behaves like an application, not a document *(desktop)*
 
 - Chrome shows the arrow cursor — rows, tabs, buttons and toolbar icons never
-  switch to the pointing hand. Text fields keep the I-beam, the sidebar divider
-  keeps the resize cursor, outbound links keep the pointer, and the editor keeps
-  every document cursor it had. → desktop-native.css
+  switch to the pointing hand, and pressing or dragging a row never shows the
+  grabbing hand. Text fields keep the I-beam, the sidebar divider keeps the
+  resize cursor, outbound links keep the pointer, and the editor keeps every
+  document cursor it had. → desktop-native.css
 - Right-clicking chrome opens nothing. Right-clicking inside the editor, inside
   a text field, or on a live selection still opens the native menu — Cut/Copy/
   Paste, Look Up, Share and spellcheck suggestions. The app's own note and
