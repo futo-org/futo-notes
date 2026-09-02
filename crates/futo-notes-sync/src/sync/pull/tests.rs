@@ -285,19 +285,24 @@ async fn a_missing_vault_folder_is_reported_as_a_missing_folder_not_a_failed_dow
 
 /// The same misreporting for a fault the up-front folder check cannot catch:
 /// the vault folder is there and writable, but the note arrives inside a
-/// SUBFOLDER that is not — the user changed its permissions, or it came off a
-/// restore that way. The blob is in hand and only the local write fails, which
-/// is the residue github#44 leaves behind: a per-note local fault that still
-/// claimed the download had failed.
-#[cfg(unix)]
+/// SUBFOLDER that cannot be written — here a plain FILE sits where the folder
+/// belongs, which is what a half-finished restore or a sync client that wrote
+/// the folder name as a file leaves behind. The blob is in hand and only the
+/// local write fails, which is the residue github#44 leaves behind: a per-note
+/// local fault that still claimed the download had failed.
+///
+/// The obstacle is deliberately uid-independent. An earlier revision made the
+/// subfolder mode 0o500 and CI, which runs as root, wrote into it anyway
+/// (CAP_DAC_OVERRIDE) — the note applied, `failure_message()` was None and job
+/// 246420 failed on an assertion that holds for every non-root developer. A
+/// file where a directory belongs is ENOTDIR for root too.
 #[tokio::test]
-async fn a_note_in_an_unwritable_subfolder_is_a_local_apply_failure_not_a_download() {
-    use std::os::unix::fs::PermissionsExt;
+async fn a_note_under_a_file_where_a_folder_belongs_is_a_local_apply_failure_not_a_download() {
     const KEY: [u8; 32] = [5; 32];
     let server = MockServer::start().await;
     let root = TempRoot::new();
     let locked = root.path().join("Locked");
-    std::fs::create_dir(&locked).unwrap();
+    std::fs::write(&locked, "not a folder").unwrap();
 
     let blob = e2ee::aes_gcm_encrypt(&KEY, &e2ee::pack_note_v2("Locked/note.md", "body")).unwrap();
     Mock::given(method("GET"))
@@ -313,14 +318,12 @@ async fn a_note_in_an_unwritable_subfolder_is_a_local_apply_failure_not_a_downlo
         .mount(&server)
         .await;
 
-    // Readable and traversable, not writable — the vault root itself stays
-    // writable so the checkpoint still saves and the cycle still completes.
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+    // The vault root itself stays a writable directory, so the up-front folder
+    // check passes, the checkpoint still saves and the cycle still completes.
     let state = connected_state(&server, KEY);
-    let pulled = pull(&state, root.path(), 0, &|_| {}, &|_| {}).await;
-    // Restore first so a failed assertion still leaves a removable directory.
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let (summary, next) = pulled.unwrap();
+    let (summary, next) = pull(&state, root.path(), 0, &|_| {}, &|_| {})
+        .await
+        .unwrap();
 
     assert_eq!(
         summary.failure_message().as_deref(),
