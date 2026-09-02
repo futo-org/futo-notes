@@ -1,12 +1,13 @@
 /**
- * What `[[` autocomplete offers, for BOTH editor engines.
+ * What `[[` autocomplete offers.
  *
  * docs/spec/editor.md specifies this once — "Typing `[[` opens autocomplete
  * over all note ids; selecting inserts the full path" — so it is implemented
- * once here and consumed by the CodeMirror completion source
- * (`wikilinkAutocomplete.ts`) and the Milkdown plugin
- * (`milkdown/wikilink/autocomplete.ts`). Only the insertion mechanics differ
- * between them; which notes come back, in which order, labelled how, does not.
+ * once here and consumed by the Milkdown plugin
+ * (`milkdown/wikilink/autocomplete.ts`). It sat one level up from that plugin
+ * because a second consumer, the CodeMirror completion source, used to read it
+ * too; that engine is gone, but the split still keeps "which notes come back,
+ * in which order, labelled how" testable apart from the insertion mechanics.
  *
  * Resolution and shortest-unique-suffix are NOT decided here — they come from
  * the conformance-locked `$shared/note/wikilinks` index that the Rust rename
