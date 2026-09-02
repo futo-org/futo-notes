@@ -8,8 +8,11 @@
  * because it is poll-based, downtime only delays notifications, never drops
  * them (docs/plan/github-issue-triage.md, "Architecture: two tiers").
  *
- * Exit codes: 0 on success, 1 on any GitHub/Zulip failure — the systemd unit's
- * failure state is the alarm (M11: never swallow an error to look healthy).
+ * Exit codes: 0 on success, 1 on any GitHub/Zulip failure. The failure is both
+ * a red systemd unit and — via the unit's OnFailure= handler, alertFailure.mjs
+ * — a Zulip message, because a red unit alone went unnoticed for 11 days when
+ * the old GitHub PAT expired (M11: never swallow an error to look healthy).
+ * This script's success path owns the matching all-clear.
  *
  * Usage:
  *   node scripts/issue-triage/poll.mjs            # live: post + record
@@ -19,8 +22,15 @@ import { pathToFileURL } from 'node:url';
 
 import { classifyIssue } from './classifyIssue.mjs';
 import { fetchIssuesSince } from './githubIssues.mjs';
+import { endOutage, recordFailureReason } from './healthState.mjs';
 import { loadState, nextWatermark, stateDir, updateState } from './triageState.mjs';
-import { formatAlert, postAlert, topicForIssue } from './zulipAlerts.mjs';
+import {
+  HEALTH_TOPIC,
+  formatAlert,
+  formatRecoveryAlert,
+  postAlert,
+  topicForIssue,
+} from './zulipAlerts.mjs';
 
 const REPO = 'futo-org/futo-notes';
 
@@ -81,10 +91,9 @@ async function processIssue({ issue, dryRun, stateDirectory, postAlertImpl }) {
 export async function runPoll({ dryRun, stateDirectory = stateDir(), dependencies = {} }) {
   const fetchIssuesSinceImpl = dependencies.fetchIssuesSince ?? fetchIssuesSince;
   const postAlertImpl = dependencies.postAlert ?? postAlert;
-  const token = process.env.GITHUB_PAT;
 
   const state = loadState(stateDirectory);
-  const issues = await fetchIssuesSinceImpl({ repo: REPO, since: state.watermark, token });
+  const issues = await fetchIssuesSinceImpl({ repo: REPO, since: state.watermark });
 
   // Only issues never seen before, oldest first so topics read in order.
   const fresh = issues
@@ -105,19 +114,45 @@ export async function runPoll({ dryRun, stateDirectory = stateDir(), dependencie
     }, stateDirectory);
   }
 
-  return { posted: fresh.length, queued };
+  // A recovery is only observable by the run that succeeds, so the all-clear
+  // belongs here rather than in the failure handler. Posted after the caught-up
+  // issues so the channel reads in order, and last so a Zulip failure here
+  // cannot cost an issue notification. A dry run must not clear the outage.
+  const recovered = dryRun ? null : endOutage(stateDirectory);
+  if (recovered) {
+    await postAlertImpl({
+      topic: HEALTH_TOPIC,
+      content: formatRecoveryAlert({
+        sinceIso: recovered.firstFailureAt,
+        nowMs: Date.now(),
+        postedCount: fresh.length,
+      }),
+    });
+  }
+
+  return { posted: fresh.length, queued, recovered: Boolean(recovered) };
 }
 
 async function main(argv) {
   const dryRun = argv.includes('--dry-run');
 
   try {
-    const { posted, queued } = await runPoll({ dryRun });
+    const { posted, queued, recovered } = await runPoll({ dryRun });
     const mode = dryRun ? '[dry-run] ' : '';
     process.stdout.write(
-      `${mode}poll complete: ${posted} new issue(s), ${queued} queued as bug(s)\n`,
+      `${mode}poll complete: ${posted} new issue(s), ${queued} queued as bug(s)` +
+        `${recovered ? ' — recovered from an outage' : ''}\n`,
     );
   } catch (error) {
+    // Record the reason for the OnFailure= handler to quote, then fail red.
+    // Best-effort: a broken state directory must not replace the real error.
+    if (!dryRun) {
+      try {
+        recordFailureReason(error.message);
+      } catch {
+        /* keep the original failure as the reported one */
+      }
+    }
     process.stderr.write(`poll failed: ${error.message}\n`);
     process.exit(1);
   }

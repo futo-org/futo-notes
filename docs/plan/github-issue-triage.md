@@ -232,10 +232,44 @@ application code.
   `since` filter treats `1970-01-01T00:00:00Z` as unset and returns nothing.
 - **Zulip bot** `futo-notes-github-issues-bot` is subscribed to
   `#futo-notes-alerts` and can post + self-delete (verified).
-- **Credentials**: `GITHUB_PAT` (fine-grained, Issues:read), `ZULIP_TRIAGE_BOT_*`,
-  `GITLAB_TOKEN` — in `~/.zshrc` (interactive) and mirrored to
-  `~/.config/futo-notes-issue-triage/env` (systemd `EnvironmentFile`, chmod 600).
+- **Credentials**: `ZULIP_TRIAGE_BOT_*`, `GITLAB_TOKEN` — in `~/.zshrc`
+  (interactive) and mirrored to `~/.config/futo-notes-issue-triage/env` (systemd
+  `EnvironmentFile`, chmod 600). GitHub needs none; see the reversal below.
 - **Timer `ExecStart` currently points at the worktree.** After this branch
   merges to `main`, re-run `scripts/issue-triage/install-timer.sh` from the
   desired checkout to re-point it; `$HOME`-based state and creds carry over
   untouched.
+
+### Reversed 2026-09-02: no GitHub credential, and the poller reports its own failures
+
+The original design read GitHub through a fine-grained PAT scoped to Issues:read,
+on the reasoning that a read-only scope makes "no bot writes to GitHub" true by
+construction rather than by prompt. That held, but it bought the guarantee with
+an expiry date: the PAT was created 2026-07-23, hit its 30-day lifetime on
+**2026-08-22 at 12:06 CDT**, and every 15-minute poll failed with
+`401 Bad credentials` for 11 days. Nine issues (gh#37–gh#45) never reached
+#futo-notes-alerts. Both halves of that are now fixed, and the second is the
+more important one.
+
+**Read GitHub anonymously.** `futo-org/futo-notes` is public, so an
+unauthenticated `GET /issues` returns exactly what the token returned. A request
+that carries no identity cannot write at all, which is a stronger version of the
+original guarantee, and it cannot expire. The cost is GitHub's anonymous budget
+of 60 requests/hour/IP against a 15-minute timer's 4 — roughly 15x headroom —
+and `githubIssues.mjs` names an exhausted budget as a rate limit so it can never
+be mistaken for a broken credential again. **Do not reintroduce a PAT here.**
+
+**A red systemd unit is not an alarm.** The units were correct throughout —
+`poll.mjs` exited 1 on every failure and systemd faithfully marked the service
+failed 1,056 times. It went unnoticed because nothing was reading systemd. The
+poller now reports its own breakage to the channel it feeds
+(`OnFailure=futo-notes-issue-triage-failure.service` → `alertFailure.mjs`), on a
+stable `poller health` topic, throttled to one message per 6 hours so that same
+outage would have cost 44 messages instead of 1,056. The all-clear is posted by
+the first successful poll, which is the only run that can observe a recovery, and
+it states the outage duration plus how many issues the catch-up posted.
+
+The generalizable rule: **an alerting system that cannot report its own silence
+has no alarm at all**, only a log nobody reads. Any future channel-feeding
+automation in this repo gets the same treatment — a health topic, a throttle, and
+a recovery message — rather than relying on a human noticing an absence.

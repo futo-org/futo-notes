@@ -23,10 +23,12 @@
  *     }
  *   }
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { open, stat, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+
+import { readJsonOr, writeJsonAtomic } from './jsonFile.mjs';
 
 /**
  * Pipeline statuses. A bug advances posted → queued → reproducing → one of the
@@ -66,33 +68,21 @@ function stateLockPath(dir) {
  * @returns {{ watermark: string, issues: Record<string, object> }}
  */
 export function loadState(dir = stateDir()) {
-  try {
-    const raw = readFileSync(stateFilePath(dir), 'utf8');
-    const parsed = JSON.parse(raw);
-    return {
-      watermark: parsed.watermark ?? DEFAULT_WATERMARK,
-      issues: parsed.issues ?? {},
-    };
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return { watermark: DEFAULT_WATERMARK, issues: {} };
-    }
-    throw error;
-  }
+  const parsed = readJsonOr(stateFilePath(dir), {});
+  return {
+    watermark: parsed.watermark ?? DEFAULT_WATERMARK,
+    issues: parsed.issues ?? {},
+  };
 }
 
 /**
- * Persist state atomically: write a sibling temp file, then rename over the
- * target so a crash mid-write can never leave a truncated state.json.
+ * Persist state atomically (see jsonFile.mjs) so a crash mid-write can never
+ * leave a truncated state.json.
  * @param {{ watermark: string, issues: Record<string, object> }} state
  * @param {string} [dir]
  */
 export function saveState(state, dir = stateDir()) {
-  const target = stateFilePath(dir);
-  mkdirSync(dirname(target), { recursive: true });
-  const tmp = `${target}.tmp`;
-  writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n');
-  renameSync(tmp, target);
+  writeJsonAtomic(stateFilePath(dir), state);
 }
 
 function delay(milliseconds) {
