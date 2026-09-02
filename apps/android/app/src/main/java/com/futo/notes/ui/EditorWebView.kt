@@ -328,7 +328,16 @@ class EditorHost private constructor(appContext: Context) {
         // remove [editor.md:121].
         settings.allowFileAccess = true
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        WebView.setWebContentsDebuggingEnabled(true)
+        // Debug builds only. This flag is what makes a NON-debuggable app
+        // inspectable (the default is false; a debuggable app is inspectable
+        // regardless), so shipping it `true` handed any authorized adb host a
+        // chrome://inspect session into the editor — and through the single
+        // postMessage bridge below, the whole vault: the note universe arrives
+        // via setNotes, `openNote` + getContent() reads any note, `change`
+        // rewrites it. iOS gates the same capability with #if DEBUG
+        // (apps/ios/Sources/Editor/EditorWebView.swift). `just cdp-forward`
+        // drives com.futo.notes.dev, so the dev tooling is unaffected.
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         addJavascriptInterface(bridge, "futoBridge")
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
