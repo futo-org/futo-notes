@@ -94,6 +94,12 @@ struct NativeMutationOutcomeTests {
         )
     }
 
+    @Test("a stale editor blur cannot strip the current keyboard toolbar")
+    func staleBlurPreservesToolbar() {
+        #expect(shouldInstallEditorToolbar(for: true))
+        #expect(!shouldInstallEditorToolbar(for: false))
+    }
+
     @Test("navigation capture waits for admitted editor completions")
     @MainActor
     func navigationWaitsForEditorCompletions() async {

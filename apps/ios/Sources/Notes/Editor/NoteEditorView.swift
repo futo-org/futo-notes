@@ -90,6 +90,17 @@ struct NoteEditorView: View {
     /// and blocks the rename. Rendered in danger red under the title field.
     @State private var titleWarning: LocalizedMessage?
     @State private var titleWarningTask: Task<Void, Never>?
+    @State private var findVisible = false
+    @State private var findQuery = ""
+    @State private var findLabel = "0"
+    // How much of the editor viewport the find bar covers, and the two global
+    // edges it is derived from. The WebView ignores the container's bottom safe
+    // area, so the bar (a `.safeAreaInset`) is drawn OVER it — the shared find
+    // engine has to know that strip's height to reveal a match above it.
+    @State private var editorBottomGlobalY: CGFloat = 0
+    @State private var findBarTopGlobalY: CGFloat = 0
+    @State private var findOverlayInset: CGFloat = 0
+    @State private var editorAttachment: Int?
 
     /// Whether this editor is the visible top of the stack. With wikilink pushes
     /// several editors coexist; only the visible one may drive the single shared
@@ -214,9 +225,49 @@ struct NoteEditorView: View {
                 },
                 onOpenNote: { id in
                     openLinkedNote(id)
+                },
+                onFindMatches: { report in
+                    findQuery = report.query
+                    findLabel = report.label
+                },
+                onAttachmentChange: { editorAttachment = $0
                 }
             )
+            // Measured INSIDE ignoresSafeArea: that is the WebView's RENDERED
+            // bottom (the window's edge, or the keyboard's top when the IME is
+            // up). Measured outside, SwiftUI reports the pre-expansion layout
+            // frame instead — which shrinks by exactly the bar's height when the
+            // bar appears and would report an overlay of zero.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .global).maxY
+            } action: { bottom in
+                editorBottomGlobalY = bottom
+                publishFindOverlayInset()
+            }
             .ignoresSafeArea(.container, edges: .bottom)
+        }
+        // A sibling at the bottom of the VStack can still extend into the
+        // keyboard-covered region when the WebView ignores the container's
+        // bottom safe area. A safe-area inset participates in SwiftUI's
+        // keyboard avoidance and keeps the complete bar above the IME.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if findVisible {
+                FindInNoteBar(
+                    query: $findQuery,
+                    label: findLabel,
+                    onQueryChange: { EditorHost.shared.setFindQuery($0) },
+                    onStep: { EditorHost.shared.stepFind($0) },
+                    onClose: { dismissFind() }
+                )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.frame(in: .global).minY
+                } action: { top in
+                    findBarTopGlobalY = top
+                    publishFindOverlayInset()
+                }
+            }
         }
         // Swipe-back. Sits INSIDE the allowsHitTesting gate below, so an
         // in-flight mutation disables the swipe exactly as it disables the Back
@@ -248,6 +299,19 @@ struct NoteEditorView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button {
+                        findVisible = true
+                        // Re-measure for this presentation: the bar has not been
+                        // laid out yet, so the inset arrives a frame later and
+                        // the engine re-reveals the current match against it.
+                        findOverlayInset = 0
+                        EditorHost.shared.openFind()
+                    } label: {
+                        Label(
+                            localization.localizedText("editor.find.open"),
+                            systemImage: "magnifyingglass"
+                        )
+                    }
                     Button {
                         renameField = splitId(id: noteId).title
                         showRename = true
@@ -291,6 +355,7 @@ struct NoteEditorView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel(localization.localizedText("notes.actions.moreAccessibilityLabel"))
                 .tint(Theme.primary)
                 .disabled(interactionLocked)
             }
@@ -377,6 +442,7 @@ struct NoteEditorView: View {
             // Presenting the centered delete confirmation covers this view but
             // is not navigation. Preserve its save chain and draft ownership.
             guard !showDeleteConfirm else { return }
+            closeFind()
             // Covered (a wikilink pushed a new editor) or popped: no longer the
             // visible editor, so it must stop driving the shared WebView.
             isVisible = false
@@ -416,6 +482,37 @@ struct NoteEditorView: View {
             if shouldReleaseDraft { store.releaseDraftOwnership(token: draftToken) }
             draftToken = 0
         }
+    }
+
+    /// Publish the strip of the editor viewport the find bar covers: everything
+    /// from the bar's top edge down to the WebView's bottom edge (the bar sits
+    /// above the home-indicator inset the WebView also extends into). Only while
+    /// the bar is up, and only when the measurement actually moved — the engine
+    /// latches the value, so this is one call per presentation or resize.
+    private func publishFindOverlayInset() {
+        guard findVisible else { return }
+        let inset = max(0, editorBottomGlobalY - findBarTopGlobalY)
+        guard abs(inset - findOverlayInset) >= 0.5 else { return }
+        findOverlayInset = inset
+        EditorHost.shared.setFindOverlayInset(inset)
+    }
+
+    private func closeFind() {
+        findVisible = false
+        if let editorAttachment,
+            EditorHost.shared.isCurrentAttachment(editorAttachment)
+        {
+            EditorHost.shared.closeFind()
+        }
+    }
+
+    /// The close control belongs to the visible editor, so it must always close
+    /// that editor's find engine. Lifecycle cleanup above stays token-gated: an
+    /// off-screen view disappearing after a linked note adopted the shared
+    /// WebView must not close find in the newer owner.
+    private func dismissFind() {
+        findVisible = false
+        EditorHost.shared.closeFind()
     }
 
     /// The inputs the draft derivation depends on, bundled so a single
@@ -901,6 +998,92 @@ struct NoteEditorView: View {
             }
             return true
         }
+    }
+}
+
+private struct FindInNoteBar: View {
+    @Binding var query: String
+    let label: String
+    let onQueryChange: (String) -> Void
+    let onStep: (Int) -> Void
+    let onClose: () -> Void
+
+    @Environment(\.localization) private var localization
+    @FocusState private var fieldFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: onClose) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 46, height: 46)
+                    .foregroundStyle(.white)
+                    .background(Theme.primary, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(localization.localizedText("editor.find.close"))
+
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                // A find query is matched literally against note text, so the
+                // keyboard must not shape it: autocapitalization turned typed
+                // "example" into "Example" on device, and autocorrect can
+                // silently rewrite a query into one that matches nothing.
+                TextField(localization.localizedText("editor.find.queryHint"), text: $query)
+                    .textFieldStyle(.plain)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($fieldFocused)
+                    .submitLabel(.search)
+                    .onSubmit { onStep(1) }
+                    .onChange(of: query) { _, value in onQueryChange(value) }
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard press.modifiers.contains(.shift) else { return .ignored }
+                        onStep(-1)
+                        return .handled
+                    }
+                    .accessibilityLabel(localization.localizedText("editor.find.queryLabel"))
+
+                Text(label)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(localization.localizedText("editor.find.clearQuery"))
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 46)
+            .background(Theme.surface, in: Capsule())
+
+            HStack(spacing: 0) {
+                Button { onStep(-1) } label: {
+                    Image(systemName: "chevron.up")
+                        .frame(width: 42, height: 46)
+                }
+                .accessibilityLabel(localization.localizedText("editor.find.previousMatch"))
+
+                Button { onStep(1) } label: {
+                    Image(systemName: "chevron.down")
+                        .frame(width: 42, height: 46)
+                }
+                .accessibilityLabel(localization.localizedText("editor.find.nextMatch"))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .background(Theme.surface, in: Capsule())
+        }
+        .task { fieldFocused = true }
     }
 }
 

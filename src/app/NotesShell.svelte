@@ -269,6 +269,13 @@
       settingsOpen = true;
     },
     toggleSidebar,
+    findEnabled: () => !searchOpen && Boolean(activeNoteId),
+    openFind: () => {
+      editor?.openFind();
+    },
+    stepFind: (direction) => {
+      editor?.stepFind(direction);
+    },
   });
   const stopNativeShell = startNativeShell({
     enqueueFileChange: sync.enqueueFileChange,

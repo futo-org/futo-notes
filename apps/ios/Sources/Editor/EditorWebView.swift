@@ -20,6 +20,33 @@ func editorGenerationAfterDetach(
     detachedToken == currentGeneration ? currentGeneration + 1 : currentGeneration
 }
 
+/// A focus message may have been queued by the editor that previously owned
+/// the shared WKWebView. Focus can install the accessory for the current first
+/// responder; blur leaves UIKit to remove it when that responder resigns, so a
+/// stale blur can never strip the toolbar from a newly focused editor.
+func shouldInstallEditorToolbar(for focused: Bool) -> Bool {
+    focused
+}
+
+struct FindMatchesReport: Equatable {
+    let query: String
+    let current: Int
+    let total: Int
+    let label: String
+
+    init?(body: [String: Any]) {
+        guard let query = body["query"] as? String,
+            let current = body["current"] as? Int,
+            let total = body["total"] as? Int,
+            let label = body["label"] as? String
+        else { return nil }
+        self.query = query
+        self.current = current
+        self.total = total
+        self.label = label
+    }
+}
+
 enum EditorNavigationDecision: Equatable {
     case allow
     case openExternally(URL)
@@ -138,6 +165,10 @@ struct EditorWebView: UIViewRepresentable {
     /// Called when the user taps a RESOLVED wikilink (bridge 'openNote');
     /// receives the resolved note id (path sans .md).
     var onOpenNote: ((String) -> Void)? = nil
+    /// Receives the engine-authored native find-bar state verbatim.
+    var onFindMatches: ((FindMatchesReport) -> Void)? = nil
+    /// Reports this view's host generation so imperative calls can reject a stale screen.
+    var onAttachmentChange: ((Int?) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -148,7 +179,8 @@ struct EditorWebView: UIViewRepresentable {
         coord.sync(
             content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
-            onReady: onReady, onOpenNote: onOpenNote)
+            onReady: onReady, onOpenNote: onOpenNote,
+            onFindMatches: onFindMatches, onAttachmentChange: onAttachmentChange)
         let container = EditorContainerView()
         container.backgroundColor = .clear
         coord.container = container
@@ -165,7 +197,8 @@ struct EditorWebView: UIViewRepresentable {
         coord.sync(
             content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
-            onReady: onReady, onOpenNote: onOpenNote)
+            onReady: onReady, onOpenNote: onOpenNote,
+            onFindMatches: onFindMatches, onAttachmentChange: onAttachmentChange)
         // Only the VISIBLE editor drives the shared WebView. Gating on `window`
         // stops an off-screen editor (covered by a pushed one) from stealing the
         // WebView or pushing its content over the visible note — e.g. when a
@@ -184,6 +217,7 @@ struct EditorWebView: UIViewRepresentable {
         // The shared WebView itself is NEVER torn down — it lives for the whole
         // app so the next note-open reuses it.
         EditorHost.shared.detach(coordinator.token)
+        coordinator.onAttachmentChange?(nil)
     }
 
     /// Per-view binding state. The container's `onEnterWindow` re-adopts using
@@ -207,13 +241,17 @@ struct EditorWebView: UIViewRepresentable {
         private var onFocusChange: (Bool) -> Void = { _ in }
         private var onReady: (() -> Void)?
         private var onOpenNote: ((String) -> Void)?
+        private var onFindMatches: ((FindMatchesReport) -> Void)?
+        fileprivate var onAttachmentChange: ((Int?) -> Void)?
 
         func sync(
             content: String, theme: String, localization: Localization, autoFocus: Bool,
             onChange: @escaping (String) -> Void,
             onFocusChange: @escaping (Bool) -> Void,
             onReady: (() -> Void)?,
-            onOpenNote: ((String) -> Void)?
+            onOpenNote: ((String) -> Void)?,
+            onFindMatches: ((FindMatchesReport) -> Void)?,
+            onAttachmentChange: ((Int?) -> Void)?
         ) {
             self.content = content
             self.theme = theme
@@ -223,6 +261,8 @@ struct EditorWebView: UIViewRepresentable {
             self.onFocusChange = onFocusChange
             self.onReady = onReady
             self.onOpenNote = onOpenNote
+            self.onFindMatches = onFindMatches
+            self.onAttachmentChange = onAttachmentChange
         }
 
         /// Reclaim the shared WebView for this container unless it already hosts it.
@@ -248,7 +288,9 @@ struct EditorWebView: UIViewRepresentable {
                 onChange: onChange,
                 onFocusChange: onFocusChange,
                 onReady: didInitialAdopt ? nil : onReady,
-                onOpenNote: onOpenNote)
+                onOpenNote: onOpenNote,
+                onFindMatches: onFindMatches)
+            onAttachmentChange?(token)
             didInitialAdopt = true
         }
     }
@@ -288,6 +330,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var onFocusChange: (Bool) -> Void = { _ in }
     private var onReady: (() -> Void)? = nil
     private var onOpenNote: ((String) -> Void)? = nil
+    private var onFindMatches: ((FindMatchesReport) -> Void)? = nil
     private var autoFocus = false
 
     /// The bundle has applied this shell's host config and the note is on
@@ -422,12 +465,14 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         onChange: @escaping (String) -> Void,
         onFocusChange: @escaping (Bool) -> Void,
         onReady: (() -> Void)?,
-        onOpenNote: ((String) -> Void)? = nil
+        onOpenNote: ((String) -> Void)? = nil,
+        onFindMatches: ((FindMatchesReport) -> Void)? = nil
     ) -> Int {
         self.onChange = onChange
         self.onFocusChange = onFocusChange
         self.onReady = onReady
         self.onOpenNote = onOpenNote
+        self.onFindMatches = onFindMatches
         self.autoFocus = autoFocus
         // A reused (already-ready) WebView still holds the PREVIOUS note's text;
         // force a fresh push by clearing the dedup marker so the new note's
@@ -456,7 +501,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         onFocusChange = { _ in }
         onReady = nil
         onOpenNote = nil
+        onFindMatches = nil
         autoFocus = false
+    }
+
+    func isCurrentAttachment(_ token: Int) -> Bool {
+        token == generation
     }
 
     func updateDesired(content: String, theme: String, localization: Localization) {
@@ -555,6 +605,47 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             "window.FutoEditor && window.FutoEditor.blur();", completionHandler: nil)
     }
 
+    /// Run a shared toolbar command from the generated toolbar manifest.
+    func exec(_ commandId: String) {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.exec(\(jsLiteral(commandId)));",
+            completionHandler: nil)
+    }
+
+    func openFind() {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.openFind();", completionHandler: nil)
+    }
+
+    /// Report how much of the editor viewport the shell's own chrome covers, so
+    /// find reveals the current match above it. The find bar is a
+    /// `.safeAreaInset` over a WebView that ignores the container's bottom safe
+    /// area, so without this a match stepped to from above lands underneath the
+    /// bar (docs/spec/editor.md: the current match is always visible).
+    func setFindOverlayInset(_ bottomOverlayPx: CGFloat) {
+        let px = Int(max(0, bottomOverlayPx).rounded())
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.setFindOverlayInset(\(px));",
+            completionHandler: nil)
+    }
+
+    func setFindQuery(_ query: String) {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.setFindQuery(\(jsLiteral(query)));",
+            completionHandler: nil)
+    }
+
+    func stepFind(_ delta: Int) {
+        guard delta == -1 || delta == 1 else { return }
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.stepFind(\(delta));", completionHandler: nil)
+    }
+
+    func closeFind() {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.closeFind();", completionHandler: nil)
+    }
+
     /// Blur and read the exact CodeMirror document owned by the current
     /// attachment. A later editor adoption invalidates the completion.
     func captureCurrentContent() async -> String? {
@@ -646,13 +737,17 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             onFocusChange(focused)
             // The private WKContentView exists once focused; re-apply the
             // accessory override here in case it appeared late.
-            if focused {
+            if shouldInstallEditorToolbar(for: focused) {
                 webView.futo_overrideInputAccessoryView(toolbarAccessory)
             }
         case .cursorContext:
             // Deduped by the embed — drives Indent/Outdent visibility in the
             // native toolbar.
             toolbarState.onListLine = (body["onListLine"] as? Bool) ?? false
+        case .findMatches:
+            if let report = FindMatchesReport(body: body) {
+                onFindMatches?(report)
+            }
         case .openNote:
             // User tapped a RESOLVED wikilink — the bound note view navigates.
             if let id = body["id"] as? String {
@@ -773,8 +868,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private func performToolbarAction(_ item: ToolbarItemSpec) {
         switch item.action {
         case .exec:
-            let js = "window.FutoEditor && window.FutoEditor.exec(\(jsLiteral(item.id)));"
-            webView.evaluateJavaScript(js, completionHandler: nil)
+            exec(item.id)
         case .pickImage(let source):
             presentImagePicker(source: source)
         case .dismiss:

@@ -1,17 +1,27 @@
 package com.futo.notes.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.Toast
 import java.io.File
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -26,14 +36,20 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -41,11 +57,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -54,6 +73,9 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.futo.notes.ImagePicker
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
@@ -123,6 +145,16 @@ internal fun editedDuringOpenNoteGather(
     currentEditVersion: Long,
 ): Boolean = currentEditVersion != reconciliationStartVersion
 
+internal enum class FindBackAction { DismissFind, ExitNote }
+
+internal fun findBackAction(findVisible: Boolean): FindBackAction =
+    if (findVisible) FindBackAction.DismissFind else FindBackAction.ExitNote
+
+internal fun isFindStateCurrent(savedProcessToken: String, currentProcessToken: String): Boolean =
+    savedProcessToken == currentProcessToken
+
+internal fun canStepFind(total: Int): Boolean = total > 0
+
 private fun logOpenNoteDisposition(
     disposition: OpenNoteDisposition?,
     focused: Boolean,
@@ -156,6 +188,25 @@ fun NoteEditorScreen(
     // EditorWebView props) for the bridge-v2 imperative calls:
     // applyExternalContent (sync adopt) and insertImage (picker round-trip).
     val host = remember { EditorHost.get(context) }
+    var savedFindProcessToken by rememberSaveable(initialNoteId) {
+        mutableStateOf(host.processToken)
+    }
+    var savedFindVisible by rememberSaveable(initialNoteId) { mutableStateOf(false) }
+    var findQuery by rememberSaveable(initialNoteId) { mutableStateOf("") }
+    var findLabel by rememberSaveable(initialNoteId) { mutableStateOf("0") }
+    var findTotal by rememberSaveable(initialNoteId) { mutableStateOf(0) }
+    val findStateCurrent = isFindStateCurrent(savedFindProcessToken, host.processToken)
+    val findVisible = savedFindVisible && findStateCurrent
+
+    LaunchedEffect(host.processToken) {
+        if (!findStateCurrent) {
+            savedFindProcessToken = host.processToken
+            savedFindVisible = false
+            findQuery = ""
+            findLabel = "0"
+            findTotal = 0
+        }
+    }
     // Gate the editor pane on the boot outcome, not a WebView version
     // (EditorEngineSupport.kt). Read as state, not remember{}, so a late verdict
     // swaps the notice in — though the app-start prewarm normally settles it
@@ -233,6 +284,11 @@ fun NoteEditorScreen(
                 }
             }
         }
+    }
+
+    fun dismissFind() {
+        savedFindVisible = false
+        host.closeFind()
     }
 
     fun openNoteEffects(
@@ -321,6 +377,7 @@ fun NoteEditorScreen(
                         // buffer clean before navigation so onDispose cannot
                         // recreate a peer-deleted note.
                         savedContent = content
+                        dismissFind()
                         Toast.makeText(
                             context,
                             localization.localizedText("notes.deletedElsewhere"),
@@ -343,11 +400,15 @@ fun NoteEditorScreen(
                 // The legacy-WebView notice (github#8) renders no editor, so
                 // Back must still work there with nothing to drain or commit.
                 override fun exitWithoutEditor() {
-                    if (editorPaneUnavailable) navigate()
+                    if (editorPaneUnavailable) {
+                        dismissFind()
+                        navigate()
+                    }
                 }
 
                 override fun prepare() {
                     focusManager.clearFocus(force = true)
+                    dismissFind()
                     host.blur()
                 }
 
@@ -438,9 +499,14 @@ fun NoteEditorScreen(
     }
 
     BackHandler {
-        // The session refuses a second exit on its own; consuming Back here
-        // keeps the gesture from falling through to the list while one runs.
-        if (!interactionLocked) navigateAfterSaving(onBack)
+        when (findBackAction(findVisible)) {
+            FindBackAction.DismissFind -> dismissFind()
+            FindBackAction.ExitNote -> {
+                // The session refuses a second exit on its own; consuming Back
+                // here keeps the gesture from falling through while one runs.
+                if (!interactionLocked) navigateAfterSaving(onBack)
+            }
+        }
     }
 
     // The editor's note universe [editor.md:77]: id/title/modifiedMs/tags JSON
@@ -724,6 +790,16 @@ fun NoteEditorScreen(
                     // Overflow parity with the list rows [list.md:62].
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
+                            text = { Text(localization.localizedText("editor.find.open")) },
+                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = c.textSecondary) },
+                            onClick = {
+                                menu = false
+                                savedFindProcessToken = host.processToken
+                                savedFindVisible = true
+                                host.openFind()
+                            },
+                        )
+                        DropdownMenuItem(
                             text = { Text(localization.localizedText("notes.actions.moveToFolderEllipsis")) },
                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },
                             onClick = { menu = false; showMoveSheet = true },
@@ -849,6 +925,13 @@ fun NoteEditorScreen(
                         },
                         onPickImage = pickImage,
                         onSaveImageData = saveImageData,
+                        onFindMatches = { report ->
+                            if (isFindStateCurrent(savedFindProcessToken, host.processToken)) {
+                                findQuery = report.query
+                                findLabel = report.label
+                                findTotal = report.total
+                            }
+                        },
                         onChange = { newContent ->
                             // Data-loss guard: ignore editor change events until the
                             // off-main initial read has landed (`loaded`). The WebView
@@ -873,6 +956,24 @@ fun NoteEditorScreen(
                         },
                     )
                 }
+            }
+
+            // This bottom slot is inside the Column's imePadding(), which
+            // keeps the find bar docked directly above the virtual keyboard.
+            if (findVisible) {
+                FindInNoteBar(
+                    query = findQuery,
+                    label = findLabel,
+                    total = findTotal,
+                    onQueryChange = {
+                        findQuery = it
+                        host.setFindQuery(it)
+                    },
+                    onStep = host::stepFind,
+                    onClose = {
+                        dismissFind()
+                    },
+                )
             }
 
             // Native markdown toolbar [editor.md]: rendered from the generated
@@ -959,6 +1060,7 @@ fun NoteEditorScreen(
                             // Mark clean only after delete commits, so onDispose
                             // cannot recreate the deleted note from its dirty draft.
                             savedContent = content
+                            dismissFind()
                             Toast.makeText(
                                 context,
                                 localization.localizedText("notes.deleted"),
@@ -1070,5 +1172,175 @@ fun NoteEditorScreen(
                 )
             },
         )
+    }
+}
+
+private class FindQueryEditText(context: Context) : EditText(context) {
+    var onQueryChange: (String) -> Unit = {}
+    var onStep: (Int) -> Unit = {}
+    var onClose: () -> Unit = {}
+    private var applyingQuery = false
+
+    init {
+        isSingleLine = true
+        // hint/contentDescription are catalog-resolved by the composable, in
+        // `update` as well as `factory`, so an interface-language change
+        // re-labels a bar that is already on screen.
+        imeOptions = EditorInfo.IME_ACTION_SEARCH
+        addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (!applyingQuery) onQueryChange(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        setOnEditorActionListener { _, actionId, event ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                onStep(1)
+                true
+            } else if (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
+                onStep(if (event.isShiftPressed) -1 else 1)
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    fun applyQuery(query: String) {
+        if (text.toString() == query) return
+        applyingQuery = true
+        setText(query)
+        setSelection(query.length)
+        applyingQuery = false
+    }
+
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+            onClose()
+            return true
+        }
+        return super.onKeyPreIme(keyCode, event)
+    }
+}
+
+@Composable
+private fun FindInNoteBar(
+    query: String,
+    label: String,
+    total: Int,
+    onQueryChange: (String) -> Unit,
+    onStep: (Int) -> Unit,
+    onClose: () -> Unit,
+) {
+    val c = FutoTheme.colors
+    val context = LocalContext.current
+    val localization = LocalLocalization.current
+    val queryHint = localization.localizedText("editor.find.queryHint")
+    val queryLabel = localization.localizedText("editor.find.queryLabel")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.surface),
+    ) {
+        HorizontalDivider(thickness = 0.5.dp, color = c.border)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .padding(start = 16.dp, end = 4.dp),
+        ) {
+            AndroidView(
+                factory = {
+                    FindQueryEditText(context).apply {
+                        background = null
+                        hint = queryHint
+                        contentDescription = queryLabel
+                        setPadding(0, 0, 0, 0)
+                        setTextColor(c.textPrimary.toArgb())
+                        setHintTextColor(c.textMuted.toArgb())
+                        textSize = 18f
+                        includeFontPadding = false
+                        this.onQueryChange = onQueryChange
+                        this.onStep = onStep
+                        this.onClose = onClose
+                        applyQuery(query)
+                        requestFocus()
+                        // The AndroidView can own focus before its window is
+                        // ready for IME attachment. Let the composed frame
+                        // settle, then repeat focus + show as one operation.
+                        postDelayed({
+                            requestFocus()
+                            context.getSystemService(InputMethodManager::class.java)
+                                ?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                            ViewCompat.getWindowInsetsController(this)
+                                ?.show(WindowInsetsCompat.Type.ime())
+                        }, 150)
+                    }
+                },
+                update = { field ->
+                    field.hint = queryHint
+                    field.contentDescription = queryLabel
+                    field.onQueryChange = onQueryChange
+                    field.onStep = onStep
+                    field.onClose = onClose
+                    field.setTextColor(c.textPrimary.toArgb())
+                    field.setHintTextColor(c.textMuted.toArgb())
+                    field.applyQuery(query)
+                },
+                modifier = Modifier
+                    .height(55.dp)
+                    .weight(1f),
+            )
+
+            Text(
+                label,
+                style = FutoType.body,
+                color = if (query.isNotEmpty() && total == 0) c.danger else c.textSecondary,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+
+            VerticalDivider(
+                thickness = 0.5.dp,
+                color = c.border,
+                modifier = Modifier.height(36.dp),
+            )
+
+            IconButton(
+                enabled = canStepFind(total),
+                onClick = { onStep(-1) },
+                modifier = Modifier.size(48.dp),
+            ) {
+                Icon(
+                    Icons.Filled.KeyboardArrowUp,
+                    contentDescription = localization.localizedText("editor.find.previousMatch"),
+                    tint = if (canStepFind(total)) c.textSecondary else c.textMuted,
+                )
+            }
+            IconButton(
+                enabled = canStepFind(total),
+                onClick = { onStep(1) },
+                modifier = Modifier.size(48.dp),
+            ) {
+                Icon(
+                    Icons.Filled.KeyboardArrowDown,
+                    contentDescription = localization.localizedText("editor.find.nextMatch"),
+                    tint = if (canStepFind(total)) c.textSecondary else c.textMuted,
+                )
+            }
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(48.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = localization.localizedText("editor.find.close"),
+                    tint = c.textPrimary,
+                    modifier = Modifier.size(26.dp),
+                )
+            }
+        }
     }
 }

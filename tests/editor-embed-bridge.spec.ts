@@ -6,7 +6,7 @@ import { test as base, expect, type Browser, type Page } from '@playwright/test'
 import { EDITOR_BUNDLE_PATH, EDITOR_URL } from './editorEmbedBundle';
 
 /**
- * futoBridge v7 protocol contract — executable.
+ * futoBridge v8 protocol contract — executable.
  *
  * This drives the SAME single-file `editor.html` bundle the native iOS/Android
  * shells ship (built by `vite.editor.config.ts`) with a FAKE host installed
@@ -53,6 +53,11 @@ interface FakeHostWindow extends Window {
     applyExternalContent(markdown: string): void;
     insertImage(filename: string): void;
     setImageBaseUrl(base: string): void;
+    openFind(): void;
+    setFindOverlayInset(px: number): void;
+    setFindQuery(query: string): void;
+    stepFind(delta: number): void;
+    closeFind(): void;
     exec(commandId: string): void;
     setNativeToolbar(enabled: boolean): void;
   };
@@ -156,10 +161,10 @@ async function exec(page: Page, commandId: string): Promise<void> {
 // Handshake — ready message and transport routing
 // ============================================================
 
-test('posts ready exactly once with bridge version 7', async ({ page }) => {
+test('posts ready exactly once with bridge version 8', async ({ page }) => {
   const ready = await messagesOfType(page, 'ready');
   expect(ready).toHaveLength(1);
-  expect(ready[0].version).toBe(7);
+  expect(ready[0].version).toBe(8);
 });
 
 // ============================================================
@@ -171,7 +176,7 @@ test('posts ready exactly once with bridge version 7', async ({ page }) => {
 // bundle and lands on the real page).
 function hostConfig(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    bridgeVersion: 7,
+    bridgeVersion: 8,
     theme: 'light',
     content: '',
     nativeToolbar: true,
@@ -209,7 +214,7 @@ test('one initialize applies the whole host config and reports initialized', asy
       document.documentElement.style.getPropertyValue('--futo-cm-pad-inline'),
     ),
   ).toBe('16px');
-  expect(await messagesOfType(page, 'initialized')).toEqual([{ type: 'initialized', version: 7 }]);
+  expect(await messagesOfType(page, 'initialized')).toEqual([{ type: 'initialized', version: 8 }]);
 });
 
 test('initialize suppresses the web toolbar for a shell that renders its own', async ({ page }) => {
@@ -235,7 +240,7 @@ test('a stale host still gets a working editor, plus a version-mismatch report',
 
   expect(await getContent(page)).toBe('still editable');
   expect(await messagesOfType(page, 'bridgeVersionMismatch')).toEqual([
-    { type: 'bridgeVersionMismatch', hostVersion: 6, bundleVersion: 7 },
+    { type: 'bridgeVersionMismatch', hostVersion: 6, bundleVersion: 8 },
   ]);
   expect(await messagesOfType(page, 'initialized')).toHaveLength(1);
 });
@@ -276,7 +281,7 @@ test('prefers the iOS webkit transport when both hosts are present', async ({ br
     () => (window as unknown as { __android: BridgeMessage[] }).__android,
   );
   expect(ios.filter((m) => m.type === 'ready')).toHaveLength(1);
-  expect(ios[0].version).toBe(7);
+  expect(ios[0].version).toBe(8);
   expect(android).toHaveLength(0);
 
   await context.close();
@@ -373,7 +378,157 @@ test('applyExternalContent with unchanged content preserves the selection', asyn
 });
 
 // ============================================================
-// exec(id) — the 11 shared TOOLBAR_EXEC commands
+// Native find methods — shared engine, no web panel
+// ============================================================
+
+test('native find methods report counts, step, and close without mounting the web panel', async ({
+  page,
+}) => {
+  await hostSetContent(page, 'cat dog CAT');
+  await clearMessages(page);
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.openFind());
+  await flushFrames(page);
+  expect(await page.locator('.cm-find-panel').count()).toBe(0);
+  expect(await messagesOfType(page, 'findMatches')).toEqual([
+    { type: 'findMatches', query: '', current: 0, total: 0, label: '0' },
+  ]);
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setFindQuery('cat'));
+  await flushFrames(page);
+  expect((await messagesOfType(page, 'findMatches')).at(-1)).toEqual({
+    type: 'findMatches',
+    query: 'cat',
+    current: 1,
+    total: 2,
+    label: '1 of 2',
+  });
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.stepFind(1));
+  await flushFrames(page);
+  expect((await messagesOfType(page, 'findMatches')).at(-1)).toEqual({
+    type: 'findMatches',
+    query: 'cat',
+    current: 2,
+    total: 2,
+    label: '2 of 2',
+  });
+  await expect(page.locator('.cm-find-match-current')).toHaveCount(1);
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.closeFind());
+  await flushFrames(page);
+  await expect(page.locator('.cm-find-match')).toHaveCount(0);
+});
+
+// The native shells draw their find bar OVER the editor's bottom strip (iOS
+// docks it in a `.safeAreaInset` above a WebView that ignores the container's
+// bottom safe area), so a match revealed flush with the viewport bottom lands
+// UNDERNEATH the bar — docs/spec/editor.md requires the CURRENT match to be
+// visible. The host declares that overlay's height; the engine keeps the
+// reveal clear of it. A host that never declares one is unaffected.
+async function findGeometry(page: Page): Promise<{ matchBottom: number; viewportBottom: number }> {
+  return page.evaluate(() => {
+    const match = document.querySelector('.cm-find-match-current');
+    const scroller = document.querySelector('.cm-scroller');
+    if (!match || !scroller) throw new Error('no current match on screen');
+    return {
+      matchBottom: match.getBoundingClientRect().bottom,
+      viewportBottom: scroller.getBoundingClientRect().bottom,
+    };
+  });
+}
+
+const OVERLAY_TEST_DOC = Array.from({ length: 200 }, (_, index) =>
+  index === 80 || index === 81 ? `needle ${index}` : `line ${index}`,
+).join('\n');
+
+test('a declared host overlay keeps a stepped match clear of the bottom strip', async ({
+  page,
+}) => {
+  const overlayPx = 120;
+  await hostSetContent(page, OVERLAY_TEST_DOC);
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.openFind());
+  await page.evaluate(
+    (px) => (window as unknown as FakeHostWindow).FutoEditor.setFindOverlayInset(px),
+    overlayPx,
+  );
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setFindQuery('needle'),
+  );
+  await flushFrames(page);
+
+  // Forward to the match below the fold — the exact QA repro.
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.stepFind(1));
+  await flushFrames(page);
+
+  const geometry = await findGeometry(page);
+  expect(geometry.matchBottom).toBeLessThanOrEqual(geometry.viewportBottom - overlayPx);
+});
+
+test('declaring the overlay after find opened re-reveals the current match', async ({ page }) => {
+  const overlayPx = 120;
+  await hostSetContent(page, OVERLAY_TEST_DOC);
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+
+  // A host whose bar has not been measured yet: find opens and reveals a match
+  // flush with the bottom edge, under the bar the host is laying out.
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.openFind());
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setFindQuery('needle'),
+  );
+  await flushFrames(page);
+  const before = await findGeometry(page);
+  expect(before.matchBottom).toBeGreaterThan(before.viewportBottom - overlayPx);
+
+  await page.evaluate(
+    (px) => (window as unknown as FakeHostWindow).FutoEditor.setFindOverlayInset(px),
+    overlayPx,
+  );
+  await flushFrames(page);
+
+  const after = await findGeometry(page);
+  expect(after.matchBottom).toBeLessThanOrEqual(after.viewportBottom - overlayPx);
+});
+
+test('native close restores the selection and viewport from before find opened', async ({
+  page,
+}) => {
+  const lines = Array.from({ length: 160 }, (_, index) =>
+    index === 150 ? 'distant needle' : `line ${index}`,
+  );
+  const original = lines.join('\n');
+  await hostSetContent(page, original);
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+
+  const scroller = page.locator('.cm-scroller');
+  await scroller.evaluate((element) => {
+    element.scrollTop = 240;
+  });
+  const scrollBeforeFind = await scroller.evaluate((element) => element.scrollTop);
+  expect(scrollBeforeFind).toBeGreaterThan(0);
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.openFind());
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setFindQuery('needle'),
+  );
+  await flushFrames(page);
+  expect(await scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(scrollBeforeFind);
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.closeFind());
+  await flushFrames(page);
+  await expect(page.locator('.cm-find-match')).toHaveCount(0);
+  expect(await scroller.evaluate((element) => element.scrollTop)).toBeCloseTo(scrollBeforeFind, 0);
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+  await page.keyboard.type('Z');
+  await flushFrames(page);
+  expect(await getContent(page)).toBe(`Z${original}`);
+});
+
+// ============================================================
+// exec(id) — the shared formatting TOOLBAR_EXEC commands
 // ============================================================
 
 async function selectAll(page: Page): Promise<void> {

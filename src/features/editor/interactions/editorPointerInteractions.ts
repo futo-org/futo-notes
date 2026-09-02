@@ -510,10 +510,14 @@ class EditorPointerController {
     this.desktopDragging = false;
     this.view.dispatch({
       effects: [
-        freezeMarkdownSelectionReveal.of(
-          createSelectionRevealSnapshot(this.view.hasFocus, this.view.state.selection.ranges),
-        ),
-        suppressMarkdownSelectionReveal.of(false),
+        freezeMarkdownSelectionReveal.of({
+          owner: 'pointer',
+          snapshot: createSelectionRevealSnapshot(
+            this.view.hasFocus,
+            this.view.state.selection.ranges,
+          ),
+        }),
+        suppressMarkdownSelectionReveal.of({ owner: 'pointer', suppressed: false }),
       ],
     });
   };
@@ -550,15 +554,17 @@ class EditorPointerController {
   };
 
   private setSelectionRevealSuppressed(suppressed: boolean): void {
-    this.view.dispatch({ effects: suppressMarkdownSelectionReveal.of(suppressed) });
+    this.view.dispatch({
+      effects: suppressMarkdownSelectionReveal.of({ owner: 'pointer', suppressed }),
+    });
     this.view.dom.toggleAttribute('data-selection-reveal-suppressed', suppressed);
   }
 
   private finishSelectionRevealGesture(): void {
     this.view.dispatch({
       effects: [
-        clearMarkdownSelectionReveal.of(null),
-        suppressMarkdownSelectionReveal.of(false),
+        clearMarkdownSelectionReveal.of('pointer'),
+        suppressMarkdownSelectionReveal.of({ owner: 'pointer', suppressed: false }),
         liveMarkdownRefresh.of(null),
       ],
     });

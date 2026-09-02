@@ -423,6 +423,22 @@
         "inlineCode": "行内代码",
         "link": "链接"
       },
+      "find": {
+        "open": "在笔记中查找",
+        "queryLabel": "在笔记中查找",
+        "queryHint": "查找",
+        "clearQuery": "清除查找内容",
+        "previousMatch": "上一个",
+        "nextMatch": "下一个",
+        "close": "关闭查找",
+        "matchCount": {
+          "plural": "total",
+          "variants": {
+            "=0": "0",
+            "other": "第 {current} 个，共 {total} 个"
+          }
+        }
+      },
       "slashMenu": {
         "heading": "插入内容块",
         "noMatches": "没有匹配的内容块",
