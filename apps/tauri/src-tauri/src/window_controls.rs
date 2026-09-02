@@ -2,27 +2,49 @@
 
 use serde::Serialize;
 
-const DEFAULT_BUTTONS: [&str; 3] = ["minimize", "maximize", "close"];
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum WindowControlsSide {
-    Left,
-    Right,
+enum WindowControl {
+    Minimize,
+    Maximize,
+    Close,
+}
+
+impl WindowControl {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "minimize" => Some(Self::Minimize),
+            "maximize" => Some(Self::Maximize),
+            "close" => Some(Self::Close),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WindowControlsLayout {
-    side: WindowControlsSide,
-    buttons: Vec<String>,
+    left: Vec<WindowControl>,
+    right: Vec<WindowControl>,
 }
 
 fn default_layout() -> WindowControlsLayout {
     WindowControlsLayout {
-        side: WindowControlsSide::Right,
-        buttons: DEFAULT_BUTTONS.iter().map(ToString::to_string).collect(),
+        left: Vec::new(),
+        right: vec![
+            WindowControl::Minimize,
+            WindowControl::Maximize,
+            WindowControl::Close,
+        ],
     }
+}
+
+fn parse_group(group: &str) -> Vec<WindowControl> {
+    group
+        .split(',')
+        .map(str::trim)
+        .filter_map(WindowControl::parse)
+        .collect()
 }
 
 fn parse_button_layout(raw: &str) -> WindowControlsLayout {
@@ -35,19 +57,17 @@ fn parse_button_layout(raw: &str) -> WindowControlsLayout {
         return default_layout();
     };
 
-    for (side, group) in [
-        (WindowControlsSide::Left, left),
-        (WindowControlsSide::Right, right),
-    ] {
-        let buttons: Vec<String> = group
-            .split(',')
-            .map(str::trim)
-            .filter(|button| DEFAULT_BUTTONS.contains(button))
-            .map(ToString::to_string)
-            .collect();
-        if buttons.iter().any(|button| button == "close") {
-            return WindowControlsLayout { side, buttons };
-        }
+    let layout = WindowControlsLayout {
+        left: parse_group(left),
+        right: parse_group(right),
+    };
+    if layout
+        .left
+        .iter()
+        .chain(&layout.right)
+        .any(|button| *button == WindowControl::Close)
+    {
+        return layout;
     }
 
     default_layout()
@@ -100,8 +120,12 @@ mod tests {
         assert_eq!(
             parse_button_layout("'appmenu:minimize,maximize,close'\n"),
             WindowControlsLayout {
-                side: WindowControlsSide::Right,
-                buttons: vec!["minimize".into(), "maximize".into(), "close".into()],
+                left: vec![],
+                right: vec![
+                    WindowControl::Minimize,
+                    WindowControl::Maximize,
+                    WindowControl::Close,
+                ],
             }
         );
     }
@@ -111,8 +135,12 @@ mod tests {
         assert_eq!(
             parse_button_layout("close,minimize,maximize:appmenu"),
             WindowControlsLayout {
-                side: WindowControlsSide::Left,
-                buttons: vec!["close".into(), "minimize".into(), "maximize".into()],
+                left: vec![
+                    WindowControl::Close,
+                    WindowControl::Minimize,
+                    WindowControl::Maximize,
+                ],
+                right: vec![],
             }
         );
     }
@@ -127,6 +155,17 @@ mod tests {
         assert_eq!(
             parse_button_layout("minimize,maximize:appmenu"),
             default_layout()
+        );
+    }
+
+    #[test]
+    fn split_layout_keeps_every_supported_button() {
+        let layout = parse_button_layout("close,appmenu:minimize,maximize");
+
+        assert_eq!(layout.left, vec![WindowControl::Close]);
+        assert_eq!(
+            layout.right,
+            vec![WindowControl::Minimize, WindowControl::Maximize]
         );
     }
 }

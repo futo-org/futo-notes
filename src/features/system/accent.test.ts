@@ -29,6 +29,7 @@ beforeEach(() => {
 
 afterEach(() => {
   root.removeAttribute('style');
+  delete root.dataset.theme;
 });
 
 describe('applySystemAccent', () => {
@@ -43,6 +44,18 @@ describe('applySystemAccent', () => {
     expect(root.style.getPropertyValue('--color-selection')).toBe(
       'color-mix(in srgb, rgb(64 128 191) 24%, transparent)',
     );
+  });
+
+  it('keeps the portal base accent unchanged across themes', () => {
+    root.dataset.theme = 'light';
+    applySystemAccent({ r: 0.25, g: 0.5, b: 0.75 });
+    const lightPrimary = root.style.getPropertyValue('--color-primary');
+
+    root.dataset.theme = 'dark';
+    applySystemAccent({ r: 0.25, g: 0.5, b: 0.75 });
+
+    expect(root.style.getPropertyValue('--color-primary')).toBe(lightPrimary);
+    expect(root.style.getPropertyValue('--color-primary-hover')).toContain('var(--color-text)');
   });
 
   it('clamps malformed channels at the frontend boundary', () => {

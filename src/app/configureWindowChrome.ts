@@ -25,9 +25,9 @@ export function configureWindowChrome(): { dispose: () => void } {
   if (isTauri && isLinux) {
     void getWindowControlsLayout()
       .then((layout) => {
-        if (disposed || layout?.side !== 'left') return;
-        const buttonsWidth = layout.buttons.length * 24;
-        const gapsWidth = Math.max(0, layout.buttons.length - 1) * 2;
+        if (disposed || !layout?.left.length) return;
+        const buttonsWidth = layout.left.length * 24;
+        const gapsWidth = Math.max(0, layout.left.length - 1) * 2;
         root.style.setProperty(
           '--linux-window-controls-width',
           `${buttonsWidth + gapsWidth + 10}px`,

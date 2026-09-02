@@ -110,6 +110,14 @@ fn importing_rejects_non_markdown_files() {
     assert!(vault.0.read_dir().unwrap().next().is_none());
 }
 
+#[test]
+fn markdown_path_policy_accepts_both_extensions_case_insensitively() {
+    assert!(is_markdown_path(Path::new("note.md")));
+    assert!(is_markdown_path(Path::new("note.MARKDOWN")));
+    assert!(!is_markdown_path(Path::new("note.txt")));
+    assert!(!is_markdown_path(Path::new("note")));
+}
+
 // A divergent parked backup (install-complete crash boundary: old backup bytes
 // ≠ live) must be parked as a VISIBLE recovered note, never left eligible for a
 // canonical restore that would resurrect the note if the user later deletes the

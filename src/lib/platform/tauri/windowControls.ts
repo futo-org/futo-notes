@@ -4,8 +4,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 export type WindowControl = 'minimize' | 'maximize' | 'close';
 
 export interface WindowControlsLayout {
-  side: 'left' | 'right';
-  buttons: WindowControl[];
+  left: WindowControl[];
+  right: WindowControl[];
 }
 
 export async function readWindowControlsLayout(): Promise<WindowControlsLayout> {
@@ -25,6 +25,7 @@ export async function closeAppWindow(): Promise<void> {
 }
 
 export async function applyAppWindowTitle(noteTitle?: string): Promise<void> {
-  const title = noteTitle ? `${noteTitle} — FUTO Notes` : 'FUTO Notes';
+  const appName = import.meta.env.DEV ? 'FUTO Notes (Dev)' : 'FUTO Notes';
+  const title = noteTitle ? `${noteTitle} — ${appName}` : appName;
   await getCurrentWindow().setTitle(title);
 }

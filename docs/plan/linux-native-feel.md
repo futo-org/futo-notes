@@ -38,7 +38,7 @@ real desktop is dropped or reshaped, not forced.
 | 1   | GPU renderer gating                              | Smallest change, and every later feel judgment should be made with the GPU path on |
 | 2   | Portal plumbing over zbus, plus accent color     | Provides the desktop-settings reader that 3 and 4 also want                        |
 | 3   | One header row: window controls in the top band  | Largest visible change                                                             |
-| 4   | System font for the interface                    | Depends on 2 if `system-ui` turns out not to follow the GTK font                   |
+| 4   | ~~System font for the interface~~ (dropped)      | Installed-build review preferred the established Barlow identity                   |
 | 5   | Desktop entry, markdown association, open-a-file | Independent, but the launcher test wants 3 landed so screenshots are final         |
 | 6   | File dialogs through the portal                  | Independent, one Cargo change plus verification                                    |
 | 7   | Ctrl+Q                                           | Trivial, do it whenever                                                            |
@@ -50,6 +50,11 @@ small enough to land the same day they are started.
 ---
 
 ## WS1 — Stop disabling the GPU renderer on every Linux machine
+
+**Outcome (2026-09-02).** Implemented after the GPU path improved rAF p95 from 191ms to 107ms
+and reduced scroll hitch rate from 4.1% to 0.7%. The NVIDIA fallback remains because no verified
+upstream/package floor made its removal safe. `FUTO_NOTES_SOFTWARE_RENDER=1` forces software;
+the symmetric `=0` escape hatch was deliberately added to force GPU when detection is wrong.
 
 **Today.** `apps/tauri/src-tauri/src/main.rs:8` sets `WEBKIT_DISABLE_DMABUF_RENDERER=1`
 unconditionally on Linux, with the comment "blank windows / crashes on many Wayland + NVIDIA
@@ -70,14 +75,15 @@ either way, and the dev recipe matches release behavior.
    (`webview_execute_js`) that logs p95 frame interval. Record both numbers in the commit body.
    If they are the same, stop here and record that too; the rest of WS1 is then not worth a
    risk on NVIDIA.
-2. In `main.rs`, replace the unconditional set with a decision:
+2. In process startup, replace the unconditional set with a decision:
    - If `WEBKIT_DISABLE_DMABUF_RENDERER` is already in the environment, leave it alone. The user
      or a distro wrapper has spoken.
    - Else, set it only when an NVIDIA GPU is present. Detect by reading
      `/sys/class/drm/card*/device/vendor` for `0x10de`, or `/proc/modules` for a line starting
      with `nvidia`. Prefer the sysfs read; it works without the module loaded. Put the detector
      in `platform_integration.rs` as a pure function over a string so it has a unit test, with
-     the env logic in `main.rs` calling it.
+     the env logic beside it in `platform_integration::prepare_process`, before the Tauri builder
+     initializes GTK/WebKit.
    - Offer an explicit override, `FUTO_NOTES_SOFTWARE_RENDER=1`, that forces the old behavior.
      Document it in `docs/spec/app.md` §Display backend next to the Wayland line.
 3. Remove the variable from `scripts/tauri-dev.mjs` so dev exercises the same decision as
@@ -134,8 +140,9 @@ the current value at startup and every change afterward, and covers both `color-
    the commit.
 4. Add `linux-accent-changed` with payload `{ r, g, b }` or `null`.
 5. Frontend, `src/features/system/`: a new small module (`accent.ts`) that maps the payload to
-   `--color-primary` on the root element and derives the hover and dark-mode variants with
-   `color-mix()` rather than shipping a palette. Grep `src/styles` and `src/features` for the
+   `--color-primary` on the root element and derives theme-aware hover and selection variants
+   with `color-mix()` rather than shipping a palette. The portal supplies one base accent, so
+   that base intentionally stays identical in light and dark themes. Grep `src/styles` and `src/features` for the
    literal `#f26b1f` and `#ff7a33` first; every copy either moves onto the token or is listed in
    the commit as deliberately left alone (M17).
 6. Decide the default. Native GNOME and Plasma apps follow the accent without asking. The brand
@@ -183,8 +190,9 @@ bar on GNOME and like an ordinary client-decorated window elsewhere.
    or `close,minimize,maximize:appmenu`; the colon separates left from right. Read it in Rust
    (`gsettings get`, or the `gio` crate's `Settings` if the schema is installed; a subprocess with
    a parsed result and a default on any failure is fine here) and expose it as a Tauri command
-   `window_controls_layout` returning `{ side: 'left' | 'right', buttons: [...] }`. On anything
-   that is not GNOME (`XDG_CURRENT_DESKTOP` lacks `GNOME`), return the right-side default; Plasma
+   `window_controls_layout` returning `{ left: [...], right: [...] }`, because GNOME permits
+   supported controls on both sides of the colon. On anything that is not GNOME
+   (`XDG_CURRENT_DESKTOP` lacks `GNOME`), return the right-side default; Plasma
    keeps its layout in `kwinrc` and reading it is not worth the code. Parsing is a pure function
    with tests for both orders, an empty string, and a missing `close`.
 4. When the controls are on the left they sit in `topband-chrome` before the sidebar toggle,
@@ -202,8 +210,7 @@ bar on GNOME and like an ordinary client-decorated window elsewhere.
 7. The window title. The old bar showed the constant "FUTO Notes". The compositor's overview and
    Alt+Tab show the window title, so set it from the active note: `getCurrentWindow().setTitle(
 \`${noteTitle} — FUTO Notes\`)`from the tabs feature when the active tab changes, falling back
-to the app name. Check whether`document.title` is already maintained anywhere before adding
-   a second writer.
+to the app name. Preserve the configured`FUTO Notes (Dev)`suffix in debug builds. Check whether`document.title` is already maintained anywhere before adding a second writer.
 8. Styling. Adwaita header-bar buttons are 24px circles with a faint background on hover and no
    red close button; Breeze differs. Pick the Adwaita look since GNOME is where the doubled chrome
    hurt most, keep it in the existing tokens (`--color-muted`, `color-mix` on `--color-text`),
@@ -225,44 +232,7 @@ Rust tests for the layout parser. Spec: rewrite the three Linux lines in `docs/s
 both retain the original Barlow styling, there is no font preference, and previously persisted
 `interfaceFont` values are ignored and removed on the next preference save.
 
-**Today.** `src/styles/theme.css:28` sets `--font-sans: 'Barlow', system-ui, ...` for the whole
-UI, and `src/features/editor/createMarkdownEditorRuntime.ts:99` hardcodes `'Barlow', system-ui,
-sans-serif` for the editor content separately. GNOME renders in Cantarell and Plasma in Noto
-Sans; Barlow marks the window as foreign.
-
-**Goal.** Interface chrome (sidebar, tabs, menus, settings, dialogs) uses the desktop's UI font
-on Linux desktop. The editor keeps Barlow by default. Both are overridable from Appearance
-settings.
-
-**Steps.**
-
-1. Find out what `system-ui` resolves to in this WebKitGTK. In the dev app, set
-   `--font-sans: system-ui` on the root through devtools and change the GNOME font
-   (`gsettings set org.gnome.desktop.interface font-name 'Noto Sans 11'`). If the UI follows,
-   `system-ui` reads the GTK setting and step 3 is CSS only. If it does not, add
-   `org.gnome.desktop.interface font-name` (and `XDG_CURRENT_DESKTOP`-appropriate fallbacks) to
-   the WS2 settings reader and emit it as `--font-system` on the root. Record which path was
-   taken.
-2. Scope: `html.desktop-chrome` is the existing desktop-only hook (`desktop-native.css`). Add a
-   Linux marker class in `configureWindowChrome.ts` (`linux-desktop`) so the mobile embed and
-   the browser harness are untouched, and override `--font-sans` under it.
-3. Keep the editor on Barlow. The runtime's inline font is the second copy of the family list;
-   turn it into a read of a `--font-editor` token so there is one place to change. Reading
-   fonts is a product decision, so do not switch the editor by default; note the option in the
-   commit.
-4. Appearance settings (`AppearanceSettingsSection.svelte`) gain **Interface font: System /
-   Barlow** with System the default on Linux desktop and Barlow elsewhere, persisted like the
-   theme preference. An **Editor font** control is optional; add it only if step 3 leaves the
-   plumbing at a point where it is a few lines.
-5. Stretch, only if cheap after step 1: GNOME's Large Text (`text-scaling-factor`). Check whether
-   WebKitGTK already scales CSS pixels with it. If not, apply it to the root font size on Linux
-   desktop from the same settings reader.
-
-**Verify.** Screenshot sidebar and settings before and after on GNOME; font change through
-gsettings propagates without restart if step 1 took the CSS path. Vitest on the settings
-persistence. `pnpm run check:svelte` and the rest of `src/AGENTS.md`'s chain. Spec:
-`docs/spec/settings.md` Appearance gains the font line(s) with a `(desktop)` tag;
-`docs/spec/editor-visual.md` notes the editor stays on Barlow unless changed.
+The discarded implementation and its verification steps are no longer part of the live plan.
 
 ---
 
@@ -390,7 +360,7 @@ mtime and content). Vitest alongside the existing shortcut tests. Spec: the shor
 - `just deploy-rpm` for WS3 and WS5, since only the installed build shows the desktop entry
   and compositor grouping. Uninstall or reinstall the previous release afterward if this machine
   is also a daily-use machine; `just deploy-rpm` replaces `/usr/bin/futo-notes-tauri`.
-- A Plasma check is wanted for WS3, WS4 and WS6. A Fedora KDE VM is enough; the display-backend
+- A Plasma check is wanted for WS3 and WS6. A Fedora KDE VM is enough; the display-backend
   learning in `docs/learnings/appimage-forced-x11.md` describes how to prove which backend the
   window is on if something looks wrong.
 
@@ -403,3 +373,29 @@ mtime and content). Vitest alongside the existing shortcut tests. Spec: the shor
 4. Installed KDE testing showed a generic Alt+Tab icon because `FUTO Notes.desktop` did not match
    the `futo-notes-tauri` Wayland app ID. Keep that visible launcher for existing pins and add a
    hidden `futo-notes-tauri.desktop` identity alias to Debian and RPM packages.
+5. Persist the approved accent opt-out as `AppState.preferences.followSystemAccent`; this schema
+   addition was explicitly approved before implementation.
+6. Keep the portal-provided base accent unchanged between light and dark themes. Hover and
+   selection remain theme-aware through `color-mix()`; inventing a second base colour would no
+   longer be following the system value.
+7. The remaining `#f26b1f` under `@property --syntax-property` is deliberate: an `initial-value`
+   must be a concrete colour and cannot reference the runtime primary token. The ordinary light
+   and dark primary declarations remain the brand fallback that portal inline values override.
+8. `feat/open-note-disposition-desktop` was inspected and is already merged into `main`
+   (`c4e653fa`); this work reused its disposition rather than introducing a competing event.
+9. Tauri's `Productivity` category is intentional because the Linux bundler maps it to the
+   freedesktop `Office` category requested by WS5.
+
+## Verification record audit (2026-09-02)
+
+- Fresh Linux Auto startup applies the webview fallback immediately and then reads the current
+  portal value after installing the change listener. A mismatched first frame is therefore
+  possible under M1's ungated-render rule, but the wrong theme cannot persist until a later
+  desktop change. Installed GNOME/KDE launches reached the current desktop appearance.
+- The installed GNOME Wayland VM confirmed the final undecorated one-row header and compositor
+  identity. The earlier ten-minute native-decoration alternative probe was not recorded and was
+  not recreated after implementation; this is explicitly a missing historical probe, not
+  evidence for changing the verified final design.
+- Component tests prove the tab strip and empty band own drag regions while controls do not, and
+  the installed GNOME/KDE checks covered the collapsed sidebar spacing. These are the retained
+  WS3 checks; no commit-body evidence is implied beyond this record.

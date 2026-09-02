@@ -29,6 +29,17 @@ pub use vault_migration::{
     VaultMigrationOutcome, VaultMigrationStatus,
 };
 
+/// Whether a path names a supported Markdown source, independent of whether it
+/// currently exists. Shared by OS-open routing and the import workflow so the
+/// shell cannot advertise a file the store will later reject.
+pub fn is_markdown_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
+        })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteMetadata {
@@ -414,11 +425,7 @@ impl LocalNoteStore {
     /// removed, and the normal collision allocator chooses a suffix rather
     /// than overwriting an existing note. The source file is read-only input.
     pub fn import_markdown(&self, source: &Path) -> Result<MutationResult, String> {
-        let extension = source
-            .extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default();
-        if !extension.eq_ignore_ascii_case("md") && !extension.eq_ignore_ascii_case("markdown") {
+        if !is_markdown_path(source) {
             return Err("only .md and .markdown files can be imported".to_owned());
         }
         if !source.is_file() {

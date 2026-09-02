@@ -8,7 +8,7 @@ const platform = {
   isTauri: true,
   isMac: false,
   isLinux: false,
-  windowControlsLayout: { side: 'right', buttons: ['minimize', 'maximize', 'close'] },
+  windowControlsLayout: { left: [], right: ['minimize', 'maximize', 'close'] },
 };
 vi.mock('$lib/platform', () => ({
   get isTauri() {
@@ -31,8 +31,8 @@ describe('desktop chrome class', () => {
     platform.isMac = false;
     platform.isLinux = false;
     platform.windowControlsLayout = {
-      side: 'right',
-      buttons: ['minimize', 'maximize', 'close'],
+      left: [],
+      right: ['minimize', 'maximize', 'close'],
     };
   });
 
@@ -56,8 +56,8 @@ describe('desktop chrome class', () => {
   it('reserves leading Linux controls from the parsed layout', async () => {
     platform.isLinux = true;
     platform.windowControlsLayout = {
-      side: 'left',
-      buttons: ['close', 'minimize', 'maximize'],
+      left: ['close', 'minimize', 'maximize'],
+      right: [],
     };
 
     const { dispose } = configureWindowChrome();

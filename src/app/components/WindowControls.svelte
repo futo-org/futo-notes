@@ -13,7 +13,7 @@
 
   let { buttons, side }: Props = $props();
 
-  function run(control: WindowControl): void {
+  function handleControlClick(control: WindowControl): void {
     if (control === 'minimize') minimizeAppWindow();
     else if (control === 'maximize') toggleMaximizeAppWindow();
     else closeAppWindow();
@@ -25,7 +25,7 @@
     <button
       class="window-control-btn"
       aria-label={control[0].toUpperCase() + control.slice(1)}
-      onclick={() => run(control)}
+      onclick={() => handleControlClick(control)}
     >
       {#if control === 'minimize'}
         <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">

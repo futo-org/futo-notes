@@ -8,6 +8,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use futo_notes_core::files::{note_id_from_relative_path, safe_note_path};
+use futo_notes_store::is_markdown_path;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -22,14 +23,6 @@ pub(crate) enum ExternalFileOpenRequest {
     OutsideVault { path: String, name: String },
 }
 
-fn is_markdown(path: &Path) -> bool {
-    path.extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
-        })
-}
-
 fn absolute_candidate(cwd: &Path, argument: OsString) -> PathBuf {
     let path = PathBuf::from(argument);
     if path.is_absolute() {
@@ -40,7 +33,7 @@ fn absolute_candidate(cwd: &Path, argument: OsString) -> PathBuf {
 }
 
 fn classify_one(vault_root: &Path, candidate: &Path) -> Option<ExternalFileOpenRequest> {
-    if !is_markdown(candidate) {
+    if !is_markdown_path(candidate) {
         return None;
     }
     let source = candidate.canonicalize().ok()?;
