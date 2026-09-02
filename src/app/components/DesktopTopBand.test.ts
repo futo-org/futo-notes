@@ -6,8 +6,8 @@ import { tabsStore } from '$features/tabs/tabsStore.svelte';
 
 const platform = vi.hoisted(() => ({
   layout: {
-    side: 'right' as 'left' | 'right',
-    buttons: ['minimize', 'maximize', 'close'] as ('minimize' | 'maximize' | 'close')[],
+    left: [] as ('minimize' | 'maximize' | 'close')[],
+    right: ['minimize', 'maximize', 'close'] as ('minimize' | 'maximize' | 'close')[],
   },
 }));
 vi.mock('$lib/platform', () => ({
@@ -31,8 +31,8 @@ describe('DesktopTopBand', () => {
   beforeEach(() => {
     tabsStore.__resetForTests();
     platform.layout = {
-      side: 'right',
-      buttons: ['minimize', 'maximize', 'close'],
+      left: [],
+      right: ['minimize', 'maximize', 'close'],
     };
     target = document.createElement('div');
     document.body.appendChild(target);
@@ -101,8 +101,8 @@ describe('DesktopTopBand', () => {
 
   it('places a leading desktop layout inside the chrome column in desktop order', async () => {
     platform.layout = {
-      side: 'left',
-      buttons: ['close', 'minimize', 'maximize'],
+      left: ['close', 'minimize', 'maximize'],
+      right: [],
     };
     mountBand({ sidebarCollapsed: false, ontoggle: () => {} });
 
@@ -116,5 +116,27 @@ describe('DesktopTopBand', () => {
         button.getAttribute('aria-label'),
       ),
     ).toEqual(['Close', 'Minimize', 'Maximize']);
+  });
+
+  it('renders split desktop layouts on both sides of the tab strip', async () => {
+    platform.layout = {
+      left: ['close'],
+      right: ['minimize', 'maximize'],
+    };
+    mountBand({ sidebarCollapsed: false, ontoggle: () => {} });
+
+    await vi.waitFor(() => {
+      expect(target.querySelectorAll('.window-control-btn')).toHaveLength(3);
+    });
+    expect(
+      Array.from(target.querySelectorAll('.window-controls-left button')).map((button) =>
+        button.getAttribute('aria-label'),
+      ),
+    ).toEqual(['Close']);
+    expect(
+      Array.from(target.querySelectorAll('.window-controls-right button')).map((button) =>
+        button.getAttribute('aria-label'),
+      ),
+    ).toEqual(['Minimize', 'Maximize']);
   });
 });

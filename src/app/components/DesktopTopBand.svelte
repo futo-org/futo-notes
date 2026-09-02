@@ -32,8 +32,8 @@
      The band is a drag region so the window moves from its empty areas. -->
 <div class="desktop-topband" data-tauri-drag-region>
   <div class="topband-chrome" data-tauri-drag-region>
-    {#if windowControls?.side === 'left'}
-      <WindowControls side="left" buttons={windowControls.buttons} />
+    {#if windowControls?.left.length}
+      <WindowControls side="left" buttons={windowControls.left} />
     {/if}
     <button
       class="sidebar-toggle-btn"
@@ -60,7 +60,7 @@
     </button>
   </div>
   <TabsStrip {notes} />
-  {#if windowControls?.side === 'right'}
-    <WindowControls side="right" buttons={windowControls.buttons} />
+  {#if windowControls?.right.length}
+    <WindowControls side="right" buttons={windowControls.right} />
   {/if}
 </div>

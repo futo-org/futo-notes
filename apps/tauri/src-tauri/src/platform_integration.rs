@@ -6,7 +6,10 @@ pub(crate) fn prepare_process() {
     #[cfg(unix)]
     raise_fd_limit();
     #[cfg(target_os = "linux")]
-    install_linux_log_filters();
+    {
+        configure_linux_renderer();
+        install_linux_log_filters();
+    }
 }
 
 pub(crate) fn is_flatpak() -> bool {
@@ -79,7 +82,7 @@ fn install_linux_log_filters() {
 // portal's `org.freedesktop.appearance` / `color-scheme` is the desktop's
 // answer, and nothing this app does can overwrite it — so it is what `auto`
 // resolves from on a one-shot read. Live changes are the desktop_settings
-// module's portal watcher, which also carries accent and interface-font.
+// module's portal watcher, which also carries accent.
 
 /// The innermost D-Bus variant payload in a `gdbus` line: the text between the
 /// last `<` and the `>` that closes it. `<uint32 1>` and the doubly-wrapped
@@ -175,6 +178,22 @@ pub(crate) fn linux_has_nvidia_gpu() -> bool {
     std::fs::read_to_string("/proc/modules")
         .map(|modules| has_nvidia_kernel_module(&modules))
         .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_renderer() {
+    const WEBKIT_SOFTWARE_RENDER: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
+
+    // Preserve an explicit WebKit setting. Otherwise retain the blank-window
+    // workaround only for NVIDIA, with a distro/user escape hatch for machines
+    // whose GPU cannot be identified reliably.
+    if linux_should_set_software_render(
+        std::env::var_os(WEBKIT_SOFTWARE_RENDER).is_some(),
+        std::env::var_os("FUTO_NOTES_SOFTWARE_RENDER").as_deref(),
+        linux_has_nvidia_gpu(),
+    ) {
+        std::env::set_var(WEBKIT_SOFTWARE_RENDER, "1");
+    }
 }
 
 #[cfg(any(test, target_os = "linux"))]

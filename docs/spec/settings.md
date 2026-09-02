@@ -21,8 +21,10 @@
 - **Follow system accent color** is enabled by default on Linux desktop and
   applies the portal accent to buttons, links, selection, and related primary
   tokens; disabling it or receiving no portal preference restores brand orange.
-  The preference is persisted in `.app-state.json`. → accent.ts, appState.ts,
-  AppearanceSettingsSection.svelte
+  The portal's base RGB stays exact in both themes; hover and selection derive
+  against theme tokens. The preference is persisted as
+  `preferences.followSystemAccent` in `.app-state.json`. → accent.ts,
+  appState.ts, AppearanceSettingsSection.svelte
 - The app version is shown.
 - **License**: the License card (Unlicensed / Licensed / Expired, Buy, Enter
   license key, Remove) follows [license.md](license.md). On the native shells it

@@ -9,12 +9,12 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 - Screens: **Folder** (root = the vault root, the stack floor) → Folder /
   Editor / Search / Settings; **Settings** → Sync / Storage location. A folder
   screen can push another folder screen to any depth. → AppNavigation.kt
-  *(Android)*
+  _(Android)_
 - iOS native: `Route` { folder / note / newNote } on one `NavigationStack`;
   search is an inline bottom search bar on the list, which bypasses the folder
   browser for a flat cross-folder result list; the nav-bar gear presents the
   Settings sheet and the cloud button presents the Sync sheet (see settings.md).
-  → NoteListView.swift *(iOS)*
+  → NoteListView.swift _(iOS)_
   The list nav-bar controls are exposed to accessibility and to automation: the
   **gear** (Settings), **cloud** (Sync), **folder-badge-plus** (New folder), and
   **compose** (New note) buttons each carry an `accessibilityLabel` ("Settings" /
@@ -45,21 +45,21 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   Presented as an overlay instead, Storage location left Back operating on the
   Settings entry it was covering: the first press popped Settings invisibly and
   the second finished the activity (github#28, reproduced and fixed on an API 34
-  emulator 2026-08-18). *(Android)* → AppNavigation.kt `Screen.StorageLocation`,
+  emulator 2026-08-18). _(Android)_ → AppNavigation.kt `Screen.StorageLocation`,
   MainActivity.kt `AppShell`
 - A blocking progress overlay ("Moving notes…", "Deleting all notes…") swallows
   Back as well as taps, so neither operation can be left part-way by a Back press
-  the shell underneath would have handled. *(Android)* → MainActivity.kt,
+  the shell underneath would have handled. _(Android)_ → MainActivity.kt,
   SettingsScreen.kt
 - Forward transitions slide in + fade; back transitions fade + slide out.
   Direction is derived from stack **depth**, not screen type, so a
   folder→folder push and its pop animate opposite ways. → AppNavigation.kt
-  *(Android)*
+  _(Android)_
 - Activity recreation starts a fresh route stack at the **vault root folder**,
   restoring the root list's scroll position; a deeper folder stack is
   deliberately not restored, so the user always returns to a screen that is
   guaranteed to exist. → AppNavigation.kt / NoteListState.kt /
-  AppNavigationTest.kt *(Android)*
+  AppNavigationTest.kt _(Android)_
 - A folder route whose folder is renamed or moved rebases onto the new path; a
   folder route whose folder stops existing is dropped, popping to the nearest
   surviving ancestor. → AppNavigation.kt `rebaseFolderRoutes` /
@@ -98,25 +98,25 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   appears on open; it only appears after tapping the body), and creating a NEW
   note raises the keyboard (2026-07-27 — driving "+" → "New Note" with `axe`,
   the accessory toolbar is present immediately, which only happens while a field
-  is focused). *(iOS native)*
+  is focused). _(iOS native)_
   > **Gap:** Android on-device autofocus QA (existing note keyboard-less +
-  > native-title autofocus) is still pending. *(Android)*
+  > native-title autofocus) is still pending. _(Android)_
 - Following a wikilink PUSHES another editor onto the stack (it does not replace
   the current one), so System Back returns to the note you came from rather than
   to the List — a browser-like history of visited notes. See the wikilink
   navigation rule in [editor.md](editor.md). → AppNavigation.kt
   `AppNavigator.openNote`
   (push), NoteEditorView.swift `openLinkedNote`
-  *(desktop)* deliberately diverges: a wikilink opens the target in the
+  _(desktop)_ deliberately diverges: a wikilink opens the target in the
   **current tab** (replace, not push) — tabs, not a nav stack, are the desktop
   history model. → NotesShell.svelte `handleWikilinkOpen`
 - The editor WebView is pre-warmed while the list is showing, so opening a note
   is a warm mount, not a cold renderer boot. Both native shells keep ONE shared
   pre-warmed WebView and swap content via `setContent` on open. →
-  MainActivity.kt / EditorHost *(Android)*; FutoNotesApp
-  `EditorHost.prewarm()` / EditorWebView `EditorHost.shared` *(iOS)*
+  MainActivity.kt / EditorHost _(Android)_; FutoNotesApp
+  `EditorHost.prewarm()` / EditorWebView `EditorHost.shared` _(iOS)_
 
-## Desktop shell *(desktop)*
+## Desktop shell _(desktop)_
 
 - The sidebar is persistent and resizable (drag the divider, clamped
   240–600px so the full **FUTO Notes** brand remains on one line). A
@@ -139,7 +139,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 - On Linux the undecorated window uses one header row: minimize, maximize and
   close live in the desktop top band rather than in a second title row. GNOME's
   `org.gnome.desktop.wm.preferences button-layout` decides left/right placement
-  and button order; other desktops use the trailing
+  and button order, including layouts split across both sides; other desktops use the trailing
   minimize/maximize/close default. → DesktopTopBand.svelte,
   WindowControls.svelte, window_controls.rs
 - Left-side Linux controls reserve their own leading gutter through
@@ -151,13 +151,20 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   take clicks. → DesktopTopBand.svelte, TabsStrip.svelte,
   WindowControls.svelte
 - The native window title is the active note title followed by "— FUTO Notes";
-  Home falls back to the app name. This is the title shown by the compositor in
-  Alt+Tab and overview surfaces. → TabsStrip.svelte, windowControls.ts
+  Home falls back to the app name. Debug builds retain the `FUTO Notes (Dev)`
+  identity in both forms, so tab changes cannot erase the dev/prod distinction.
+  This is the title shown by the compositor in Alt+Tab and overview surfaces. →
+  TabsStrip.svelte, windowControls.ts, tauri.dev.conf.json
 - Debian and RPM packages install a hidden `futo-notes-tauri.desktop` identity
   alias matching the native Wayland app ID, so compositors resolve the FUTO
   Notes icon in Alt+Tab. The visible `FUTO Notes.desktop` launcher remains in
   place for existing taskbar pins and Markdown associations. →
-  linux/futo-notes-tauri.desktop, tauri.conf.json, linux_packaging.rs
+  linux/futo-notes-tauri.desktop, tauri.conf.json, linux-packaging.test.mjs
+- Linux packages advertise the app in the freedesktop Office category, add
+  `notes` / `markdown` search keywords, and register `text/markdown` for `.md`
+  and `.markdown`, so file managers offer FUTO Notes under **Open With**. Tauri's
+  `Productivity` bundle category is the source value that emits `Office` in the
+  desktop entry. → tauri.conf.json, linux/futo-notes.desktop.hbs
 - The window is not shown until the shell has painted: it is created hidden and
   revealed on first render, so launching never flashes the webview's white.
   Rust reveals it regardless after a timeout, so a frontend that never paints
@@ -221,7 +228,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   single-instance launches share this policy. → external_file_open.rs,
   externalFileOpen.ts, `LocalNoteStore::import_markdown`
 
-### Application menu *(macOS)*
+### Application menu _(macOS)_
 
 - macOS gets a real menu bar owned by the app: **App** (About, Settings… ⌘,
   Services, Hide, Quit) · **File** (New Note ⌘N, New Tab ⌘T, Reopen Closed Tab
@@ -237,7 +244,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 - Windows and Linux render no menu bar; their accelerators stay with the
   keydown handler. → app_menu.rs
 
-### Desktop chrome behaves like an application, not a document *(desktop)*
+### Desktop chrome behaves like an application, not a document _(desktop)_
 
 - Chrome shows the arrow cursor — rows, tabs, buttons and toolbar icons never
   switch to the pointing hand, and pressing or dragging a row never shows the

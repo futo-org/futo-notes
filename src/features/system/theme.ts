@@ -1,11 +1,12 @@
-import { isLinux, readDesktopColorScheme, setNativeWindowAppearance } from '$lib/platform';
+import {
+  isLinux,
+  readDesktopColorScheme,
+  readLinuxDesktopSettings,
+  setNativeWindowAppearance,
+} from '$lib/platform';
 
 export type ThemePreference = 'auto' | 'dark' | 'light';
 export type ResolvedTheme = 'dark' | 'light';
-
-interface LinuxDesktopSettings {
-  theme: ResolvedTheme;
-}
 
 const SYSTEM_DARK_MEDIA = '(prefers-color-scheme: dark)';
 
@@ -157,12 +158,10 @@ export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void)
             portalUnlisten = unlisten;
 
             if (isLinux) {
-              void import('@tauri-apps/api/core')
-                .then(({ invoke }) =>
-                  invoke<LinuxDesktopSettings>('linux_desktop_settings').then((snapshot) => {
-                    if (!disposed) onChange(snapshot.theme);
-                  }),
-                )
+              void readLinuxDesktopSettings()
+                .then((snapshot) => {
+                  if (!disposed && snapshot) onChange(snapshot.theme);
+                })
                 .catch((error) =>
                   console.warn('Failed to read the current Linux desktop theme:', error),
                 );
