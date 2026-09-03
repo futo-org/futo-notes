@@ -280,8 +280,9 @@ The simulator shares the Mac's network — `http://127.0.0.1:<port>` reaches a
 host server directly (unlike Android's `10.0.2.2`; a **physical** iPhone needs
 the Mac's LAN IP instead). Native shells have no `__testSync` hook — connect
 through Settings → Sync in the app UI. Server setup: see "Features that need a
-sync server" in SKILL.md; when Docker/Postgres isn't available on this machine,
-record sync happy-path stories as **Blocked**, not failed.
+sync server" in SKILL.md; when this machine cannot reach the package registry
+and `~/.cache/futo-notes` is cold, record sync happy-path stories as
+**Blocked**, not failed.
 
 ## Known gotchas
 

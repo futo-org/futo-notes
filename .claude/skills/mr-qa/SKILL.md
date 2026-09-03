@@ -258,10 +258,11 @@ Both were learned by damaging the user's real data. Brief every leg on both.
    last-connected becomes the default, so unqualified
    `webview_execute_js`/`read_logs` calls land on another MR's app — always
    pass `appIdentifier: <port>` explicitly.
-2. **`tests/cross-platform-sync.mjs` is NOT per-worktree isolated** — it shells
-   to a machine-global Postgres container, so it deadlocks/401s under parallel
-   load. Run it when contention is low, or mark it BLOCKED (pre-existing
-   infra, not the MR) — and remember a BLOCKED story is never carried over.
+2. **`tests/cross-platform-sync.mjs` IS per-worktree isolated** — its port band
+   comes from the worktree slot and every server gets its own SQLite database in
+   its own temp directory, so parallel MRs no longer share state. It still runs
+   real Tauri clients, so heavy parallel load can still starve timing-sensitive
+   scenarios; when that happens, say so rather than reporting a sync defect.
 3. **F-series `server_integration` needs `AUTH_MODE=dev`**, but
    `just qa-server` runs `AUTH_MODE=password` (correct for the mesh). Agents
    spin their own isolated dev-mode server for that suite.

@@ -18,8 +18,8 @@
 //   node scripts/qa.mjs status                    # pool devices + servers, owners, state
 //   node scripts/qa.mjs release [--shutdown]      # release this worktree's claims
 //   node scripts/qa.mjs gc                        # reap devices/servers of deleted worktrees
-//   node scripts/qa.mjs server-start              # per-slot sync server (bun + own Postgres DB)
-//   node scripts/qa.mjs server-stop [--drop]      # stop it; --drop also drops the DB + blobs
+//   node scripts/qa.mjs server-start              # per-slot sync server (own SQLite DB + blobs)
+//   node scripts/qa.mjs server-stop [--drop]      # stop it; --drop also deletes its DB + blobs
 //
 // `claim` prints `export SIM=…` / `export ANDROID_SERIAL=…` lines on stdout
 // (progress goes to stderr), so shells can `eval "$(node scripts/qa.mjs claim all)"`.
@@ -28,8 +28,8 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PG_BASE, pgQuery } from './lib/pg.mjs';
 import { portsFor, slotOf } from './lib/slot.mjs';
+import { SERVER_PASSWORD, syncServerBinary, syncServerEnv } from './lib/sync-server.mjs';
 
 const POOL = 7; // devices per platform; bump if you routinely run more worktrees
 const IS_MAC = process.platform === 'darwin';
@@ -490,7 +490,7 @@ function cmdStatus() {
       const pid = readPid(path.join(SRV_DIR, d, 'server.pid'));
       const alive = pid && pidAlive(pid);
       info(
-        `  ${d}: ${alive ? `running pid ${pid} port ${meta.port}` : 'stopped'} db ${meta.db} — ${meta.worktree}`,
+        `  ${d}: ${alive ? `running pid ${pid} port ${meta.port}` : 'stopped'} — ${meta.worktree}`,
       );
     }
   }
@@ -522,83 +522,44 @@ const pidAlive = (pid) => {
   }
 };
 
-function serverRepo() {
-  if (!tryRun('bun', ['--version'])) die('bun is required to run the sync server (https://bun.sh)');
-  const repo = path.resolve(
-    process.env.FUTO_NOTES_E2EE_SERVER_REPO || path.join(HOME, 'Developer', 'futo-notes-server'),
-  );
-  if (!fs.existsSync(path.join(repo, 'package.json')))
-    die(
-      `futo-notes-server not found at ${repo} — set FUTO_NOTES_E2EE_SERVER_REPO to your checkout`,
-    );
-  return repo;
-}
-
 async function cmdServerStart() {
   const root = worktreeRoot();
   const slot = slotOf(root);
   const port = portsFor(root).sync;
-  const db = `futo_notes_qa_s${slot}`;
   const dir = path.join(SRV_DIR, `s${slot}`);
   const pidFile = path.join(dir, 'server.pid');
-  const repo = serverRepo();
 
   const existing = readPid(pidFile);
   if (existing && pidAlive(existing)) {
     info(
-      `already running: http://127.0.0.1:${port} (pid ${existing}, db ${db}, password testing123)`,
+      `already running: http://127.0.0.1:${port} (pid ${existing}, data ${dir}, password ${SERVER_PASSWORD})`,
     );
     return;
   }
-  fs.mkdirSync(path.join(dir, 'blobs'), { recursive: true });
+  fs.mkdirSync(dir, { recursive: true });
 
-  // Reach Postgres; if it's down and docker exists, try the repo's compose.
-  let ping = pgQuery(repo, `${PG_BASE}/postgres`, 'select 1');
-  if (ping.status !== 0 && tryRun('docker', ['--version'])) {
-    info('postgres unreachable — trying `docker compose up -d postgres` in the server repo');
-    spawnSync('docker', ['compose', 'up', '-d', 'postgres'], { cwd: repo, stdio: 'inherit' });
-    await sleep(3000);
-    ping = pgQuery(repo, `${PG_BASE}/postgres`, 'select 1');
-  }
-  if (ping.status !== 0)
-    die(
-      `cannot reach Postgres at ${PG_BASE} — start it (server repo: docker compose up -d postgres; ` +
-        `or a native install: brew install postgresql@16, then set FUTO_NOTES_QA_PG to its URL).\n${ping.stderr || ''}`,
-    );
-
-  const create = pgQuery(repo, `${PG_BASE}/postgres`, `CREATE DATABASE ${db}`);
-  if (create.status !== 0 && !/already exists|42P04/.test(create.stderr || ''))
-    die(`could not create ${db}:\n${create.stderr}`);
-
-  const dbUrl = `${PG_BASE}/${db}`;
-  const migrate = spawnSync('bun', ['run', 'migrate'], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...process.env, DATABASE_URL: dbUrl },
-  });
-  if (migrate.status !== 0)
-    die(`migrations failed for ${db}:\n${migrate.stderr || migrate.stdout}`);
-
-  const hash = run('bun', ['src/index.ts', 'hash', 'testing123'], { cwd: repo }).trim();
+  // Each slot's server owns a SQLite database inside its own directory, so
+  // parallel worktrees share nothing: no database server to reach, and nothing
+  // one session can wipe out from under another.
+  const { path: binary, source } = await syncServerBinary();
   const log = fs.openSync(path.join(dir, 'server.log'), 'a');
-  const child = spawn('bun', ['src/index.ts'], {
-    cwd: repo,
+  const child = spawn(binary, [], {
+    // cwd is the slot's own directory: the server reads a `.env` from wherever
+    // it starts, and no checkout of ours should supply one by accident.
+    cwd: dir,
     detached: true,
     stdio: ['ignore', log, log],
-    env: {
-      ...process.env,
-      PORT: String(port),
-      BLOB_DIR: path.join(dir, 'blobs'),
-      DATABASE_URL: dbUrl,
-      AUTH_MODE: 'password',
-      FUTO_NOTES_PASSWORD_HASH: hash,
-    },
+    env: { ...process.env, ...syncServerEnv({ port, dataDir: dir }) },
   });
   child.unref();
   fs.writeFileSync(pidFile, String(child.pid));
   fs.writeFileSync(
     path.join(dir, 'meta.json'),
-    JSON.stringify({ worktree: root, port, db, startedAt: new Date().toISOString() }, null, 2),
+    JSON.stringify(
+      { worktree: root, port, server: source, startedAt: new Date().toISOString() },
+      null,
+      2,
+    ),
   );
 
   for (let i = 0; i < 30; i++) {
@@ -610,7 +571,7 @@ async function cmdServerStart() {
     if (i === 29) die(`server did not become healthy — see ${path.join(dir, 'server.log')}`);
   }
   info(`sync server: http://127.0.0.1:${port}  (Android emulator: http://10.0.2.2:${port})`);
-  info(`password: testing123   db: ${db}   log: ${path.join(dir, 'server.log')}`);
+  info(`password: ${SERVER_PASSWORD}   data: ${dir}   log: ${path.join(dir, 'server.log')}`);
 }
 
 function stopServerDir(dir, meta, drop) {
@@ -623,10 +584,11 @@ function stopServerDir(dir, meta, drop) {
   }
   fs.rmSync(path.join(dir, 'server.pid'), { force: true });
   if (drop && meta) {
-    const res = pgQuery(serverRepo(), `${PG_BASE}/postgres`, `DROP DATABASE IF EXISTS ${meta.db}`);
-    if (res.status === 0) info(`dropped ${meta.db}`);
-    else info(`could not drop ${meta.db} (postgres down?) — drop it manually later`);
+    // The database is a file in this directory, so one delete takes the whole
+    // slot: SQLite database, blobs, log. `dir` is always <state>/server/s<slot>,
+    // never a computed ancestor.
     fs.rmSync(dir, { recursive: true, force: true });
+    info(`dropped this slot's database and blobs (${dir})`);
   }
 }
 

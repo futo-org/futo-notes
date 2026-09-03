@@ -21,7 +21,8 @@
  *
  * Requires:
  *   - Debug Tauri binary:  cd apps/tauri && cargo tauri build --debug --no-bundle
- *   - E2EE server repo:    ~/Developer/futo-notes-server (override: FUTO_NOTES_E2EE_SERVER_REPO)
+ *   - E2EE sync server:    downloaded on first use (the release pinned in
+ *                          scripts/sync-server-pin.json); no checkout needed
  *   - Frontend built with: VITE_INCLUDE_TEST_HOOKS=true pnpm run build
  *   - Android leg only:    a booted device/emulator with the debug app
  *                          (just qa-claim android && just android-native)
@@ -2605,7 +2606,7 @@ async function runScenarios(list, clientA, clientB) {
     // first's server and database.
     const port = allocateServerPort();
     const serverSetupStartedAt = Date.now();
-    const server = await startServer(port, REPO_ROOT, scenario.serverOptions ?? {});
+    const server = await startServer(port, scenario.serverOptions ?? {});
     const serverSetupMs = Date.now() - serverSetupStartedAt;
     timings.serverSetupMs += serverSetupMs;
     managedStops.push(() => server.stop());

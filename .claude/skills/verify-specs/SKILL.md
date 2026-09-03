@@ -212,8 +212,9 @@ verdict }`. Present the `/verify`/`/mr-qa` report format:
 - **Overturned** (sweep FAIL the verify pass disproved) — report as a
   false-alarm line, and if it recurs, it's a signal the low-effort sweep is too
   trigger-happy on that surface.
-- Distinguish **BLOCKED** (environment can't exercise it — e.g. no Postgres →
-  sync mesh blocked; Linux → iOS blocked) from **FAIL**.
+- Distinguish **BLOCKED** (environment can't exercise it — e.g. no route to the
+  sync-server package registry → sync mesh blocked; Linux → iOS blocked) from
+  **FAIL**.
 - A confirmed new divergence → follow `/spec-sync` (record a `> **Gap:**` note
   inline in the area file). A regression against previously-verified
   behavior → recommend `/bugfix`, don't silently patch.
