@@ -48,7 +48,7 @@ export function lineHitAtPoint(
     target?.closest('.cm-line')) as HTMLElement | null;
   if (!lineElement) return null;
 
-  let linePosition: number | null = null;
+  let linePosition: number | null;
   try {
     linePosition = view.posAtDOM(lineElement, 0);
   } catch {

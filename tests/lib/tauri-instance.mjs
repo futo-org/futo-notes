@@ -69,7 +69,7 @@ export async function startDesktopTauriInstance(name, repoRoot) {
     port = await discoverPort(logFile, 60_000);
   } catch (err) {
     proc.kill('SIGKILL');
-    throw new Error(`${name}: MCP bridge port not found — ${err.message}`);
+    throw new Error(`${name}: MCP bridge port not found — ${err.message}`, { cause: err });
   }
 
   let ws;
@@ -81,7 +81,7 @@ export async function startDesktopTauriInstance(name, repoRoot) {
     await waitForTestHooks(ws, name, { initialDelayMs: 0, attempts: 45, intervalMs: 2_000 });
   } catch (err) {
     proc.kill('SIGKILL');
-    throw new Error(`${name}: desktop startup failed — ${err.message}`);
+    throw new Error(`${name}: desktop startup failed — ${err.message}`, { cause: err });
   }
 
   return new TauriTestClient({
