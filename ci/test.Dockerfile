@@ -49,4 +49,4 @@ RUN sh /tmp/install-fnm.sh && \
 # npx comes from the baked Node on PATH above.
 RUN mkdir -p "$BUN_INSTALL" && \
     curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14" && \
-    npx --yes playwright@1.58.2 install --only-shell chromium
+    npx --yes playwright@1.62.1 install --only-shell chromium
