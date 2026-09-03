@@ -14,6 +14,8 @@ export interface MdastNode {
   children?: MdastNode[];
   url?: string;
   data?: { isInline?: boolean };
+  /** Source lines (1-based), as mdast-util-from-markdown records them. */
+  position?: { start: { line: number }; end: { line: number } };
 }
 
 /** Depth-first walk that hands each node its immediate parent. */

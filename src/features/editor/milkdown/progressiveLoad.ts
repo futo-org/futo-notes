@@ -23,34 +23,67 @@
  * exactly-once completion are assertable without an editor.
  */
 
-import type { Node as ProseNode } from '@milkdown/kit/prose/model';
+import { Fragment, type Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
+
+/** What a chunk append needs to know about the chunk BEFORE it. */
+export interface ChunkAppendOptions {
+  /**
+   * Empty paragraphs to put in front of the chunk's content — the blank-line
+   * gap the cut hid. `markdownChunks.ts` leaves a boundary's whole blank run at
+   * the END of the previous chunk, where a standalone parse cannot count it
+   * (trailing blank lines are never paragraphs), so the loader counts it from
+   * the text instead: {@link seamEmptyParagraphs}.
+   */
+  leadingEmptyParagraphs?: number;
+  /**
+   * Whether an empty paragraph at the end of the live document is the
+   * `trailing` plugin's, and so to be consumed. False when the previous chunk's
+   * own content ended in one — a `<br />` placeholder an older build wrote as
+   * its last block loads as exactly that — which the plugin would not have
+   * added to (it appends after a non-paragraph only).
+   */
+  consumeTrailingPlaceholder?: boolean;
+}
 
 /**
  * Appends a parsed chunk's top-level content at the end of `view`'s document.
  *
- * An empty paragraph at the end is CONSUMED rather than kept. Milkdown's
- * `trailing` plugin parks one there whenever the document's last node is not a
- * paragraph — a chunk that happens to end on a heading or a list gets one — and
- * remark never produces an empty paragraph from markdown, so one at the end is
- * always the plugin's. Carrying it along would leave the finished document one
- * empty paragraph longer than the same note parsed whole, which serializes as
- * an extra trailing newline: measured on the corpus as 23 of the first 23
- * divergences before this was fixed. Replacing it lets `trailing` make the same
- * decision about the FINISHED document that it would have made about a
- * whole-document parse.
+ * An empty paragraph at the end is CONSUMED rather than kept, unless the
+ * caller says it is content. Milkdown's `trailing` plugin parks one there
+ * whenever the document's last node is not a paragraph or heading — a chunk
+ * that happens to end on a list gets one. Carrying it along would leave the
+ * finished document one empty paragraph longer than the same note parsed whole,
+ * which serializes as an extra trailing newline: measured on the corpus as 23
+ * of the first 23 divergences before this was fixed. Replacing it lets
+ * `trailing` make the same decision about the FINISHED document that it would
+ * have made about a whole-document parse.
  *
  * The selection is left alone: the user may already be typing in the first
  * chunk while the tail streams in behind them.
  */
-export function appendChunkContent(view: ProseView, chunkDoc: ProseNode): void {
-  const { content } = chunkDoc;
-  if (content.size === 0) return;
+export function appendChunkContent(
+  view: ProseView,
+  chunkDoc: ProseNode,
+  options: ChunkAppendOptions = {},
+): void {
+  const { leadingEmptyParagraphs = 0, consumeTrailingPlaceholder = true } = options;
+  if (chunkDoc.content.size === 0) return;
 
-  const { doc } = view.state;
+  const { doc, schema } = view.state;
+  const fillers = Array.from({ length: leadingEmptyParagraphs }, () =>
+    schema.nodes.paragraph.create(),
+  );
+  const content = Fragment.from(fillers).append(chunkDoc.content);
+
   const last = doc.lastChild;
   const placeholder =
-    last !== null && last.type.name === 'paragraph' && last.content.size === 0 ? last : null;
+    consumeTrailingPlaceholder &&
+    last !== null &&
+    last.type.name === 'paragraph' &&
+    last.content.size === 0
+      ? last
+      : null;
   const from = placeholder ? doc.content.size - placeholder.nodeSize : doc.content.size;
 
   /* `addToHistory: false` is doing two jobs, and both are load-bearing.
@@ -65,16 +98,49 @@ export function appendChunkContent(view: ProseView, chunkDoc: ProseNode): void {
 }
 
 /**
+ * How many empty paragraphs the seam after `previousChunk` stands for.
+ *
+ * The whole-document parse turns `N` blank lines between two blocks into
+ * `N - 1` empty paragraphs (packages/editor/src/milkdown-compat/emptyLine.ts).
+ * A chunk boundary sits after a blank run, with the whole run at the end of the
+ * previous chunk and the next chunk starting on content, so the run's length is
+ * the number of trailing blank lines here. Whitespace-only lines are blank, as
+ * they are to CommonMark.
+ */
+export function seamEmptyParagraphs(previousChunk: string): number {
+  const lines = previousChunk.split('\n');
+  // Lines keep their terminators, so a chunk ending in `\n` splits to a final
+  // empty string that is not a line.
+  if (lines[lines.length - 1] === '') lines.pop();
+  let blank = 0;
+  for (let i = lines.length - 1; i >= 0 && (lines[i] ?? '').trim() === ''; i -= 1) blank += 1;
+  return Math.max(0, blank - 1);
+}
+
+/**
+ * Whether a chunk's markdown should parse to SOMETHING beyond empty paragraphs.
+ *
+ * The one legitimate way for real bytes to become nothing but empty paragraphs
+ * is the `<br />` empty-paragraph placeholder an older build wrote: a chunk of
+ * only those (and whitespace) loads as exactly the empty paragraphs it stood
+ * for. Any other markdown that parses to that has been eaten by the plugin
+ * chain — see {@link isEffectivelyEmpty}.
+ */
+export function chunkShouldHaveContent(markdown: string): boolean {
+  return markdown.replace(/<br[ \t]*\/?[ \t]*>/giu, '').trim() !== '';
+}
+
+/**
  * Whether `chunkDoc` carries nothing a document would notice — an empty doc, or
  * nothing but empty paragraphs.
  *
- * A chunk of real markdown that parses to this means the plugin chain ATE it,
- * and appending it would silently drop that part of the note. The known case is
- * a lone `<br>` block: the commonmark preset's empty-line plugin removes the
- * `html` node from its parent, and with the chunk boundary having taken away
- * the surrounding context there is nothing left. (Root-causing that plugin is
- * issue #99's job; progressive open's job is to never make loss WORSE than a
- * whole-document parse, so it refuses the chunk and the caller reloads whole.)
+ * A chunk of real markdown ({@link chunkShouldHaveContent}) that parses to this
+ * means the plugin chain ATE it, and appending it would silently drop that part
+ * of the note. There is no known case left — the one there was, a lone `<br>`
+ * block deleted by the commonmark preset's empty-line plugin, is now read as
+ * the empty paragraph it stood for — but progressive open's job is to never
+ * make loss WORSE than a whole-document parse, so the guard stays: refuse the
+ * chunk and the caller reloads whole.
  */
 export function isEffectivelyEmpty(chunkDoc: ProseNode): boolean {
   if (chunkDoc.content.size === 0) return true;
@@ -91,8 +157,12 @@ export type CancelIdle = () => void;
 export interface ProgressiveLoadOptions {
   /** In document order; chunk 0 is applied synchronously by this call. */
   chunks: readonly string[];
-  /** Parse and mount one chunk. Runs on the caller's editor. */
-  applyChunk: (markdown: string) => void;
+  /**
+   * Parse and mount one chunk. Runs on the caller's editor.
+   * `leadingEmptyParagraphs` is {@link seamEmptyParagraphs} of the chunk before
+   * it, and 0 for chunk 0.
+   */
+  applyChunk: (markdown: string, leadingEmptyParagraphs: number) => void;
   /** Schedules `run` for the next idle slice; returns its canceller. */
   scheduleIdle: (run: () => void) => CancelIdle;
   /** Called exactly once, after the LAST chunk has been applied. */
@@ -138,7 +208,8 @@ export function startProgressiveLoad(options: ProgressiveLoadOptions): Progressi
   }
 
   function applyNext(): void {
-    applyChunk(chunks[applied]);
+    const previous = applied === 0 ? null : chunks[applied - 1];
+    applyChunk(chunks[applied], previous === null ? 0 : seamEmptyParagraphs(previous));
     applied += 1;
   }
 

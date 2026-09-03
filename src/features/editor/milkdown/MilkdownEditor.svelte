@@ -26,7 +26,6 @@
   import {
     Editor,
     defaultValueCtx,
-    editorViewCtx,
     editorViewOptionsCtx,
     parserCtx,
     remarkStringifyOptionsCtx,
@@ -46,10 +45,14 @@
   import { history as proseHistory, redoDepth, undoDepth } from '@milkdown/kit/prose/history';
   import { EditorState, TextSelection, type PluginKey } from '@milkdown/kit/prose/state';
   import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-  import type { Node as ProseNode, Schema as ProseSchema } from '@milkdown/kit/prose/model';
+  import {
+    Slice,
+    type Node as ProseNode,
+    type Schema as ProseSchema,
+  } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
   import { imageReferenceMarkdown, withNarrowedAtxHashEscape } from '@futo-notes/editor';
-  import { htmlWithoutEmptyCellPlaceholder } from '@futo-notes/editor/milkdown-compat';
+  import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
   import {
     installVaultImageUrlResolver,
     uninstallVaultImageUrlResolver,
@@ -63,11 +66,13 @@
   import { handleParityKeyDown } from './keyboardParity';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
+  import { createSlashMenuPlugin, resolveSlashMenu } from './slash';
   import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
   import {
     OPEN_COMPLETE_MEASURE,
     OPEN_INTERACTIVE_MEASURE,
     appendChunkContent,
+    chunkShouldHaveContent,
     isEffectivelyEmpty,
     markOpenStart,
     measureOpen,
@@ -147,6 +152,10 @@
    * mechanisms under a mounted ProseMirror view is not something this
    * supports. */
   const useMobileBlockDnd = $derived(resolveBlockDragMode(nativeShell) === 'long-press');
+  /* The `/` block menu, desktop only (slash/index.ts `resolveSlashMenu`).
+   * Same one-shot read as useMobileBlockDnd above: the plugin set is fixed when
+   * the engine is built. */
+  const useSlashMenu = $derived(resolveSlashMenu(nativeShell) === 'enabled');
   /* Apple WebKit paints holes where a contained block should be — see
    * blockContainment.ts. The class, not the rule, is what varies. */
   const skipOffscreenBlocks = resolveBlockContainment() === 'offscreen-skipped';
@@ -326,7 +335,7 @@
 
   /* The handle's position is only recomputed when the plugin shows/hides it;
    * without this it would visually drift over the wrong block while the user
-   * scrolls the ProseMirror-internal scroller. */
+   * scrolls, whichever element is carrying the scroll. */
   function handleBlockScroll(): void {
     blockProvider?.hide();
   }
@@ -377,17 +386,6 @@
               handlers: { ...options.handlers, text: withNarrowedAtxHashEscape(text) },
             };
           });
-
-          /* An empty table cell saves as `|  |`, not as the `<br />`
-           * empty-paragraph placeholder — the placeholder exists for blank
-           * LINES, which markdown cannot represent; an empty cell it can.
-           * Without this, a note holding an empty cell had it rewritten to
-           * `| <br /> |` by the first unrelated keystroke. See
-           * packages/editor/src/milkdown-compat/emptyLine.ts. */
-          ctx.update(remarkStringifyOptionsCtx, (options) => ({
-            ...options,
-            handlers: { ...options.handlers, html: htmlWithoutEmptyCellPlaceholder() },
-          }));
 
           /* `-` for bullet markers, not remark-stringify's default `*`.
            * The manifest's Bullet/Task buttons emit `- `, and so does the
@@ -555,6 +553,15 @@
           )
         : builder.use(block);
 
+      /* The `/` block menu (desktop only — slash/index.ts). Two steps because
+       * that is Milkdown's own shape for a slash plugin: `slashFactory` puts the
+       * ProseMirror plugin spec in a ctx slice, so the spec is installed in
+       * `.config()` and the plugin pair goes through `.use()`. */
+      if (useSlashMenu) {
+        const slashMenu = createSlashMenuPlugin(() => editor);
+        builder = builder.config(slashMenu.config).use(slashMenu.plugins);
+      }
+
       const created = await builder.create();
 
       if (disposed) {
@@ -592,9 +599,16 @@
           getOffset: (deriveContext) => blockHandleOffset(deriveContext.active.node),
         });
         blockProvider.update();
-        created.ctx
-          .get(editorViewCtx)
-          .dom.addEventListener('scroll', handleBlockScroll, { passive: true });
+        // On `document`, in the CAPTURE phase, because scroll events do not
+        // bubble and WHICH element scrolls depends on the host: the editable
+        // itself in the embed, the shell's `.note-body` on desktop (see the
+        // `.notes-shell` CSS rule below). Listening on the editable alone left
+        // the handle floating over the wrong block for every desktop scroll —
+        // and desktop is the only host that has a handle at all.
+        document.addEventListener('scroll', handleBlockScroll, {
+          passive: true,
+          capture: true,
+        });
       }
     })().catch((error: unknown) => {
       // An engine that cannot build the editor is the whole reason the WebView
@@ -615,7 +629,7 @@
       }
       container.removeEventListener('click', handleClick);
       container.removeEventListener('touchend', handleTouchEnd);
-      pmView()?.dom.removeEventListener('scroll', handleBlockScroll);
+      document.removeEventListener('scroll', handleBlockScroll, { capture: true });
       blockProvider?.destroy();
       blockProvider = null;
       const current = editor;
@@ -643,27 +657,58 @@
   }
 
   /**
+   * Whether the last chunk applied ended in an empty paragraph of its OWN — a
+   * `<br />` placeholder an older build wrote as its final block. The next
+   * append must then keep the live document's trailing empty paragraph rather
+   * than treat it as the `trailing` plugin's (see `appendChunkContent`).
+   */
+  let previousChunkEndedEmpty = false;
+
+  /**
+   * An empty paragraph at the end of a parsed chunk is the chunk's own unless
+   * it is the schema's: a chunk that is nothing but front matter gets one from
+   * `createAndFill`, because the doc's content is `frontmatter? block+` and the
+   * front matter is not a block. That one belongs to the FINISHED document's
+   * shape, not to this chunk, and the whole-document parse never has it (the
+   * body's first block satisfies `block+`). Measured: four corpus notes with
+   * front matter opened one blank line longer chunked than whole before this.
+   */
+  function endsWithOwnEmptyParagraph(node: ProseNode): boolean {
+    const last = node.lastChild;
+    if (last === null || last.type.name !== 'paragraph' || last.content.size !== 0) return false;
+    const isFrontmatterFiller =
+      node.childCount === 2 && node.firstChild?.type.name === FRONTMATTER_NODE;
+    return !isFrontmatterFiller;
+  }
+
+  /**
    * Mounts the first chunk, replacing whatever the editor held.
    *
    * Guarded exactly like every later chunk: a first chunk the plugin chain eats
    * would otherwise be dropped silently, and it is the one the user is looking
-   * at. `replaceAll` parses inside Milkdown and reports nothing, so the check is
-   * on the document it produced.
+   * at. The parse is done here rather than through `replaceAll` (this is that
+   * macro's non-flush body, verbatim) so the parsed chunk is in hand for the
+   * guard and for `previousChunkEndedEmpty`.
    */
   function applyFirstChunk(markdown: string): boolean {
-    if (!editor) return false;
-    editor.action(replaceAll(markdown));
-    if (markdown.trim() === '') return true;
     const view = pmView();
-    return view !== null && !isEffectivelyEmpty(view.state.doc);
+    if (!editor || !view) return false;
+    const parsed = editor.ctx.get(parserCtx)(markdown);
+    if (!parsed) return false;
+    if (chunkShouldHaveContent(markdown) && isEffectivelyEmpty(parsed)) return false;
+    const { state } = view;
+    view.dispatch(state.tr.replace(0, state.doc.content.size, new Slice(parsed.content, 0, 0)));
+    previousChunkEndedEmpty = endsWithOwnEmptyParagraph(parsed);
+    return true;
   }
 
   /**
-   * Parses one streamed chunk and appends it. Returns false if the parse
-   * failed, which aborts the stream back to a whole-document load rather than
-   * silently dropping the rest of the note.
+   * Parses one streamed chunk and appends it, with the empty paragraphs the
+   * seam before it stands for. Returns false if the parse failed, which aborts
+   * the stream back to a whole-document load rather than silently dropping the
+   * rest of the note.
    */
-  function appendParsedChunk(markdown: string): boolean {
+  function appendParsedChunk(markdown: string, leadingEmptyParagraphs: number): boolean {
     const view = pmView();
     if (!editor || !view) return false;
     try {
@@ -671,8 +716,12 @@
       if (!parsed) return false;
       // Real markdown that parses to nothing has been eaten by the plugin
       // chain; appending it would drop that slice of the note.
-      if (markdown.trim() !== '' && isEffectivelyEmpty(parsed)) return false;
-      appendChunkContent(view, parsed);
+      if (chunkShouldHaveContent(markdown) && isEffectivelyEmpty(parsed)) return false;
+      appendChunkContent(view, parsed, {
+        leadingEmptyParagraphs,
+        consumeTrailingPlaceholder: !previousChunkEndedEmpty,
+      });
+      previousChunkEndedEmpty = endsWithOwnEmptyParagraph(parsed);
       return true;
     } catch (error) {
       console.warn('MilkdownEditor: chunk parse failed', error);
@@ -768,9 +817,12 @@
 
     const load = startProgressiveLoad({
       chunks: plan.chunks,
-      applyChunk: (markdown) => {
+      applyChunk: (markdown, leadingEmptyParagraphs) => {
         if (abortedToWholeDocument) return;
-        const applied = index === 0 ? applyFirstChunk(markdown) : appendParsedChunk(markdown);
+        const applied =
+          index === 0
+            ? applyFirstChunk(markdown)
+            : appendParsedChunk(markdown, leadingEmptyParagraphs);
         index += 1;
         if (!applied) abortToWholeDocument();
       },
@@ -792,7 +844,7 @@
 
     progressive = load;
     streamingTail = load.loading;
-    // After chunk 0: its `replaceAll` is itself an undoable transaction, and
+    // After chunk 0: its replace is itself an undoable transaction, and
     // the host's `resetHistory()` (which drops this back to 0) only runs once
     // this returns.
     const view = pmView();
@@ -1184,6 +1236,15 @@
     height: 100%;
   }
 
+  /*
+   * The editable is the scroller — in the EMBED. `editor.html` pins the page to
+   * the web view and carries a definite height down to `.futo-milkdown`, so
+   * `height: 100%` resolves, the editable overflows, and it keeps the
+   * platform's overscroll affordance instead of chaining out to the host web
+   * view (docs/spec/editor.md → "The editable element is the editor's own
+   * scroll container"). The desktop shell scrolls differently; see the
+   * `.notes-shell` rule right below.
+   */
   :global(.futo-milkdown .ProseMirror) {
     height: 100%;
     box-sizing: border-box;
@@ -1218,6 +1279,27 @@
     -webkit-text-size-adjust: 100%;
     word-wrap: break-word;
     white-space: pre-wrap;
+  }
+
+  /* THE APP SHELL OWNS ITS OWN SCROLL, so there the editable must not claim it.
+   * `.note-body` is the desktop shell's scroller — the title and the tag bar
+   * scroll away with the text, which is what the CodeMirror editor did too
+   * (`.cm-scroller` was `overflow: visible` for exactly this reason) and what
+   * `NoteWorkspace.svelte`'s `handleNoteBodyMouseDown` deselect zone is built
+   * on. Nothing above `.futo-milkdown` there has a definite height, so the
+   * `height: 100%` above resolves to auto and the editable grows to its whole
+   * content height: a scroll container with NOTHING to scroll, covering the
+   * entire note. `overscroll-behavior: contain` then means what it says — no
+   * chaining — and a wheel anywhere over a long note moved nothing at all.
+   * Making it a plain box hands the wheel back to `.note-body`.
+   *
+   * Scoped on `.notes-shell`, which `NotesShell.svelte` renders and the embed
+   * never does, so this is "which shell mounted me", not a platform branch.
+   * → tests/editor-scroll.spec.ts */
+  :global(.notes-shell .futo-milkdown .ProseMirror) {
+    height: auto;
+    overflow-y: visible;
+    overscroll-behavior: auto;
   }
 
   /* …and NONE of that applies without a handle. Under the long-press path both
@@ -1603,5 +1685,59 @@
       animation: none;
       opacity: 0.6;
     }
+  }
+
+  /* The `/` block menu (slash/index.ts).
+     `:global`, and body-mounted, because SlashProvider positions it against
+     `document.body` in viewport coordinates — outside this component's subtree,
+     so a scoped selector would never reach it, and outside every scroll
+     container the shell nests, so nothing can clip it. Same shape and tokens as
+     the wikilink suggestion popup (src/styles/markdown-links.css): they are the
+     two caret popups in this editor and they should not look like two products.
+     `data-show` is SlashProvider's own show/hide contract. */
+  :global(.futo-slash-menu) {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 60;
+    max-height: 280px;
+    min-width: 200px;
+    max-width: min(320px, calc(100vw - 16px));
+    overflow-y: auto;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    font-family: var(--font-sans);
+    font-size: 14px;
+  }
+
+  :global(.futo-slash-menu[data-show='false']) {
+    display: none;
+  }
+
+  :global(.futo-slash-menu ul) {
+    list-style: none;
+    margin: 0;
+    padding: 4px;
+  }
+
+  :global(.futo-slash-menu li) {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 6px 8px;
+    border-radius: 5px;
+    cursor: pointer;
+    color: var(--color-text);
+  }
+
+  :global(.futo-slash-menu li[aria-selected='true']) {
+    background: rgba(var(--primary-rgb), 0.1);
+  }
+
+  :global(.futo-slash-menu-hint) {
+    color: var(--color-muted);
+    font-size: 12px;
   }
 </style>

@@ -15,8 +15,8 @@ import { buildCensusPage } from './milkdown-census/build.mjs';
  * rather than carry it forever. Do not "fix" a red canary by relaxing it.
  *
  * The `compat` half is the contract: the two loss classes the census measured
- * are gone, and the empty-paragraph placeholder machinery upstream's plugin
- * exists for still works.
+ * are gone, and an empty paragraph round-trips as a blank line — never as the
+ * `<br />` placeholder upstream's plugin exists for.
  */
 
 let pageUrl: string;
@@ -76,25 +76,87 @@ test.describe('inline <br> survives (upstream deletes it with no replacement)', 
   });
 });
 
-test.describe('the empty-paragraph placeholder still round-trips', () => {
-  // Upstream's plugin exists for this, and the fixed copy has to keep doing it:
-  // registering the replacement under a different slice name would silently
-  // turn the serializer half off and start dropping the author's blank lines.
-  const CASES: Record<string, string> = {
-    'a blank line between paragraphs': 'para one\n\n<br />\n\npara two\n',
-    'an empty table cell': '| a | b |\n| --- | --- |\n| <br /> | x |\n',
-    'an empty list item': '- a\n- <br />\n- b\n',
-    'an empty blockquote line': '> <br />\n',
-    'an empty footnote definition': 'ref[^4]\n\n[^4]: <br />\n',
+test.describe('an empty paragraph round-trips as a blank line, never as <br />', () => {
+  // Upstream spells a non-final empty paragraph as a literal `<br />` on its
+  // own line. The compat set retires that: N blank lines load as N-1 empty
+  // paragraphs and save back as N blank lines (packages/editor/src/
+  // milkdown-compat/emptyLine.ts). Each case is asserted twice — the first
+  // save is allowed to re-spell (ADR-0002), the second must be a fixed point.
+  // Fixed points of the census harness's serializer. Where the input ends on a
+  // block that is not a paragraph, the trailing blank line is Milkdown's
+  // `trailing` plugin parking its end-of-document paragraph — pre-existing and
+  // unrelated to this rule — and `*`/`| - |` are remark-stringify's defaults
+  // (the app sets `bullet: '-'` in its own config, the harness does not).
+  const STABLE: Record<string, string> = {
+    'two blank lines between paragraphs': 'para one\n\n\npara two\n',
+    'three blank lines between paragraphs': 'para one\n\n\n\npara two\n',
+    'blank lines before the first block': '\n\npara\n',
+    'two blank lines inside a blockquote': '> a\n>\n>\n> b\n\n',
+    'two blank lines inside a list item': '* a\n\n\n  b\n* c\n\n',
+    'an empty list item': '* a\n*\n* b\n\n',
+    // The schema puts an empty paragraph in front of an item whose only content
+    // is a block; that filler is not the note's and is not written
+    // (packages/editor/src/milkdown-compat/listItemFiller.ts). Without that,
+    // these save as a bare `*` over an indented block, and the NEXT save escapes
+    // it to a literal `\*` — 60 census notes.
+    'a list item holding only a blockquote': '* > quote\n* b\n\n',
+    'a list item holding only a heading': '* # heading\n\n',
+    'a list item holding only a nested list': '* * nested\n  * deeper\n\n',
+    // Two lists with a gap between them: the second list alternates its marker
+    // as if adjacent, or CommonMark would read the pair back as ONE list.
+    'two bullet lists with a blank line between them': '* a\n\n\n- b\n\n',
+    'two ordered lists with a blank line between them': '1. a\n\n\n1) b\n\n',
+    'an empty table cell': '| a | b |\n| - | - |\n|   | x |\n\n',
   };
 
-  for (const [name, markdown] of Object.entries(CASES)) {
-    test(`compat preserves ${name}`, async ({ page }) => {
-      const compat = await roundTrip(page, 'compat', markdown);
-      const baseline = await roundTrip(page, 'baseline', markdown);
-      expect(compat).toContain('<br />');
-      // Byte-for-byte the same as upstream: this behavior is not being changed.
-      expect(compat).toBe(baseline);
+  for (const [name, markdown] of Object.entries(STABLE)) {
+    test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
+      const once = await roundTrip(page, 'compat', markdown);
+      expect(once).toBe(markdown);
+      expect(await roundTrip(page, 'compat', once)).toBe(once);
+    });
+  }
+
+  test('canary: upstream still round-trips its placeholder as <br />', async ({ page }) => {
+    // Upstream cannot see blank lines at all (two of them load as one), so the
+    // canary feeds it the tag it wrote itself: when this stops coming back as
+    // `<br />`, upstream changed the placeholder scheme and this module's
+    // legacy reader needs re-checking against it.
+    const out = await roundTrip(page, 'baseline', 'para one\n\n<br />\n\npara two\n');
+    expect(out).toContain('<br />');
+    expect(await roundTrip(page, 'baseline', 'para one\n\n\npara two\n')).toBe(
+      'para one\n\npara two\n',
+    );
+  });
+
+  test('a blank line typed two Enters deep survives a reload as blank lines', async ({ page }) => {
+    // The report that started this: "It's me!", Enter, Enter, "yes." saved as
+    // a `<br />` line between the two. Same document, different spelling.
+    const out = await roundTrip(page, 'compat', 'a\n\n\nb\n');
+    expect(out).not.toContain('<br');
+    expect(out).toBe('a\n\n\nb\n');
+  });
+
+  const LEGACY: Record<string, [string, string]> = {
+    'a blank line between paragraphs': [
+      'para one\n\n<br />\n\npara two\n',
+      'para one\n\n\npara two\n',
+    ],
+    'an empty table cell': [
+      '| a | b |\n| --- | --- |\n| <br /> | x |\n',
+      '| a | b |\n| - | - |\n|   | x |\n\n',
+    ],
+    'an empty list item': ['- a\n- <br />\n- b\n', '* a\n*\n* b\n\n'],
+    'an empty blockquote line': ['> <br />\n', '>\n\n'],
+    'an empty footnote definition': ['ref[^4]\n\n[^4]: <br />\n', 'ref[^4]\n\n[^4]: \n\n'],
+  };
+
+  for (const [name, [legacy, respelled]] of Object.entries(LEGACY)) {
+    test(`compat reads the placeholder an older build wrote for ${name}`, async ({ page }) => {
+      const out = await roundTrip(page, 'compat', legacy);
+      expect(out).not.toContain('<br');
+      expect(out).toBe(respelled);
+      expect(await roundTrip(page, 'compat', out)).toBe(out);
     });
   }
 });

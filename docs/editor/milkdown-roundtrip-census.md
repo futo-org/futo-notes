@@ -56,6 +56,57 @@ a harness rewritten from scratch. `text_loss` (482 vs 524), `html_loss` (61 vs
 64) and `wikilink_loss` (1 vs 1, after a detector fix — see below) differ
 because those heuristics had to be re-derived; the original harness is gone.
 
+## 2026-09-03 — the `<br />` placeholder is gone
+
+The compat set stopped writing Milkdown's `<br />` stand-in for an empty
+paragraph and spells the gap as extra blank lines instead
+(`packages/editor/src/milkdown-compat/emptyLine.ts`; the list-item corollary is
+`listItemFiller.ts`). Same harness, same corpus, `compat` re-run against the
+same `baseline`:
+
+| | baseline | compat (before) | compat (now) |
+|---|---:|---:|---:|
+| `br_loss` | 61 | 0 | 4 |
+| `html_loss` | 61 | 0 | 6 |
+| `bullet_br_injected` | 342 | 299 | **0** |
+| `unstable` | 117 | 112 | 115 |
+| `unstable_persistent` | 8 | 7 | 7 |
+| `doc_mismatch` | 660 | 611 | **230** |
+| `text_loss` | 482 | 437 | **60** |
+| `structural_diff` | 541 | 493 | **110** |
+
+Per-note diff against `baseline`: **1794 flags cleared, 20 newly raised.** Every
+one of the 20 was read:
+
+- `br_loss` ×3 / `html_loss` ×5 — five notes carry an author-written lone
+  `<br>` on a line of its own between blank lines. That is byte-for-byte the
+  shape the placeholder took, so it now loads as an empty paragraph and saves as
+  blank lines. Deliberate: the two are indistinguishable, and the editor shows
+  the same gap either way. Two more (`6307`, `6783`) still hold every tag after
+  the save (`<<EOF` 1→1, `<c-i>` 6→6); the flag is the fence-masking counter
+  artifact described under "`<br>` deletion".
+- `unstable` ×7 — the 16 "digit-dot bullets indented 4+ columns" residue from
+  the bullet-number fix. `    - 1. text` used to save as `* <br />` over a nested
+  ordered list, forever. It now saves as `* 1. text`, which the escape then
+  reads as the author meant (`* 1\. text`) on the NEXT save, and settles there
+  (`unstable_persistent` is unchanged). One save late, but the right end state.
+- `unstable` ×1 (`19501`) — `- * [ ]  [[x]]` with two spaces loses one on the
+  second save. Same one-save-late class.
+- `unstable`/`doc_mismatch`/`text_loss`/`structural_diff` ×1 (`7383`) — **not
+  this change.** The note opens with a lone `---`, and with the front matter
+  plugin loaded a later `> [!abstract]` callout parses as a paragraph (the
+  unpatched preset gets a blockquote). Reproduced with the plugin alone;
+  diverges under the chunk census at HEAD too. Filed as a finding, not fixed here.
+
+Two regressions the first run of this change exposed were fixed before landing:
+a list item whose only content is a block saved as a bare `*` line that the next
+save escaped to `\*` (60 notes; the schema's filler paragraph is now left out),
+and two lists separated by a blank line merged into one because the empty
+paragraph reset remark's marker alternation (2 notes; the marker is carried
+across). The chunk census (`just chunk-census`) is back at parity: 29,413
+equivalent, 1 divergent (`7383`, above), 1,581 harness failures — the known
+wikilink tokenizer crash, unchanged.
+
 ## What each fix bought
 
 ### `<br>` deletion — 61 notes, fixed

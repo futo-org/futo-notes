@@ -8,7 +8,11 @@
  * 1. An inline `<br>` — the only legal way to break a line inside a GFM table
  *    cell — is deleted with no replacement, fusing the words on either side.
  *    `@milkdown/preset-commonmark`'s `remarkPreserveEmptyLinePlugin` is
- *    replaced by a fixed local copy (`./emptyLine`).
+ *    replaced (`./emptyLine`), and the replacement goes further: the preset's
+ *    `<br />` stand-in for an empty paragraph is retired altogether, and an
+ *    empty paragraph is spelled as an extra blank line in both directions.
+ *    `./listItemFiller` is the corollary: the paragraph the schema itself adds
+ *    in front of `* > quote` is not written at all.
  * 2. `[](url)` loses its href along with its empty label. A remark transformer
  *    gives the link its URL as visible text (`./emptyLink`).
  * 3. `* 0. item` acquires a literal `<br />`. A pre-parse string pass escapes
@@ -62,14 +66,15 @@ import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 
 import { bulletNumberEscapePlugin } from './bulletNumbers';
 import { remarkExpandEmptyLinksPlugin } from './emptyLink';
-import { remarkFixedPreserveEmptyLinePlugin } from './emptyLine';
+import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
+import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFiller';
 
 export * from './atxEscape';
 export * from './stringifyHandlers';
 export { escapeAmbiguousBulletNumbers } from './bulletNumbers';
 export { expandEmptyLinks } from './emptyLink';
-export { fixEmptyLinePlaceholders, htmlWithoutEmptyCellPlaceholder } from './emptyLine';
+export { blankLineJoin, fixEmptyLinePlaceholders, restoreBlankLineParagraphs } from './emptyLine';
 export {
   FRONTMATTER_CLASS,
   FRONTMATTER_DOC_CONTENT,
@@ -129,9 +134,9 @@ let cached: MilkdownPlugin[] | null = null;
  * of `commonmark`.
  *
  * Shipped as one array on purpose: filtering the preset without adding the
- * replacement turns the serializer's empty-paragraph placeholder off (see
- * `./emptyLine`), and adding the replacement without filtering leaves the
- * broken plugin running. Neither half is usable alone.
+ * replacement drops every blank line the author typed (see `./emptyLine`), and
+ * adding the replacement without filtering leaves the broken plugin running
+ * AND brings the `<br />` placeholder back. Neither half is usable alone.
  *
  * A function, not a const, and that matters: this package's barrel re-exports
  * the module, so a preset built at module scope would run its upstream-shape
@@ -144,7 +149,13 @@ let cached: MilkdownPlugin[] | null = null;
 export function commonmarkWithCompat(): MilkdownPlugin[] {
   cached ??= [
     ...upstreamPresetWithoutForkedPlugins(),
-    ...remarkFixedPreserveEmptyLinePlugin,
+    ...remarkBlankLineParagraphsPlugin,
+    blankLineJoinPlugin,
+    /* After the preset (it upserts the preset's `paragraph` by id), and part of
+     * the same rule as the two above: without it, the empty paragraph the
+     * schema puts in front of `* > quote` would save as a bare `*` line. */
+    paragraphWithoutFillerSchema,
+    paragraphFillerGuard,
     ...remarkExpandEmptyLinksPlugin,
     bulletNumberEscapePlugin,
     /* LAST, and it has to be: the front matter set overrides the preset's own

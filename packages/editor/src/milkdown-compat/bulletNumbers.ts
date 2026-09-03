@@ -29,10 +29,12 @@ function overlapsCode(ranges: Array<[number, number]>, start: number, end: numbe
  *
  * `* 0. item one` is not a Milkdown bug: CommonMark says a list item's content
  * is its own mini-document, so `0. item one` opens a *nested ordered list*, and
- * the bullet item becomes `[empty paragraph, ordered list]`. That empty leading
- * paragraph then hits the same empty-paragraph placeholder machinery as
- * {@link ../emptyLine}, and the note comes back as `* <br />` plus an indented
- * continuation line. This was the census's single largest failure class — 456
+ * the bullet item becomes `[empty paragraph, ordered list]`. Upstream then wrote
+ * that empty leading paragraph as its `<br />` placeholder, and the note came
+ * back as `* <br />` plus an indented continuation line; with the placeholder
+ * retired ({@link ../emptyLine}) it would come back as a bare `*` over a nested
+ * list — structure the author never meant either way. This was the census's
+ * single largest failure class — 456
  * of 30,995 notes, mostly manual "0., 1., 2." step numbering inside bullets.
  *
  * remark-stringify's own protection for this exact ambiguity is a backslash

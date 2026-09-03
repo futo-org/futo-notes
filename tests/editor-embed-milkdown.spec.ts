@@ -1419,6 +1419,58 @@ test('getContent mid-stream after an edit finishes the load rather than answerin
   expect(midStream.content).toContain('Section 3999');
 });
 
+/** The top-level block shapes of the live document, `p:empty` for an empty paragraph. */
+async function topLevelShapes(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelector('.ProseMirror')?.children ?? []).map((el) => {
+      const tag = el.tagName.toLowerCase();
+      return tag === 'p' && el.textContent === '' ? 'p:empty' : tag;
+    }),
+  );
+}
+
+test('progressive open keeps the blank lines the author typed across a chunk seam', async ({
+  page,
+}) => {
+  // An empty paragraph saves as an extra blank line (packages/editor/src/
+  // milkdown-compat/emptyLine.ts). The planner cuts after blank runs and leaves
+  // the run at the END of a chunk, where a standalone parse cannot see it, so
+  // the loader has to re-insert those paragraphs itself. Two extra blank lines
+  // deep inside a large note: exactly two empty paragraphs, at that spot.
+  const halves = largeNote(400).split('## Section 200\n');
+  const note = `${halves[0]}\n\n## Section 200\n${halves[1]}`;
+
+  await initialize(page, hostConfig({ content: note }));
+  await waitForStreamComplete(page);
+
+  const shapes = await topLevelShapes(page);
+  const empties = shapes.map((shape, i) => (shape === 'p:empty' ? i : -1)).filter((i) => i >= 0);
+  expect(empties).toHaveLength(2);
+  // Directly before the heading they precede.
+  expect(shapes[empties[1] + 1]).toBe('h2');
+  // textContent, not innerText: the heading is offscreen, and the containment
+  // stylesheet (content-visibility) makes innerText of an unrendered block "".
+  expect(
+    await page.evaluate(() => document.querySelectorAll('.ProseMirror h2')[200]?.textContent),
+  ).toBe('Section 200');
+});
+
+test('progressive open does not grow a front-matter note by a blank line', async ({ page }) => {
+  // Chunk 0 of such a note is the front matter alone, and the schema pads it
+  // with an empty paragraph to satisfy `block+`. That paragraph is the schema's,
+  // not the chunk's, and the whole-document parse never has it — four corpus
+  // notes opened one blank line longer chunked than whole before this was told
+  // apart from a chunk that really does end in an empty paragraph.
+  const note = `---\ntitle: x\n---\n\n${largeNote()}`;
+
+  await initialize(page, hostConfig({ content: note }));
+  await waitForStreamComplete(page);
+
+  const shapes = await topLevelShapes(page);
+  expect(shapes[1]).toBe('h2');
+  expect(shapes).not.toContain('p:empty');
+});
+
 test('the streaming tail carries a loading affordance that clears on completion', async ({
   page,
 }) => {

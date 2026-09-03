@@ -95,6 +95,16 @@ We are happy to open a PR if the shape looks right.
 63 of 30,995 real notes in our corpus lose content to this. It is silent,
 deterministic, and happens on open — before the user types anything.
 
+### What we did instead (2026-09-03)
+
+Our fork went a step further than the suggested fix and retired the `<br />`
+placeholder altogether: an empty paragraph now saves as an extra blank line and
+`N` blank lines load back as `N - 1` empty paragraphs (a remark transformer
+reading node positions, plus one `mdast-util-to-markdown` `join` rule). The
+placeholder is still read for files an older build wrote. Nothing in this
+report changes for upstream — the predicate above is still the minimal fix for
+the plugin as it stands.
+
 ---
 
 ## Issue 2 — an empty-label link `[](url)` is deleted, href and all

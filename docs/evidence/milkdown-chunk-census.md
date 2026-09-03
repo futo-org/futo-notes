@@ -9,6 +9,15 @@ the load path, or the Milkdown plugin chain.
 The corpus is real user notes and lives outside this repo, so nothing below is note content: only
 counts.
 
+> **2026-09-03 re-run**, after empty paragraphs began saving as blank lines instead of `<br />`
+> (packages/editor/src/milkdown-compat/emptyLine.ts; the loader now re-inserts the blank-line gap at
+> each chunk seam, `seamEmptyParagraphs`): **29,413 equivalent, 1 divergent, 1,581 harness
+> failures.** The one divergence is note 7383, which also diverges on the tree BEFORE this change:
+> it opens with a lone `---`, and with the front matter plugin loaded a later `> [!abstract]`
+> callout parses as a paragraph whole but as a blockquote chunked. A front matter plugin bug, not a
+> seam bug. The four notes that diverged on this change's first run (a front-matter-only chunk 0
+> whose schema-filler paragraph the loader kept) are in the equivalent count.
+
 > **The 1,581 harness failures are NOT a progressive-open result.** They are a pre-existing crash in
 > the wikilink micromark extension (#101): on `feat/milkdown-editor` at 4b6cd5d4, with none of this
 > ticket's code present, `FutoEditor.initialize` THROWS for any note whose line ends in `!` —

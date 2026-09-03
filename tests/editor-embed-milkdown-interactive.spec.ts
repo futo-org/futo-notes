@@ -224,11 +224,12 @@ test('Enter in a table never drops a stray paragraph after it', async ({ page })
   await caretAtEndOf(page, 'r2b');
   await page.keyboard.press('Enter');
   await settled(page);
-  // Two independent sources of a stray `<br />` here, and this locks both
-  // (verified by patching each fix out separately — each alone still fails):
+  // Two independent sources of a stray `<br />` here once, and this locks both:
   // the gfm preset's bare-Enter `exitTable` binding left an empty paragraph
-  // after the table, and the empty cell in the row we now append serializes
-  // through the paragraph placeholder unless the html handler intercepts it.
+  // after the table, and the empty cell in the row we now append went through
+  // the paragraph serializer's placeholder. The placeholder no longer exists
+  // at all (packages/editor/src/milkdown-compat/emptyLine.ts), so this now
+  // also guards against it coming back.
   expect(await getContent(page)).not.toContain('<br />');
 });
 

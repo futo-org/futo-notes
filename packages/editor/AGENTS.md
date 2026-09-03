@@ -21,7 +21,11 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
 
 `src/milkdown-compat/` fixes three round-trip defects in `@milkdown/kit` 7.22.1:
 an inline `<br>` deleted with no replacement, `[](url)` losing its href, and a
-spurious `<br />` on `* 0.`-style bullets. **These carry no Rust mirror.** They
+spurious `<br />` on `* 0.`-style bullets — and retires the preset's `<br />`
+stand-in for an empty paragraph in favour of extra blank lines (`emptyLine.ts`,
+both the parse-side transformer and the serializer `join`; never register a
+plugin under the name `remark-preserve-empty-line`, that is what turns the tag
+back on). **These carry no Rust mirror.** They
 are adapters to one editor library's implementation — which mdast node a plugin
 deletes, how a link mark finds text to attach to — not note rules, so M6 does
 not apply. Nothing in Swift, Kotlin, or Rust may hold a second copy either.
@@ -38,9 +42,9 @@ but the content expression.
 Rules that do bind here:
 
 - The parse-side set ships as one `commonmarkWithCompat()` array. Half of it is worse
-  than none: filtering the upstream plugin without the replacement turns the
-  serializer's empty-paragraph placeholder off, and adding the replacement
-  without filtering runs both. It is a memoized FUNCTION, not a const, because
+  than none: filtering the upstream plugin without the replacement drops every
+  blank line the author typed, and adding the replacement without filtering runs
+  both and brings the `<br />` placeholder back. It is a memoized FUNCTION, not a const, because
   this package's barrel re-exports the module: building the preset at module
   scope would run its upstream-shape check on every import of
   `@futo-notes/editor` and pull `@milkdown/kit` into every bundle that touches

@@ -437,6 +437,16 @@ What changed against §3 as written:
   `ctx.get('remark-preserve-empty-line')` resolves, and `Ctx#get` looks a string
   up by slice *name* — registering under a new name would have silently turned
   the serializer half off and started dropping blank lines the author typed.
+  **Reversed 2026-09-03:** the placeholder itself is now gone. A `<br />` line
+  showed up in a real note after two Enters, and the author does not want HTML
+  in their files. The fork registers under its own name (so the paragraph
+  serializer never emits the tag), restores `N` blank lines as `N - 1` empty
+  paragraphs from mdast positions on load, and a `join` rule writes an empty
+  paragraph back as one extra blank line — the encoding the CodeMirror editor
+  always produced. Legacy tags still load as the paragraph they stood for.
+  Progressive open counts the blank run at each chunk seam so the chunked
+  document equals the whole one (`seamEmptyParagraphs`). Census and chunk-census
+  numbers: docs/editor/milkdown-roundtrip-census.md.
 - **One extra repair was needed.** remark will not write an eol directly before
   inline HTML (mdast-util-to-markdown#15), so a preserved `<br>` after a hard
   break stranded the break's backslash mid-line. A kept tag is moved in front of

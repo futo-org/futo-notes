@@ -153,6 +153,28 @@ about.
   replaced at all in an editor that shows no source. →
   src/features/editor/milkdown/wikilink/node.ts,
   packages/editor/src/milkdown-compat/frontmatter.ts
+- An empty paragraph — Enter pressed twice — is spelled in the file as an EXTRA
+  blank line, never as HTML: `N` empty paragraphs between two blocks save as
+  `N + 1` blank lines, and `N` blank lines between two blocks load as `N - 1`
+  empty paragraphs, so the gap survives a reload and the second save is a fixed
+  point. Blank lines before the first block are kept the same way; blank lines
+  at the very end of a note are not (a trailing empty paragraph is dropped on
+  save). Milkdown's own spelling, a literal `<br />` on a line of its own, is
+  never written; one an older build wrote loads as the single empty paragraph it
+  stood for and is re-spelled as blank lines on the note's first real edit
+  (ADR-0002). An author's inline `<br>` beside text is untouched. Two lists with
+  an empty paragraph between them keep different markers (`*` then `-`, `1.`
+  then `1)`) so the blank line does not merge them into one list; the empty
+  paragraph the schema itself puts in front of a list item whose content is a
+  block (`* > quote`) is never written. →
+  packages/editor/src/milkdown-compat/emptyLine.ts,
+  packages/editor/src/milkdown-compat/listItemFiller.ts,
+  tests/editor-embed-milkdown-compat.spec.ts
+- Progressive open preserves those gaps across chunk seams: the blank run a cut
+  leaves at the end of one chunk is counted by the loader and re-inserted as
+  empty paragraphs in front of the next, so a note opened in chunks is the same
+  document as the note opened whole. →
+  src/features/editor/milkdown/progressiveLoad.ts `seamEmptyParagraphs`
 
 ## Cursor
 
