@@ -172,6 +172,20 @@ const GHOST_PAD_X_PX = 12;
  * position and content height against the block's own rect without keeping a
  * second copy of the number (same reason as `DEFAULT_LONG_PRESS_MS`). */
 export const GHOST_PAD_Y_PX = 10;
+/** How much of the screen the card may cover before it is cropped.
+ *
+ * Applied in JS, from `window.innerHeight`, NOT as `max-height: 40vh` in the
+ * stylesheet. Both native hosts render this bundle in a web view whose INITIAL
+ * CONTAINING BLOCK is zero-height — the same defect `editor.html` pins the body
+ * against, and the reason `MilkdownEditor.svelte`'s bottom padding is written
+ * `max(40vh, 280px)` — so `vh` resolves to 0 there while `window.innerHeight`
+ * reports the real height. Measured on an Android 16 / Chromium 133 WebView:
+ * a `40vh` probe measured 0px with `innerHeight` at 647. With
+ * `overflow: hidden` above it, that collapsed the card to its own padding —
+ * a 22px sliver of a 105px block, sitting above the drop indicator (MR !276).
+ * `innerHeight` is the same number `createGhost` already trusts for the width
+ * clamp. */
+const GHOST_MAX_HEIGHT_FRACTION = 0.4;
 /** How much the card grows on lift, so it reads as picked up off the page. */
 const GHOST_SCALE = 1.04;
 /** Keep the SCALED card off the screen edges. */
@@ -232,7 +246,8 @@ function ensureStyles(): void {
       box-sizing: border-box;
       width: 100%;
       height: auto;
-      max-height: 40vh;
+      /* The cap itself is set inline from window.innerHeight — see
+       * GHOST_MAX_HEIGHT_FRACTION for why it must not be written in vh. */
       overflow: hidden;
       padding: ${GHOST_PAD_Y_PX}px ${GHOST_PAD_X_PX}px;
       border-radius: 14px;
@@ -645,6 +660,10 @@ class MobileBlockDndView {
     // `ProseMirror` so the editor's own content typography applies to the
     // clone; the card rules above override the editor's BOX rules.
     card.className = 'futo-mobile-dnd-ghost-card ProseMirror';
+    // In pixels, never `vh` (GHOST_MAX_HEIGHT_FRACTION): the native hosts' web
+    // view resolves viewport units against a zero-height containing block.
+    const viewportHeight = window.innerHeight || this.doc.documentElement.clientHeight;
+    card.style.maxHeight = `${Math.round(viewportHeight * GHOST_MAX_HEIGHT_FRACTION)}px`;
     card.appendChild(clone);
 
     const ghost = this.doc.createElement('div');

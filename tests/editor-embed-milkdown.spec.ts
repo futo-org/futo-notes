@@ -1329,6 +1329,11 @@ async function ghostGeometry(page: Page, blockText: string) {
       cardContentHeight:
         card.clientHeight - parseFloat(cardStyle.paddingTop) - parseFloat(cardStyle.paddingBottom),
       clipped: card.classList.contains('futo-mobile-dnd-ghost-card--clipped'),
+      /** The cap, as the engine resolved it. `40vh` in the stylesheet came out
+       * as `0px` in the native hosts' web view; a pixel value computed from
+       * `window.innerHeight` cannot. */
+      maxHeight: cardStyle.maxHeight,
+      expectedMaxHeight: `${Math.round(window.innerHeight * 0.4)}px`,
       /** The live block must KEEP the containment — it is the perf property
        * the whole rule exists for (issue #106). */
       sourceContentVisibility: getComputedStyle(source).contentVisibility,
@@ -1387,6 +1392,16 @@ mobileDndTest(
     // The LIVE document keeps the containment — this must not be fixed by
     // turning the perf rule off (issue #106).
     expect(geo.sourceContentVisibility).toBe('auto');
+
+    // The card's height cap is a real pixel count, resolved from
+    // `window.innerHeight`. Written as `40vh` it resolved to `0px` in both
+    // native hosts' web view — whose initial containing block is zero-height,
+    // the same defect editor.html pins the body against — and `overflow:
+    // hidden` then cropped the card to its own padding. Chromium-on-desktop
+    // resolves `vh` normally, so this assertion, not a height, is what carries
+    // that regression here.
+    expect(geo.maxHeight).toBe(geo.expectedMaxHeight);
+    expect(geo.maxHeight).not.toBe('0px');
 
     await touch(cdp, 'touchCancel', bravo.x, bravo.y);
   },
