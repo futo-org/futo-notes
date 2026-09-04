@@ -61,7 +61,7 @@
   import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockContainment } from './blockContainment';
   import { resolveBlockDragMode } from './blockDragMode';
-  import { editorView, enclosingListItem, isTaskItem } from './caretContext';
+  import { editorView, enclosingListItem } from './caretContext';
   import { computeActiveFormats } from './formatState';
   import { handleParityKeyDown } from './keyboardParity';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
@@ -308,12 +308,21 @@
 
   const EXEC = createToolbarExec(() => editor);
 
-  /* Task-list glyphs are painted via an outdented `::before` on the <li>
-   * (see the `li[data-checked]::before` rule below) that the block handle's
-   * own bounding box does not know about — push the handle further left for
-   * those items so the handle and the checkbox are never the same tap. */
-  function blockHandleOffset(node: ProseNode): { mainAxis: number } {
-    return isTaskItem(node) ? { mainAxis: 30 } : { mainAxis: 8 };
+  /* The ⠿ handle lives in the editor's left GUTTER, 8px left of the text
+   * column, whatever block is under the pointer. floating-ui's offset is
+   * measured from the active block's own box, and a list item's box starts at
+   * its text — its bullet or number hangs in the list's padding to the LEFT of
+   * it — so a fixed offset put the handle squarely over the marker (reported:
+   * "the grabber handle is rendering on top of the bullet"), and further right
+   * still for a nested item, over the parent's text. Measuring the block's
+   * inset from the text column and adding it back moves the handle out to the
+   * gutter for every depth; the task checkbox now sits inside the list's own
+   * box too (see `li[data-checked]` below), so it needs no special case. */
+  function blockHandleOffset(editorDom: HTMLElement, blockDom: HTMLElement): { mainAxis: number } {
+    const contentLeft =
+      editorDom.getBoundingClientRect().left + parseFloat(getComputedStyle(editorDom).paddingLeft);
+    const inset = Math.max(0, blockDom.getBoundingClientRect().left - contentLeft);
+    return { mainAxis: 8 + inset };
   }
 
   /* Drives the block plugin's own hover-detection path (BlockService listens
@@ -596,7 +605,7 @@
         blockProvider = new BlockProvider({
           ctx: created.ctx,
           content: handleEl,
-          getOffset: (deriveContext) => blockHandleOffset(deriveContext.active.node),
+          getOffset: ({ editorDom, blockDom }) => blockHandleOffset(editorDom, blockDom),
         });
         blockProvider.update();
         // On `document`, in the CAPTURE phase, because scroll events do not

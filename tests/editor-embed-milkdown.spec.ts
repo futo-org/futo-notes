@@ -680,6 +680,30 @@ const gutterHandleTest = base.extend<{ page: Page }>({
   },
 });
 
+gutterHandleTest('the ⠿ handle sits in the gutter, never over a list marker', async ({ page }) => {
+  // A list item's box starts at its text; its bullet hangs in the list's
+  // padding to the left. An offset measured from that box put the handle on
+  // top of the bullet, and over the parent's text for a nested item. The
+  // handle belongs in the editor's gutter, left of the text column, at every
+  // depth.
+  await hostSetContent(page, 'intro\n\n- outer\n  - inner\n');
+  const contentLeft = await page.evaluate(() => {
+    const pm = document.querySelector('.ProseMirror')!;
+    return pm.getBoundingClientRect().left + parseFloat(getComputedStyle(pm).paddingLeft);
+  });
+  for (const text of ['intro', 'outer', 'inner']) {
+    const at = await blockCenter(page, text);
+    await page.mouse.move(at.x, at.y);
+    const handle = page.locator('.milkdown-block-handle[data-show="true"]');
+    await handle.waitFor({ state: 'attached' });
+    const box = (await handle.boundingBox())!;
+    expect(box.x + box.width, `${text}: handle overlaps the text column`).toBeLessThanOrEqual(
+      contentLeft + 0.5,
+    );
+    expect(box.x, `${text}: handle left the editor`).toBeGreaterThanOrEqual(0);
+  }
+});
+
 gutterHandleTest('a mouse drag on the ⠿ handle reorders the block', async ({ page }) => {
   await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
   await clearMessages(page);
