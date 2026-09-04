@@ -88,12 +88,21 @@ export async function resolveAutoTheme(
   return (await readDesktopColorScheme()) ?? systemThemeOverride ?? resolveTheme('auto');
 }
 
+// Serialises overlapping applies. One desktop theme change is a BURST of portal
+// signals — five on the KDE flip this was measured against — and resolving each
+// of them now crosses to the portal, so an apply can still be in flight when
+// the next starts. Without this, whichever RESOLVED last won, and a stale answer
+// could latch both the wrong theme and the wrong window pin behind it.
+let latestApply = 0;
+
 export async function applyThemePreference(
   preference: ThemePreference,
   systemThemeOverride?: ResolvedTheme,
 ): Promise<ResolvedTheme> {
+  const apply = ++latestApply;
   const resolved =
     preference === 'auto' ? await resolveAutoTheme(systemThemeOverride) : resolveTheme(preference);
+  if (apply !== latestApply) return resolved;
   applyResolvedTheme(resolved);
   setNativeWindowAppearance(windowAppearanceFor(preference, resolved));
   await syncStatusBarTheme(resolved);

@@ -220,4 +220,24 @@ describe('applyThemePreference — Linux auto', () => {
     await applyThemePreference('auto');
     expect(desktopColorScheme).not.toHaveBeenCalled();
   });
+
+  // One desktop theme change is a BURST of portal signals — five to seven on
+  // KDE — and resolving each of them crosses to the portal, so the applies
+  // overlap. Whichever RESOLVED last used to win, which is how a stale answer
+  // latched the wrong theme AND the wrong window appearance with it.
+  it('lets the newest request win when applies overlap', async () => {
+    platform.isLinux = true;
+    desktopColorScheme
+      .mockImplementationOnce(
+        () => new Promise((resolve) => setTimeout(() => resolve('light'), 20)),
+      )
+      .mockResolvedValue('dark');
+
+    const stale = applyThemePreference('auto');
+    const current = applyThemePreference('auto');
+    await Promise.all([stale, current]);
+
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(nativeAppearance).toHaveBeenLastCalledWith('dark');
+  });
 });
