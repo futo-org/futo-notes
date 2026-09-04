@@ -659,7 +659,9 @@
         blockProvider = new BlockProvider({
           ctx: created.ctx,
           content: handleEl,
-          getOffset: ({ editorDom, blockDom }) => blockHandleOffset(editorDom, blockDom),
+          // `blockDom` in this context is the HANDLE element, not the block;
+          // the block's own element is `active.el`.
+          getOffset: ({ editorDom, active }) => blockHandleOffset(editorDom, active.el),
         });
         blockProvider.update();
         // On `document`, in the CAPTURE phase, because scroll events do not

@@ -686,16 +686,27 @@ gutterHandleTest('the ⠿ handle sits in the gutter, never over a list marker', 
   // top of the bullet, and over the parent's text for a nested item. The
   // handle belongs in the editor's gutter, left of the text column, at every
   // depth.
-  await hostSetContent(page, 'intro\n\n- outer\n  - inner\n');
+  // Second items, deliberately: plugin-block resolves a FIRST item to its
+  // parent list, whose box does start at the text column, so first items never
+  // showed the bug.
+  await hostSetContent(page, 'intro\n\n- first\n- outer\n  - nested\n  - inner\n');
   const contentLeft = await page.evaluate(() => {
     const pm = document.querySelector('.ProseMirror')!;
     return pm.getBoundingClientRect().left + parseFloat(getComputedStyle(pm).paddingLeft);
   });
   for (const text of ['intro', 'outer', 'inner']) {
-    const at = await blockCenter(page, text);
-    await page.mouse.move(at.x, at.y);
+    // Over the TEXT, not the block's left edge: hovering a list item's text
+    // makes the item itself the active block, which is the case that put the
+    // handle on the bullet.
+    const textBox = (await page.getByText(text, { exact: true }).first().boundingBox())!;
+    await page.mouse.move(textBox.x + textBox.width / 2, textBox.y + textBox.height / 2, {
+      steps: 4,
+    });
     const handle = page.locator('.milkdown-block-handle[data-show="true"]');
-    await handle.waitFor({ state: 'attached' });
+    // The handle is repositioned asynchronously; wait until it is on THIS line.
+    await expect
+      .poll(async () => (await handle.boundingBox())?.y ?? -1, { message: `${text}: handle` })
+      .toBeGreaterThanOrEqual(textBox.y - 4);
     const box = (await handle.boundingBox())!;
     expect(box.x + box.width, `${text}: handle overlaps the text column`).toBeLessThanOrEqual(
       contentLeft + 0.5,
