@@ -243,6 +243,35 @@ test('an empty note carried by the boot config stays empty', async ({ page }) =>
   expect(await messagesOfType(page, 'change')).toHaveLength(0);
 });
 
+/**
+ * An empty note must be typeable, and the whole surface must be the editor.
+ *
+ * The desktop shell shipped a build where an empty note's editable box was
+ * sized to its (nonexistent) content in both axes, leaving a note that could
+ * not be clicked into anywhere but a narrow strip. The embed sizes itself
+ * differently — `editor.html` carries a definite height and the editable is the
+ * scroller — so this is the guard that the SAME empty document is typeable in
+ * the bundle both native shells ship, whatever the host's layout does.
+ * → docs/spec/editor.md "Blank editor surface"
+ */
+test('an empty note can be clicked into and typed in', async ({ page }) => {
+  await hostSetContent(page, '');
+  await clearMessages(page);
+
+  const box = await page.locator('.ProseMirror').boundingBox();
+  expect(box).not.toBeNull();
+  // The editable must actually cover the web view, not collapse to its content.
+  const viewport = page.viewportSize();
+  expect(box!.width).toBeGreaterThan((viewport?.width ?? 0) * 0.5);
+
+  // Press in the blank tail well below the first line, then type.
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height - 24);
+  await page.keyboard.type('hello');
+  await flushFrames(page);
+
+  expect(await getContent(page)).toBe('hello\n');
+});
+
 // A note whose only content is whitespace has the same shape of risk: the host
 // gave us bytes, and closing without an edit must hand back those bytes.
 test('opening a whitespace-only note returns its own bytes', async ({ page }) => {

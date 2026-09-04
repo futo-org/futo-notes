@@ -1232,8 +1232,25 @@
     position: relative;
   }
 
+  /*
+   * `.milkdown` is Milkdown's own wrapper around the editable, and it is what
+   * carries the editor's width. The desktop shell makes `.futo-milkdown` a FLEX
+   * ROW (`app-shell.css` `.editor-container > div`, a CodeMirror-era rule), so
+   * this wrapper is a flex ITEM: with the default `flex: 0 1 auto` its base
+   * size is its CONTENT width, and an empty paragraph has no content, leaving
+   * it exactly as wide as the editable's own padding — 72px of an 860px note
+   * area, measured on a brand new note. Everything to the right of that strip
+   * was outside the editor, so a press there placed no caret and typed nothing.
+   * Growing to fill is the intent on both hosts; in the embed `.futo-milkdown`
+   * is a plain block, where `flex` is simply inert.
+   * → tests/p0-regressions.spec.ts, docs/spec/editor.md "Blank editor surface"
+   */
   :global(.futo-milkdown .milkdown) {
     height: 100%;
+    flex: 1 1 auto;
+    /* An `auto` minimum would floor the item at its content's min-content
+     * width, which a long unbroken word (a URL) can push past the note area. */
+    min-width: 0;
   }
 
   /*
@@ -1295,9 +1312,22 @@
    *
    * Scoped on `.notes-shell`, which `NotesShell.svelte` renders and the embed
    * never does, so this is "which shell mounted me", not a platform branch.
-   * → tests/editor-scroll.spec.ts */
+   *
+   * `min-height`, NOT `height: auto` on its own. `overflow-y: visible` is what
+   * hands the wheel back; the height only decides how far DOWN the editable
+   * box reaches. A plain `auto` sizes it to its content, so on a note shorter
+   * than the window it stopped well above the bottom of `.editor-container`
+   * and the gap under it belonged to no one: `handleNoteBodyMouseDown` ignores
+   * presses on a descendant, so a press there placed no caret, took no focus,
+   * and did nothing at all. A BRAND NEW note is one empty line at the top, so
+   * that dead gap was essentially the whole note — measured at 256px of 584px
+   * on a 720px-tall window before this. `min-height: 100%` keeps the box
+   * growing with its content while never ending above its container, which is
+   * what docs/spec/editor.md's "Blank editor surface" requires.
+   * → tests/editor-scroll.spec.ts, tests/p0-regressions.spec.ts */
   :global(.notes-shell .futo-milkdown .ProseMirror) {
     height: auto;
+    min-height: 100%;
     overflow-y: visible;
     overscroll-behavior: auto;
   }
