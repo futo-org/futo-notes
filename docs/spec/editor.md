@@ -785,6 +785,14 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   the tap does not disturb focus, so the keyboard stays up on a phone. →
   src/features/editor/milkdown/taskCheckbox.ts,
   tests/editor-embed-milkdown-interactive.spec.ts
+- In a bullet list the checkbox takes the hidden bullet's marker column, so a
+  task item's text starts where a bullet item's text does (within the few
+  pixels the 28px tap target is wider than a 1.4em marker column), and the
+  checkbox stays inside the list's own box, clear of the editor gutter and the
+  20pt iOS back-swipe strip. An ordered task item
+  keeps its number and carries the checkbox after it. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `li[data-checked]`,
+  tests/editor-embed-milkdown-parity.spec.ts
 - Table cells are individually editable in place; Tab/Shift+Tab move between
   cells (Tab in the last cell appends a row); Enter inserts a new row below the
   current one. → src/features/editor/milkdown/keyboardParity.ts

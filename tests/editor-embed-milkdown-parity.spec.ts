@@ -273,6 +273,24 @@ test('the tap target is at least as big as a fingertip needs', async ({ page }) 
   expect(box.height).toBeGreaterThanOrEqual(CHECKBOX_SIZE_PX);
 });
 
+test('a bullet task item is indented like a bullet, not one level deeper', async ({ page }) => {
+  // The checkbox takes the hidden bullet's marker column; it is not a second
+  // slot beside it. So task text starts where bullet text does (the list's
+  // padding is the 28px tap target plus 2px of screen-edge clearance, against
+  // 1.4em for a bullet — that is the whole tolerance), and the checkbox sits
+  // inside the list's own box.
+  await open(page, '- bullet\n\nbetween\n\n- [ ] todo\n');
+  const left = (selector: string) =>
+    page.evaluate((s) => document.querySelector(s)!.getBoundingClientRect().left, selector);
+  const bulletText = await left('.ProseMirror ul:not(:has(> li[data-checked])) > li > p');
+  const taskText = await left('.ProseMirror li[data-checked] > p');
+  const taskList = await left('.ProseMirror ul:has(> li[data-checked])');
+  const { box } = await centerOf(page, '.futo-task-checkbox');
+  expect(Math.abs(taskText - bulletText)).toBeLessThanOrEqual(8);
+  expect(box.x).toBeGreaterThanOrEqual(taskList - 0.5);
+  expect(box.x + box.width).toBeLessThanOrEqual(taskText + 0.5);
+});
+
 test('the checkbox stays clear of the screen edge iOS reserves', async ({ page }) => {
   // UIKit's interactive-pop gesture owns the leftmost 20pt of the screen and
   // swallows touches that start there — a checkbox reaching into it would be

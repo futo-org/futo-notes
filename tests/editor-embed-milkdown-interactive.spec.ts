@@ -150,6 +150,18 @@ test('splitting an unchecked task item stays a task', async ({ page }) => {
 
 const TABLE = '| a | b |\n| --- | --- |\n| r1a | r1b |\n| r2a | r2b |';
 
+test('an empty table cell is wide enough to show its caret', async ({ page }) => {
+  // A fresh table is all empty cells, and an empty cell collapses to its
+  // padding (~34px), which draws the caret against the border and reads as
+  // "no caret". The floor is a few characters wide; a filled cell still grows.
+  await open(page, '|   |   |\n| - | - |\n|   |   |\n');
+  const width = await page
+    .locator('.ProseMirror td')
+    .first()
+    .evaluate((td) => td.getBoundingClientRect().width);
+  expect(width).toBeGreaterThanOrEqual(80);
+});
+
 test('a table cell is editable in place', async ({ page }) => {
   await open(page, TABLE);
   await caretAtEndOf(page, 'r1a');

@@ -1557,7 +1557,23 @@
    * .ProseMirror padding comment).
    *
    * An ordered task list keeps its number: only the bullet is redundant once
-   * there is a checkbox. */
+   * there is a checkbox, so an ordered item pays the slot as its own padding,
+   * after the number.
+   *
+   * A BULLET task list does not pay twice. The bullet is hidden, so the list's
+   * marker column is empty, and the checkbox goes into that column instead of
+   * into a second 28px of item padding beside it — which had task text start
+   * 28px to the right of the bullet text above it (the reported "too much
+   * margin-left"). The list's padding widens from 1.4em to the 28px slot so
+   * the whole tap target still lies inside the list's own box, never in the
+   * editor's gutter; `:has()` scopes it to lists that hold a task item, so a
+   * plain bullet list is untouched. An engine without `:has()` (Chromium < 105)
+   * falls back to the padded-item layout below, which is only wider.
+   *
+   * The extra 2px keeps the widget's left edge at x >= 20 on the native shells,
+   * whose gutter is 18px: the leftmost 20pt of an iPhone screen belong to the
+   * back-swipe gesture (see the .ProseMirror padding comment), and
+   * tests/editor-embed-milkdown-parity.spec.ts holds that line. */
   :global(.futo-milkdown .ProseMirror li[data-checked]) {
     position: relative;
     padding-left: var(--futo-checkbox-slot);
@@ -1565,6 +1581,20 @@
 
   :global(.futo-milkdown .ProseMirror ul > li[data-checked]) {
     list-style: none;
+  }
+
+  :global(.futo-milkdown .ProseMirror ul:has(> li[data-checked])) {
+    padding-left: calc(var(--futo-checkbox-slot) + 2px);
+  }
+
+  :global(.futo-milkdown .ProseMirror ul:has(> li[data-checked]) > li[data-checked]) {
+    padding-left: 0;
+  }
+
+  :global(
+    .futo-milkdown .ProseMirror ul:has(> li[data-checked]) > li[data-checked] .futo-task-checkbox
+  ) {
+    left: calc(-1 * var(--futo-checkbox-slot));
   }
 
   /* The checkbox widget (taskCheckbox.ts). A fixed 28px in both axes that does
@@ -1623,6 +1653,12 @@
   :global(.futo-milkdown .ProseMirror td) {
     border: 1px solid var(--color-border, #e5e5e5);
     padding: 0.35em 0.6em;
+    /* A freshly inserted table is all empty cells, and an empty cell is only
+     * as wide as its padding (~34px): the caret placed in one is drawn hard
+     * against the border and reads as "no caret at all". A floor of a few
+     * characters shows both the caret and where the cell IS. A cell with text
+     * grows past it as before. → tests/editor-embed-milkdown-interactive.spec.ts */
+    min-width: 5em;
   }
 
   :global(.futo-milkdown .ProseMirror ::selection) {
