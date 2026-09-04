@@ -18,9 +18,11 @@
    *
    * What lives elsewhere: drop-target geometry (`blockDragGeometry.ts`), the
    * block move itself (`blockMove.ts`), the native shells' long-press drag
-   * (`mobileBlockDnd.ts`; the desktop ⠿ handle's drag is @milkdown/plugin-block's
-   * own), toolbar commands (`toolbarExec.ts`) and the native toolbar's
-   * active-state (`formatState.ts`).
+   * (`mobileBlockDnd.ts`), the desktop ⠿ handle's drop indicator and drop
+   * (`blockDropIndicator.ts`; the drag mechanics themselves are
+   * @milkdown/plugin-block's own HTML5 drag), toolbar commands
+   * (`toolbarExec.ts`) and the native toolbar's active-state
+   * (`formatState.ts`).
    */
   import { onMount } from 'svelte';
   import {
@@ -38,7 +40,10 @@
   import { history } from '@milkdown/kit/plugin/history';
   import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
   import { clipboard } from '@milkdown/kit/plugin/clipboard';
-  import { cursor, dropCursorConfig } from '@milkdown/kit/plugin/cursor';
+  /* `gapCursorPlugin` only — NOT the whole `cursor` bundle. Its drop-indicator
+   * half draws two lines per top-level gap; `blockDropIndicator.ts` replaces it
+   * and says why. */
+  import { gapCursorPlugin } from '@milkdown/kit/plugin/cursor';
   import { trailing } from '@milkdown/kit/plugin/trailing';
   import { block, BlockProvider } from '@milkdown/kit/plugin/block';
   import { getMarkdown, insert, replaceAll } from '@milkdown/kit/utils';
@@ -63,6 +68,7 @@
   import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockContainment } from './blockContainment';
   import { resolveBlockDragMode } from './blockDragMode';
+  import { blockDropIndicator } from './blockDropIndicator';
   import { editorView, enclosingListItem } from './caretContext';
   import { computeActiveFormats } from './formatState';
   import { handleParityKeyDown } from './keyboardParity';
@@ -387,14 +393,6 @@
         .config((ctx) => {
           ctx.set(rootCtx, container);
           ctx.set(defaultValueCtx, pendingContent ?? '');
-          // The drop indicator ships via `.use(cursor)`; its default color is
-          // `false` (invisible) unless configured.
-          ctx.set(dropCursorConfig.key, {
-            width: 3,
-            color: 'var(--color-primary, #f26b1f)',
-            class: 'milkdown-drop-indicator',
-          });
-
           /* Stop remark-stringify turning a note's leading `#tag` into `\#tag`
            * on save, which silently un-tags it. See
            * packages/editor/src/milkdown-compat/atxEscape.ts — Milkdown's own
@@ -565,7 +563,7 @@
         .use(history)
         .use(listener)
         .use(clipboard)
-        .use(cursor)
+        .use(gapCursorPlugin)
         .use(trailing)
         .use(tagDecorations)
         .use(taskCheckbox)
@@ -583,7 +581,11 @@
               onPressActive: (pressed) => onblockpress?.(pressed),
             }),
           )
-        : builder.use(block);
+        : /* The handle's HTML5 drag needs a drop indicator, and it is OURS:
+           * @milkdown/kit/plugin/cursor's draws two lines per gap
+           * (blockDropIndicator.ts). Mounted with `block`, so it lives and dies
+           * with the gesture it serves. */
+          builder.use(block).use(blockDropIndicator);
 
       /* The `/` block menu (desktop only — slash/index.ts). Two steps because
        * that is Milkdown's own shape for a slash plugin: `slashFactory` puts the
@@ -1775,12 +1777,26 @@
     background: var(--color-surface, #f2f2f2);
   }
 
-  /* Drop indicator DOM comes from `.use(cursor)` (prosemirror-drop-indicator);
-   * color/width are configured via dropCursorConfig in the script block. Used
-   * by the desktop mouse/native-HTML5-drag path only — see the touch
-   * fallback's own indicator below for why it does not share this one. */
+  /* Drop indicator for the desktop ⠿ handle's HTML5 drag. The DOM and its
+   * left/top/width come from `blockDropIndicator.ts` — which replaced
+   * `.use(cursor)`'s prosemirror-drop-indicator precisely because that drew
+   * TWO lines per top-level gap — and the paint is here, the same split the
+   * long-press path's `.futo-mobile-dnd-indicator` uses. `top` is the line's
+   * CENTRE (the gap's midpoint), hence the negative margin. */
   :global(.milkdown-drop-indicator) {
+    position: fixed;
+    height: 3px;
+    margin-top: -1.5px;
     border-radius: 2px;
+    background: var(--color-primary, #f26b1f);
+    pointer-events: none;
+    z-index: 50;
+    opacity: 0;
+    transition: opacity 0.08s ease;
+  }
+
+  :global(.milkdown-drop-indicator--visible) {
+    opacity: 1;
   }
 
   /* Streaming-tail affordance. Pinned to the bottom of the editor rather than

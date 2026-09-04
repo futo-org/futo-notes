@@ -680,6 +680,75 @@ const gutterHandleTest = base.extend<{ page: Page }>({
   },
 });
 
+/**
+ * A genuine HTML5 drag off the ⠿ handle, driven ONE `dragover` at a time.
+ *
+ * `locator.dragTo()` cannot do this job: it moves the pointer to the target in
+ * two hops, so a drag that must be SAMPLED at several y positions inside one
+ * gap never reports the intermediate ones — the indicator only appears to move
+ * once the pointer has already reached a different gap, which is exactly the
+ * bug hiding itself.
+ *
+ * Individual `page.mouse.move` calls do report them, and the interception is a
+ * real one over CDP: Playwright's own `DragManager` (playwright-core
+ * `server/chromium/crDragDrop.js`) turns the first post-mousedown move into
+ * `Input.setInterceptDrags` plus a real `dragstart` in the page — which is
+ * where @milkdown/plugin-block sets `view.dragging` — and from then on EVERY
+ * `mouse.move` is dispatched as an `Input.dispatchDragEvent` of type
+ * `dragOver` at exactly that point, with `mouse.up()` dispatching `drop`.
+ * Opening a second CDP session to drive this by hand does NOT work: Playwright
+ * has already consumed `Input.dragIntercepted` and turned interception back
+ * off before another listener could see it.
+ */
+async function startHandleDrag(page: Page, from: { x: number; y: number }) {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  // Past the browser's own drag threshold. The FIRST move is the one that
+  // starts the drag, so it is spent here rather than on a boundary we assert.
+  await page.mouse.move(from.x + 4, from.y + 8);
+  await page.mouse.move(from.x + 8, from.y + 20);
+
+  /** The dragover handler writes the indicator synchronously; a frame is
+   * plenty for the assertion to read it back. */
+  const settle = () => page.waitForTimeout(16);
+
+  return {
+    over: async (x: number, y: number) => {
+      await page.mouse.move(x, y);
+      await settle();
+    },
+    drop: async (x: number, y: number) => {
+      await page.mouse.move(x, y);
+      await settle();
+      await page.mouse.up();
+    },
+  };
+}
+
+/** The y the drop indicator is currently drawn at, or null when it is hidden.
+ * This is the value the plugin computed, not a rendered rect, so the assertion
+ * is about the resolved gap rather than about the 3px bar's own box. */
+function dropIndicatorTop(page: Page): Promise<number | null> {
+  return page.evaluate(() => {
+    const el = document.querySelector('.milkdown-drop-indicator');
+    if (!(el instanceof HTMLElement)) return null;
+    if (!el.classList.contains('milkdown-drop-indicator--visible')) return null;
+    const top = Number.parseFloat(el.style.top);
+    return Number.isFinite(top) ? top : null;
+  });
+}
+
+/** Centre of the ⠿ handle for the block containing `text`, surfaced by hover. */
+async function surfaceHandle(page: Page, text: string): Promise<{ x: number; y: number }> {
+  const block = await blockCenter(page, text);
+  await page.mouse.move(block.x, block.y);
+  const handle = page.locator('.milkdown-block-handle[data-show="true"]');
+  await handle.waitFor({ state: 'attached' });
+  const box = await handle.boundingBox();
+  if (!box) throw new Error('the ⠿ handle has no geometry');
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
 gutterHandleTest('the ⠿ handle sits in the gutter, never over a list marker', async ({ page }) => {
   // A list item's box starts at its text; its bullet hangs in the list's
   // padding to the left. An offset measured from that box put the handle on
@@ -740,6 +809,96 @@ gutterHandleTest('a mouse drag on the ⠿ handle reorders the block', async ({ p
   // unwrapped it into the surrounding paragraph.
   expect(content).toBe('bravo\n\n# alpha\n\ncharlie\n');
 });
+
+/* The DESKTOP half of "one boundary, one place to drop it".
+ *
+ * The indicator used to be @milkdown/kit/plugin/cursor's, which wraps
+ * prosemirror-drop-indicator: its `getTargetsByView` pushes a target for every
+ * block's TOP edge AND another for its BOTTOM edge, then picks the nearest
+ * LINE. Block A's bottom and block B's top are one document position drawn at
+ * two different y values, so every gap offered two visible slots that meant the
+ * same thing. `blockDropIndicator.ts` replaced it with the resolver the
+ * long-press path already used. */
+gutterHandleTest(
+  'the ⠿ handle draws ONE line per gap, in the gap, from either side',
+  async ({ page }) => {
+    await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+
+    const handle = await surfaceHandle(page, 'alpha');
+    const bravo = await blockBox(page, 'bravo');
+    const charlie = await blockBox(page, 'charlie');
+    // Otherwise "between them" is not a region and the assertion is vacuous.
+    expect(charlie.top).toBeGreaterThan(bravo.bottom);
+
+    const drag = await startHandleDrag(page, handle);
+
+    // bravo's lower half, then charlie's upper half: the same boundary.
+    await drag.over(bravo.x, bravo.bottom - 3);
+    const fromAbove = await dropIndicatorTop(page);
+    await drag.over(charlie.x, charlie.top + 3);
+    const fromBelow = await dropIndicatorTop(page);
+
+    expect(fromAbove).not.toBeNull();
+    expect(fromBelow).toBe(fromAbove);
+    // Drawn IN the gap, not on either block's edge.
+    expect(fromAbove as number).toBeGreaterThan(bravo.bottom);
+    expect(fromAbove as number).toBeLessThan(charlie.top);
+
+    // And the drop commits where the line was drawn: alpha lands between them,
+    // still a heading (a re-fitted slice would have unwrapped it).
+    await drag.drop(charlie.x, charlie.top + 3);
+    const changes = await waitForMessages(page, 'change');
+    expect(changes[changes.length - 1].content).toBe('bravo\n\n# alpha\n\ncharlie\n');
+  },
+);
+
+gutterHandleTest(
+  'a ⠿ drag down the whole note passes through one slot per boundary',
+  async ({ page }) => {
+    await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+
+    const handle = await surfaceHandle(page, 'alpha');
+    const blocks = [
+      await blockBox(page, 'alpha'),
+      await blockBox(page, 'bravo'),
+      await blockBox(page, 'charlie'),
+    ];
+
+    // Every region a pointer can be in, top to bottom: each block's upper
+    // half, its lower half, and the margin between it and the next.
+    const upper = (b: (typeof blocks)[number]) => b.top + (b.bottom - b.top) * 0.25;
+    const lower = (b: (typeof blocks)[number]) => b.top + (b.bottom - b.top) * 0.75;
+    const probes: number[] = [];
+    blocks.forEach((block, i) => {
+      probes.push(upper(block), lower(block));
+      const next = blocks[i + 1];
+      if (next) probes.push((block.bottom + next.top) / 2);
+    });
+
+    const drag = await startHandleDrag(page, handle);
+    const tops: number[] = [];
+    for (const y of probes) {
+      await drag.over(blocks[0].x, y);
+      const top = await dropIndicatorTop(page);
+      expect(top).not.toBeNull();
+      if (!tops.includes(top as number)) tops.push(top as number);
+    }
+    await drag.drop(blocks[0].x, upper(blocks[0]));
+
+    // Three blocks have four boundaries, so four lines — and the LOWER half of
+    // a block, the margin below it and the UPPER half of the next block are all
+    // the same one. The old model drew a line on every block's top edge and
+    // every block's bottom edge: six, with two of them landing in each gap.
+    expect(tops).toHaveLength(blocks.length + 1);
+    // `style.top` keeps six significant digits, so compare to the sub-pixel.
+    expect(tops[0]).toBeCloseTo(blocks[0].top, 2);
+    expect(tops[1]).toBeCloseTo((blocks[0].bottom + blocks[1].top) / 2, 2);
+    expect(tops[2]).toBeCloseTo((blocks[1].bottom + blocks[2].top) / 2, 2);
+    expect(tops[3]).toBeCloseTo(blocks[2].bottom, 2);
+  },
+);
 
 // The long-press path is what a bare `editor.html` mounts — the page both
 // native shells load declares `nativeShell: true`, and that flag IS the gate

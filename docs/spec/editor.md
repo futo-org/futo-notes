@@ -361,8 +361,14 @@ about.
   between A's bottom edge and B's top edge (on the outer edge at the document's
   first and last boundary), and one haptic tick for reaching it however the
   pointer got there. A block's OWN two boundaries stay distinct, because those
-  are different positions. → src/features/editor/milkdown/blockDragGeometry.ts
-  `resolveTopLevelTarget`,
+  are different positions. Both gestures resolve that one slot with the same
+  code and commit through the same move, so neither the line's position nor the
+  set of places a block may land can differ between them — which is why the
+  desktop ⠿ handle draws OUR indicator rather than the one
+  @milkdown/kit/plugin/cursor ships (it draws a line on every block's top edge
+  AND every block's bottom edge, so each gap had two). →
+  src/features/editor/milkdown/blockDragGeometry.ts `resolveTopLevelTarget`,
+  src/features/editor/milkdown/blockDropIndicator.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts
 - A block drag is haptic three ways on both native shells: one firmer impact
