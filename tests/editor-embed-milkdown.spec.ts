@@ -738,9 +738,27 @@ function dropIndicatorTop(page: Page): Promise<number | null> {
   });
 }
 
-/** Centre of the ⠿ handle for the block containing `text`, surfaced by hover. */
-async function surfaceHandle(page: Page, text: string): Promise<{ x: number; y: number }> {
-  const block = await blockCenter(page, text);
+/** Box of the LIST ITEM containing `text` (blockBox answers with the whole
+ * list for any text inside one). */
+async function itemBox(
+  page: Page,
+  text: string,
+): Promise<{ x: number; top: number; bottom: number }> {
+  const box = await page.locator('.ProseMirror li', { hasText: text }).first().boundingBox();
+  if (!box) throw new Error(`no geometry for the list item containing "${text}"`);
+  return { x: box.x + box.width / 2, top: box.y, bottom: box.y + box.height };
+}
+
+/** Centre of the ⠿ handle for the block containing `text`, surfaced by hover
+ * — or for the list item containing it, with `{ item: true }`. */
+async function surfaceHandle(
+  page: Page,
+  text: string,
+  options: { item?: boolean } = {},
+): Promise<{ x: number; y: number }> {
+  const block = options.item
+    ? await itemBox(page, text).then((box) => ({ x: box.x, y: (box.top + box.bottom) / 2 }))
+    : await blockCenter(page, text);
   await page.mouse.move(block.x, block.y);
   const handle = page.locator('.milkdown-block-handle[data-show="true"]');
   await handle.waitFor({ state: 'attached' });
@@ -853,6 +871,92 @@ gutterHandleTest(
   },
 );
 
+/** A list-final document with its trailing newlines collapsed to one (see the
+ * first list test below for why). */
+const listOnly = (markdown: string): string => markdown.replace(/\n+$/, '\n');
+
+/* Reordering INSIDE a list. The resolver used to know only top-level gaps, so
+ * a list item — which lives one level down — drew no line at all, and the drop
+ * fell through to ProseMirror's default, which re-fit the item as a second list
+ * beside the first ("a break in between"). */
+gutterHandleTest('the ⠿ handle moves a bullet to the end of its own list', async ({ page }) => {
+  await hostSetContent(page, '- alpha\n- bravo\n- charlie');
+  await clearMessages(page);
+
+  // The SECOND item, whose handle plugin-block resolves to the item itself.
+  const handle = await surfaceHandle(page, 'bravo', { item: true });
+  const charlie = await itemBox(page, 'charlie');
+  const drag = await startHandleDrag(page, handle);
+
+  // charlie's lower half is the boundary after it: the list's end, drawn on
+  // charlie's bottom edge — a line, where before there was none.
+  await drag.over(charlie.x, charlie.bottom - 3);
+  const line = await dropIndicatorTop(page);
+  expect(line).not.toBeNull();
+  expect(Math.abs((line as number) - charlie.bottom)).toBeLessThan(2);
+
+  await drag.drop(charlie.x, charlie.bottom - 3);
+  const changes = await waitForMessages(page, 'change');
+  // ONE list, reordered — not two lists with a break between them. Trailing
+  // newlines are normalized: @milkdown/kit/plugin/trailing keeps an empty
+  // paragraph after a list-final document, which is upstream behaviour and
+  // not what this asserts.
+  expect(listOnly(changes[changes.length - 1].content as string)).toBe(
+    '- alpha\n- charlie\n- bravo\n',
+  );
+});
+
+/* plugin-block resolves a list's FIRST item to the list itself (the same rule
+ * the gutter test above leans on), so the handle beside the first bullet
+ * dragged every bullet. listItemHandleDrag.ts re-targets that drag to the
+ * item under the handle. */
+gutterHandleTest(
+  'the ⠿ handle on the FIRST bullet drags that bullet, not the whole list',
+  async ({ page }) => {
+    await hostSetContent(page, '- alpha\n- bravo\n- charlie');
+    await clearMessages(page);
+
+    const handle = await surfaceHandle(page, 'alpha', { item: true });
+    const charlie = await itemBox(page, 'charlie');
+    const drag = await startHandleDrag(page, handle);
+
+    await drag.over(charlie.x, charlie.bottom - 3);
+    expect(await dropIndicatorTop(page)).not.toBeNull();
+    await drag.drop(charlie.x, charlie.bottom - 3);
+
+    const changes = await waitForMessages(page, 'change');
+    expect(listOnly(changes[changes.length - 1].content as string)).toBe(
+      '- bravo\n- charlie\n- alpha\n',
+    );
+  },
+);
+
+/* Leaving a list. Just below the list is still the list (two adjacent lists
+ * are one list in markdown); past the next block is out. */
+gutterHandleTest(
+  'a bullet dragged just below its list joins its end; past the next block it leaves',
+  async ({ page }) => {
+    await hostSetContent(page, '- alpha\n- bravo\n\ncharlie');
+    await clearMessages(page);
+
+    let handle = await surfaceHandle(page, 'alpha', { item: true });
+    const charlie = await blockBox(page, 'charlie');
+    let drag = await startHandleDrag(page, handle);
+    await drag.drop(charlie.x, charlie.top + 3);
+    let changes = await waitForMessages(page, 'change');
+    expect(changes[changes.length - 1].content).toBe('- bravo\n- alpha\n\ncharlie\n');
+
+    await clearMessages(page);
+    handle = await surfaceHandle(page, 'alpha', { item: true });
+    drag = await startHandleDrag(page, handle);
+    await drag.drop(charlie.x, charlie.bottom - 3);
+    changes = await waitForMessages(page, 'change');
+    expect(listOnly(changes[changes.length - 1].content as string)).toBe(
+      '- bravo\n\ncharlie\n\n- alpha\n',
+    );
+  },
+);
+
 gutterHandleTest(
   'a ⠿ drag down the whole note passes through one slot per boundary',
   async ({ page }) => {
@@ -931,7 +1035,7 @@ mobileDndTest(
     await clearMessages(page);
 
     // Released in the LOWER half of "charlie", which resolves to the boundary
-    // AFTER it (resolveTopLevelTarget picks by which half of the block's rect
+    // AFTER it (resolveDropTarget picks by which half of the block's rect
     // the release point falls in).
     const charlie = await blockCenter(page, 'charlie');
     await longPressDrag(page, cdp, await blockCenter(page, 'alpha'), {

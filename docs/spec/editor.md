@@ -368,16 +368,41 @@ about.
   hover, the handle is still surfaced for the block that was just tapped or
   that the caret moved into, but dragging it needs a mouse: the handle's drag
   is @milkdown/plugin-block's HTML5 drag, which no touch or pen gesture
-  starts. Only TOP-LEVEL blocks move, on this gesture and on the native
-  shells' long press. → MilkdownEditor.svelte,
+  starts. → MilkdownEditor.svelte,
   src/features/editor/milkdown/blockMove.ts _(desktop)_
   > **Gap:** a touch or pen drag of the ⠿ handle does nothing on a touchscreen
   > desktop build. The 253-line touch/pen fallback that implemented it was
   > removed on 2026-09-02 as dead weight once both native shells moved to the
   > long press; desktop touch reorder is unimplemented, not broken. Reorder by
   > mouse, or use a native shell's long press.
-- There is ONE drop slot per boundary between top-level blocks, on both drag
-  gestures. Below block A and above the block directly under it are the same
+- A dragged block lands among its own kind. A top-level block sees only the
+  gaps between top-level blocks: just below a blockquote is NOT "inside the
+  blockquote", however the schema would read that position. A list item sees
+  the gaps between the items of its list, the items of any other list of the
+  same type at any depth, and the top-level gaps — where it is wrapped in a
+  fresh list of the type (and attributes) it came out of, and a list it was the
+  only item of goes with it rather than staying behind empty. A top-level gap
+  directly beside a list of the item's own type IS that list's end (or start):
+  two adjacent lists of one type are one list in markdown, so dragging a bullet
+  just below its list makes it the last bullet, and dragging it past the next
+  block takes it out. → src/features/editor/milkdown/blockDragGeometry.ts
+  `resolveDropTarget`, src/features/editor/milkdown/blockMove.ts `moveBlock`,
+  src/features/editor/milkdown/blockDragGeometry.test.ts,
+  src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
+  > **Gap:** the native shells' long press grabs the TOP-LEVEL block under the
+  > finger — for a bullet, the whole list — so bullets cannot be reordered by
+  > touch; the resolver and the move already accept an item, only the press
+  > target (`topLevelBlockAt`) still stops at the top level. _(iOS, Android)_
+- On desktop the ⠿ handle beside a list's FIRST item drags that item, like the
+  handle beside every other item. @milkdown/plugin-block resolves a first child
+  to its parent, so the handle it draws for a first bullet stands for the whole
+  list; the drag is re-targeted at `dragstart` to the item whose box the pointer
+  is in. → src/features/editor/milkdown/listItemHandleDrag.ts,
+  src/features/editor/milkdown/listItemHandleDrag.test.ts,
+  tests/editor-embed-milkdown.spec.ts _(desktop)_
+- There is ONE drop slot per boundary, on both drag gestures — between
+  top-level blocks, and between the items of a list for a list item. Below
+  block A and above the block directly under it are the same
   place, so they are one target: one indicator line, drawn IN the gap midway
   between A's bottom edge and B's top edge (on the outer edge at the document's
   first and last boundary), and one haptic tick for reaching it however the
@@ -388,7 +413,7 @@ about.
   desktop ⠿ handle draws OUR indicator rather than the one
   @milkdown/kit/plugin/cursor ships (it draws a line on every block's top edge
   AND every block's bottom edge, so each gap had two). →
-  src/features/editor/milkdown/blockDragGeometry.ts `resolveTopLevelTarget`,
+  src/features/editor/milkdown/blockDragGeometry.ts `resolveDropTarget`,
   src/features/editor/milkdown/blockDropIndicator.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts

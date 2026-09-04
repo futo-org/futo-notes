@@ -11,7 +11,7 @@
  * visually distinct places to drop that meant exactly the same thing, and the
  * container recursion added "inside" slots on top. That is the desktop half of
  * the same complaint the long-press path had (MR !276); the mobile half was
- * fixed by collapsing `TopLevelTarget` onto `pos` in `blockDragGeometry.ts`.
+ * fixed by collapsing the target onto `pos` in `blockDragGeometry.ts`.
  *
  * `createDropIndicatorPlugin` cannot be configured out of it: its only hooks
  * are `onShow`/`onHide`/`onDrag`, and `onDrag` is a per-target PREDICATE — it
@@ -28,8 +28,8 @@
  * is committed.
  *
  * SCOPE: this claims the ⠿ handle's own drag and nothing else. A drag whose
- * selection is not a single top-level node (an OS file drop carrying an image,
- * a text selection dragged inside the note) draws no line and is refused by
+ * selection is not a single block node (an OS file drop carrying an image, a
+ * text selection dragged inside the note) draws no line and is refused by
  * `handleDrop`, so the component's file-drop handler and ProseMirror's own
  * default drop behaviour both still run exactly as before.
  */
@@ -37,8 +37,8 @@ import { $prose } from '@milkdown/kit/utils';
 import { NodeSelection, Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
-import { targetAtPointerY, type TopLevelTarget } from './blockDragGeometry';
-import { moveTopLevelBlock } from './blockMove';
+import { dragSourceAt, targetAtPointerY, type DropTarget } from './blockDragGeometry';
+import { moveBlock } from './blockMove';
 
 /** Kept from `@milkdown/plugin-cursor`'s own contract so the component's
  * existing `:global(.milkdown-drop-indicator)` paint still applies. */
@@ -61,9 +61,16 @@ function blockDragSelection(view: ProseView, move: boolean): NodeSelection | nul
   if (!move) return null;
   const selection = view.state.selection;
   if (!(selection instanceof NodeSelection)) return null;
-  // Only TOP-LEVEL blocks reorder, on this gesture and on the long press.
-  if (view.state.doc.resolve(selection.from).depth !== 0) return null;
+  // A block at any depth: a top-level paragraph, or a list item — which gaps
+  // it may land in is the resolver's decision (blockDragGeometry.ts).
+  if (!selection.node.isBlock) return null;
   return selection;
+}
+
+/** Where the drag under way would land for a pointer at `clientY`. */
+function targetFor(view: ProseView, selection: NodeSelection, clientY: number): DropTarget | null {
+  const source = dragSourceAt(view.state.doc, selection.from);
+  return source ? targetAtPointerY(view, clientY, source) : null;
 }
 
 /** Owns the indicator element and the drag listeners for one editor view. */
@@ -110,11 +117,12 @@ class BlockDropIndicatorView {
    * handled identically; between them they cover every position the drag
    * reports. */
   private onDragPoint = (event: DragEvent): void => {
-    if (!blockDragSelection(this.view, this.view.dragging?.move ?? false)) {
+    const selection = blockDragSelection(this.view, this.view.dragging?.move ?? false);
+    if (!selection) {
       this.hide();
       return;
     }
-    const target = targetAtPointerY(this.view, event.clientY);
+    const target = targetFor(this.view, selection, event.clientY);
     if (!target) {
       this.hide();
       return;
@@ -156,7 +164,7 @@ class BlockDropIndicatorView {
   /** Viewport coordinates, so the element is `position: fixed` and needs no
    * scroll compensation — the same contract the long-press path's indicator
    * uses. */
-  private show(target: TopLevelTarget): void {
+  private show(target: DropTarget): void {
     const el = this.ensureEl();
     el.style.left = `${target.indicator.left}px`;
     el.style.width = `${target.indicator.width}px`;
@@ -194,10 +202,10 @@ export const blockDropIndicator = $prose(
         handleDrop: (view, event, _slice, move) => {
           const selection = blockDragSelection(view, move);
           if (!selection) return false;
-          const target = targetAtPointerY(view, (event as DragEvent).clientY);
+          const target = targetFor(view, selection, (event as DragEvent).clientY);
           if (!target) return false;
           event.preventDefault();
-          moveTopLevelBlock(view, { from: selection.from, to: selection.to }, target.pos);
+          moveBlock(view, { from: selection.from, to: selection.to }, target.pos);
           return true;
         },
       },

@@ -116,9 +116,10 @@ import {
   targetAtPointerY,
   topLevelBlockAt,
   type DragAutoScroller,
-  type TopLevelTarget,
+  type DropTarget,
+  dragSourceAt,
 } from './blockDragGeometry';
-import { moveTopLevelBlock, type BlockMoveRange } from './blockMove';
+import { moveBlock, type BlockMoveRange } from './blockMove';
 
 export type MobileDndHapticKind = 'lift' | 'move' | 'drop';
 
@@ -623,7 +624,7 @@ class MobileBlockDndView {
     this.dragging = true;
     /* Seeded from where the block already is, so the hold itself is silent: the
      * first tick belongs to the first boundary the finger actually reaches. */
-    const restingTarget = targetAtPointerY(view, clientY);
+    const restingTarget = this.computeTarget(clientY);
     this.indicatorPos = restingTarget ? restingTarget.pos : null;
     this.createGhost(clientX, clientY);
     // Escalates the shell from the press-level suspension it has held since
@@ -711,8 +712,13 @@ class MobileBlockDndView {
     this.ghostEl.style.transform = `translate(${dx}px, ${dy}px)`;
   }
 
-  private computeTarget(clientY: number): TopLevelTarget | null {
-    return targetAtPointerY(this.view, clientY);
+  /** The pressed block's CURRENT position decides which gaps it may land in
+   * (blockDragGeometry.ts); a press always grabs a top-level block today, so
+   * those are the top-level gaps. */
+  private computeTarget(clientY: number, pressed = this.pressed): DropTarget | null {
+    if (!pressed) return null;
+    const source = dragSourceAt(this.view.state.doc, this.currentSourceRange(pressed).from);
+    return source ? targetAtPointerY(this.view, clientY, source) : null;
   }
 
   private ensureIndicator(): HTMLDivElement {
@@ -730,7 +736,7 @@ class MobileBlockDndView {
    * a gap approached from either side puts the bar in exactly one place
    * (blockDragGeometry.ts). The `margin-top` in the stylesheet re-centres the
    * 3px bar on `top`. */
-  private showIndicator(target: TopLevelTarget): void {
+  private showIndicator(target: DropTarget): void {
     const el = this.ensureIndicator();
     el.style.left = `${target.indicator.left}px`;
     el.style.width = `${target.indicator.width}px`;
@@ -778,7 +784,8 @@ class MobileBlockDndView {
 
     this.cleanupDragVisuals();
 
-    const target = commit ? this.computeTarget(clientY) : null;
+    // `pressed` explicitly: disarm() above has already cleared the field.
+    const target = commit ? this.computeTarget(clientY, pressed) : null;
     if (!target) {
       this.clearDecoration();
       return;
@@ -788,10 +795,10 @@ class MobileBlockDndView {
     const range = this.currentSourceRange(pressed);
     // Every refusal case (stale range, a target that stopped being a top-level
     // gap, a drop back at the source, a node ProseMirror would re-shape) lives
-    // in moveTopLevelBlock, shared with the ⠿-handle drag path. A drop that
+    // in moveBlock, shared with the ⠿-handle drag path. A drop that
     // commits nothing is silent: no transaction, no history entry, no
     // 'change', and no drop haptic.
-    const committed = moveTopLevelBlock(view, range, target.pos, (tr) =>
+    const committed = moveBlock(view, range, target.pos, (tr) =>
       // Same transaction as the move, so the source block is never drawn
       // dimmed for a frame at its new position.
       tr.setMeta(mobileBlockDndKey, { decorationSet: DecorationSet.empty }),

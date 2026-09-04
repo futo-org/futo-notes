@@ -11,15 +11,19 @@
  *  - POSITIONS CAPTURED AT DRAG START GO STALE. Anything that edits the doc
  *    mid-drag (a host `setContent` from a sync pull, the trailing-paragraph
  *    plugin, autocorrect) shifts them. The caller passes the range it believes
- *    in and this refuses to act unless that range is still exactly one
- *    top-level node.
+ *    in and this refuses to act unless that range is still exactly one node.
  *  - `Transform.insert` DOES NOT FAIL ON AN INVALID POSITION. ProseMirror's
  *    Fitter silently unwraps a node that does not fit where it lands and merges
  *    its inline content into the surrounding textblock — which is what "my
  *    heading stopped being a heading after I dropped it" looks like. So the
- *    mapped target is required to still be a top-level gap, the NODE is moved
- *    rather than a re-fitted slice, and the result is compared against the
- *    original before anything is dispatched.
+ *    target's parent is asked, through the schema, whether it can hold the node
+ *    THERE, the NODE is moved rather than a re-fitted slice, and the result is
+ *    compared against the original before anything is dispatched.
+ *  - A LIST ITEM PULLED OUT TO THE TOP LEVEL IS WRAPPED, BY US. The document
+ *    cannot hold a bare list item; it gets a fresh list of the type (and attrs)
+ *    it came out of — again asked of the schema, never assumed. And a list it
+ *    was the only item of is removed whole, because an empty list is not a
+ *    document the serializer can round-trip.
  *  - A DROP BACK AT THE SOURCE IS A TRUE NO-OP: no transaction, so no history
  *    entry, no change notification, and no `change` message to the host.
  *  - FRONT MATTER IS PINNED TO THE TOP. `---` only means front matter at the
@@ -38,18 +42,18 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
 
 export interface BlockMoveRange {
-  /** Position immediately before the dragged top-level node. */
+  /** Position immediately before the dragged node. */
   from: number;
   /** Position immediately after it (`from + node.nodeSize`). */
   to: number;
 }
 
 /**
- * Moves the top-level node at `range` so it starts at `targetPos`, as ONE
- * transaction. Returns true only when a transaction was dispatched — the
- * callers use that to decide whether the drop earned its haptic.
+ * Moves the node at `range` so it starts at `targetPos`, as ONE transaction.
+ * Returns true only when a transaction was dispatched — the callers use that
+ * to decide whether the drop earned its haptic.
  */
-export function moveTopLevelBlock(
+export function moveBlock(
   view: ProseView,
   range: BlockMoveRange,
   targetPos: number,
@@ -67,25 +71,49 @@ export function moveTopLevelBlock(
 
   const beforeDoc = view.state.doc;
   const node = beforeDoc.nodeAt(srcStart);
-  // Not exactly one top-level node any more — refuse to guess.
+  // Not exactly one node any more — refuse to guess.
   if (!node || srcStart + node.nodeSize !== srcEnd) return false;
-  if (beforeDoc.resolve(srcStart).depth !== 0) return false;
   // The front matter block never moves (see the header note).
   if (node.type.name === FRONTMATTER_NODE) return false;
 
-  let tr = view.state.tr.delete(srcStart, srcEnd);
+  const source = beforeDoc.resolve(srcStart);
+  const container = source.parent;
+  const topLevel = source.depth === 0;
+  // The only item of a list takes the list with it (see the header note).
+  let deleteFrom = srcStart;
+  let deleteTo = srcEnd;
+  if (!topLevel && container.childCount === 1) {
+    deleteFrom = source.before();
+    deleteTo = source.after();
+    if (targetPos >= deleteFrom && targetPos <= deleteTo) return false;
+  }
+
+  let tr = view.state.tr.delete(deleteFrom, deleteTo);
   const mappedTarget = tr.mapping.map(targetPos);
-  // The boundary stopped being a top-level gap once the source was removed;
-  // inserting there would coerce the node's type.
-  if (tr.doc.resolve(mappedTarget).depth !== 0) return false;
-  // …and nothing moves above it. Position 0 is the only boundary that could,
-  // and only when front matter is what currently sits there.
+  const target = tr.doc.resolve(mappedTarget);
+  const index = target.index();
+  // Nothing moves above the front matter. Position 0 is the only boundary that
+  // could, and only when front matter is what currently sits there.
   if (mappedTarget === 0 && tr.doc.firstChild?.type.name === FRONTMATTER_NODE) return false;
 
-  tr = tr.insert(mappedTarget, node);
+  // The same rule the resolver applies (blockDragGeometry.ts): a node lands in
+  // a gap of the document, or of a container of the kind it came out of —
+  // never inside some other block that merely happens to accept it. Positions
+  // are re-checked here because the ones the caller resolved may have moved.
+  const intoDoc = target.depth === 0;
+  if (!intoDoc && (topLevel || target.parent.type !== container.type)) return false;
+
+  let inserted = node;
+  if (!target.parent.canReplaceWith(index, index, node.type)) {
+    // The gap cannot hold the node itself; it may hold a list of its kind.
+    if (topLevel || !target.parent.canReplaceWith(index, index, container.type)) return false;
+    inserted = container.type.create(container.attrs, node);
+  }
+
+  tr = tr.insert(mappedTarget, inserted);
   // `insert` puts the node so it STARTS at mappedTarget, so no re-mapping.
   const moved = tr.doc.nodeAt(mappedTarget);
-  if (!moved || !moved.sameMarkup(node) || !moved.content.eq(node.content)) return false;
+  if (!moved || !moved.sameMarkup(inserted) || !moved.content.eq(inserted.content)) return false;
   if (tr.doc.eq(beforeDoc)) return false;
 
   beforeDispatch?.(tr);

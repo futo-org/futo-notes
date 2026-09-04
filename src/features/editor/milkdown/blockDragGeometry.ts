@@ -1,19 +1,30 @@
 /*
- * Shared TOP-LEVEL block-boundary geometry for Milkdown's two block-drag
- * paths — formerly the ⠿ gutter handle's touch/pen fallback, and today
- * the iOS long-press plugin (mobileBlockDnd.ts) — so both resolve drop targets
- * identically instead of maintaining two copies that could silently disagree.
- * The move itself is equally shared, in blockMove.ts.
+ * Shared drop-slot geometry for Milkdown's two block-drag paths — the desktop
+ * ⠿ gutter handle (blockDropIndicator.ts) and the native shells' long-press
+ * drag (mobileBlockDnd.ts) — so both resolve drop targets identically instead
+ * of maintaining two copies that could silently disagree. The move itself is
+ * equally shared, in blockMove.ts.
  *
- * ProseMirror's own `dropPoint()` snaps to the nearest SCHEMA-VALID position
- * for a dragged slice, which is often a nested child slot (e.g. just below a
- * blockquote is still "inside the blockquote" as far as schema validity
- * goes) — not the nearest top-level sibling boundary a Notion-style block
- * reorder needs. `resolveTopLevelTarget` instead walks the doc to the
- * enclosing depth-1 (top-level) node, mirroring the walk
- * @milkdown/plugin-block's own `selectRootNodeByDom` does for hover
- * detection, then picks which of that block's two boundaries by which half of
- * its rect the point falls in.
+ * A DRAGGED NODE REORDERS AMONG ITS OWN KIND. The slots offered to a drag are
+ * the gaps between children of a container that could hold the node: the
+ * document itself, always, and — when the node started inside a list — any
+ * list of the same type, at any depth. A top-level paragraph therefore only
+ * ever sees top-level gaps (the same "snap out to the enclosing top-level
+ * block" rule as before: just below a blockquote is NOT "inside the
+ * blockquote", which is where ProseMirror's own `dropPoint()` would put it),
+ * while a list item sees the gaps between the items of its list, the items of
+ * any other list of that type, and the top-level gaps for pulling it out.
+ *
+ * This used to be top-level only, for both paths. That made a list item
+ * undraggable from the ⠿ handle: no slot could be resolved for it, so no line
+ * was drawn and the drop fell through to ProseMirror's default, which re-fit
+ * the item as its own new list beside the old one — "a break in between".
+ *
+ * A TOP-LEVEL GAP NEXT TO A SAME-TYPE LIST JOINS THAT LIST. Two adjacent lists
+ * of one type cannot be told apart in markdown (they re-parse as one list), so
+ * for a list item that gap is drawn and committed as the end of the list above
+ * it (or the start of the one below). That is also the gesture for "make the
+ * first bullet the last one": drag it just below the list.
  *
  * THERE IS EXACTLY ONE DROP SLOT PER BOUNDARY, and `pos` alone is its whole
  * identity. This used to carry a `corner: 'before' | 'after'` as well, which
@@ -25,10 +36,9 @@
  * boundaries stay distinct, because those are genuinely different positions.
  *
  * `indicator` is measured the way prosemirror-dropcursor measures its own block
- * cursor — the desktop ⠿ handle's HTML5 drag draws through that, and it has
- * always been one line per position — so both drag paths put the line in the
- * same place: midway between the bottom of the block before the gap and the top
- * of the block after it.
+ * cursor — one line per position, midway between the bottom of the block before
+ * the gap and the top of the block after it — so both drag paths put the line
+ * in the same place.
  */
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
@@ -45,23 +55,41 @@ export function contentColumnX(view: ProseView): number {
  * the line's CENTRE, so a caller that draws a 3px bar offsets by half of it. */
 export type DropIndicatorRect = { top: number; left: number; width: number };
 
-export type TopLevelTarget = {
+export type DropTarget = {
   /** The document position a drop commits to, and the slot's WHOLE identity —
    * dedupe and haptics key on this and nothing else. */
   pos: number;
-  /** The top-level block the slot is measured from: the one BEFORE the gap
-   * when there is one, else the one after. Canonical, so the same gap
-   * approached from either side yields an identical target. */
+  /** The block the slot is measured from: the one BEFORE the gap when there is
+   * one, else the one after. Canonical, so the same gap approached from either
+   * side yields an identical target. */
   dom: HTMLElement;
   indicator: DropIndicatorRect;
 };
 
-/** The one canonical target for the top-level gap at `pos`, whichever side the
- * pointer arrived from. Returns null when `pos` is not a top-level gap, or when
- * neither neighbour has rendered DOM to measure. */
-function slotAt(view: ProseView, pos: number): TopLevelTarget | null {
+/** The node being dragged and the container it is being dragged out of — the
+ * doc for a top-level block, the list for a list item. The parent decides
+ * which gaps the drag may land in (module doc). */
+export type DragSource = { node: ProseNode; parent: ProseNode };
+
+/** The drag source for the node starting at `pos`, or null when nothing does. */
+export function dragSourceAt(doc: ProseNode, pos: number): DragSource | null {
+  const node = doc.nodeAt(pos);
+  if (!node) return null;
+  return { node, parent: doc.resolve(pos).parent };
+}
+
+/** A parent that is not the document: the only containers a drag may land
+ * inside are other nodes of this exact type. */
+function containerTypeOf(source: DragSource) {
+  const { parent } = source;
+  return parent.type === parent.type.schema.topNodeType ? null : parent.type;
+}
+
+/** The one canonical target for the gap at `pos`, whichever side the pointer
+ * arrived from. Returns null when neither neighbour has rendered DOM to
+ * measure. */
+function slotAt(view: ProseView, pos: number): DropTarget | null {
   const at = view.state.doc.resolve(pos);
-  if (at.depth !== 0) return null;
 
   const nodeBefore = at.nodeBefore;
   const nodeAfter = at.nodeAfter;
@@ -74,7 +102,7 @@ function slotAt(view: ProseView, pos: number): TopLevelTarget | null {
   if (!dom) return null;
   const rect = dom.getBoundingClientRect();
   // In the gap when there are blocks on both sides; on the single neighbour's
-  // outer edge at the document's first and last boundary.
+  // outer edge at the container's first and last boundary.
   const top = before
     ? after
       ? (rect.bottom + after.getBoundingClientRect().top) / 2
@@ -83,42 +111,69 @@ function slotAt(view: ProseView, pos: number): TopLevelTarget | null {
   return { pos, dom, indicator: { top, left: rect.left, width: rect.width } };
 }
 
-/** Resolves (x, y) to the nearest TOP-LEVEL (depth-0/1) block boundary. See
- * the module doc comment above for why this deliberately does not reuse
- * ProseMirror's own `dropPoint()`, and why one boundary is one target. */
-export function resolveTopLevelTarget(
+/** A top-level gap beside a list of the dragged item's own type is that list's
+ * end (or start) — see the module doc. Any other slot is returned as is. */
+function joinAdjacentList(
+  view: ProseView,
+  slot: DropTarget,
+  containerType: ReturnType<typeof containerTypeOf>,
+): DropTarget | null {
+  if (!containerType) return slot;
+  const at = view.state.doc.resolve(slot.pos);
+  if (at.depth !== 0) return slot;
+  if (at.nodeBefore?.type === containerType) return slotAt(view, slot.pos - 1);
+  if (at.nodeAfter?.type === containerType) return slotAt(view, slot.pos + 1);
+  return slot;
+}
+
+/** Resolves (x, y) to the nearest gap `source` may land in: the innermost
+ * enclosing container of its kind (module doc), then WHICH of that
+ * container's child boundaries by which half of the child's rect `y` falls in
+ * (the same "which half of the block" test dropCursor itself uses for a
+ * block-level indicator). */
+export function resolveDropTarget(
   view: ProseView,
   x: number,
   y: number,
-): TopLevelTarget | null {
+  source: DragSource,
+): DropTarget | null {
   const coords = view.posAtCoords({ left: x, top: y });
   if (!coords) return null;
-  const size = view.state.doc.content.size;
+  const doc = view.state.doc;
   // `$pos` would be the natural ProseMirror name, but Svelte reserves the `$`
   // prefix for variables in the .svelte consumer of this module.
-  const at = view.state.doc.resolve(Math.max(0, Math.min(coords.pos, size)));
+  const at = doc.resolve(Math.max(0, Math.min(coords.pos, doc.content.size)));
+  const containerType = containerTypeOf(source);
 
-  // Already exactly a top-level gap (between/around root children).
-  if (at.depth === 0) return slotAt(view, at.pos);
+  for (let depth = at.depth; depth >= 0; depth -= 1) {
+    const container = at.node(depth);
+    if (depth !== 0 && container.type !== containerType) continue;
 
-  // Nested inside some top-level block's subtree — snap OUT to that block's
-  // own boundary, then pick WHICH of its two by which edge `y` is closer to
-  // (the same "which half of the block" test dropCursor itself uses for a
-  // block-level indicator).
-  const start = at.before(1);
-  const node = view.state.doc.nodeAt(start);
-  if (!node) return null;
-  const dom = view.nodeDOM(start);
-  if (!(dom instanceof HTMLElement)) return null;
-  const rect = dom.getBoundingClientRect();
-  const mid = (rect.top + rect.bottom) / 2;
-  return slotAt(view, y < mid ? start : start + node.nodeSize);
+    // The point is already in one of this container's gaps (between/around
+    // its children).
+    if (depth === at.depth) {
+      const slot = slotAt(view, at.pos);
+      return slot && joinAdjacentList(view, slot, containerType);
+    }
+
+    // Inside one of its children — snap OUT to that child's own boundary,
+    // then pick WHICH of its two by which edge `y` is closer to.
+    const childStart = at.before(depth + 1);
+    const child = at.node(depth + 1);
+    const dom = view.nodeDOM(childStart);
+    if (!(dom instanceof HTMLElement)) return null;
+    const rect = dom.getBoundingClientRect();
+    const mid = (rect.top + rect.bottom) / 2;
+    const slot = slotAt(view, y < mid ? childStart : childStart + child.nodeSize);
+    return slot && joinAdjacentList(view, slot, containerType);
+  }
+  return null;
 }
 
 export type TopLevelBlock = { pos: number; node: ProseNode; dom: HTMLElement };
 
 /** Resolves (x, y) to the TOP-LEVEL block node CONTAINING that point (as
- * opposed to `resolveTopLevelTarget`'s before/after boundary) — used to
+ * opposed to `resolveDropTarget`'s before/after boundary) — used to
  * decide what a press/tap is actually grabbing. Returns null when the point
  * doesn't land inside a top-level node's subtree (e.g. the empty gap past
  * the last block). */
@@ -168,14 +223,18 @@ const AUTO_SCROLL_MAX_SPEED_PX_S = 1400;
 const AUTO_SCROLL_MAX_FRAME_S = 0.05;
 
 /**
- * The drop boundary for a pointer at `clientY`, with the point clamped inside
- * the editor box so a finger dragged past either end still resolves to the
- * first or last block rather than to nothing.
+ * The drop boundary for `source` under a pointer at `clientY`, with the point
+ * clamped inside the editor box so a finger dragged past either end still
+ * resolves to the first or last block rather than to nothing.
  */
-export function targetAtPointerY(view: ProseView, clientY: number): TopLevelTarget | null {
+export function targetAtPointerY(
+  view: ProseView,
+  clientY: number,
+  source: DragSource,
+): DropTarget | null {
   const rect = view.dom.getBoundingClientRect();
   const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
-  return resolveTopLevelTarget(view, contentColumnX(view), y);
+  return resolveDropTarget(view, contentColumnX(view), y, source);
 }
 
 export interface DragAutoScroller {

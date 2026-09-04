@@ -28,6 +28,7 @@
   import {
     Editor,
     defaultValueCtx,
+    editorViewCtx,
     editorViewOptionsCtx,
     parserCtx,
     remarkStringifyOptionsCtx,
@@ -69,6 +70,7 @@
   import { resolveBlockContainment } from './blockContainment';
   import { resolveBlockDragMode } from './blockDragMode';
   import { blockDropIndicator } from './blockDropIndicator';
+  import { retargetListDragToItem } from './listItemHandleDrag';
   import { editorView, enclosingListItem } from './caretContext';
   import { computeActiveFormats } from './formatState';
   import { handleParityKeyDown } from './keyboardParity';
@@ -655,6 +657,13 @@
           getOffset: ({ editorDom, active }) => blockHandleOffset(editorDom, active.el),
         });
         blockProvider.update();
+        // AFTER the provider's own dragstart listener on the same element, so
+        // the plugin's list selection exists to be re-targeted
+        // (listItemHandleDrag.ts).
+        handleEl.addEventListener('dragstart', (event) => {
+          const view = created.ctx.get(editorViewCtx);
+          retargetListDragToItem(view, event);
+        });
         // On `document`, in the CAPTURE phase, because scroll events do not
         // bubble and WHICH element scrolls depends on the host: the editable
         // itself in the embed, the shell's `.note-body` on desktop (see the
