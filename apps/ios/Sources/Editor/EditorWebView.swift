@@ -216,8 +216,16 @@ struct EditorWebView: UIViewRepresentable {
         // Unbind this view's callbacks unless a newer attach already took over.
         // The shared WebView itself is NEVER torn down — it lives for the whole
         // app so the next note-open reuses it.
+        //
+        // NOTHING ELSE MAY GO HERE THAT WRITES SwiftUI STATE. `onAttachmentChange`
+        // used to be cleared on this line, and that write aborted the app on every
+        // exit from a note: AttributeGraph is invalidating the subgraph that owns
+        // the `@State` while this runs, so setting it trips Swift's exclusivity
+        // check ("Fatal access conflict detected"). `detach` above is also what
+        // makes such a clear redundant — the host's generation is monotonic and
+        // never equal to a detached token again, so a stale attachment token can
+        // no longer satisfy `isCurrentAttachment`.
         EditorHost.shared.detach(coordinator.token)
-        coordinator.onAttachmentChange?(nil)
     }
 
     /// Per-view binding state. The container's `onEnterWindow` re-adopts using
@@ -242,7 +250,7 @@ struct EditorWebView: UIViewRepresentable {
         private var onReady: (() -> Void)?
         private var onOpenNote: ((String) -> Void)?
         private var onFindMatches: ((FindMatchesReport) -> Void)?
-        fileprivate var onAttachmentChange: ((Int?) -> Void)?
+        private var onAttachmentChange: ((Int?) -> Void)?
 
         func sync(
             content: String, theme: String, localization: Localization, autoFocus: Bool,
