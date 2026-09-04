@@ -6,6 +6,7 @@ import {
   getContent,
   installFakeAndroidHost,
   messagesOfType,
+  withCaretObserved,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
 
@@ -51,9 +52,19 @@ async function open(page: Page, content: string): Promise<void> {
   await flushFrames(page);
 }
 
-/** Click at the end of the first text run equal to `text`. */
+/**
+ * Click at the end of the first text run equal to `text`.
+ *
+ * The click goes through `withCaretObserved` because ProseMirror learns about
+ * a pointer-placed caret from an ASYNC `selectionchange`, one rendering update
+ * later — while Playwright's next call lands ~3 ms later. Without the wait the
+ * Enter/Tab that follows is handled against the caret from BEFORE the click
+ * (its doc comment has the whole story). `End` is deliberately outside the
+ * wait: it can legitimately be a no-op, and it never leaves the cell the
+ * table commands resolve.
+ */
 async function caretAtEndOf(page: Page, text: string): Promise<void> {
-  await page.getByText(text, { exact: true }).first().click();
+  await withCaretObserved(page, () => page.getByText(text, { exact: true }).first().click());
   await page.keyboard.press('End');
 }
 
