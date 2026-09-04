@@ -146,35 +146,45 @@ fn desktop_theme_from_portal_read(reply: &str) -> Option<&'static str> {
 /// window itself, and their `auto` leaves the window following the OS, so their
 /// `prefers-color-scheme` is a signal they never overwrite. Only Linux needs a
 /// channel the app cannot poison.
+///
+/// `async` + `blocking` because a sync command runs on the main thread, and the
+/// Linux read spawns `gdbus` and waits for it — a D-Bus round trip per `auto`
+/// resolve, five of them on one KDE theme flip, each of which would otherwise
+/// stall the UI.
 #[tauri::command]
-pub(crate) fn read_desktop_color_scheme() -> Option<String> {
-    #[cfg(target_os = "linux")]
-    {
-        let output = std::process::Command::new("gdbus")
-            .args([
-                "call",
-                "--session",
-                "--dest",
-                "org.freedesktop.portal.Desktop",
-                "--object-path",
-                "/org/freedesktop/portal/desktop",
-                "--method",
-                "org.freedesktop.portal.Settings.Read",
-                "org.freedesktop.appearance",
-                "color-scheme",
-            ])
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let reply = String::from_utf8_lossy(&output.stdout);
-        desktop_theme_from_portal_read(&reply).map(str::to_owned)
+pub(crate) async fn read_desktop_color_scheme() -> Option<String> {
+    crate::background_tasks::blocking(|| Ok(read_desktop_color_scheme_blocking()))
+        .await
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "linux")]
+fn read_desktop_color_scheme_blocking() -> Option<String> {
+    let output = std::process::Command::new("gdbus")
+        .args([
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.portal.Desktop",
+            "--object-path",
+            "/org/freedesktop/portal/desktop",
+            "--method",
+            "org.freedesktop.portal.Settings.Read",
+            "org.freedesktop.appearance",
+            "color-scheme",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        None
-    }
+    let reply = String::from_utf8_lossy(&output.stdout);
+    desktop_theme_from_portal_read(&reply).map(str::to_owned)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_desktop_color_scheme_blocking() -> Option<String> {
+    None
 }
 
 #[cfg(target_os = "linux")]
