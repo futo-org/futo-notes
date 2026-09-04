@@ -165,17 +165,34 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   platform_integration.rs (`linux-theme-changed`)
 
   > **Gap:** on Linux an explicit light/dark choice poisons a later switch back
-  > to **auto** until the next desktop change or relaunch. Pinning the window
+  > to **auto**, and only a relaunch reliably clears it. Pinning the window
   > writes `gtk-application-prefer-dark-theme`, which is also the property
   > WebKitGTK answers `prefers-color-scheme` from, so `resolveTheme('auto')`
   > reads back the value the app itself just wrote: measured on a dark GTK
   > desktop, `setTheme('light')` makes the webview report
   > `prefers-color-scheme: dark = false`. Choosing Light and then Auto therefore
-  > leaves a dark desktop showing the light theme. The fix is for `auto` to
-  > resolve from the xdg portal's `color-scheme` on Linux rather than from the
-  > media query — the app already watches that signal, it just cannot read its
-  > current value. macOS and Windows are unaffected: their `auto` hands the
+  > leaves a dark desktop showing the light theme. A **relaunch does** recover
+  > it (fresh process, persisted `auto`, dark desktop → renders dark). A later
+  > **desktop change does not reliably** recover it: measured on Fedora 44 /
+  > KDE Plasma 6.7.4 / WebKitGTK, 3 of 8 dark↔light flips left the app light on
+  > a dark desktop. macOS and Windows are unaffected: their `auto` hands the
   > window back to the OS and never writes the appearance it later reads.
+  >
+  > Resolving `auto` from the xdg portal's `color-scheme` on Linux would fix the
+  > poisoning, but two further defects keep the flakiness and need fixing too:
+  >
+  > - `watch_linux_theme` decides dark by `line.contains("uint32 1")` alone, but
+  >   the portal also emits `('org.gnome.desktop.interface', 'color-scheme',
+  >   <'prefer-dark'>)` — a string payload with no `uint32`, which is therefore
+  >   read as **light**. A flip to dark delivers `["dark","dark","light","dark"]`
+  >   and self-corrects only because a `"dark"` happens to arrive last; signal
+  >   order is not guaranteed. → platform_integration.rs `watch_linux_theme`
+  > - `SettingsScreen.svelte` registers `watchSystemTheme(() =>
+  >   applyThemePreference('auto'))` with **no** `systemThemeOverride`, so that
+  >   listener re-resolves from the pinned property — a feedback loop. Every
+  >   wrong outcome across those 8 trials ended with a trailing `mq → false`.
+  >   Note this contradicts theme.ts's comment that Linux updates arrive only
+  >   through the portal. → SettingsScreen.svelte, theme.ts `watchSystemTheme`
 
 ### Application menu *(macOS)*
 

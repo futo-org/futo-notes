@@ -584,6 +584,18 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   appends); structure is revalidated on each edit. A cell context menu (desktop right-click) inserts/deletes rows/columns.
   → table/interactiveTableEditor.ts, table/tableEditorWidget.ts,
   table/tableOperations.ts
+
+  > **Gap:** select-all inside a table cell is not scoped to the cell, and can
+  > cost the whole note. With a cell genuinely focused (`document.activeElement`
+  > is the cell), Cmd/Ctrl+A selects out of the cell and through unrelated
+  > document text, so typing next replaces the note body (Cmd+Z recovers it).
+  > The DOM boundary looks right — `.sf-table` is `contentEditable="false"`
+  > between the CM6 root and the `contentEditable="true"` cell — and
+  > `TableEditorWidget.ignoreEvent()` returns true for events inside the table,
+  > so CM6 never intercepts the real keystroke and the browser's native
+  > select-all is what runs. Measured on desktop (macOS/WKWebKit) and
+  > pre-existing: the contenteditable structure is unchanged since v1.7.1.
+  > → table/tableEditorWidget.ts
 - Pressing Enter in a list item continues the list (inherits nesting, auto
   numbers ordered items, renumbers on edit); Backspace at item start dedents;
   Backspace in an empty item deletes it. → listContinuation.ts
@@ -867,9 +879,10 @@ unchanged by it.
   reachable three ways while the bar is open: the next/previous buttons in the
   bar (the mobile path — they work with the keyboard down), Enter / Shift+Enter
   while the query field is focused, and _(desktop)_ Ctrl/Cmd+G /
-  Ctrl/Cmd+Shift+G, which step next/previous no matter where focus sits — so
-  after Escape hands focus back to the editor body you can keep jumping through
-  occurrences and typing at the one you wanted. Each step moves the selection
+  Ctrl/Cmd+Shift+G, which step next/previous no matter where focus sits **while
+  the bar is open** — so after clicking into the editor body you can keep
+  jumping through occurrences and typing at the one you wanted. (Escape closes
+  the bar, and a closed bar makes both accelerators no-ops; see below.) Each step moves the selection
   to that match, makes it the current match, and scrolls it into view.
   Stepping wraps past either end (the count shows the wrapped position; there
   is no separate wrap indicator), and with zero matches every step is a no-op.

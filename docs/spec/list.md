@@ -445,6 +445,20 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   "Folder created". A hard guard in `createFolder` also blocks the
   idempotent `create_dir_all` from silently merging into an existing folder. →
   folderOperations.ts, NewFolderDialog.kt, NoteListView.swift
+
+  > **Gap:** _(native shells)_ only **desktop** names a forbidden character.
+  > iOS and Android gate Create on three conditions only — empty after
+  > sanitize, a case-insensitive duplicate, or a name that sanitizes away
+  > entirely (`clean == "Untitled" && raw != "Untitled"`) — and show
+  > `folders.duplicateName` / `folders.invalidName` for the last two. A name
+  > that contains a forbidden character but still sanitizes to something
+  > non-empty therefore leaves Create **enabled** and is accepted silently,
+  > sanitized on commit: `QA Folder/Bad` creates `QA FolderBad` with no
+  > message. `folders.validation.forbiddenCharacter` has exactly one caller,
+  > `folderOperations.ts`. Measured on Android; iOS shares the same three
+  > conditions in `NoteListView.swift`. Pre-existing — the native diff since
+  > v1.7.1 is localization strings only.
+  > → NewFolderDialog.kt, NoteListView.swift (`newFolderSanitizesAway`)
 - A folder can be renamed; the rename updates every note path beneath it and
   rewrites wikilinks pointing at those notes. Every folder row exposes the same
   discoverable action set: **Rename**, **Move to Folder…**, **Delete** — through
