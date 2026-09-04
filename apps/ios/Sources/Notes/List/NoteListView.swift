@@ -246,14 +246,24 @@ struct FolderContentsView: View {
             }
     }
 
-    /// True when the typed name only survives sanitization via the "Untitled"
-    /// fallback (sanitizeTitle's note-title contract turns "", "///", "..."
-    /// into "Untitled"). Creating then would silently make a folder the user
-    /// never named — treat it as invalid instead (2026-07-02 QA: "///" created
-    /// an "Untitled" folder). Literally typing "Untitled" stays allowed.
-    private var newFolderSanitizesAway: Bool {
-        newFolderClean == "Untitled"
-            && newFolderName.trimmingCharacters(in: .whitespacesAndNewlines) != "Untitled"
+    /// The shared filename rules' verdict on the typed name — a forbidden
+    /// character, an empty field, or a name that only survives sanitization via
+    /// the "Untitled" fallback. See FolderNameValidation.swift; the rules
+    /// themselves live in Rust.
+    private var newFolderProblem: FolderNameProblem? {
+        folderNameProblem(newFolderName)
+    }
+
+    /// Catalog path of the inline warning, or nil when the dialog shows its
+    /// ordinary hint. A shared-rule violation is named before a sibling
+    /// collision (desktop's order), and an empty field stays quiet.
+    private var newFolderWarningPath: String? {
+        if let problem = newFolderProblem { return problem.messagePath }
+        return newFolderIsDuplicate ? "folders.duplicateName" : nil
+    }
+
+    private var canCreateNewFolder: Bool {
+        newFolderProblem == nil && !newFolderIsDuplicate
     }
 
     private var renameFolderClean: String {
@@ -276,9 +286,20 @@ struct FolderContentsView: View {
         }
     }
 
-    private var renameFolderSanitizesAway: Bool {
-        renameFolderClean == "Untitled"
-            && renameFolderName.trimmingCharacters(in: .whitespacesAndNewlines) != "Untitled"
+    private var renameFolderProblem: FolderNameProblem? {
+        folderNameProblem(renameFolderName)
+    }
+
+    private var renameFolderWarningPath: String? {
+        if let problem = renameFolderProblem { return problem.messagePath }
+        return renameFolderIsDuplicate ? "folders.duplicateName" : nil
+    }
+
+    /// A rename to the folder's own current path is a no-op, so it is blocked
+    /// too — the only condition the create dialog does not share.
+    private var canRenameFolder: Bool {
+        renameFolderProblem == nil && !renameFolderIsDuplicate
+            && renamedFolderPath != folderRenameTarget
     }
 
     private var renamedFolderPath: String {
@@ -352,25 +373,18 @@ struct FolderContentsView: View {
             NewFolderDialog(
                 title: localization.localizedText("folders.newFolderTitleCase"),
                 confirmLabel: localization.localizedText("common.actions.create"),
-                message: newFolderIsDuplicate
-                    ? localization.localizedText("folders.duplicateName")
-                    : (newFolderSanitizesAway
-                        && !newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? localization.localizedText("folders.invalidName")
-                        : (folder.isEmpty
-                            ? localization.localizedText("folders.createInNotesPrompt")
-                            : localization.localizedText(
-                                "folders.createInFolderPrompt",
-                                arguments: ["folderName": title]
-                            ))),
-                messageIsWarning: newFolderIsDuplicate
-                    || (newFolderSanitizesAway
-                        && !newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+                message: newFolderWarningPath.map { localization.localizedText($0) }
+                    ?? (folder.isEmpty
+                        ? localization.localizedText("folders.createInNotesPrompt")
+                        : localization.localizedText(
+                            "folders.createInFolderPrompt",
+                            arguments: ["folderName": title]
+                        )),
+                messageIsWarning: newFolderWarningPath != nil,
                 name: $newFolderName,
-                // Mirror Android: Create is disabled on an empty, sanitize-away,
-                // or case-insensitive-duplicate sibling name (NewFolderDialog.kt).
-                canCreate: !newFolderClean.isEmpty && !newFolderIsDuplicate
-                    && !newFolderSanitizesAway,
+                // Create is disabled on any shared-rule violation or a
+                // case-insensitive-duplicate sibling name. [list.md]
+                canCreate: canCreateNewFolder,
                 onCancel: { setNewFolderDialog(visible: false) },
                 onCreate: {
                     createFolder()
@@ -401,19 +415,11 @@ struct FolderContentsView: View {
             NewFolderDialog(
                 title: localization.localizedText("folders.renameHeading"),
                 confirmLabel: localization.localizedText("common.actions.rename"),
-                message: renameFolderIsDuplicate
-                    ? localization.localizedText("folders.duplicateName")
-                    : (renameFolderSanitizesAway
-                        && !renameFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? localization.localizedText("folders.invalidName")
-                        : localization.localizedText("folders.renamePrompt")),
-                messageIsWarning: renameFolderIsDuplicate
-                    || (renameFolderSanitizesAway
-                        && !renameFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+                message: renameFolderWarningPath.map { localization.localizedText($0) }
+                    ?? localization.localizedText("folders.renamePrompt"),
+                messageIsWarning: renameFolderWarningPath != nil,
                 name: $renameFolderName,
-                canCreate: !renameFolderClean.isEmpty && !renameFolderIsDuplicate
-                    && !renameFolderSanitizesAway
-                    && renamedFolderPath != folderRenameTarget,
+                canCreate: canRenameFolder,
                 onCancel: { setFolderRenameTarget(nil) },
                 onCreate: { renameFolder() }
             )
@@ -608,13 +614,16 @@ struct FolderContentsView: View {
         // the idempotent Rust create_dir_all on an empty name or a
         // case-insensitive sibling collision — that would silently MERGE into
         // the existing folder. [list.md:152]
+        guard canCreateNewFolder else { return }
         let clean = newFolderClean
-        guard !clean.isEmpty, !newFolderIsDuplicate, !newFolderSanitizesAway else { return }
         store.createFolder(folder.isEmpty ? clean : folder + "/" + clean)
     }
 
     private func renameFolder() {
         guard let target = folderRenameTarget else { return }
+        // Same hard guard as createFolder: the disabled Rename button must not
+        // be the only thing standing between a rejected name and the engine.
+        guard canRenameFolder else { return }
         let destination = renamedFolderPath
         Task {
             if await store.renameFolder(from: target, to: destination) != nil {
