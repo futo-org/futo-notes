@@ -73,8 +73,8 @@ fn install_linux_log_filters() {
 // derives the media query from that same property, so once the window carries a
 // pinned appearance the query only echoes the app's own choice. The xdg desktop
 // portal's `org.freedesktop.appearance` / `color-scheme` is the desktop's
-// answer, and nothing this app does can overwrite it — so it is the signal a
-// desktop light/dark change has to be read from.
+// answer, and nothing this app does can overwrite it — so it is what `auto`
+// resolves from, both as a one-shot read and as a change signal.
 
 /// The innermost D-Bus variant payload in a `gdbus` line: the text between the
 /// last `<` and the `>` that closes it. `<uint32 1>` and the doubly-wrapped
@@ -130,6 +130,51 @@ fn desktop_theme_from_setting_changed(line: &str) -> Option<&'static str> {
         return None;
     }
     color_scheme_value_to_theme(variant_payload(value)?)
+}
+
+/// The desktop light/dark preference in a `Settings.Read` reply, or `None` when
+/// the portal answered nothing usable (no portal, an error, an unknown value) —
+/// in which case `auto` falls back rather than inventing a theme.
+#[cfg(any(test, target_os = "linux"))]
+fn desktop_theme_from_portal_read(reply: &str) -> Option<&'static str> {
+    color_scheme_value_to_theme(variant_payload(reply)?)
+}
+
+/// Read the desktop's current light/dark preference.
+///
+/// `None` off Linux: macOS and Windows report the system appearance through the
+/// window itself, and their `auto` leaves the window following the OS, so their
+/// `prefers-color-scheme` is a signal they never overwrite. Only Linux needs a
+/// channel the app cannot poison.
+#[tauri::command]
+pub(crate) fn read_desktop_color_scheme() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        let output = std::process::Command::new("gdbus")
+            .args([
+                "call",
+                "--session",
+                "--dest",
+                "org.freedesktop.portal.Desktop",
+                "--object-path",
+                "/org/freedesktop/portal/desktop",
+                "--method",
+                "org.freedesktop.portal.Settings.Read",
+                "org.freedesktop.appearance",
+                "color-scheme",
+            ])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let reply = String::from_utf8_lossy(&output.stdout);
+        desktop_theme_from_portal_read(&reply).map(str::to_owned)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -293,6 +338,35 @@ mod tests {
         assert!(
             interpreted.iter().all(|theme| *theme == "dark"),
             "a dark desktop produced {interpreted:?}"
+        );
+    }
+
+    #[test]
+    fn reads_the_settings_read_reply() {
+        assert_eq!(
+            desktop_theme_from_portal_read("(<<uint32 1>>,)\n"),
+            Some("dark")
+        );
+        assert_eq!(
+            desktop_theme_from_portal_read("(<<uint32 2>>,)\n"),
+            Some("light")
+        );
+        assert_eq!(
+            desktop_theme_from_portal_read("(<<uint32 0>>,)\n"),
+            Some("light")
+        );
+        assert_eq!(
+            desktop_theme_from_portal_read("(<<'prefer-dark'>>,)\n"),
+            Some("dark")
+        );
+        // A desktop with no portal answers nothing usable; `auto` must fall
+        // back rather than invent a theme.
+        assert_eq!(desktop_theme_from_portal_read(""), None);
+        assert_eq!(
+            desktop_theme_from_portal_read(
+                "Error: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown"
+            ),
+            None
         );
     }
 }

@@ -109,6 +109,27 @@ export function setNativeWindowAppearance(theme: 'dark' | 'light' | null): void 
     .catch((error) => console.warn('Failed to set the native window appearance:', error));
 }
 
+// The desktop environment's own light/dark preference, for the `auto` theme.
+//
+// Distinct from `prefers-color-scheme`: on Linux that media query is derived
+// from `gtk-application-prefer-dark-theme`, which is the same property setting
+// the window's appearance writes — so once the app pins an appearance the page
+// only reads back its own choice. The desktop portal answers for the desktop.
+//
+// `null` means "no answer here" — off Tauri, on macOS and Windows (whose `auto`
+// hands the window back to the OS and so never poisons the media query), and on
+// a Linux desktop with no portal. Callers fall back to the media query.
+export async function readDesktopColorScheme(): Promise<'dark' | 'light' | null> {
+  if (platformName !== 'tauri') return null;
+  try {
+    const { readDesktopColorScheme: read } = await import('./tauri/desktopColorScheme');
+    return await read();
+  } catch (error) {
+    console.warn('Failed to read the desktop color scheme:', error);
+    return null;
+  }
+}
+
 // Lazy-loaded platform filesystem implementation
 let _fs: PlatformFS | null = null;
 
