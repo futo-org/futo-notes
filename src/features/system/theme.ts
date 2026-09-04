@@ -1,4 +1,4 @@
-import { isLinux, setNativeWindowAppearance } from '$lib/platform';
+import { isLinux, readDesktopColorScheme, setNativeWindowAppearance } from '$lib/platform';
 
 export type ThemePreference = 'auto' | 'dark' | 'light';
 export type ResolvedTheme = 'dark' | 'light';
@@ -47,9 +47,11 @@ export function applyResolvedTheme(theme: ResolvedTheme): void {
  *   Measured on Fedora 44 / WebKitGTK 2.52.5 against a dark GTK desktop: this
  *   app rendered LIGHT (data-theme=light, prefers-color-scheme false) where the
  *   pre-change build rendered dark.
- * - Nothing is lost by pinning: tao emits no ThemeChanged on Linux at all.
- *   Desktop changes reach the app through the portal instead, as the
- *   `linux-theme-changed` event `watchSystemThemeTauri` listens for.
+ * - Nothing is lost by pinning, because the page was never the signal: tao
+ *   emits no ThemeChanged on Linux at all, and `prefers-color-scheme` there
+ *   only reads back the pin. The desktop's own answer reaches the app through
+ *   the portal — the `linux-theme-changed` event `watchSystemThemeTauri`
+ *   listens for, and the `readDesktopColorScheme` read `resolveAutoTheme` does.
  */
 export function windowAppearanceFor(
   preference: ThemePreference,
@@ -60,12 +62,47 @@ export function windowAppearanceFor(
   return linux ? resolved : null;
 }
 
+/**
+ * What `auto` resolves to right now.
+ *
+ * Off Linux this is the reported system appearance, or the page's own
+ * `prefers-color-scheme` — a signal macOS and Windows never overwrite, because
+ * their `auto` hands the window back to the OS (see `windowAppearanceFor`).
+ *
+ * On Linux the page is NOT that signal. `auto` has to pin the window there, and
+ * any pin writes `gtk-application-prefer-dark-theme`, which is the same property
+ * WebKitGTK answers `prefers-color-scheme` from — so the query reads back the
+ * app's own last choice. Measured on Fedora 44 / KDE Plasma 6.7.4: on a dark
+ * desktop, choosing Light and then Auto left the app light, because `auto`
+ * believed the value Light had just written. The xdg portal's
+ * `org.freedesktop.appearance` / `color-scheme` is the desktop's answer and
+ * nothing this app does can overwrite it, so on Linux that comes first, with the
+ * reported change and then the media query as fallbacks for a desktop that has
+ * no portal to ask.
+ */
+export async function resolveAutoTheme(
+  systemThemeOverride?: ResolvedTheme,
+  linux: boolean = isLinux,
+): Promise<ResolvedTheme> {
+  if (!linux) return systemThemeOverride ?? resolveTheme('auto');
+  return (await readDesktopColorScheme()) ?? systemThemeOverride ?? resolveTheme('auto');
+}
+
+// Serialises overlapping applies. One desktop theme change is a BURST of portal
+// signals — five on the KDE flip this was measured against — and resolving each
+// of them now crosses to the portal, so an apply can still be in flight when
+// the next starts. Without this, whichever RESOLVED last won, and a stale answer
+// could latch both the wrong theme and the wrong window pin behind it.
+let latestApply = 0;
+
 export async function applyThemePreference(
   preference: ThemePreference,
   systemThemeOverride?: ResolvedTheme,
 ): Promise<ResolvedTheme> {
+  const apply = ++latestApply;
   const resolved =
-    preference === 'auto' && systemThemeOverride ? systemThemeOverride : resolveTheme(preference);
+    preference === 'auto' ? await resolveAutoTheme(systemThemeOverride) : resolveTheme(preference);
+  if (apply !== latestApply) return resolved;
   applyResolvedTheme(resolved);
   setNativeWindowAppearance(windowAppearanceFor(preference, resolved));
   await syncStatusBarTheme(resolved);

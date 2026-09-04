@@ -441,10 +441,27 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   shared Rust `sanitizeTitle`. Folder-name violations are worded for a FOLDER
   ("That character can't be used in a folder name", "Folder name cannot be
   empty") — the shared rules are layered on `validateTitle`, so the surface
-  supplies the noun rather than the manifest. A committed create toasts
+  supplies the noun rather than the manifest. Every shell reaches the
+  `forbidden_chars` verdict out of the shared Rust `validateTitle` rather than
+  carrying its own character list, and reports a name rule **before** the
+  sibling collision its sanitized form would hit. Android routes create,
+  rename and the folder picker's "New folder…" through one dialog
+  (`NewFolderDialog.kt` `folderNameVerdict`); iOS shares one validator between
+  its create and rename dialogs (`FolderNameValidation.swift`
+  `folderNameProblem`). A committed create toasts
   "Folder created". A hard guard in `createFolder` also blocks the
   idempotent `create_dir_all` from silently merging into an existing folder. →
   folderOperations.ts, NewFolderDialog.kt, NoteListView.swift
+
+  > **Gap:** _(iOS)_ the **Move to Folder…** sheet's inline "New Folder…"
+  > validates nothing. It is a plain `.alert` guarded only by
+  > `guard !name.isEmpty`, so it accepts a forbidden character, a
+  > case-insensitive duplicate and a name that sanitizes away — none of
+  > which the New Folder and Rename dialogs allow any more. Android's
+  > folder-picker "New folder…" shares the validated dialog and is not
+  > affected. Closing this means the alert has to become a live-rendering
+  > dialog like the other two so it can show a message at all.
+  > → NoteListView.swift (`MoveToFolderSheet`, `createAndMove`)
 - A folder can be renamed; the rename updates every note path beneath it and
   rewrites wikilinks pointing at those notes. Every folder row exposes the same
   discoverable action set: **Rename**, **Move to Folder…**, **Delete** — through

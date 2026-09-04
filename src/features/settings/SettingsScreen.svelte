@@ -1,7 +1,7 @@
 <script lang="ts">
   import { isTauri } from '$lib/platform';
   import { setNotesDir, vaultDisplayPath, vaultStatus } from '$lib/platform/tauri';
-  import { applyThemePreference, watchSystemTheme } from '$features/system/theme';
+  import { applyThemePreference } from '$features/system/theme';
   import { getAppVersion } from '$features/system/crashHandler';
   import { updateChecker } from '$features/system/updateChecker.svelte';
   import { selfUpdateSupported, updaterSupported } from '$features/system/updater';
@@ -222,11 +222,6 @@
       updateSupported = supported;
     });
   }
-
-  $effect(() => {
-    if (preferences.appearance.theme !== 'auto') return;
-    return watchSystemTheme(() => void applyThemePreference('auto'));
-  });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->

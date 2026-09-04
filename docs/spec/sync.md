@@ -188,7 +188,28 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   every upload (the 2026-06-29 EACCES/HTTP-500 incident) showed **no** client
   signal for days. **The user-facing message is computed ONCE, in the Rust
   core** (`SyncSummary::failure_message`) and rendered verbatim by all three
-  shells: server-bound failures (upload/delete) read "N change(s) couldn't
+  shells.
+  > **Gap:** _(desktop)_ the core message is NOT rendered verbatim — the
+  > desktop shell discards it. `raiseSyncError` sets the user-facing
+  > `syncErrorMessage` to `syncErrorForSource(source)`, a fixed catalog string
+  > per source (`sync.errors.completedWithErrors`, or
+  > `sync.errors.liveUnavailable` for the stream), and stores the core's own
+  > sentence in `syncErrorDiagnostic` — a plain non-reactive `let` that is read
+  > only to dedupe repeat failures and is never rendered anywhere. So the
+  > vanished-vault cycle above computes "Can't find your vault folder at
+  > <path>. Please reconfigure in settings." correctly (verified: the cycle
+  > names the folder and does not recreate it) and the user still reads "Sync
+  > completed with errors. Some changes could not reach the server." That is
+  > github#44's original symptom — a message that sends the user to audit the
+  > server instead of the folder — surviving on desktop through this path.
+  > Pre-existing: `raiseSyncError` has behaved this way since `bdcee4ba`
+  > (2026-08-24), so commit 5b81bc9a fixed the core and the startup path but
+  > never this surface. Note this line and the classification bullet above
+  > ("the user-facing boundary resolves a stable source-specific catalog
+  > message") contradict each other; the code implements the latter.
+  > → syncManager.svelte.ts (`raiseSyncError`, `syncErrorForSource`)
+
+  The core wording, when a shell does render it: server-bound failures (upload/delete) read "N change(s) couldn't
   reach the server", with the most common HTTP status appended when one
   exists (ties keep the first-seen code, deterministically on every
   platform); pull-side download failures read "N note(s) couldn't be

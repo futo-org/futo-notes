@@ -3,23 +3,36 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   resolveTheme,
+  resolveAutoTheme,
   applyThemePreference,
   applyResolvedTheme,
   windowAppearanceFor,
 } from './theme';
-import { setNativeWindowAppearance } from '$lib/platform';
+import { readDesktopColorScheme, setNativeWindowAppearance } from '$lib/platform';
+
+// `isLinux` is a live binding read at call time, so a getter lets one suite
+// exercise both platform branches without reloading the module.
+const platform = vi.hoisted(() => ({ isLinux: false }));
 
 vi.mock('$lib/platform', () => ({
   setNativeWindowAppearance: vi.fn(),
-  isLinux: false,
+  readDesktopColorScheme: vi.fn(async () => null),
+  get isLinux() {
+    return platform.isLinux;
+  },
 }));
 
 const nativeAppearance = vi.mocked(setNativeWindowAppearance);
+const desktopColorScheme = vi.mocked(readDesktopColorScheme);
 
 afterEach(() => {
   delete document.documentElement.dataset.theme;
   document.documentElement.style.colorScheme = '';
   nativeAppearance.mockClear();
+  desktopColorScheme.mockReset();
+  desktopColorScheme.mockResolvedValue(null);
+  platform.isLinux = false;
+  vi.unstubAllGlobals();
 });
 
 describe('resolveTheme', () => {
@@ -117,5 +130,114 @@ describe('windowAppearanceFor', () => {
   it('sends the resolved theme on auto on Linux, where null would force light', () => {
     expect(windowAppearanceFor('auto', 'dark', true)).toBe('dark');
     expect(windowAppearanceFor('auto', 'light', true)).toBe('light');
+  });
+});
+
+// The user-visible bug this suite locks down: on a DARK Linux desktop, choosing
+// Light and then Auto left the app light.
+//
+// Linux `auto` has to pin the window (see windowAppearanceFor above), and any
+// pin writes `gtk-application-prefer-dark-theme` — the very property WebKitGTK
+// answers the page's own `prefers-color-scheme` from. So an explicit choice
+// poisons the signal a later `auto` reads back: measured on a dark GTK desktop,
+// `setTheme('light')` makes the webview report `prefers-color-scheme: dark` as
+// false. jsdom's matchMedia reports exactly that (matches: false), so it stands
+// in for the poisoned reading here.
+//
+// The desktop's own answer lives in the xdg portal's
+// `org.freedesktop.appearance` / `color-scheme`, which nothing this app does can
+// overwrite — so on Linux that is what `auto` resolves from.
+
+/** What WebKitGTK answers `prefers-color-scheme` with, i.e. the pinned value. */
+function stubPageColorScheme(dark: boolean): void {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query.includes('dark') ? dark : !dark,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+}
+
+describe('resolveAutoTheme', () => {
+  it('prefers the desktop portal over the poisoned page media query on Linux', async () => {
+    // The page reports "not dark" because Light pinned the window a moment ago,
+    // while the desktop it claims to describe is dark.
+    stubPageColorScheme(false);
+    desktopColorScheme.mockResolvedValue('dark');
+
+    await expect(resolveAutoTheme(undefined, true)).resolves.toBe('dark');
+  });
+
+  it('follows the page media query on Linux when the portal agrees with it', async () => {
+    stubPageColorScheme(true);
+    desktopColorScheme.mockResolvedValue('dark');
+
+    await expect(resolveAutoTheme(undefined, true)).resolves.toBe('dark');
+  });
+
+  it('falls back to the reported change when the portal cannot be read', async () => {
+    desktopColorScheme.mockResolvedValue(null);
+    await expect(resolveAutoTheme('dark', true)).resolves.toBe('dark');
+  });
+
+  it('falls back to the page media query when Linux offers neither', async () => {
+    desktopColorScheme.mockResolvedValue(null);
+    await expect(resolveAutoTheme(undefined, true)).resolves.toBe('light');
+  });
+
+  // macOS and Windows hand the window back to the OS on `auto` and so never
+  // write the appearance they read — their media query is trustworthy, and
+  // reaching for a Linux portal there would be a regression, not a fix.
+  it('never asks the desktop portal off Linux', async () => {
+    desktopColorScheme.mockResolvedValue('dark');
+
+    await expect(resolveAutoTheme(undefined, false)).resolves.toBe('light');
+    await expect(resolveAutoTheme('dark', false)).resolves.toBe('dark');
+
+    expect(desktopColorScheme).not.toHaveBeenCalled();
+  });
+});
+
+describe('applyThemePreference — Linux auto', () => {
+  it('renders and pins the desktop theme after an explicit choice poisoned the page', async () => {
+    platform.isLinux = true;
+    desktopColorScheme.mockResolvedValue('dark');
+    // Choosing Light pins the window, tao writes
+    // gtk-application-prefer-dark-theme=false, and the page starts answering
+    // "not dark" — on a desktop that is dark.
+    stubPageColorScheme(false);
+
+    await applyThemePreference('light');
+    expect(document.documentElement.dataset.theme).toBe('light');
+
+    await applyThemePreference('auto');
+
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(nativeAppearance).toHaveBeenLastCalledWith('dark');
+  });
+
+  it('does not consult the desktop portal off Linux', async () => {
+    await applyThemePreference('auto');
+    expect(desktopColorScheme).not.toHaveBeenCalled();
+  });
+
+  // One desktop theme change is a BURST of portal signals — five to seven on
+  // KDE — and resolving each of them crosses to the portal, so the applies
+  // overlap. Whichever RESOLVED last used to win, which is how a stale answer
+  // latched the wrong theme AND the wrong window appearance with it.
+  it('lets the newest request win when applies overlap', async () => {
+    platform.isLinux = true;
+    desktopColorScheme
+      .mockImplementationOnce(
+        () => new Promise((resolve) => setTimeout(() => resolve('light'), 20)),
+      )
+      .mockResolvedValue('dark');
+
+    const stale = applyThemePreference('auto');
+    const current = applyThemePreference('auto');
+    await Promise.all([stale, current]);
+
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(nativeAppearance).toHaveBeenLastCalledWith('dark');
   });
 });

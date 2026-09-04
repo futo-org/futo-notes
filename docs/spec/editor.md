@@ -584,6 +584,18 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   appends); structure is revalidated on each edit. A cell context menu (desktop right-click) inserts/deletes rows/columns.
   → table/interactiveTableEditor.ts, table/tableEditorWidget.ts,
   table/tableOperations.ts
+
+  > **Gap:** select-all inside a table cell is not scoped to the cell, and can
+  > cost the whole note. With a cell genuinely focused (`document.activeElement`
+  > is the cell), Cmd/Ctrl+A selects out of the cell and through unrelated
+  > document text, so typing next replaces the note body (Cmd+Z recovers it).
+  > The DOM boundary looks right — `.sf-table` is `contentEditable="false"`
+  > between the CM6 root and the `contentEditable="true"` cell — and
+  > `TableEditorWidget.ignoreEvent()` returns true for events inside the table,
+  > so CM6 never intercepts the real keystroke and the browser's native
+  > select-all is what runs. Measured on desktop (macOS/WKWebKit) and
+  > pre-existing: the contenteditable structure is unchanged since v1.7.1.
+  > → table/tableEditorWidget.ts
 - Pressing Enter in a list item continues the list (inherits nesting, auto
   numbers ordered items, renumbers on edit); Backspace at item start dedents;
   Backspace in an empty item deletes it. → listContinuation.ts
@@ -867,9 +879,10 @@ unchanged by it.
   reachable three ways while the bar is open: the next/previous buttons in the
   bar (the mobile path — they work with the keyboard down), Enter / Shift+Enter
   while the query field is focused, and _(desktop)_ Ctrl/Cmd+G /
-  Ctrl/Cmd+Shift+G, which step next/previous no matter where focus sits — so
-  after Escape hands focus back to the editor body you can keep jumping through
-  occurrences and typing at the one you wanted. Each step moves the selection
+  Ctrl/Cmd+Shift+G, which step next/previous no matter where focus sits **while
+  the bar is open** — so after clicking into the editor body you can keep
+  jumping through occurrences and typing at the one you wanted. (Escape closes
+  the bar, and a closed bar makes both accelerators no-ops; see below.) Each step moves the selection
   to that match, makes it the current match, and scrolls it into view.
   Stepping wraps past either end (the count shows the wrapped position; there
   is no separate wrap indicator), and with zero matches every step is a no-op.
@@ -894,10 +907,28 @@ unchanged by it.
 - _(desktop)_ Escape closes the bar and returns focus to the editor with the
   selection left on the current match.
 - _(Android)_ System Back with the bar open dismisses the bar, not the screen:
-  that first Back is consumed by find. Dismissal returns focus to the editor
-  body with the soft keyboard still up, so an intervening Back may be consumed
-  by the IME (standard Android behavior) before a Back exits the note. →
-  NoteEditorScreen.kt `findBackAction`
+  that Back is consumed by find. → NoteEditorScreen.kt `findBackAction`
+
+  > **Gap:** _(Android)_ on a gesture-navigation device that promise does not
+  > hold while the keyboard is up, because the system consumes the edge swipe
+  > for the IME rather than delivering it to the app — the bar's Back handling
+  > is `onKeyPreIme` on the query field, which only ever sees key events.
+  > Measured on a gesture-nav Android 16 emulator with the bar open and the
+  > query field focused: the 1st swipe unfocused the field and left the keyboard
+  > up, the 2nd took the keyboard down, the 3rd dismissed the bar, the 4th left
+  > the note. Closing the bar with its X is unaffected (one Back leaves the note
+  > after it). → NoteEditorScreen.kt `FindQueryEditText.onKeyPreIme`
+- _(Android)_ Closing the bar takes the soft keyboard down with it whenever the
+  bar's own query field owned the keyboard, so the next Back leaves the note.
+  The field is a native `EditText`, and Android leaves the IME shown when the
+  view serving it is removed: a keyboard left bound to the departed field
+  swallows the next Back instead (measured before the fix: `mInputShown=true`
+  with the bare `AndroidComposeView` served, and leaving the note took a second
+  Back). Dismissal does NOT hand focus back to the editor body — the WebView
+  stays unfocused until the user taps into it. When the body owns the keyboard
+  instead (the user tapped into the note while the bar was open) it stays up,
+  and standard Android applies: a Back drops the keyboard before a Back leaves
+  the note. → NoteEditorScreen.kt `dismissFind`
 - _(iOS)_ the X closes the bar; the editor's exit chrome (back chevron / edge
   swipe) exits the note as usual, taking the bar with the screen.
 - _(iOS/Android)_ Closing the find bar clears every match highlight and restores

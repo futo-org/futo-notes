@@ -163,19 +163,25 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   page's own `prefers-color-scheme`, so handing the window back would make a dark
   Linux desktop render light. → theme.ts `windowAppearanceFor`,
   platform_integration.rs (`linux-theme-changed`)
-
-  > **Gap:** on Linux an explicit light/dark choice poisons a later switch back
-  > to **auto** until the next desktop change or relaunch. Pinning the window
-  > writes `gtk-application-prefer-dark-theme`, which is also the property
-  > WebKitGTK answers `prefers-color-scheme` from, so `resolveTheme('auto')`
-  > reads back the value the app itself just wrote: measured on a dark GTK
-  > desktop, `setTheme('light')` makes the webview report
-  > `prefers-color-scheme: dark = false`. Choosing Light and then Auto therefore
-  > leaves a dark desktop showing the light theme. The fix is for `auto` to
-  > resolve from the xdg portal's `color-scheme` on Linux rather than from the
-  > media query — the app already watches that signal, it just cannot read its
-  > current value. macOS and Windows are unaffected: their `auto` hands the
-  > window back to the OS and never writes the appearance it later reads.
+- On **auto** the resolved theme comes from the system's own answer, which is a
+  different signal per platform. macOS and Windows read the page's
+  `prefers-color-scheme`: their `auto` hands the window back to the OS, so they
+  never write the value they read. Linux reads the xdg desktop portal's
+  `org.freedesktop.appearance` / `color-scheme`, because pinning makes the page's
+  media query an echo of the app's own last choice — so on a dark desktop,
+  choosing **Light** and then **Auto** renders dark, and it does so immediately
+  rather than only after a relaunch. Linux falls back to the reported change and
+  then to the media query only when no portal answers. → theme.ts
+  `resolveAutoTheme`, platform_integration.rs `read_desktop_color_scheme`
+- One desktop light/dark change arrives as a **burst** of portal signals, not
+  one, and every signal the app interprets agrees on the same theme, whatever
+  order they arrive in: `color-scheme` is read in both its `uint32` and its
+  `'prefer-dark'`/`'prefer-light'`/`'default'` string spelling, and settings that
+  merely look like a theme are ignored — `accent-color`, and KDE's `ColorScheme`
+  scheme *name*, whose value "BreezeDark" contains "dark" while "BreezeLight"
+  contains no "light". Overlapping theme applies are serialized so the newest
+  request wins, never whichever resolved last. → platform_integration.rs
+  `desktop_theme_from_setting_changed`, theme.ts `applyThemePreference`
 
 ### Application menu *(macOS)*
 
