@@ -1325,6 +1325,18 @@
    * growing with its content while never ending above its container, which is
    * what docs/spec/editor.md's "Blank editor surface" requires.
    * → tests/editor-scroll.spec.ts, tests/p0-regressions.spec.ts */
+  /* The desktop shell's body text starts where the title text starts. The
+   * title column is 740px wide with 20px of padding; `.editor-container` is
+   * 860px (desktop-shell.css: 60px past the title column each side, so the
+   * space beside the text is reachable). 60 + 20 = 80px puts the first
+   * character of a paragraph under the first character of the title, where
+   * the mobile gutter's 54px above left the body 26px to the LEFT of it. The
+   * ⠿ handle floats in this padding (floating-ui positions it), so the wider
+   * gutter only gives it more room. → tests/p2-regressions.spec.ts */
+  :global(.notes-shell.desktop-layout .futo-milkdown .ProseMirror) {
+    padding-left: 80px;
+  }
+
   :global(.notes-shell .futo-milkdown .ProseMirror) {
     height: auto;
     min-height: 100%;

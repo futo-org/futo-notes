@@ -42,6 +42,7 @@ about.
   > variable. _(native shells)_ →
   > src/editor-embed/createFutoEditorApi.ts `--futo-cm-pad-inline`,
   > src/features/editor/milkdown/MilkdownEditor.svelte `.ProseMirror` padding
+
 - When the shell and the bundle were built against different bridge versions,
   the editor **still boots** and the bundle posts `bridgeVersionMismatch`; each
   shell logs it (Android also toasts in a debug build). A shipped app carries
@@ -212,6 +213,11 @@ about.
   shell's deselect zone ignores presses on a descendant — so that space would
   place no caret, take no focus, and swallow the press entirely. → src/features/
   editor/milkdown/MilkdownEditor.svelte `.milkdown` / `.ProseMirror` _(desktop)_
+- The body's first character sits under the title's first character: the
+  860px editor column is 60px wider than the 740px title column on each side,
+  and the body's left padding is that 60px plus the title's 20px. The ⠿ handle
+  floats inside that padding. _(desktop)_ → src/features/editor/milkdown/
+  MilkdownEditor.svelte `.desktop-layout .ProseMirror`, tests/p2-regressions.spec.ts
 - An empty note is therefore fully typeable: it holds one empty paragraph, and
   a press ANYWHERE in the note area places the caret in it. This is the state
   every new note starts in. → tests/p0-regressions.spec.ts "Empty-note caret",
@@ -417,6 +423,7 @@ about.
   apps/ios/Sources/Editor/EditorWebView.swift `applyTextInteractionLevel`,
   packages/editor/src/bridge.ts `BlockDragMessage`
   _(native shells, iOS)_
+
 ## Markdown elements (rendered / decorated)
 
 - Headings h1–h6, with inline emphasis / code / wikilinks inside.

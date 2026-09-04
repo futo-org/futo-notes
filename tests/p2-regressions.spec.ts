@@ -38,6 +38,25 @@ async function blurEditor(page: Page): Promise<void> {
 }
 
 test.describe('P2 Header + Formatting Regressions', () => {
+  // The desktop shell centres a 740px title column inside an 860px editor
+  // column, so the body's left padding has to absorb that 60px difference plus
+  // the title's own 20px. At the mobile gutter's 54px the body started 26px to
+  // the LEFT of the title (docs/spec/editor.md → "Blank editor surface").
+  test('body text starts where the title text starts', async ({ page }) => {
+    await openNewNote(page);
+    await page.locator('.title-input').fill('Aligned');
+    await typeInEditor(page, 'the alignment is right here');
+
+    const [titleLeft, paragraphLeft] = await page.evaluate(
+      (selector) => [
+        document.querySelector('.title-input')!.getBoundingClientRect().left,
+        document.querySelector(`${selector} p`)!.getBoundingClientRect().left,
+      ],
+      EDITOR,
+    );
+    expect(Math.abs(paragraphLeft - titleLeft)).toBeLessThanOrEqual(1);
+  });
+
   test('pressing Enter in title moves focus to note body editor', async ({ page }) => {
     await openNewNote(page);
 
