@@ -326,13 +326,19 @@ about.
 - The lifted ghost shows the WHOLE block from its very first frame, sits over
   the block it was lifted from (padded by the card's own breathing room, so it
   reads against the drop-indicator line, which is drawn in viewport space), and
-  is capped at 40vh — only a block that genuinely exceeds the cap is cropped,
-  and that crop fades out rather than cutting off. The offscreen-block
-  containment below never reaches the ghost: it is a property of the live
-  document, and a preview it skipped rendering popped up one unrendered line
-  tall (Chromium only, so Android showed it and iOS did not). →
-  src/features/editor/milkdown/mobileBlockDnd.ts `createGhost`,
-  tests/editor-embed-milkdown.spec.ts _(native shells)_
+  is capped at 40% of the screen height — only a block that genuinely exceeds
+  the cap is cropped, and that crop fades out rather than cutting off. Two
+  things the card must never inherit, each of which cropped it on Android and
+  not on iOS: the offscreen-block containment below (a property of the LIVE
+  document — a preview whose rendering was skipped popped up one unrendered
+  line tall), and a `vh` height cap (both native hosts' web view resolves
+  viewport units against a zero-height containing block, so `40vh` came out as
+  `0px` and the card collapsed to its own padding). The cap is therefore
+  computed in pixels from `window.innerHeight`. Verified on the pool emulator
+  2026-09-03 (Android 16, Chromium 133 WebView). →
+  src/features/editor/milkdown/mobileBlockDnd.ts `createGhost`
+  `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
+  _(native shells)_
 - On desktop a ⠿ handle appears in the left gutter beside the block under the
   pointer, and dragging it with a mouse reorders blocks. Where there is no
   hover, the handle is still surfaced for the block that was just tapped or
