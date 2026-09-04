@@ -323,6 +323,16 @@ about.
   `resolveBlockDragMode`, src/features/editor/milkdown/mobileBlockDnd.ts,
   src/features/editor/milkdown/blockDragMode.test.ts
   _(native shells)_
+- The lifted ghost shows the WHOLE block from its very first frame, sits over
+  the block it was lifted from (padded by the card's own breathing room, so it
+  reads against the drop-indicator line, which is drawn in viewport space), and
+  is capped at 40vh — only a block that genuinely exceeds the cap is cropped,
+  and that crop fades out rather than cutting off. The offscreen-block
+  containment below never reaches the ghost: it is a property of the live
+  document, and a preview it skipped rendering popped up one unrendered line
+  tall (Chromium only, so Android showed it and iOS did not). →
+  src/features/editor/milkdown/mobileBlockDnd.ts `createGhost`,
+  tests/editor-embed-milkdown.spec.ts _(native shells)_
 - On desktop a ⠿ handle appears in the left gutter beside the block under the
   pointer, and dragging it with a mouse reorders blocks. Where there is no
   hover, the handle is still surfaced for the block that was just tapped or

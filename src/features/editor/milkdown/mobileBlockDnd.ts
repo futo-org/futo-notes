@@ -168,7 +168,10 @@ const DEFAULT_MOVE_CANCEL_PX = 10;
  * it. Mirrored as the card's own padding so the text stays put under the
  * finger. */
 const GHOST_PAD_X_PX = 12;
-const GHOST_PAD_Y_PX = 10;
+/** Exported so the ghost-geometry regression test can assert the card's
+ * position and content height against the block's own rect without keeping a
+ * second copy of the number (same reason as `DEFAULT_LONG_PRESS_MS`). */
+export const GHOST_PAD_Y_PX = 10;
 /** How much the card grows on lift, so it reads as picked up off the page. */
 const GHOST_SCALE = 1.04;
 /** Keep the SCALED card off the screen edges. */
@@ -259,10 +262,28 @@ function ensureStyles(): void {
       mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent 100%);
     }
     /* The block's own leading margin belongs to the document flow, not to a
-     * card that is already padded. */
-    .futo-milkdown .futo-mobile-dnd-ghost .futo-mobile-dnd-ghost-card > * {
+     * card that is already padded.
+     *
+     * ...and the offscreen-block containment is a property of the LIVE
+     * document, never of a preview. MilkdownEditor.svelte's perf rule selects
+     * '.futo-milkdown.block-containment .ProseMirror > *', and this card
+     * deliberately carries the 'ProseMirror' class inside '.futo-milkdown' (see
+     * the card rule above) — so the clone inherited 'content-visibility: auto'
+     * with 'contain-intrinsic-size: auto 24px' and, having never been rendered
+     * before, laid out at ONE unrendered line. That is the cut-off ghost
+     * reported on Android in MR !276: the card cropped to a fraction of the
+     * block, its bottom edge sitting above the drop indicator drawn at the real
+     * block's boundary — and, because 'createGhost' measures the card for the
+     * '--clipped' fade right after inserting it, a genuinely tall block read as
+     * 24px there too and lost its fade, so the crop was a hard edge. Chromium
+     * only, which is why iOS never showed it: 'blockContainment.ts' gates that
+     * class off on Apple WebKit. Four classes, so this wins over the perf rule
+     * regardless of source order (both stylesheets live in <head>). */
+    .futo-milkdown .futo-mobile-dnd-ghost .futo-mobile-dnd-ghost-card.ProseMirror > * {
       margin-top: 0;
       margin-bottom: 0;
+      content-visibility: visible;
+      contain-intrinsic-size: none;
     }
     /* The source dim is a decoration on the live block; a clone taken while it
      * is applied would be a 35%-opacity ghost. Belt and braces on top of
