@@ -12,8 +12,23 @@
  * reorder needs. `resolveTopLevelTarget` instead walks the doc to the
  * enclosing depth-1 (top-level) node, mirroring the walk
  * @milkdown/plugin-block's own `selectRootNodeByDom` does for hover
- * detection, then picks before/after by which half of that block's rect the
- * point falls in.
+ * detection, then picks which of that block's two boundaries by which half of
+ * its rect the point falls in.
+ *
+ * THERE IS EXACTLY ONE DROP SLOT PER BOUNDARY, and `pos` alone is its whole
+ * identity. This used to carry a `corner: 'before' | 'after'` as well, which
+ * made the gap between two adjacent blocks TWO targets: A's `after` and B's
+ * `before` are the same document position and commit the same move, but the
+ * indicator drew on A's bottom edge or on B's top edge depending on which half
+ * the finger was in, and the haptic ticked crossing between them. Two visually
+ * distinct places to drop that meant one thing (MR !276). A block's OWN two
+ * boundaries stay distinct, because those are genuinely different positions.
+ *
+ * `indicator` is measured the way prosemirror-dropcursor measures its own block
+ * cursor — the desktop ⠿ handle's HTML5 drag draws through that, and it has
+ * always been one line per position — so both drag paths put the line in the
+ * same place: midway between the bottom of the block before the gap and the top
+ * of the block after it.
  */
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
@@ -26,11 +41,51 @@ export function contentColumnX(view: ProseView): number {
   return rect.left + rect.width / 2;
 }
 
-export type TopLevelTarget = { pos: number; dom: HTMLElement; corner: 'before' | 'after' };
+/** Where the drop indicator line is drawn, in viewport coordinates. `top` is
+ * the line's CENTRE, so a caller that draws a 3px bar offsets by half of it. */
+export type DropIndicatorRect = { top: number; left: number; width: number };
+
+export type TopLevelTarget = {
+  /** The document position a drop commits to, and the slot's WHOLE identity —
+   * dedupe and haptics key on this and nothing else. */
+  pos: number;
+  /** The top-level block the slot is measured from: the one BEFORE the gap
+   * when there is one, else the one after. Canonical, so the same gap
+   * approached from either side yields an identical target. */
+  dom: HTMLElement;
+  indicator: DropIndicatorRect;
+};
+
+/** The one canonical target for the top-level gap at `pos`, whichever side the
+ * pointer arrived from. Returns null when `pos` is not a top-level gap, or when
+ * neither neighbour has rendered DOM to measure. */
+function slotAt(view: ProseView, pos: number): TopLevelTarget | null {
+  const at = view.state.doc.resolve(pos);
+  if (at.depth !== 0) return null;
+
+  const nodeBefore = at.nodeBefore;
+  const nodeAfter = at.nodeAfter;
+  const domBefore = nodeBefore ? view.nodeDOM(pos - nodeBefore.nodeSize) : null;
+  const domAfter = nodeAfter ? view.nodeDOM(pos) : null;
+  const before = domBefore instanceof HTMLElement ? domBefore : null;
+  const after = domAfter instanceof HTMLElement ? domAfter : null;
+
+  const dom = before ?? after;
+  if (!dom) return null;
+  const rect = dom.getBoundingClientRect();
+  // In the gap when there are blocks on both sides; on the single neighbour's
+  // outer edge at the document's first and last boundary.
+  const top = before
+    ? after
+      ? (rect.bottom + after.getBoundingClientRect().top) / 2
+      : rect.bottom
+    : rect.top;
+  return { pos, dom, indicator: { top, left: rect.left, width: rect.width } };
+}
 
 /** Resolves (x, y) to the nearest TOP-LEVEL (depth-0/1) block boundary. See
  * the module doc comment above for why this deliberately does not reuse
- * ProseMirror's own `dropPoint()`. */
+ * ProseMirror's own `dropPoint()`, and why one boundary is one target. */
 export function resolveTopLevelTarget(
   view: ProseView,
   x: number,
@@ -43,24 +98,12 @@ export function resolveTopLevelTarget(
   // prefix for variables in the .svelte consumer of this module.
   const at = view.state.doc.resolve(Math.max(0, Math.min(coords.pos, size)));
 
-  if (at.depth === 0) {
-    // Already exactly a top-level gap (between/around root children).
-    const before = at.nodeBefore;
-    if (before) {
-      const dom = view.nodeDOM(coords.pos - before.nodeSize);
-      if (dom instanceof HTMLElement) return { pos: coords.pos, dom, corner: 'after' };
-    }
-    const after = at.nodeAfter;
-    if (after) {
-      const dom = view.nodeDOM(coords.pos);
-      if (dom instanceof HTMLElement) return { pos: coords.pos, dom, corner: 'before' };
-    }
-    return null;
-  }
+  // Already exactly a top-level gap (between/around root children).
+  if (at.depth === 0) return slotAt(view, at.pos);
 
   // Nested inside some top-level block's subtree — snap OUT to that block's
-  // own boundary, then pick before/after by which edge `y` is closer to (the
-  // same "which half of the block" test dropCursor itself uses for a
+  // own boundary, then pick WHICH of its two by which edge `y` is closer to
+  // (the same "which half of the block" test dropCursor itself uses for a
   // block-level indicator).
   const start = at.before(1);
   const node = view.state.doc.nodeAt(start);
@@ -69,9 +112,7 @@ export function resolveTopLevelTarget(
   if (!(dom instanceof HTMLElement)) return null;
   const rect = dom.getBoundingClientRect();
   const mid = (rect.top + rect.bottom) / 2;
-  return y < mid
-    ? { pos: start, dom, corner: 'before' }
-    : { pos: start + node.nodeSize, dom, corner: 'after' };
+  return slotAt(view, y < mid ? start : start + node.nodeSize);
 }
 
 export type TopLevelBlock = { pos: number; node: ProseNode; dom: HTMLElement };

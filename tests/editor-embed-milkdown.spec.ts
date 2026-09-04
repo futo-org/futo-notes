@@ -608,10 +608,18 @@ async function touch(
   });
 }
 
-async function blockCenter(page: Page, text: string): Promise<{ x: number; y: number }> {
+async function blockBox(
+  page: Page,
+  text: string,
+): Promise<{ x: number; top: number; bottom: number }> {
   const box = await page.locator('.ProseMirror > *', { hasText: text }).first().boundingBox();
   if (!box) throw new Error(`no geometry for the block containing "${text}"`);
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  return { x: box.x + box.width / 2, top: box.y, bottom: box.y + box.height };
+}
+
+async function blockCenter(page: Page, text: string): Promise<{ x: number; y: number }> {
+  const box = await blockBox(page, text);
+  return { x: box.x, y: (box.top + box.bottom) / 2 };
 }
 
 /** Long-press `from`, drag to `to`, release. Mirrors a real finger. */
@@ -833,6 +841,56 @@ mobileDndTest('the indicator ticks once per boundary, not once per move', async 
 
   await touch(cdp, 'touchEnd', charlie.x, charlie.y);
   await settleChangeDebounce(page);
+});
+
+/* One boundary is ONE place to drop it. The lower half of a block and the upper
+ * half of the block below it are the same document position and commit the same
+ * move, so they must be the same slot: one bar, in the gap, and no second tick
+ * for crossing between them. They used to be two targets whose indicator drew on
+ * two different edges (MR !276; blockDragGeometry.ts). */
+mobileDndTest('one boundary is one slot, approached from either side', async ({ page, cdp }) => {
+  await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+  await clearMessages(page);
+
+  const ticks = async () =>
+    (await messagesOfType(page, 'haptic')).filter((m) => m.kind === 'move').length;
+  const indicatorTop = () =>
+    page.evaluate(() => {
+      const el = document.querySelector('.futo-mobile-dnd-indicator');
+      return el instanceof HTMLElement ? el.style.top : null;
+    });
+
+  const alpha = await blockCenter(page, 'alpha');
+  const bravo = await blockBox(page, 'bravo');
+  const charlie = await blockBox(page, 'charlie');
+
+  await touch(cdp, 'touchStart', alpha.x, alpha.y);
+  await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+
+  // "bravo"'s lower half: the boundary between bravo and charlie.
+  await touch(cdp, 'touchMove', bravo.x, bravo.bottom - 3);
+  await page.waitForTimeout(32);
+  const fromAboveTicks = await ticks();
+  const fromAboveTop = await indicatorTop();
+  expect(fromAboveTicks).toBeGreaterThan(0);
+  expect(fromAboveTop).not.toBeNull();
+
+  // The bar sits IN the gap, not on either block's edge.
+  const drawnAt = Number.parseFloat(fromAboveTop as string);
+  expect(drawnAt).toBeGreaterThanOrEqual(bravo.bottom);
+  expect(drawnAt).toBeLessThanOrEqual(charlie.top);
+
+  // "charlie"'s upper half: the SAME boundary, reached from the other side.
+  await touch(cdp, 'touchMove', charlie.x, charlie.top + 3);
+  await page.waitForTimeout(32);
+  expect(await ticks()).toBe(fromAboveTicks);
+  expect(await indicatorTop()).toBe(fromAboveTop);
+
+  await touch(cdp, 'touchEnd', charlie.x, charlie.top + 3);
+  await settleChangeDebounce(page);
+  // Same slot, same commit: alpha lands between bravo and charlie either way.
+  const changes = await messagesOfType(page, 'change');
+  expect(changes[changes.length - 1].content).toBe('bravo\n\nalpha\n\ncharlie\n');
 });
 
 // ---- edge auto-scroll (the off-screen half of the note) ------------------

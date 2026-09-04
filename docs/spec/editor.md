@@ -330,6 +330,16 @@ about.
   > removed on 2026-09-02 as dead weight once both native shells moved to the
   > long press; desktop touch reorder is unimplemented, not broken. Reorder by
   > mouse, or use a native shell's long press.
+- There is ONE drop slot per boundary between top-level blocks, on both drag
+  gestures. Below block A and above the block directly under it are the same
+  place, so they are one target: one indicator line, drawn IN the gap midway
+  between A's bottom edge and B's top edge (on the outer edge at the document's
+  first and last boundary), and one haptic tick for reaching it however the
+  pointer got there. A block's OWN two boundaries stay distinct, because those
+  are different positions. → src/features/editor/milkdown/blockDragGeometry.ts
+  `resolveTopLevelTarget`,
+  src/features/editor/milkdown/blockDragGeometry.test.ts,
+  tests/editor-embed-milkdown.spec.ts
 - A block drag is haptic three ways on both native shells: one firmer impact
   when the block lifts, a light tick each time the drop indicator lands on a
   DIFFERENT top-level boundary, and one light impact when a release commits a

@@ -287,13 +287,6 @@ function ensureStyles(): void {
   document.head.appendChild(style);
 }
 
-/** Identity of a drop boundary: the same gap resolved twice is the same place,
- * and `pos` alone is not enough — a block's `after` and the next block's
- * `before` are one boundary, but before/after of ONE block are two. */
-function indicatorKeyOf(target: TopLevelTarget): string {
-  return `${target.pos}:${target.corner}`;
-}
-
 type PressedBlock = { pos: number; size: number; dom: HTMLElement; clone: HTMLElement };
 
 /** Owns the whole long-press/lift/drag/drop state machine for one editor
@@ -312,10 +305,12 @@ class MobileBlockDndView {
   private dragging = false;
   private pressed: PressedBlock | null = null;
 
-  /** The boundary the indicator is currently drawn at, as `pos:corner`. Only a
-   * CHANGE of this fires a 'move' haptic, so a finger travelling inside one
-   * gap is silent and the ticks match what the eye sees. */
-  private indicatorKey: string | null = null;
+  /** The boundary the indicator is currently drawn at. `pos` IS the boundary's
+   * whole identity (blockDragGeometry.ts), so only a CHANGE of this fires a
+   * 'move' haptic: a finger travelling inside one gap is silent, and crossing
+   * from one block's lower half into the next block's upper half — the same
+   * gap — is silent too, because the bar did not move. */
+  private indicatorPos: number | null = null;
 
   /** Continuous edge auto-scroll while dragging. Owned per editor view and
    * stopped from `disarm()`, the one exit every gesture goes through. */
@@ -398,7 +393,7 @@ class MobileBlockDndView {
     const wasArmed = this.pointerId !== null;
     this.pointerId = null;
     this.pressed = null;
-    this.indicatorKey = null;
+    this.indicatorPos = null;
     const wasDragging = this.dragging;
     this.dragging = false;
     this.view.dom.classList.remove(ARMED_CLASS);
@@ -524,9 +519,8 @@ class MobileBlockDndView {
       return;
     }
     this.showIndicator(target);
-    const key = indicatorKeyOf(target);
-    if (key === this.indicatorKey) return;
-    this.indicatorKey = key;
+    if (target.pos === this.indicatorPos) return;
+    this.indicatorPos = target.pos;
     if (tick) this.options.onHaptic('move');
   }
 
@@ -594,7 +588,7 @@ class MobileBlockDndView {
     /* Seeded from where the block already is, so the hold itself is silent: the
      * first tick belongs to the first boundary the finger actually reaches. */
     const restingTarget = targetAtPointerY(view, clientY);
-    this.indicatorKey = restingTarget ? indicatorKeyOf(restingTarget) : null;
+    this.indicatorPos = restingTarget ? restingTarget.pos : null;
     this.createGhost(clientX, clientY);
     // Escalates the shell from the press-level suspension it has held since
     // pointerdown to the full one (the whole text-interaction stack, plus the
@@ -692,13 +686,15 @@ class MobileBlockDndView {
     return this.indicatorEl;
   }
 
+  /** One line per boundary, drawn IN the gap — the geometry is the target's, so
+   * a gap approached from either side puts the bar in exactly one place
+   * (blockDragGeometry.ts). The `margin-top` in the stylesheet re-centres the
+   * 3px bar on `top`. */
   private showIndicator(target: TopLevelTarget): void {
     const el = this.ensureIndicator();
-    const rect = target.dom.getBoundingClientRect();
-    const y = target.corner === 'before' ? rect.top : rect.bottom;
-    el.style.left = `${rect.left}px`;
-    el.style.width = `${rect.width}px`;
-    el.style.top = `${y}px`;
+    el.style.left = `${target.indicator.left}px`;
+    el.style.width = `${target.indicator.width}px`;
+    el.style.top = `${target.indicator.top}px`;
     el.classList.add('futo-mobile-dnd-indicator--visible');
   }
 
