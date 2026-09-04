@@ -1,8 +1,8 @@
 # Defect evidence — recording, attaching, retracting
 
-The rule lives in SKILL.md ("Evidence for every defect you report"): film the
-MR branch and `main` side by side, same script, same clean start. This file is
-the mechanics.
+For an MR defect, film the MR branch and `main` side by side with the same script
+and clean start. This distinguishes a regression from pre-existing behavior.
+Compare before labeling the finding; preserve evidence that refutes an earlier claim.
 
 **Obtain every frame through a sanctioned driver.** Playwright, the Tauri MCP
 bridge (`driver_session` / `webview_execute_js`, always with an explicit

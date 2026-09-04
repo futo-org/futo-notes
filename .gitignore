@@ -192,3 +192,11 @@ flatpak/deb/
 flatpak/.build/
 flatpak/.builder-state/
 .flatpak-scratch/
+
+# Ad-hoc test capture (durable fixtures use explicit fixture paths).
+/tests/current-screenshot.png
+
+# Optional Swift reference packages restored by just skills-swift.
+.claude/skills/swiftui-expert-skill
+.claude/skills/swift-concurrency-pro
+.claude/skills/swift-testing-pro

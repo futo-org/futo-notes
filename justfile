@@ -653,6 +653,34 @@ arch-gate:
 skills-link:
   @node scripts/skills-link.mjs
 
+# Restore the former vendored Swift references from a pinned repository snapshot.
+# Optional, per-worktree, and refuses to overwrite any installed skill or link.
+skills-swift:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  snapshot=3b1c43c139181b91b7384b478b5edec454b80190
+  skills=(swiftui-expert-skill swift-concurrency-pro swift-testing-pro)
+  git cat-file -e "$snapshot^{commit}"
+  for skill in "${skills[@]}"; do
+    for destination in ".agents/skills/$skill" ".claude/skills/$skill"; do
+      if [[ -e "$destination" || -L "$destination" ]]; then
+        echo "Already present: $destination; leaving installed skills unchanged." >&2
+        exit 1
+      fi
+    done
+  done
+  mkdir -p .agents/skills .claude/skills
+  staging=$(mktemp -d .agents/swift-install.XXXXXX)
+  trap 'rm -rf "$staging"' EXIT
+  git archive "$snapshot" "${skills[@]/#/.claude/skills/}" | tar -xf - --strip-components=2 -C "$staging"
+  for skill in "${skills[@]}"; do
+    test -f "$staging/$skill/SKILL.md"
+  done
+  for skill in "${skills[@]}"; do
+    mv "$staging/$skill" ".agents/skills/$skill"
+    ln -s "../../.agents/skills/$skill" ".claude/skills/$skill"
+  done
+
 # ── Dependency vulnerability scan ──
 # Needs network and cargo-audit on PATH (`cargo binstall cargo-audit --locked`). `--fix` drops
 # ignore entries whose advisory is gone. CI runs this same script, non-blocking
