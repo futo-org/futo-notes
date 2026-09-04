@@ -78,7 +78,11 @@ const editor = mount(MilkdownEditor, {
     content: '',
     nativeShell: true,
     onchange: (_content: string) => {
-      post({ type: 'change', content: editor.getContent() });
+      // `undefined` is an editor that holds no note at all — there is nothing
+      // to report, and posting '' would tell the shell to empty a file.
+      const content = editor.getContent();
+      if (content === undefined) return;
+      post({ type: 'change', content });
     },
     onfocuschange: (focused: boolean) => {
       if (!nativeToolbar) toolbar?.setFocused(focused);

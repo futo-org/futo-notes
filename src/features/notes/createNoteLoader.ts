@@ -99,8 +99,16 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
       });
       options.openNote(loadedContent);
       markNoteSwitch('contentApplied');
+      /* The editor's own serialization is the save baseline, because Milkdown
+       * normalizes syntax on parse and the first real edit would otherwise look
+       * like it rewrote the whole note. But an EMPTY serialization of a note
+       * that has bytes is not a normalization — it is an editor that failed to
+       * take the note (a parse that threw), and adopting it would declare the
+       * note empty and make every later save write from that baseline.
+       * 2026-09-03: that is how a note reached disk at 0 bytes. */
       const editorContent = options.getEditorContent();
-      if (editorContent !== undefined && editorContent !== loadedContent) {
+      const editorTookTheNote = editorContent !== '' || loadedContent === '';
+      if (editorContent !== undefined && editorContent !== loadedContent && editorTookTheNote) {
         options.patchState({ content: editorContent, savedContent: editorContent });
       }
       requestAnimationFrame(() => {

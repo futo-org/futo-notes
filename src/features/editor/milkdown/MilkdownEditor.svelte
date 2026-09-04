@@ -225,6 +225,22 @@
    * comparing a whole parse against a whole parse. */
   let abortedToWholeDocument = false;
 
+  /* CRITICAL — the load THREW and this document is not the note.
+   *
+   * remark/micromark parse errors are real (a table cell that opens a wikilink
+   * token it cannot close was one, fixed in d402d0aa), and the failure mode is
+   * silent: `replaceAll` throws, the editor keeps its empty document, and the
+   * host sees a blank editable page over a note that has bytes. On 2026-09-03
+   * that blank document was then serialized back and written: a 8,635-byte note
+   * became 0 bytes on disk.
+   *
+   * While this is set the component reports the HOST's bytes rather than its
+   * own document, emits no change, and refuses edits — the same load-echo
+   * contract as an untouched note, extended to the case where the document is
+   * not the note at all. Cleared by the next load that succeeds.
+   * → docs/spec/editor.md "A note the editor cannot parse" */
+  let loadFailed = $state(false);
+
   /* Notion-style block drag handle. BlockProvider (from Milkdown's block
    * plugin) owns rendering/positioning the ⠿ handle and the native HTML5 drag
    * mechanics; we just feed it a DOM node and, on touch where there is no
@@ -461,6 +477,11 @@
              * block drag carries no files and is left entirely alone. */
             handleDrop: (_view, event) => dropHandler?.(event as DragEvent) ?? false,
             handleKeyDown: (view, event) => handleParityKeyDown(view, event),
+            /* A note whose parse threw is shown read-only rather than as an
+             * empty editable page. Typing into a document that is not the note
+             * is the one gesture that could make the failure destructive.
+             * `refreshEditable()` is what re-asks this. */
+            editable: () => !loadFailed,
           }));
 
           /* ...but not in code, as far as the engine will allow. Autocorrect
@@ -517,6 +538,10 @@
              * An edit made in this window is not lost: finishProgressiveLoad()
              * releases it against the complete document. */
             if (progressive?.loading) return;
+            /* A document we failed to load is not a source of user edits: the
+             * editable is off, and anything the engine still reports for it
+             * describes an empty document, not the note. */
+            if (loadFailed) return;
 
             let markdown = reported;
             if (listenerSnapshotMayBeStale) {
@@ -708,6 +733,18 @@
     };
   });
 
+  /**
+   * Re-asks the view for its `editable` prop after `loadFailed` moved.
+   *
+   * ProseMirror reads `editable` during `updateStateInner`, which nothing here
+   * would otherwise trigger — a plain assignment to `loadFailed` leaves the
+   * contenteditable exactly as it was. `setProps({})` merges nothing and
+   * re-runs that pass, which is the sanctioned way to re-evaluate a direct prop.
+   */
+  function refreshEditable(): void {
+    pmView()?.setProps({});
+  }
+
   function readSerialized(): string | null {
     if (!editor) return null;
     try {
@@ -717,13 +754,25 @@
     }
   }
 
-  /** Loads the whole document in one parse — what every ordinary note does. */
-  function applyWholeDocument(text: string): void {
-    if (!editor) return;
-    editor.action(replaceAll(text));
+  /**
+   * Loads the whole document in one parse — what every ordinary note does.
+   *
+   * Returns false if the parse threw. The caller records that as a failed load
+   * (`loadFailed`); the host's bytes stay the answer to `getContent()`, so a
+   * note this build cannot parse is shown as unreadable rather than emptied.
+   */
+  function applyWholeDocument(text: string): boolean {
+    if (!editor) return false;
+    try {
+      editor.action(replaceAll(text));
+    } catch (error) {
+      console.error('MilkdownEditor: could not parse this note', error);
+      return false;
+    }
     hostMarkdown = text;
     liveMarkdown = text;
     externalSerialization = readSerialized() ?? text;
+    return true;
   }
 
   /**
@@ -763,13 +812,20 @@
   function applyFirstChunk(markdown: string): boolean {
     const view = pmView();
     if (!editor || !view) return false;
-    const parsed = editor.ctx.get(parserCtx)(markdown);
-    if (!parsed) return false;
-    if (chunkShouldHaveContent(markdown) && isEffectivelyEmpty(parsed)) return false;
-    const { state } = view;
-    view.dispatch(state.tr.replace(0, state.doc.content.size, new Slice(parsed.content, 0, 0)));
-    previousChunkEndedEmpty = endsWithOwnEmptyParagraph(parsed);
-    return true;
+    try {
+      const parsed = editor.ctx.get(parserCtx)(markdown);
+      if (!parsed) return false;
+      if (chunkShouldHaveContent(markdown) && isEffectivelyEmpty(parsed)) return false;
+      const { state } = view;
+      view.dispatch(state.tr.replace(0, state.doc.content.size, new Slice(parsed.content, 0, 0)));
+      previousChunkEndedEmpty = endsWithOwnEmptyParagraph(parsed);
+      return true;
+    } catch (error) {
+      // Same contract as `appendParsedChunk`: a throw aborts back to a whole
+      // -document load, which is where a genuine parse failure is recorded.
+      console.warn('MilkdownEditor: first chunk parse failed', error);
+      return false;
+    }
   }
 
   /**
@@ -852,11 +908,32 @@
     progressive = null;
     streamingTail = false;
     abortedToWholeDocument = false;
+    /* Whatever this load does, it is now the one that owns the answer: a note
+     * that failed to parse must not leave the NEXT note read-only, and a note
+     * that parses must not inherit the previous one's failure. */
+    /* Only when it actually moves: `refreshEditable` re-runs ProseMirror's
+     * whole state-update pass, which on a very large note is measurable
+     * against the open budget, and an ordinary open never touches this. */
+    if (loadFailed) {
+      loadFailed = false;
+      refreshEditable();
+    }
     markOpenStart();
+
+    /* A load that throws leaves the document empty for a note that has bytes.
+     * The host's text stays the answer to `getContent()`, the surface goes
+     * read-only, and the failure is shown — never serialized back to disk. */
+    const recordFailedLoad = (): void => {
+      hostMarkdown = text;
+      liveMarkdown = text;
+      externalSerialization = null;
+      loadFailed = true;
+      refreshEditable();
+    };
 
     const plan = planMarkdownChunks(text, chunkOptions);
     if (!plan.chunked) {
-      applyWholeDocument(text);
+      if (!applyWholeDocument(text)) recordFailedLoad();
       measureOpen(OPEN_INTERACTIVE_MEASURE);
       measureOpen(OPEN_COMPLETE_MEASURE);
       return;
@@ -881,7 +958,7 @@
       progressive?.cancel();
       progressive = null;
       streamingTail = false;
-      applyWholeDocument(text);
+      if (!applyWholeDocument(text)) recordFailedLoad();
       measureOpen(OPEN_COMPLETE_MEASURE);
     };
 
@@ -1035,6 +1112,31 @@
   }
 
   export function getContent(): string | undefined {
+    /* NOT THIS NOTE (CRITICAL — 2026-09-03 data loss, docs/spec/editor.md).
+     * Two ways this component ends up holding an empty document for a note that
+     * has bytes, both of which used to serialize back as "the user deleted
+     * everything" and truncate the file:
+     *
+     *   - the load threw (`loadFailed`), so the host's own bytes are the only
+     *     honest answer — and they are exactly what is on disk;
+     *   - nothing has EVER been loaded into this instance, which is a fresh
+     *     mount: a hot-module reload replacing the component under a live note,
+     *     or any future `{#key}`/`{#if}` around the editor. `undefined` is the
+     *     shell's existing "there is no editor to read" sentinel (EditorApi),
+     *     and every caller already treats it as unsaveable.
+     *
+     * `liveMarkdown`/`hostMarkdown` both being null is precisely "never
+     * loaded" — but only an EMPTY never-loaded document is "no note". A host
+     * that dedupes `setContent('')` against this very method leaves an
+     * untouched new note in exactly that state, and the text typed into it is
+     * real content the moment it exists, a full change-debounce before
+     * `liveMarkdown` catches up. */
+    if (loadFailed) return hostMarkdown ?? undefined;
+    if (hostMarkdown === null && liveMarkdown === null) {
+      const untouched = readSerialized();
+      if (untouched === null || untouched.trim() === '') return undefined;
+      return untouched;
+    }
     /* SAVE LOCK (CRITICAL — docs/plan/milkdown-transition.md §5). A document
      * that is still streaming is a PREFIX of the note, and this method is one
      * of exactly two ways content leaves the editor (the other is the `change`
@@ -1074,7 +1176,8 @@
   }
 
   export function insertMarkdown(text: string): void {
-    if (!editor) return;
+    // Chrome must not write into a document that is not the note (`loadFailed`).
+    if (!editor || loadFailed) return;
     editor.action(insert(text));
     pmView()?.focus();
   }
@@ -1118,7 +1221,9 @@
    * same way a completed progressive load suppresses its own.
    */
   export function applyEdit(text: string): void {
-    if (!editor) return;
+    // Same rule as `insertMarkdown`: the tag bar computed this from a document
+    // the editor never managed to load, so it is not the note either.
+    if (!editor || loadFailed) return;
     editor.action(replaceAll(text));
     const live = readSerialized() ?? text;
     liveMarkdown = live;
@@ -1292,6 +1397,19 @@
     <div class="milkdown-stream-tail" role="status" aria-live="polite">
       <span class="milkdown-stream-tail-dot" aria-hidden="true"></span>
       Loading the rest of this note…
+    </div>
+  {/if}
+
+  <!-- A note this build's parser threw on. Says so instead of showing a blank
+       editable page, which is what a reader took for an empty note right
+       before the save pipeline made it one (2026-09-03). The editable is
+       read-only underneath (`editable` in editorViewOptionsCtx), and the file
+       on disk is untouched. → docs/spec/editor.md -->
+  {#if loadFailed}
+    <div class="milkdown-load-failed" role="alert">
+      <strong>This note could not be displayed.</strong>
+      Its markdown is something this version of the editor cannot read, so it is shown read-only. Nothing
+      has been changed on disk.
     </div>
   {/if}
 </div>
@@ -1803,6 +1921,22 @@
      placed at the end of the document: the document end is thousands of lines
      away while the tail streams, so a marker there would be invisible — which
      is the opposite of an affordance. */
+  /* Sits over the (read-only, empty) editable rather than in its layout, the
+     same way the streaming-tail affordance does, so a failed load cannot shift
+     the note area's geometry. */
+  .milkdown-load-failed {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    z-index: 3;
+    padding: 0.75em 1em;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--color-text, #111827);
+    background: var(--color-surface, #f3f4f6);
+    border-bottom: 1px solid var(--color-border, #d1d5db);
+  }
+
   .milkdown-stream-tail {
     position: absolute;
     inset-inline: 0;

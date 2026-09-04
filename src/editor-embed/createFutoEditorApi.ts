@@ -96,7 +96,10 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       editor.setContent(markdown);
     },
     readContent(): string {
-      return editor.getContent();
+      /* `undefined` means the component has never been handed a note (a fresh
+       * mount). Its document really is empty, and the only consumer is
+       * hostBoot's "is this already on screen?" dedupe, which must not match. */
+      return editor.getContent() ?? '';
     },
     post: postToHost,
   };
@@ -115,7 +118,12 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       editor.resetHistory();
     },
     getContent(): string {
-      return editor.getContent();
+      /* The bridge contract types this `string` (bridge.ts). The component
+       * answers `undefined` only before any note has ever reached it, where an
+       * empty document is the truthful answer anyway — every native host calls
+       * `initialize`/`setContent` before it reads. A note whose parse FAILED
+       * comes back as the host's own bytes, not as ''. */
+      return editor.getContent() ?? '';
     },
     focus(): void {
       editor.focus();

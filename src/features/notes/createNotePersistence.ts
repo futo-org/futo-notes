@@ -1,11 +1,17 @@
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
 
-import { normalizeTitleForPersistence, shouldWriteNoteToDisk } from './noteSessionChanges';
+import {
+  editorLostTheNote,
+  normalizeTitleForPersistence,
+  shouldWriteNoteToDisk,
+} from './noteSessionChanges';
 import type { ParkedDraftSnapshot } from './noteSession.svelte';
 import { _applyLocalMutation, recordSaveIdentityChange, updateNote } from './notes.svelte';
 
 interface NotePersistenceState {
+  /** The session's live buffer — the last body any change notification reported. */
+  content: string;
   originalId: string | null;
   savedContent: string;
   savedTitle: string;
@@ -39,6 +45,16 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
 
     try {
       const state = options.getState();
+      /* CRITICAL — an editor that lost the note never empties it (2026-09-03,
+       * noteSessionChanges.ts). A rename typed over a blank editor still lands;
+       * it carries the body the session last knew, not the editor's nothing. */
+      const newContent = editorLostTheNote({
+        editorContent,
+        savedContent: state.savedContent,
+        content: state.content,
+      })
+        ? state.savedContent
+        : editorContent;
       // Navigating Home clears the tab's note id before this queued save runs.
       if (noteId === null && state.originalId === null) return false;
       const newTitle = normalizeTitleForPersistence(state.title);
@@ -62,7 +78,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
           savedTitle: state.savedTitle,
           newTitle,
           content: state.savedContent,
-          newContent: editorContent,
+          newContent,
         })
       ) {
         return false;
@@ -72,13 +88,13 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         return false;
       }
 
-      const result = await updateNote(newId, newTitle, editorContent, {
+      const result = await updateNote(newId, newTitle, newContent, {
         originalId: state.originalId ?? undefined,
         base: state.savedContent,
       });
       if (result.unappliedMutation) _applyLocalMutation(result.unappliedMutation);
       if (result.disposition === 'parked') {
-        await options.reconcileOpenNote(result.id, { content: editorContent, title: state.title });
+        await options.reconcileOpenNote(result.id, { content: newContent, title: state.title });
         return false;
       }
 
@@ -87,7 +103,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
       options.onSaved({
         id: result.id,
         title: newTitle,
-        content: editorContent,
+        content: newContent,
         savedOriginalId: state.originalId,
       });
       return result.disposition !== 'converged';

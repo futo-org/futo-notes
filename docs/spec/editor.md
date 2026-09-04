@@ -236,6 +236,27 @@ about.
   > column reaches into the note at any distance instead of dropping focus.
   > _(native shells)_
 
+### A note the editor cannot hold
+
+- A note whose markdown makes the parser throw is shown READ-ONLY with a visible
+  "This note could not be displayed" message, never as a blank editable page. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `loadFailed`,
+  src/features/editor/milkdown/MilkdownEditor.test.ts
+- For such a note the editor reports the HOST's original bytes as its content —
+  the same load-echo contract as an unedited note (ADR-0002), extended to the
+  case where the document is not the note at all — emits no change, and refuses
+  chrome edits (tag bar, toolbar insertions). The file is never rewritten. →
+  MilkdownEditor.svelte `getContent`, `applyEdit`, `insertMarkdown`
+- The next note that parses clears the state completely: editable again, no
+  message, its own content reported.
+- An editor instance that has never been handed a note reports "no content at
+  all" (`undefined`), not an empty note. A replaced component — a dev hot
+  reload today, any `{#key}`/`{#if}` around the editor tomorrow — mounts empty
+  under a session that still holds the note, and `''` there is what truncated
+  three real notes on 2026-09-03. The desktop shell also re-hands the open note
+  to a new instance, so the reader gets it back. → MilkdownEditor.svelte
+  `getContent`, NotesShell.svelte, noteSession.svelte.ts `reattachEditor`
+
 ### Native touch and focus
 
 - Tapping an unfocused editor places the caret at the tap and raises the
@@ -1371,6 +1392,25 @@ EditorWebView.swift, EditorWebView.kt
 
 ## Saving & rename
 
+- A note that has content is never written back empty on the strength of an
+  editor's word alone (CRITICAL). An empty document is only saved as a deletion
+  when the editor REPORTED the emptying as a change; an editor that went blank
+  on its own — a parse that threw, a replaced component — has notified nobody,
+  and its `''` is refused. A rename typed alongside such a blank editor still
+  lands, carrying the body the session last knew. → src/features/notes/
+  noteSessionChanges.ts `editorLostTheNote`, createNotePersistence.ts,
+  src/features/notes/noteSession.test.ts, tests/note-never-emptied.spec.ts
+  > **Gap:** a select-all-delete flushed inside the editor's ~200 ms change
+  > debounce (quitting or switching notes in that window) is dropped rather
+  > than written — the deliberate cost of the rule above, which cannot tell it
+  > apart from an editor that lost the note. Losing a deletion is one keystroke
+  > to redo; losing the note is not. _(all platforms)_
+- Opening a note never adopts an EMPTY editor serialization as the save
+  baseline for a note that read non-empty from disk. The editor's own
+  serialization is otherwise the baseline, because Milkdown normalizes syntax
+  on parse — but an empty one is a failed load, not a normalization, and
+  adopting it declares the note empty for every later save. → src/features/
+  notes/createNoteLoader.ts
 - Body edits autosave on a debounce (~400 ms). The save re-reads the current
   note id at fire time, so a save landing **after** a rename writes to the
   renamed note, not a stale id. → NoteEditorScreen.kt / NoteEditorView.swift
