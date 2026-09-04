@@ -21,7 +21,7 @@
  *    rather than a re-fitted slice, and the result is compared against the
  *    original before anything is dispatched.
  *  - A DROP BACK AT THE SOURCE IS A TRUE NO-OP: no transaction, so no history
- *    entry, no `markdownUpdated`, and no `change` message to the host.
+ *    entry, no change notification, and no `change` message to the host.
  *  - FRONT MATTER IS PINNED TO THE TOP. `---` only means front matter at the
  *    very start of a file, so a block dropped above it — or the block itself
  *    dragged down — would serialize metadata into the middle of the note, where

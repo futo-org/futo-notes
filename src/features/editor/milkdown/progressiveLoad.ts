@@ -88,10 +88,10 @@ export function appendChunkContent(
 
   /* `addToHistory: false` is doing two jobs, and both are load-bearing.
    * prosemirror-history keeps the append off the undo stack, so Ctrl-Z right
-   * after an open cannot un-load part of the note. And @milkdown/plugin-listener
-   * skips such transactions outright (`tr.getMeta("addToHistory") === false`
-   * in its `state.apply`), so an append never reaches the change notification —
-   * "invisible to the change listener" is that filter, not a flag of our own. */
+   * after an open cannot un-load part of the note. And documentChanges.ts skips
+   * such transactions outright (`isReportableDocumentChange`), so an append
+   * never reaches the change notification — "invisible to the change listener"
+   * is that filter, not a flag of its own. */
   view.dispatch(
     view.state.tr.replaceWith(from, doc.content.size, content).setMeta('addToHistory', false),
   );

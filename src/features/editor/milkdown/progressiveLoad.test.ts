@@ -60,10 +60,10 @@ describe('appendChunkContent', () => {
     expect(topLevelText(dispatched[0].doc)).toEqual(['a', 'b']);
   });
 
-  it('keeps the append out of history — which also hides it from the listener', () => {
-    // @milkdown/plugin-listener skips `addToHistory: false` transactions, so
-    // this one flag is both "Ctrl-Z cannot un-load a chunk" and "a chunk append
-    // never reaches the change notification".
+  it('keeps the append out of history — which also hides it from the host', () => {
+    // documentChanges.ts skips `addToHistory: false` transactions, so this one
+    // flag is both "Ctrl-Z cannot un-load a chunk" and "a chunk append never
+    // reaches the change notification".
     const { view, dispatched } = stubView(doc(paragraph('a')));
 
     appendChunkContent(view, doc(paragraph('b')));

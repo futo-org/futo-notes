@@ -124,6 +124,23 @@ export async function typeAtCaret(page: Page, text: string): Promise<void> {
 }
 
 /**
+ * Empty the note the way a user does: click in, select all, delete.
+ *
+ * Deliberately the real key path rather than `setEditorMarkdown('')` — the two
+ * reach the save queue by different routes (a keyboard clear arrives through
+ * the editor's debounced change notification, `applyEdit` notifies
+ * synchronously), and only this one is what a person can actually do.
+ *
+ * `Ctrl+A` reads the document, not the caret, so it is safe straight after the
+ * click — unlike the cell-relative keys `withCaretObserved` exists for.
+ */
+export async function clearEditorWithKeyboard(page: Page): Promise<void> {
+  await page.locator(EDITOR).click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('Backspace');
+}
+
+/**
  * The editor always keeps one empty trailing paragraph so the end of a note is
  * tappable, which serializes as a trailing blank line. Specs that assert a whole
  * document want the note without it.

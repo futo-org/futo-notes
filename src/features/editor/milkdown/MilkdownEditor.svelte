@@ -89,6 +89,7 @@
     type ProgressiveLoad,
   } from './progressiveLoad';
   import { tagDecorations } from './tagDecorations';
+  import { DOCUMENT_CHANGE_DEBOUNCE_MS, documentChanges } from './documentChanges';
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
   import { createToolbarExec } from './toolbarExec';
   import { vaultImageView } from './vaultImageView';
@@ -192,10 +193,9 @@
    * and leave `externalSerialization` unset, which switches the load-echo guard
    * in getContent() off for exactly that note. */
   let liveMarkdown: string | null = null;
-  /* Milkdown's serialization of the doc AS LOADED from the host. The listener
-   * plugin debounces markdownUpdated by 200ms, so a synchronous "we are
-   * applying host content" flag cannot suppress the load echo — comparing
-   * against this can. */
+  /* Milkdown's serialization of the doc AS LOADED from the host. The change
+   * notification is debounced by 200ms, so a synchronous "we are applying host
+   * content" flag cannot suppress the load echo — comparing against this can. */
   let externalSerialization: string | null = null;
   let pendingContent: string | null = null;
   let onListLine: boolean | null = null;
@@ -216,9 +216,8 @@
    * an edit would make adopting a sync update rewrite a large note on disk,
    * which ADR-0002 forbids. `resetHistory()` below keeps this in step. */
   let historyBaselineDepth = 0;
-  /* Set at load completion, consumed by the next change notification — see the
-   * markdownUpdated listener for the stale-snapshot it defends against. */
-  let listenerSnapshotMayBeStale = false;
+  /* The pending debounced change notification (documentChanges.ts). */
+  let changeTimer: number | null = null;
   /* Whether the last load gave up on chunking mid-flight and reloaded the note
    * whole. Reported by `censusLoad` so the equivalence census cannot score a
    * fallback as proof that a chunked parse matched a whole one — it would be
@@ -306,7 +305,7 @@
    * `view.updateState(...)`, so `view.state` (and its `.selection`/
    * `.storedMarks`) is still ONE TRANSACTION BEHIND at that exact call site —
    * `pmView()?.state.selection` there would report where the caret USED TO
-   * BE. `mounted`/`markdownUpdated`(debounced)/`exec()` all run outside that
+   * BE. `mounted`/the debounced change notification/`exec()` all run outside that
    * window, so `view.state` is current for them (no override needed) — and
    * `storedMarks` is intentionally omitted (`null`) for the override case: a
    * plain selection-move transaction always clears storedMarks anyway, so
@@ -520,42 +519,6 @@
           ctx.set(inlineCodeAttr.key, () => ({ ...CODE_IME_ATTRIBUTES }));
 
           const listeners = ctx.get(listenerCtx);
-          listeners.markdownUpdated((_ctx, reported) => {
-            /* `reported` is @milkdown/plugin-listener's serialization of the
-             * document as it stood in the transaction that STARTED the 200 ms
-             * debounce (`latestTr.doc`), not the live one — and the plugin
-             * skips `addToHistory: false` transactions entirely, which is
-             * exactly what a streamed chunk append is. So the first callback
-             * after a progressive open can carry the note as it stood
-             * MID-STREAM: a truncated document, arriving one debounce window
-             * after the save lock lifted. Re-read the live document for that
-             * one callback rather than trust it. */
-            emitFormatState();
-            /* SAVE LOCK (CRITICAL — progressiveLoad.ts): while the tail is
-             * streaming the document is a PREFIX of the note. Reporting it as a
-             * change is how a slow open truncates a file, and `liveMarkdown`
-             * must not take a prefix either — `setContent` dedupes against it.
-             * An edit made in this window is not lost: finishProgressiveLoad()
-             * releases it against the complete document. */
-            if (progressive?.loading) return;
-            /* A document we failed to load is not a source of user edits: the
-             * editable is off, and anything the engine still reports for it
-             * describes an empty document, not the note. */
-            if (loadFailed) return;
-
-            let markdown = reported;
-            if (listenerSnapshotMayBeStale) {
-              listenerSnapshotMayBeStale = false;
-              markdown = readSerialized() ?? reported;
-            }
-            liveMarkdown = markdown;
-            // The debounced echo of host content we just loaded — not an edit.
-            if (externalSerialization !== null && markdown === externalSerialization) return;
-            // A genuine user edit: the host's copy is no longer authoritative.
-            externalSerialization = null;
-            hostMarkdown = null;
-            onchange?.(markdown);
-          });
           listeners.focus(() => onfocuschange?.(true));
           listeners.blur(() => onfocuschange?.(false));
           listeners.selectionUpdated((_ctx, selection) => {
@@ -587,6 +550,7 @@
         .use(vaultImageView)
         .use(history)
         .use(listener)
+        .use(documentChanges(scheduleChangeNotification))
         .use(clipboard)
         .use(gapCursorPlugin)
         .use(trailing)
@@ -715,6 +679,10 @@
       disposed = true;
       progressive?.cancel();
       progressive = null;
+      // A change notification that lands after the component is gone would
+      // serialize a destroyed editor and report it as the note.
+      if (changeTimer !== null) window.clearTimeout(changeTimer);
+      changeTimer = null;
       stopFileDrop?.();
       stopFileDrop = null;
       dropHandler = null;
@@ -743,6 +711,52 @@
    */
   function refreshEditable(): void {
     pmView()?.setProps({});
+  }
+
+  /**
+   * A transaction changed the document — report it once it settles.
+   *
+   * Restarted by every further change, so a burst of typing costs exactly one
+   * serialization (M5). Driven by documentChanges.ts, which explains why this
+   * is the component's own signal rather than `@milkdown/plugin-listener`'s
+   * `markdownUpdated`: that callback goes SILENT whenever the settled document
+   * matches its own baseline, and a note cleared inside the same window as its
+   * load matches the pristine empty document that baseline is still sitting on.
+   */
+  function scheduleChangeNotification(): void {
+    if (changeTimer !== null) window.clearTimeout(changeTimer);
+    changeTimer = window.setTimeout(() => {
+      changeTimer = null;
+      reportDocumentChange();
+    }, DOCUMENT_CHANGE_DEBOUNCE_MS);
+  }
+
+  /** Hands the settled document to the host, unless it is not the host's to hear. */
+  function reportDocumentChange(): void {
+    emitFormatState();
+    /* SAVE LOCK (CRITICAL — progressiveLoad.ts): while the tail is streaming
+     * the document is a PREFIX of the note. Reporting it as a change is how a
+     * slow open truncates a file, and `liveMarkdown` must not take a prefix
+     * either — `setContent` dedupes against it. An edit made in this window is
+     * not lost: finishProgressiveLoad() releases it against the complete
+     * document. */
+    if (progressive?.loading) return;
+    /* A document we failed to load is not a source of user edits: the editable
+     * is off, and anything the engine still reports for it describes an empty
+     * document, not the note. */
+    if (loadFailed) return;
+
+    // The LIVE document, never a snapshot of an earlier transaction: this is
+    // the answer the host would get from `getContent()` at this instant.
+    const markdown = readSerialized();
+    if (markdown === null) return;
+    liveMarkdown = markdown;
+    // The debounced echo of host content we just loaded — not an edit.
+    if (externalSerialization !== null && markdown === externalSerialization) return;
+    // A genuine user edit: the host's copy is no longer authoritative.
+    externalSerialization = null;
+    hostMarkdown = null;
+    onchange?.(markdown);
   }
 
   function readSerialized(): string | null {
@@ -875,15 +889,14 @@
    */
   function finishProgressiveLoad(): void {
     streamingTail = false;
-    listenerSnapshotMayBeStale = true;
     measureOpen(OPEN_COMPLETE_MEASURE);
     emitFormatState();
 
     const complete = readSerialized();
     liveMarkdown = complete;
-    /* Set even in the edited branch: it makes the listener's trailing debounced
-     * callback — which is about to arrive carrying exactly this text — an echo
-     * rather than a second, duplicate `change`. */
+    /* Set even in the edited branch: it makes the trailing debounced change
+     * notification — which is about to arrive carrying exactly this text — an
+     * echo rather than a second, duplicate `change`. */
     externalSerialization = complete;
 
     if (!editedSinceLoadStart()) return;
@@ -1362,9 +1375,9 @@
     }
     action();
     // A tap may change the block or a mark without moving the selection (e.g.
-    // Bold mid-word), so selectionUpdated alone would miss it — and
-    // markdownUpdated is 200ms-debounced, too slow for a toolbar highlight or
-    // an Indent button to feel connected to the tap that caused it.
+    // Bold mid-word), so selectionUpdated alone would miss it — and the change
+    // notification is 200ms-debounced, too slow for a toolbar highlight or an
+    // Indent button to feel connected to the tap that caused it.
     emitCursorContext();
     emitFormatState();
     return true;

@@ -1392,6 +1392,17 @@ EditorWebView.swift, EditorWebView.kt
 
 ## Saving & rename
 
+- Every edit the user makes reaches the host once the document settles (~200 ms
+  debounce), and clearing the whole note is one of them: select-all-delete is
+  reported as a change to the empty document, however soon after the note was
+  opened. The editor knows an edit happened because it saw the TRANSACTION,
+  never by comparing the settled document against a remembered one — a cleared
+  note is byte-identical to the pristine empty document every editor starts
+  from, so any such comparison reads the user's deletion as "nothing changed"
+  and drops it. → src/features/editor/milkdown/documentChanges.ts,
+  MilkdownEditor.svelte `reportDocumentChange`,
+  src/features/editor/milkdown/MilkdownEditor.test.ts,
+  tests/note-never-emptied.spec.ts
 - A note that has content is never written back empty on the strength of an
   editor's word alone (CRITICAL). An empty document is only saved as a deletion
   when the editor REPORTED the emptying as a change; an editor that went blank
@@ -1400,11 +1411,12 @@ EditorWebView.swift, EditorWebView.kt
   lands, carrying the body the session last knew. → src/features/notes/
   noteSessionChanges.ts `editorLostTheNote`, createNotePersistence.ts,
   src/features/notes/noteSession.test.ts, tests/note-never-emptied.spec.ts
-  > **Gap:** a select-all-delete flushed inside the editor's ~200 ms change
-  > debounce (quitting or switching notes in that window) is dropped rather
-  > than written — the deliberate cost of the rule above, which cannot tell it
-  > apart from an editor that lost the note. Losing a deletion is one keystroke
-  > to redo; losing the note is not. _(all platforms)_
+  > **Gap:** a select-all-delete is still dropped rather than written when the
+  > save is FLUSHED before that change notification lands — quitting or
+  > switching notes inside the ~200 ms window. It is the deliberate cost of the
+  > rule above, which cannot tell an unannounced empty editor apart from one
+  > that lost the note. Losing a deletion is one keystroke to redo; losing the
+  > note is not. _(all platforms)_
 - Opening a note never adopts an EMPTY editor serialization as the save
   baseline for a note that read non-empty from disk. The editor's own
   serialization is otherwise the baseline, because Milkdown normalizes syntax

@@ -53,6 +53,7 @@ interface EditorHandle {
   setContent: (text: string) => void;
   applyEdit: (text: string) => void;
   getContent: () => string | undefined;
+  getProseMirrorView: () => import('@milkdown/kit/prose/view').EditorView | null;
 }
 
 let changes: string[] = [];
@@ -83,9 +84,21 @@ function editable(): HTMLElement {
   return element;
 }
 
-/** The listener plugin debounces `markdownUpdated` by 200 ms. */
+/** The change notification is debounced by 200 ms (documentChanges.ts). */
 function afterChangeDebounce(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 350));
+}
+
+/**
+ * Empty the document as a user does — one transaction over the whole thing.
+ * Dispatched through the live view rather than `applyEdit`, which is the host's
+ * own edit path and reports itself synchronously; the point of these cases is
+ * the USER's transaction, which reaches the host only through the debounce.
+ */
+function clearDocument(): void {
+  const view = handle.getProseMirrorView();
+  if (!view) throw new Error('no ProseMirror view');
+  view.dispatch(view.state.tr.delete(0, view.state.doc.content.size));
 }
 
 beforeEach(async () => {
@@ -110,6 +123,54 @@ describe('an editor holding no note', () => {
   it('reports an empty string once a brand-new note has been opened', () => {
     handle.openNote('');
     expect(handle.getContent()).toBe('');
+  });
+});
+
+/**
+ * The other half of the same contract: an empty document the user MADE is a
+ * deletion, and has to reach the host as one.
+ *
+ * The save pipeline refuses to write `''` over a note whose emptying it never
+ * heard about (`noteSessionChanges.editorLostTheNote`) — deliberately, because
+ * a blank editor is indistinguishable from a cleared one at that layer. This
+ * component is where the two ARE distinguishable, so a clear that goes
+ * unreported here is a deletion the user cannot make at all.
+ */
+describe('a note the user clears', () => {
+  it('reports the empty document', async () => {
+    handle.openNote('delete me\n');
+    await afterChangeDebounce();
+
+    clearDocument();
+    await afterChangeDebounce();
+
+    expect(changes).toEqual(['']);
+    expect(handle.getContent()).toBe('');
+  });
+
+  it('reports it even when the clear lands in the same window as the load', async () => {
+    // The shape that dropped the deletion outright. Change detection used to
+    // come from `@milkdown/plugin-listener`, which stays silent whenever the
+    // settled document matches its own baseline — and its baseline was still
+    // the PRISTINE EMPTY document, because the load's callback had been
+    // coalesced away by this very edit. A cleared note is exactly that
+    // document, so the clear was reported as "nothing changed": no `change`,
+    // no save, and the note came back on the next open.
+    handle.openNote('delete me\n');
+    clearDocument();
+    await afterChangeDebounce();
+
+    expect(changes).toEqual(['']);
+  });
+
+  it('reports what was typed when the user clears and starts over', async () => {
+    handle.openNote('the old body\n');
+    clearDocument();
+    const view = handle.getProseMirrorView();
+    view?.dispatch(view.state.tr.insertText('x', 1));
+    await afterChangeDebounce();
+
+    expect(changes).toEqual(['x\n']);
   });
 });
 
