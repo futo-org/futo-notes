@@ -450,14 +450,19 @@ function blockRuns(state: EditorState): BlockRun[] {
 }
 
 /**
- * The ProseMirror command behind one block-format toolbar button.
+ * Turn every run in the selection into whatever `target` says it becomes, as
+ * ONE transaction.
  *
- * Returns false — leaving the document untouched — when the transition has no
- * representation at the caret, which is what keeps a tap from writing a
+ * Runs, not the whole selection, for the reason `blockRuns` documents; the
+ * target is a function of the run's CURRENT format, so a mixed selection gets
+ * the per-run answer rather than one collapsed answer.
+ *
+ * Returns false — leaving the document untouched — when no run has a
+ * representable transition, which is what keeps a command from writing a
  * half-converted block. The user's own selection is never set here: the single
  * dispatched transaction maps it forward, the same as any other edit.
  */
-export function blockCommand(command: BlockCommandId): Command {
+function transitionRuns(target: (current: BlockFormat) => BlockFormat): Command {
   return (state, dispatch) => {
     const runs = blockRuns(state);
     if (runs.length === 0) return false;
@@ -478,7 +483,7 @@ export function blockCommand(command: BlockCommandId): Command {
       );
       rolling = scoped;
 
-      applyTransition(run.format, nextBlockFormat(run.format, command))(scoped, (tr) => {
+      applyTransition(run.format, target(run.format))(scoped, (tr) => {
         steps.push(...tr.steps);
         mapping.appendMapping(tr.mapping);
         rolling = scoped.apply(tr);
@@ -487,4 +492,26 @@ export function blockCommand(command: BlockCommandId): Command {
 
     return dispatchSteps(state, dispatch, steps);
   };
+}
+
+/** The ProseMirror command behind one block-format toolbar button. */
+export function blockCommand(command: BlockCommandId): Command {
+  return transitionRuns((current) => nextBlockFormat(current, command));
+}
+
+/**
+ * Set the block(s) to `target` outright, with no toggle and no cycle.
+ *
+ * This is what a MENU means and a button does not: picking "Heading 2" from a
+ * list has to give a heading 2 whatever the block was, where tapping the
+ * toolbar's one Heading button cycles h1 → h2 → h3 → plain because it is the
+ * only heading control there is. Both go through the same transition table, so
+ * the two surfaces cannot disagree about what a heading IS.
+ *
+ * A code block is still left alone — its lines can carry no prefix at all
+ * (`nextBlockFormat`) — so a menu pick inside a fence does nothing rather than
+ * writing a `#` into someone's code.
+ */
+export function setBlockFormat(target: BlockFormat): Command {
+  return transitionRuns((current) => (current.kind === 'code' ? current : target));
 }

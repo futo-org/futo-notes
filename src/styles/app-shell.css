@@ -51,9 +51,17 @@
 
 /* No padding of its own; the blank space belongs to the editor. → docs/spec/editor.md */
 .editor-container {
-  overflow: visible;
   background: transparent;
-  overflow-x: hidden;
+  /* `clip`, NOT `hidden`. A `hidden` axis paired with a `visible` one is not
+     representable, so CSS computes the `visible` axis to `auto` — which quietly
+     made this a SCROLL CONTAINER wrapping the whole note. It has only a stray
+     pixel or two of its own overflow, so it never looks like one; it just ate
+     the first wheel of every scroll before `.note-body` (the shell's real
+     scroller) saw any of it. `clip` clips without creating a scroll container,
+     leaving the other axis genuinely `visible`.
+     → tests/editor-scroll.spec.ts */
+  overflow-x: clip;
+  overflow-y: visible;
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
