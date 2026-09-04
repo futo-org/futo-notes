@@ -287,6 +287,19 @@ fun NoteEditorScreen(
     }
 
     fun dismissFind() {
+        // Take the soft keyboard down with the bar. The query field is a native
+        // EditText, and Android does NOT hide the IME when the view serving it
+        // is removed: closing the bar while it owned the keyboard left
+        // `mInputShown=true` on a served view that accepts no input (the bare
+        // AndroidComposeView), so the next Back was swallowed by the IME instead
+        // of reaching this screen's BackHandler and leaving the note took a
+        // second press. Clearing focus is the mechanism `prepare()` below
+        // already relies on, and the only one measured to drop that keyboard: a
+        // bridge `host.blur()` cannot, because find owns the field and the
+        // WebView is unfocused (document.activeElement is BODY). When the editor
+        // body owns the keyboard the user is typing in the note, so it stays up
+        // and Back behaves as it does without find [editor.md].
+        if (!host.editorFocused) focusManager.clearFocus(force = true)
         savedFindVisible = false
         host.closeFind()
     }

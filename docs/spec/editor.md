@@ -907,10 +907,28 @@ unchanged by it.
 - _(desktop)_ Escape closes the bar and returns focus to the editor with the
   selection left on the current match.
 - _(Android)_ System Back with the bar open dismisses the bar, not the screen:
-  that first Back is consumed by find. Dismissal returns focus to the editor
-  body with the soft keyboard still up, so an intervening Back may be consumed
-  by the IME (standard Android behavior) before a Back exits the note. →
-  NoteEditorScreen.kt `findBackAction`
+  that Back is consumed by find. → NoteEditorScreen.kt `findBackAction`
+
+  > **Gap:** _(Android)_ on a gesture-navigation device that promise does not
+  > hold while the keyboard is up, because the system consumes the edge swipe
+  > for the IME rather than delivering it to the app — the bar's Back handling
+  > is `onKeyPreIme` on the query field, which only ever sees key events.
+  > Measured on a gesture-nav Android 16 emulator with the bar open and the
+  > query field focused: the 1st swipe unfocused the field and left the keyboard
+  > up, the 2nd took the keyboard down, the 3rd dismissed the bar, the 4th left
+  > the note. Closing the bar with its X is unaffected (one Back leaves the note
+  > after it). → NoteEditorScreen.kt `FindQueryEditText.onKeyPreIme`
+- _(Android)_ Closing the bar takes the soft keyboard down with it whenever the
+  bar's own query field owned the keyboard, so the next Back leaves the note.
+  The field is a native `EditText`, and Android leaves the IME shown when the
+  view serving it is removed: a keyboard left bound to the departed field
+  swallows the next Back instead (measured before the fix: `mInputShown=true`
+  with the bare `AndroidComposeView` served, and leaving the note took a second
+  Back). Dismissal does NOT hand focus back to the editor body — the WebView
+  stays unfocused until the user taps into it. When the body owns the keyboard
+  instead (the user tapped into the note while the bar was open) it stays up,
+  and standard Android applies: a Back drops the keyboard before a Back leaves
+  the note. → NoteEditorScreen.kt `dismissFind`
 - _(iOS)_ the X closes the bar; the editor's exit chrome (back chevron / edge
   swipe) exits the note as usual, taking the bar with the screen.
 - _(iOS/Android)_ Closing the find bar clears every match highlight and restores

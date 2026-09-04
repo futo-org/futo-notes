@@ -94,6 +94,30 @@ class FindInNoteStateTest {
         assertTrue(prepare.indexOf("dismissFind()") in 0 until prepare.indexOf("host.blur()"))
     }
 
+    /**
+     * The query field is a native EditText, and Android leaves the IME shown
+     * when the view that owns it is removed: closing the bar with the X left
+     * `mInputShown=true` on a served view that takes no input (the bare
+     * `AndroidComposeView`), so the next Back went to the IME instead of this
+     * screen's `BackHandler` and leaving the note took a second press. Clearing
+     * focus as the bar goes away is what drops that keyboard — a bridge
+     * `blur()` cannot, because the WebView is unfocused while find owns the
+     * field. This is a structural lock; the behavioral oracle is
+     * `dumpsys input_method` on a device.
+     */
+    @Test
+    fun `dismissing find drops the keyboard its query field owns`() {
+        val dismiss = noteEditorSource()
+            .substringAfter("fun dismissFind()")
+            .substringBefore("fun openNoteEffects")
+
+        assertTrue(dismiss.contains("focusManager.clearFocus(force = true)"))
+        assertTrue(dismiss.contains("!host.editorFocused"))
+        assertTrue(
+            dismiss.indexOf("clearFocus") in 0 until dismiss.indexOf("savedFindVisible = false"),
+        )
+    }
+
     @Test
     fun `ime visibility stays scoped to the toolbar composition group`() {
         val source = noteEditorSource()
