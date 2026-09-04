@@ -1,6 +1,7 @@
-import type { PlatformFS, PlatformName } from './types';
+import type { FileDropEvent, PlatformFS, PlatformName } from './types';
 export type {
   FileChangeEvent,
+  FileDropEvent,
   PlatformFS,
   PlatformName,
   PlatformStorage,
@@ -66,6 +67,34 @@ export function onAppMenuCommand(handler: (command: string) => void): () => void
       else unlisten = stop;
     })
     .catch((error) => console.warn('Failed to subscribe to the app menu:', error));
+  return () => {
+    disposed = true;
+    unlisten?.();
+    unlisten = null;
+  };
+}
+
+// OS file drops onto the app window, where the WINDOW gets them instead of the
+// page. That is Linux: wry's WebKitGTK handler claims a file-URI drop, so the
+// webview's own `drop` event arrives with no files. macOS and Windows disable
+// that native layer (`dragDropEnabled: false`) and deliver a real HTML5 drop,
+// where this never fires — so a consumer wires both and takes whichever comes,
+// rather than branching on platform itself (rule 4.5).
+//
+// Off Tauri (the web dev server, the native mobile embeds) there is no window
+// to drop onto, so this is a no-op subscription rather than a branch at the
+// call site — the same shape as `onAppMenuCommand`.
+export function onFileDrop(handler: (event: FileDropEvent) => void): () => void {
+  if (platformName !== 'tauri') return () => {};
+  let unlisten: (() => void) | null = null;
+  let disposed = false;
+  void import('./tauri/fileDrop')
+    .then(({ subscribeToFileDrop }) => subscribeToFileDrop(handler))
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch((error) => console.warn('Failed to subscribe to file drops:', error));
   return () => {
     disposed = true;
     unlisten?.();

@@ -11,6 +11,15 @@ export interface DirFileEntry {
   mtime: number;
 }
 
+/** A file dropped onto the window from outside the app. */
+export interface FileDropEvent {
+  /** Absolute paths of the dropped files. The OS gives no bytes, only paths. */
+  paths: string[];
+  /** Drop point in CSS pixels, relative to the webview viewport. */
+  x: number;
+  y: number;
+}
+
 /** Platform-owned app-data, image, and shell services. Note/folder behavior
  * deliberately lives on the separate LocalNoteStore port. */
 export interface PlatformStorage {

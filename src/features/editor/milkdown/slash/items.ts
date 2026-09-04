@@ -6,11 +6,18 @@
  * renderer and the command implementations each read one list instead of
  * restating it. `exec.ts` implements every id here; `index.ts` renders them.
  *
- * The set is the one the CodeMirror editor's block-command menu offered, minus
- * Image: inserting a picture needs a file picker and a vault write, which the
- * desktop shell has no path for yet (docs/plan/desktop-editor-parity.md D2, and
- * the toolbar manifest's `pickImage` action, which only the native hosts
- * answer). Everything else is a block format the editor already implements.
+ * The set is the one the CodeMirror editor's block-command menu offered. Every
+ * item but Image is a block format the editor already implements; Image opens
+ * the host's file picker and writes into the vault, through the same
+ * `PlatformFS` pair (`pickImage` + `saveImage`) the CodeMirror toolbar button
+ * used before the engine swap deleted it.
+ *
+ * Image is offered on every host the menu itself is offered on — the menu is
+ * desktop-only (`resolveSlashMenu`), and desktop is exactly where the picker
+ * exists. On a host with no picker at all (a plain browser) the item is inert
+ * rather than hidden: `imageInsert.ts` reports `canPick` false and picking it
+ * inserts nothing, which is the same "decline, never corrupt" rule image paste
+ * already follows.
  */
 
 export interface SlashItem {
@@ -64,6 +71,12 @@ export const SLASH_ITEMS: SlashItem[] = [
     keywords: ['hr', 'horizontal', 'rule', 'separator', 'line'],
   },
   { id: 'table', label: 'Table', hint: 'Markdown table', keywords: ['grid', 'cells', 'rows'] },
+  {
+    id: 'image',
+    label: 'Image',
+    hint: 'Insert a picture from a file',
+    keywords: ['picture', 'photo', 'img', 'file'],
+  },
 ];
 
 /**

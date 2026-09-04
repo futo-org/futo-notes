@@ -16,13 +16,24 @@
  * INSERTS (code block, divider, table) are the presets' own commands rather
  * than hand-built nodes — a GFM table is a table > row > header/cell tree whose
  * shape belongs to `@milkdown/preset-gfm`, not to this menu.
+ *
+ * IMAGE is the one item that leaves the editor: it opens the host's file
+ * picker, saves the picked file into the vault, and inserts the reference.
+ * `imageInsert.ts` owns all of that — the same module the OS file drop uses —
+ * so the two entry points cannot drift on where an image goes or how it is
+ * spelled. The pick is ASYNCHRONOUS and this map is not: `pick()` returns
+ * immediately, the menu's `commit` deletes the typed `/image` run right after,
+ * and the insert lands at the caret whenever the user chooses a file. That
+ * ordering is what makes a picker workable in a synchronous exec map.
  */
 import type { CmdKey, Editor } from '@milkdown/kit/core';
 import { createCodeBlockCommand, insertHrCommand } from '@milkdown/kit/preset/commonmark';
 import { insertTableCommand } from '@milkdown/kit/preset/gfm';
 import type { Command as ProseCommand } from '@milkdown/kit/prose/state';
-import { callCommand } from '@milkdown/kit/utils';
+import { callCommand, insert as insertMarkdown } from '@milkdown/kit/utils';
+import { imageReferenceMarkdown } from '@futo-notes/editor';
 
+import { resolveImageInserter } from '../../imageInsert';
 import { setBlockFormat, type BlockFormat } from '../blockCommands';
 import { editorView } from '../caretContext';
 
@@ -65,5 +76,17 @@ export function createSlashExec(getEditor: () => Editor | null): SlashExecMap {
     // than left to the preset's identical defaults, so a change there is visible
     // here.
     table: () => run(insertTableCommand, { row: 3, col: 3 }),
+    /* Resolved per pick, not once per editor: the platform FS is initialized
+     * during app bootstrap, and this plugin is built while the editor is still
+     * being constructed — resolving it eagerly would cache "no picker" on a
+     * host that has one. */
+    image: () => {
+      void resolveImageInserter((filename) => {
+        const editor = getEditor();
+        if (!editor) return;
+        editor.action(insertMarkdown(imageReferenceMarkdown(filename)));
+        editorView(editor)?.focus();
+      }).pick();
+    },
   };
 }

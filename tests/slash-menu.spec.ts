@@ -37,7 +37,44 @@ test.describe('slash menu', () => {
   test('typing / at the start of a block opens the menu with every item', async ({ page }) => {
     await typeSlash(page, '/');
     await expectMenuOpen(page);
-    await expect(page.locator(ROW)).toHaveCount(11);
+    await expect(page.locator(ROW)).toHaveCount(12);
+  });
+
+  test('the menu offers Image', async ({ page }) => {
+    await typeSlash(page, '/');
+    await expectMenuOpen(page);
+    await expect(page.locator(`${ROW}[data-slash-id="image"]`)).toContainText('Image');
+  });
+
+  test('Image is reachable by the words a reader would type for it', async ({ page }) => {
+    for (const query of ['image', 'picture', 'photo', 'img']) {
+      await openNewNote(page);
+      await typeSlash(page, `/${query}`);
+      await expectMenuOpen(page);
+      await expect(page.locator(`${ROW}[data-slash-id="image"]`)).toHaveCount(1);
+    }
+  });
+
+  /*
+   * Picking Image opens the HOST's file picker, which only exists on Tauri
+   * desktop — `PlatformFS.pickImage`, a native dialog Playwright's browser has
+   * no equivalent of. What this asserts is the half a browser CAN see and the
+   * half that protects the note: the pick is accepted, the typed `/image` run
+   * is removed like any other item's, and nothing bogus is written when the
+   * host has no picker to answer with. The picker call itself, the vault write
+   * and the inserted `![](…)` are covered against a mocked `PlatformFS` in
+   * `src/features/editor/milkdown/slash/exec.test.ts` and
+   * `src/features/editor/imageInsert.test.ts`.
+   */
+  test('picking Image consumes the typed run and writes no image markdown', async ({ page }) => {
+    await typeSlash(page, '/image');
+    await expectMenuOpen(page);
+    await page.keyboard.press('Enter');
+    await expectMenuClosed(page);
+
+    const markdown = await editorMarkdown(page);
+    expect(markdown).not.toContain('/image');
+    expect(markdown).not.toContain('![](');
   });
 
   test('the query filters the menu', async ({ page }) => {

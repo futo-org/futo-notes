@@ -1165,6 +1165,62 @@ EditorWebView.swift, EditorWebView.kt
   synced in yet — is retried by a later render rather than remembered as
   failed. → features/images/vaultImageUrlResolver.ts, features/images/
   vaultImageSrc.ts `requestVaultImageUrl`
+- **Desktop has three ways to add an image, and all three end in the same
+  place**: the bytes land in the vault root under a generated space-free name
+  and `![](image-…ext)` goes into the note at the caret. _(desktop)_
+  1. **Paste** — the clipboard path above.
+  2. **`/image`** — the `/` block menu's Image item opens the OS file picker
+     (`PlatformFS.pickImage`), copies the chosen file into the vault
+     (`saveImage` → `fs_save_image`) and inserts the reference. The pick is
+     asynchronous while the menu's exec map is not, so the typed `/image` run is
+     deleted immediately and the reference lands whenever the file is chosen.
+     The item is offered on every host the menu is (desktop only); where there
+     is no picker it is inert rather than hidden, and inserts nothing.
+  3. **Drag and drop** — dropping image files from the OS onto the editor
+     inserts them at the drop point, or at the caret when the point resolves to
+     no text position. Several images at once are inserted in the order dropped,
+     and one that fails to save does not abort the rest.
+  → src/features/editor/imageInsert.ts, milkdown/slash/items.ts + exec.ts,
+  src/lib/platform/tauri/images.ts `pickImage`, tests/image-drop.spec.ts,
+  tests/slash-menu.spec.ts
+- **A file drop reaches the app by a different route on each OS, so the editor
+  listens to both and takes whichever arrives.** macOS and Windows build configs
+  set `dragDropEnabled: false`, which stops wry installing a native drop target,
+  so the drop arrives in the page as an ordinary HTML5 `drop` with the bytes
+  already read (ProseMirror's `handleDrop` prop). Linux leaves the flag at its
+  default because the same native layer is what the sidebar's internal drags
+  need left alone; wry's WebKitGTK handler therefore claims a file-URI drop and
+  the page's own `drop` fires with an empty file list, so the paths arrive on the
+  WINDOW instead and are read through `PlatformFS.onFileDrop`. The window event
+  fires for the whole window, so the editor acts only on a drop whose point
+  lands inside it. _(desktop)_ → src/lib/platform/tauri/fileDrop.ts,
+  src/lib/platform/dragDropConfig.test.ts,
+  milkdown/MilkdownEditor.svelte `dropHandler`
+- **A drop carrying files is always claimed, image or not.** The browser's
+  default for an unclaimed file drop is to navigate the webview to that file,
+  which would tear the running app down mid-edit — so a dropped `.md`, PDF or
+  archive is swallowed and ignored rather than inserted, and never becomes an
+  `![](…)`. A drop carrying no files is left entirely alone, which is what the
+  editor's own block drag rides on. _(desktop)_
+  → src/features/editor/imageInsert.ts `dropCarriesFiles` / `imageFilesIn`,
+  tests/image-drop.spec.ts
+- Which dropped or picked files count as images is `isImageFilename` — the same
+  `IMAGE_EXTENSIONS` list paste uses, conformance-locked to the canonical Rust
+  vault rule, never a second list. A file's own extension decides the name it is
+  stored under, falling back to its MIME type when it carries no image
+  extension. → packages/editor/src/images.ts,
+  src/features/editor/imageInsert.ts `imageExtensionFor`
+
+  Verified on the real Linux desktop app (Fedora 44, WebKitGTK, dev build,
+  2026-09-03): a pasted PNG landed in the vault as a valid 1×1 PNG with
+  `![](image-…png)` in the note; the `/` menu offered 12 items and `/image`
+  filtered to Image; `fs_save_image` copied a real path in and refused a `.md`
+  at the Rust layer; and a `tauri://drag-drop` carrying an image path inserted
+  it at the drop point, while the same event carrying a `.md`, or carrying an
+  image dropped outside the editor's box, left the note untouched. Not yet
+  exercised by a genuine human OS drag on any platform, nor the native file
+  chooser opening (`dialog:allow-open` is granted and the command reaches
+  argument parsing, so the permission half is proven).
 - Clipboard image paste claims the paste through
   ProseMirror's `handlePaste` and captures it through the sink for the host it
   is running in: the `saveImageData` / `pasteClipboardImage` bridge messages on

@@ -37,7 +37,7 @@ import {
   classifyImagePaste,
   extFromMime,
   readFileAsBase64,
-  resolveImagePasteFs,
+  resolveVaultImageFs,
 } from './imagePaste';
 
 export interface ImagePasteSink {
@@ -176,7 +176,7 @@ export function createImagePasteHandler(
 export function resolveImagePasteSink(): ImagePasteSink | null {
   if (hasNativeBridgeHost()) return createBridgeImagePasteSink();
 
-  const fs = resolveImagePasteFs();
+  const fs = resolveVaultImageFs();
   if (!fs) return null;
 
   return createVaultFsImagePasteSink({

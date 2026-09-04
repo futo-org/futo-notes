@@ -57,6 +57,8 @@
     installVaultImageUrlResolver,
     uninstallVaultImageUrlResolver,
   } from '$features/images/vaultImageUrlResolver';
+  import { onFileDrop } from '$lib/platform';
+  import { dropCarriesFiles, imageFilesIn, resolveImageInserter } from '../imageInsert';
   import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
   import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockContainment } from './blockContainment';
@@ -249,6 +251,22 @@
    * THIS host captures the bytes, and this component only inserts whatever
    * filename comes back. */
   let pasteHandler: ((event: ClipboardEvent) => boolean) | null = null;
+  /* Dropping an image FILE from the OS is `dropHandler` plus `stopFileDrop`
+   * below — two paths for one gesture, because the two backends deliver it
+   * differently and neither is a choice this component gets to make:
+   *
+   *   - macOS/Windows disable wry's native drop target (`dragDropEnabled:
+   *     false`), so the drop arrives as an ordinary HTML5 `drop` with the bytes
+   *     already read — ProseMirror's `handleDrop` prop.
+   *   - Linux leaves it on, so wry claims the file-URI drop and the page's own
+   *     `drop` fires with no files at all; the paths arrive on the WINDOW,
+   *     through `PlatformFS`'s `onFileDrop`.
+   *
+   * Both end in `imageInsert.ts`, which is also what the `/image` picker uses.
+   * Off Tauri `onFileDrop` is a no-op subscription, so nothing here branches on
+   * platform (src/AGENTS.md rule 4.5). */
+  let dropHandler: ((event: DragEvent) => boolean) | null = null;
+  let stopFileDrop: (() => void) | null = null;
   /* Only true where this editor installed the per-file URL producer (Tauri
    * desktop), so the teardown removes exactly what the mount added. */
   let ownsImageUrlResolver = false;
@@ -439,6 +457,11 @@
               enterkeyhint: 'return',
             },
             handlePaste: (_view, event) => pasteHandler?.(event) ?? false,
+            /* `handleDrop` rides it for the same precedence reason as
+             * `handlePaste`: an OS file drop must be claimed before the
+             * preset's own drop handling turns the file into text. An INTERNAL
+             * block drag carries no files and is left entirely alone. */
+            handleDrop: (_view, event) => dropHandler?.(event as DragEvent) ?? false,
             handleKeyDown: (view, event) => handleParityKeyDown(view, event),
           }));
 
@@ -593,6 +616,37 @@
         sink: resolveImagePasteSink(),
         insertImage: (filename) => insertMarkdown(imageReferenceMarkdown(filename)),
       });
+
+      const imageInserter = resolveImageInserter((filename) =>
+        insertMarkdown(imageReferenceMarkdown(filename)),
+      );
+
+      /* The HTML5 half (macOS/Windows). A drop carrying files is ALWAYS
+       * claimed, images or not: the browser's default for an unclaimed file
+       * drop is to navigate the webview to that file, which would tear the app
+       * down mid-edit. A non-image file is therefore swallowed and ignored
+       * rather than inserted. */
+      dropHandler = (event) => {
+        if (!dropCarriesFiles(event.dataTransfer)) return false;
+        event.preventDefault();
+        const images = imageFilesIn(event.dataTransfer);
+        if (images.length > 0) {
+          placeCaretAtCoords(event.clientX, event.clientY);
+          void imageInserter.insertFiles(images);
+        }
+        return true;
+      };
+
+      /* The window half (Linux). It fires for a drop anywhere on the window, so
+       * this editor takes only the ones that landed on IT — a drop on the
+       * sidebar is not this component's business. */
+      stopFileDrop = onFileDrop(({ paths, x, y }) => {
+        const box = container?.getBoundingClientRect();
+        if (!box) return;
+        if (x < box.left || x > box.right || y < box.top || y > box.bottom) return;
+        placeCaretAtCoords(x, y);
+        void imageInserter.insertPaths(paths);
+      });
       /* Where images resolve per file rather than off a host base URL (Tauri
        * desktop), the node views need something to ask. */
       ownsImageUrlResolver = installVaultImageUrlResolver();
@@ -632,6 +686,9 @@
       disposed = true;
       progressive?.cancel();
       progressive = null;
+      stopFileDrop?.();
+      stopFileDrop = null;
+      dropHandler = null;
       if (ownsImageUrlResolver) {
         uninstallVaultImageUrlResolver();
         ownsImageUrlResolver = false;

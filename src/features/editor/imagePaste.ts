@@ -35,20 +35,36 @@ export function extFromMime(mime: string): string {
   return map[mime] ?? 'png';
 }
 
-/** The subset of `PlatformFS` an image capture needs. */
-export type ImagePasteFS = {
+/**
+ * The subset of `PlatformFS` the editor's image entry points need.
+ *
+ * All four of them — clipboard paste, the `/image` picker, an OS file drop that
+ * arrives as bytes, and one that arrives as a path — end at the same two
+ * questions: write these bytes into the vault, and what URL renders the file
+ * that came back. They resolve that FS through one function so a new entry
+ * point cannot quietly grow a second, differently-gated copy of it.
+ */
+export type VaultImageFs = {
+  /** Copy a file the user already has on disk into the vault. */
+  saveImage: (sourcePath: string) => Promise<string>;
   saveImageBytes: (data: ArrayBuffer, ext: string) => Promise<string>;
   getImageUrl: (filename: string) => Promise<string>;
   pasteClipboardImage?: () => Promise<string>;
+  /** Opens the host's file picker. Absent where there is no picker. */
+  pickImage?: () => Promise<string | null>;
 };
 
 /**
  * The vault-writing FS for this host, with its methods bound, or null where
  * images cannot be written at all (a plain browser: `pnpm run dev`, Playwright,
  * the factory judge — `web.ts` has no `saveImageBytes` and its `getImageUrl`
- * throws). Both engines' paste paths resolve it through here.
+ * throws). Every image entry point resolves it through here.
+ *
+ * `saveImageBytes` is the gate rather than `saveImage`, which every `PlatformFS`
+ * declares: on the web fallback `saveImage` exists and throws, so its presence
+ * says nothing about whether this host has a vault to write to.
  */
-export function resolveImagePasteFs(): ImagePasteFS | null {
+export function resolveVaultImageFs(): VaultImageFs | null {
   let fs: ReturnType<typeof getFS>;
   try {
     fs = getFS();
@@ -57,9 +73,11 @@ export function resolveImagePasteFs(): ImagePasteFS | null {
   }
   if (!fs.saveImageBytes) return null;
   return {
+    saveImage: fs.saveImage.bind(fs),
     saveImageBytes: fs.saveImageBytes.bind(fs),
     getImageUrl: fs.getImageUrl.bind(fs),
     pasteClipboardImage: fs.pasteClipboardImage?.bind(fs),
+    pickImage: fs.pickImage?.bind(fs),
   };
 }
 
