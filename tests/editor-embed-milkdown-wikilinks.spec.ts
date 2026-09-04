@@ -422,3 +422,54 @@ test('typing a wikilink out in full turns into a link on the closing brackets', 
   const [change] = await waitForMessages(page, 'change');
   expect(change.content).toBe('[[grocery list]]\n');
 });
+
+// ============================================================
+// A `!` that starts no embed (issue #112)
+// ============================================================
+
+/**
+ * The `![[embed]]` lookahead used to open its `wikilink` token before it knew a
+ * `[[` followed, and consuming the end of the input stranded that token open —
+ * so the enclosing paragraph or table cell could never close, the parse threw,
+ * and the note opened BLANK on every shell. The reference note that could not
+ * be opened at all was a table with `no!!` in a header cell.
+ *
+ * The unit differential (`wikilink/syntax.test.ts`) locks the grammar; this
+ * asks the only question the user has — does the note open, and is it still the
+ * same note afterwards.
+ */
+const BANG_TABLE = '| a | no!! |\n| - | ---- |\n| x | y    |\n';
+
+test('a table whose header cell ends in `!` opens instead of throwing', async ({ page }) => {
+  const crashes: string[] = [];
+  page.on('pageerror', (error) => crashes.push(error.message));
+
+  await open(page, BANG_TABLE);
+
+  // The note RENDERED: a real table, not the blank editor a thrown parse leaves.
+  await expect(page.locator('.ProseMirror table')).toHaveCount(1);
+  await expect(page.locator('.ProseMirror table th').nth(1)).toHaveText('no!!');
+  expect(crashes).toEqual([]);
+  // And opening it did not rewrite it.
+  expect(await getContent(page)).toBe(BANG_TABLE);
+});
+
+test('a paragraph ending in `!` opens and round-trips', async ({ page }) => {
+  const crashes: string[] = [];
+  page.on('pageerror', (error) => crashes.push(error.message));
+
+  // The headline shape from the issue: the `!` is the last thing on the line.
+  const source = 'What a note!\n\nAnd another one!\n';
+  await open(page, source);
+
+  await expect(page.locator('.ProseMirror p').first()).toHaveText('What a note!');
+  expect(crashes).toEqual([]);
+  expect(await getContent(page)).toBe(source);
+});
+
+test('the `!` lookahead still claims the bang in front of a real embed', async ({ page }) => {
+  // The construct's whole reason to exist: without it micromark's image label
+  // eats `![` and the surviving `[` cannot start a wikilink.
+  await open(page, '![[Projects/Roadmap]]\n');
+  await expect(chip(page)).toHaveText('Projects/Roadmap');
+});

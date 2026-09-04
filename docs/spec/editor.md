@@ -607,6 +607,20 @@ native shells edit tags as text in the body, which is not a gap.
 
 ## Wikilinks — navigation & integrity
 
+- `[[`…`]]` is a wikilink when it holds at least one character that is neither a
+  line ending nor the start of `]]`; the whole inner text is the target. A `!`
+  immediately in front of one (`![[Note]]`, Obsidian's embed syntax) is **plain
+  text followed by a wikilink** — the `!` is claimed as text so micromark's
+  image label cannot swallow the `![` and leave the link escaped. **Everywhere
+  else a `!` is ordinary text and begins nothing**: at the end of a line, at the
+  end of the file with no trailing newline, inside a table cell (`| a | no!! |`),
+  before a space, or before another `!`. The tokenizer decides this BEFORE it
+  opens its token, so no path can strand one open — a stranded `wikilink` token
+  stops the enclosing paragraph or table cell from closing, which threw on parse
+  and opened the WHOLE note blank on every shell (issue #112, fixed
+  2026-09-03). → src/features/editor/milkdown/wikilink/syntax.ts,
+  src/features/editor/milkdown/wikilink/syntax.test.ts,
+  tests/editor-embed-milkdown-wikilinks.spec.ts
 - Clicking/tapping a wikilink navigates to the target note (desktop:
   Cmd/Ctrl+click opens it in a new tab). → NotesShell.svelte onopenlink
 - A wikilink displays the **shortest unique path suffix** (`[[Projects/Roadmap]]`

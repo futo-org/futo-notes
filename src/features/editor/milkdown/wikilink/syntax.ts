@@ -86,8 +86,22 @@ const tokenizeWikilink: MicromarkTokenizer = (effects, ok, nok) => {
    * token, because a `]` inside the target (`[[a]b]]`) is only recognisable as
    * content one character AFTER it has been consumed — by which time a nested
    * target token would already have had to close around it.
+   *
+   * The `[` guard is load-bearing, not belt-and-braces (issue #112). Reached
+   * from the construct map this state only ever sees `[`, but the `!` construct
+   * below runs this same tokenizer as `effects.check` lookahead, which hands it
+   * whatever follows the bang — a `|`, a space, another `!`, a line ending, or
+   * `null` at end of document. Entering `wikilink` before that check and then
+   * consuming an EOF stranded the token OPEN: micromark stops feeding states
+   * once the final chunk is consumed, so neither `ok` nor `nok` ran and nothing
+   * rewound it, and the enclosing `paragraph`/`tableHeader` could no longer
+   * close — the note threw on open and rendered blank. Declining before `enter`
+   * keeps the invariant this whole machine rests on: every path out of an
+   * entered token reaches `ok` or `nok`, and no path ever consumes a line
+   * ending or `null`.
    */
   function start(code: number | null): MicromarkState | undefined {
+    if (code !== LEFT_SQUARE_BRACKET) return nok(code);
     effects.enter('wikilink');
     effects.consume(code);
     return afterFirstBracket;

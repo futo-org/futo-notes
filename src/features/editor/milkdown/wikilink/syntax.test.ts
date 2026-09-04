@@ -195,3 +195,55 @@ describe('accepted normalization', () => {
     },
   );
 });
+
+/**
+ * Issue #112 — a `!` that is NOT the start of an `![[embed]]`.
+ *
+ * The `!` construct exists only to claim the bang in front of a real wikilink
+ * (see `syntax.ts`), and it decides by running the wikilink tokenizer as
+ * lookahead. That tokenizer is therefore handed whatever follows the `!` —
+ * including a line ending or the end of the document — where every other entry
+ * into it is guaranteed a `[`. Entering the `wikilink` token before checking
+ * that guarantee stranded it open at end of input: micromark stops feeding
+ * states once the final chunk is consumed, so neither `ok` nor `nok` ran and
+ * nothing rewound the token. The enclosing `paragraph`/`tableHeader` then could
+ * not close, the parse threw, and the WHOLE note opened blank.
+ *
+ * So: a `!` is a wikilink candidate only when `[[` immediately follows it.
+ * Anywhere else — end of line, end of file, `|`, a space, another `!` — it is
+ * plain text, and no token is left open.
+ */
+const BANG_CASES = [
+  // The original report: a line ENDING in `!`.
+  'hello!\n',
+  // …and at the end of the document, with no trailing newline at all.
+  'hello!',
+  // Two in a row: the first `!` declines on the second, the second on the EOL.
+  'no!!\n',
+  'a! b!\n',
+  // Inside a table cell, where the cell's content ends at the `!`.
+  '| a | no!! |\n| - | - |\n| x | y |\n',
+  '| a | b! |\n| - | - |\n| x | y |\n',
+  // A `!` before a `[[` that never closes is still plain text.
+  '![[unclosed\n',
+  // The embed shape the construct exists for still parses to a wikilink.
+  '![[Note]]\n',
+  // …and a plain wikilink still works inside a table cell.
+  '| a | [[Note]] |\n| - | - |\n| x | y |\n',
+  // A real image in a table cell keeps working (the `!` lookahead declines).
+  '| a | ![img](x.png) |\n| - | - |\n| x | y |\n',
+];
+
+describe('a `!` not followed by `[[` (issue #112)', () => {
+  it.each(BANG_CASES)('parses %j instead of stranding a wikilink token', async (document_) => {
+    const { targets } = await roundTrip(document_);
+    expect(targets).toEqual(conformanceTargets(document_));
+  });
+
+  it.each(['hello!\n', 'no!!\n', 'a! b!\n', 'a!b\n'])(
+    'round-trips %j byte for byte',
+    async (document_) => {
+      expect((await roundTrip(document_)).markdown).toBe(document_);
+    },
+  );
+});
