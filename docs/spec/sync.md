@@ -1714,6 +1714,17 @@ journal --dir` has nothing to read from a phone.
 - Native shells do not run a foreground poll loop; the SSE live stream plus its
   ~45 s safety poll cover liveness (see "Live sync (SSE)"). → futo-notes-sync
   `session/`
+- **An idle cycle is cheap.** A cycle that finds nothing to push or pull opens
+  no new connection (one process-wide connection pool serves every push, pull,
+  and SSE reconnect, so the TLS handshake is paid once, not per cycle) and
+  writes nothing to disk (`checkpoint::save` leaves `.e2ee-state.json` alone
+  when its bytes already match; a changed, torn, or missing file is still
+  written). The release journal measured the old per-cycle handshake at ~350 ms
+  p50 over 17k cycles, and the old double checkpoint rewrite at ~1.8 MB per idle
+  cycle on a 2.5k-note vault. → futo-notes-sync `server/mod.rs`
+  (`shared_client`), `checkpoint.rs`
+  (`save_leaves_an_identical_checkpoint_untouched_and_rewrites_any_difference`),
+  harness `tests/perf_cycle.rs`
 
 - **External filesystem changes to the open note mirror disk, IDE-style
   _(desktop)_.** A watcher `change` whose disk content differs from the
