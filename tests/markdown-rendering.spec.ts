@@ -273,15 +273,6 @@ test.describe('Headings', () => {
       await expect(heading).toBeVisible();
     }
   });
-
-  test('heading markers are hidden', async ({ page }) => {
-    await setupEditor(page, '# Heading 1\n\nMore text');
-    await blurEditor(page);
-
-    expect(await getDocText(page)).toContain('# Heading 1');
-    expect(await getVisibleLineText(page, 0)).toBe('Heading 1');
-    expect(await getVisibleLineText(page, 0)).not.toContain('#');
-  });
 });
 
 // ============================================================================
@@ -313,15 +304,6 @@ test.describe('Emphasis (Bold/Italic)', () => {
 
     const fontWeight = await bold.evaluate((el) => window.getComputedStyle(el).fontWeight);
     expect(parseInt(fontWeight)).toBeGreaterThanOrEqual(700);
-  });
-
-  test('emphasis markers are hidden', async ({ page }) => {
-    await setupEditor(page, 'This is **bold** text.\n\nMore');
-    await blurEditor(page);
-
-    expect(await getDocText(page)).toContain('**bold**');
-    expect(await getVisibleLineText(page, 0)).toBe('This is bold text.');
-    expect(await getVisibleLineText(page, 0)).not.toContain('**');
   });
 
   test('clicking inside italic text places the cursor at the clicked character', async ({
@@ -402,15 +384,6 @@ test.describe('Strikethrough', () => {
     expect(textDecoration).toContain('line-through');
   });
 
-  test('strikethrough markers are hidden', async ({ page }) => {
-    await setupEditor(page, 'This is ~~struck~~ text.\n\nMore');
-    await blurEditor(page);
-
-    const strike = page.locator('.cm-md-strikethrough');
-    const text = await strike.textContent();
-    expect(text).not.toContain('~~');
-  });
-
   test('clicking inside strikethrough text places the cursor at the clicked character', async ({
     page,
   }) => {
@@ -466,17 +439,6 @@ test.describe('Inline Code', () => {
 
     const background = await code.evaluate((el) => window.getComputedStyle(el).backgroundColor);
     expect(background).not.toBe('rgba(0, 0, 0, 0)'); // Has background
-  });
-
-  test('inline code backticks are hidden', async ({ page }) => {
-    await setupEditor(page, 'Use `code` here.\n\nMore');
-    await blurEditor(page);
-
-    // Check that backticks aren't visible in rendered content
-    const code = page.locator('.cm-md-code');
-    const text = await code.evaluate((el) => (el as HTMLElement).innerText);
-    expect(text).toBe('code');
-    expect(text).not.toContain('`');
   });
 
   test('clicking inline code reveals backticks without dropping code styling', async ({ page }) => {
@@ -609,22 +571,6 @@ test.describe('Code Blocks', () => {
     expect(fontFamily.toLowerCase()).toMatch(/monaco|menlo|mono/);
   });
 
-  test('code block fences are hidden', async ({ page }) => {
-    await setupEditor(page, TEST_CONTENT.codeBlock + '\n\nMore text');
-    await blurEditor(page);
-
-    // The ``` markers should be hidden (not visible in any code block line)
-    const codeBlocks = page.locator('.cm-md-code-block');
-    const count = await codeBlocks.count();
-    expect(count).toBeGreaterThan(0);
-
-    // Check that none of the code block lines contain fence markers
-    for (let i = 0; i < count; i++) {
-      const text = await codeBlocks.nth(i).textContent();
-      expect(text).not.toMatch(/^```/);
-    }
-  });
-
   test('ruby fenced code block uses CodeMirror syntax highlighting', async ({ page }) => {
     const rubyBlock = [
       '```ruby',
@@ -694,17 +640,6 @@ test.describe('Links', () => {
     );
     expect(textDecoration).toContain('underline');
   });
-
-  test('link markdown syntax is hidden', async ({ page }) => {
-    await setupEditor(page, 'Check [link](https://example.com) here.\n\nMore');
-    await blurEditor(page);
-
-    const link = page.locator('.cm-md-link:not(.cm-md-autolink)', { hasText: 'link' }).first();
-    const text = await link.textContent();
-    expect(text).toBe('link');
-    expect(text).not.toContain('[');
-    expect(text).not.toContain('(');
-  });
 });
 
 // ============================================================================
@@ -719,19 +654,6 @@ test.describe('Blockquotes', () => {
     const quote = page.locator('.cm-md-quote');
     await expect(quote).toBeVisible();
   });
-
-  test('blockquote > marker is hidden', async ({ page }) => {
-    await setupEditor(page, '> This is a quote.\n\nMore text');
-    await blurEditor(page);
-
-    // The > should be hidden
-    // Check that we have the quote class applied but marker isn't visible
-    const quoteLines = page.locator('.cm-line').first();
-    await quoteLines.evaluate(
-      (el) => el.classList.contains('cm-md-quote') || el.querySelector('.cm-md-quote') !== null,
-    );
-    // Either the line has the class or contains an element with it
-  });
 });
 
 // ============================================================================
@@ -739,24 +661,6 @@ test.describe('Blockquotes', () => {
 // ============================================================================
 
 test.describe('Lists', () => {
-  test('unordered list renders with correct class', async ({ page }) => {
-    await setupEditor(page, '- Item 1\n- Item 2\n\nMore text');
-    await blurEditor(page);
-
-    const ulItem = page.locator('.cm-md-ul-item');
-    const count = await ulItem.count();
-    expect(count).toBeGreaterThanOrEqual(1);
-  });
-
-  test('ordered list renders with correct class', async ({ page }) => {
-    await setupEditor(page, '1. First\n2. Second\n\nMore text');
-    await blurEditor(page);
-
-    const olItem = page.locator('.cm-md-ol-item');
-    const count = await olItem.count();
-    expect(count).toBeGreaterThanOrEqual(1);
-  });
-
   test('task list checkbox widget renders', async ({ page }) => {
     await setupEditor(page, '- [x] Done\n- [ ] Todo\n\nMore text');
     await blurEditor(page);

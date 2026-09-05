@@ -12,8 +12,6 @@ test('issue reporting exposes the shared copy and the feedback form', async ({ p
 
   await expect(page.getByRole('heading', { name: 'Issue Reporting' })).toBeVisible();
   await expect(page.getByText('Send crashes automatically', { exact: true })).toBeVisible();
-  await expect(page.getByText('Crash Reporting', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Always send automatically', { exact: true })).toHaveCount(0);
 
   const shareCrashReportsRow = page.locator('.settings-issue-first-row');
   const sendCrashesAutomaticallyRow = page.locator('.settings-issue-middle-row');

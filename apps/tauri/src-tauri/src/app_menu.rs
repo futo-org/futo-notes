@@ -62,6 +62,7 @@ pub(crate) struct ApplicationMenuLabels {
 }
 
 impl ApplicationMenuLabels {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     fn english() -> Result<Self, Box<dyn std::error::Error>> {
         let catalog: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),

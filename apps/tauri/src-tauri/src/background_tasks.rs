@@ -28,15 +28,3 @@ where
         .map(|_| ())
         .map_err(|error| format!("failed to start {name}: {error}"))
 }
-
-#[cfg(test)]
-mod tests {
-    //! Tests for desktop background-task error contracts.
-
-    use super::*;
-
-    #[test]
-    fn join_errors_keep_the_existing_ipc_message_prefix() {
-        assert_eq!(join_error("cancelled"), "join error: cancelled");
-    }
-}

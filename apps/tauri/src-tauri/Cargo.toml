@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 name = "futo_notes_tauri_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [[bin]]
 name = "futo-notes-tauri"
@@ -35,7 +35,6 @@ notify = "8.2.0"
 png = "0.17"
 libc = "0.2"
 tauri-plugin-mcp-bridge = "0.10.0"
-tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 
 # OS secret store for the E2EE vault password (F6) lives in the per-OS target
 # tables below. Desktop-only, and deliberately NOT in the portable crates —

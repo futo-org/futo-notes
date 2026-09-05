@@ -184,10 +184,6 @@ importers:
         version: 8.21.3
 
   apps/tauri:
-    dependencies:
-      '@tauri-apps/api':
-        specifier: ^2.9.1
-        version: 2.10.1
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2.9.1

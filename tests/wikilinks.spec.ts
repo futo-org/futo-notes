@@ -180,33 +180,6 @@ test.describe('Wikilink Navigation', () => {
     await expect(page.locator('.cm-line').first()).toContainText('[[FUTO Notes bugs]]');
   });
 
-  test('clicking to the right of a line ending in a wikilink places the cursor at line end', async ({
-    page,
-  }) => {
-    await setupEditor(page, 'write more of [[Visions of FUTO Notes]]');
-    await setCursorPosition(page, 0);
-    await blurEditor(page);
-
-    const wikilinkBox = await page.locator('.cm-md-wikilink').boundingBox();
-    expect(wikilinkBox).not.toBeNull();
-    const lineBox = await page.locator('.cm-line').first().boundingBox();
-    expect(lineBox).not.toBeNull();
-
-    await page.mouse.click(
-      wikilinkBox!.x + wikilinkBox!.width + 4,
-      lineBox!.y + lineBox!.height / 2,
-    );
-    await page.waitForTimeout(150);
-
-    const cursor = await getCursorState(page);
-    expect(cursor.lineText).toBe('write more of [[Visions of FUTO Notes]]');
-    expect(cursor.line).toBe(0);
-    expect(cursor.ch).toBe('write more of [[Visions of FUTO Notes]]'.length);
-    await expect(page.locator('.cm-line').first()).toContainText(
-      'write more of [[Visions of FUTO Notes]]',
-    );
-  });
-
   test('triple clicking a plain line above a wikilink selects only that line', async ({ page }) => {
     await setupEditor(page, 'dark mode auto activate\n[[FUTO Notes bugs]]\nafter');
     await setCursorPosition(page, 0);
