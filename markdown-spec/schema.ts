@@ -93,9 +93,6 @@ export interface Expectations {
 
   /** Expected header tag block result */
   header_tag_block?: HeaderTagBlockExpectation;
-
-  /** Expected chunk count from chunkContent() — server-side conformance */
-  chunk_count?: number;
 }
 
 export interface DecorationExpectation {

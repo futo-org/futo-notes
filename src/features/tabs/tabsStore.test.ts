@@ -15,37 +15,6 @@ describe('tabsStore initial state', () => {
   });
 });
 
-describe('modeFromEvent', () => {
-  it('no event → current', () => {
-    expect(tabsStore.modeFromEvent(null)).toBe('current');
-  });
-  it('plain click → current', () => {
-    expect(
-      tabsStore.modeFromEvent({ metaKey: false, ctrlKey: false, shiftKey: false, button: 0 }),
-    ).toBe('current');
-  });
-  it('shift-only click → background (tabs.md: Shift+click opens a background tab)', () => {
-    expect(
-      tabsStore.modeFromEvent({ metaKey: false, ctrlKey: false, shiftKey: true, button: 0 }),
-    ).toBe('background');
-  });
-  it('middle-click → background', () => {
-    expect(
-      tabsStore.modeFromEvent({ metaKey: false, ctrlKey: false, shiftKey: false, button: 1 }),
-    ).toBe('background');
-  });
-  it('mod-click → background (mod set for either platform)', () => {
-    expect(
-      tabsStore.modeFromEvent({ metaKey: true, ctrlKey: true, shiftKey: false, button: 0 }),
-    ).toBe('background');
-  });
-  it('mod+shift click → foreground', () => {
-    expect(
-      tabsStore.modeFromEvent({ metaKey: true, ctrlKey: true, shiftKey: true, button: 0 }),
-    ).toBe('foreground');
-  });
-});
-
 describe('per-tab state persistence', () => {
   it('persists tab scroll state in the snapshot', () => {
     let snap: PersistedTabs | null = null;
@@ -317,6 +286,12 @@ describe('modeFromEvent', () => {
     expect(
       tabsStore.modeFromEvent({ metaKey: false, ctrlKey: true, shiftKey: true, button: 0 }),
     ).toBe('foreground');
+  });
+
+  it('shift-only click → background (tabs.md: Shift+click opens a background tab)', () => {
+    expect(
+      tabsStore.modeFromEvent({ metaKey: false, ctrlKey: false, shiftKey: true, button: 0 }),
+    ).toBe('background');
   });
 
   it('middle-click anywhere → background', () => {

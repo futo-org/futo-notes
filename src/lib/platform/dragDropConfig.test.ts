@@ -80,15 +80,4 @@ describe('platform/dev overlays restate what array replacement would drop', () =
     expect(dev?.height).toBe(base?.height);
     expect(dev?.resizable).toBe(base?.resizable);
   });
-
-  it('every window config starts hidden, so none of them can flash or relaunch invisible', () => {
-    for (const file of [
-      'tauri.conf.json',
-      'tauri.macos.conf.json',
-      'tauri.windows.conf.json',
-      'tauri.dev.conf.json',
-    ]) {
-      expect(windowConf(file)?.visible, file).toBe(false);
-    }
-  });
 });

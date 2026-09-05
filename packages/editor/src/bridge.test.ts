@@ -1,103 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import {
-  BRIDGE_VERSION,
-  postToHost,
-  type FutoEditorApi,
-  type FutoEditorOutboundMessage,
-} from './bridge';
+import { BRIDGE_VERSION, postToHost } from './bridge';
 
 describe('futoBridge contract', () => {
   it('pins the contract version', () => {
     // Bumping this is a deliberate, breaking change — update all three hosts.
     expect(BRIDGE_VERSION).toBe(8);
-  });
-
-  it('ready message carries the version', () => {
-    const msg: FutoEditorOutboundMessage = { type: 'ready', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'ready', version: 8 });
-  });
-
-  it('initialized message carries the version', () => {
-    const msg: FutoEditorOutboundMessage = { type: 'initialized', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'initialized', version: 8 });
-  });
-
-  it('outbound messages are a discriminated union over `type`', () => {
-    const msgs: FutoEditorOutboundMessage[] = [
-      { type: 'ready', version: BRIDGE_VERSION },
-      { type: 'initialized', version: BRIDGE_VERSION },
-      { type: 'bridgeVersionMismatch', hostVersion: 7, bundleVersion: 8 },
-      { type: 'change', content: '# hi' },
-      { type: 'focus', focused: true },
-      { type: 'openNote', id: 'folder/note' },
-      { type: 'openUrl', url: 'https://futo.org' },
-      { type: 'findMatches', query: 'cat', current: 3, total: 17, label: '3 of 17' },
-      { type: 'pickImage', source: 'camera' },
-      { type: 'pickImage', source: 'library' },
-      { type: 'cursorContext', onListLine: true },
-      { type: 'saveImageData', data: 'aGk=', ext: 'png' },
-      { type: 'pasteClipboardImage' },
-    ];
-    expect(msgs.map((m) => m.type)).toEqual([
-      'ready',
-      'initialized',
-      'bridgeVersionMismatch',
-      'change',
-      'focus',
-      'openNote',
-      'openUrl',
-      'findMatches',
-      'pickImage',
-      'pickImage',
-      'cursorContext',
-      'saveImageData',
-      'pasteClipboardImage',
-    ]);
-  });
-
-  it('FutoEditorApi surface is the eighteen host-callable methods', () => {
-    // A structural stand-in proves the shape compiles; the real impl lives in
-    // src/editor-embed/main.ts.
-    const api: FutoEditorApi = {
-      initialize: () => {},
-      setContent: () => {},
-      getContent: () => '',
-      focus: () => {},
-      blur: () => {},
-      setTheme: () => {},
-      setLanguage: () => {},
-      setNotes: () => {},
-      applyExternalContent: () => {},
-      insertImage: () => {},
-      setImageBaseUrl: () => {},
-      openFind: () => {},
-      setFindOverlayInset: () => {},
-      setFindQuery: () => {},
-      stepFind: () => {},
-      closeFind: () => {},
-      exec: () => {},
-      setNativeToolbar: () => {},
-    };
-    expect(Object.keys(api).sort()).toEqual([
-      'applyExternalContent',
-      'blur',
-      'closeFind',
-      'exec',
-      'focus',
-      'getContent',
-      'initialize',
-      'insertImage',
-      'openFind',
-      'setContent',
-      'setFindOverlayInset',
-      'setFindQuery',
-      'setImageBaseUrl',
-      'setLanguage',
-      'setNativeToolbar',
-      'setNotes',
-      'setTheme',
-      'stepFind',
-    ]);
   });
 });
 

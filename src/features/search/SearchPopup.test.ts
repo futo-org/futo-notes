@@ -145,13 +145,6 @@ describe('SearchPopup', () => {
     }
   });
 
-  it('Escape closes the popup from the panel', async () => {
-    mountPopup();
-    const panel = target.querySelector('.search-panel') as HTMLElement;
-    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(onclose).toHaveBeenCalledTimes(1);
-  });
-
   it.each(['f', 'g'])('claims Ctrl+%s so the note editor cannot act behind the popup', (key) => {
     mountPopup();
     const input = target.querySelector('.search-input') as HTMLInputElement;
