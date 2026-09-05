@@ -66,7 +66,6 @@ function makeReconciler(
     },
     externalChanges: {
       reconcileOpenNote,
-      runRescan: vi.fn(async () => undefined),
     } as never,
     getSyncStartEditVersion: () => 0,
     raiseSyncError: vi.fn(),

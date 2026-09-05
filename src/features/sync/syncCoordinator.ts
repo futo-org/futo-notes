@@ -12,14 +12,12 @@ export interface SyncCoordinatorDeps {
 export interface SyncCoordinatorUI {
   onStatusMessage: (message: LocalizedMessage | null) => void;
   onIndicatorChange: (visible: boolean) => void;
-  onOfflineChange: (offline: boolean) => void;
 }
 
 export interface SyncCoordinator {
   shouldDeferSync: () => boolean;
   captureLiveSyncStartEditVersion: () => void;
   onSyncStateChange: (active: boolean) => void;
-  onOfflineChange: (offline: boolean) => void;
   getSyncStartEditVersion: () => number;
   getLiveSyncStartEditVersion: () => number;
   setStatusWithTimeout: (message: LocalizedMessage, milliseconds: number) => void;
@@ -73,10 +71,6 @@ export function createSyncCoordinator(
     }
   }
 
-  function onOfflineChange(offline: boolean): void {
-    ui.onOfflineChange(offline);
-  }
-
   function getSyncStartEditVersion(): number {
     return syncStartEditVersion;
   }
@@ -112,7 +106,6 @@ export function createSyncCoordinator(
     shouldDeferSync,
     captureLiveSyncStartEditVersion,
     onSyncStateChange,
-    onOfflineChange,
     getSyncStartEditVersion,
     getLiveSyncStartEditVersion,
     setStatusWithTimeout,

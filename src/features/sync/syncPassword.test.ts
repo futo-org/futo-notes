@@ -308,6 +308,8 @@ describe('PKT-17 — legacy sync-state holdover across the boot keyring migratio
       '.app-state.json',
       seedAppState({ e2eeObjectMap: LEGACY_MAP, e2eeMaxVersion: 7 }),
     );
+    // The keyring holds the password, so the auto-sync path can resume the session.
+    kr.store.set('pw', 'pw');
     await svc.initSyncPassword();
     // Rust imported + persisted `.e2ee-state.json`, so the scrub would fire …
     await platform.testFS.writeAppData(
@@ -325,7 +327,7 @@ describe('PKT-17 — legacy sync-state holdover across the boot keyring migratio
     };
     platform.setActiveFS(failingFS);
     try {
-      await expect(svc.syncE2ee('pw')).resolves.toBeUndefined();
+      await expect(svc.syncE2eeAuto()).resolves.toBeUndefined();
       // Holdover retained → the map is not lost and the scrub retries next cycle.
       expect(appState.getLegacySyncState()).toBeDefined();
     } finally {

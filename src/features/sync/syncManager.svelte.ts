@@ -199,8 +199,6 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let live = $state(false);
   const failureState = createSyncFailureState(deps.showToast);
 
-  const notifySaved = notifySavedV2;
-
   // The one way an engine-reported rename reaches the UI, whichever path
   // applies it: the executor's FollowRename verdict or sync completion's
   // background projection. Tab/route and open session move together, so they
@@ -223,7 +221,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       applyReportedRename(fromId, toId, slash === -1 ? toId : toId.slice(slash + 1));
     },
     session: deps.session,
-    notifySaved,
+    notifySaved: notifySavedV2,
     showToast: deps.showToast,
     writeSuppressor,
   });
@@ -277,9 +275,6 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         onIndicatorChange: (visible) => {
           syncIndicatorVisible = visible;
         },
-        onOfflineChange: (offline) => {
-          syncOffline = offline;
-        },
       },
     );
     const coord = syncCoord;
@@ -295,7 +290,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       },
       flushPendingSave: deps.session.flushSave,
       shouldDeferSync: coord.shouldDeferSync,
-      onOfflineChange: coord.onOfflineChange,
+      onOfflineChange: (offline) => {
+        syncOffline = offline;
+      },
       onSyncStateChange: coord.onSyncStateChange,
     });
 
@@ -358,7 +355,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     handleEditorCompositionEnd: externalChanges.handleCompositionEnd,
     reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) =>
       externalChanges.reconcileOpenNote(id, { parkedDraft }),
-    notifySaved,
+    notifySaved: notifySavedV2,
     clearSyncError: failureState.clearError,
 
     start,

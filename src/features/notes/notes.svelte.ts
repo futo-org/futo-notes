@@ -169,10 +169,6 @@ export function _injectTestNote(id: string, title: string): void {
   projectionRevision += 1;
 }
 
-export function noteTitleFromId(id: string): string {
-  return id.slice(id.lastIndexOf('/') + 1);
-}
-
 /** The note list in engine order (modified desc, id asc). The order is
  * maintained purely by applying snapshots and mutation splices — the
  * projection holds no comparator (ADR-0001). */
@@ -372,5 +368,3 @@ export async function search(query: string): Promise<SearchResultItem[]> {
     return [{ note }];
   });
 }
-
-export const searchKeyword = search;

@@ -403,8 +403,6 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     handleEditorFocusChange,
     handleCompositionEnd,
     reconcileOpenNote,
-    runRescan,
-    scheduleRescan,
     stop,
   };
 }

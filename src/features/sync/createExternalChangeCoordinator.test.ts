@@ -95,7 +95,6 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     debouncedSave: vi.fn(),
     resumeDraftPersistence: vi.fn(),
     flushSave: vi.fn(async () => {}),
-    awaitSaveIdle: vi.fn(async () => {}),
     runWithSaveLock: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
     loadNote: vi.fn(async () => {}),
     handleTitleInput: vi.fn(),

@@ -7,7 +7,7 @@
  * and `crates/futo-notes-core/src/e2ee/`. This file exists so the rest of
  * the app's import path stays stable: `connectE2ee`, `syncE2eeAuto`,
  * `disconnectE2ee`, `setSyncProgressListener`, and the `SyncSummary` /
- * `SyncProgress` types continue to be re-exported from `$lib/syncServiceE2ee`
+ * `SyncProgress` types continue to be exported from `$features/sync/syncServiceE2ee`
  * the way callers expect.
  */
 
@@ -457,18 +457,6 @@ export async function syncE2eeAuto(): Promise<SyncSummary> {
     }
     throw e;
   }
-}
-
-/**
- * Variant used by `__testSync` flows: the caller passes the password
- * explicitly (often a fresh value not yet in app-state). Rust re-derives
- * the key before running sync.
- */
-export async function syncE2ee(password: string): Promise<SyncSummary> {
-  await ensureConnected(password);
-  const summary = await invoke<SyncSummary>('e2ee_sync_run');
-  await scrubLegacySyncStateIfConsumed();
-  return summary;
 }
 
 // ── Progress events ─────────────────────────────────────────────────────

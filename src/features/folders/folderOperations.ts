@@ -1,4 +1,5 @@
 import { getLocalNoteStore, type LocalNoteRename } from '$lib/localNoteStore';
+import { _applyLocalMutation } from '$features/notes/notes.svelte';
 import { idLeaf, idParent } from '$lib/platform/pathSafety';
 import {
   hasCaseInsensitiveSiblingCollision,
@@ -95,7 +96,6 @@ export async function createFolder(
   const path = parentPath ? `${parentPath}/${name}` : name;
   try {
     const mutation = await (await getLocalNoteStore()).createFolder(path);
-    const { _applyLocalMutation } = await import('$features/notes/notes.svelte');
     _applyLocalMutation(mutation);
     openFolderAndAncestors(path);
     return { ok: true, path };
@@ -147,7 +147,6 @@ export async function renameOrMoveFolder(
 
   try {
     const mutation = await (await getLocalNoteStore()).renameFolder(fromPath, toPath);
-    const { _applyLocalMutation } = await import('$features/notes/notes.svelte');
     _applyLocalMutation(mutation);
     const finalFolder = mutation.finalFolder ?? toPath;
     rebaseOpenFolders(fromPath, finalFolder);
@@ -205,7 +204,6 @@ export async function moveFolder(
 }> {
   try {
     const mutation = await (await getLocalNoteStore()).moveFolder(fromPath, destinationParent);
-    const { _applyLocalMutation } = await import('$features/notes/notes.svelte');
     _applyLocalMutation(mutation);
     const finalFolder = mutation.finalFolder ?? fromPath;
     rebaseOpenFolders(fromPath, finalFolder);
@@ -227,7 +225,6 @@ export async function deleteFolder(
 ): Promise<{ ok: boolean; error?: LocalizedMessage; renames?: LocalNoteRename[] }> {
   try {
     const mutation = await (await getLocalNoteStore()).deleteFolder(path);
-    const { _applyLocalMutation } = await import('$features/notes/notes.svelte');
     _applyLocalMutation(mutation);
     removeOpenFolderTree(path);
     return { ok: true, renames: mutation.renamed };

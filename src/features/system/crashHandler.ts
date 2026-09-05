@@ -27,10 +27,6 @@ export function getAppVersion(): string {
   return appVersion;
 }
 
-export function getSessionId(): string {
-  return sessionId;
-}
-
 function buildReport(
   error: string,
   stack: string | undefined,

@@ -108,7 +108,6 @@ function makeSession(overrides: Partial<SessionState> = {}) {
   const cancelAndClear = vi.fn(() => {
     state.id = null;
   });
-  const awaitSaveIdle = vi.fn(async () => {});
   const session = {
     get title() {
       return state.title;
@@ -142,7 +141,6 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     },
     flushSave: vi.fn(async () => {}),
     resumeDraftPersistence: vi.fn(),
-    awaitSaveIdle,
     applyExternalContent,
     rebaseSavedContent,
     applyRemoteRename,
@@ -154,7 +152,6 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     applyExternalContent,
     rebaseSavedContent,
     applyRemoteRename,
-    awaitSaveIdle,
     cancelAndClear,
   };
 }

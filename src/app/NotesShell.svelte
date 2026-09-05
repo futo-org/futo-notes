@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import { isDesktop } from '$lib/platform';
+  import { isTauri } from '$lib/platform';
   import { saveConfig } from '$lib/platform/tauri';
   import { getAllNotes } from '$features/notes/notes.svelte';
   import { createNoteSession, type ParkedDraftSnapshot } from '$features/notes/noteSession.svelte';
@@ -195,7 +195,7 @@
   function finishSidebarResize(width: number): void {
     sidebarWidth = clampSidebarWidth(width);
     sidebarResizing = false;
-    if (isDesktop) {
+    if (isTauri) {
       void saveConfig({ sidebarWidth }).catch((error) =>
         console.warn('Failed to persist sidebar width:', error),
       );
@@ -361,7 +361,7 @@
   style:--sidebar-width={`${sidebarWidth}px`}
   style:--vv-offset={`${keyboard.offsetTop}px`}
 >
-  {#if isDesktop}
+  {#if isTauri}
     <DesktopTopBand {sidebarCollapsed} ontoggle={toggleSidebar} {notes} />
   {/if}
 
@@ -370,8 +370,8 @@
       {notes}
       activeNoteId={session.originalId}
       view={sidebarView}
-      showCollapse={!isDesktop}
-      showResize={isDesktop}
+      showCollapse={!isTauri}
+      showResize={isTauri}
       onselectview={selectSidebarView}
       onselectnote={openNote}
       onrunwithactivenotelock={session.runWithSaveLock}
@@ -411,7 +411,7 @@
         bind:titleEl={titleTextarea}
       />
 
-      {#if !isDesktop && sidebarCollapsed}
+      {#if !isTauri && sidebarCollapsed}
         <button
           class="sidebar-expand-fallback-btn"
           aria-label={localizedText('sidebar.expandAccessibilityLabel')}

@@ -25,12 +25,12 @@ vi.mock('./notes.svelte', () => ({
 
 import { createWriteSuppressor } from '$lib/platform/writeSuppression';
 import { createExternalChangeCoordinator } from '$features/sync/createExternalChangeCoordinator';
+import { createNoteSession } from './noteSession.svelte.ts';
 import {
-  createNoteSession,
   editorHasUnseenChanges,
   isEditorChangeEcho,
   shouldWriteNoteToDisk,
-} from './noteSession.svelte.ts';
+} from './noteSessionChanges';
 import type { NoteSessionDeps } from './noteSession.svelte.ts';
 
 describe('shouldWriteNoteToDisk', () => {
@@ -299,17 +299,6 @@ describe('title debounce vs body debounce (character-loss race)', () => {
       originalId: undefined,
       base: '',
     });
-  });
-
-  it('awaits only an in-flight save without starting a scheduled save', async () => {
-    const session = createNoteSession(makeTitleDeps());
-    const { updateNote } = await import('./notes.svelte');
-
-    session.debouncedSave('# scheduled');
-    await session.awaitSaveIdle();
-
-    expect(updateNote).not.toHaveBeenCalled();
-    expect(session.savePending).toBe(true);
   });
 
   it('queues saves typed during a local move until the session has retargeted', async () => {

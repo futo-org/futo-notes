@@ -28,7 +28,6 @@ function makeUI(overrides?: Partial<SyncCoordinatorUI>): SyncCoordinatorUI {
   return {
     onStatusMessage: overrides?.onStatusMessage ?? vi.fn(),
     onIndicatorChange: overrides?.onIndicatorChange ?? vi.fn(),
-    onOfflineChange: overrides?.onOfflineChange ?? vi.fn(),
   };
 }
 
@@ -138,18 +137,6 @@ describe('syncCoordinator', () => {
       coord.onSyncStateChange(true);
       expect(onStatusMessage).toHaveBeenCalledWith({ path: 'sync.status.syncing' });
 
-      coord.destroy();
-    });
-  });
-
-  describe('onOfflineChange', () => {
-    it('forwards offline state to UI callback', () => {
-      const onOfflineChange = vi.fn();
-      const coord = createSyncCoordinator(makeDeps(), makeUI({ onOfflineChange }));
-      coord.onOfflineChange(true);
-      expect(onOfflineChange).toHaveBeenCalledWith(true);
-      coord.onOfflineChange(false);
-      expect(onOfflineChange).toHaveBeenCalledWith(false);
       coord.destroy();
     });
   });

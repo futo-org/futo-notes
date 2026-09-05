@@ -13,12 +13,6 @@ import {
 } from './noteSessionChanges';
 import { getNoteById } from './notes.svelte';
 
-export {
-  editorHasUnseenChanges,
-  isEditorChangeEcho,
-  shouldWriteNoteToDisk,
-} from './noteSessionChanges';
-
 export interface NoteSessionDeps {
   getEditorContent: () => string | undefined;
   setEditorContent: (text: string) => void;
@@ -64,7 +58,6 @@ export interface NoteSession {
   debouncedSave: (content?: string) => void;
   resumeDraftPersistence: () => void;
   flushSave: () => Promise<void>;
-  awaitSaveIdle: () => Promise<void>;
   runWithSaveLock: <T>(operation: () => Promise<T>) => Promise<T>;
   loadNote: (id: string | null) => Promise<void>;
   handleTitleInput: (event: Event) => void;
@@ -292,9 +285,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     get title() {
       return title;
     },
-    set title(v: string) {
-      title = v;
-    },
     get content() {
       return content;
     },
@@ -334,7 +324,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     debouncedSave,
     resumeDraftPersistence: saveQueue.resume,
     flushSave: saveQueue.flush,
-    awaitSaveIdle: saveQueue.awaitSaveIdle,
     runWithSaveLock,
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,

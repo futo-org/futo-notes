@@ -14,9 +14,7 @@ export {
   closeSlashMenuEffect,
   getSlashQuery,
   openSlashMenuEffect,
-  slashInputHandler,
   slashMenuField,
-  type SlashMenuState,
 } from './slashMenuState';
 
 function isOpen(view: EditorView): boolean {

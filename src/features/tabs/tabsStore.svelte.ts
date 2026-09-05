@@ -13,12 +13,7 @@ export type Tab = {
   state?: TabState;
 };
 
-export type PersistedTab = {
-  id: string;
-  noteId: string | null;
-  pendingFolder?: string;
-  state?: TabState;
-};
+export type PersistedTab = Tab;
 
 function isValidTabState(s: unknown): s is TabState {
   return !!s && typeof (s as TabState).scroll === 'number';
@@ -287,10 +282,6 @@ export const tabsStore = {
     tab.noteId = newNoteId;
     tab.pendingFolder = undefined;
     persist();
-  },
-
-  findTabByNoteId(noteId: string): Tab | null {
-    return _tabs.find((t) => t.noteId === noteId) ?? null;
   },
 
   setTabState(tabId: string, state: TabState | undefined): void {

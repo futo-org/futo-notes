@@ -1,13 +1,6 @@
 import type { PlatformFS, PlatformName } from './types';
 import type { ApplicationMenuLabels } from './tauri/appMenu';
-export type {
-  FileChangeEvent,
-  PlatformFS,
-  PlatformName,
-  PlatformStorage,
-  NativeCapabilities,
-  DirFileEntry,
-} from './types';
+export type { FileChangeEvent, PlatformFS, PlatformName, DirFileEntry } from './types';
 
 function hasTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -22,8 +15,6 @@ function detectPlatform(): PlatformName {
 
 export const platformName: PlatformName = detectPlatform();
 export const isTauri = platformName === 'tauri';
-
-export const isDesktop = isTauri;
 export const isLinux = typeof navigator !== 'undefined' && /\blinux\b/i.test(navigator.userAgent);
 // True on iOS hardware — the native-shell embed's WKWebView and iOS Safari.
 // iPads masquerade as "Macintosh" in modern WebKit UAs, so also treat

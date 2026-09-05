@@ -291,16 +291,6 @@
     return { from: sel.from, to: sel.to };
   }
 
-  export function setSelection(from: number, to: number): void {
-    if (!view) return;
-    const len = view.state.doc.length;
-    const clampedFrom = Math.max(0, Math.min(from, len));
-    const clampedTo = Math.max(0, Math.min(to, len));
-    view.dispatch({
-      selection: { anchor: clampedFrom, head: clampedTo },
-    });
-  }
-
   export function setCaret(at: SelectionRange): void {
     if (!view) return;
     view.dispatch({ selection: EditorSelection.create([at]) });

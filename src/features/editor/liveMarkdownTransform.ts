@@ -3,7 +3,6 @@ import { LiveMarkdownPlugin } from './live-preview/LiveMarkdownPlugin';
 
 export {
   clearLocalImageUrlCache,
-  imageCacheUpdated,
   preloadImages,
   registerLocalImageUrl,
   resolveImageSrc,
@@ -18,17 +17,12 @@ export {
   isInlineRevealSensitive,
   isMarkdownSelectionRevealSuppressed,
   markdownSelectionRevealState,
-  selectionIntersectsRange,
   selectionTouchesRange,
   selectionWithinMarkerRange,
   shouldHideHeaderTagBlock,
-  shouldRevealInlineMarkers,
-  shouldRevealMarkdownSyntax,
   shouldSkipBlockDecorations,
   shouldSkipInlineDecorations,
   suppressMarkdownSelectionReveal,
-  type SelectionRangeLike,
-  type SelectionRevealOwner,
 } from './live-preview/selectionReveal';
 
 export { liveMarkdownRefresh } from './live-preview/refreshEffect';
