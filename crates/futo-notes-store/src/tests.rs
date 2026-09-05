@@ -662,6 +662,50 @@ fn rename_is_one_operation_that_moves_content_and_rewrites_resolvable_links() {
     assert!(!store.exists("Lists/groceries"));
 }
 
+// The collision check walks only the folders that can hold a folded twin
+// (`vault::collision_candidates`), so it must still see a twin whose FOLDERS
+// differ by case or Unicode normalization, at any depth — and keep ignoring a
+// same-named note at a different depth, which never collided.
+#[test]
+fn collision_check_sees_folded_twins_behind_variant_folders_at_any_depth() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    fs::create_dir_all(root.0.join("Docs/Plans")).unwrap();
+    fs::write(root.0.join("Docs/Plans/roadmap.md"), "one").unwrap();
+    fs::create_dir_all(root.0.join("Caf\u{00E9}")).unwrap();
+    fs::write(root.0.join("Caf\u{00E9}/menu.md"), "nfc").unwrap();
+
+    assert!(
+        store.write("docs/plans/Roadmap", "two", None).is_err(),
+        "case-variant folders and leaf must collide"
+    );
+    assert!(
+        store.write("Cafe\u{0301}/Menu", "nfd", None).is_err(),
+        "an NFD folder name must collide with its NFC twin"
+    );
+    assert!(
+        store.write("Docs/roadmap", "shallower", None).is_ok(),
+        "a same-named note one level up is a different id"
+    );
+    assert!(
+        store
+            .write("Docs/Plans/Archive/roadmap", "deeper", None)
+            .is_ok(),
+        "a same-named note one level down is a different id"
+    );
+    assert_eq!(store.read("Docs/Plans/roadmap"), "one");
+    assert_eq!(store.read("Caf\u{00E9}/menu"), "nfc");
+
+    // Unique-id allocation consults the same candidates: a create whose folded
+    // id is taken behind variant folders gets the next suffix, never a shadow.
+    let created = store.create("docs/plans", "Roadmap", "three").unwrap();
+    assert!(
+        created.final_id.as_deref().unwrap().ends_with("/Roadmap-2"),
+        "got {:?}",
+        created.final_id
+    );
+}
+
 #[test]
 fn rename_never_overwrites_a_case_or_unicode_colliding_destination() {
     let root = TestRoot::new();

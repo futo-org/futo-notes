@@ -9,9 +9,11 @@ pub(crate) fn unique_note_id(
     exclude: Option<&str>,
 ) -> Result<String, String> {
     ensure_safe_note_id(wanted)?;
-    let occupied = crate::vault::note_paths(root)
+    // `unique_against` only ever asks about `wanted` and its `-<n>` suffixes,
+    // which all fold to the same folder prefix, so the candidates in those
+    // folders are the whole occupied set that can matter.
+    let occupied = crate::vault::collision_candidates(root, wanted)
         .into_iter()
-        .map(|(id, _)| id)
         .filter(|id| Some(id.as_str()) != exclude)
         .collect::<HashSet<_>>();
     Ok(unique_against(wanted, &occupied))

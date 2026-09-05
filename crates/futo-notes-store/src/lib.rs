@@ -1196,9 +1196,8 @@ impl LocalNoteStore {
     /// verb's recreate and park arms park the draft instead of installing a
     /// shadowing id.
     fn colliding_note(&self, id: &str) -> Option<String> {
-        vault::note_paths(&self.root)
+        vault::collision_candidates(&self.root, id)
             .into_iter()
-            .map(|(existing, _)| existing)
             .find(|existing| collides_but_differs(existing, id))
     }
 
