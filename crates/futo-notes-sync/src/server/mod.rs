@@ -1,3 +1,4 @@
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use futo_notes_core::e2ee::KeyMaterial;
@@ -203,6 +204,37 @@ impl From<WriteBody> for Write {
     }
 }
 
+/// One process-wide connection pool per client role, shared by every `Http`
+/// value ever constructed.
+///
+/// `Http` is rebuilt for every push, every pull, and every SSE reconnect
+/// (`session::connect::client`), and a `reqwest::Client` owns its own pool: a
+/// fresh one starts with zero warm sockets, so each cycle paid a new TCP + TLS
+/// handshake to the server — the release app's journal put a no-op pull at
+/// ~350 ms p50 over 17,000 cycles, almost all of it that handshake. A
+/// `reqwest::Client` is an `Arc` around its pool and is not bound to a host, so
+/// one per role serves every server URL; cloning it shares the pool. The
+/// per-request timeouts stay exactly where they were: the request timeout is
+/// baked into the request client, and the SSE client has none because the
+/// stream is meant to stay open.
+static REQUEST_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static EVENT_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn shared_client(
+    slot: &'static OnceLock<reqwest::Client>,
+    configure: impl FnOnce(reqwest::ClientBuilder) -> reqwest::ClientBuilder,
+) -> Result<reqwest::Client, HttpError> {
+    if let Some(client) = slot.get() {
+        return Ok(client.clone());
+    }
+    let client = configure(reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT))
+        .build()
+        .map_err(transport_error)?;
+    // A racing initializer built an identical client; keeping the first keeps
+    // one pool.
+    Ok(slot.get_or_init(|| client).clone())
+}
+
 impl Http {
     pub fn new(base: &str) -> Result<Self, HttpError> {
         let base = base.trim().trim_end_matches('/');
@@ -216,20 +248,13 @@ impl Http {
                 message: "server URL must use http or https".into(),
             });
         }
-        let request_client = reqwest::Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(REQUEST_TIMEOUT)
-            .build()
-            .map_err(transport_error)?;
-        let event_client = reqwest::Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .build()
-            .map_err(transport_error)?;
         Ok(Self {
             base: base.to_owned(),
             token: None,
-            request_client,
-            event_client,
+            request_client: shared_client(&REQUEST_CLIENT, |builder| {
+                builder.timeout(REQUEST_TIMEOUT)
+            })?,
+            event_client: shared_client(&EVENT_CLIENT, |builder| builder)?,
         })
     }
 
