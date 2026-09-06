@@ -21,6 +21,7 @@ import {
   liftListItemCommand,
   sinkListItemCommand,
   toggleEmphasisCommand,
+  toggleInlineCodeCommand,
   toggleLinkCommand,
   toggleStrongCommand,
 } from '@milkdown/kit/preset/commonmark';
@@ -80,6 +81,10 @@ export function createToolbarExec(getEditor: () => Editor | null): ToolbarExecMa
     bold: () => run(toggleStrongCommand),
     italic: () => run(toggleEmphasisCommand),
     strikethrough: () => run(toggleStrikethroughCommand),
+    // Not in the mobile manifest (the phone keyboards' own toolbars never had
+    // it); the desktop selection toolbar's fifth button, implemented here so
+    // every surface that offers it runs the one command (M10).
+    code: () => run(toggleInlineCodeCommand),
     // An empty selection arms the mark for the text typed next (ProseMirror
     // stored marks) — the WYSIWYG equivalent of CodeMirror's `[]()` scaffold,
     // which existed only so the caret had a source slot to sit in.

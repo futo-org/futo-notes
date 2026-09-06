@@ -874,6 +874,21 @@ What replaces the containment probe in `just test-android-perf` is a first-focus
 `DEVICE_BUDGET.firstFocusMs` (1 s, the same as interactive) on the real-note-shaped fixtures,
 measured by the shared snippet right after the open settles and before the keystroke loop.
 
+**Gate run, real app, 2026-09-06** (`just test-android-perf`, everything above plus the scoped
+preset passes and the document-identity load echo): 1k lines — interactive 178 ms, first focus
+80 ms, keystroke p95 5.2 ms; 10k lines (blocks) — interactive 93 ms, first focus 640 ms, p95
+5.7 ms; 10k lines with no blank line — first focus 1.6 s (measured, not gated), p95 12.5 ms;
+25k lines with no blank line — p95 **31 ms, the one remaining red** (it was 1,586 ms on the
+2026-09-02 run). The keystroke samples there sit at 11–16 ms with one 31 ms outlier over 8
+samples, and `just test-android-perf-quick --fixture 25000-lines --profile` puts 92% of the CPU
+in the WHOLE-DOCUMENT serialization the 200 ms change debounce runs after a typing pause —
+~10 s on the main thread at 12,500 blocks, ~2 s at 5,000 — not in the keystroke itself. That
+serialization (`getMarkdown()`, ProseMirror → mdast → remark-stringify) is the next perf item:
+a per-block cache keyed on ProseMirror node identity would make it proportional to the edit,
+but block serialization has context (adjacent-list marker alternation, list starts, the
+blank-line `join`), so it needs the same equivalence census the chunked PARSE has
+(`just chunk-census`) before it can land.
+
 ## 6. WebView floor
 
 Run the editor down the existing Chromium tier ladder (start at `futo-api30` / Chromium 83 — see

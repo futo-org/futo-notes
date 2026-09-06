@@ -937,15 +937,26 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   `@milkdown/preset-commonmark`, `@milkdown/preset-gfm`,
   src/features/editor/milkdown/wikilink/inputRule.ts
 
-  > **Gap:** _(desktop)_ there is no formatting UI in the desktop editor at all.
-  > The CodeMirror editor raised a floating Bold/Italic/Strikethrough/Code/Link
-  > toolbar on a single-line selection, and opened a block-command menu on `/` at
-  > the start of an empty block (headings, lists, tasks, quote, code, table, HR);
-  > both were deleted with it and nothing replaced them. Desktop formatting is
-  > now keyboard shortcuts and Markdown input rules only — the mobile toolbar is
-  > native-shell/embed chrome and desktop never renders one. Milkdown ships
-  > `@milkdown/plugin-tooltip` and `@milkdown/plugin-slash`; neither is
-  > imported. → NoteWorkspace.svelte, packages/editor/src/toolbar.ts
+- _(desktop)_ Selecting text raises a floating toolbar just above the
+  selection — Bold, Italic, Strikethrough, Code, Link — placed by the same
+  floating-ui positioning the `/` menu and the ⠿ handle use. It shows for a
+  non-empty TEXT selection that holds something to format, and not for a caret,
+  a node selection (an image, a wikilink chip, a block picked up by the ⠿
+  handle), a whitespace-only selection, or any selection inside a fenced code
+  block, where nothing is markup. A button keeps the selection and the bar, so a
+  format can be toggled straight back off; the buttons light up for the formats
+  active on the selection. The bar hides when the note loses focus (a click into
+  the sidebar or the title) and during an IME composition. The four format
+  buttons run the same shared commands the native toolbars dispatch. →
+  src/features/editor/milkdown/selectionToolbar/, milkdown/toolbarExec.ts,
+  tests/selection-toolbar.spec.ts
+- _(desktop)_ Link opens a URL field inside the bar. Enter (or Add) applies the
+  link over the selection and returns focus to the note; Escape leaves the note
+  as it was. On a selection inside an existing link the field is prefilled with
+  its address, Enter updates the WHOLE link (never splitting it at the selection
+  edges), and emptying the field unlinks it — the selection and the bar stay
+  put, so an unlink can follow a URL change. → selectionToolbar/index.ts
+  `applyLink`, selectionToolbar/target.ts `linkRunAt`
 
 ## Markdown toolbar _(native shells / editor-embed fallback)_
 
@@ -971,13 +982,12 @@ EditorWebView.swift, EditorWebView.kt
   instead of a `[]()` scaffold with a caret in its URL slot. →
   src/features/editor/milkdown/toolbarExec.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts
-  > **Gap:** there is no way to ENTER a link's URL anywhere in the editor, so a
-  > link the toolbar makes has an empty href (`[text]()`). Needs a link-editing
-  > affordance (Milkdown ships `@milkdown/kit/component/link-tooltip`), which is
-  > a UI surface of its own rather than a toolbar command, and has to coexist
-  > with the link-tap → `openUrl` behavior the native shells rely on.
-  > `updateLinkCommand` has no caller anywhere. →
-  > src/features/editor/milkdown/toolbarExec.ts
+  > **Gap:** _(native shells)_ there is no way to ENTER a link's URL on iOS or
+  > Android, so a link the native toolbar makes has an empty href (`[text]()`).
+  > Desktop has the selection toolbar's URL field (see "Interactive elements");
+  > the phones need an affordance of their own, which has to coexist with the
+  > link-tap → `openUrl` behavior the native shells rely on. →
+  > src/features/editor/milkdown/toolbarExec.ts, selectionToolbar/index.ts
 - Indent nests a list item under its PRECEDING SIBLING item, so it has no
   effect on the first item of a list — there is nothing to nest under, and the
   note's bytes are left untouched. →

@@ -73,6 +73,7 @@
   import { handleParityKeyDown } from './keyboardParity';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
+  import { createSelectionToolbarPlugin, resolveSelectionToolbar } from './selectionToolbar';
   import { createSlashMenuPlugin, resolveSlashMenu } from './slash';
   import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
   import { parseNote } from './parseNote';
@@ -165,6 +166,9 @@
    * Same one-shot read as useMobileBlockDnd above: the plugin set is fixed when
    * the engine is built. */
   const useSlashMenu = $derived(resolveSlashMenu(nativeShell) === 'enabled');
+  /* The floating selection toolbar, desktop only (selectionToolbar/target.ts
+   * `resolveSelectionToolbar`) — same gate, same one-shot read. */
+  const useSelectionToolbar = $derived(resolveSelectionToolbar(nativeShell) === 'enabled');
 
   /** What the keyboard is told inside code, where its help is corruption.
    * Deliberately the inverse of the editable root's set (see the
@@ -587,6 +591,15 @@
       if (useSlashMenu) {
         const slashMenu = createSlashMenuPlugin(() => editor);
         builder = builder.config(slashMenu.config).use(slashMenu.plugins);
+      }
+
+      /* The selection toolbar (desktop only — selectionToolbar/index.ts), the
+       * same two-step shape: `tooltipFactory` puts the ProseMirror plugin spec
+       * in a ctx slice, so the spec is installed in `.config()` and the plugin
+       * pair goes through `.use()`. */
+      if (useSelectionToolbar) {
+        const selectionToolbar = createSelectionToolbarPlugin(() => editor);
+        builder = builder.config(selectionToolbar.config).use(selectionToolbar.plugins);
       }
 
       const created = await builder.create();
@@ -2108,5 +2121,92 @@
   :global(.futo-slash-menu-hint) {
     color: var(--color-muted);
     font-size: 12px;
+  }
+
+  /* The desktop selection toolbar (selectionToolbar/index.ts). Body-mounted
+     and `:global` for the same reasons as the `/` menu above, and dressed in
+     the same tokens: the two caret popups and this bar are one family. The
+     buttons borrow the embed toolbar's active-format wash (editor-shell.css
+     `.toolbar-btn.is-active`) so a lit Bold looks the same on every surface.
+     `data-show` is TooltipProvider's own show/hide contract. */
+  :global(.futo-selection-toolbar) {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 60;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    font-family: var(--font-sans);
+    font-size: 13px;
+  }
+
+  :global(.futo-selection-toolbar[data-show='false']) {
+    display: none;
+  }
+
+  :global(.futo-selection-toolbar-body) {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+  }
+
+  :global(.futo-selection-toolbar-btn) {
+    width: 30px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  :global(.futo-selection-toolbar-btn:hover) {
+    background: rgba(var(--ink-rgb), 0.06);
+  }
+
+  :global(.futo-selection-toolbar-btn.is-active) {
+    background: color-mix(in srgb, var(--color-primary) 15%, transparent);
+    color: var(--color-primary);
+  }
+
+  :global(.futo-selection-toolbar-separator) {
+    width: 1px;
+    height: 18px;
+    background: var(--color-border);
+    margin: 0 3px;
+  }
+
+  :global(.futo-selection-toolbar-url) {
+    width: 260px;
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font: inherit;
+    outline: none;
+  }
+
+  :global(.futo-selection-toolbar-url:focus) {
+    border-color: var(--color-primary);
+  }
+
+  :global(.futo-selection-toolbar-apply) {
+    height: 28px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 6px;
+    background: var(--color-primary);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
   }
 </style>
