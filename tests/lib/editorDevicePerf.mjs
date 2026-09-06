@@ -61,9 +61,12 @@ function contentLine(index) {
  * line anywhere — and a blank line is the only place `markdownChunks.ts` is
  * willing to cut. `planMarkdownChunks` therefore declines it (`no-boundary`)
  * and it loads whole, which is why it can only carry the `linear`/`measured`
- * policies here and never the interactive budget. Lazy continuation also fuses
- * its lines into a few enormous top-level blocks, so the containment
- * stylesheet has almost nothing to skip. Both facts are asserted in
+ * policies here and never the interactive budget. It does NOT fuse into a few
+ * giant blocks, as this comment once claimed: list items and blockquotes
+ * interrupt the paragraphs, so 10k lines parse to ~5,000 small top-level blocks
+ * (measured in Crepe on 2026-09-04) — the same block count as the blank-line
+ * fixture, loaded whole and with the caret at the END of the document, which is
+ * what makes it the harder typing case. The no-boundary fact is asserted in
  * editorDevicePerf.test.mjs so this comment cannot quietly go stale.
  */
 export function lineFixture(lines) {

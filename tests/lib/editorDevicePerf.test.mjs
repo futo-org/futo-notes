@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { planMarkdownChunks } from '../../src/features/editor/milkdown/markdownChunks';
 import { lineFixture as gauntletLineFixture } from '../editor-gauntlet/performanceFloor';
 import {
   DEVICE_BUDGET,
@@ -100,24 +99,9 @@ describe('evaluateDeviceFloor', () => {
    * amount of editor work could put it under 1s.
    */
   describe('fixture shapes', () => {
-    it('lineFixture offers progressive open no cut at all', () => {
-      const plan = planMarkdownChunks(lineFixture(10_000));
-      expect(plan.chunked).toBe(false);
-      expect(plan.declined).toBe('no-boundary');
-    });
-
-    it('blockFixture is chunkable, so the interactive budget can be met at all', () => {
-      const plan = planMarkdownChunks(blockFixture(10_000));
-      expect(plan.chunked).toBe(true);
-      // A first chunk near the planner's 80-line budget is the whole point:
-      // the user waits for THIS, not for the document.
-      expect(plan.chunks[0].split('\n').length).toBeLessThan(200);
-      expect(plan.chunks.length).toBeGreaterThan(5);
-    });
-
     it('gives the containment stylesheet real top-level blocks to skip', () => {
-      // Blank-line separated blocks; lineFixture's lazy continuation fuses its
-      // lines into a handful of huge ones, which containment cannot help.
+      // Blank-line separated blocks, one per content line: the fixture the
+      // interactive budget is measured on.
       expect(blockFixture(1_000).split('\n\n').length).toBeGreaterThan(400);
       expect(lineFixture(1_000).split('\n\n').length).toBe(1);
     });

@@ -47,6 +47,7 @@ import {
   lineFixture,
   percentile95,
 } from './lib/editorDevicePerf.mjs';
+import { connectPage, loadExpression, measureExpression } from './lib/editorDevicePerfSnippets.mjs';
 
 /**
  * Flags, parsed once and strictly: an unrecognised argument fails the run
@@ -90,8 +91,6 @@ const KEYSTROKE_SAMPLES = 25;
 const KEYSTROKE_SAMPLES_PATHOLOGICAL = 8;
 const REPORT_DIR = 'tests/editor-gauntlet/local';
 const LOCAL_NOTE_PATH = path.join(REPORT_DIR, 'device-perf-note.md');
-/** Streaming a 50k-line tail on a low-end phone takes a while; bounded, not open. */
-const OPEN_COMPLETE_TIMEOUT_MS = 180_000;
 
 // Two ladders, because the two budgets need different documents.
 //
@@ -188,117 +187,15 @@ function forwardDevTools(adb) {
   return port;
 }
 
-/** One CDP session on the editor page, exposing awaited Runtime.evaluate. */
+/** One CDP session on the editor page (the shared client, tests/lib/editorDevicePerfSnippets.mjs). */
 async function connectEditorPage(port) {
   const pages = await fetch(`http://localhost:${port}/json`).then((r) => r.json());
   const page = pages.find((p) => p.type === 'page' && p.webSocketDebuggerUrl);
   if (!page) throw new Error(`no debuggable page at localhost:${port}`);
-  const ws = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => {
-    ws.once('open', resolve);
-    ws.once('error', reject);
-  });
-  let nextId = 1;
-  const pending = new Map();
-  ws.on('message', (data) => {
-    const msg = JSON.parse(data);
-    if (msg.id && pending.has(msg.id)) {
-      const { resolve, reject } = pending.get(msg.id);
-      pending.delete(msg.id);
-      if (msg.error) reject(new Error(JSON.stringify(msg.error)));
-      else resolve(msg.result);
-    }
-  });
-  const send = (method, params) =>
-    new Promise((resolve, reject) => {
-      const id = nextId++;
-      pending.set(id, { resolve, reject });
-      ws.send(JSON.stringify({ id, method, params }));
-    });
-  return {
-    /** Evaluate [expression], awaiting promises; throws on a page exception. */
-    async evaluate(expression) {
-      const r = await send('Runtime.evaluate', {
-        expression,
-        awaitPromise: true,
-        returnByValue: true,
-        timeout: OPEN_COMPLETE_TIMEOUT_MS + 60_000,
-      });
-      if (r.exceptionDetails) {
-        throw new Error(
-          `in-page: ${r.exceptionDetails.exception?.description ?? JSON.stringify(r.exceptionDetails)}`,
-        );
-      }
-      return r.result.value;
-    },
-    close: () => ws.close(),
-  };
+  return connectPage(page.webSocketDebuggerUrl, WebSocket);
 }
 
-// ── In-page measurement (the same unit the desktop gauntlet times) ─
-
-/**
- * setContent, then block until the open has fully landed. `setContent` →
- * `applyExternal` → `markOpenStart` clears the previous open's entries
- * SYNCHRONOUSLY, so any entry visible after it belongs to this open — which is
- * what makes polling the measure safe rather than a race.
- */
-function openSnippet(markdown) {
-  return `
-    const md = ${JSON.stringify(markdown)};
-    if (!window.FutoEditor) throw new Error('no FutoEditor on this page');
-    window.FutoEditor.setContent(md);
-    const deadline = performance.now() + ${OPEN_COMPLETE_TIMEOUT_MS};
-    while (performance.getEntriesByName('futo:editor-open-complete').length === 0) {
-      if (performance.now() > deadline) throw new Error('open never completed (screen off? app backgrounded?)');
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    /* The document on screen must actually BE the fixture. Every guard between
-     * here and the editor dedupes against the live document (hostBoot's
-     * setContent, MilkdownEditor's own), and a skipped load leaves a STALE
-     * open-complete measure behind — so the poll above returns instantly and
-     * every number after it would describe the previous document. That is the
-     * silent green M11 forbids, and it is not hypothetical: it is what this
-     * runner did on its first --containment-only run. Normalization means the
-     * text is not byte-identical, so the check is a loose size floor. */
-    const loadedSize = window.__futoProseMirrorView?.()?.state.doc.content.size ?? 0;
-    if (loadedSize < md.length / 2) {
-      throw new Error(
-        'the fixture did not load: asked for ' + md.length + ' chars, document holds ' +
-        loadedSize + ' (starts: ' + JSON.stringify(window.FutoEditor.getContent().slice(0, 60)) + ')',
-      );
-    }`;
-}
-
-/** Load a document and report nothing — used to set up the containment probe. */
-function loadExpression(markdown) {
-  return `(async () => {${openSnippet(markdown)}
-    return true;
-  })()`;
-}
-
-function measureExpression(markdown, samples) {
-  return `(async () => {${openSnippet(markdown)}
-    const duration = (name) => performance.getEntriesByName(name)[0]?.duration ?? null;
-    const view = window.__futoProseMirrorView?.();
-    if (!view) throw new Error('no ProseMirror view (did the page load the CodeMirror editor?)');
-    const synchronousSamplesMs = [];
-    const settledToPaintSamplesMs = [];
-    for (let i = 0; i < ${samples}; i += 1) {
-      const t0 = performance.now();
-      view.dispatch(view.state.tr.insertText('x'));
-      synchronousSamplesMs.push(performance.now() - t0);
-      await new Promise((r) => requestAnimationFrame(() => r()));
-      settledToPaintSamplesMs.push(performance.now() - t0);
-    }
-    return {
-      interactiveMs: duration('futo:editor-open-interactive'),
-      completeMs: duration('futo:editor-open-complete'),
-      synchronousSamplesMs,
-      settledToPaintSamplesMs,
-    };
-  })()`;
-}
+// ── In-page measurement: tests/lib/editorDevicePerfSnippets.mjs (shared with the quick loop) ─
 
 /**
  * The containment stylesheet, verified inside the real editor chrome: the rule
@@ -527,6 +424,7 @@ async function main() {
   const { plan, realNote } = fixturePlan();
   const results = [];
   let containment = null;
+  const containmentFailures = [];
   try {
     /* Wait for the HOST's own load to have landed, not merely for the bridge to
      * exist. The shell calls `FutoEditor.initialize` with the note's content
@@ -583,6 +481,8 @@ async function main() {
         bytes: Buffer.byteLength(content, 'utf8'),
         interactiveMs: measured.interactiveMs,
         completeMs: measured.completeMs,
+        synchronousSamplesMs: measured.synchronousSamplesMs,
+        settledToPaintSamplesMs: measured.settledToPaintSamplesMs,
         keystrokeSynchronousP95Ms: percentile95(measured.synchronousSamplesMs),
         keystrokeSettledToPaintP95Ms: percentile95(measured.settledToPaintSamplesMs),
       };
@@ -593,19 +493,26 @@ async function main() {
       );
     }
 
-    // Containment, in a document that actually has thousands of top-level
-    // blocks to skip. Loaded explicitly rather than inheriting whatever the
-    // last fixture left: `lineFixture` fuses into a handful of huge blocks, so
-    // measuring containment on it would prove nothing either way.
-    await cdp.evaluate(loadExpression(blockFixture(10_000)));
-    containment = await cdp.evaluate(CONTAINMENT_EXPRESSION);
-    console.log(
-      `  containment: content-visibility=${containment.contentVisibility}, ` +
-        `scroller=${containment.scroller}, caret-to-end scrolled=${containment.scrolled} ` +
-        `(scrollTop ${Math.round(containment.scrollTop)}), ` +
-        `caret block ${Math.round(containment.caretBlockHeight)}px ` +
-        `on-screen=${containment.caretBlockOnScreen} settled=${containment.caretBlockOnScreenAfterSettle}`,
-    );
+    // Containment, in the real-note-shaped document the interactive budget is
+    // measured on. Loaded explicitly rather than inheriting whatever the last
+    // fixture left, so the probe's document is known.
+    try {
+      await cdp.evaluate(loadExpression(blockFixture(10_000)));
+      containment = await cdp.evaluate(CONTAINMENT_EXPRESSION);
+      console.log(
+        `  containment: content-visibility=${containment.contentVisibility}, ` +
+          `scroller=${containment.scroller}, caret-to-end scrolled=${containment.scrolled} ` +
+          `(scrollTop ${Math.round(containment.scrollTop)}), ` +
+          `caret block ${Math.round(containment.caretBlockHeight)}px ` +
+          `on-screen=${containment.caretBlockOnScreen} settled=${containment.caretBlockOnScreenAfterSettle}`,
+      );
+    } catch (error) {
+      // A failed focused-caret probe must fail red AND retain the fixture
+      // measurements that led up to it, including their individual samples.
+      containmentFailures.push(
+        `containment probe failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   } finally {
     cdp.close();
     // Tear down only what this run created (M25): our forward, our note.
@@ -620,8 +527,7 @@ async function main() {
    * and an exit code nobody reads is worth nothing when the containment leg
    * really does break. */
   const violations = evaluateDeviceFloor(CONTAINMENT_ONLY ? [] : plan, results);
-  const containmentFailures = [];
-  if (containment.contentVisibility !== 'auto') {
+  if (containment && containment.contentVisibility !== 'auto') {
     containmentFailures.push(
       `content-visibility is "${containment.contentVisibility}", not "auto" — the containment stylesheet is not active in this chrome`,
     );
@@ -633,9 +539,10 @@ async function main() {
    * drift it represents is written up in plan §5's T9 outcome as an open item
    * rather than quietly accepted. */
   if (
-    !containment.scrolled ||
-    !containment.caretBlockOnScreenAfterSettle ||
-    containment.caretBlockHeight <= 0
+    containment &&
+    (!containment.scrolled ||
+      !containment.caretBlockOnScreenAfterSettle ||
+      containment.caretBlockHeight <= 0)
   ) {
     containmentFailures.push(
       `caret into the offscreen end did not land on rendered content: ${JSON.stringify(containment)}`,

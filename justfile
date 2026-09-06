@@ -223,6 +223,23 @@ test-android-perf *args:
   just android-native
   node tests/android-editor-perf.mjs {{args}}
 
+# The FAST loop for the numbers above: the freshly built editor.html in the
+# phone's own Chrome (same Chromium build as its System WebView), measured with
+# the SAME in-page snippet the gate uses — no APK build, no install. Seconds per
+# run instead of ~10 minutes, so it is what you iterate on; `test-android-perf`
+# is what you confirm on. Also profiles: --profile (a keystroke) and
+# --profile-open (the open) print where the CPU time went.
+#   just test-android-perf-quick                                  # 1000-lines-blocks
+#   just test-android-perf-quick --fixture 10000-lines-blocks --profile
+test-android-perf-quick *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -n "${ANDROID_SERIAL:-}" ] || {
+    echo 'Set ANDROID_SERIAL to the phone (adb devices -l).' >&2
+    exit 1
+  }
+  node tests/android-editor-perf-quick.mjs {{args}}
+
 # User-level storage-location stories against the REAL native Android app: the
 # first-run picker, both migration directions, and opening an already-populated
 # folder — each asserted on the vault that actually lands on disk. ~35s, of which
