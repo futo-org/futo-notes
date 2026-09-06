@@ -69,8 +69,9 @@ impl Bm25Schema {
 pub struct TantivyIndices {
     pub bm25: Index,
     pub bm25_schema: Bm25Schema,
-    pub bm25_writer: IndexWriter,
+    bm25_writer: IndexWriter,
     pub bm25_reader: IndexReader,
+    has_pending_changes: bool,
 }
 
 impl TantivyIndices {
@@ -103,6 +104,7 @@ impl TantivyIndices {
             bm25_schema,
             bm25_writer,
             bm25_reader,
+            has_pending_changes: false,
         })
     }
 
@@ -115,6 +117,7 @@ impl TantivyIndices {
         folder: &str,
         mtime_ms: i64,
     ) {
+        self.has_pending_changes = true;
         let term = Term::from_field_text(self.bm25_schema.note_id, note_id);
         let _ = self.bm25_writer.delete_term(term);
         let mut doc = TantivyDocument::default();
@@ -128,6 +131,7 @@ impl TantivyIndices {
     }
 
     pub fn delete_note(&mut self, note_id: &str) {
+        self.has_pending_changes = true;
         let term = Term::from_field_text(self.bm25_schema.note_id, note_id);
         let _ = self.bm25_writer.delete_term(term);
     }
@@ -173,10 +177,16 @@ impl TantivyIndices {
     }
 
     pub fn commit_bm25(&mut self) -> Result<(), String> {
-        self.bm25_writer
-            .commit()
-            .map(|_| ())
-            .map_err(|e| format!("bm25 commit: {e}"))?;
+        // Even an empty Tantivy commit persists metadata and replaces its worker
+        // threads. Keep failed writes pending so the next batch can retry them.
+        if self.has_pending_changes {
+            self.bm25_writer
+                .commit()
+                .map_err(|e| format!("bm25 commit: {e}"))?;
+            self.has_pending_changes = false;
+        }
+        // Background merges may have completed even without new note changes.
+        // Reload also retries a previous reader failure after a successful commit.
         self.bm25_reader
             .reload()
             .map_err(|e| format!("bm25 reader reload: {e}"))
@@ -488,6 +498,53 @@ mod tests {
         idx.upsert_note_bm25("alpha", "Alpha", "body2", "", "", 5_000);
         idx.commit_bm25().unwrap();
         assert_eq!(idx.bm25_note_mtimes().unwrap().get("alpha"), Some(&5_000));
+    }
+
+    #[test]
+    fn committing_without_changes_leaves_the_persisted_index_untouched() {
+        let (dir, mut idx) = open_indices_in_tempdir();
+        let metadata_path = dir.path().join("bm25/meta.json");
+        let empty_metadata = std::fs::read(&metadata_path).unwrap();
+        idx.commit_bm25().unwrap();
+        assert_eq!(std::fs::read(&metadata_path).unwrap(), empty_metadata);
+
+        idx.upsert_note_bm25("alpha", "Alpha", "body", "", "", 1_000);
+        idx.commit_bm25().unwrap();
+        let committed_metadata = std::fs::read(&metadata_path).unwrap();
+        assert_ne!(committed_metadata, empty_metadata);
+        assert_eq!(idx.bm25_note_mtimes().unwrap().get("alpha"), Some(&1_000));
+
+        idx.commit_bm25().unwrap();
+        assert_eq!(std::fs::read(&metadata_path).unwrap(), committed_metadata);
+
+        idx.delete_note("alpha");
+        idx.commit_bm25().unwrap();
+        assert!(idx.bm25_note_mtimes().unwrap().is_empty());
+        let deleted_metadata = std::fs::read(&metadata_path).unwrap();
+        idx.commit_bm25().unwrap();
+        assert_eq!(std::fs::read(&metadata_path).unwrap(), deleted_metadata);
+    }
+
+    #[test]
+    fn a_failed_commit_retries_pending_changes_without_another_upsert() {
+        let (dir, mut idx) = open_indices_in_tempdir();
+        idx.upsert_note_bm25("alpha", "Alpha", "body", "", "", 1_000);
+        let metadata_path = dir.path().join("bm25/meta.json");
+        let backup = dir.path().join("original-meta.json");
+        std::fs::rename(&metadata_path, &backup).unwrap();
+        std::fs::create_dir(&metadata_path).unwrap();
+        assert!(idx.commit_bm25().is_err(), "a directory blocks the commit");
+        std::fs::remove_dir(&metadata_path).unwrap();
+        std::fs::rename(&backup, &metadata_path).unwrap();
+
+        idx.commit_bm25().unwrap();
+        assert_eq!(idx.bm25_note_mtimes().unwrap().get("alpha"), Some(&1_000));
+        drop(idx);
+        let reopened = TantivyIndices::open(dir.path()).unwrap();
+        assert_eq!(
+            reopened.bm25_note_mtimes().unwrap().get("alpha"),
+            Some(&1_000)
+        );
     }
 
     fn now_ms() -> i64 {
