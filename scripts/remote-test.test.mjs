@@ -96,11 +96,9 @@ describe('macOS-only deny-list', () => {
   });
 
   it('refuses the desktop suites whose whole point is the shipped web engine', () => {
-    for (const recipe of ['test-desktop-smoke', 'perf-course']) {
-      const verdict = classify(recipe);
-      expect(verdict.allowed).toBe(false);
-      expect(verdict.reason).toMatch(/WKWebView/);
-    }
+    const verdict = classify('test-desktop-smoke');
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reason).toMatch(/WKWebView/);
   });
 
   it('refuses recipes that need root or manage the local machine', () => {
@@ -118,11 +116,7 @@ describe('macOS-only deny-list', () => {
   it('names real recipes, so a renamed recipe cannot silently become allowed', () => {
     const denied = REFUSED.filter(([m]) => typeof m === 'string').map(([m]) => m);
     const absent = denied.filter((name) => !recipes.has(name));
-    // `perf-course` is deliberately pre-denied: it lands with the desktop
-    // obstacle course, and its debug-build timings are only comparable to other
-    // runs on the same machine — a Linux run against Mac baselines is noise.
-    // When it exists, drop it from this exception list (the assertion will say so).
-    expect(absent).toEqual(['perf-course']);
+    expect(absent).toEqual([]);
   });
 
   it('the regex matchers cover the families they claim', () => {

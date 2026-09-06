@@ -111,6 +111,7 @@ export const REFUSED = [
   ['build-rust-ios', 'macos'],
   ['build-ios-native', 'macos'],
   ['test-ios-native', 'macos'],
+  ['test-ios-stories', 'macos'],
   ['ios-native', 'macos'],
   ['ios-native-device', 'macos'],
   ['deploy-ios', 'macos'],
@@ -120,7 +121,6 @@ export const REFUSED = [
   ['qa-clone-target', 'macos'],
   // Runs the shipped desktop app or the CM6 editor in a browser engine.
   ['test-desktop-smoke', 'wkwebview'],
-  ['perf-course', 'wkwebview'],
   // Interactive.
   ['tauri-dev', 'interactive'],
   ['tauri-prod', 'interactive'],
