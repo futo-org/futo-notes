@@ -138,39 +138,25 @@ impl TantivyIndices {
 
     #[cfg(test)]
     pub fn list_bm25_note_ids(&self) -> Result<Vec<String>, String> {
-        use tantivy::collector::DocSetCollector;
-        use tantivy::query::AllQuery;
-        let searcher = self.bm25_reader.searcher();
-        let doc_addrs = searcher
-            .search(&AllQuery, &DocSetCollector)
-            .map_err(|e| format!("list bm25 docs: {e}"))?;
-        let mut out = Vec::with_capacity(doc_addrs.len());
-        for addr in doc_addrs {
-            let doc: TantivyDocument = searcher
-                .doc(addr)
-                .map_err(|e| format!("bm25 doc fetch: {e}"))?;
-            if let Some(note_id) = read_stored_text(&doc, self.bm25_schema.note_id) {
-                out.push(note_id);
-            }
-        }
-        Ok(out)
+        self.bm25_note_mtimes()
+            .map(|mtimes| mtimes.into_keys().collect())
     }
 
     pub fn bm25_note_mtimes(&self) -> Result<HashMap<String, i64>, String> {
-        use tantivy::collector::DocSetCollector;
-        use tantivy::query::AllQuery;
         let searcher = self.bm25_reader.searcher();
-        let doc_addrs = searcher
-            .search(&AllQuery, &DocSetCollector)
-            .map_err(|e| format!("list bm25 docs: {e}"))?;
-        let mut out = HashMap::with_capacity(doc_addrs.len());
-        for addr in doc_addrs {
-            let doc: TantivyDocument = searcher
-                .doc(addr)
-                .map_err(|e| format!("bm25 doc fetch: {e}"))?;
-            if let Some(note_id) = read_stored_text(&doc, self.bm25_schema.note_id) {
-                let mtime = read_stored_i64(&doc, self.bm25_schema.mtime).unwrap_or(0);
-                out.insert(note_id, mtime);
+        let mut out = HashMap::with_capacity(searcher.num_docs() as usize);
+        for segment in searcher.segment_readers() {
+            // A full scan can decode each compressed block once, in order,
+            // without collecting random addresses or filling the query cache.
+            let store = segment
+                .get_store_reader(0)
+                .map_err(|e| format!("bm25 store reader: {e}"))?;
+            for doc in store.iter::<TantivyDocument>(segment.alive_bitset()) {
+                let doc = doc.map_err(|e| format!("bm25 doc fetch: {e}"))?;
+                if let Some(note_id) = read_stored_text(&doc, self.bm25_schema.note_id) {
+                    let mtime = read_stored_i64(&doc, self.bm25_schema.mtime).unwrap_or(0);
+                    out.insert(note_id, mtime);
+                }
             }
         }
         Ok(out)
@@ -498,6 +484,36 @@ mod tests {
         idx.upsert_note_bm25("alpha", "Alpha", "body2", "", "", 5_000);
         idx.commit_bm25().unwrap();
         assert_eq!(idx.bm25_note_mtimes().unwrap().get("alpha"), Some(&5_000));
+    }
+
+    #[test]
+    fn note_mtimes_exclude_replaced_and_deleted_documents_across_segments() {
+        let (dir, mut idx) = open_indices_in_tempdir();
+        // Keep segment boundaries deterministic, including tombstoned documents.
+        idx.bm25_writer
+            .set_merge_policy(Box::new(tantivy::merge_policy::NoMergePolicy));
+        idx.upsert_note_bm25("旅行/日記", "日記", "old body", "", "旅行", 1_000);
+        idx.upsert_note_bm25("deleted", "Deleted", "old body", "", "", 2_000);
+        idx.upsert_note_bm25("unchanged", "Unchanged", "body", "", "", 0);
+        idx.commit_bm25().unwrap();
+
+        idx.upsert_note_bm25("旅行/日記", "日記", "new body", "", "旅行", 3_000);
+        idx.delete_note("deleted");
+        idx.upsert_note_bm25("new", "New", "new body", "", "", 4_000);
+        idx.commit_bm25().unwrap();
+        assert!(idx.bm25_reader.searcher().segment_readers().len() >= 2);
+
+        // A later uncommitted mutation must not leak into reconciliation metadata.
+        idx.upsert_note_bm25("pending", "Pending", "pending body", "", "", 5_000);
+        let expected = HashMap::from([
+            ("旅行/日記".to_owned(), 3_000),
+            ("unchanged".to_owned(), 0),
+            ("new".to_owned(), 4_000),
+        ]);
+        assert_eq!(idx.bm25_note_mtimes().unwrap(), expected);
+        drop(idx);
+        let reopened = TantivyIndices::open(dir.path()).unwrap();
+        assert_eq!(reopened.bm25_note_mtimes().unwrap(), expected);
     }
 
     #[test]
