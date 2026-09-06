@@ -468,6 +468,17 @@ test-rust-full:
   cargo test --workspace
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
+# Shared search engine correctness and reproducible synthetic-vault benchmarks.
+[positional-arguments]
+test-search *args:
+  cargo test -p futo-notes-search "$@"
+
+# Criterion keeps comparisons in target/criterion. Override SEARCH_BENCH_NOTES
+# for a different corpus size; see crates/futo-notes-search/benches/search.rs.
+[positional-arguments]
+bench-search *args:
+  cargo bench -p futo-notes-search --bench search -- "$@"
+
 # ── Remote (Linux) test execution ──
 # Everything that does NOT need macOS/Xcode/WKWebView runs on a Linux box over
 # Tailscale (default: jfedora, 32 cores / 125 GB / KVM), so the Mac stays free
