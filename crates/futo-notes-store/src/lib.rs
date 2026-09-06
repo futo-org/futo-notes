@@ -1,6 +1,7 @@
 //! One durable owner for the local Markdown vault and its derived search index.
 
 mod paths;
+mod search;
 mod vault;
 mod vault_migration;
 
@@ -9,7 +10,6 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use futo_notes_core::conflict_names::{conflict_filename, current_conflict_date};
 use futo_notes_core::files::{
@@ -17,8 +17,10 @@ use futo_notes_core::files::{
     safe_appdata_path, set_file_mtime_ms, vault_mutation_guard, write_atomic_text,
 };
 use futo_notes_model::{make_id, rewrite_wikilinks, sanitize_folder_path, split_id};
-use futo_notes_search::{SearchConfig, SearchEngine, StatusObserver, DEFAULT_TOPK};
+use futo_notes_search::StatusObserver;
 use serde::{Deserialize, Serialize};
+
+use search::StoreSearch;
 
 pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
 pub use futo_notes_search::{SearchHit, SearchStatus};
@@ -183,30 +185,6 @@ impl BeforeWrite for NoopBeforeWrite {
     fn before_write(&self, _changes: &[FileChange]) {}
 }
 
-/// After a failed search-engine start (a bad/locked index dir, momentary disk
-/// pressure), the store re-attempts the start lazily on the next
-/// search/status/rescan call — but at most once per this cooldown, so a
-/// persistent failure does not reopen the Tantivy index on every keystroke.
-/// This is the iOS `SearchService` F13 self-heal (PKT-10) pushed down into the
-/// single Rust owner, so iOS, Android, and desktop share one implementation
-/// (and it closes the banked Android search-retry-cooldown alignment follow-up).
-const SEARCH_ENGINE_RETRY_COOLDOWN: Duration = Duration::from_secs(15);
-
-/// Poll cadence inside [`LocalNoteStore::wait_until_search_ready`] — matches
-/// the 25ms the shells used before the wait moved down here.
-const SEARCH_READY_POLL_INTERVAL: Duration = Duration::from_millis(25);
-
-/// The owned search engine plus what's needed to re-attempt a failed start.
-#[derive(Default)]
-struct SearchState {
-    engine: Option<SearchEngine>,
-    /// Index dir + status observer retained at `start_search` so a failed start
-    /// can be retried with the same configuration. `None` until first start.
-    pending: Option<(PathBuf, StatusObserver)>,
-    /// When the last start attempt failed; gates the retry cooldown.
-    last_start_failure: Option<Instant>,
-}
-
 #[cfg(test)]
 type InstallWindowHook = Box<dyn Fn(&str) + Send + Sync>;
 
@@ -217,8 +195,7 @@ pub struct LocalNoteStore {
     root: PathBuf,
     before_write: Arc<dyn BeforeWrite>,
     gate: Mutex<()>,
-    search: Mutex<SearchState>,
-    retry_cooldown: Duration,
+    search: StoreSearch,
     /// Fault injection fired between id allocation and no-replace installation
     /// to simulate a concurrent writer landing at the chosen id.
     #[cfg(test)]
@@ -236,11 +213,10 @@ impl LocalNoteStore {
 
     pub fn with_before_write(root: PathBuf, before_write: Arc<dyn BeforeWrite>) -> Self {
         Self {
+            search: StoreSearch::new(root.clone()),
             root,
             before_write,
             gate: Mutex::new(()),
-            search: Mutex::new(SearchState::default()),
-            retry_cooldown: SEARCH_ENGINE_RETRY_COOLDOWN,
             #[cfg(test)]
             install_window_hook: Mutex::new(None),
             #[cfg(test)]
@@ -260,112 +236,26 @@ impl LocalNoteStore {
         index_dir: PathBuf,
         on_status: StatusObserver,
     ) -> Result<(), String> {
-        let mut search = self
-            .search
-            .lock()
-            .map_err(|_| "search lock poisoned".to_owned())?;
-        if search.engine.is_some() {
-            return Ok(());
-        }
-        search.pending = Some((index_dir, on_status));
-        self.try_start_engine(&mut search)
+        self.search.start(index_dir, on_status)
     }
 
     pub fn search(&self, query: &str, limit: Option<usize>) -> Result<Vec<SearchHit>, String> {
-        let mut search = self
-            .search
-            .lock()
-            .map_err(|_| "search lock poisoned".to_owned())?;
-        self.ensure_engine(&mut search);
-        match search.engine.as_ref() {
-            Some(engine) => engine.query(query, limit.unwrap_or(DEFAULT_TOPK)),
-            None => Ok(Vec::new()),
-        }
-    }
-
-    fn search_status(&self) -> SearchStatus {
-        let Ok(mut search) = self.search.lock() else {
-            return SearchStatus::default();
-        };
-        self.ensure_engine(&mut search);
-        search
-            .engine
-            .as_ref()
-            .map(SearchEngine::status)
-            .unwrap_or_default()
+        self.search.query(query, limit)
     }
 
     /// Blocking, bounded wait for engine-owned search readiness. Callers keep
     /// it off the UI thread; a timeout safely degrades to empty search results
     /// while the index continues its self-healing retries.
     pub fn wait_until_search_ready(&self, timeout_ms: u64) -> bool {
-        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-        loop {
-            if self.search_status().keyword.ready {
-                return true;
-            }
-            let now = Instant::now();
-            if now >= deadline {
-                return false;
-            }
-            std::thread::sleep(SEARCH_READY_POLL_INTERVAL.min(deadline - now));
-        }
+        self.search.wait_until_ready(timeout_ms)
     }
 
     pub fn rebuild_search(&self) {
-        if let Ok(mut search) = self.search.lock() {
-            self.ensure_engine(&mut search);
-            if let Some(engine) = search.engine.as_ref() {
-                engine.rescan();
-            }
-        }
-    }
-
-    /// Start the engine from the retained config, recording success/failure.
-    /// The caller holds the search lock.
-    fn try_start_engine(&self, search: &mut SearchState) -> Result<(), String> {
-        let Some((index_dir, on_status)) = search.pending.clone() else {
-            return Ok(());
-        };
-        match SearchEngine::start(
-            SearchConfig {
-                notes_root: self.root.clone(),
-                index_dir,
-            },
-            on_status,
-        ) {
-            Ok(engine) => {
-                search.engine = Some(engine);
-                search.last_start_failure = None;
-                Ok(())
-            }
-            Err(error) => {
-                search.last_start_failure = Some(Instant::now());
-                Err(error)
-            }
-        }
-    }
-
-    /// Lazily (re-)attempt a search-engine start that has not yet succeeded,
-    /// gated by [`SEARCH_ENGINE_RETRY_COOLDOWN`] so a persistent failure is not
-    /// retried on every call. No-op once the engine is running or when nothing
-    /// has been started yet. The caller holds the search lock.
-    fn ensure_engine(&self, search: &mut SearchState) {
-        if search.engine.is_some() || search.pending.is_none() {
-            return;
-        }
-        let cooling_down = search
-            .last_start_failure
-            .is_some_and(|at| at.elapsed() < self.retry_cooldown);
-        if cooling_down {
-            return;
-        }
-        // A failed retry re-arms the cooldown inside `try_start_engine`.
-        let _ = self.try_start_engine(search);
+        self.search.rebuild();
     }
 
     pub fn observe_external_change(&self, change: FileChange) {
-        self.notify(&change);
+        self.search.notify(&change);
     }
 
     pub fn bootstrap(&self) -> Result<BootstrapResult, String> {
@@ -424,7 +314,7 @@ impl LocalNoteStore {
     /// Bootstrap the vault, then start the owned search index in the background
     /// as a BEST-EFFORT step: a search-start failure is recorded as a warning,
     /// never fatal, so the note list always renders even when the index can't
-    /// open (it self-heals later via the retry cooldown — see `ensure_engine`).
+    /// open (the search lifecycle retries later after its cooldown).
     /// The single rule every adapter's bootstrap shares, so no shell can make
     /// search startup gate the vault (A3).
     pub fn bootstrap_with_search(
@@ -504,11 +394,11 @@ impl LocalNoteStore {
         for id in affected_ids {
             match vault::metadata(&self.root, id) {
                 Some(metadata) => {
-                    self.notify(&FileChange::Changed(note_filename(id)));
+                    self.search.notify(&FileChange::Changed(note_filename(id)));
                     notes.push(metadata);
                 }
                 None => {
-                    self.notify(&FileChange::Removed(note_filename(id)));
+                    self.search.notify(&FileChange::Removed(note_filename(id)));
                     // The pull vacated this note's directory exactly as a local
                     // delete or move would, so it gets the same cleanup — the
                     // gone note's now-empty ancestors, nothing else. Without it
@@ -637,7 +527,7 @@ impl LocalNoteStore {
         self.before_write
             .before_write(std::slice::from_ref(&change));
         if create_new_atomic(&path, content.as_bytes())? {
-            self.notify(&change);
+            self.search.notify(&change);
             Ok(CreateOutcome::Created)
         } else {
             Ok(CreateOutcome::Existed)
@@ -732,7 +622,7 @@ impl LocalNoteStore {
         if create_new_atomic(path, content.as_bytes())? {
             let metadata = vault::metadata(&self.root, id)
                 .ok_or_else(|| "note metadata unavailable after recreate".to_owned())?;
-            self.notify(&change);
+            self.search.notify(&change);
             return Ok(FlushDraftResult {
                 disposition: FlushDisposition::Recreated,
                 mutation: Some(self.upsert_mutation(metadata)),
@@ -815,7 +705,8 @@ impl LocalNoteStore {
             if create_new_atomic(&path, content.as_bytes())? {
                 let metadata = vault::metadata(&self.root, &parked_id)
                     .ok_or_else(|| "note metadata unavailable after park".to_owned())?;
-                self.notify(&FileChange::Changed(note_filename(&parked_id)));
+                self.search
+                    .notify(&FileChange::Changed(note_filename(&parked_id)));
                 return Ok(FlushDraftResult {
                     disposition: FlushDisposition::ParkedConflict {
                         parked_id: parked_id.clone(),
@@ -894,7 +785,7 @@ impl LocalNoteStore {
             .before_write(std::slice::from_ref(&change));
         remove(&path)?;
         prune_empty_parents(&self.root, &path);
-        self.notify(&change);
+        self.search.notify(&change);
         Ok(self.finish_mutation(
             Vec::new(),
             MutationResult {
@@ -1187,13 +1078,13 @@ impl LocalNoteStore {
             {
                 Ok(()) => {
                     touched.insert(id.clone());
-                    self.notify(&FileChange::Changed(note_filename(&id)));
+                    self.search.notify(&FileChange::Changed(note_filename(&id)));
                 }
                 Err(error) => warnings.push(format!("backlink rewrite for {id}: {error}")),
             }
         }
         for (from, to) in &mappings {
-            self.notify(&FileChange::Renamed {
+            self.search.notify(&FileChange::Renamed {
                 from: note_filename(from),
                 to: note_filename(to),
             });
@@ -1305,7 +1196,7 @@ impl LocalNoteStore {
             }
             let metadata = vault::metadata(&self.root, &id)
                 .ok_or_else(|| "note metadata unavailable after create".to_owned())?;
-            self.notify(&FileChange::Changed(note_filename(&id)));
+            self.search.notify(&FileChange::Changed(note_filename(&id)));
             return Ok(metadata);
         }
         Err("could not allocate a free note id after repeated collisions".to_owned())
@@ -1382,7 +1273,7 @@ impl LocalNoteStore {
             match move_no_replace(&recovered.backup, &path) {
                 Ok(true) => {
                     let _ = fs::remove_file(&recovered.sidecar);
-                    self.notify(&FileChange::Changed(note_filename(&id)));
+                    self.search.notify(&FileChange::Changed(note_filename(&id)));
                     return Ok(());
                 }
                 Ok(false) => continue,
@@ -1427,7 +1318,7 @@ impl LocalNoteStore {
         }
         let metadata = vault::metadata(&self.root, id)
             .ok_or_else(|| "note metadata unavailable after write".to_owned())?;
-        self.notify(&change);
+        self.search.notify(&change);
         Ok(metadata)
     }
 
@@ -1484,7 +1375,7 @@ impl LocalNoteStore {
                     migrated += 1;
                     occupied.insert(target.to_lowercase());
                     names.push(target);
-                    self.notify(&change);
+                    self.search.notify(&change);
                 }
                 Err(error) => warnings.push(format!("{name}: {error}")),
             }
@@ -1493,20 +1384,6 @@ impl LocalNoteStore {
             warnings.push(format!("migration sentinel: {error}"));
         }
         (migrated, warnings)
-    }
-
-    fn notify(&self, change: &FileChange) {
-        let Ok(search) = self.search.lock() else {
-            return;
-        };
-        let Some(engine) = search.engine.as_ref() else {
-            return;
-        };
-        match change {
-            FileChange::Changed(path) => engine.notify_changed(path.clone()),
-            FileChange::Removed(path) => engine.notify_removed(path.clone()),
-            FileChange::Renamed { from, to } => engine.notify_renamed(from.clone(), to.clone()),
-        }
     }
 
     fn lock_gate(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
@@ -1523,18 +1400,6 @@ impl LocalNoteStore {
     #[cfg(test)]
     fn set_flush_window_hook(&self, hook: InstallWindowHook) {
         *self.flush_window_hook.lock().unwrap() = Some(hook);
-    }
-
-    #[cfg(test)]
-    fn search_engine_installed(&self) -> bool {
-        self.search.lock().unwrap().engine.is_some()
-    }
-
-    /// Test seam: clear the failure timestamp so the next search/status/rescan
-    /// treats the retry cooldown as elapsed (deterministic, no wall-clock wait).
-    #[cfg(test)]
-    fn expire_search_retry_cooldown(&self) {
-        self.search.lock().unwrap().last_start_failure = None;
     }
 }
 
@@ -1698,6 +1563,9 @@ fn remove_empty_source_warning(path: &Path) -> Vec<String> {
 fn io_error(error: std::io::Error) -> String {
     error.to_string()
 }
+
+#[cfg(test)]
+mod test_support;
 
 #[cfg(test)]
 mod tests;
