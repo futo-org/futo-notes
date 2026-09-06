@@ -72,9 +72,14 @@ export interface TextHandlerInfo {
  * the constructs that rule excluded (autolinks, link destinations, reference
  * labels, titles), read off the pattern itself so the two cannot drift.
  */
-export function withNarrowedEscapes<Node, Parent, State extends TextHandlerState>(
-  base: (node: Node, parent: Parent, state: State, info: TextHandlerInfo) => string,
-): (node: Node, parent: Parent, state: State, info: TextHandlerInfo) => string {
+export function withNarrowedEscapes<
+  Node,
+  Parent,
+  State extends TextHandlerState,
+  Info extends TextHandlerInfo,
+>(
+  base: (node: Node, parent: Parent, state: State, info: Info) => string,
+): (node: Node, parent: Parent, state: State, info: Info) => string {
   return (node, parent, state, info) => {
     const blanket = state.unsafe.find(isBlanketPhrasingUnderscore);
     const unsafe = narrowAtxHashEscape(withoutPhrasingUnderscoreEscape(state.unsafe));
