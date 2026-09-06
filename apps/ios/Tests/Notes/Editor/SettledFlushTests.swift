@@ -55,6 +55,9 @@ struct SettledFlushTests {
             ) == .record(savedContent: "typed"))
     }
 
+    // Without the baseline advance on the parked arm the editor would sit on the
+    // copy with a base describing the ORIGINAL, and park again on the next save.
+    // That is how one conflict copy became nine.
     @Test("a parked draft is followed to the copy AND records its baseline")
     func parkedFollows() {
         #expect(
@@ -65,25 +68,6 @@ struct SettledFlushTests {
                 currentId: "note",
                 sessionIsClosing: false
             ) == .follow(parkedId: "note (conflict 2026-08-21)", savedContent: "typed"))
-    }
-
-    // Without the baseline advance on the parked arm the editor would sit on the
-    // copy with a base describing the ORIGINAL, and park again on the next save.
-    // That is how one conflict copy became nine.
-    @Test("following a park never leaves the baseline behind the copy on disk")
-    func parkedFollowRecordsTheSameBytes() {
-        let settled = settledFlush(
-            disposition: .parkedConflict(parkedId: "note (conflict 2026-08-21)"),
-            writtenContent: "typed",
-            flushedId: "note",
-            currentId: "note",
-            sessionIsClosing: false
-        )
-        guard case .follow(_, let savedContent) = settled else {
-            Issue.record("a park must be followed")
-            return
-        }
-        #expect(savedContent == "typed")
     }
 
     @Test("a park during a destructive exit records the bytes without rebinding identity")

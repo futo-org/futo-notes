@@ -179,10 +179,9 @@ test-ios-native: build-rust-ios
   echo "==> Simulator: $SIM"
   cd apps/ios
   xcodegen generate
-  # A concrete -destination "id=$SIM" resolves to ONE arm64 simulator, so the
-  # arm64-only FFI sim slice links without EXCLUDED_ARCHS (contrast the generic
-  # destination in build-ios-native). Ad-hoc sign so the app test host launches
-  # with its keychain entitlement (mirrors run.sh).
+  # A concrete -destination "id=$SIM" resolves to ONE simulator (build-rust-ios.sh
+  # lipos a universal sim slice, so either arch links). Ad-hoc sign so the app
+  # test host launches with its keychain entitlement (mirrors run.sh).
   xcodebuild test -project FutoNotesNative.xcodeproj \
     -scheme FutoNotesNative \
     -destination "id=$SIM" \

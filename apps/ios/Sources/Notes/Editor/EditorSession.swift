@@ -184,8 +184,6 @@ final class EditorSession {
 
     /// An exit that admits only one at a time (navigation) is running.
     private var isExiting = false
-    /// An exit is holding the editor — navigation or a committing move.
-    private(set) var isLockedForExit = false
 
     /// Reports "an exit holds the editor": the shell disables Back, the ⋯ menu,
     /// and the swipe strip on it so a second exit cannot start behind the first.
@@ -308,10 +306,7 @@ final class EditorSession {
             quarantinedContent = nil
         }
         if plan.admitsOne { isExiting = true }
-        if plan.locksInteraction {
-            isLockedForExit = true
-            onInteractionLockChanged(true)
-        }
+        if plan.locksInteraction { onInteractionLockChanged(true) }
         effects.prepare()
 
         let task = Task { @MainActor [weak self] in
@@ -388,10 +383,7 @@ final class EditorSession {
     /// usable and the exit retryable.
     private func release(_ plan: EditorExitPlan, left: Bool) {
         if plan.admitsOne { isExiting = false }
-        if plan.locksInteraction {
-            isLockedForExit = false
-            onInteractionLockChanged(false)
-        }
+        if plan.locksInteraction { onInteractionLockChanged(false) }
         if plan.closes, !left { isClosing = false }
     }
 }

@@ -20,29 +20,15 @@ func editorGenerationAfterDetach(
     detachedToken == currentGeneration ? currentGeneration + 1 : currentGeneration
 }
 
-/// A focus message may have been queued by the editor that previously owned
-/// the shared WKWebView. Focus can install the accessory for the current first
-/// responder; blur leaves UIKit to remove it when that responder resigns, so a
-/// stale blur can never strip the toolbar from a newly focused editor.
-func shouldInstallEditorToolbar(for focused: Bool) -> Bool {
-    focused
-}
-
 struct FindMatchesReport: Equatable {
     let query: String
-    let current: Int
-    let total: Int
     let label: String
 
     init?(body: [String: Any]) {
         guard let query = body["query"] as? String,
-            let current = body["current"] as? Int,
-            let total = body["total"] as? Int,
             let label = body["label"] as? String
         else { return nil }
         self.query = query
-        self.current = current
-        self.total = total
         self.label = label
     }
 }
@@ -160,8 +146,6 @@ struct EditorWebView: UIViewRepresentable {
     /// Reports the embed's authoritative body-focus state. Open-note
     /// reconciliation owns the defer-until-blur duty at this one seam.
     var onFocusChange: (Bool) -> Void = { _ in }
-    /// Called once when the editor signals 'ready'.
-    var onReady: (() -> Void)? = nil
     /// Called when the user taps a RESOLVED wikilink (bridge 'openNote');
     /// receives the resolved note id (path sans .md).
     var onOpenNote: ((String) -> Void)? = nil
@@ -179,7 +163,7 @@ struct EditorWebView: UIViewRepresentable {
         coord.sync(
             content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
-            onReady: onReady, onOpenNote: onOpenNote,
+            onOpenNote: onOpenNote,
             onFindMatches: onFindMatches, onAttachmentChange: onAttachmentChange)
         let container = EditorContainerView()
         container.backgroundColor = .clear
@@ -197,7 +181,7 @@ struct EditorWebView: UIViewRepresentable {
         coord.sync(
             content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
-            onReady: onReady, onOpenNote: onOpenNote,
+            onOpenNote: onOpenNote,
             onFindMatches: onFindMatches, onAttachmentChange: onAttachmentChange)
         // Only the VISIBLE editor drives the shared WebView. Gating on `window`
         // stops an off-screen editor (covered by a pushed one) from stealing the
@@ -247,7 +231,6 @@ struct EditorWebView: UIViewRepresentable {
         private var autoFocus = false
         private var onChange: (String) -> Void = { _ in }
         private var onFocusChange: (Bool) -> Void = { _ in }
-        private var onReady: (() -> Void)?
         private var onOpenNote: ((String) -> Void)?
         private var onFindMatches: ((FindMatchesReport) -> Void)?
         private var onAttachmentChange: ((Int?) -> Void)?
@@ -256,7 +239,6 @@ struct EditorWebView: UIViewRepresentable {
             content: String, theme: String, localization: Localization, autoFocus: Bool,
             onChange: @escaping (String) -> Void,
             onFocusChange: @escaping (Bool) -> Void,
-            onReady: (() -> Void)?,
             onOpenNote: ((String) -> Void)?,
             onFindMatches: ((FindMatchesReport) -> Void)?,
             onAttachmentChange: ((Int?) -> Void)?
@@ -267,7 +249,6 @@ struct EditorWebView: UIViewRepresentable {
             self.autoFocus = autoFocus
             self.onChange = onChange
             self.onFocusChange = onFocusChange
-            self.onReady = onReady
             self.onOpenNote = onOpenNote
             self.onFindMatches = onFindMatches
             self.onAttachmentChange = onAttachmentChange
@@ -289,13 +270,12 @@ struct EditorWebView: UIViewRepresentable {
             // Point the host at THIS note before (re)binding so attach's re-push
             // shows this note's text, not whatever note last drove the host.
             host.updateDesired(content: content, theme: theme, localization: localization)
-            // autoFocus / onReady fire only on the FIRST adopt: a re-adopt on
-            // Back must not re-pop the keyboard or re-run the ready hook.
+            // autoFocus fires only on the FIRST adopt: a re-adopt on Back must
+            // not re-pop the keyboard.
             token = host.attach(
                 autoFocus: didInitialAdopt ? false : autoFocus,
                 onChange: onChange,
                 onFocusChange: onFocusChange,
-                onReady: didInitialAdopt ? nil : onReady,
                 onOpenNote: onOpenNote,
                 onFindMatches: onFindMatches)
             onAttachmentChange?(token)
@@ -319,7 +299,7 @@ final class EditorContainerView: UIView {
 
 /// Owns the single, app-lifetime editor WKWebView. Pre-warmed once so it has
 /// already reached `ready` (bundle parsed, CodeMirror mounted) by the time the
-/// user opens a note. Per-note bindings (onChange/onReady/autoFocus) are
+/// user opens a note. Per-note bindings (onChange/autoFocus) are
 /// swapped on each [attach]; the bridge forwards to whatever is currently bound.
 ///
 /// Must be constructed on the main thread (WKWebView requirement). `@MainActor`
@@ -336,7 +316,6 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     private var onChange: (String) -> Void = { _ in }
     private var onFocusChange: (Bool) -> Void = { _ in }
-    private var onReady: (() -> Void)? = nil
     private var onOpenNote: ((String) -> Void)? = nil
     private var onFindMatches: ((FindMatchesReport) -> Void)? = nil
     private var autoFocus = false
@@ -466,19 +445,17 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     /// Bind a note's callbacks. Returns a token for the matching [detach]. If the
-    /// editor is already warm, push the desired content/theme + fire onReady (and
-    /// focus) now so the "ready for this note" contract holds for reused opens.
+    /// editor is already warm, push the desired content/theme (and focus) now so
+    /// the "ready for this note" contract holds for reused opens.
     func attach(
         autoFocus: Bool,
         onChange: @escaping (String) -> Void,
         onFocusChange: @escaping (Bool) -> Void,
-        onReady: (() -> Void)?,
         onOpenNote: ((String) -> Void)? = nil,
         onFindMatches: ((FindMatchesReport) -> Void)? = nil
     ) -> Int {
         self.onChange = onChange
         self.onFocusChange = onFocusChange
-        self.onReady = onReady
         self.onOpenNote = onOpenNote
         self.onFindMatches = onFindMatches
         self.autoFocus = autoFocus
@@ -490,7 +467,6 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             pushLanguage(desiredLanguageTag)
             pushTheme(desiredTheme)
             pushContent(desiredContent)
-            onReady?()
             if autoFocus { startAutoFocus() }
         }
         generation += 1
@@ -507,7 +483,6 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         generation = nextGeneration
         onChange = { _ in }
         onFocusChange = { _ in }
-        onReady = nil
         onOpenNote = nil
         onFindMatches = nil
         autoFocus = false
@@ -722,7 +697,6 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 localization: desiredLocalization
             )
             if let json = desiredNotesJson { setNotes(json) }
-            onReady?()
             if autoFocus { startAutoFocus() }
         case .bridgeVersionMismatch:
             // A stale editor.html next to a newer binary, or the reverse — a
@@ -744,8 +718,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             let focused = (body["focused"] as? Bool) == true
             onFocusChange(focused)
             // The private WKContentView exists once focused; re-apply the
-            // accessory override here in case it appeared late.
-            if shouldInstallEditorToolbar(for: focused) {
+            // accessory override here in case it appeared late. Only focus
+            // installs: blur leaves UIKit to remove the accessory when that
+            // responder resigns, so a stale blur queued by the editor that
+            // previously owned the shared WKWebView can never strip the toolbar
+            // from a newly focused editor.
+            if focused {
                 webView.futo_overrideInputAccessoryView(toolbarAccessory)
             }
         case .cursorContext:

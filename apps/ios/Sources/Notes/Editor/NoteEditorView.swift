@@ -702,7 +702,7 @@ struct NoteEditorView: View {
         let parts = splitId(id: noteId)
         return NoteItem(
             id: noteId, title: parts.title, folder: parts.folder,
-            modified: Date(), preview: "", richPreview: "", tags: [])
+            modified: Date(), richPreview: "", tags: [])
     }
 
     /// Supply the reconciler with live editor state and the synchronous effects

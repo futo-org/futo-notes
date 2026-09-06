@@ -15,8 +15,8 @@ import XCTest
 /// would pass.
 ///
 /// The note must be **reopened**, not freshly created. On a reopen the shared
-/// `EditorHost` is already `ready`, so `attach` pushes content, fires
-/// `onReady`, and reports the new attachment token synchronously inside
+/// `EditorHost` is already `ready`, so `attach` pushes content and reports the
+/// new attachment token synchronously inside
 /// `makeUIView` — which is what leaves that `@State` location mid-update when
 /// the pop tears the view down. Creating a note seconds after launch races the
 /// host's pre-warm and did NOT reproduce.
