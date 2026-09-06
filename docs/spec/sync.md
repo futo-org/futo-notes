@@ -32,9 +32,9 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   launch, which reads as "sync doesn't start when I open the app". A host that
   never runs the credential hook still gets a first cycle from a fallback timer,
   and a first cycle that cannot run yet (no vault configured, offline, user
-  already typing) hands off to the existing retry ladder. → autoSyncV2.ts
-  `startAutoSyncV2` (guarded by "runs the first cycle as soon as boot
-  credentials settle, with no timer wait" in `autoSyncV2.test.ts`)
+  already typing) hands off to the existing retry ladder. → autoSync.ts
+  `startAutoSync` (guarded by "runs the first cycle as soon as boot
+  credentials settle, with no timer wait" in `autoSync.test.ts`)
 - Once connected, the server URL is locked. The user can "Sync now" or
   "Disconnect" (desktop labels the disconnect **Reset connection** and asks
   for confirmation; a separate **Forget password** drops only the stored
@@ -95,9 +95,9 @@ uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
     reporting of its own — only transient progress text and the errors the
     manager never sees: pre-sync connect failures (bad URL/password) and a
     manual sync that never executed a cycle (offline, sync already running).
-    Executed-cycle errors are marked by autoSyncV2 (`wasSyncErrorReported`)
+    Executed-cycle errors are marked by autoSync (`wasSyncErrorReported`)
     so Settings renders exactly the rest locally instead of swallowing them. →
-    syncManager.svelte.ts (`handleSyncComplete` + trigger), autoSyncV2.ts
+    syncManager.svelte.ts (`handleSyncComplete` + trigger), autoSync.ts
     (`SyncTrigger`, `wasSyncErrorReported`), SettingsScreen.svelte
   - **"Sync complete" requires a genuinely clean cycle.** A cycle that
     resolves but carries per-item failures reports the failure state instead —
@@ -176,6 +176,7 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   `resolve_root`), `src/app/startNativeShell.ts`
 
   > **Gap:** the native shells fold this into UniFFI's generic `SyncError::Io`, so iOS/Android render it as an I/O error rather than naming the folder — a new `SyncError` variant needs regenerated Swift + Kotlin bindings and a branch in both hosts; as of 2026-09-02 the sentence survives only in the payload.
+
 - **Per-item sync failures surface — a cycle that COMPLETES is not assumed
   healthy.** When individual operations fail (an upload/create/update, a
   push-side delete, a duplicate-move loser takedown, an object-map
@@ -189,6 +190,7 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   signal for days. **The user-facing message is computed ONCE, in the Rust
   core** (`SyncSummary::failure_message`) and rendered verbatim by all three
   shells.
+
   > **Gap:** _(desktop)_ the core message is NOT rendered verbatim — the
   > desktop shell discards it. `raiseSyncError` sets the user-facing
   > `syncErrorMessage` to `syncErrorForSource(source)`, a fixed catalog string
@@ -240,6 +242,7 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   `apps/tauri/src-tauri/src/sync/frontend_contract.rs` `SyncSummary::from`,
   syncManager.svelte.ts
   (`handleSyncComplete`)
+
 - **A failed blob download never advances the cursor past the object.** The
   `max_version` persisted by a pull (including the bootstrap pull from cursor 0) is capped below the lowest failed `change_seq`, so the next cycle re-lists
   and retries the failed object — re-listing already-landed objects is
@@ -721,10 +724,10 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
     (iOS/Android), guarded by `SyncManagerLocalTreeChangeGateTest` (Android) +
     `combine_summaries_carries_local_writes_applied` (core).
 - **Local edits auto-push on Tauri desktop AND the native shells.**
-  - Desktop: a local save triggers a debounced push (`notifySavedV2` → `run_sync`),
+  - Desktop: a local save triggers a debounced push (`notifySaved` → `run_sync`),
     and the desktop live loop runs a full `run_sync` (push + pull) on each event,
     so a desktop edit propagates to peers automatically (debounce + SSE pull on the
-    peer, well under a couple seconds). → autoSyncV2.ts,
+    peer, well under a couple seconds). → autoSync.ts,
     `apps/tauri/src-tauri/src/sync/cycle_runner.rs`
   - Native (iOS/Android): every `NotesStore` mutation (write/create/delete/rename/
     move/createFolder) fires `NotesStore.onLocalChange` → `SyncManager.noteChanged()`

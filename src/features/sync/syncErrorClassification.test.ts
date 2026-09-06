@@ -20,7 +20,7 @@ describe('classifySyncError — desktop invoke() rejects with Rust reqwest strin
     ).toBe('transient');
   });
 
-  it('classifies the same string when re-wrapped in an Error (autoSyncV2 background path)', () => {
+  it('classifies the same string when re-wrapped in an Error (autoSync background path)', () => {
     expect(
       classifySyncError(
         new Error('transport error: error sending request for url (http://127.0.0.1:9/api/notes)'),

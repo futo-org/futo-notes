@@ -5,7 +5,7 @@ import { writeSuppressor } from '$lib/platform/writeSuppression';
 import { createSyncCoordinator, type SyncCoordinator } from './syncCoordinator';
 import type { FileChangeEvent } from '$lib/platform/types';
 import type { SyncSummary } from './syncServiceE2ee';
-import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2, type SyncTrigger } from './autoSyncV2';
+import { startAutoSync, stopAutoSync, notifySaved, type SyncTrigger } from './autoSync';
 import {
   createExternalChangeCoordinator,
   type OpenNoteReconcileResult,
@@ -221,7 +221,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       applyReportedRename(fromId, toId, slash === -1 ? toId : toId.slice(slash + 1));
     },
     session: deps.session,
-    notifySaved: notifySavedV2,
+    notifySaved,
     showToast: deps.showToast,
     writeSuppressor,
   });
@@ -278,7 +278,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       },
     );
     const coord = syncCoord;
-    startAutoSyncV2({
+    startAutoSync({
       onSyncComplete: (summary, trigger) => void handleSyncComplete(summary, trigger),
       onSyncError: (err, trigger) => {
         failureState.reportFailure(syncErrorDedupeKey(err), {
@@ -317,7 +317,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     }
 
     return () => {
-      stopAutoSyncV2();
+      stopAutoSync();
       for (const un of liveUnlisteners) un();
       liveUnlisteners = [];
       externalChanges.stop();
@@ -355,7 +355,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     handleEditorCompositionEnd: externalChanges.handleCompositionEnd,
     reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) =>
       externalChanges.reconcileOpenNote(id, { parkedDraft }),
-    notifySaved: notifySavedV2,
+    notifySaved,
     clearSyncError: failureState.clearError,
 
     start,

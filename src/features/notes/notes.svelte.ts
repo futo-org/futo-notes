@@ -1,14 +1,12 @@
 import type { NotePreview } from '$shared/types/note';
-import type { SearchResultItem } from '$shared/types/search';
 import {
-  getLocalNoteStore,
   getLocalNoteStoreSync,
   type LocalNoteListingSnapshot,
   type LocalNoteMetadata,
   type LocalNoteMutation,
   type LocalNoteSnapshot,
 } from '$lib/localNoteStore';
-import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from '$features/sync/autoSyncV2';
+import { pauseSync, resumeSync, waitForSyncIdle } from '$features/sync/autoSync';
 import { disconnectE2ee, stopLiveSync } from '$features/sync/syncServiceE2ee';
 import { setFolderSnapshot } from '$features/folders/emptyFolders.svelte';
 import { buildWikilinkIndex, type WikilinkIndex } from '$shared/note/wikilinks';
@@ -201,18 +199,18 @@ export function getNoteById(id: string): NotePreview | undefined {
 }
 
 export async function readNote(id: string): Promise<string> {
-  return (await getLocalNoteStore()).read(id);
+  return getLocalNoteStoreSync().read(id);
 }
 
 export async function noteExists(id: string): Promise<boolean> {
-  return (await getLocalNoteStore()).exists(id);
+  return getLocalNoteStoreSync().exists(id);
 }
 
 export async function createNote(
   id: string,
   content: string,
 ): Promise<{ id: string; mtime: number }> {
-  const store = await getLocalNoteStore();
+  const store = getLocalNoteStoreSync();
   const mutation = await store.save(null, id, content);
   _applyLocalMutation(mutation);
   const createdId = mutation.finalId ?? id;
@@ -245,7 +243,7 @@ export async function updateNote(
   content: string,
   options: UpdateNoteOptions = {},
 ): Promise<UpdateNoteResult> {
-  const store = await getLocalNoteStore();
+  const store = getLocalNoteStoreSync();
   const { originalId, base, overrideMtime } = options;
 
   if (originalId === id && base !== undefined && overrideMtime === undefined) {
@@ -292,19 +290,19 @@ export async function moveNote(
       mtime: getNoteById(fromId)?.modificationTime ?? Date.now(),
     };
   }
-  const mutation = await (await getLocalNoteStore()).move(fromId, toId);
+  const mutation = await getLocalNoteStoreSync().move(fromId, toId);
   _applyLocalMutation(mutation);
   const id = mutation.finalId ?? toId;
   return { id, mtime: mtimeFor(mutation, id) };
 }
 
 export async function deleteNote(id: string): Promise<void> {
-  const mutation = await (await getLocalNoteStore()).delete(id);
+  const mutation = await getLocalNoteStoreSync().delete(id);
   _applyLocalMutation(mutation);
 }
 
 export async function refreshNotesFromStorage(): Promise<void> {
-  const snapshot = await (await getLocalNoteStore()).snapshot();
+  const snapshot = await getLocalNoteStoreSync().snapshot();
   replaceFromSnapshot(snapshot);
 }
 
@@ -313,7 +311,7 @@ export async function refreshNotesAfterSync(
   deletedIds: string[],
   renamed: { fromId: string; toId: string }[],
 ): Promise<void> {
-  const store = await getLocalNoteStore();
+  const store = getLocalNoteStoreSync();
   try {
     _applyLocalMutation(await store.refreshExternalChanges(updatedIds, deletedIds, renamed));
   } catch (error) {
@@ -339,24 +337,22 @@ export async function handleExternalFileChange(filename: string): Promise<NotePr
 }
 
 export async function deleteAllNotes(): Promise<void> {
-  pauseSyncV2();
+  pauseSync();
   try {
     await stopLiveSync();
-    await waitForSyncIdleV2();
+    await waitForSyncIdle();
     await disconnectE2ee();
-    await (await getLocalNoteStore()).reset();
+    await getLocalNoteStoreSync().reset();
     notesCache = [];
     setFolderSnapshot([], []);
     searchReady = Promise.resolve();
   } finally {
-    resumeSyncV2();
+    resumeSync();
   }
 }
 
-export async function search(query: string): Promise<SearchResultItem[]> {
-  if (!query.trim()) {
-    return getAllNotes().map((note) => ({ note }));
-  }
+export async function search(query: string): Promise<NotePreview[]> {
+  if (!query.trim()) return getAllNotes();
   // Never let a rejected readiness promise throw out of search — degrade to the
   // store query, which returns empty gracefully when the index isn't ready (A4).
   if (searchReady) await searchReady.catch(() => {});
@@ -364,7 +360,6 @@ export async function search(query: string): Promise<SearchResultItem[]> {
   const byId = new Map(notesCache.map((note) => [note.id, note]));
   return hits.flatMap((hit) => {
     const note = byId.get(hit.noteId);
-    if (!note) return [];
-    return [{ note }];
+    return note ? [note] : [];
   });
 }

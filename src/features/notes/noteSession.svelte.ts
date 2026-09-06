@@ -1,7 +1,7 @@
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename } from '$lib/rules';
 import type { NotePreview } from '$shared/types/note';
-import { notifySavedV2 } from '$features/sync/autoSyncV2';
+import { notifySaved } from '$features/sync/autoSync';
 import { createNoteSaveQueue } from './noteSaveQueue';
 import { createNoteTitleController } from './createNoteTitleController.svelte';
 import { createNotePersistence } from './createNotePersistence';
@@ -182,7 +182,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   const saveQueue = createNoteSaveQueue({
     save: () => serializePersistence(saveNote),
     hasUnseenChanges: hasUnseenEditorChanges,
-    notifySaved: notifySavedV2,
+    notifySaved,
   });
   const noteLoader = createNoteLoader({
     flushSave: saveQueue.flush,

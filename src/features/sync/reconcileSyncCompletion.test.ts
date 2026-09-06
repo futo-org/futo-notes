@@ -12,7 +12,7 @@ vi.mock('$features/notes/notes.svelte', () => ({
   refreshNotesAfterSync: noteMocks.refreshNotesAfterSync,
 }));
 vi.mock('$lib/localNoteStore', () => ({
-  getLocalNoteStore: async () => ({ rescan: vi.fn() }),
+  getLocalNoteStoreSync: () => ({ rescan: vi.fn() }),
 }));
 vi.mock('$shared/state/appState', () => ({
   updateAppState: async () => undefined,

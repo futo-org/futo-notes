@@ -71,7 +71,7 @@ let cachedPassword: string | null = null;
 // loaded by `initSyncPassword` below — until it finishes, a fully configured
 // vault still reports "not configured". Auto-sync waits on this rather than on
 // a wall-clock guess, so the first cycle runs the moment it can instead of at a
-// time chosen to be safely after it. → autoSyncV2.startAutoSyncV2
+// time chosen to be safely after it. → autoSync.startAutoSync
 let markSyncCredentialsSettled: () => void = () => {};
 const syncCredentialsSettled = new Promise<void>((resolve) => {
   markSyncCredentialsSettled = resolve;

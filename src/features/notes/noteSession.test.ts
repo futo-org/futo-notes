@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/platform', () => ({
   hasFileSystem: true,
 }));
-vi.mock('$features/sync/autoSyncV2', () => ({ notifySavedV2: vi.fn() }));
+vi.mock('$features/sync/autoSync', () => ({ notifySaved: vi.fn() }));
 vi.mock('$features/sync/syncServiceE2ee', () => ({
   classifyOpenNote: vi.fn(async () => ({ kind: 'close' })),
 }));
@@ -386,9 +386,9 @@ describe('external unlink during an in-flight save', () => {
     } satisfies NoteSessionDeps;
     const session = createNoteSession(deps);
     const { updateNote } = await import('./notes.svelte');
-    const { notifySavedV2 } = await import('$features/sync/autoSyncV2');
+    const { notifySaved } = await import('$features/sync/autoSync');
     vi.mocked(updateNote).mockImplementationOnce(() => saveResult);
-    vi.mocked(notifySavedV2).mockClear();
+    vi.mocked(notifySaved).mockClear();
     session.seedOpenNote('active', 'base');
 
     editorContent = 'draft';
@@ -418,7 +418,7 @@ describe('external unlink during an in-flight save', () => {
     expect(session.title).toBe('active');
     expect(session.content).toBe('draft');
     expect(deps.onNoteRenamed).toHaveBeenCalledExactlyOnceWith('active', 'Renamed');
-    expect(notifySavedV2).toHaveBeenCalledOnce();
+    expect(notifySaved).toHaveBeenCalledOnce();
     expect(updateNote).toHaveBeenCalledOnce();
     expect(session.savePending).toBe(false);
     externalChanges.stop();
