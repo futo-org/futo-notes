@@ -454,9 +454,8 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   cross-platform scenario (full client stack + real server: image binary
   arrives byte-for-byte AND a re-sync does not re-upload it). If you
   re-introduce a `.md`-only scan/filter or a text-only read/write on the blob
-  path, that scenario fails. → futo-notes-sync sync module,
-  futo-notes-core `files::{read_blob_as_base64,write_base64_as_blob}`;
-  tests/cross-platform-sync.mjs `imageSyncRoundtrip`
+  path, that scenario fails. → futo-notes-sync `sync::vault` (base64 read/write
+  over the vault descriptor); tests/cross-platform-sync.mjs `imageSyncRoundtrip`
 - **The image set has ONE definition (canonical 10: png/jpg/jpeg/gif/webp/svg/
   bmp/ico/avif/heic).** Sync classifies blob-vs-note with
   `futo_notes_core::image::{is_image_filename,is_syncable_filename}` — the same

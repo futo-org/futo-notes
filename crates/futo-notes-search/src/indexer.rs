@@ -417,7 +417,7 @@ fn cleanup_legacy(notes_root: &Path) {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct ScopedTempDir(PathBuf);
     impl ScopedTempDir {
@@ -594,37 +594,5 @@ mod tests {
             !ids.contains(&"old".to_string()),
             "upsert for a vanished file left the stale document in the index: {ids:?}"
         );
-    }
-
-    #[test]
-    #[ignore]
-    fn measure_warm_reconcile_5k() {
-        let vault = ScopedTempDir::new("measure-vault");
-        let index = ScopedTempDir::new("measure-index");
-        let n = 5000usize;
-        for i in 0..n {
-            let body = if i % 1000 == 0 {
-                "lorem ipsum dolor ".repeat(120_000)
-            } else if i % 50 == 0 {
-                "medium note body ".repeat(2_000)
-            } else {
-                format!("note {i} body with #tag{i} and a few searchable words")
-            };
-            std::fs::write(vault.path().join(format!("note-{i}.md")), body).unwrap();
-        }
-
-        let t0 = Instant::now();
-        let cold = run_reconcile(vault.path(), index.path());
-        let cold_ms = t0.elapsed().as_millis();
-
-        let t1 = Instant::now();
-        let warm = run_reconcile(vault.path(), index.path());
-        let warm_ms = t1.elapsed().as_millis();
-
-        println!(
-            "[measure] 5k vault: cold reindexed={cold} in {cold_ms}ms; warm reindexed={warm} in {warm_ms}ms"
-        );
-        assert_eq!(cold, n as u32);
-        assert_eq!(warm, 0, "warm launch must skip everything");
     }
 }

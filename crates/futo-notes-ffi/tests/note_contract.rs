@@ -2,9 +2,9 @@ use std::fs;
 
 use futo_notes_ffi::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
-    sanitize_title, split_id, validate_title, ConditionalWrite, CreateOutcome, FlushDisposition,
-    FlushDraftResult, FlushOutcome, NoteBootstrap, NoteError, NoteIdParts, NoteMetadata,
-    NoteMutation, NoteSnapshot, NoteStore, RenamePair, SearchHit, TitleIssue,
+    sanitize_title, split_id, validate_title, FlushDisposition, FlushDraftResult, NoteBootstrap,
+    NoteError, NoteIdParts, NoteMetadata, NoteMutation, NoteSnapshot, NoteStore, RenamePair,
+    SearchHit, TitleIssue,
 };
 
 mod support;
@@ -484,13 +484,6 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
         (1, 2, vec!["warning".to_owned()])
     );
 
-    let ConditionalWrite { outcome, mutation } = ConditionalWrite {
-        outcome: FlushOutcome::SkippedMissing,
-        mutation: None,
-    };
-    assert_eq!(outcome, FlushOutcome::SkippedMissing);
-    assert!(mutation.is_none());
-
     let FlushDraftResult {
         disposition,
         mutation,
@@ -507,9 +500,6 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
         }
     );
     assert!(mutation.is_none());
-    assert_eq!(FlushDisposition::Wrote, FlushDisposition::Wrote);
-    assert_eq!(FlushDisposition::Converged, FlushDisposition::Converged);
-    assert_eq!(FlushDisposition::Recreated, FlushDisposition::Recreated);
 
     let TitleIssue { kind, message } = TitleIssue {
         kind: "empty".to_owned(),
@@ -533,8 +523,4 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
 
     assert!(matches!(NoteError::Io("io".to_owned()), NoteError::Io(_)));
     assert_eq!(NoteError::Io("io".to_owned()).to_string(), "io");
-    assert_eq!(CreateOutcome::Created, CreateOutcome::Created);
-    assert_eq!(CreateOutcome::Existed, CreateOutcome::Existed);
-    assert_eq!(FlushOutcome::Wrote, FlushOutcome::Wrote);
-    assert_eq!(FlushOutcome::SkippedChanged, FlushOutcome::SkippedChanged);
 }

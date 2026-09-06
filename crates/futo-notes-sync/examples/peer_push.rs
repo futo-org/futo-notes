@@ -4,8 +4,8 @@
 //! app uses, writes one note into a throwaway vault, and pushes it. Because the
 //! dev login is a fixed identity (`local@futo-notes.local`), the note lands in
 //! the same collection/vault any other client is watching — so it's a valid
-//! "peer change" for verifying SSE auto-pull, both in `tests/sse_live.rs` and
-//! in manual on-device QA.
+//! "peer change" for verifying SSE auto-pull in manual on-device QA.
+//! (`tests/sse_live.rs` drives the same flow through its own in-process helper.)
 //!
 //! Usage:
 //!   cargo run -p futo-notes-sync --example peer_push -- \

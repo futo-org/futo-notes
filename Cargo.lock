@@ -1748,7 +1748,6 @@ name = "futo-notes-core"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
- "base64 0.22.1",
  "diffy",
  "filetime",
  "hex",
@@ -1820,7 +1819,6 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "futo-notes-core",
- "futures-util",
  "reqwest 0.12.28",
  "rustix",
  "serde",

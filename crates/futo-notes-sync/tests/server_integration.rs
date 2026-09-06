@@ -12,7 +12,7 @@ mod common;
 use std::path::Path;
 use std::path::PathBuf;
 
-use futo_notes_sync::state::ConnectedState;
+use futo_notes_sync::ConnectedState;
 use futo_notes_sync::SyncProgress;
 
 /// No-op sync hooks (no progress UI, no watcher to suppress in the test).
@@ -1265,7 +1265,7 @@ async fn reconnect_after_remote_drift_fast_forwards_instead_of_parking() {
     let (_c, _a) = futo_notes_sync::run_push(&a, &va, &no_progress, &no_pre_write)
         .await
         .expect("A push v1");
-    futo_notes_sync::state::demote_state_to_ancestry(&va).expect("disconnect A");
+    futo_notes_sync::demote_state_to_ancestry(&va).expect("disconnect A");
 
     // B edits the note to v2 while A is disconnected.
     let (b, vb) = fresh_client(&server).await;
@@ -1327,7 +1327,7 @@ async fn reconnect_after_local_edit_updates_same_object_instead_of_parking() {
         .expect("mapped after push")
         .object_id
         .clone();
-    futo_notes_sync::state::demote_state_to_ancestry(&va).expect("disconnect A");
+    futo_notes_sync::demote_state_to_ancestry(&va).expect("disconnect A");
     std::fs::write(va.join(&file), "v2 edited offline on A\n").unwrap();
 
     // A reconnects and syncs: the local edit must survive and reach the
@@ -1395,7 +1395,7 @@ async fn reconnect_after_remote_rename_deletes_stale_old_path_no_duplicate() {
         .expect("mapped after push")
         .object_id
         .clone();
-    futo_notes_sync::state::demote_state_to_ancestry(&va).expect("disconnect A");
+    futo_notes_sync::demote_state_to_ancestry(&va).expect("disconnect A");
 
     // B renames the same object while A is disconnected.
     let (b, vb) = fresh_client(&server).await;
