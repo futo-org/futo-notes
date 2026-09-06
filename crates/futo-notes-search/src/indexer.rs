@@ -251,9 +251,9 @@ fn reconcile_bm25(
     use std::collections::HashSet;
     let files = walk_md_files(notes_root);
     let total = files.len() as u32;
-    let on_disk: HashSet<String> = files
+    let on_disk: HashSet<&str> = files
         .iter()
-        .map(|(rel, _, _)| rel_to_note_id(rel))
+        .map(|(note_id, _, _)| note_id.as_str())
         .collect();
     let mut deleted: u32 = 0;
     let mut reindexed: u32 = 0;
@@ -270,15 +270,14 @@ fn reconcile_bm25(
             }
         };
         for (note_id, _) in indexed_mtimes.iter() {
-            if !on_disk.contains(note_id) {
+            if !on_disk.contains(note_id.as_str()) {
                 idx.delete_note(note_id);
                 deleted += 1;
             }
         }
-        for (rel, abs, mtime_ms) in &files {
-            let note_id = rel_to_note_id(rel);
+        for (note_id, abs, mtime_ms) in &files {
             if *mtime_ms > 0 {
-                if let Some(&stored) = indexed_mtimes.get(&note_id) {
+                if let Some(&stored) = indexed_mtimes.get(note_id) {
                     if stored >= *mtime_ms {
                         continue;
                     }
@@ -287,10 +286,10 @@ fn reconcile_bm25(
             let Ok(body) = fs::read_to_string(abs) else {
                 continue;
             };
-            let title = note_title(&note_id);
-            let folder = folder_of(&note_id);
+            let title = note_title(note_id);
+            let folder = folder_of(note_id);
             let tags = extract_tags_inline(&body);
-            idx.upsert_note_bm25(&note_id, &title, &body, &tags, &folder, *mtime_ms);
+            idx.upsert_note_bm25(note_id, &title, &body, &tags, &folder, *mtime_ms);
             reindexed += 1;
         }
         if let Err(e) = idx.commit_bm25() {
@@ -316,6 +315,8 @@ fn emit_keyword_ready(ctx: &Ctx, status: &Arc<Mutex<SearchStatus>>) {
     ctx.emit_status(&snap);
 }
 
+/// Note ID, absolute path, and mtime for each file. Normalize the ID once so
+/// reconciliation can borrow it for both deletion checks and the mtime gate.
 fn walk_md_files(notes_root: &Path) -> Vec<(String, PathBuf, i64)> {
     let mut out = Vec::new();
     for entry in WalkDir::new(notes_root)
@@ -343,9 +344,9 @@ fn walk_md_files(notes_root: &Path) -> Vec<(String, PathBuf, i64)> {
         let Ok(rel) = abs.strip_prefix(notes_root) else {
             continue;
         };
-        let rel_s = rel.to_string_lossy().replace('\\', "/");
+        let note_id = rel_to_note_id(&rel.to_string_lossy());
         let mtime_ms = mtime_ms_of(&abs).unwrap_or(0);
-        out.push((rel_s, abs, mtime_ms));
+        out.push((note_id, abs, mtime_ms));
     }
     out
 }
@@ -474,6 +475,25 @@ mod tests {
 
         let warm = run_reconcile(vault.path(), index.path());
         assert_eq!(warm, 0, "warm launch must skip every unchanged note");
+    }
+
+    #[test]
+    fn reconcile_preserves_nested_note_ids_and_removes_only_missing_notes() {
+        let vault = ScopedTempDir::new("vault");
+        let index = ScopedTempDir::new("index");
+        let folder = vault.path().join("Trips/旅行");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("日記.md"), "travel journal").unwrap();
+        std::fs::write(folder.join("Plans.txt"), "travel plans").unwrap();
+        assert_eq!(run_reconcile(vault.path(), index.path()), 2);
+        assert_eq!(run_reconcile(vault.path(), index.path()), 0);
+
+        std::fs::rename(folder.join("Plans.txt"), folder.join("Next.txt")).unwrap();
+        assert_eq!(run_reconcile(vault.path(), index.path()), 1);
+        let idx = TantivyIndices::open(index.path()).unwrap();
+        let mut ids = idx.list_bm25_note_ids().unwrap();
+        ids.sort();
+        assert_eq!(ids, vec!["Trips/旅行/Next", "Trips/旅行/日記"]);
     }
 
     #[test]
