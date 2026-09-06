@@ -57,8 +57,10 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   > the user drags. Same anchoring class as the local-edit invisibility bug
   > fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem`
   > on the FAB path and a pop-time re-pin in `AppNavigator.goBack()`); the
-  > `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt
-  > `reloadAsync`, AppNavigation.kt `AppNavigator.goBack`
+  > sync live-pull path (`SyncManager` `LiveListener.onSynced` →
+  > `onLocalTreeChanged` → NotesStore.kt `applyLocalTreeChange`) has no at-top
+  > re-pin yet. → NotesStore.kt `applyLocalTreeChange`, AppNavigation.kt
+  > `AppNavigator.goBack`
 - Tapping a note opens it in the editor (no autofocus). → NoteListScreen.kt /
   AppNavigation.kt
 - The list keeps the folder it is browsing and that folder's scroll position
@@ -153,8 +155,6 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   futo-notes-store `refresh_external_changes` + `prune_empty_parents`,
   crates/futo-notes-store/src/tests.rs
   `reported_external_changes_prune_the_directories_the_pull_vacated`
-- `NotesStore.noteCount(under:)` exists on iOS but is only used for delete
-  confirmation text, never surfaced as a per-folder count. → NoteListView.swift
 - **Tauri** keeps its own model: a **tabbed folder tree** sidebar (files / tags /
   images — see [Sidebar tabs](#sidebar-tabs-tauri)) with no "All notes" row and
   no per-folder note counts. → DrawerSidebar.svelte / FolderTreeView.svelte
