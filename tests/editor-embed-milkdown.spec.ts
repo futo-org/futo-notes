@@ -1560,17 +1560,15 @@ mobileDndTest(
 // ---- the lifted ghost's own geometry -------------------------------------
 //
 // MR !276, Android: "the ghost while dragging is cut off (it's slightly above
-// the orange line)". One cause for both halves. The ghost card is a clone that
-// deliberately carries the `ProseMirror` class and is hosted INSIDE
-// `.futo-milkdown` (createGhost/ghostHost) so the editor's own content
-// typography applies to it — which is exactly the shape the offscreen-block
-// containment rule selects: `.futo-milkdown.block-containment .ProseMirror > *`
-// matched the clone and handed it `content-visibility: auto` +
-// `contain-intrinsic-size: auto 24px`. A block that had never been rendered
-// before therefore laid out at ONE unrendered line, so the card popped up
-// cropped to a fraction of the block, its bottom edge above the drop indicator
-// drawn at the real block's boundary. Chromium only — `blockContainment.ts`
-// gates the class off on Apple WebKit, which is why iOS was fine.
+// the orange line)". The ghost card is a clone that deliberately carries the
+// `ProseMirror` class and is hosted INSIDE `.futo-milkdown` (createGhost/
+// ghostHost) so the editor's own content typography applies to it — which at
+// the time also made it inherit the editor's offscreen-block containment rule
+// (`content-visibility: auto`), so a never-rendered block popped up one
+// unrendered line tall. That rule is gone (eager rendering won on the phone;
+// see the Performance spec), and these assertions stay as the guard for the
+// card's first-frame geometry: whatever the editor applies to its blocks, the
+// card shows the whole block from its first frame.
 //
 // Heights are read in layout pixels (`offsetHeight`/`clientHeight`), never from
 // `getBoundingClientRect`: the lifted card carries a 1.04 pop scale, and these
@@ -1632,9 +1630,6 @@ async function ghostGeometry(page: Page, blockText: string) {
        * `window.innerHeight` cannot. */
       maxHeight: cardStyle.maxHeight,
       expectedMaxHeight: `${Math.round(window.innerHeight * 0.4)}px`,
-      /** The live block must KEEP the containment — it is the perf property
-       * the whole rule exists for (issue #106). */
-      sourceContentVisibility: getComputedStyle(source).contentVisibility,
     };
   }, blockText);
 }
@@ -1681,15 +1676,11 @@ mobileDndTest(
     // be read against the drop indicator, which is drawn in viewport space.
     expect(geo.ghostTop).toBeCloseTo(geo.sourceTop - GHOST_PAD_Y_PX, 0);
 
-    // The pop animation's FIRST frame, not a settled one: the containment leak
+    // The pop animation's FIRST frame, not a settled one: the cropped card
     // showed up here (and, on a phone, stayed visible while the finger moved).
     const firstFrame = await ghostFirstFrame(page);
     expect(firstFrame).not.toBeNull();
     expect(firstFrame?.cloneHeight).toBeCloseTo(geo.sourceHeight, 0);
-
-    // The LIVE document keeps the containment — this must not be fixed by
-    // turning the perf rule off (issue #106).
-    expect(geo.sourceContentVisibility).toBe('auto');
 
     // The card's height cap is a real pixel count, resolved from
     // `window.innerHeight`. Written as `40vh` it resolved to `0px` in both
@@ -1881,9 +1872,8 @@ test('a large note with front matter survives the chunked path and an edit', asy
   const written = changes[changes.length - 1].content as string;
 
   // WHERE the character lands is deliberately not asserted: on a note this
-  // large the containment stylesheet makes the browser's own document-boundary
-  // motion stop inside the rendered region, so no keyboard shortcut puts the
-  // caret at a known offset. What matters is what the edit did to everything
+  // large the browser's own document-boundary motion depends on scroll and
+  // layout timing, so no keyboard shortcut puts the caret at a known offset. What matters is what the edit did to everything
   // ELSE, and that is pinned exactly.
   expect(written.startsWith('---\ntitle: Big\ntags: [a, b]\n---\n\n')).toBe(true);
   // Exactly two `---` lines in the whole note: the front matter's own fences.
@@ -2009,8 +1999,8 @@ test('progressive open keeps the blank lines the author typed across a chunk sea
   expect(empties).toHaveLength(2);
   // Directly before the heading they precede.
   expect(shapes[empties[1] + 1]).toBe('h2');
-  // textContent, not innerText: the heading is offscreen, and the containment
-  // stylesheet (content-visibility) makes innerText of an unrendered block "".
+  // textContent, not innerText: this asserts what the document holds, not
+  // what happens to be laid out.
   expect(
     await page.evaluate(() => document.querySelectorAll('.ProseMirror h2')[200]?.textContent),
   ).toBe('Section 200');
@@ -2085,15 +2075,17 @@ interface ProseMirrorDiagnosticWindow {
 }
 
 /**
- * The containment stylesheet (docs/plan/milkdown-transition.md §2/§5, issue
- * #106): `.ProseMirror > *` children carry `content-visibility: auto` with a
- * `contain-intrinsic-size` estimate, so offscreen blocks cost no layout per
- * keystroke — the perf probe measured keystroke cost at 14k lines as 82%
- * browser layout without it. This locks the rule's presence and the behavior
- * it must not break: the caret can move into a region the browser has skipped,
- * and land on real, rendered content.
+ * Every top-level block is rendered eagerly: the editor applies no
+ * `content-visibility` containment to its blocks. One ran on Chromium from
+ * #106 until 2026-09-05, when eager rendering measured better on the low-end
+ * Android reference phone on every axis — above all the FIRST focus of a large
+ * note, which the skipped blocks stalled quadratically (12 s at 1,000 blocks; a
+ * real tap froze the app). docs/plan/milkdown-transition.md §5 "Containment
+ * retired" has the table. This locks the rule's ABSENCE, and the behavior a
+ * large note must keep either way: the caret can move to the far end of the
+ * document and land on real, rendered content.
  */
-test('offscreen blocks are containment-skipped and the caret can still reach them', async ({
+test('every block renders eagerly, and the caret can reach the far end of a large note', async ({
   page,
 }) => {
   await initialize(page, hostConfig({ content: largeNote() }));
@@ -2102,28 +2094,18 @@ test('offscreen blocks are containment-skipped and the caret can still reach the
   const styles = await page.evaluate(() => {
     const blocks = document.querySelectorAll('.ProseMirror > *');
     const middle = blocks[Math.floor(blocks.length / 2)] as Element;
-    const computed = getComputedStyle(middle);
     return {
-      contentVisibility: computed.getPropertyValue('content-visibility'),
-      containIntrinsicSize: computed.getPropertyValue('contain-intrinsic-size'),
-      /* The rule is engine-gated: it only applies under this class, which
-       * `blockContainment.ts` withholds on Apple WebKit (where a scrolled-in
-       * block keeps its box and paints no text). Chromium — this project, and
-       * the Android WebView the budgets were measured on — must carry it, so
-       * assert the wiring and not just the computed value: a class renamed on
-       * one side of the pair would otherwise turn containment off everywhere
-       * and this test would still pass on the fallback.  */
-      gated: !!document.querySelector('.futo-milkdown.block-containment'),
+      blocks: blocks.length,
+      contentVisibility: getComputedStyle(middle).getPropertyValue('content-visibility'),
     };
   });
-  expect(styles.gated).toBe(true);
-  expect(styles.contentVisibility).toBe('auto');
-  expect(styles.containIntrinsicSize).toContain('auto');
+  expect(styles.blocks).toBeGreaterThan(400);
+  expect(styles.contentVisibility).toBe('visible');
 
-  // Caret into an offscreen region: place the selection at the document end
-  // the way in-app navigation does (a scrolled dispatch), then type with the
-  // real keyboard. If containment broke caret entry or scroll anchoring, the
-  // keystroke would land elsewhere or nowhere.
+  // Caret into the far end of the document: place the selection there the way
+  // in-app navigation does (a scrolled dispatch), then type with the real
+  // keyboard. If caret entry or scroll anchoring broke, the keystroke would
+  // land elsewhere or nowhere.
   await focusEditor(page);
   const scrolled = await page.evaluate(() => {
     const view = (window as unknown as ProseMirrorDiagnosticWindow).__futoProseMirrorView();
@@ -2144,9 +2126,8 @@ test('offscreen blocks are containment-skipped and the caret can still reach the
   await settleChangeDebounce(page);
   expect((await getContent(page)).trimEnd().endsWith('THE-END')).toBe(true);
 
-  /* The block the CARET landed in is genuinely rendered, not a
-   * `contain-intrinsic-size` estimate: its box sits inside the scroller's
-   * viewport at its real laid-out size.
+  /* The block the CARET landed in is genuinely rendered: its box sits inside
+   * the scroller's viewport at its real laid-out size.
    *
    * The caret's block, not the document's last child — the preset keeps a
    * trailing placeholder paragraph after the content and ProseMirror scrolls

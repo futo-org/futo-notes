@@ -278,28 +278,10 @@ function ensureStyles(): void {
       mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent 100%);
     }
     /* The block's own leading margin belongs to the document flow, not to a
-     * card that is already padded.
-     *
-     * ...and the offscreen-block containment is a property of the LIVE
-     * document, never of a preview. MilkdownEditor.svelte's perf rule selects
-     * '.futo-milkdown.block-containment .ProseMirror > *', and this card
-     * deliberately carries the 'ProseMirror' class inside '.futo-milkdown' (see
-     * the card rule above) — so the clone inherited 'content-visibility: auto'
-     * with 'contain-intrinsic-size: auto 24px' and, having never been rendered
-     * before, laid out at ONE unrendered line. That is the cut-off ghost
-     * reported on Android in MR !276: the card cropped to a fraction of the
-     * block, its bottom edge sitting above the drop indicator drawn at the real
-     * block's boundary — and, because 'createGhost' measures the card for the
-     * '--clipped' fade right after inserting it, a genuinely tall block read as
-     * 24px there too and lost its fade, so the crop was a hard edge. Chromium
-     * only, which is why iOS never showed it: 'blockContainment.ts' gates that
-     * class off on Apple WebKit. Four classes, so this wins over the perf rule
-     * regardless of source order (both stylesheets live in <head>). */
+     * card that is already padded. */
     .futo-milkdown .futo-mobile-dnd-ghost .futo-mobile-dnd-ghost-card.ProseMirror > * {
       margin-top: 0;
       margin-bottom: 0;
-      content-visibility: visible;
-      contain-intrinsic-size: none;
     }
     /* The source dim is a decoration on the live block; a clone taken while it
      * is applied would be a 35%-opacity ghost. Belt and braces on top of

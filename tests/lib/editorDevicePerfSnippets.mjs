@@ -80,6 +80,27 @@ export function loadExpression(markdown) {
 }
 
 /**
+ * The FIRST focus of the opened document, timed to the third frame after it:
+ * the tap that starts typing, which is the one moment a note is guaranteed to
+ * be asked for by the user and which a `content-visibility` containment rule
+ * used to stall for seconds (docs/spec/editor.md, Performance). Blurred again
+ * afterwards, so the keystroke loop keeps the gate's unfocused unit — the same
+ * one the desktop gauntlet times.
+ */
+export function firstFocusSnippet() {
+  return `
+    const focusView = window.__futoProseMirrorView?.();
+    if (!focusView) throw new Error('no ProseMirror view');
+    const focusStart = performance.now();
+    focusView.focus();
+    for (let i = 0; i < 3; i += 1) await new Promise((r) => requestAnimationFrame(() => r()));
+    const firstFocusMs = performance.now() - focusStart;
+    if (!focusView.hasFocus()) throw new Error('editor did not take focus');
+    focusView.dom.blur();
+    await new Promise((r) => requestAnimationFrame(() => r()));`;
+}
+
+/**
  * The keystroke loop alone, against whatever document is loaded. Split out so a
  * CPU profile can bracket exactly the typing and nothing else.
  */
@@ -108,10 +129,12 @@ export function keystrokeExpression(samples, options) {
 export function measureExpression(markdown, samples, options) {
   return `(async () => {${openSnippet(markdown)}
     const duration = (name) => performance.getEntriesByName(name)[0]?.duration ?? null;
+    ${firstFocusSnippet()}
     ${keystrokeSnippet(samples, options)}
     return {
       interactiveMs: duration('futo:editor-open-interactive'),
       completeMs: duration('futo:editor-open-complete'),
+      firstFocusMs,
       synchronousSamplesMs,
       settledToPaintSamplesMs,
     };

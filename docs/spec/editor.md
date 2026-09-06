@@ -348,15 +348,15 @@ about.
   the block it was lifted from (padded by the card's own breathing room, so it
   reads against the drop-indicator line, which is drawn in viewport space), and
   is capped at 40% of the screen height — only a block that genuinely exceeds
-  the cap is cropped, and that crop fades out rather than cutting off. Two
-  things the card must never inherit, each of which cropped it on Android and
-  not on iOS: the offscreen-block containment below (a property of the LIVE
-  document — a preview whose rendering was skipped popped up one unrendered
-  line tall), and a `vh` height cap (both native hosts' web view resolves
-  viewport units against a zero-height containing block, so `40vh` came out as
-  `0px` and the card collapsed to its own padding). The cap is therefore
-  computed in pixels from `window.innerHeight`. Verified on the pool emulator
-  2026-09-03 (Android 16, Chromium 133 WebView). →
+  the cap is cropped, and that crop fades out rather than cutting off. The
+  card must never carry a `vh` height cap: both native hosts' web view
+  resolves viewport units against a zero-height containing block, so `40vh`
+  came out as `0px` and the card collapsed to its own padding. The cap is
+  therefore computed in pixels from `window.innerHeight`. Verified on the pool
+  emulator 2026-09-03 (Android 16, Chromium 133 WebView). (Until 2026-09-05 the
+  card also had to shed the editor's offscreen-block containment rule, which
+  cropped it to one unrendered line on Android; that rule is gone — see
+  Performance.) →
   src/features/editor/milkdown/mobileBlockDnd.ts `createGhost`
   `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
   _(native shells)_
@@ -536,10 +536,8 @@ about.
   > **Gap:** a nested TASK list is not bounded. Each level also pays the 28px
   > checkbox slot, and that slot is a minimum tap target, so unlike indentation
   > it cannot taper: the content column still runs out, at level 8 rather than
-  > the level 6 it collapsed at before the cap (measured, 402px). Overflowing
-  > instead is not available — Chromium's containment rule puts `contain: paint`
-  > on the top-level block, which CLIPS horizontal overflow rather than making
-  > it scrollable. Closing this is a checkbox-layout decision (deep levels
+  > the level 6 it collapsed at before the cap (measured, 402px). Closing
+  > this is a checkbox-layout decision (deep levels
   > sharing one checkbox column, or a slot that overlaps the text) rather than
   > an indentation one.
 
@@ -1380,16 +1378,24 @@ EditorWebView.swift, EditorWebView.kt
   `role="status"` bar reads "Loading the rest of this note…" while it runs, and
   the streamed appends are not undoable. → MilkdownEditor.svelte `getContent`,
   milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
-- Off-screen top-level blocks skip rendering work
-  (`content-visibility: auto` with `contain-intrinsic-size: auto 24px`, which
-  keeps the scrollbar stable and remembers each block's real size once it has
-  been rendered), so keystroke cost stops scaling with document length. The
-  rule is ENGINE-GATED off Apple's WebKit, which keeps a scrolled-in block's box
-  but paints none of its text — on iOS it left holes in the middle of a note
-  until a later scroll filled them in. Chromium (Android's WebView and every
-  desktop/web surface) gets it. → milkdown/blockContainment.ts,
-  MilkdownEditor.svelte `.block-containment`,
+- Every top-level block is rendered eagerly; the editor applies no
+  `content-visibility` containment. A Chromium-only containment rule ran from
+  #106 until 2026-09-05 and was retired after measuring it against eager
+  rendering on the low-end Android reference phone: with off-screen blocks
+  skipped, the FIRST focus of a note stalled quadratically (3 s at 500 blocks,
+  12 s at 1,000, 48 s at 2,000 — a real tap into a 4,000-line note froze the
+  app), focused typing was no faster, and open time was the same. Eager first
+  focus is 176 / 202 / 379 / 810 ms at 500 / 1,000 / 2,000 / 5,000 blocks. The
+  rule also painted holes on Apple WebKit, so all three engines now render
+  alike. → MilkdownEditor.svelte (the comment where the rule was),
+  docs/plan/milkdown-transition.md §5 "Containment retired",
   tests/editor-embed-milkdown.spec.ts
+- The FIRST focus of an opened note — the tap that starts typing — is budgeted
+  at **under 1 s at real-note sizes** on the reference phone and measured for
+  every fixture, blurred again before the keystroke loop so the keystroke unit
+  stays the desktop gauntlet's. → tests/lib/editorDevicePerf.mjs
+  `DEVICE_BUDGET.firstFocusMs`, tests/lib/editorDevicePerfSnippets.mjs,
+  tests/android-editor-perf.mjs
 - Decoration repaints are bounded to the textblocks a transaction changed, never
   the document: tag decorations and fenced-code highlighting both re-derive only
   the blocks that moved. A fence over 20,000 characters is left uncoloured

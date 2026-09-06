@@ -14,6 +14,10 @@
  *   reference fixture. Complete, not interactive: progressive open makes
  *   interactive roughly constant regardless of size, so it can prove nothing
  *   about scaling.
+ * - `hard` fixtures also budget the FIRST focus after the open — the tap that
+ *   starts typing — at the same 1s. A `content-visibility` containment rule
+ *   once stalled it quadratically in the block count (12s at 1,000 blocks, see
+ *   docs/spec/editor.md, Performance); this is the regression guard.
  * - `measured` fixtures are reported but their open time gates nothing — used
  *   for a fixture that exists to be the `linear` comparison's reference, or
  *   whose open time is not a claim about the product. Their keystroke budget
@@ -28,6 +32,8 @@
 export const DEVICE_BUDGET = {
   /** Time-to-interactive-first-viewport, plan §5 / D7. */
   interactiveMs: 1_000,
+  /** The first focus after an open, to the third frame after it. */
+  firstFocusMs: 1_000,
   keystrokeP95Ms: 16,
   /**
    * How much worse a linear fixture's per-line complete cost may be than its
@@ -164,6 +170,15 @@ export function evaluateDeviceFloor(fixtures, results) {
           detail:
             `time-to-interactive-first-viewport ${Math.round(result.interactiveMs)}ms ` +
             `is not under the ${DEVICE_BUDGET.interactiveMs}ms budget`,
+        });
+      }
+      if (result.firstFocusMs >= DEVICE_BUDGET.firstFocusMs) {
+        violations.push({
+          fixture: fixture.name,
+          kind: 'focus-budget',
+          detail:
+            `first focus ${Math.round(result.firstFocusMs)}ms ` +
+            `is not under the ${DEVICE_BUDGET.firstFocusMs}ms budget`,
         });
       }
       continue;

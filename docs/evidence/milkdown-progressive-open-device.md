@@ -1,5 +1,10 @@
 # Is progressive open load-bearing on the reference phone?
 
+> **Note (2026-09-05):** the `content-visibility` containment rule this compares against was
+> retired (docs/plan/milkdown-transition.md §5 "Containment retired"); every block now renders
+> eagerly, and the containment probe is gone from the gate. The conclusion stands — progressive
+> open is still what makes the first viewport interactive under 1 s.
+
 **Yes.** Disabling it and relying on the `content-visibility` containment rule
 alone misses the 1s time-to-interactive-first-viewport budget at every
 real-note-shaped size measured. Keep `markdownChunks.ts`, `progressiveLoad.ts`

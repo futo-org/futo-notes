@@ -35,18 +35,6 @@ export const isIOS =
   typeof navigator !== 'undefined' &&
   (/iPhone|iPad|iPod/i.test(navigator.userAgent) ||
     (/Mac/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
-// True in Apple's WebKit — iOS/iPadOS (every engine there is WebKit, Chrome
-// included) and Safari or a WKWebView on macOS. Chromium's UA also carries
-// "AppleWebKit", so the Blink family has to be excluded by name: Android's
-// WebView reports both "Chrome" and "Android", desktop Chrome/Edge report
-// "Chrome", and Chrome on iOS reports "CriOS" (genuinely WebKit, correctly
-// kept). Used to gate rendering work that WebKit gets wrong — see
-// `src/features/editor/milkdown/blockContainment.ts`.
-export const isAppleWebKit =
-  typeof navigator !== 'undefined' &&
-  /AppleWebKit/i.test(navigator.userAgent) &&
-  !/Chrome|Chromium|Android/i.test(navigator.userAgent);
-
 // "Apple platform" — true on macOS desktop and on iOS hardware keyboards.
 // Used to route ⌘ vs Ctrl in keyboard shortcuts. For desktop-only checks
 // (titlebar styling, traffic-light insets) gate on `isDesktop && isMac`.

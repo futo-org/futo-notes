@@ -27,6 +27,7 @@ const result = (name, lines, overrides = {}) => ({
   lines,
   interactiveMs: 200,
   completeMs: lines / 10,
+  firstFocusMs: 300,
   keystrokeSynchronousP95Ms: 8,
   ...overrides,
 });
@@ -50,6 +51,15 @@ describe('evaluateDeviceFloor', () => {
     const violations = evaluateDeviceFloor(fixtures, results);
     expect(violations).toHaveLength(1);
     expect(violations[0]).toMatchObject({ fixture: '10000-lines', kind: 'interactive-budget' });
+    expect(violations[0].detail).toContain('1000ms');
+  });
+
+  it('flags a hard fixture whose first focus is not under the budget', () => {
+    const results = cleanRun();
+    results[0] = result('1000-lines', 1_000, { firstFocusMs: DEVICE_BUDGET.firstFocusMs });
+    const violations = evaluateDeviceFloor(fixtures, results);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({ fixture: '1000-lines', kind: 'focus-budget' });
     expect(violations[0].detail).toContain('1000ms');
   });
 
@@ -99,7 +109,7 @@ describe('evaluateDeviceFloor', () => {
    * amount of editor work could put it under 1s.
    */
   describe('fixture shapes', () => {
-    it('gives the containment stylesheet real top-level blocks to skip', () => {
+    it('separates blocks with blank lines, so the interactive budget measures a chunkable note', () => {
       // Blank-line separated blocks, one per content line: the fixture the
       // interactive budget is measured on.
       expect(blockFixture(1_000).split('\n\n').length).toBeGreaterThan(400);

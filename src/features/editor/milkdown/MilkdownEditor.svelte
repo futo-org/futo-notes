@@ -66,7 +66,6 @@
   import { dropCarriesFiles, imageFilesIn, resolveImageInserter } from '../imageInsert';
   import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
   import type { EditorLinkGesture } from '../editorLinkGesture';
-  import { resolveBlockContainment } from './blockContainment';
   import { resolveBlockDragMode } from './blockDragMode';
   import { blockDropIndicator } from './blockDropIndicator';
   import { retargetListDragToItem } from './listItemHandleDrag';
@@ -166,9 +165,6 @@
    * Same one-shot read as useMobileBlockDnd above: the plugin set is fixed when
    * the engine is built. */
   const useSlashMenu = $derived(resolveSlashMenu(nativeShell) === 'enabled');
-  /* Apple WebKit paints holes where a contained block should be — see
-   * blockContainment.ts. The class, not the rule, is what varies. */
-  const skipOffscreenBlocks = resolveBlockContainment() === 'offscreen-skipped';
 
   /** What the keyboard is told inside code, where its help is corruption.
    * Deliberately the inverse of the editable root's set (see the
@@ -1405,7 +1401,6 @@
 <div
   class="futo-milkdown"
   class:mobile-dnd={useMobileBlockDnd}
-  class:block-containment={skipOffscreenBlocks}
   style="--futo-checkbox-slot: {CHECKBOX_SIZE_PX}px"
   bind:this={container}
   oncompositionend={() => oncompositionend?.()}
@@ -1571,29 +1566,18 @@
     margin-top: 0.75em;
   }
 
-  /* The containment stylesheet (docs/plan/milkdown-transition.md §2/§5, issue
-   * #106). Offscreen top-level blocks skip rendering work, so keystroke cost
-   * stops scaling with document length: the 2026-08-27 perf probe measured
-   * keystroke cost at 14k lines as 82% browser layout over the eager whole-doc
-   * DOM without this rule, and under the 16ms p95 budget with it — which is
-   * what lets the low-end Android reference phone hold the budget at real note
-   * sizes (tests/android-editor-perf.mjs). `contain-intrinsic-size: auto 24px`
-   * keeps the scrollbar stable: 24px approximates one unrendered line, and
-   * `auto` remembers each block's real size once it has been rendered, so
-   * scrolling back over visited content never jumps. Verified inside the real
-   * editor chrome on all three shells (caret into skipped regions, scroll,
-   * nested scroll containers) — the embed spec's containment test locks the
-   * rule and the caret behavior.
-   *
-   * ENGINE-GATED by `.block-containment` (blockContainment.ts): Apple's WebKit
-   * keeps a scrolled-in block's box but paints none of its text, so on iOS this
-   * rule left holes in the middle of a note until some later scroll filled them
-   * in. Chromium — Android's WebView, where the budgets above were measured,
-   * and every desktop/web surface — still gets it. */
-  :global(.futo-milkdown.block-containment .ProseMirror > *) {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 24px;
-  }
+  /* Every top-level block is rendered eagerly — there is deliberately no
+   * `content-visibility` containment rule here. One ran on Chromium from #106
+   * until 2026-09-05, when it was measured against eager rendering on the
+   * low-end Android reference phone and lost on every axis: with off-screen
+   * blocks skipped, the FIRST focus of a note stalled Chromium's editable-focus
+   * work quadratically (3 s at 500 blocks, 12 s at 1,000, 48 s at 2,000 — a
+   * real tap into a 4,000-line note froze the app), focused typing was no
+   * faster with it, and open time was the same. Eager: first focus 176 / 202 /
+   * 379 / 810 ms at 500 / 1,000 / 2,000 / 5,000 blocks. The rule also painted
+   * holes on Apple WebKit, so removing it made the three engines behave alike.
+   * → docs/plan/milkdown-transition.md §5 "Containment retired",
+   *   tests/android-editor-perf.mjs (the first-focus budget) */
 
   :global(.futo-milkdown .ProseMirror h1),
   :global(.futo-milkdown .ProseMirror h2),
@@ -1721,11 +1705,9 @@
    * checkbox slot per level (`li[data-checked]` below), and that slot is a
    * minimum tap target, so unlike indentation it cannot taper. Capping the
    * list indent moves the depth at which a nested task list runs out of column
-   * from 6 to 8; past that it still collapses. Overflowing instead is not a way
-   * out either — a top-level block carries `contain: paint` from the
-   * containment rule above in Chromium, which clips the overflow rather than
-   * making it scrollable. Recorded as a Gap in docs/spec/editor.md; closing it
-   * is a checkbox-layout decision, not an indentation one. */
+   * from 6 to 8; past that it still collapses. Recorded as a Gap in
+   * docs/spec/editor.md; closing it is a checkbox-layout decision, not an
+   * indentation one. */
   :global(.futo-milkdown .ProseMirror :is(ul, ol) :is(ul, ol) :is(ul, ol) :is(ul, ol) :is(ul, ol)) {
     padding-left: 0.7em;
   }

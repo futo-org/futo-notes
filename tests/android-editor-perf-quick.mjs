@@ -249,14 +249,18 @@ try {
     const syncP95 = percentile95(measured.synchronousSamplesMs);
     const settledP95 = percentile95(measured.settledToPaintSamplesMs);
     const openVerdict = measured.interactiveMs < DEVICE_BUDGET.interactiveMs ? 'ok' : 'OVER';
+    const focusVerdict = measured.firstFocusMs < DEVICE_BUDGET.firstFocusMs ? 'ok' : 'OVER';
     const keyVerdict = syncP95 < DEVICE_BUDGET.keystrokeP95Ms ? 'ok' : 'OVER';
     if (!Number.isFinite(measured.interactiveMs) || !Number.isFinite(measured.completeMs)) {
       throw new Error(`${name}: missing open measurements`);
     }
-    if (openVerdict === 'OVER' || keyVerdict === 'OVER') process.exitCode = 1;
+    if (openVerdict === 'OVER' || focusVerdict === 'OVER' || keyVerdict === 'OVER') {
+      process.exitCode = 1;
+    }
     console.log(
       `interactive ${Math.round(measured.interactiveMs)}ms [${openVerdict} /${DEVICE_BUDGET.interactiveMs}], ` +
         `complete ${Math.round(measured.completeMs)}ms, ` +
+        `first focus ${Math.round(measured.firstFocusMs)}ms [${focusVerdict} /${DEVICE_BUDGET.firstFocusMs}], ` +
         `keystroke p95 ${syncP95.toFixed(1)}ms [${keyVerdict} /${DEVICE_BUDGET.keystrokeP95Ms}] ` +
         `(settled ${settledP95.toFixed(1)}ms, median ${median(measured.synchronousSamplesMs).toFixed(1)}ms)`,
     );

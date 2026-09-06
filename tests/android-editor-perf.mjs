@@ -11,9 +11,10 @@
  *   records — the same entry Playwright and DevTools read on desktop),
  * - synchronous keystroke p95 under 16ms at EVERY size (AGENTS.md M5),
  * - "scales linearly, no cliff" above real-note sizes (50k lines vs 10k),
- * - the content-visibility containment stylesheet working inside the real
- *   editor chrome: computed style active, caret reachable into offscreen
- *   (rendering-skipped) regions, scroll behavior intact.
+ * - the FIRST focus after an open — the tap that starts typing — answering
+ *   under the same 1s budget at real-note sizes. A `content-visibility`
+ *   containment rule used to stall it for seconds (docs/spec/editor.md,
+ *   Performance); this is what keeps that from coming back.
  *
  * The budgets and policies live in tests/lib/editorDevicePerf.mjs (unit
  * tested); this file is the device glue. Measurements run INSIDE the app's
@@ -47,14 +48,14 @@ import {
   lineFixture,
   percentile95,
 } from './lib/editorDevicePerf.mjs';
-import { connectPage, loadExpression, measureExpression } from './lib/editorDevicePerfSnippets.mjs';
+import { connectPage, measureExpression } from './lib/editorDevicePerfSnippets.mjs';
 
 /**
  * Flags, parsed once and strictly: an unrecognised argument fails the run
  * rather than being ignored, so `--stres` cannot look like a 50k run that
  * quietly measured 25k instead.
  */
-const FLAGS = new Set(['--stress', '--containment-only']);
+const FLAGS = new Set(['--stress']);
 const unknownArgs = process.argv.slice(2).filter((arg) => !FLAGS.has(arg));
 if (unknownArgs.length > 0) {
   console.error(
@@ -63,14 +64,6 @@ if (unknownArgs.length > 0) {
   process.exit(2);
 }
 const STRESS = process.argv.includes('--stress');
-/**
- * Run ONLY the containment leg. The fixture ladder costs ~20 minutes on the
- * reference phone, which is too slow to iterate on the containment evidence
- * (criterion 3) — and the containment probe is the part most likely to need a
- * second look, because it is the one that depends on the surrounding native
- * chrome rather than on the editor alone.
- */
-const CONTAINMENT_ONLY = process.argv.includes('--containment-only');
 
 const PACKAGE = 'com.futo.notes.dev';
 const NOTE_TITLE = 'Perf fixture';
@@ -197,148 +190,6 @@ async function connectEditorPage(port) {
 
 // ── In-page measurement: tests/lib/editorDevicePerfSnippets.mjs (shared with the quick loop) ─
 
-/**
- * The containment stylesheet, verified inside the real editor chrome: the rule
- * is active on block children, the caret can enter a region the browser has
- * skipped, and the scroller's geometry is sane (the WebView sits inside native
- * Compose chrome — the nested-scroll arrangement the bare-page probe could not
- * see).
- */
-const CONTAINMENT_EXPRESSION = `(async () => {
-  const editor = document.querySelector('.ProseMirror');
-  if (!editor) throw new Error('no .ProseMirror');
-  const view = window.__futoProseMirrorView?.();
-  if (!view) throw new Error('no ProseMirror view');
-
-  /* WHICH element scrolls is the question this leg exists to answer.
-   * MilkdownEditor.svelte declares '.ProseMirror { height: 100%; overflow-y:
-   * auto }', but height:100% only resolves against a definite height chain, and
-   * the native shells wrap the editor in their own chrome — so assuming
-   * .ProseMirror is the scroller is exactly the "nested scroll containers"
-   * assumption the acceptance criterion says to verify rather than trust.
-   * Walk out to the nearest ancestor that actually scrolls and report which
-   * one it was, so the evidence names the arrangement instead of implying it. */
-  const scrollsVertically = (element) => {
-    const overflowY = getComputedStyle(element).overflowY;
-    return (
-      (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
-      element.scrollHeight > element.clientHeight + 1
-    );
-  };
-  const describe = (element) =>
-    element === document.scrollingElement
-      ? 'document.scrollingElement'
-      : element.tagName.toLowerCase() +
-        (element.className ? '.' + String(element.className).trim().split(/\\s+/).join('.') : '');
-  /* Evidence that the probe is looking at the document it thinks it is: a
-   * containment result over a short note would be meaningless, and a silently
-   * unloaded fixture is exactly the way this leg could go falsely green. */
-  const topLevelBlocks = editor.querySelectorAll(':scope > *').length;
-  const docSize = view.state.doc.content.size;
-
-  const chain = [];
-  let scroller = null;
-  for (let element = editor; element; element = element.parentElement) {
-    chain.push({
-      element: describe(element),
-      overflowY: getComputedStyle(element).overflowY,
-      clientHeight: element.clientHeight,
-      scrollHeight: element.scrollHeight,
-    });
-    if (!scroller && scrollsVertically(element)) scroller = element;
-  }
-  const documentScroller = document.scrollingElement ?? document.documentElement;
-  if (!scroller && documentScroller.scrollHeight > documentScroller.clientHeight + 1) {
-    scroller = documentScroller;
-  }
-  if (!scroller) {
-    throw new Error(
-      'nothing on the page scrolls vertically (blocks=' + topLevelBlocks + ', docSize=' + docSize +
-      '): ' + JSON.stringify(chain),
-    );
-  }
-
-  const blocks = editor.querySelectorAll(':scope > *');
-  const middle = blocks[Math.floor(blocks.length / 2)];
-  const computed = getComputedStyle(middle);
-
-  /* Focus first. A caret move is something a FOCUSED editor does, ProseMirror
-   * only syncs the DOM selection for a focused view, and the desktop
-   * counterpart in tests/editor-embed-milkdown.spec.ts focuses before it
-   * dispatches — leaving it out here would have made the two probes measure
-   * different things. */
-  window.FutoEditor.focus();
-  scroller.scrollTop = 0;
-  await new Promise((r) => requestAnimationFrame(() => r()));
-  const before = scroller.scrollTop;
-  const selection = view.state.selection.constructor.near(
-    view.state.doc.resolve(view.state.doc.content.size),
-  );
-  view.dispatch(view.state.tr.setSelection(selection).scrollIntoView());
-  /* Give the scroll AND the rendering of the blocks content-visibility had
-   * skipped a bounded number of frames to settle. A phone needs more than the
-   * one frame a desktop does, and waiting on the condition rather than a sleep
-   * is the rule (AGENTS.md M15). */
-  for (let frame = 0; frame < 60; frame += 1) {
-    await new Promise((r) => requestAnimationFrame(() => r()));
-    if (scroller.scrollTop > before) break;
-  }
-  await new Promise((r) => requestAnimationFrame(() => r()));
-  /* Assert on the block the CARET landed in, not on the document's last child.
-   * They are usually different: the preset keeps a trailing placeholder
-   * paragraph after the content, and ProseMirror scrolls the CARET into view,
-   * so the very last element legitimately stays just below the fold. What the
-   * criterion asks is that the caret's own destination is real rendered
-   * content rather than a contain-intrinsic-size estimate. */
-  const caretPos = view.state.selection.from;
-  let caretBlock = view.domAtPos(caretPos).node;
-  if (caretBlock.nodeType === 3) caretBlock = caretBlock.parentElement;
-  while (caretBlock && caretBlock.parentElement !== editor) caretBlock = caretBlock.parentElement;
-  if (!caretBlock) throw new Error('could not find the caret\\'s top-level block');
-  const viewportOf = () =>
-    scroller === documentScroller
-      ? { top: 0, bottom: window.innerHeight }
-      : scroller.getBoundingClientRect();
-  const onScreen = () => {
-    const box = caretBlock.getBoundingClientRect();
-    const view = viewportOf();
-    return box.top < view.bottom && box.bottom > view.top;
-  };
-  const rect = caretBlock.getBoundingClientRect();
-  const firstScrollOnScreen = onScreen();
-
-  /* Then scroll again, and report whether that recovers it.
-   *
-   * This separates two very different failures. Rendering the blocks that
-   * content-visibility had skipped replaces each 24px ESTIMATE with a real
-   * height, so the content grows underneath a scroll that was computed against
-   * the estimates and the destination drifts down (scrollHeight moved 184209 ->
-   * 184405 on the reference phone). A second scroll against the settled layout
-   * lands correctly; if it did NOT, the caret would be genuinely unreachable,
-   * which is a different and much worse thing. Both are reported so a
-   * regression in either cannot hide behind the other. */
-  view.dispatch(view.state.tr.scrollIntoView());
-  for (let frame = 0; frame < 60; frame += 1) {
-    await new Promise((r) => requestAnimationFrame(() => r()));
-    if (onScreen()) break;
-  }
-  const settledOnScreen = onScreen();
-  return {
-    contentVisibility: computed.getPropertyValue('content-visibility'),
-    containIntrinsicSize: computed.getPropertyValue('contain-intrinsic-size'),
-    topLevelBlocks,
-    docSize,
-    scroller: describe(scroller),
-    scrollChain: chain,
-    scrolled: scroller.scrollTop > before,
-    scrollTop: scroller.scrollTop,
-    scrollHeight: scroller.scrollHeight,
-    caretBlockHeight: rect.height,
-    caretBlockOnScreen: firstScrollOnScreen,
-    caretBlockOnScreenAfterSettle: settledOnScreen,
-  };
-})()`;
-
 // ── Device stories ────────────────────────────────────────────────
 
 function requireSerial() {
@@ -423,8 +274,6 @@ async function main() {
 
   const { plan, realNote } = fixturePlan();
   const results = [];
-  let containment = null;
-  const containmentFailures = [];
   try {
     /* Wait for the HOST's own load to have landed, not merely for the bridge to
      * exist. The shell calls `FutoEditor.initialize` with the note's content
@@ -445,7 +294,7 @@ async function main() {
       { timeoutMs: 30_000 },
     );
 
-    for (const fixture of CONTAINMENT_ONLY ? [] : plan) {
+    for (const fixture of plan) {
       const content = fixture.build();
       process.stdout.write(`  ${fixture.name} … `);
       const samples =
@@ -481,6 +330,7 @@ async function main() {
         bytes: Buffer.byteLength(content, 'utf8'),
         interactiveMs: measured.interactiveMs,
         completeMs: measured.completeMs,
+        firstFocusMs: measured.firstFocusMs,
         synchronousSamplesMs: measured.synchronousSamplesMs,
         settledToPaintSamplesMs: measured.settledToPaintSamplesMs,
         keystrokeSynchronousP95Ms: percentile95(measured.synchronousSamplesMs),
@@ -489,28 +339,8 @@ async function main() {
       results.push(result);
       console.log(
         `interactive ${Math.round(result.interactiveMs)}ms, complete ${Math.round(result.completeMs)}ms, ` +
+          `first focus ${Math.round(result.firstFocusMs)}ms, ` +
           `keystroke p95 ${result.keystrokeSynchronousP95Ms.toFixed(1)}ms (settled ${result.keystrokeSettledToPaintP95Ms.toFixed(1)}ms)`,
-      );
-    }
-
-    // Containment, in the real-note-shaped document the interactive budget is
-    // measured on. Loaded explicitly rather than inheriting whatever the last
-    // fixture left, so the probe's document is known.
-    try {
-      await cdp.evaluate(loadExpression(blockFixture(10_000)));
-      containment = await cdp.evaluate(CONTAINMENT_EXPRESSION);
-      console.log(
-        `  containment: content-visibility=${containment.contentVisibility}, ` +
-          `scroller=${containment.scroller}, caret-to-end scrolled=${containment.scrolled} ` +
-          `(scrollTop ${Math.round(containment.scrollTop)}), ` +
-          `caret block ${Math.round(containment.caretBlockHeight)}px ` +
-          `on-screen=${containment.caretBlockOnScreen} settled=${containment.caretBlockOnScreenAfterSettle}`,
-      );
-    } catch (error) {
-      // A failed focused-caret probe must fail red AND retain the fixture
-      // measurements that led up to it, including their individual samples.
-      containmentFailures.push(
-        `containment probe failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   } finally {
@@ -521,33 +351,7 @@ async function main() {
     adb.shell(`rm -f ${quoteForDeviceShell(notePath)}`, { allowFailure: true });
   }
 
-  /* --containment-only ran no fixtures, so there are no budgets to score. Left
-   * as `plan` it would report five missing-measurement violations and exit red
-   * every single time, which trains a reader to ignore this mode's exit code —
-   * and an exit code nobody reads is worth nothing when the containment leg
-   * really does break. */
-  const violations = evaluateDeviceFloor(CONTAINMENT_ONLY ? [] : plan, results);
-  if (containment && containment.contentVisibility !== 'auto') {
-    containmentFailures.push(
-      `content-visibility is "${containment.contentVisibility}", not "auto" — the containment stylesheet is not active in this chrome`,
-    );
-  }
-  /* The gate is the SETTLED state — what a user is left looking at — because
-   * the first scroll legitimately lands short while content-visibility's size
-   * estimates are still being replaced by real heights (see the probe). The
-   * first-scroll result is recorded in the report rather than asserted, and the
-   * drift it represents is written up in plan §5's T9 outcome as an open item
-   * rather than quietly accepted. */
-  if (
-    containment &&
-    (!containment.scrolled ||
-      !containment.caretBlockOnScreenAfterSettle ||
-      containment.caretBlockHeight <= 0)
-  ) {
-    containmentFailures.push(
-      `caret into the offscreen end did not land on rendered content: ${JSON.stringify(containment)}`,
-    );
-  }
+  const violations = evaluateDeviceFloor(plan, results);
 
   mkdirSync(REPORT_DIR, { recursive: true });
   const report = {
@@ -555,9 +359,7 @@ async function main() {
     budget: DEVICE_BUDGET,
     realNoteFixture: realNote ? { lines: realNote.lines } : null,
     results,
-    containment,
     violations,
-    containmentFailures,
   };
   writeFileSync(
     path.join(REPORT_DIR, 'android-device-perf.json'),
@@ -565,7 +367,7 @@ async function main() {
   );
   console.log(`Report: ${path.join(REPORT_DIR, 'android-device-perf.json')}`);
 
-  const failures = [...violations.map((v) => `${v.fixture}: ${v.detail}`), ...containmentFailures];
+  const failures = violations.map((v) => `${v.fixture}: ${v.detail}`);
   if (!realNote) {
     console.log(
       'PARTIAL: the synthetic ladder ran without the real-note fixture (see NOTE above).',

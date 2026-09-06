@@ -12,8 +12,19 @@ import {
 describe('open then type', () => {
   it('lets the browser present the opened document before the first keystroke', async () => {
     const calls = [];
+    let focused = false;
     const view = {
-      hasFocus: () => false,
+      focus: () => {
+        calls.push('focus');
+        focused = true;
+      },
+      hasFocus: () => focused,
+      dom: {
+        blur: () => {
+          calls.push('blur');
+          focused = false;
+        },
+      },
       state: { doc: { content: { size: 1000 } }, tr: { insertText: () => ({}) } },
       dispatch: () => calls.push('dispatch'),
     };
@@ -36,14 +47,22 @@ describe('open then type', () => {
     const result = await runInNewContext(measureExpression('# note', 2), context);
     // Every fixture starts from an emptied editor, and a whole-document open
     // marks itself complete in the task that inserted the DOM: at least two
-    // frames must pass (the second only after a layout) before a keystroke is
-    // timed, or the document's first layout is billed to typing. The fake clock
-    // makes every frame short, so exactly two are waited here.
+    // frames must pass (the second only after a layout) before anything is
+    // timed, or the document's first layout is billed to what follows. The fake
+    // clock makes every frame short, so exactly two are waited here. Then the
+    // first focus is timed to its third frame and blurred again, so the
+    // keystroke loop measures the gate's unfocused unit.
     expect(calls).toEqual([
       'reset',
       'frame',
       'setContent',
       'frame',
+      'frame',
+      'focus',
+      'frame',
+      'frame',
+      'frame',
+      'blur',
       'frame',
       'dispatch',
       'frame',
@@ -51,6 +70,7 @@ describe('open then type', () => {
       'frame',
     ]);
     expect(result.completeMs).toBe(7);
+    expect(result.firstFocusMs).toBeGreaterThan(0);
     expect(result.synchronousSamplesMs).toHaveLength(2);
   });
 });

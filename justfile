@@ -202,8 +202,8 @@ test-android-native-ui: build-rust-android
 # explicitly claimed device — written for the low-end reference phone, where
 # the budgets are hardest (issue #106, docs/plan/milkdown-transition.md §5):
 # interactive-first-viewport <1s and keystroke p95 <16ms at real-note sizes,
-# open that scales linearly with no cliff, and the content-visibility
-# containment stylesheet verified inside the real editor chrome. The
+# open that scales linearly with no cliff, and the first focus after an open
+# under 1s (the tap that starts typing). The
 # build/install is deliberately mandatory so the run always exercises the code
 # being pushed (same rule as test-ios-stories). The maintainer's largest real
 # note joins the fixtures as a LOCAL, UNCOMMITTED file: $FUTO_PERF_NOTE=<path>,

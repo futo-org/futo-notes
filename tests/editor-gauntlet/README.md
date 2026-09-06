@@ -74,7 +74,8 @@ What the run does NOT show is a cliff: per-line open cost at 50k is 1.4x the 10k
 cost at 10 MiB is 0.3x the 1 MiB cost, so the scaling claim behind the transition holds. The gap is
 that progressive open (plan §5 / D7) is not built — the editor parses and mounts the whole document
 before it is interactive. Adding the perf probe's `content-visibility` stylesheet to the live page
-does not close it, so that rule is a keystroke-layout lever, not an open-cost one.
+does not close it, so that rule is a keystroke-layout lever, not an open-cost one (and it has
+since been retired altogether — see docs/spec/editor.md, Performance).
 
 Two things about how the floor is judged, both deliberate:
 
