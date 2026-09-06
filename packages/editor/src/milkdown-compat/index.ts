@@ -61,7 +61,9 @@ import {
   commonmark,
   remarkPreserveEmptyLinePlugin,
   syncHeadingIdPlugin,
+  syncListOrderPlugin,
 } from '@milkdown/kit/preset/commonmark';
+import { gfm, keepTableAlignPlugin, tableEditingPlugin } from '@milkdown/kit/preset/gfm';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 
 import { bulletNumberEscapePlugin } from './bulletNumbers';
@@ -69,6 +71,8 @@ import { remarkExpandEmptyLinksPlugin } from './emptyLink';
 import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
 import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFiller';
+import { scopedListOrderPlugin } from './listOrder';
+import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePasses';
 
 export * from './atxEscape';
 export * from './stringifyHandlers';
@@ -93,6 +97,21 @@ const UPSTREAM_EMPTY_LINE_ENTRIES: readonly unknown[] = [
 const UPSTREAM_HEADING_ID_ENTRIES: readonly unknown[] = [syncHeadingIdPlugin];
 
 /**
+ * The three preset plugins that walk the WHOLE document on every transaction,
+ * each replaced by the same logic over only the top-level blocks the
+ * transaction touched (see `./listOrder` and `./tablePasses`). Not a round-trip
+ * fix but the same kind of adapter: what a plugin walks is an implementation
+ * detail of one editor library, and the per-item rules are kept verbatim.
+ *
+ * Measured on the low-end Android reference phone at 10k lines (5,000 blocks,
+ * `just test-android-perf-quick --profile`, 2026-09-05): `syncListOrderPlugin`'s
+ * `doc.descendants` alone was ~12 ms of a 22 ms keystroke, against a 16 ms
+ * budget for the whole keystroke (AGENTS.md M5).
+ */
+const UPSTREAM_LIST_ORDER_ENTRIES: readonly unknown[] = [syncListOrderPlugin];
+const UPSTREAM_TABLE_PASS_ENTRIES: readonly unknown[] = [keepTableAlignPlugin, tableEditingPlugin];
+
+/**
  * `plugins` without `entries`.
  *
  * A Milkdown upgrade that changes how the preset is composed makes this throw
@@ -104,14 +123,15 @@ function withoutPresetEntries(
   plugins: MilkdownPlugin[],
   entries: readonly unknown[],
   what: string,
+  preset = '@milkdown/preset-commonmark',
 ): MilkdownPlugin[] {
   const kept = plugins.filter((plugin) => !entries.includes(plugin));
   const removed = plugins.length - kept.length;
   if (removed !== entries.length) {
     throw new Error(
       `milkdown-compat: expected to remove ${entries.length} upstream ${what} entries ` +
-        `from the commonmark preset, removed ${removed}. ` +
-        `Re-check @milkdown/preset-commonmark's composition against this module.`,
+        `from the preset, removed ${removed}. ` +
+        `Re-check ${preset}'s composition against this module.`,
     );
   }
   return kept;
@@ -124,10 +144,37 @@ function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
     UPSTREAM_EMPTY_LINE_ENTRIES,
     'empty-line',
   );
-  return withoutPresetEntries(withoutEmptyLine, UPSTREAM_HEADING_ID_ENTRIES, 'heading-id');
+  const withoutHeadingId = withoutPresetEntries(
+    withoutEmptyLine,
+    UPSTREAM_HEADING_ID_ENTRIES,
+    'heading-id',
+  );
+  return withoutPresetEntries(withoutHeadingId, UPSTREAM_LIST_ORDER_ENTRIES, 'list-order');
 }
 
 let cached: MilkdownPlugin[] | null = null;
+let cachedGfm: MilkdownPlugin[] | null = null;
+
+/**
+ * The gfm preset with its two whole-document passes scoped to the blocks a
+ * transaction touched — use this in place of `gfm`, and always together with
+ * `commonmarkWithCompat()`: both presets' scoped replacements read the same
+ * `touchedRange` helpers, and a table pass left running whole-document next to
+ * its scoped twin would do the walk twice.
+ */
+export function gfmWithCompat(): MilkdownPlugin[] {
+  cachedGfm ??= [
+    ...withoutPresetEntries(
+      gfm as MilkdownPlugin[],
+      UPSTREAM_TABLE_PASS_ENTRIES,
+      'table-pass',
+      '@milkdown/preset-gfm',
+    ),
+    scopedKeepTableAlignPlugin,
+    scopedTableEditingPlugin,
+  ];
+  return cachedGfm;
+}
 
 /**
  * The commonmark preset with every round-trip fix applied — use this in place
@@ -158,6 +205,9 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
     paragraphFillerGuard,
     ...remarkExpandEmptyLinksPlugin,
     bulletNumberEscapePlugin,
+    /* The preset's list numbering over the touched blocks only (see
+     * UPSTREAM_LIST_ORDER_ENTRIES). */
+    scopedListOrderPlugin,
     /* LAST, and it has to be: the front matter set overrides the preset's own
      * `doc` node by re-registering that id, which `$node` resolves by upsert —
      * so it must be registered after the preset, and it reads the registered

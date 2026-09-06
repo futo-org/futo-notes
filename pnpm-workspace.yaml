@@ -19,5 +19,6 @@ overrides:
 
 patchedDependencies:
   micromark@4.0.2: patches/micromark@4.0.2.patch
+  prosemirror-view@1.42.3: patches/prosemirror-view@1.42.3.patch
 
 shamefullyHoist: true

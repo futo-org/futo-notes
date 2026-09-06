@@ -36,8 +36,7 @@
   } from '@milkdown/kit/core';
   import { codeBlockAttr, inlineCodeAttr } from '@milkdown/kit/preset/commonmark';
 
-  import { commonmarkWithCompat } from '@futo-notes/editor/milkdown-compat';
-  import { gfm } from '@milkdown/kit/preset/gfm';
+  import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
   import { history } from '@milkdown/kit/plugin/history';
   import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
   import { clipboard } from '@milkdown/kit/plugin/clipboard';
@@ -547,7 +546,7 @@
           });
         })
         .use(commonmarkWithCompat())
-        .use(gfm)
+        .use(gfmWithCompat())
         .use(wikilink)
         .use(vaultImageView)
         .use(history)

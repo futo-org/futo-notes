@@ -31,7 +31,7 @@ import { trailing } from '@milkdown/kit/plugin/trailing';
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 
-import { commonmarkWithCompat } from '@futo-notes/editor/milkdown-compat';
+import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
 
 export type CensusVariant = 'compat' | 'baseline';
 
@@ -79,7 +79,7 @@ async function loadOnce(variant: CensusVariant, markdown: string): Promise<Round
       ctx.set(defaultValueCtx, markdown);
     })
     .use(preset)
-    .use(gfm)
+    .use(variant === 'compat' ? gfmWithCompat() : gfm)
     .use(history)
     .use(listener)
     .use(clipboard)
@@ -137,7 +137,7 @@ async function headingEditChurn(
       ctx.set(defaultValueCtx, markdown);
     })
     .use(preset)
-    .use(gfm)
+    .use(variant === 'compat' ? gfmWithCompat() : gfm)
     .use(history)
     .use(listener)
     .use(clipboard)
