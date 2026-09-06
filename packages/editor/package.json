@@ -17,6 +17,7 @@
     "remark-frontmatter": "5.0.0"
   },
   "devDependencies": {
+    "mdast-util-from-markdown": "2.0.3",
     "mdast-util-to-markdown": "2.1.2",
     "vitest": "^4.0.18"
   }

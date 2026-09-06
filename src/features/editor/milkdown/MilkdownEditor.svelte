@@ -56,7 +56,7 @@
     type Schema as ProseSchema,
   } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
-  import { imageReferenceMarkdown, withNarrowedAtxHashEscape } from '@futo-notes/editor';
+  import { imageReferenceMarkdown, withNarrowedEscapes } from '@futo-notes/editor';
   import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
   import {
     installVaultImageUrlResolver,
@@ -425,7 +425,7 @@
             if (!text) return options;
             return {
               ...options,
-              handlers: { ...options.handlers, text: withNarrowedAtxHashEscape(text) },
+              handlers: { ...options.handlers, text: withNarrowedEscapes(text) },
             };
           });
 

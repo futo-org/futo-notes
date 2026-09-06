@@ -34,6 +34,8 @@ export interface UnsafePattern {
   atBreak?: boolean | null | undefined;
   before?: string | null | undefined;
   after?: string | null | undefined;
+  inConstruct?: string | readonly string[] | null | undefined;
+  notInConstruct?: string | readonly string[] | null | undefined;
 }
 
 /**

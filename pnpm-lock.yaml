@@ -201,6 +201,9 @@ importers:
         specifier: 5.0.0
         version: 5.0.0
     devDependencies:
+      mdast-util-from-markdown:
+        specifier: 2.0.3
+        version: 2.0.3
       mdast-util-to-markdown:
         specifier: 2.1.2
         version: 2.1.2

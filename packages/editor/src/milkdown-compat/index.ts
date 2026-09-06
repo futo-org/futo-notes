@@ -37,9 +37,10 @@
  *    and no rendered output reads. Dropping it also takes a whole-document walk off
  *    every keystroke (AGENTS.md M5).
  *
- * `./atxEscape` and `./stringifyHandlers` are the serializer-side members of
- * the same set, from the tag work (#102): remark escapes every line-leading
- * `#`, which destroys a `#tag`.
+ * `./atxEscape`, `./underscoreEscape` and `./stringifyHandlers` are the
+ * serializer-side members of the same set, from the tag work (#102): remark
+ * escapes every line-leading `#`, which destroys a `#tag`, and every `_` in
+ * prose, which rewrites `snake_case` and destroys `#dog_problems`.
  *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
@@ -76,6 +77,7 @@ import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePas
 
 export * from './atxEscape';
 export * from './stringifyHandlers';
+export * from './underscoreEscape';
 export { escapeAmbiguousBulletNumbers } from './bulletNumbers';
 export { expandEmptyLinks } from './emptyLink';
 export { blankLineJoin, fixEmptyLinePlaceholders, restoreBlankLineParagraphs } from './emptyLine';

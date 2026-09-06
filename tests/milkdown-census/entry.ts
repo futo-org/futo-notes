@@ -20,7 +20,13 @@
  * the upstream bugs are still there — the day one is fixed upstream, its canary
  * fails and the corresponding local fork should be deleted.
  */
-import { Editor, defaultValueCtx, editorViewCtx, rootCtx } from '@milkdown/kit/core';
+import {
+  Editor,
+  defaultValueCtx,
+  editorViewCtx,
+  remarkStringifyOptionsCtx,
+  rootCtx,
+} from '@milkdown/kit/core';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { gfm } from '@milkdown/kit/preset/gfm';
 import { clipboard } from '@milkdown/kit/plugin/clipboard';
@@ -31,9 +37,31 @@ import { trailing } from '@milkdown/kit/plugin/trailing';
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 
-import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
+import {
+  commonmarkWithCompat,
+  gfmWithCompat,
+  withNarrowedEscapes,
+} from '@futo-notes/editor/milkdown-compat';
 
 export type CensusVariant = 'compat' | 'baseline';
+
+/**
+ * The escape narrowing MilkdownEditor.svelte installs (`withNarrowedEscapes`:
+ * the line-leading `#` and the intra-word `_`), applied to the `compat` variant
+ * so a change to either is measured by this census the way the manual
+ * requires. The `baseline` variant keeps remark-stringify's stock escapes.
+ *
+ * Deliberately NOT the app's `bullet: '-'`: the canary fixtures in
+ * tests/editor-embed-milkdown-compat.spec.ts pin remark's stock `*` marker, and
+ * the marker is spelling, not a loss class this census flags.
+ */
+function configureSerializer(ctx: Parameters<Parameters<Editor['config']>[0]>[0]): void {
+  ctx.update(remarkStringifyOptionsCtx, (options) => {
+    const text = options.handlers?.text;
+    if (!text) return options;
+    return { ...options, handlers: { ...options.handlers, text: withNarrowedEscapes(text) } };
+  });
+}
 
 /** One pass of the editor over a note: what went in, what came back out. */
 export interface RoundTrip {
@@ -77,6 +105,7 @@ async function loadOnce(variant: CensusVariant, markdown: string): Promise<Round
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, markdown);
+      if (variant === 'compat') configureSerializer(ctx);
     })
     .use(preset)
     .use(variant === 'compat' ? gfmWithCompat() : gfm)

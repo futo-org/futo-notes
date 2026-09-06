@@ -120,6 +120,30 @@ test('the tag rules still read every tag out of what Milkdown saved', async ({ p
   expect(extractHeaderTagBlock(saved).tags).toEqual(extractHeaderTagBlock(original).tags);
 });
 
+/*
+ * The same class of loss, one character over: remark-stringify escapes EVERY
+ * `_` in prose, so a keystroke anywhere rewrote `snake_case_word` and turned
+ * `#dog_problems` into `#dog\_problems` — a tag to nothing, and on desktop the
+ * tag bar (which commits through a full re-serialization) then dropped every
+ * chip on the note. packages/editor/src/milkdown-compat/underscoreEscape.ts
+ * narrows the escape to a `_` CommonMark could read as an emphasis delimiter.
+ */
+test('editing a note never escapes the underscore inside a word or a tag', async ({ page }) => {
+  const original =
+    '#dog_problems #alpha\n\nsnake_case_word and file_name.txt, but _real_ emphasis\n';
+  await open(page, original);
+
+  await typeAtEnd(page);
+  const saved = await getContent(page);
+
+  expect(saved).toContain('#dog_problems #alpha');
+  expect(saved).toContain('snake_case_word and file_name.txt');
+  expect(saved).not.toContain('\\_');
+  // `_real_` is emphasis, and stays emphasis (Milkdown spells it `*real*`).
+  expect(saved).toMatch(/but [*_]real[*_] emphasis/);
+  expect(extractTags(saved)).toEqual(extractTags(original));
+});
+
 test('a line-leading `#` that IS a heading still round-trips as a heading', async ({ page }) => {
   await open(page, '# A real heading\n\nbody\n');
   await typeAtEnd(page);
