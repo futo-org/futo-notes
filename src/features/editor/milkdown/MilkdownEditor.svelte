@@ -183,17 +183,22 @@
    * still exactly what it loaded, so an open/close cycle cannot rewrite a note
    * on disk in Milkdown's normalized syntax. */
   let hostMarkdown: string | null = null;
-  /* Milkdown's own serialization of the current doc; null until something has
-   * actually been loaded. It must NOT start as `''`: an empty string is also a
-   * legitimate serialization, so a placeholder `''` made `setContent('')` — a
-   * brand-new note — look like content we already held, skip `applyExternal`,
-   * and leave `externalSerialization` unset, which switches the load-echo guard
-   * in getContent() off for exactly that note. */
+  /* The ProseMirror document exactly as it stood after that load. The load echo
+   * is decided by comparing DOCUMENTS (`unchangedSinceLoad`), never by
+   * serializing: the change notification is debounced by 200ms, so a
+   * synchronous "we are applying host content" flag cannot suppress the echo,
+   * and the string comparison that used to stand here cost a whole-document
+   * serialization on every open and on every `getContent()` of an untouched
+   * note (185 ms at 1,000 lines on the low-end Android reference phone). */
+  let loadedDoc: ProseNode | null = null;
+  /* Milkdown's most recent serialization and the document it describes — a
+   * cache for `readSerialized()`, so a burst of `getContent()` calls against
+   * one document pays once. `liveMarkdown` must NOT start as `''`: an empty
+   * string is also a legitimate serialization, so a placeholder `''` made
+   * `setContent('')` — a brand-new note — look like content we already held
+   * and skip `applyExternal`. */
+  let liveDoc: ProseNode | null = null;
   let liveMarkdown: string | null = null;
-  /* Milkdown's serialization of the doc AS LOADED from the host. The change
-   * notification is debounced by 200ms, so a synchronous "we are applying host
-   * content" flag cannot suppress the load echo — comparing against this can. */
-  let externalSerialization: string | null = null;
   let pendingContent: string | null = null;
   let onListLine: boolean | null = null;
 
@@ -750,26 +755,53 @@
      * document, not the note. */
     if (loadFailed) return;
 
+    // The debounced echo of host content we just loaded — not an edit, and
+    // decided without serializing anything.
+    if (unchangedSinceLoad()) return;
     // The LIVE document, never a snapshot of an earlier transaction: this is
     // the answer the host would get from `getContent()` at this instant.
     const markdown = readSerialized();
     if (markdown === null) return;
-    liveMarkdown = markdown;
-    // The debounced echo of host content we just loaded — not an edit.
-    if (externalSerialization !== null && markdown === externalSerialization) return;
     // A genuine user edit: the host's copy is no longer authoritative.
-    externalSerialization = null;
+    loadedDoc = null;
     hostMarkdown = null;
     onchange?.(markdown);
   }
 
+  /** Milkdown's serialization of the live document, cached against that document. */
   function readSerialized(): string | null {
-    if (!editor) return null;
+    const view = pmView();
+    if (!editor || !view) return null;
+    const doc = view.state.doc;
+    if (liveDoc === doc && liveMarkdown !== null) return liveMarkdown;
     try {
-      return editor.action(getMarkdown());
+      const markdown = editor.action(getMarkdown());
+      liveDoc = doc;
+      liveMarkdown = markdown;
+      return markdown;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Is the document still exactly what the host loaded? Identity first, so an
+   * untouched note answers in O(1); `Node.eq` covers a document rebuilt to the
+   * same content (an edit and its undo), and it compares unchanged children by
+   * identity too, so it stays cheap at any note size.
+   */
+  function unchangedSinceLoad(): boolean {
+    const view = pmView();
+    if (!view || loadedDoc === null) return false;
+    return view.state.doc === loadedDoc || view.state.doc.eq(loadedDoc);
+  }
+
+  /** Record the live document as the host's note `text`, without serializing it. */
+  function noteLoaded(text: string): void {
+    hostMarkdown = text;
+    loadedDoc = pmView()?.state.doc ?? null;
+    liveDoc = null;
+    liveMarkdown = null;
   }
 
   /**
@@ -787,9 +819,7 @@
       console.error('MilkdownEditor: could not parse this note', error);
       return false;
     }
-    hostMarkdown = text;
-    liveMarkdown = text;
-    externalSerialization = readSerialized() ?? text;
+    noteLoaded(text);
     return true;
   }
 
@@ -896,16 +926,23 @@
     measureOpen(OPEN_COMPLETE_MEASURE);
     emitFormatState();
 
-    const complete = readSerialized();
-    liveMarkdown = complete;
-    /* Set even in the edited branch: it makes the trailing debounced change
-     * notification — which is about to arrive carrying exactly this text — an
-     * echo rather than a second, duplicate `change`. */
-    externalSerialization = complete;
+    /* Whatever the debounce is holding described a prefix, or is about to be
+     * reported right here; either way a second report would be a duplicate. */
+    if (changeTimer !== null) window.clearTimeout(changeTimer);
+    changeTimer = null;
+    // Any cached serialization described a prefix of the note.
+    liveDoc = null;
+    liveMarkdown = null;
 
-    if (!editedSinceLoadStart()) return;
+    if (!editedSinceLoadStart()) {
+      // The finished document IS the host's note: the load echo now applies.
+      loadedDoc = pmView()?.state.doc ?? null;
+      return;
+    }
     // The host's bytes are no longer what the document says.
     hostMarkdown = null;
+    loadedDoc = null;
+    const complete = readSerialized();
     if (complete !== null) onchange?.(complete);
   }
 
@@ -942,8 +979,9 @@
      * read-only, and the failure is shown — never serialized back to disk. */
     const recordFailedLoad = (): void => {
       hostMarkdown = text;
-      liveMarkdown = text;
-      externalSerialization = null;
+      loadedDoc = null;
+      liveDoc = null;
+      liveMarkdown = null;
       loadFailed = true;
       refreshEditable();
     };
@@ -957,10 +995,11 @@
     }
 
     hostMarkdown = text;
-    liveMarkdown = text;
-    /* No serialization of this document exists yet — it is still a prefix. The
-     * save lock, not this field, is what protects the streaming window. */
-    externalSerialization = null;
+    /* No complete document exists yet — it is still a prefix. The save lock,
+     * not `loadedDoc`, is what protects the streaming window. */
+    loadedDoc = null;
+    liveDoc = null;
+    liveMarkdown = null;
 
     /* A chunk the editor would not take. Nothing about progressive open is
      * worth risking content for: throw the partial document away and load the
@@ -1142,14 +1181,14 @@
      *     shell's existing "there is no editor to read" sentinel (EditorApi),
      *     and every caller already treats it as unsaveable.
      *
-     * `liveMarkdown`/`hostMarkdown` both being null is precisely "never
-     * loaded" — but only an EMPTY never-loaded document is "no note". A host
-     * that dedupes `setContent('')` against this very method leaves an
+     * Nothing loaded, nothing reported and nothing serialized is precisely
+     * "never loaded" — but only an EMPTY never-loaded document is "no note". A
+     * host that dedupes `setContent('')` against this very method leaves an
      * untouched new note in exactly that state, and the text typed into it is
-     * real content the moment it exists, a full change-debounce before
-     * `liveMarkdown` catches up. */
+     * real content the moment it exists, a full change-debounce before the
+     * change notification catches up. */
     if (loadFailed) return hostMarkdown ?? undefined;
-    if (hostMarkdown === null && liveMarkdown === null) {
+    if (hostMarkdown === null && loadedDoc === null && liveDoc === null) {
       const untouched = readSerialized();
       if (untouched === null || untouched.trim() === '') return undefined;
       return untouched;
@@ -1167,12 +1206,13 @@
        * rest of the parse. Pay it rather than hand back a prefix. */
       progressive.finishNow();
     }
+    // Only hand back the host's original bytes while the document is still
+    // EXACTLY what it loaded; a keystroke inside the change debounce window
+    // must not be reported as the unmodified note — and an untouched note
+    // answers here without serializing anything.
+    if (hostMarkdown !== null && unchangedSinceLoad()) return hostMarkdown;
     const live = readSerialized();
     if (live === null) return hostMarkdown ?? liveMarkdown ?? '';
-    // Only hand back the host's original bytes while the document is still
-    // EXACTLY what it loaded; a keystroke inside the listener's debounce window
-    // must not be reported as the unmodified note.
-    if (hostMarkdown !== null && live === externalSerialization) return hostMarkdown;
     return live;
   }
 
@@ -1242,12 +1282,14 @@
     // the editor never managed to load, so it is not the note either.
     if (!editor || loadFailed) return;
     editor.action(replaceAll(text));
-    const live = readSerialized() ?? text;
-    liveMarkdown = live;
-    // The document is no longer the host's bytes.
+    // The document is no longer the host's bytes — and this replace's own
+    // debounced change notification is an echo of the report made right here,
+    // not a second edit: `loadedDoc` is what says so.
     hostMarkdown = null;
-    externalSerialization = live;
-    onchange?.(live);
+    loadedDoc = pmView()?.state.doc ?? null;
+    liveDoc = null;
+    liveMarkdown = null;
+    onchange?.(readSerialized() ?? text);
   }
 
   /** The editable element itself, for shell chrome that measures against it. */
