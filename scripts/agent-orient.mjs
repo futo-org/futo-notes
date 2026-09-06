@@ -8,7 +8,7 @@
 //
 //   just orient           # text
 //   just orient --json    # the same facts as JSON
-import { spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -81,9 +81,38 @@ export function loadPapercuts(file, fsImpl = fs) {
   return { open: cuts.filter((c) => !resolved.has(c.id)), total: cuts.length };
 }
 
+function gitRaw(args, cwd) {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 10000,
+    maxBuffer: 16 * 1024 * 1024,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+  });
+}
 function git(args, cwd) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
-  return result.status === 0 ? result.stdout.trim() : null;
+  try {
+    return gitRaw(args, cwd).trim();
+  } catch {
+    return null;
+  }
+}
+
+function executable(name) {
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+    const extensions = process.platform === 'win32' ? ['', '.exe', '.cmd', '.bat'] : [''];
+    for (const ext of extensions) {
+      const candidate = path.resolve(dir, name + ext);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        if (fs.statSync(candidate).isFile()) return candidate;
+      } catch {
+        // PATH entries may be absent or inaccessible in a fresh shell.
+      }
+    }
+  }
+  return null;
 }
 
 const readJson = (file) => {
@@ -95,7 +124,7 @@ const readJson = (file) => {
 };
 
 /** Gather every fact `formatOrientation` prints. Read-only; never fetches. */
-export function gather(cwd = process.cwd()) {
+export function gather(cwd = process.cwd(), base = 'origin/main') {
   const root = git(['rev-parse', '--show-toplevel'], cwd);
   if (!root) return { root: null, error: `${cwd} is not inside a git checkout` };
   const commonDir = path.resolve(root, git(['rev-parse', '--git-common-dir'], root) || '.git');
@@ -103,18 +132,41 @@ export function gather(cwd = process.cwd()) {
   const primary = path.dirname(commonDir);
   const linked = primary !== root;
 
-  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], root);
-  const counts = git(['rev-list', '--left-right', '--count', 'origin/main...HEAD'], root);
-  const [behind, ahead] = counts ? counts.split(/\s+/).map(Number) : [null, null];
-  const status = git(['status', '--porcelain'], root) ?? '';
-  const dirtyFiles = status
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => line.slice(3).trim());
-  const committed = (git(['diff', '--name-only', 'origin/main...HEAD'], root) ?? '')
-    .split('\n')
-    .filter(Boolean);
-  const changedFiles = [...new Set([...committed, ...dirtyFiles])];
+  let baseSha;
+  let mergeBase;
+  try {
+    baseSha = gitRaw(
+      ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`],
+      root,
+    ).trim();
+    mergeBase = gitRaw(['merge-base', baseSha, 'HEAD'], root).trim();
+  } catch {
+    throw new Error(
+      `Cannot compare with ${JSON.stringify(base)}. Run git fetch origin main, or supply --base <ref> with shared history.`,
+    );
+  }
+  const paths = (...gitArgs) => gitRaw(gitArgs, root).split('\0').filter(Boolean).sort();
+  const changes = {
+    committed: paths('diff', '--name-only', '-z', '--no-renames', mergeBase, 'HEAD', '--'),
+    staged: paths('diff', '--cached', '--name-only', '-z', '--no-renames', '--'),
+    unstaged: paths('diff', '--name-only', '-z', '--no-renames', '--'),
+    untracked: paths('ls-files', '--others', '--exclude-standard', '-z', '--'),
+  };
+  changes.all = [...new Set(Object.values(changes).flat())].sort();
+  const branch = git(['branch', '--show-current'], root) || null;
+  const [behind, ahead] = gitRaw(['rev-list', '--left-right', '--count', `${baseSha}...HEAD`], root)
+    .trim()
+    .split(/\s+/)
+    .map(Number);
+  const dirtyFiles = [...new Set([...changes.staged, ...changes.unstaged, ...changes.untracked])];
+  const changedFiles = changes.all;
+  const slotPeers = gitRaw(['worktree', 'list', '--porcelain', '-z'], root)
+    .split('\0')
+    .filter((field) => field.startsWith('worktree '))
+    .map((field) => field.slice('worktree '.length))
+    .filter((other) => other !== root && slotOf(other) === slotOf(root));
+  const tools = ['just', 'pnpm', 'cargo', 'rustc', 'adb', 'java', 'xcrun', 'xcodegen', 'ssh'];
+  const pin = path.join(root, '.nvmrc');
 
   const targetDir = path.join(root, 'target');
   const profiles = fs.existsSync(targetDir)
@@ -147,6 +199,23 @@ export function gather(cwd = process.cwd()) {
 
   return {
     root,
+    host: os.hostname(),
+    platform: process.platform,
+    head: git(['rev-parse', 'HEAD'], root),
+    base,
+    baseSha,
+    mergeBase,
+    changes,
+    slotPeers,
+    node: {
+      actual: process.version,
+      expected: fs.existsSync(pin) ? fs.readFileSync(pin, 'utf8').trim() : null,
+    },
+    dependencies: fs.existsSync(path.join(root, 'node_modules'))
+      ? 'present; freshness unchecked'
+      : 'missing; run just install',
+    cargoTarget: fs.existsSync(targetDir) ? 'present; freshness unchecked' : 'missing',
+    tools: Object.fromEntries(tools.map((name) => [name, executable(name)])),
     primary,
     linked,
     branch,
@@ -182,7 +251,7 @@ export function formatOrientation(d) {
   const drift =
     d.ahead === null
       ? 'no origin/main to compare'
-      : `${d.ahead} ahead / ${d.behind} behind origin/main`;
+      : `${d.ahead} ahead / ${d.behind} behind ${d.base ?? 'origin/main'}`;
   L.push(
     `  branch:   ${d.branch ?? '?'} · ${drift} · ${d.dirty} dirty file${d.dirty === 1 ? '' : 's'}`,
   );
@@ -190,6 +259,20 @@ export function formatOrientation(d) {
     L.push(
       `  purpose:  ${d.purpose.name}${d.purpose.created ? ` · created ${String(d.purpose.created).slice(0, 10)}` : ''}${d.purpose.session ? ` · session ${String(d.purpose.session).slice(0, 8)}` : ''}`,
     );
+  }
+  if (d.head) {
+    L.push(
+      `  code: ${d.head} · scope: merge-base ${d.mergeBase} with ${d.base} plus local changes (${d.changes.all.length} paths)`,
+    );
+    L.push(
+      `  host: ${d.host} (${d.platform}) · Node ${d.node.actual}, pin ${d.node.expected ?? 'absent'}`,
+    );
+    L.push(
+      `  tools on PATH (presence only): ${Object.entries(d.tools)
+        .map(([name, location]) => `${name}=${location ?? 'missing'}`)
+        .join(' ')}`,
+    );
+    for (const peer of d.slotPeers) L.push(`  Slot collision: ${peer}`);
   }
   const p = d.ports;
   L.push(
@@ -225,8 +308,30 @@ export function formatOrientation(d) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const data = gather(process.cwd());
-  if (process.argv.includes('--json')) process.stdout.write(JSON.stringify(data, null, 2) + '\n');
-  else process.stdout.write(formatOrientation(data) + '\n');
-  process.exit(data.root ? 0 : 1);
+  const USAGE = 'Usage: just orient [--json] [--base <ref>]';
+  const args = process.argv.slice(2);
+  let base = 'origin/main';
+  let json = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--json') json = true;
+    else if (args[i] === '--base' && args[i + 1] && !args[i + 1].startsWith('-')) {
+      base = args[++i];
+    } else if (args[i] === '--help') {
+      console.log(USAGE);
+      process.exit(0);
+    } else {
+      console.error(USAGE);
+      process.exit(2);
+    }
+  }
+
+  try {
+    const data = gather(process.cwd(), base);
+    if (json) process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+    else process.stdout.write(formatOrientation(data) + '\n');
+    process.exitCode = data.root ? 0 : 1;
+  } catch (error) {
+    console.error(`orient: ${error.message}`);
+    process.exitCode = 1;
+  }
 }

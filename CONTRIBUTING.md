@@ -20,6 +20,12 @@ machine ready.
 
 ## 2. First build
 
+For a fresh task, fetch main and create a sibling worktree, then run `just orient` there.
+`just orient --json` provides the same inventory for tools; `--base <ref>` changes the
+comparison base (default `origin/main`). It includes the entire branch since the merge base,
+staged/unstaged changes and untracked files. It reports installed tool paths, missing dependencies,
+and worktrees sharing a slot; presence alone does not prove a working build or a safe QA target.
+
 ```bash
 just install      # install all workspace dependencies
 just tauri-dev    # run the desktop app (Wayland-first, port 5180)
