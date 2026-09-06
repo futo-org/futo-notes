@@ -164,7 +164,7 @@ export const CAVEATED = [
   ],
   [
     /^(test-cross-platform|prepush)$/,
-    'derives its ports and its Postgres database from the worktree slot, so two DIFFERENT ' +
+    'derives its ports and its SQLite database from the worktree slot, so two DIFFERENT ' +
       'worktrees can run it at once — but two runs in the same remote worktree are the same ' +
       'slot, and the second now aborts on the busy port instead of adopting the first server. ' +
       'The remote worktree lock is what stops that happening at all.',

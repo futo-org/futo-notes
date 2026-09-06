@@ -28,7 +28,11 @@ owners.
 | `local_notes.rs`                           | `local_notes_*` projection, including desktop note/folder trash policy.               |
 | `filesystem_watcher.rs`                    | Recursive watcher, normalized events, rename pairing, and typed one-shot suppression. |
 | `vault_location.rs`                        | Custom-root persistence, vault availability reporting, and the debug/release default-root safety split. |
-| `image_commands.rs`                        | Image import and clipboard bitmap persistence.                                        |
+| `image_commands.rs`                        | Clipboard bitmap → PNG persistence (`fs_paste_clipboard_image`).                     |
+| `app_menu.rs`                              | macOS application menu; frontend items forwarded as `app-menu` events.               |
+| `window_reveal.rs`                         | Reveals the hidden window once the shell paints, with a timeout fallback.            |
+| `instance_journal.rs`                      | Installs the instance journal under the app data dir.                                |
+| `background_tasks.rs`                      | Shared blocking-task boundary and uniform join/I/O error mapping.                    |
 | `system_trash.rs`                          | Recoverable delete with headless hard-delete fallback.                                |
 | `sync/*`                                   | Tauri wiring for the shared sync session/orchestrator.                                |
 | `platform_integration.rs`                  | Linux integration, single-instance behavior, and process setup.                       |
@@ -39,7 +43,8 @@ owners.
 
 The current frontend contract is:
 
-- `local_notes_bootstrap`, `local_notes_snapshot`, `local_notes_inventory`
+- `local_notes_bootstrap`, `local_notes_startup_listing`, `local_notes_snapshot`,
+  `local_notes_inventory`
 - `local_notes_read`, `local_notes_exists`, `local_notes_save`,
   `local_notes_flush_draft`
 - `local_notes_delete`, `local_notes_move`
@@ -47,7 +52,7 @@ The current frontend contract is:
   `local_notes_move_folder`, `local_notes_delete_folder`
 - `local_notes_reset`
 - `local_notes_search`, `local_notes_wait_until_search_ready`,
-  `local_notes_rescan`
+  `local_notes_rescan`, `local_notes_refresh_external_changes`
 
 These commands expose workflow-shaped results. `local_notes_save` commits the
 body, optional rename, collision resolution, and every resolvable backlink
@@ -105,7 +110,9 @@ compatibility requirements and must not be reintroduced.
   The frontend delegates default selection through `resolve_default_notes_root`
   in `src/lib/platform/tauri/notesRoot.ts`; it never reconstructs either path.
 - The default root is created on first use; a **custom** root is not. A custom
-  root that has gone missing fails every command with `Notes folder unavailable`
+  root that has gone missing fails every command with the vault-unavailable
+  error (`vault_location::VAULT_UNAVAILABLE`, surfaced as the localized
+  "Can't find your vault folder at {folderPath}. Please reconfigure in settings.")
   rather than being recreated, so notes are never written into an empty directory
   standing where the vault used to be. `vault_status` reports that state without
   touching the vault, which is what keeps the recovery UI reachable.

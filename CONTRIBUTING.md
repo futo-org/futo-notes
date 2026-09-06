@@ -43,9 +43,10 @@ local `.env`.
 
 This repo ships shared Claude Code config under `.claude/`:
 
-- **Skills** (`.claude/skills/`) — `/bugfix`, `/release`, `/slow-review`,
-  `/test-agent`, `/verify`, `/zulip`. Available automatically when you open the
-  repo in Claude Code. Note `/release`, `/verify`, and `/zulip` need
+- **Skills** (`.claude/skills/`) — `/bugfix`, `/ci-doctor`, `/release`,
+  `/slow-review`, `/spec-sync`, `/test-agent`, `/verify`, `/verify-specs`,
+  `/zulip`, and more (`ls .claude/skills`). Available automatically when you
+  open the repo in Claude Code. Note `/release`, `/verify`, and `/zulip` need
   `GITLAB_TOKEN` / `ZULIP_API_KEY` (see step 3).
 - **Workflows** (`.claude/workflows/`) — multi-agent flows like `sync-adversarial`.
 - **Shared settings** (`.claude/settings.json`) — a small project permission

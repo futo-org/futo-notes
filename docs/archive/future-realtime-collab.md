@@ -1,3 +1,5 @@
+> **Archived.** Exploratory notes, not a plan; nothing in the shipping apps implements this.
+
 # Future: Sharing and Real-Time Collaboration
 
 ## Vision

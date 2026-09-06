@@ -165,8 +165,9 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   nothing. → SettingsScreen.svelte
 - **A vault that has gone missing** — an unmounted drive, a revoked sandbox grant
   — is a recoverable state, not a wedged app: the root is never recreated in
-  place, every note command fails with `Notes folder unavailable`, the shell
-  toasts "Notes folder unavailable — choose a folder in Settings", and the
+  place, every note command fails with the vault-unavailable error, the shell
+  toasts the localized `notesFolderUnavailable` message ("Can't find your vault
+  folder at {folderPath}. Please reconfigure in settings."), and the
   Storage section explains it ("This folder is no longer reachable. Choose it
   again, or reset to the default location.") and keeps both **Change directory**
   and **Reset to default** usable. `isCustom` is read from the vault's _location_,

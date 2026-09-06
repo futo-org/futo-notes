@@ -20,7 +20,11 @@ The desktop adapter is split by responsibility:
   `AppState` — there is no separate session-state bridge module.
 - **`vault_location.rs`**: the only authority for environment overrides, persisted custom roots, and the CRITICAL debug (`fake-notes`) / release (`futo-notes`) default split.
 - **`filesystem_watcher.rs`**: `notify` lifecycle, rename-cookie pairing, relative-path normalization, `fs:change` emission, and the typed one-shot `WatcherSuppression` service shared by note/folder/sync commands.
-- **`image_commands.rs`**: image file import and native clipboard-to-PNG ingestion.
+- **`image_commands.rs`**: native clipboard bitmap → PNG ingestion (`fs_paste_clipboard_image`); file-based image import goes through `PlatformFS`, not this module.
+- **`portal_vault.rs`**: document-portal vaults — path recognition, grant persistence, host-path display, and the watcher-backend reliability probe.
+- **`app_menu.rs`**: the macOS application menu; frontend-performed items are forwarded as `app-menu` events whose ids the frontend shortcut registry dispatches on.
+- **`window_reveal.rs`**: shows the initially hidden window once the shell paints, with a timeout fallback so a frontend that never paints cannot hide the app.
+- **`instance_journal.rs`**: installs the instance journal (`futo_notes_core::journal`) under the app data dir.
 - **`system_trash.rs`**: recoverable desktop delete policy plus the headless hard-delete fallback.
 - **`platform_integration.rs`**: Linux log/theme/decorations, single-instance setup, and Unix file-descriptor preparation.
 - **`updater_commands.rs`**, **`panic_reporter.rs`**: updater capability and Rust crash persistence.
@@ -50,7 +54,7 @@ TypeScript handles reactive note projection state, preferences, and sync coordin
 
 ## Tauri MCP
 
-Debug builds include the MCP bridge. Prefer `webview-execute-js` for deterministic automation over brittle UI clicking when possible.
+Debug builds include the MCP bridge. Prefer `webview_execute_js` for deterministic automation over brittle UI clicking when possible.
 
 For sync server switching, use the dev-only webview hook:
 
@@ -72,28 +76,26 @@ Notes:
 just tauri-dev       # Desktop dev (Wayland-first)
 just tauri-prod      # Production-config desktop dev
 just tauri-build     # Production desktop build
-just test-rust       # Rust unit tests (creates dist/ first)
+just test-rust-full  # Full Rust workspace, this crate included (creates dist/ first)
 ```
 
 (Mobile builds are native: `just ios-native` / `just android-native` / `just deploy-ios` — see root AGENTS.md.)
-
-`test:rust` requires `dist/` to exist (Tauri build system expects it). The script creates it automatically.
 
 ## Verification (Required)
 
 | What changed | Run |
 |---|---|
 | Desktop adapter logic (`apps/tauri/src-tauri/src`) | `cargo test -p futo-notes-tauri --lib` + `just test-rust-full` |
-| New `#[tauri::command]` | Add unit test for `_impl` function, then `just test-rust` |
+| New `#[tauri::command]` | Add unit test for `_impl` function, then `cargo test -p futo-notes-tauri --lib` (`just test-rust` runs only the model conformance suite and never compiles this crate) |
 | Tauri config / capabilities | `just tauri-dev` → manual smoke test |
 
 A new `#[tauri::command]` is not done until it is registered in `application.rs`'s
 `generate_handler!` surface **and** added to the matching TypeScript shim — a command registered
 but never called (or invoked under a name that isn't registered) fails
 `just check-command-reachability`. Mutations must register watcher suppression before writing.
-Dep-guard: portable crates must not pull `tantivy`/`ort` (CI `test:rust:dep-guard`).
+Dep-guard: portable crates must not pull `tantivy`/`ort` (`scripts/check-rust-dependency-boundaries.mjs`, run by CI `test:rust:workspace`).
 
 ## Constraints
 
-- **`window.confirm()`/`window.alert()` don't work in Tauri's webview.** Use `ask()`/`message()` from `@tauri-apps/plugin-dialog`.
+- **`window.confirm()`/`window.alert()` don't work in Tauri's webview.** Use `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`); a direct `@tauri-apps/plugin-dialog` import outside `src/lib/platform/**` fails `just check-platform-discipline`.
 - **Single-instance** (desktop only): second launch focuses the existing window. Kill stale processes when testing binary swaps.
