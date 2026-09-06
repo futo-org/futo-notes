@@ -922,14 +922,13 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   > Closing this needs a per-note history snapshot the ProseMirror history
   > plugin will accept back. → MilkdownEditor.svelte `resetHistory` / `openNote`
 
-  > **Gap:** a change that arrives from OUTSIDE the editor — a sync adopt, a
-  > host content push — is an ordinary undoable transaction, so one Ctrl-Z after
-  > a peer's edit lands can restore the version it superseded and hand that to
-  > the autosave. The CodeMirror editor applied external content outside the
-  > history (`EXTERNAL_CONTENT_OPTS`) precisely so undo could not revive a
-  > superseded version. → MilkdownEditor.svelte `applyExternal` (the
-  > `replaceAll` it dispatches carries no `addToHistory: false`),
-  > editor-embed/createFutoEditorApi.ts `applyExternalContent`
+- A change that arrives from OUTSIDE the editor — a note open, a sync adopt, a
+  host content push — is applied outside the undo history, so no Ctrl-Z can
+  revive the version it superseded and hand that to autosave. The user's own
+  earlier edits stay on the stack, rebased over the adopted document. →
+  MilkdownEditor.svelte `loadParsedDocument`,
+  editor-embed/createFutoEditorApi.ts `applyExternalContent`,
+  tests/editor-embed-milkdown.spec.ts
 
 - Formatting is reachable by typing Markdown: `# `…`###### `, `- `/`+ `/`* `,
   `1. `, `> `, ` ```lang `, `---`, `**bold**`, `*em*`/`_em_`, `` `code` ``,

@@ -29,21 +29,19 @@ vi.mock('$lib/platform', async (importOriginal) => ({
  * that opened a wikilink token it could not close was one, fixed in d402d0aa —
  * but none is guaranteed to survive the next parser fix, and the contract has
  * to hold for the NEXT one. So the throw is injected at the one call the
- * component makes to parse a whole document.
+ * component makes to parse a note (parseNote.ts).
  */
 const POISONED = '# a note this build cannot parse\n\nbody\n';
 
-vi.mock('@milkdown/kit/utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@milkdown/kit/utils')>();
+vi.mock('./parseNote', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./parseNote')>();
   return {
     ...actual,
-    replaceAll: (markdown: string, ...rest: unknown[]) => {
+    parseNote: (editor: unknown, markdown: string) => {
       if (markdown === POISONED) {
-        return () => {
-          throw new Error('Cannot close tableHeader: a different token (wikilink) is open');
-        };
+        throw new Error('Cannot close tableHeader: a different token (wikilink) is open');
       }
-      return (actual.replaceAll as (...args: unknown[]) => unknown)(markdown, ...rest);
+      return (actual.parseNote as (...args: unknown[]) => unknown)(editor, markdown);
     },
   };
 });

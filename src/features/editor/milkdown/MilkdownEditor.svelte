@@ -30,7 +30,6 @@
     defaultValueCtx,
     editorViewCtx,
     editorViewOptionsCtx,
-    parserCtx,
     remarkStringifyOptionsCtx,
     rootCtx,
   } from '@milkdown/kit/core';
@@ -76,6 +75,7 @@
   import { codeHighlight } from './codeHighlight';
   import { createSlashMenuPlugin, resolveSlashMenu } from './slash';
   import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
+  import { parseNote } from './parseNote';
   import {
     OPEN_COMPLETE_MEASURE,
     OPEN_INTERACTIVE_MEASURE,
@@ -411,10 +411,12 @@
           ctx.set(rootCtx, container);
           ctx.set(defaultValueCtx, pendingContent ?? '');
           /* Stop remark-stringify turning a note's leading `#tag` into `\#tag`
-           * on save, which silently un-tags it. See
-           * packages/editor/src/milkdown-compat/atxEscape.ts — Milkdown's own
-           * `text` handler is what gets wrapped, so its behavior is preserved
-           * and only the escape condition narrows. */
+           * on save, which silently un-tags it, and `snake_case` into
+           * `snake\_case` (which also un-tags `#dog_problems`). See
+           * packages/editor/src/milkdown-compat/atxEscape.ts and
+           * underscoreEscape.ts — Milkdown's own `text` handler is what gets
+           * wrapped, so its behavior is preserved and only the escape
+           * conditions narrow. */
           ctx.update(remarkStringifyOptionsCtx, (options) => {
             // Milkdown always installs its own `text` handler, and this wraps
             // that one rather than replacing it. If it ever stops, leaving the
@@ -805,6 +807,30 @@
   }
 
   /**
+   * Replaces the whole document with `parsed`, OUTSIDE the undo history.
+   *
+   * This is Milkdown's `replaceAll` body with one addition, and the addition is
+   * data safety: content that arrives from OUTSIDE the editor — a note open, a
+   * sync adopt, a host content push — must not be something Ctrl-Z can take
+   * back. Applied as an ordinary transaction, one undo after a peer's version
+   * landed restored the version it superseded and handed that to autosave,
+   * writing the stale note over the fresh one. `addToHistory: false` keeps the
+   * load off the stack; the user's own earlier edits stay undoable, rebased
+   * over it by prosemirror-history the way the CodeMirror editor's
+   * `EXTERNAL_CONTENT_OPTS` did. It also means documentChanges.ts never reports
+   * the load itself — correct, since a load is never an edit.
+   * → docs/spec/editor.md "Saving & rename", tests/editor-embed-milkdown.spec.ts
+   */
+  function loadParsedDocument(view: ProseView, parsed: ProseNode): void {
+    const { state } = view;
+    view.dispatch(
+      state.tr
+        .replace(0, state.doc.content.size, new Slice(parsed.content, 0, 0))
+        .setMeta('addToHistory', false),
+    );
+  }
+
+  /**
    * Loads the whole document in one parse — what every ordinary note does.
    *
    * Returns false if the parse threw. The caller records that as a failed load
@@ -812,9 +838,12 @@
    * note this build cannot parse is shown as unreadable rather than emptied.
    */
   function applyWholeDocument(text: string): boolean {
-    if (!editor) return false;
+    const view = pmView();
+    if (!editor || !view) return false;
     try {
-      editor.action(replaceAll(text));
+      const parsed = parseNote(editor, text);
+      if (!parsed) return false;
+      loadParsedDocument(view, parsed);
     } catch (error) {
       console.error('MilkdownEditor: could not parse this note', error);
       return false;
@@ -853,19 +882,18 @@
    *
    * Guarded exactly like every later chunk: a first chunk the plugin chain eats
    * would otherwise be dropped silently, and it is the one the user is looking
-   * at. The parse is done here rather than through `replaceAll` (this is that
-   * macro's non-flush body, verbatim) so the parsed chunk is in hand for the
-   * guard and for `previousChunkEndedEmpty`.
+   * at. Parsed here rather than through `applyWholeDocument` so the parsed
+   * chunk is in hand for the guard and for `previousChunkEndedEmpty`; the
+   * replace itself is the same non-undoable one (`loadParsedDocument`).
    */
   function applyFirstChunk(markdown: string): boolean {
     const view = pmView();
     if (!editor || !view) return false;
     try {
-      const parsed = editor.ctx.get(parserCtx)(markdown);
+      const parsed = parseNote(editor, markdown);
       if (!parsed) return false;
       if (chunkShouldHaveContent(markdown) && isEffectivelyEmpty(parsed)) return false;
-      const { state } = view;
-      view.dispatch(state.tr.replace(0, state.doc.content.size, new Slice(parsed.content, 0, 0)));
+      loadParsedDocument(view, parsed);
       previousChunkEndedEmpty = endsWithOwnEmptyParagraph(parsed);
       return true;
     } catch (error) {
@@ -886,7 +914,7 @@
     const view = pmView();
     if (!editor || !view) return false;
     try {
-      const parsed = editor.ctx.get(parserCtx)(markdown);
+      const parsed = parseNote(editor, markdown);
       if (!parsed) return false;
       // Real markdown that parses to nothing has been eaten by the plugin
       // chain; appending it would drop that slice of the note.
@@ -1047,9 +1075,9 @@
 
     progressive = load;
     streamingTail = load.loading;
-    // After chunk 0: its replace is itself an undoable transaction, and
-    // the host's `resetHistory()` (which drops this back to 0) only runs once
-    // this returns.
+    // After chunk 0. Its replace is outside the history (`loadParsedDocument`),
+    // so this is the depth of whatever the user had before the load: 0 after
+    // the host's `resetHistory()` on an open, their own edits on a sync adopt.
     const view = pmView();
     historyBaselineDepth = view ? undoDepth(view.state) : 0;
     measureOpen(OPEN_INTERACTIVE_MEASURE);

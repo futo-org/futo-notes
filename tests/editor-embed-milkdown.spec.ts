@@ -498,6 +498,37 @@ test('undo inside one note still works', async ({ page }) => {
   expect(await getContent(page)).toBe('keep\n');
 });
 
+/*
+ * Data safety: a version that arrives from OUTSIDE the editor is not an edit,
+ * so it cannot be undone. `applyExternalContent` is the sync-adopt path, and it
+ * deliberately does NOT reset the undo stack (the user's own edits stay
+ * undoable), which is exactly what made this a hole: as an ordinary transaction
+ * the adopt sat on top of the stack, and one Ctrl-Z revived the superseded
+ * version and handed it to autosave. → docs/spec/editor.md "Saving & rename"
+ */
+test('a version adopted from outside the editor is not something undo can revive', async ({
+  page,
+}) => {
+  await hostSetContent(page, 'mine');
+  await focusEditor(page);
+  await page.keyboard.press('End');
+  await page.keyboard.type(' typed');
+  await waitForMessages(page, 'change');
+
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent('theirs\n'),
+  );
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('theirs\n');
+
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('theirs\n');
+});
+
 // ============================================================
 // Focus and link routing
 // ============================================================
