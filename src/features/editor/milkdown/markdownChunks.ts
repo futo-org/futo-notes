@@ -38,6 +38,21 @@
  *
  * HTML blocks 6 and 7 end AT a blank line by definition, so a blank line after
  * one is a genuine boundary and needs no tracking.
+ *
+ * A cut point is not only the line AFTER a blank line: CommonMark guarantees a
+ * NEW top-level block starts at a column-0 ATX heading, fence opener,
+ * blockquote start, or "interrupting" list item (a non-empty bullet, or an
+ * ordered item starting at `1`), regardless of what precedes it — the same
+ * rule that lets these constructs interrupt a paragraph without a blank line.
+ * This is what makes a note with no blank line anywhere (`tests/lib/editorDevicePerf.mjs`'s
+ * `lineFixture`, and the largest declined corpus notes) chunkable. Three more
+ * things must stay closed for it to be safe:
+ *
+ * | Construct | Handling |
+ * |---|---|
+ * | A GFM table | tracked from its delimiter row; ends only at a blank line, over-approximated |
+ * | An HTML block of type 6/7 (`<div>`, any other bare tag) | tracked from its first line; ends only at a blank line, over-approximated |
+ * | An open top-level blockquote | tracked; a lazy continuation line does NOT close it, so nothing after it may cut in as a NEW block until a hard starter or blank line closes the quote |
  */
 
 /** How a plan chose its cut points. */
@@ -121,6 +136,61 @@ const REFERENCE_DEFINITION = /^ {0,3}\[[^\]]*\]:/;
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 
 /**
+ * Parses a fence-opener line, or returns null. Shared by `advance` (which
+ * tracks the open fence) and the non-blank boundary rule (which treats any
+ * fence opener as a hard starter) so the backtick-info-string exception below
+ * is checked in exactly one place.
+ */
+function parseFenceOpen(line: string): { marker: string; length: number } | null {
+  const match = FENCE_OPEN.exec(line);
+  if (!match) return null;
+  /* A backtick fence's info string may not contain a backtick — ```` ```toml` ````
+   * is a PARAGRAPH, not a code block. See `advance`'s comment at its call site
+   * for what reading it as a fence used to break. */
+  if (match[1][0] === '`' && match[2].includes('`')) return null;
+  return { marker: match[1][0], length: match[1].length };
+}
+
+/** A top-level (column-0..3) blockquote marker. */
+const BLOCKQUOTE_LINE = /^ {0,3}>/;
+
+/**
+ * ATX heading: `#` through `######`, followed by a space/tab or end of line.
+ * Column-0 only is enforced by the caller (see the boundary rule) rather than
+ * here, because `advance` also needs to know about an indented heading-shaped
+ * line reading as a lazy continuation, not a heading.
+ */
+const ATX_HEADING = /^#{1,6}(?:[ \t]|$)/;
+
+/**
+ * A list item that CommonMark lets interrupt a paragraph without a blank
+ * line: a non-empty bullet, or an ordered item starting at exactly `1`. `2. x`
+ * and an empty `- ` cannot interrupt, so neither is a hard starter.
+ */
+const INTERRUPTING_LIST_ITEM = /^(?:[-*+]|1[.)])[ \t]+\S/;
+
+/**
+ * A GFM table delimiter row (`| --- | :-: |`, or the bare `---` shape, which
+ * is harmless here since a lone `---` is never a hard starter anyway). Once
+ * seen, the table is presumed open until a blank line — deliberately
+ * over-approximated the same way the HTML-block-6/7 tracking below is: the
+ * cost of treating a false positive as "still a table" is a missed cut, never
+ * a wrong one.
+ */
+const TABLE_DELIMITER_ROW = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
+
+/**
+ * The start of an HTML block NOT covered by `HTML_BLOCK_STARTS` (types 1-5,
+ * which have their own end condition) — CommonMark's types 6 and 7, which end
+ * only at a blank line. Deliberately over-approximate: a bare inline tag like
+ * `<span>` at the start of a line also matches, and is also presumed to run
+ * until a blank line even though it does not. That costs a missed cut on a
+ * document shaped that way; it can never cause a wrong one, because nothing
+ * inside the run is ever offered as a boundary while the flag holds.
+ */
+const HTML_BLOCK_6_7_START = /^ {0,3}<[A-Za-z/!?]/;
+
+/**
  * A line that would open YAML front matter if it were the first line of a
  * document: exactly `---` at column 0, nothing after it but whitespace
  * (micromark-extension-frontmatter's opening condition — `----` and ` ---` are
@@ -196,6 +266,20 @@ interface ScanState {
    * into one. That was 73 of the corpus's first 153 divergences.
    */
   inList: boolean;
+  /**
+   * Whether a top-level BLOCKQUOTE is currently open. A lazy continuation line
+   * (plain text, no `>`) does NOT close it — CommonMark keeps reading it as
+   * part of the quote — so nothing after one may be offered as a NEW
+   * top-level block until a hard starter or a blank line closes it. Cleared
+   * by: a blank line, a column-0 ATX heading, a column-0 fence opener, or a
+   * column-0 INTERRUPTING list item — each of those closes an open blockquote
+   * exactly as it closes an open list.
+   */
+  inBlockquote: boolean;
+  /** An HTML block of type 6/7 may be open; see `HTML_BLOCK_6_7_START`. */
+  htmlUntilBlank: boolean;
+  /** A GFM table may be open; see `TABLE_DELIMITER_ROW`. */
+  tableUntilBlank: boolean;
   /** Whether the PREVIOUS line was blank — i.e. the next line may start a block. */
   prevLineBlank: boolean;
   sawReferenceDefinition: boolean;
@@ -228,6 +312,10 @@ function advance(state: ScanState, raw: string): void {
 
   if (isBlank(line)) {
     state.prevLineBlank = true;
+    // A blank line closes every "until blank" tracked construct.
+    state.inBlockquote = false;
+    state.htmlUntilBlank = false;
+    state.tableUntilBlank = false;
     return;
   }
 
@@ -241,20 +329,17 @@ function advance(state: ScanState, raw: string): void {
    * interrupt a paragraph. */
   const startsTopLevelBlock = atTopLevel && state.prevLineBlank;
   const looksLikeListItem = LIST_MARKER.test(line);
+  const interrupts = atTopLevel && INTERRUPTING_LIST_ITEM.test(line);
 
-  const fenceOpen = FENCE_OPEN.exec(line);
-  /* A backtick fence's info string may not contain a backtick — ```` ```toml` ````
-   * is a PARAGRAPH, not a code block. Reading it as a fence opened one the
-   * scanner then never closed, and every boundary for the rest of the note
-   * disagreed with remark about what was code. */
-  const isFence = fenceOpen !== null && !(fenceOpen[1][0] === '`' && fenceOpen[2].includes('`'));
-  if (fenceOpen && isFence) {
-    state.fence = {
-      marker: fenceOpen[1][0],
-      length: fenceOpen[1].length,
-      indent: indentWidth(line),
-    };
-    if (startsTopLevelBlock) state.inList = false;
+  const fenceOpen = parseFenceOpen(line);
+  if (fenceOpen) {
+    state.fence = { marker: fenceOpen.marker, length: fenceOpen.length, indent: indentWidth(line) };
+    /* A column-0 fence opener closes an open list or blockquote even without a
+     * preceding blank line — it is one of CommonMark's hard block starts. */
+    if (atTopLevel) {
+      state.inList = false;
+      state.inBlockquote = false;
+    }
     state.prevLineBlank = false;
     state.lastContentIndent = indentWidth(line);
     return;
@@ -269,7 +354,32 @@ function advance(state: ScanState, raw: string): void {
     return;
   }
 
+  if (HTML_BLOCK_6_7_START.test(line)) {
+    state.htmlUntilBlank = true;
+    state.prevLineBlank = false;
+    return;
+  }
+
+  if (atTopLevel && ATX_HEADING.test(line)) {
+    /* A column-0 ATX heading closes an open list or blockquote even without a
+     * preceding blank line, same as a fence opener. */
+    state.inList = false;
+    state.inBlockquote = false;
+    state.prevLineBlank = false;
+    return;
+  }
+
+  if (TABLE_DELIMITER_ROW.test(line)) state.tableUntilBlank = true;
+
   if (REFERENCE_DEFINITION.test(line)) state.sawReferenceDefinition = true;
+
+  if (BLOCKQUOTE_LINE.test(line)) {
+    state.inBlockquote = true;
+    if (atTopLevel) state.inList = false;
+  } else if (interrupts) {
+    // A column-0 interrupting list item closes an open blockquote too.
+    state.inBlockquote = false;
+  }
 
   /* Any marker indented less than 4 is a list item near the top level — the
    * regex already caps the indent at 3. `  - a` under a paragraph opens a list
@@ -278,6 +388,26 @@ function advance(state: ScanState, raw: string): void {
   if (looksLikeListItem) state.inList = true;
   else if (startsTopLevelBlock) state.inList = false;
   state.prevLineBlank = false;
+}
+
+/**
+ * Whether `bare` may start a new top-level block regardless of what precedes
+ * it — CommonMark's "interrupting" constructs. Only checked when the previous
+ * line was NOT blank (the blank case is the existing, simpler rule) and the
+ * line sits at column 0 outside every protected/tracked construct; see the
+ * module header table for the constructs that gate this.
+ */
+function isHardStarter(bare: string, state: ScanState): boolean {
+  /* `- | -` is both an INTERRUPTING_LIST_ITEM and a GFM table delimiter row —
+   * remark-gfm reads `a | b` / `- | -` / `c | d` as ONE table, so cutting in
+   * front of the delimiter row would turn it into a paragraph plus a list.
+   * A table delimiter row is never a hard starter, whatever else it matches. */
+  if (TABLE_DELIMITER_ROW.test(bare)) return false;
+  if (ATX_HEADING.test(bare)) return true;
+  if (parseFenceOpen(bare) !== null) return true;
+  if (BLOCKQUOTE_LINE.test(bare) && !state.inBlockquote) return true;
+  if (INTERRUPTING_LIST_ITEM.test(bare) && !state.inList) return true;
+  return false;
 }
 
 /**
@@ -306,6 +436,9 @@ export function planMarkdownChunks(
     htmlEnd: null,
     lastContentIndent: 0,
     inList: false,
+    inBlockquote: false,
+    htmlUntilBlank: false,
+    tableUntilBlank: false,
     prevLineBlank: true,
     sawReferenceDefinition: false,
   };
@@ -348,6 +481,18 @@ export function planMarkdownChunks(
           boundaries.push(next);
         }
       }
+    } else if (
+      i > 0 &&
+      !inProtectedBlock &&
+      !state.htmlUntilBlank &&
+      !state.tableUntilBlank &&
+      !state.prevLineBlank &&
+      i >= frontMatterEnd &&
+      indentWidth(bare) === 0 &&
+      isHardStarter(bare, state)
+    ) {
+      // A hard starter cuts even without a preceding blank line.
+      boundaries.push(i);
     }
 
     advance(state, lines[i]);

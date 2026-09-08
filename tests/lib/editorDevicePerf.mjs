@@ -22,6 +22,13 @@
  *   for a fixture that exists to be the `linear` comparison's reference, or
  *   whose open time is not a claim about the product. Their keystroke budget
  *   still applies.
+ * - A `measured`/`linear` fixture may additionally set `openPolicy.interactive:
+ *   'hard'` to hold ONLY its interactive-first-viewport time to the same 1s
+ *   budget as a `hard` fixture — without gaining `hard`'s first-focus check.
+ *   markdownChunks.ts's non-blank cut points (a column-0 heading, fence,
+ *   blockquote, or interrupting list item) mean a document with no blank line
+ *   anywhere can still chunk, so its open can meet the interactive budget even
+ *   though it never carried the `hard` policy's real-note-viewport shape.
  * - The keystroke budget applies to EVERY fixture: typing stays interactive at
  *   any size (AGENTS.md M5).
  *
@@ -64,16 +71,26 @@ function contentLine(index) {
  * together (AGENTS.md §12).
  *
  * Note what this document IS: every line abuts the next, so it has no blank
- * line anywhere — and a blank line is the only place `markdownChunks.ts` is
- * willing to cut. `planMarkdownChunks` therefore declines it (`no-boundary`)
- * and it loads whole, which is why it can only carry the `linear`/`measured`
- * policies here and never the interactive budget. It does NOT fuse into a few
- * giant blocks, as this comment once claimed: list items and blockquotes
- * interrupt the paragraphs, so 10k lines parse to ~5,000 small top-level blocks
- * (measured in Crepe on 2026-09-04) — the same block count as the blank-line
- * fixture, loaded whole and with the caret at the END of the document, which is
- * what makes it the harder typing case. The no-boundary fact is asserted in
- * editorDevicePerf.test.mjs so this comment cannot quietly go stale.
+ * line anywhere. Before `markdownChunks.ts` learned to cut at a non-blank
+ * "hard starter" (a column-0 heading, fence, blockquote, or interrupting list
+ * item), a blank line was the ONLY place it was willing to cut, so
+ * `planMarkdownChunks` declined this fixture (`no-boundary`) outright. It no
+ * longer does: the list-item and blockquote lines this fixture cycles through
+ * are hard starters, so it chunks under the DEFAULT options too (first chunk
+ * 82 lines at every size tried, verified in editorDevicePerf.test.mjs) — see
+ * markdownChunks.test.ts's own copy of this shape for the line-by-line reason.
+ * It still does NOT fuse into a few giant blocks, as an even older version of
+ * this comment claimed: list items and blockquotes interrupt the paragraphs,
+ * so 10k lines parse to ~5,000 small top-level blocks (measured in Crepe on
+ * 2026-09-04) — the same block count as the blank-line fixture, and still
+ * loaded with the caret at the END of the document, which is what keeps this
+ * the harder typing case. The device runner gives it the interactive budget
+ * via `openPolicy.interactive: 'hard'` rather than promoting it all the way to
+ * the `hard` policy: first focus after a full load is Chromium's editable-
+ * focus work over the fully rendered document (containment was retired
+ * 2026-09-05 — every block renders eagerly by the time "complete" fires),
+ * measured at 1.6s / 3.9s at 10k/25k lines on the 2026-09-06 gate run, and
+ * that is not what the open budget measures.
  */
 export function lineFixture(lines) {
   return Array.from({ length: lines }, (_, index) => contentLine(index)).join('\n');
@@ -160,9 +177,7 @@ export function evaluateDeviceFloor(fixtures, results) {
       });
     }
 
-    if (fixture.openPolicy.kind === 'measured') continue;
-
-    if (fixture.openPolicy.kind === 'hard') {
+    const checkInteractiveBudget = () => {
       if (result.interactiveMs >= DEVICE_BUDGET.interactiveMs) {
         violations.push({
           fixture: fixture.name,
@@ -172,6 +187,17 @@ export function evaluateDeviceFloor(fixtures, results) {
             `is not under the ${DEVICE_BUDGET.interactiveMs}ms budget`,
         });
       }
+    };
+
+    if (fixture.openPolicy.kind === 'measured') {
+      // `interactive: 'hard'` asserts the open budget without gaining the
+      // `hard` policy's first-focus check — see the module header comment.
+      if (fixture.openPolicy.interactive === 'hard') checkInteractiveBudget();
+      continue;
+    }
+
+    if (fixture.openPolicy.kind === 'hard') {
+      checkInteractiveBudget();
       if (result.firstFocusMs >= DEVICE_BUDGET.firstFocusMs) {
         violations.push({
           fixture: fixture.name,
@@ -183,6 +209,9 @@ export function evaluateDeviceFloor(fixtures, results) {
       }
       continue;
     }
+
+    // Only `linear` policies reach here (`measured` and `hard` both `continue`d above).
+    if (fixture.openPolicy.interactive === 'hard') checkInteractiveBudget();
 
     const reference = byName.get(fixture.openPolicy.reference);
     if (!reference) {

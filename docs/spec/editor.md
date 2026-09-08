@@ -1374,6 +1374,10 @@ EditorWebView.swift, EditorWebView.kt
   back to a single whole-document parse. → milkdown/markdownChunks.ts,
   milkdown/progressiveLoad.ts, `just chunk-census`,
   docs/evidence/milkdown-chunk-census.md
+- A chunk may also begin without a preceding blank line, at a column-0 ATX
+  heading, fence opener, blockquote start, or list item CommonMark lets
+  interrupt a paragraph — so a note with no blank line anywhere can still
+  open progressively. → milkdown/markdownChunks.ts
 - While the tail is still streaming, content cannot leave the editor as a
   PREFIX: `change` is suppressed, and `getContent()` either returns the host's
   original bytes (nothing was edited) or forces the rest of the parse. A pinned

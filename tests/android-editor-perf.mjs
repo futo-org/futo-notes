@@ -88,15 +88,24 @@ const LOCAL_NOTE_PATH = path.join(REPORT_DIR, 'device-perf-note.md');
 // Two ladders, because the two budgets need different documents.
 //
 // `*-blocks` fixtures are real-note shaped — blank line between blocks — and
-// carry the interactive-first-viewport budget, which is only meaningful on a
-// document progressive open will cut. `*-lines` fixtures are the desktop
-// floor's own generator (differential-locked in editorDevicePerf.test.mjs) so
-// the device numbers stay comparable to MILKDOWN_FLOOR_FIXTURES'; they have no
-// blank line anywhere, so `planMarkdownChunks` declines them and they load
-// whole. That measured 15.7s at 10k lines on this phone, which is why they
-// carry the scaling and keystroke assertions and NOT the 1s gate — matching
-// plan §5, where the notes that offer no safe boundary "open no worse than they
-// do today" instead of being held to the interactive budget.
+// carry the full `hard` policy: interactive-first-viewport AND first focus.
+// `*-lines` fixtures are the desktop floor's own generator (differential-
+// locked in editorDevicePerf.test.mjs) so the device numbers stay comparable
+// to MILKDOWN_FLOOR_FIXTURES'; they have no blank line anywhere. Before
+// markdownChunks.ts learned to cut at a non-blank "hard starter" (a column-0
+// heading, fence, blockquote, or interrupting list item), `planMarkdownChunks`
+// declined them outright and they loaded whole — that measured 15.7s at 10k
+// lines on this phone. They chunk now: the list-item and blockquote lines this
+// generator cycles through are hard starters (verified in
+// markdownChunks.test.ts and editorDevicePerf.test.mjs), so `10000-lines` and
+// `25000-lines` now carry `openPolicy.interactive: 'hard'` too — the
+// interactive budget is meaningful for them, matching plan §5's point that a
+// document offering a safe boundary opens progressively regardless of shape.
+// They still do NOT carry the `hard` policy's first-focus check: first focus
+// after a full load is Chromium's editable-focus work over the fully rendered
+// document (containment was retired 2026-09-05), measured at 1.6s / 3.9s at
+// 10k/25k lines on the 2026-09-06 gate run and reported but not gated — see
+// `lineFixture`'s own comment in editorDevicePerf.mjs.
 //
 // The adversarial byte fixtures stay desktop-only: §2's note-size population
 // says nothing about benchmark-shaped documents, and shipping 10 MiB through
@@ -116,27 +125,35 @@ function fixturePlan() {
     });
   }
   plan.push(
-    // The reference for the cliff check below. Reported, never open-gated.
-    { name: '10000-lines', openPolicy: { kind: 'measured' }, build: () => lineFixture(10_000) },
+    // The reference for the cliff check below. Its open is now held to the
+    // interactive budget too (it chunks — see the comment above), but not to
+    // first focus.
+    {
+      name: '10000-lines',
+      openPolicy: { kind: 'measured', interactive: 'hard' },
+      build: () => lineFixture(10_000),
+    },
     {
       name: '25000-lines',
-      openPolicy: { kind: 'linear', reference: '10000-lines' },
+      openPolicy: { kind: 'linear', reference: '10000-lines', interactive: 'hard' },
       build: () => lineFixture(25_000),
     },
   );
-  /* 50k lines is what plan §5 names, and on the reference phone it is not
-   * affordable in a routine run: a 50k unchunkable document did not finish its
-   * leg inside 20 minutes there (the open is a whole-document parse and each
-   * settled-to-paint sample costs tens of seconds at that size, with the
-   * renderer at 560 MB on a 2.8 GB phone). The cliff check is a RATIO, so
-   * 10k→25k proves the same "scales linearly, no cliff" property at a fraction
-   * of the cost; `--stress` adds the 50k rung for anyone who wants the number
-   * §5 quotes. Making it opt-in is a cost decision, not a weaker assertion —
-   * the same policy is applied to whichever rungs run. */
+  /* 50k lines is what plan §5 names, and on the reference phone it is still
+   * not affordable in a routine run — but not because the open is unmeasurable
+   * any more. It chunks now, the same as 10k/25k (see the comment above), so
+   * this is held to the interactive budget too. The cost that remains is the
+   * KEYSTROKE samples: each settled-to-paint sample is a layout pass over a
+   * ~25,000-block document, slow enough on its own that the routine 10k/25k
+   * ladder already proves the
+   * same "scales linearly, no cliff" property (a RATIO check) at a fraction of
+   * the wall-clock cost. `--stress` adds the 50k rung for anyone who wants the
+   * number §5 quotes. Making it opt-in is a cost decision, not a weaker
+   * assertion — the same policy is applied to whichever rungs run. */
   if (STRESS) {
     plan.push({
       name: '50000-lines',
-      openPolicy: { kind: 'linear', reference: '10000-lines' },
+      openPolicy: { kind: 'linear', reference: '10000-lines', interactive: 'hard' },
       build: () => lineFixture(50_000),
     });
   }

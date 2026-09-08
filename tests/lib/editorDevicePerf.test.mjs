@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { lineFixture as gauntletLineFixture } from '../editor-gauntlet/performanceFloor';
+import { planMarkdownChunks } from '../../src/features/editor/milkdown/markdownChunks';
 import {
   DEVICE_BUDGET,
   blockFixture,
@@ -101,12 +102,17 @@ describe('evaluateDeviceFloor', () => {
   });
 
   /**
-   * Why the device ladder needs two generators, locked so the reason cannot
-   * rot: the interactive-first-viewport budget is only meaningful on a document
-   * progressive open will actually chunk, and the desktop floor's `lineFixture`
-   * is not one. Measured on the reference phone (moto g play 2023), the 10k
-   * `lineFixture` opened in 15.7s — it declines chunking and loads whole, so no
-   * amount of editor work could put it under 1s.
+   * Why the device ladder still keeps two generators, locked so the reason
+   * cannot rot. Measured on the reference phone (moto g play 2023) before
+   * markdownChunks.ts learned to cut at a non-blank "hard starter", the 10k
+   * `lineFixture` opened in 15.7s — it declined chunking outright and loaded
+   * whole. It chunks now (its list-item and blockquote lines are hard
+   * starters, verified directly in markdownChunks.test.ts and structurally
+   * here), which is why `tests/android-editor-perf.mjs` holds it to the
+   * interactive budget too (`openPolicy.interactive: 'hard'`). It still does
+   * NOT carry the `hard` policy's first-focus check: see `lineFixture`'s own
+   * comment in editorDevicePerf.mjs for why first focus is measured but not
+   * gated for it.
    */
   describe('fixture shapes', () => {
     it('separates blocks with blank lines, so the interactive budget measures a chunkable note', () => {
@@ -114,6 +120,14 @@ describe('evaluateDeviceFloor', () => {
       // interactive budget is measured on.
       expect(blockFixture(1_000).split('\n\n').length).toBeGreaterThan(400);
       expect(lineFixture(1_000).split('\n\n').length).toBe(1);
+    });
+
+    it('chunks lineFixture too, despite having no blank line, via its non-blank hard starters', () => {
+      // The reason two generators still exist is NOT "lineFixture cannot
+      // chunk" — see the describe block's own comment for the real one.
+      const plan = planMarkdownChunks(lineFixture(1_000));
+      expect(plan.chunked).toBe(true);
+      expect(plan.chunks[0].split('\n').length).toBeLessThanOrEqual(90);
     });
 
     it('returns exactly the requested line count, so per-line costs are honest', () => {
@@ -156,5 +170,65 @@ describe('evaluateDeviceFloor', () => {
     expect(evaluateDeviceFloor(measured, slowKeys)).toMatchObject([
       { fixture: 'big-note', kind: 'keystroke-budget' },
     ]);
+  });
+
+  describe('openPolicy.interactive: "hard" on a measured/linear fixture', () => {
+    /**
+     * Some `measured`/`linear` fixtures now chunk (a note with no blank line
+     * can still offer plenty of non-blank cut points, markdownChunks.ts), so
+     * the interactive-first-viewport budget is meaningful for them too — but
+     * first focus is measured but not asserted for them: after a full load it
+     * is Chromium's editable-focus work over the whole rendered document, 1.6 s
+     * and 3.9 s at 10k/25k lines on the 2026-09-06 gate run, which is not what
+     * the open budget measures (docs/plan/milkdown-transition.md §5).
+     */
+    it('flags a linear fixture past the interactive budget when the field is set', () => {
+      const linearHard = [
+        { name: '10000-lines', openPolicy: { kind: 'measured' } },
+        {
+          name: '25000-lines',
+          openPolicy: { kind: 'linear', reference: '10000-lines', interactive: 'hard' },
+        },
+      ];
+      const results = [
+        result('10000-lines', 10_000),
+        result('25000-lines', 25_000, { interactiveMs: DEVICE_BUDGET.interactiveMs }),
+      ];
+      const violations = evaluateDeviceFloor(linearHard, results);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toMatchObject({ fixture: '25000-lines', kind: 'interactive-budget' });
+    });
+
+    it('does not flag the same run when the field is absent', () => {
+      const linearMeasured = [
+        { name: '10000-lines', openPolicy: { kind: 'measured' } },
+        { name: '25000-lines', openPolicy: { kind: 'linear', reference: '10000-lines' } },
+      ];
+      const results = [
+        result('10000-lines', 10_000),
+        result('25000-lines', 25_000, { interactiveMs: DEVICE_BUDGET.interactiveMs }),
+      ];
+      expect(evaluateDeviceFloor(linearMeasured, results)).toEqual([]);
+    });
+
+    it('flags a measured fixture past the interactive budget when the field is set', () => {
+      const measuredHard = [
+        { name: '10000-lines', openPolicy: { kind: 'measured', interactive: 'hard' } },
+      ];
+      const results = [
+        result('10000-lines', 10_000, { interactiveMs: DEVICE_BUDGET.interactiveMs }),
+      ];
+      const violations = evaluateDeviceFloor(measuredHard, results);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toMatchObject({ fixture: '10000-lines', kind: 'interactive-budget' });
+    });
+
+    it('never asserts first focus for a measured/linear fixture, hard or not', () => {
+      const linearHard = [
+        { name: '10000-lines', openPolicy: { kind: 'measured', interactive: 'hard' } },
+      ];
+      const results = [result('10000-lines', 10_000, { firstFocusMs: 999_000 })];
+      expect(evaluateDeviceFloor(linearHard, results)).toEqual([]);
+    });
   });
 });
