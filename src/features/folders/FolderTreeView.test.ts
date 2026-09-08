@@ -104,7 +104,10 @@ describe('FolderTreeView per-folder empty state', () => {
 // ~125 ms of a ~148 ms Ctrl+Tab at 2,533 rows, which CSS containment does not
 // avoid. Only mounting the visible window removes that work, so the row count
 // is the thing worth locking. → docs/perf/tab-switch-baseline.md
-describe('FolderTreeView virtualization', () => {
+// These mount up to 600 rows on purpose. Locally each takes ~55 ms; on the shared
+// CI runner with three pipelines in flight they took 5.4 s and tripped the 5 s
+// default (pc_fdd571c1ceb2). The budget is CPU starvation, not logic.
+describe('FolderTreeView virtualization', { timeout: 30_000 }, () => {
   let target: HTMLDivElement;
   let app: ReturnType<typeof mount> | null = null;
   let clientHeight: ReturnType<typeof vi.spyOn> | null = null;
