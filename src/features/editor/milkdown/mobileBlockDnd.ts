@@ -273,7 +273,10 @@ function ensureStyles(): void {
       overflow: hidden;
       padding: ${GHOST_PAD_Y_PX}px ${GHOST_PAD_X_PX}px;
       border-radius: 14px;
-      background: var(--color-surface, #f2f2f2);
+      /* Translucent on purpose: the card is drawn over the drop indicator
+       * line and the dimmed source block, and both need to read through it.
+       * Only the background is see-through — text stays fully opaque. */
+      background: color-mix(in srgb, var(--color-surface, #f2f2f2) 80%, transparent);
       border: 1px solid var(--color-border, #e5e5e5);
       box-shadow:
         0 1px 2px rgba(0, 0, 0, 0.12),
@@ -318,11 +321,10 @@ function ensureStyles(): void {
       border-radius: 2px;
       background: var(--color-primary, #f26b1f);
       pointer-events: none;
-      /* Drawn ABOVE the ghost card (z-index 1000) on purpose: the card
-       * follows the finger and is wider than this line, so a card-over-line
-       * order would hide the line at every boundary it overlaps — confirmed
-       * on the emulator 2026-09-08, where the line never showed at all. */
-      z-index: 1001;
+      /* Drawn UNDER the ghost card (z-index 1000): the card's background is
+       * translucent (see .futo-mobile-dnd-ghost-card above), so the line
+       * still reads through it instead of being fully hidden. */
+      z-index: 999;
       opacity: 0;
       transition: opacity 0.08s ease;
     }

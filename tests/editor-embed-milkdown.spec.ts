@@ -1266,9 +1266,11 @@ mobileDndTest('one boundary is one slot, approached from either side', async ({ 
 // empty paragraph (a blank rounded card with a line running through it). Two
 // causes: the line drew for a drop that does nothing (either of the dragged
 // block's own two boundaries), and the card and line raced for the same
-// z-index. Both fixed in blockMove.ts (isNoOpDrop) and mobileBlockDnd.ts.
+// z-index. isNoOpDrop (blockMove.ts) fixes the first; the second is fixed by
+// drawing the card OVER the line with a translucent background, so the line
+// (and the dimmed source block) still read through it (mobileBlockDnd.ts).
 mobileDndTest(
-  "the drop line hides over the dragged block's own boundaries",
+  "the drop line hides over the dragged block's own boundaries, and reads through the card",
   async ({ page, cdp }) => {
     await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
     await clearMessages(page);
@@ -1309,9 +1311,9 @@ mobileDndTest(
     expect(await indicatorVisible()).toBe(false);
     expect(await ticks()).toBe(ticksAtBravo);
 
-    // The line is drawn over the card, never under it — the card is wider
-    // than the line and follows the finger, so a card-over-line order would
-    // hide the line at every boundary it overlaps.
+    // The card is drawn over the line, not under it — and the card's
+    // background is translucent so the line (and the dimmed source block)
+    // still show through it.
     const zIndices = await page.evaluate(() => {
       const ghost = document.querySelector('.futo-mobile-dnd-ghost');
       const indicator = document.querySelector('.futo-mobile-dnd-indicator');
@@ -1322,7 +1324,31 @@ mobileDndTest(
     });
     expect(zIndices.ghost).not.toBeNull();
     expect(zIndices.indicator).not.toBeNull();
-    expect(zIndices.indicator as number).toBeGreaterThan(zIndices.ghost as number);
+    expect(zIndices.ghost as number).toBeGreaterThan(zIndices.indicator as number);
+
+    // The card's background must be genuinely translucent (alpha strictly
+    // between 0 and 1) — not opaque (which would hide the line completely
+    // again) and not `opacity` on the whole card (which would fade the text).
+    const cardAlpha = await page.evaluate(() => {
+      const card = document.querySelector('.futo-mobile-dnd-ghost-card');
+      if (!card) return null;
+      const bg = getComputedStyle(card).backgroundColor;
+      // A color-mix() background resolves to `color(srgb r g b / a)` in this
+      // Chromium, not rgb()/rgba() — handle both forms, defaulting to fully
+      // opaque (1) when no alpha component is present.
+      const rgbMatch = bg.match(
+        /^rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(?:,\s*([\d.]+)\s*)?\)$/,
+      );
+      if (rgbMatch) return rgbMatch[1] === undefined ? 1 : Number.parseFloat(rgbMatch[1]);
+      const colorMatch = bg.match(
+        /^color\([\w-]+\s+[\d.]+\s+[\d.]+\s+[\d.]+(?:\s*\/\s*([\d.]+)\s*)?\)$/,
+      );
+      if (colorMatch) return colorMatch[1] === undefined ? 1 : Number.parseFloat(colorMatch[1]);
+      return null;
+    });
+    expect(cardAlpha).not.toBeNull();
+    expect(cardAlpha as number).toBeGreaterThan(0);
+    expect(cardAlpha as number).toBeLessThan(1);
 
     // Release over the source: a true no-op, same as the dedicated test above.
     await touch(cdp, 'touchEnd', alpha.x, alphaY);
