@@ -201,21 +201,25 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   rather than only after a relaunch. Linux falls back to the reported change and
   then to the media query only when no portal answers. → theme.ts
   `resolveAutoTheme`, platform_integration.rs `read_desktop_color_scheme`
-- One desktop light/dark change arrives as a **burst** of portal signals, not
-  one, and every signal the app interprets agrees on the same theme, whatever
-  order they arrive in: settings that merely look like a theme change are
-  ignored — `accent-color`, and KDE's `ColorScheme` scheme *name* signal, which
-  lives under a different D-Bus key entirely. Overlapping theme applies are
-  serialized so the newest request wins, never whichever resolved last. →
-  desktop_settings.rs (`read_snapshot`, filtered by exact namespace/key rather
-  than string matching), theme.ts `applyThemePreference`
+- One desktop light/dark change can arrive alongside unrelated portal signals
+  on the same `SettingChanged` stream, and only an exact
+  `org.freedesktop.appearance` / `color-scheme` namespace+key match re-resolves
+  the theme — settings that merely look like a theme change, such as KDE's
+  `ColorScheme` scheme *name* signal (a different key entirely), are ignored.
+  Overlapping theme applies are serialized so the newest request wins, never
+  whichever resolved last. → desktop_settings.rs (`read_snapshot`, filtered by
+  exact namespace/key rather than string matching), theme.ts
+  `applyThemePreference`
   <!-- NOTE (rebase judgment call, flagged for review): this paragraph
   originally documented platform_integration.rs's `desktop_theme_from_setting_changed`,
   a gdbus-output string parser main hardened independently. !277 replaces that
   whole mechanism with desktop_settings.rs's typed zbus reads, which the rebase
   resolution kept (see .rebase-log.md); the burst-signal guarantee still holds,
   just via a different, more robust implementation, so the reference was
-  updated rather than left dangling. -->
+  updated rather than left dangling. The desktop accent-following feature
+  (which desktop_settings.rs's watcher also carried) was itself reverted by
+  !277's own last commit (d916ee15) after review, so the snapshot now only
+  ever carries theme. -->
 - Linux reads the portal's current colour scheme before relying on later change
   signals, so switching Light/Dark back to Auto immediately resolves from the
   desktop rather than from WebKitGTK's app-pinned media query. Older portals

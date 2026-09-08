@@ -36,7 +36,7 @@ real desktop is dropped or reshaped, not forced.
 | #   | Workstream                                       | Why this position                                                                  |
 | --- | ------------------------------------------------ | ---------------------------------------------------------------------------------- |
 | 1   | GPU renderer gating                              | Smallest change, and every later feel judgment should be made with the GPU path on |
-| 2   | Portal plumbing over zbus, plus accent color     | Provides the desktop-settings reader that 3 and 4 also want                        |
+| 2   | Portal plumbing over zbus                        | Provides the desktop-settings reader that 3 and 4 also want                        |
 | 3   | One header row: window controls in the top band  | Largest visible change                                                             |
 | 4   | ~~System font for the interface~~ (dropped)      | Installed-build review preferred the established Barlow identity                   |
 | 5   | Desktop entry, markdown association, open-a-file | Independent, but the launcher test wants 3 landed so screenshots are final         |
@@ -103,17 +103,21 @@ find it (the README's Linux section, not only the spec).
 
 ---
 
-## WS2 — Read desktop settings over D-Bus, and follow the accent color
+## WS2 — Read desktop settings over D-Bus
 
 **Today.** `platform_integration.rs` `watch_linux_theme` spawns `gdbus monitor` and greps its
 stdout for `color-scheme` and `uint32 1`. That binary is not in the AppImage and not on every
 distro, and the watcher only reports changes, never the current value. `zbus = "5"` is already a
-Linux dependency of the crate. Accent color is not read at all; `--color-primary` in
-`src/styles/theme.css:3` and `:33` is fixed orange.
+Linux dependency of the crate.
 
-**Goal.** One small Rust module that reads and watches `org.freedesktop.portal.Settings`, emits
-the current value at startup and every change afterward, and covers both `color-scheme` and
-`accent-color`. The frontend can follow the desktop accent when the user wants it.
+**Goal.** One small Rust module that reads and watches `org.freedesktop.portal.Settings` for
+`color-scheme`, and emits the current value at startup and every change afterward.
+
+**Accent color: dropped in review.** An earlier revision also read
+`org.freedesktop.appearance accent-color` and recoloured `--color-primary` from it, on by
+default. Review rejected it: no other platform follows the desktop accent, and recolouring the
+primary token repaints the brand mark. `--color-primary` stays brand orange everywhere; the
+steps below keep only the `color-scheme` half.
 
 **Steps.**
 
@@ -122,15 +126,11 @@ the current value at startup and every change afterward, and covers both `color-
    `watch_linux_theme` is spawned today. Talk to `org.freedesktop.portal.Desktop` at
    `/org/freedesktop/portal/desktop`, interface `org.freedesktop.portal.Settings`:
    - `ReadOne("org.freedesktop.appearance", "color-scheme")` → `u32`: 1 dark, 0 or 2 light.
-   - `ReadOne("org.freedesktop.appearance", "accent-color")` → `(ddd)` in 0..1, or values out of
-     range meaning "no preference". Older portals lack `ReadOne`; fall back to `Read`, which
-     wraps the value in an extra variant. Older portals also lack `accent-color`; treat a
-     missing key as "no preference", not an error.
-   - Subscribe to the `SettingChanged(namespace, key, value)` signal and re-emit on those two
-     keys.
-2. Parsing from `zbus::zvariant::Value` into a small enum (`ColorScheme::{Light, Dark}`,
-   `Accent::{None, Rgb(f64,f64,f64)}`) lives in pure functions with unit tests. Include the
-   `Read`-wrapped shape and the out-of-range accent case.
+     Older portals lack `ReadOne`; fall back to `Read`, which wraps the value in an extra
+     variant.
+   - Subscribe to the `SettingChanged(namespace, key, value)` signal and re-emit on that key.
+2. Parsing from `zbus::zvariant::Value` into a small enum (`ColorScheme::{Light, Dark}`) lives in
+   pure functions with unit tests. Include the `Read`-wrapped shape.
 3. Emit `linux-theme-changed` exactly as today (payload `"dark"` or `"light"`) so
    `src/features/system/theme.ts` `watchSystemThemeTauri` keeps working unchanged. Emit it once
    at startup with the current value; today the app only learns the desktop theme when it
@@ -138,25 +138,14 @@ the current value at startup and every change afterward, and covers both `color-
    Verify whether a fresh launch on a dark desktop with Auto currently renders light for a
    moment or for good; the answer decides whether this is a bug fix or a tidy-up, and belongs in
    the commit.
-4. Add `linux-accent-changed` with payload `{ r, g, b }` or `null`.
-5. Frontend, `src/features/system/`: a new small module (`accent.ts`) that maps the payload to
-   `--color-primary` on the root element and derives theme-aware hover and selection variants
-   with `color-mix()` rather than shipping a palette. The portal supplies one base accent, so
-   that base intentionally stays identical in light and dark themes. Grep `src/styles` and `src/features` for the
-   literal `#f26b1f` and `#ff7a33` first; every copy either moves onto the token or is listed in
-   the commit as deliberately left alone (M17).
-6. Decide the default. Native GNOME and Plasma apps follow the accent without asking. The brand
-   orange is a product choice. Recommendation: Appearance settings gain a **Follow system accent
-   color** toggle, default on for Linux desktop, persisted next to the theme preference in
-   `createAppBootstrap.svelte.ts`. When the portal reports no preference the brand color stays.
-7. Delete `watch_linux_theme` and the `gdbus` dependency.
+4. ~~Follow the desktop accent color~~ (dropped in review — see above).
+5. Delete `watch_linux_theme` and the `gdbus` dependency.
 
 **Verify.** `gsettings set org.gnome.desktop.interface color-scheme prefer-dark` flips the app
-live, both directions, and a fresh launch picks up the current value. `gsettings set
-org.gnome.desktop.interface accent-color teal` (GNOME 47+) recolors buttons and links live. Both
-also from the AppImage, since that build has no `gdbus`. Rust unit tests for the parsers; a
-vitest for the accent → CSS mapping. Spec: `docs/spec/settings.md` Theme paragraph loses the
-"cannot observe" caveat if step 3 fixes startup, and gains the accent toggle line.
+live, both directions, and a fresh launch picks up the current value — also from the AppImage,
+since that build has no `gdbus`. Rust unit tests for the parser. Spec: `docs/spec/settings.md`
+Theme paragraph loses the "cannot observe" caveat if step 3 fixes startup, and records that the
+app never follows the desktop accent.
 
 ---
 
@@ -366,22 +355,20 @@ mtime and content). Vitest alongside the existing shortcut tests. Spec: the shor
 
 ## Recorded implementation decisions
 
-1. Follow the system accent by default on Linux, with a persisted opt-out.
+1. ~~Follow the system accent by default on Linux, with a persisted opt-out.~~ Reversed in
+   review (!277): no other platform follows the desktop accent, and recolouring
+   `--color-primary` repaints the brand mark. The accent read, the `linux-accent-changed` event,
+   `accent.ts`, the settings toggle and `preferences.followSystemAccent` are all gone; only the
+   light/dark `color-scheme` read remains.
 2. Keep both the interface and editor on Barlow, with no font changer.
 3. Prompt to copy an outside-vault markdown file into notes or cancel; never edit it in place or
    copy it silently.
 4. Installed KDE testing showed a generic Alt+Tab icon because `FUTO Notes.desktop` did not match
    the `futo-notes-tauri` Wayland app ID. Keep that visible launcher for existing pins and add a
    hidden `futo-notes-tauri.desktop` identity alias to Debian and RPM packages.
-5. Persist the approved accent opt-out as `AppState.preferences.followSystemAccent`; this schema
-   addition was explicitly approved before implementation.
-6. Keep the portal-provided base accent unchanged between light and dark themes. Hover and
-   selection remain theme-aware through `color-mix()`; inventing a second base colour would no
-   longer be following the system value.
-7. The remaining `#f26b1f` under `@property --syntax-property` is deliberate: an `initial-value`
-   must be a concrete colour and cannot reference the runtime primary token. The ordinary light
-   and dark primary declarations remain the brand fallback that portal inline values override.
-8. `feat/open-note-disposition-desktop` was inspected and is already merged into `main`
+5. ~~Persist the approved accent opt-out as `AppState.preferences.followSystemAccent`.~~
+   Reversed with decision 1; `AppState.preferences` carries `theme` alone, as on `main`.
+6. `feat/open-note-disposition-desktop` was inspected and is already merged into `main`
    (`c4e653fa`); this work reused its disposition rather than introducing a competing event.
 9. Tauri's `Productivity` category is intentional because the Linux bundler maps it to the
    freedesktop `Office` category requested by WS5.

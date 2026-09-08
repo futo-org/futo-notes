@@ -113,23 +113,10 @@ describe('language preference', () => {
   });
 });
 
-describe('Linux appearance preferences', () => {
-  it('keeps brand defaults outside the Linux desktop shell', async () => {
+describe('appearance preferences', () => {
+  it('exposes the theme as the only appearance preference', async () => {
     const { getCachedPreferences } = await fresh();
 
-    expect(getCachedPreferences().appearance).toEqual({
-      theme: 'auto',
-      followSystemAccent: false,
-    });
-  });
-
-  it('round-trips the approved accent preference', async () => {
-    const { getCachedPreferences, savePreferences } = await fresh();
-    const preferences = getCachedPreferences();
-    preferences.appearance.followSystemAccent = true;
-
-    await savePreferences(preferences);
-
-    expect(getCachedPreferences().appearance.followSystemAccent).toBe(true);
+    expect(getCachedPreferences().appearance).toEqual({ theme: 'auto' });
   });
 });

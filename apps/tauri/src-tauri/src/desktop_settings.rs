@@ -17,34 +17,16 @@ const SETTINGS_INTERFACE: &str = "org.freedesktop.portal.Settings";
 const APPEARANCE_NAMESPACE: &str = "org.freedesktop.appearance";
 #[cfg(target_os = "linux")]
 const COLOR_SCHEME_KEY: &str = "color-scheme";
-#[cfg(target_os = "linux")]
-const ACCENT_COLOR_KEY: &str = "accent-color";
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ColorScheme {
     Light,
     Dark,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Accent {
-    None,
-    Rgb(f64, f64, f64),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AccentColor {
-    r: f64,
-    g: f64,
-    b: f64,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DesktopSettingsSnapshot {
     theme: &'static str,
-    accent: Option<AccentColor>,
 }
 
 #[cfg(target_os = "linux")]
@@ -53,21 +35,6 @@ fn parse_color_scheme(value: &Value<'_>) -> Option<ColorScheme> {
         Value::U32(1) => Some(ColorScheme::Dark),
         Value::U32(0 | 2) => Some(ColorScheme::Light),
         _ => None,
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn parse_accent(value: &Value<'_>) -> Accent {
-    let Ok((r, g, b)) = <(f64, f64, f64)>::try_from(unwrap_variant(value)) else {
-        return Accent::None;
-    };
-    if [r, g, b]
-        .into_iter()
-        .all(|channel| (0.0..=1.0).contains(&channel))
-    {
-        Accent::Rgb(r, g, b)
-    } else {
-        Accent::None
     }
 }
 
@@ -105,20 +72,11 @@ fn read_snapshot(proxy: &zbus::blocking::Proxy<'_>) -> DesktopSettingsSnapshot {
         .as_deref()
         .and_then(parse_color_scheme)
         .unwrap_or(ColorScheme::Light);
-    let accent = read_setting(proxy, ACCENT_COLOR_KEY)
-        .ok()
-        .as_deref()
-        .map(parse_accent)
-        .unwrap_or(Accent::None);
 
     DesktopSettingsSnapshot {
         theme: match theme {
             ColorScheme::Light => "light",
             ColorScheme::Dark => "dark",
-        },
-        accent: match accent {
-            Accent::None => None,
-            Accent::Rgb(r, g, b) => Some(AccentColor { r, g, b }),
         },
     }
 }
@@ -144,7 +102,6 @@ pub(crate) async fn linux_desktop_settings() -> Result<DesktopSettingsSnapshot, 
 #[cfg(target_os = "linux")]
 fn emit_snapshot(app: &tauri::AppHandle, snapshot: &DesktopSettingsSnapshot) {
     let _ = app.emit("linux-theme-changed", snapshot.theme);
-    let _ = app.emit("linux-accent-changed", snapshot.accent);
 }
 
 #[cfg(target_os = "linux")]
@@ -162,7 +119,7 @@ pub(crate) fn watch(app: tauri::AppHandle) -> Result<(), String> {
         let Ok((namespace, key, _value)) = body.deserialize::<(&str, &str, OwnedValue)>() else {
             continue;
         };
-        if namespace == APPEARANCE_NAMESPACE && matches!(key, COLOR_SCHEME_KEY | ACCENT_COLOR_KEY) {
+        if namespace == APPEARANCE_NAMESPACE && key == COLOR_SCHEME_KEY {
             emit_snapshot(&app, &read_snapshot(&proxy));
         }
     }
@@ -185,19 +142,5 @@ mod tests {
             Some(ColorScheme::Dark)
         );
         assert_eq!(parse_color_scheme(&Value::U32(3)), None);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn parses_accent_and_rejects_out_of_range_channels() {
-        let direct = Value::from((0.25, 0.5, 0.75));
-        assert_eq!(parse_accent(&direct), Accent::Rgb(0.25, 0.5, 0.75));
-
-        let wrapped = Value::Value(Box::new(Value::from((0.1, 0.2, 0.3))));
-        assert_eq!(parse_accent(&wrapped), Accent::Rgb(0.1, 0.2, 0.3));
-
-        assert_eq!(parse_accent(&Value::from((-0.1, 0.2, 0.3))), Accent::None);
-        assert_eq!(parse_accent(&Value::from((0.1, 1.2, 0.3))), Accent::None);
-        assert_eq!(parse_accent(&Value::U32(1)), Accent::None);
     }
 }

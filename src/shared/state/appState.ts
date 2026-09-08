@@ -7,7 +7,7 @@
  * exists. The legacy file is left in place for safety.
  */
 
-import { getPlatformFS, hasFileSystem, isLinux, isTauri } from '$lib/platform';
+import { getPlatformFS, hasFileSystem } from '$lib/platform';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -17,7 +17,6 @@ export interface AppState {
   preferences: {
     theme: 'auto' | 'dark' | 'light';
     selectedLanguageTag: string | null;
-    followSystemAccent: boolean;
   };
 
   crashReporting: {
@@ -71,13 +70,11 @@ function generateDeviceId(): string {
 }
 
 function defaultState(): AppState {
-  const linuxDesktop = isTauri && isLinux;
   return {
     deviceId: generateDeviceId(),
     preferences: {
       theme: 'auto',
       selectedLanguageTag: null,
-      followSystemAccent: linuxDesktop,
     },
     crashReporting: {
       enabled: true,
@@ -194,10 +191,6 @@ function sanitize(raw: unknown): AppState {
         typeof rawPrefs.selectedLanguageTag === 'string' && rawPrefs.selectedLanguageTag.length > 0
           ? rawPrefs.selectedLanguageTag
           : null,
-      followSystemAccent:
-        typeof rawPrefs.followSystemAccent === 'boolean'
-          ? rawPrefs.followSystemAccent
-          : defaults.preferences.followSystemAccent,
     },
     crashReporting: {
       enabled: typeof rawCrash.enabled === 'boolean' ? rawCrash.enabled : true,
@@ -396,7 +389,6 @@ export async function updateAppState(
 export interface AppPreferences {
   appearance: {
     theme: 'auto' | 'dark' | 'light';
-    followSystemAccent: boolean;
   };
   language: {
     selectedLanguageTag: string | null;
@@ -421,7 +413,6 @@ function stateToPrefs(): AppPreferences {
   return {
     appearance: {
       theme: s.preferences.theme,
-      followSystemAccent: s.preferences.followSystemAccent,
     },
     language: { selectedLanguageTag: s.preferences.selectedLanguageTag },
     crashReporting: { ...s.crashReporting },
@@ -457,7 +448,6 @@ export async function savePreferences(prefs: AppPreferences): Promise<void> {
       ...getAppState().preferences,
       theme: prefs.appearance.theme,
       selectedLanguageTag: prefs.language.selectedLanguageTag,
-      followSystemAccent: prefs.appearance.followSystemAccent,
     },
     crashReporting: prefs.crashReporting,
     updates: prefs.updates,

@@ -27,10 +27,7 @@ vi.mock('$lib/platform', () => ({
 import { loadPreferences } from './appState';
 
 describe('Linux desktop appearance defaults', () => {
-  it('adds the accent default and drops the removed interface-font preference', async () => {
-    expect((await loadPreferences()).appearance).toEqual({
-      theme: 'dark',
-      followSystemAccent: true,
-    });
+  it('drops the removed interface-font preference', async () => {
+    expect((await loadPreferences()).appearance).toEqual({ theme: 'dark' });
   });
 });
