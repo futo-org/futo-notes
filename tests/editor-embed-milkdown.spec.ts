@@ -1268,7 +1268,7 @@ mobileDndTest('one boundary is one slot, approached from either side', async ({ 
 // block's own two boundaries), and the card and line raced for the same
 // z-index. Both fixed in blockMove.ts (isNoOpDrop) and mobileBlockDnd.ts.
 mobileDndTest(
-  "the drop line hides over the dragged block's own boundaries, and the card is drawn above it",
+  "the drop line hides over the dragged block's own boundaries",
   async ({ page, cdp }) => {
     await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
     await clearMessages(page);
@@ -1309,7 +1309,9 @@ mobileDndTest(
     expect(await indicatorVisible()).toBe(false);
     expect(await ticks()).toBe(ticksAtBravo);
 
-    // The card is drawn over the line, never under it.
+    // The line is drawn over the card, never under it — the card is wider
+    // than the line and follows the finger, so a card-over-line order would
+    // hide the line at every boundary it overlaps.
     const zIndices = await page.evaluate(() => {
       const ghost = document.querySelector('.futo-mobile-dnd-ghost');
       const indicator = document.querySelector('.futo-mobile-dnd-indicator');
@@ -1320,7 +1322,7 @@ mobileDndTest(
     });
     expect(zIndices.ghost).not.toBeNull();
     expect(zIndices.indicator).not.toBeNull();
-    expect(zIndices.indicator as number).toBeLessThan(zIndices.ghost as number);
+    expect(zIndices.indicator as number).toBeGreaterThan(zIndices.ghost as number);
 
     // Release over the source: a true no-op, same as the dedicated test above.
     await touch(cdp, 'touchEnd', alpha.x, alphaY);

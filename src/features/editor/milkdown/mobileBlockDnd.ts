@@ -256,10 +256,6 @@ function ensureStyles(): void {
       top: 0;
       margin: 0;
       pointer-events: none;
-      /* Above the drop-indicator line (z-index 999, below): Notion-style, the
-       * lifted card covers the line rather than the line showing through it —
-       * which is exactly where they overlap while the finger is still over
-       * the block it picked up (see isNoOpTarget's comment in the view class). */
       z-index: 1000;
       will-change: transform;
     }
@@ -322,8 +318,11 @@ function ensureStyles(): void {
       border-radius: 2px;
       background: var(--color-primary, #f26b1f);
       pointer-events: none;
-      /* Below the ghost card (z-index 1000, above) — see its comment. */
-      z-index: 999;
+      /* Drawn ABOVE the ghost card (z-index 1000) on purpose: the card
+       * follows the finger and is wider than this line, so a card-over-line
+       * order would hide the line at every boundary it overlaps — confirmed
+       * on the emulator 2026-09-08, where the line never showed at all. */
+      z-index: 1001;
       opacity: 0;
       transition: opacity 0.08s ease;
     }
