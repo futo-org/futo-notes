@@ -902,6 +902,40 @@ gutterHandleTest(
   },
 );
 
+// The desktop half of the same drop-line-over-the-ghost complaint the
+// long-press test above covers: dragging over the block's own two boundaries
+// must draw no line either, since `handleDrop` already refuses to commit
+// there (blockMove.ts isNoOpDrop).
+gutterHandleTest(
+  "the ⠿ handle's line hides while dragging over the block's own gaps",
+  async ({ page }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+
+    const alpha = await blockBox(page, 'alpha');
+    const handle = await surfaceHandle(page, 'alpha');
+    const bravo = await blockBox(page, 'bravo');
+
+    const drag = await startHandleDrag(page, handle);
+
+    // Still over "alpha" itself (its own upper boundary): no line.
+    await drag.over(alpha.x, alpha.top + 2);
+    expect(await dropIndicatorTop(page)).toBeNull();
+
+    // Its own lower boundary too.
+    await drag.over(alpha.x, alpha.bottom - 2);
+    expect(await dropIndicatorTop(page)).toBeNull();
+
+    // A genuinely different gap draws the line as before.
+    await drag.over(bravo.x, bravo.bottom - 3);
+    expect(await dropIndicatorTop(page)).not.toBeNull();
+
+    // Release back over the source: a no-op, not a commit.
+    await drag.drop(alpha.x, alpha.top + 2);
+    expect(await messagesOfType(page, 'change')).toHaveLength(0);
+  },
+);
+
 /** A list-final document with its trailing newlines collapsed to one (see the
  * first list test below for why). */
 const listOnly = (markdown: string): string => markdown.replace(/\n+$/, '\n');
@@ -1017,21 +1051,23 @@ gutterHandleTest(
     for (const y of probes) {
       await drag.over(blocks[0].x, y);
       const top = await dropIndicatorTop(page);
-      expect(top).not.toBeNull();
-      if (!tops.includes(top as number)) tops.push(top as number);
+      if (top !== null && !tops.includes(top)) tops.push(top);
     }
-    await drag.drop(blocks[0].x, upper(blocks[0]));
+    await drag.drop(blocks[0].x, (blocks[1].bottom + blocks[2].top) / 2);
 
-    // Three blocks have four boundaries, so four lines — and the LOWER half of
-    // a block, the margin below it and the UPPER half of the next block are all
-    // the same one. The old model drew a line on every block's top edge and
-    // every block's bottom edge: six, with two of them landing in each gap.
-    expect(tops).toHaveLength(blocks.length + 1);
+    // "alpha" is the block being dragged, so its own two boundaries — the very
+    // start of the document, and the alpha/bravo gap it already sits against —
+    // are no-op drops and draw no line (isNoOpDrop, blockMove.ts): alpha's own
+    // upper and lower halves, the margin right after it, and bravo's upper
+    // half (the SAME alpha/bravo gap, approached from the other side) all
+    // resolved to `null` above and are absent from `tops`. That leaves the
+    // remaining two REAL boundaries — the bravo/charlie gap and the end of the
+    // document — each drawing exactly one line, not the four the old
+    // prosemirror-drop-indicator-based model drew for two gaps.
+    expect(tops).toHaveLength(2);
     // `style.top` keeps six significant digits, so compare to the sub-pixel.
-    expect(tops[0]).toBeCloseTo(blocks[0].top, 2);
-    expect(tops[1]).toBeCloseTo((blocks[0].bottom + blocks[1].top) / 2, 2);
-    expect(tops[2]).toBeCloseTo((blocks[1].bottom + blocks[2].top) / 2, 2);
-    expect(tops[3]).toBeCloseTo(blocks[2].bottom, 2);
+    expect(tops[0]).toBeCloseTo((blocks[1].bottom + blocks[2].top) / 2, 2);
+    expect(tops[1]).toBeCloseTo(blocks[2].bottom, 2);
   },
 );
 
@@ -1224,6 +1260,102 @@ mobileDndTest('one boundary is one slot, approached from either side', async ({ 
   const changes = await messagesOfType(page, 'change');
   expect(changes[changes.length - 1].content).toBe('bravo\n\nalpha\n\ncharlie\n');
 });
+
+// A tester reported the orange drop-indicator line showing through the ghost
+// card while still holding a block over itself, which looked wrong on an
+// empty paragraph (a blank rounded card with a line running through it). Two
+// causes: the line drew for a drop that does nothing (either of the dragged
+// block's own two boundaries), and the card and line raced for the same
+// z-index. isNoOpDrop (blockMove.ts) fixes the first; the second is fixed by
+// drawing the card OVER the line with a translucent background, so the line
+// (and the dimmed source block) still read through it (mobileBlockDnd.ts).
+mobileDndTest(
+  "the drop line hides over the dragged block's own boundaries, and reads through the card",
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+
+    const indicatorVisible = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('.futo-mobile-dnd-indicator');
+        return (
+          el instanceof HTMLElement && el.classList.contains('futo-mobile-dnd-indicator--visible')
+        );
+      });
+    const ticks = async () =>
+      (await messagesOfType(page, 'haptic')).filter((m) => m.kind === 'move').length;
+
+    const alpha = await blockBox(page, 'alpha');
+    const alphaY = (alpha.top + alpha.bottom) / 2;
+    const bravo = await blockBox(page, 'bravo');
+
+    await touch(cdp, 'touchStart', alpha.x, alphaY);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+
+    // Still holding over "alpha" itself: resolves to one of its own two
+    // boundaries, a no-op drop — no line, no tick.
+    expect(await indicatorVisible()).toBe(false);
+    expect(await ticks()).toBe(0);
+
+    // "bravo"'s lower half: a genuinely new, real boundary.
+    await touch(cdp, 'touchMove', bravo.x, bravo.bottom - 3);
+    await page.waitForTimeout(32);
+    expect(await indicatorVisible()).toBe(true);
+    const ticksAtBravo = await ticks();
+    expect(ticksAtBravo).toBeGreaterThan(0);
+
+    // Back inside "alpha": hidden again, and the tick count must not move —
+    // this is a no-op boundary, not a new one to announce.
+    await touch(cdp, 'touchMove', alpha.x, alphaY);
+    await page.waitForTimeout(32);
+    expect(await indicatorVisible()).toBe(false);
+    expect(await ticks()).toBe(ticksAtBravo);
+
+    // The card is drawn over the line, not under it — and the card's
+    // background is translucent so the line (and the dimmed source block)
+    // still show through it.
+    const zIndices = await page.evaluate(() => {
+      const ghost = document.querySelector('.futo-mobile-dnd-ghost');
+      const indicator = document.querySelector('.futo-mobile-dnd-indicator');
+      return {
+        ghost: ghost ? Number.parseFloat(getComputedStyle(ghost).zIndex) : null,
+        indicator: indicator ? Number.parseFloat(getComputedStyle(indicator).zIndex) : null,
+      };
+    });
+    expect(zIndices.ghost).not.toBeNull();
+    expect(zIndices.indicator).not.toBeNull();
+    expect(zIndices.ghost as number).toBeGreaterThan(zIndices.indicator as number);
+
+    // The card's background must be genuinely translucent (alpha strictly
+    // between 0 and 1) — not opaque (which would hide the line completely
+    // again) and not `opacity` on the whole card (which would fade the text).
+    const cardAlpha = await page.evaluate(() => {
+      const card = document.querySelector('.futo-mobile-dnd-ghost-card');
+      if (!card) return null;
+      const bg = getComputedStyle(card).backgroundColor;
+      // A color-mix() background resolves to `color(srgb r g b / a)` in this
+      // Chromium, not rgb()/rgba() — handle both forms, defaulting to fully
+      // opaque (1) when no alpha component is present.
+      const rgbMatch = bg.match(
+        /^rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(?:,\s*([\d.]+)\s*)?\)$/,
+      );
+      if (rgbMatch) return rgbMatch[1] === undefined ? 1 : Number.parseFloat(rgbMatch[1]);
+      const colorMatch = bg.match(
+        /^color\([\w-]+\s+[\d.]+\s+[\d.]+\s+[\d.]+(?:\s*\/\s*([\d.]+)\s*)?\)$/,
+      );
+      if (colorMatch) return colorMatch[1] === undefined ? 1 : Number.parseFloat(colorMatch[1]);
+      return null;
+    });
+    expect(cardAlpha).not.toBeNull();
+    expect(cardAlpha as number).toBeGreaterThan(0);
+    expect(cardAlpha as number).toBeLessThan(1);
+
+    // Release over the source: a true no-op, same as the dedicated test above.
+    await touch(cdp, 'touchEnd', alpha.x, alphaY);
+    await settleChangeDebounce(page);
+    expect(await messagesOfType(page, 'change')).toHaveLength(0);
+  },
+);
 
 // ---- edge auto-scroll (the off-screen half of the note) ------------------
 //
@@ -1566,6 +1698,113 @@ for (const [name, run] of [
     expect(drags[drags.length - 1] ?? false).toBe(false);
   });
 }
+
+// A tester reported holding an empty line lifting it as a blank "phantom"
+// card AND raising the keyboard, the two visibly colliding. Product decision:
+// an empty paragraph is not liftable at all (module doc's "an empty
+// paragraph cannot be lifted"). 'alpha\n\n\nbravo' has two blank lines
+// between alpha and bravo, which load as one empty paragraph
+// (docs/spec/editor.md's "N blank lines load as N-1 empty paragraphs").
+mobileDndTest(
+  'an empty paragraph cannot be lifted, but a real block right next to it still can',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'alpha\n\n\nbravo');
+    expect(await page.evaluate(() => document.querySelectorAll('.ProseMirror > *').length)).toBe(3);
+    await clearMessages(page);
+
+    // Installed BEFORE the press: a ghost created and removed again before an
+    // after-the-fact query ran would otherwise look identical to no ghost.
+    await page.evaluate(() => {
+      (window as unknown as { __ghostSeen?: boolean }).__ghostSeen = false;
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of Array.from(mutation.addedNodes)) {
+            if (node instanceof HTMLElement && node.classList.contains('futo-mobile-dnd-ghost')) {
+              (window as unknown as { __ghostSeen?: boolean }).__ghostSeen = true;
+            }
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+
+    const emptyBox = await page.locator('.ProseMirror > *').nth(1).boundingBox();
+    if (!emptyBox) throw new Error('no geometry for the empty paragraph');
+    const empty = { x: emptyBox.x + emptyBox.width / 2, y: emptyBox.y + emptyBox.height / 2 };
+
+    await touch(cdp, 'touchStart', empty.x, empty.y);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 150);
+    await touch(cdp, 'touchEnd', empty.x, empty.y);
+    await settleChangeDebounce(page);
+
+    expect(
+      await page.evaluate(() => (window as unknown as { __ghostSeen?: boolean }).__ghostSeen),
+    ).toBe(false);
+    expect(await messagesOfType(page, 'haptic')).toHaveLength(0);
+    expect(await messagesOfType(page, 'blockDrag')).toHaveLength(0);
+    // Still armed like any other block press — that's what stands the
+    // platform's own long-press gestures down — just never liftable.
+    expect((await messagesOfType(page, 'blockPress')).map((m) => m.pressed)).toEqual([true, false]);
+    expect(await getContent(page)).toBe('alpha\n\n\nbravo');
+
+    // A real block right next to it is unaffected.
+    await clearMessages(page);
+    const alpha = await blockCenter(page, 'alpha');
+    await touch(cdp, 'touchStart', alpha.x, alpha.y);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 150);
+    expect((await messagesOfType(page, 'haptic')).map((m) => m.kind)).toEqual(['lift']);
+    await touch(cdp, 'touchEnd', alpha.x, alpha.y);
+  },
+);
+
+// The other half of the same tester report: on Android, Chromium's own
+// long-press forces focus onto the editable regardless of the page cancelling
+// selectstart/contextmenu/touchend (module doc's "a block press must never
+// focus the editor"). Playwright's desktop Chromium does not reproduce that
+// forced focus itself, so these simulate it mid-press with a direct .focus()
+// call and assert the plugin undoes (or leaves alone) exactly as documented.
+mobileDndTest(
+  'a block press that began unfocused never focuses the editor or raises the keyboard',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.blur());
+    await flushFrames(page);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    await clearMessages(page);
+
+    const alpha = await blockCenter(page, 'alpha');
+    await touch(cdp, 'touchStart', alpha.x, alpha.y);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 150);
+    // Stands in for Chromium's own long-press focus (module doc: measured on
+    // the pool emulator, not reproducible in Playwright's Chromium). Goes
+    // through the SAME entry point a host's own focus() call would (the known,
+    // accepted cost the module doc names), and sidesteps the ghost card
+    // that lifting this real block also stamps with the `ProseMirror` class.
+    await focusEditor(page);
+    await flushFrames(page);
+    await touch(cdp, 'touchEnd', alpha.x, alpha.y);
+    await settleChangeDebounce(page);
+
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    expect((await messagesOfType(page, 'focus')).some((m) => m.focused === true)).toBe(false);
+  },
+);
+
+mobileDndTest('a block press that began focused leaves focus alone', async ({ page, cdp }) => {
+  await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+  await focusEditor(page);
+  await clearMessages(page);
+
+  const alpha = await blockCenter(page, 'alpha');
+  await touch(cdp, 'touchStart', alpha.x, alpha.y);
+  await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 150);
+  await focusEditor(page);
+  await flushFrames(page);
+  await touch(cdp, 'touchEnd', alpha.x, alpha.y);
+  await settleChangeDebounce(page);
+
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+});
 
 // A dropped block must land as a SIBLING at the top level, never be absorbed
 // into whatever container it was released over — the failure this path's

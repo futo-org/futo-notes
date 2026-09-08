@@ -49,6 +49,19 @@ export interface BlockMoveRange {
 }
 
 /**
+ * True when dropping at `targetPos` would be a no-op for the block occupying
+ * `range` — landing on or inside its own span, including exactly either edge
+ * (which is where "dropped where it started" lands once mapped through the
+ * deletion). `moveBlock` refuses it below; both drag paths' indicator/haptic
+ * layer (`mobileBlockDnd.ts`, `blockDropIndicator.ts`) call this too, so a
+ * drop that would do nothing draws no line and ticks no haptic in the first
+ * place, rather than only being silently refused on release.
+ */
+export function isNoOpDrop(range: BlockMoveRange, targetPos: number): boolean {
+  return targetPos >= range.from && targetPos <= range.to;
+}
+
+/**
  * Moves the node at `range` so it starts at `targetPos`, as ONE transaction.
  * Returns true only when a transaction was dispatched — the callers use that
  * to decide whether the drop earned its haptic.
@@ -64,10 +77,7 @@ export function moveBlock(
 ): boolean {
   const { from: srcStart, to: srcEnd } = range;
 
-  // Dropping onto or inside the source's own range (including exactly either
-  // edge, which is where "dropped where it started" lands once mapped through
-  // the deletion) is the no-op case.
-  if (targetPos >= srcStart && targetPos <= srcEnd) return false;
+  if (isNoOpDrop(range, targetPos)) return false;
 
   const beforeDoc = view.state.doc;
   const node = beforeDoc.nodeAt(srcStart);

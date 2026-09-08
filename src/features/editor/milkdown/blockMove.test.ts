@@ -4,7 +4,7 @@ import { EditorState, type Transaction } from '@milkdown/kit/prose/state';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
-import { moveBlock } from './blockMove';
+import { isNoOpDrop, moveBlock } from './blockMove';
 import { testSchema } from './__fixtures__/schema';
 
 const s = testSchema;
@@ -82,6 +82,30 @@ function topLevelText(doc: ProseNode): string[] {
   doc.forEach((node) => out.push(node.textContent));
   return out;
 }
+
+describe('isNoOpDrop', () => {
+  const range = { from: 10, to: 20 };
+
+  it('is true at the "from" boundary', () => {
+    expect(isNoOpDrop(range, 10)).toBe(true);
+  });
+
+  it('is true at the "to" boundary', () => {
+    expect(isNoOpDrop(range, 20)).toBe(true);
+  });
+
+  it('is true strictly inside the range', () => {
+    expect(isNoOpDrop(range, 15)).toBe(true);
+  });
+
+  it('is false just outside the "from" side', () => {
+    expect(isNoOpDrop(range, 9)).toBe(false);
+  });
+
+  it('is false just outside the "to" side', () => {
+    expect(isNoOpDrop(range, 21)).toBe(false);
+  });
+});
 
 describe('moveBlock', () => {
   it('moves a block to a later top-level boundary as one transaction', () => {
