@@ -417,6 +417,15 @@ about.
   src/features/editor/milkdown/blockDropIndicator.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts
+- The dragged block's own two boundaries draw no line and tick no haptic on
+  either gesture, because a drop there is a no-op: the finger holding a block
+  over the gap it already sits against would otherwise show the indicator
+  running through the lifted card. On the native long-press the lifted card is
+  drawn ABOVE the indicator line, never under it, so the two can never overlap
+  visibly even at another boundary. → src/features/editor/milkdown/blockMove.ts
+  `isNoOpDrop`, src/features/editor/milkdown/mobileBlockDnd.ts,
+  src/features/editor/milkdown/blockDropIndicator.ts,
+  src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
 - A block drag is haptic three ways on both native shells: one firmer impact
   when the block lifts, a light tick each time the drop indicator lands on a
   DIFFERENT top-level boundary, and one light impact when a release commits a

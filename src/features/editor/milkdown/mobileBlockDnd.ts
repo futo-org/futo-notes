@@ -119,7 +119,7 @@ import {
   type DropTarget,
   dragSourceAt,
 } from './blockDragGeometry';
-import { moveBlock, type BlockMoveRange } from './blockMove';
+import { isNoOpDrop, moveBlock, type BlockMoveRange } from './blockMove';
 
 export type MobileDndHapticKind = 'lift' | 'move' | 'drop';
 
@@ -235,6 +235,10 @@ function ensureStyles(): void {
       top: 0;
       margin: 0;
       pointer-events: none;
+      /* Above the drop-indicator line (z-index 999, below): Notion-style, the
+       * lifted card covers the line rather than the line showing through it —
+       * which is exactly where they overlap while the finger is still over
+       * the block it picked up (see isNoOpTarget's comment in the view class). */
       z-index: 1000;
       will-change: transform;
     }
@@ -297,7 +301,8 @@ function ensureStyles(): void {
       border-radius: 2px;
       background: var(--color-primary, #f26b1f);
       pointer-events: none;
-      z-index: 1001;
+      /* Below the ghost card (z-index 1000, above) — see its comment. */
+      z-index: 999;
       opacity: 0;
       transition: opacity 0.08s ease;
     }
@@ -533,14 +538,31 @@ class MobileBlockDndView {
    * already saw slide by. */
   private syncIndicator(clientY: number, tick: boolean): void {
     const target = this.computeTarget(clientY);
-    if (!target) {
+    if (!target || this.isNoOpTarget(target)) {
+      // A no-op target (either of the pressed block's own two boundaries, or
+      // nowhere resolvable) draws no line: `indicatorPos` is cleared rather
+      // than left pointing at the no-op boundary, so the first tick after the
+      // finger leaves this zone always belongs to the first genuinely new
+      // boundary it reaches — never a spurious one for re-entering here, and
+      // never one for the two no-op boundaries between each other.
       this.hideIndicator();
+      this.indicatorPos = null;
       return;
     }
     this.showIndicator(target);
     if (target.pos === this.indicatorPos) return;
     this.indicatorPos = target.pos;
     if (tick) this.options.onHaptic('move');
+  }
+
+  /** True when `target` is a no-op for the block currently pressed — i.e. one
+   * of its own two boundaries (`isNoOpDrop`, shared with `moveBlock` and the
+   * desktop ⠿-handle path). Guards the indicator/haptic layer here; a release
+   * over a no-op target was already a silent no-op via `moveBlock`, this only
+   * stops the line being drawn (and the card overlapping it) while the finger
+   * is still over the block it just picked up. */
+  private isNoOpTarget(target: DropTarget): boolean {
+    return this.pressed !== null && isNoOpDrop(this.currentSourceRange(this.pressed), target.pos);
   }
 
   /** After every frame edge auto-scroll actually moved the scroller. The
@@ -605,9 +627,13 @@ class MobileBlockDndView {
 
     this.dragging = true;
     /* Seeded from where the block already is, so the hold itself is silent: the
-     * first tick belongs to the first boundary the finger actually reaches. */
+     * first tick belongs to the first boundary the finger actually reaches.
+     * A resting target that is one of the block's own boundaries seeds null
+     * instead (isNoOpTarget), for the same reason `syncIndicator` clears it —
+     * that boundary draws no line to begin with. */
     const restingTarget = this.computeTarget(clientY);
-    this.indicatorPos = restingTarget ? restingTarget.pos : null;
+    this.indicatorPos =
+      restingTarget && !this.isNoOpTarget(restingTarget) ? restingTarget.pos : null;
     this.createGhost(clientX, clientY);
     // Escalates the shell from the press-level suspension it has held since
     // pointerdown to the full one (the whole text-interaction stack, plus the

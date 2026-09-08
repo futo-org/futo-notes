@@ -38,7 +38,7 @@ import { NodeSelection, Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 import { dragSourceAt, targetAtPointerY, type DropTarget } from './blockDragGeometry';
-import { moveBlock } from './blockMove';
+import { isNoOpDrop, moveBlock } from './blockMove';
 
 /** Kept from `@milkdown/plugin-cursor`'s own contract so the component's
  * existing `:global(.milkdown-drop-indicator)` paint still applies. */
@@ -123,7 +123,11 @@ class BlockDropIndicatorView {
       return;
     }
     const target = targetFor(this.view, selection, event.clientY);
-    if (!target) {
+    // A no-op target (either of the dragged block's own two boundaries) draws
+    // no line either — see isNoOpDrop's comment (blockMove.ts). `handleDrop`
+    // below already refuses to commit it; this only stops the line drawing
+    // while the pointer is still over the block it is dragging.
+    if (!target || isNoOpDrop({ from: selection.from, to: selection.to }, target.pos)) {
       this.hide();
       return;
     }
