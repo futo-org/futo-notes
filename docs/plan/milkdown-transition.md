@@ -889,6 +889,71 @@ but block serialization has context (adjacent-list marker alternation, list star
 blank-line `join`), so it needs the same equivalence census the chunked PARSE has
 (`just chunk-census`) before it can land.
 
+### Gate run, real app, 2026-09-08 — every open under 1 s, one red left (first focus on the real note)
+
+Three changes, each its own commit on `perf/progressive-open-and-block-serializer`:
+
+1. **Non-blank cut points** (`markdownChunks.ts`): a chunk may also begin at a column-0 ATX
+   heading, fence opener, blockquote start, or a list item CommonMark lets interrupt a paragraph,
+   with new until-the-next-blank-line guards for HTML blocks of type 6/7, GFM tables and an open
+   blockquote's lazy continuation. The no-blank-line fixtures (and 27 corpus notes, the largest
+   4,333 lines) stop loading whole. `just chunk-census`: 30,994 equivalent / 1 divergent (note 7383,
+   the pre-existing front matter case) / 0 harness failures, identical to a same-day baseline; 25,482
+   notes chunked against 25,327 before. The `10000-lines`/`25000-lines`/`50000-lines` rungs now carry
+   the interactive budget (`openPolicy.interactive: 'hard'`).
+2. **Per-block serialization** (`blockSerializer.ts`): the change notification and `getContent()`
+   serialize each top-level unit through the ctx serializer and cache the text on ProseMirror node
+   identity, so a settled edit costs the blocks it touched. The unit partition models the only
+   cross-child state remark has, `bulletLastUsed`: a list's marker reaches its very next non-leaf
+   sibling (a blockquote whose first child is a list alternates), and `blankLineJoin`'s remembered
+   bullet spans from the list that primed it through the list that restores it, even across a heading
+   flanked by empty paragraphs. Both cases were found by `just chunk-census --serialize` (19 notes on
+   the first draft), not reasoned out; the final rule is 30,995 / 30,995
+   (docs/evidence/milkdown-serialize-census.md). The debounce first tries to finish priming inside an
+   8 ms synchronous budget; only a cold huge document falls back to idle priming.
+3. **Block spacing without `* + *`**: the first gate run on (1)+(2) had every open interactive but
+   the 25k streamed open never COMPLETED inside the harness's 180 s (the whole parse took 36 s), and
+   10k lines completed in 35.8 s against 12.7 s. A CDP trace in the phone's Chrome put 16.4 s of the
+   32 s in `UpdateLayoutTree` with an elementCount growing with the document (3,056 → … → 39,816);
+   invalidation tracking named `.futo-milkdown .ProseMirror > * + *`, which makes Chromium restyle the
+   root's whole subtree on every child insert or removal — twice per chunk, and on every Enter or
+   Backspace that adds or removes a block. Replaced by `> *` plus a `:where(:first-child)` reset at the
+   same specificity; same trace afterwards: 18.1 s, `UpdateLayoutTree` 2.0 s at a flat ~2,626
+   elements per chunk. `editorStyle.test.ts` fails on any universal sibling combinator in the style
+   block.
+
+`just test-android-perf` on the reference phone with all three, `$FUTO_PERF_NOTE` set to the
+maintainer's 13,877-line note (the first time that note has opened in the gate — #101 is fixed):
+
+| Fixture | Interactive | Complete | First focus | Keystroke p95 (settled) | 2026-09-06 |
+|---|---|---|---|---|---|
+| 1,000 lines, blocks | **200 ms** | 1.4 s | **83 ms** | **6.9 ms** (21 ms) | 178 / 80 / 5.2 |
+| 10,000 lines, blocks | **114 ms** | 10.6 s | **657 ms** | **5.3 ms** (138 ms) | 93 / 640 / 5.7 |
+| real note, 13,877 lines | **340 ms** | 25.4 s | **1,132 ms** ❌ | **5.2 ms** (195 ms) | could not open |
+| 10,000 lines, no blank line | **152 ms** | 20.5 s | 1.7 s (not gated) | **6.4 ms** (200 ms) | 12.7 s / 1.6 s / 12.5 |
+| 25,000 lines, no blank line | **268 ms** | 60.7 s | 3.7 s (not gated) | **8.2 ms** (430 ms) | 36.0 s / 3.9 s / **31** |
+
+Every open is interactive well under 1 s, including the two shapes that used to load whole (12.7 s
+and 36.0 s), and the keystroke budget holds at every size — the 25k red is gone (31 → 8.2 ms), and
+its 13.5 s settled-to-paint outlier, the whole-document serialization landing mid-loop, is now 430
+ms. Complete on the no-blank shapes is still slower than the old whole parse was (20.5 s vs 12.7 s at
+10k, 60.7 s vs 36 s at 25k): the chunked parse is the same JavaScript work plus one idle-slice gap per
+chunk, and the save lock holds edits until it finishes. Not gated; worth a look at bigger later chunks.
+
+**The one red is first focus on the real note: 1,132 ms against 1,000 ms.** It scales with the
+document (83 / 657 / 1,132 / 1,743 / 3,747 ms up the ladder) and a focus trace on the phone shows
+what it is not: 54,512 forced `Document::UpdateStyleAndLayout` calls (1.2 s) inside the frame that
+handles the focus but OUTSIDE the style/layout lifecycle, with 127 ms of JavaScript in total, no
+accessibility service enabled on the device and no accessibility trace events, and the IME text-state
+update at 19 ms. That is one forced layout check per DOM node of the note (44,025 layout objects),
+somewhere in Chromium's own focus handling; CDP tracing cannot name the caller, so the next step is
+a symbolised Chromium trace rather than another guess. Context for the call: the note is 3.2× the
+largest corpus note, and the same walk is what the 2026-09-05 containment retirement measured as
+quadratic when blocks were rendering-skipped.
+
+Also green on the branch: `just test-unit` (492), `pnpm run test:e2e:editor-embed` (318, run before
+and after the CSS change), `pnpm run check:svelte`, `pnpm run lint`, `pnpm exec tsc --noEmit`.
+
 ## 6. WebView floor
 
 Run the editor down the existing Chromium tier ladder (start at `futo-api30` / Chromium 83 — see
