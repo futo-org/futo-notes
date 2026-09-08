@@ -1,3 +1,12 @@
+# Recipe arguments are also exposed as "$1", "$2", … / "$@" inside recipe
+# bodies. The agent-DX recipes below (wt, orient, ci-wait, detached,
+# papercut-sweep) pass their arguments through as "$@" instead of {{args}}:
+# `just` splices {{args}} into the recipe line unquoted, so an argument holding
+# `;`, `&`, or a space is re-parsed by the shell (a bare `&` in a label silently
+# no-op'd `just android-drive tap`, pc_9b7fd5dba746; a `;` inside a detached
+# command ran the rest in the recipe shell). "$@" keeps each argument intact.
+set positional-arguments
+
 default:
   @just --list --unsorted
 
@@ -441,6 +450,66 @@ qa-server *flags:
 qa-server-stop *flags:
   @node scripts/qa.mjs server-stop "$@"
 
+# ── Agent developer experience (worktrees, orientation, waiting) ──
+# Background and measurements: docs/plan/agent-dx.md.
+
+# Create a sibling worktree off origin/main with deps installed and a warm cargo
+# cache (btrfs/APFS reflink of the primary checkout's target/), or list/reap
+# stale ones. `gc` is a dry run until --apply, and never touches a dirty tree,
+# the primary checkout, or the worktree you are standing in.
+#   just wt new agent-dx --branch chore/agent-dx
+#   just wt list
+#   just wt gc                          # report candidates
+#   just wt gc --apply --idle-days 45   # remove them
+# Create a sibling worktree with warm caches, list worktrees, or reap stale ones.
+wt *args:
+  #!/usr/bin/env bash
+  exec node scripts/worktree.mjs "$@"
+
+# Where am I: worktree, slot, ports, claimed devices, dirty state, and the open
+# papercuts tagged for the areas in your diff. The SessionStart hook prints
+# this automatically; `--json` for scripts.
+# Where am I: worktree, slot, ports, devices, dirty state, relevant papercuts.
+orient *args:
+  #!/usr/bin/env bash
+  exec node scripts/agent-orient.mjs "$@"
+
+# Block until a pipeline finishes; exit by its status (0 green, 1 red or blocked
+# on a manual job, 2 timeout, 3 no pipeline/auth); print failed job traces.
+#   just ci-wait <sha> | just ci-wait mr:291 | just ci-wait <branch> [--timeout 45]
+# Block until a GitLab pipeline finishes; exit by its status; print failed traces.
+ci-wait *args:
+  #!/usr/bin/env bash
+  exec node scripts/ci-wait.mjs wait "$@"
+
+# Open MRs oldest first: iid, draft/ready, head-pipeline status, branch, title.
+mr-status:
+  @node scripts/ci-wait.mjs mr-status
+
+# Run a long command detached from this session with a durable log and exit
+# file under .futo/runs/<name>/ (gitignored), so a killed session does not lose
+# the work. Stop by the run's own process group, never by a name.
+#   just detached start census just milkdown-census --limit 2000
+#   just detached wait census          # blocks; exits with the command's code
+#   just detached status | tail <name> | stop <name>
+# Run a long command detached with a durable log and exit file under .futo/runs/.
+detached *args:
+  #!/usr/bin/env bash
+  exec node scripts/detached.mjs "$@"
+
+# The weekly papercut sweep: a scheduled headless Opus session fixes tooling
+# friction from .papercuts.jsonl and opens one draft MR. Operator manual:
+# scripts/papercut-sweep/README.md. Install the systemd user timer once per
+# machine (re-run from the primary checkout after the scripts land on main).
+# Install the weekly papercut-sweep systemd user timer on this machine.
+papercut-sweep-install:
+  bash scripts/papercut-sweep/install-timer.sh
+
+# One sweep now (`--dry-run` sets up the worktree and prints the prompt only).
+papercut-sweep *args:
+  #!/usr/bin/env bash
+  exec node scripts/papercut-sweep/sweep.mjs "$@"
+
 # ── Simulator / emulator QA helpers ──
 # Mechanics for driving the native apps under QA. The judgment layer (how to
 # read a11y trees, what can't be automated, failure modes) lives in the
@@ -690,6 +759,17 @@ test-search *args:
 [positional-arguments]
 bench-search *args:
   cargo bench -p futo-notes-search --bench search -- "$@"
+
+# The Rust workspace with TMPDIR on the REAL disk instead of tmpfs. CI runs in a
+# container whose /tmp is a real filesystem, so fsync costs real time there and
+# fsync-sensitive tests that pass locally in ~free tmpfs fail only on CI
+# (pc_4f9a9539ecfe). This is the local reproduction of that I/O profile.
+# Rust workspace tests with TMPDIR on the real disk (CI's fsync profile).
+test-rust-realdisk:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p dist .futo/tmp
+  TMPDIR="$PWD/.futo/tmp" cargo test --workspace
 
 # ── Remote (Linux) test execution ──
 # Everything that does NOT need macOS/Xcode/WKWebView runs on a Linux box over

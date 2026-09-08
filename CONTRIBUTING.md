@@ -26,6 +26,10 @@ just tauri-dev    # run the desktop app (Wayland-first, port 5180)
 just check        # lint + tests + build sanity — run this before pushing
 ```
 
+Working alongside another session? `just wt new <name>` makes a sibling worktree
+with deps installed and a warm Rust cache; `just wt gc` reaps stale ones. `just
+orient` says where you are.
+
 > Dev/debug builds isolate their notes from production. Desktop/iOS use
 > `com.futo.notes.dev` and `fake-notes`; Android isolates package storage by
 > application ID and uses a separate public device folder. Don't weaken those
@@ -50,7 +54,12 @@ This repo ships shared Claude Code config under `.claude/`:
   `GITLAB_TOKEN` / `ZULIP_API_KEY` (see step 3).
 - **Workflows** (`.claude/workflows/`) — multi-agent flows like `sync-adversarial`.
 - **Shared settings** (`.claude/settings.json`) — a small project permission
-  allowlist. Personal overrides go in `.claude/settings.local.json` (gitignored).
+  allowlist plus the repo's hooks. Personal overrides go in
+  `.claude/settings.local.json` (gitignored).
+- **Hooks** (`scripts/hooks/`, wired from `.claude/settings.json`) — deny
+  process-name kills, `git stash` in a linked worktree, and OS-level input;
+  print `just orient` at session start; give each subagent a private scratch
+  directory. A denial names the sanctioned alternative.
 
 ### Third-party skills (optional)
 

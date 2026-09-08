@@ -103,6 +103,10 @@ playwright-report/
 # Local data (SQLite DB + notes)
 data/
 .tauri-data/
+# just detached runs, test-rust-realdisk TMPDIR, per-worktree ledgers
+.futo/
+# papercut-sweep agent data dir
+.sweep-notes-data/
 .triage-agent-home/
 .triage-notes-data/
 
