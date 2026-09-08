@@ -6,7 +6,10 @@
     Italic,
     Strikethrough,
     Link,
-    Heading,
+    Heading1,
+    Heading2,
+    Heading3,
+    Type,
     TextQuote,
     List,
     ListOrdered,
@@ -23,7 +26,10 @@
     Italic,
     Strikethrough,
     Link,
-    Heading,
+    Heading1,
+    Heading2,
+    Heading3,
+    Type,
     TextQuote,
     List,
     ListOrdered,
@@ -139,7 +145,7 @@
           <span class="toolbar-separator"></span>
         {/if}
         {#each group as item (item.id)}
-          {#if item.when !== 'onListLine' || cursorOnListLine}
+          {#if item.when !== 'inContainer' || cursorOnListLine || activeFormats.includes('quote')}
             {@const Icon = icon(item)}
             <button
               class="toolbar-btn"
@@ -148,7 +154,10 @@
               ontouchstart={preventFocus}
               onclick={() => activate(item)}
               aria-label={item.label}
-              ><Icon size={18} strokeWidth={item.action.kind === 'pickImage' ? 2 : 2.5} /></button
+              >{#if item.text}{item.text}{:else}<Icon
+                  size={18}
+                  strokeWidth={item.action.kind === 'pickImage' ? 2 : 2.5}
+                />{/if}</button
             >
           {/if}
         {/each}

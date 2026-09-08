@@ -25,13 +25,6 @@ export function resolveSelectionToolbar(nativeShell: boolean): 'enabled' | 'disa
   return nativeShell ? 'disabled' : 'enabled';
 }
 
-/**
- * The manifest commands the toolbar's buttons run — every one implemented by
- * `createToolbarExec`. Declared here rather than in the Svelte component
- * because a `.svelte` module cannot export a type by name.
- */
-export type SelectionToolbarCommand = 'bold' | 'italic' | 'strikethrough' | 'code';
-
 /** The selection the toolbar acts on. */
 export interface SelectionToolbarTarget {
   from: number;

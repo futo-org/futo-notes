@@ -36,7 +36,7 @@ describe('computeActiveFormats', () => {
 
   it('reports the block kind at the caret', () => {
     const heading = s.nodes.doc.create(null, s.nodes.heading.create({ level: 2 }, s.text('title')));
-    expect(activeAt(heading, 0)).toEqual(['heading']);
+    expect(activeAt(heading, 0)).toEqual(['heading-2']);
 
     const quote = s.nodes.doc.create(
       null,
@@ -117,7 +117,7 @@ describe('computeActiveFormats', () => {
       null,
       s.nodes.heading.create({ level: 1 }, s.text('big', [s.marks.strike_through.create()])),
     );
-    expect(activeAt(doc, 0)).toEqual(['heading', 'strikethrough']);
+    expect(activeAt(doc, 0)).toEqual(['heading-1', 'strikethrough']);
   });
 
   // Regression: `markActive` used to range-check against `view.state.doc`. When

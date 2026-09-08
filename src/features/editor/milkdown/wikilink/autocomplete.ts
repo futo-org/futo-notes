@@ -1,16 +1,5 @@
-/**
- * `[[` autocomplete over the vault note list.
- *
- * WHICH notes are offered, in which order, labelled how, is not decided here —
- * `../../wikilinkSuggestions.ts` owns that and the CodeMirror completion source
- * consumes the same module, because docs/spec/editor.md specifies the behavior
- * once for all three shells. What is left here is the half that genuinely
- * differs between the engines: the ProseMirror wiring, the popup, and inserting
- * a NODE rather than text.
- *
- * Covered at the embed seam by `tests/editor-embed-milkdown-wikilinks.spec.ts`
- * with real keyboard and touch input.
- */
+/** Vault suggestions use the same Milkdown positioning provider as the slash menu. */
+import { SlashProvider } from '@milkdown/kit/plugin/slash';
 import { $prose } from '@milkdown/kit/utils';
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorState } from '@milkdown/kit/prose/state';
@@ -110,6 +99,8 @@ function commit(view: ProseView, state: SuggestionState, candidate: WikilinkCand
 class SuggestionPopup {
   readonly dom: HTMLDivElement;
   private readonly list: HTMLUListElement;
+  private readonly provider: SlashProvider;
+  private visible = false;
 
   constructor(private readonly onPick: (index: number) => void) {
     this.dom = document.createElement('div');
@@ -117,6 +108,15 @@ class SuggestionPopup {
     this.dom.setAttribute('role', 'listbox');
     this.list = document.createElement('ul');
     this.dom.appendChild(this.list);
+    this.dom.dataset.show = 'false';
+    this.provider = new SlashProvider({
+      content: this.dom,
+      root: document.body,
+      floatingUIOptions: { strategy: 'fixed' },
+      offset: 4,
+      debounce: 0,
+      shouldShow: () => this.visible,
+    });
     // pointerdown, not click: a click would land after the editor had already
     // blurred, and on iOS WebKit a prevented mousedown cancels the click
     // entirely (the same trap the wikilink tap path documents).
@@ -129,12 +129,7 @@ class SuggestionPopup {
   }
 
   render(state: SuggestionState, view: ProseView): void {
-    // textContent = '' + appendChild, not replaceChildren: that is Chromium 86
-    // and the editor's WebView floor is 80 (github#8, docs/spec/editor.md;
-    // tests/editor-embed-webview-floor.spec.ts audits the built bundle for
-    // exactly this). slashMenuRenderer.ts and tableEditorWidget.ts carry the
-    // same note — the last time this shipped, it crashed the slash menu and
-    // tables on Chromium 80-85.
+    // Chromium 80 has no Element.replaceChildren.
     this.list.textContent = '';
     state.candidates.forEach((candidate, index) => {
       const row = document.createElement('li');
@@ -152,36 +147,18 @@ class SuggestionPopup {
       }
       this.list.appendChild(row);
     });
-    if (!this.dom.isConnected) document.body.appendChild(this.dom);
-    this.position(state, view);
+    this.visible = true;
+    this.provider.update(view);
     this.list.children[state.selected]?.scrollIntoView({ block: 'nearest' });
   }
 
-  /**
-   * Viewport coordinates (`position: fixed`), so the popup stays put whichever
-   * of the editor's nested scroll containers moves — and flips above the caret
-   * when the space below is taken (the soft keyboard, on a phone).
-   */
-  private position(state: SuggestionState, view: ProseView): void {
-    let coords: { top: number; bottom: number; left: number };
-    try {
-      coords = view.coordsAtPos(state.from);
-    } catch {
-      return; // Position not measurable mid-transaction; the next render retries.
-    }
-    const height = this.dom.offsetHeight;
-    const below = coords.bottom + height <= window.innerHeight;
-    this.dom.style.left = `${Math.max(4, Math.min(coords.left, window.innerWidth - this.dom.offsetWidth - 4))}px`;
-    this.dom.style.top = below
-      ? `${coords.bottom + 4}px`
-      : `${Math.max(4, coords.top - height - 4)}px`;
-  }
-
   hide(): void {
-    this.dom.remove();
+    this.visible = false;
+    this.provider.hide();
   }
 
   destroy(): void {
+    this.provider.destroy();
     this.dom.remove();
   }
 }

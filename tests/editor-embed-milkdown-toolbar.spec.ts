@@ -117,7 +117,10 @@ const COVERED_EXEC_IDS = [
   'italic',
   'strikethrough',
   'link',
-  'heading',
+  'paragraph',
+  'heading-1',
+  'heading-2',
+  'heading-3',
   'quote',
   'bullet-list',
   'ordered-list',
@@ -226,7 +229,10 @@ const APPLIED: Array<[string, string]> = [
   ['ordered-list', '1. hello'],
   ['task-list', '- [ ] hello'],
   ['quote', '> hello'],
-  ['heading', '# hello'],
+  ['heading-1', '# hello'],
+  ['heading-2', '## hello'],
+  ['heading-3', '### hello'],
+  ['paragraph', 'hello'],
 ];
 
 for (const [id, expected] of APPLIED) {
@@ -243,7 +249,6 @@ const REMOVED: Array<[string, string]> = [
   ['bullet-list', '- hello'],
   ['ordered-list', '1. hello'],
   ['task-list', '- [ ] hello'],
-  ['quote', '> hello'],
 ];
 
 for (const [id, source] of REMOVED) {
@@ -268,11 +273,30 @@ test('quote never nests a second blockquote', async ({ page }) => {
   expect(await afterExec(page, 'hello', 'quote', 'quote', 'quote')).toBe('> hello');
 });
 
-test('heading cycles h1 -> h2 -> h3 -> plain', async ({ page }) => {
-  expect(await afterExec(page, 'hello', 'heading')).toBe('# hello');
-  expect(await afterExec(page, 'hello', 'heading', 'heading')).toBe('## hello');
-  expect(await afterExec(page, 'hello', 'heading', 'heading', 'heading')).toBe('### hello');
-  expect(await afterExec(page, 'hello', 'heading', 'heading', 'heading', 'heading')).toBe('hello');
+test('heading levels and Text are explicit and repeatable', async ({ page }) => {
+  expect(await afterExec(page, 'hello', 'heading-1', 'heading-1')).toBe('# hello');
+  expect(await afterExec(page, '# hello', 'heading-2', 'heading-2')).toBe('## hello');
+  expect(await afterExec(page, '## hello', 'heading-3', 'heading-3')).toBe('### hello');
+  expect(await afterExec(page, '### hello', 'paragraph')).toBe('hello');
+});
+
+test('indent and outdent control quote nesting one level at a time', async ({ page }) => {
+  expect(await afterExec(page, 'hello', 'quote', 'indent')).toBe('> > hello');
+  await exec(page, 'outdent');
+  expect((await getContent(page)).trimEnd()).toBe('> hello');
+  await exec(page, 'outdent');
+  expect((await getContent(page)).trimEnd()).toBe('hello');
+});
+
+test('heading choice gives mixed selected blocks the same level', async ({ page }) => {
+  await hostSetContent(page, '# first\n\n## second');
+  await focusEditor(page);
+  await selectAll(page);
+  await exec(page, 'heading-3');
+  expect((await getContent(page)).trimEnd()).toBe('### first\n\n### second');
+  await page.keyboard.press('ControlOrMeta+z');
+  await settle(page);
+  expect((await getContent(page)).trimEnd()).toBe('# first\n\n## second');
 });
 
 /**
@@ -291,7 +315,7 @@ test('heading cycles h1 -> h2 -> h3 -> plain', async ({ page }) => {
 test('typing in a heading keeps its order and never re-creates the block', async ({ page }) => {
   await hostSetContent(page, 'hello');
   await focusEditor(page);
-  await exec(page, 'heading');
+  await exec(page, 'heading-1');
 
   // A live handle on the heading element, so a re-created node is visible as a
   // detached one rather than needing an identity comparison across evaluates.
@@ -332,9 +356,9 @@ const CONVERSIONS: Array<[string, string, string]> = [
   ['1. hello', 'task-list', '- [ ] hello'],
   ['- hello', 'quote', '> hello'],
   ['> hello', 'bullet-list', '- hello'],
-  ['- hello', 'heading', '# hello'],
+  ['- hello', 'heading-1', '# hello'],
   ['# hello', 'bullet-list', '- hello'],
-  ['> hello', 'heading', '# hello'],
+  ['> hello', 'heading-1', '> # hello'],
   ['## hello', 'quote', '> hello'],
 ];
 
@@ -352,7 +376,7 @@ test('converting a checked task drops the checkbox', async ({ page }) => {
   expect(await afterExec(page, '- [x] hello', 'bullet-list')).toBe('- hello');
 });
 
-test('bullet markers serialize as - , matching the CodeMirror engine', async ({ page }) => {
+test('bullet markers serialize consistently as -', async ({ page }) => {
   expect(await afterExec(page, 'a\n\nb', 'bullet-list')).toBe('a\n\n- b');
 });
 
@@ -420,10 +444,8 @@ test('tapping Ordered across a whole list converts every item', async ({ page })
   expect(await afterExecAcross(page, '- a\n- b', 'a', 'b', 'ordered-list')).toBe('1. a\n2. b');
 });
 
-// editor.md: "A multi-line selection applies that transition separately to
-// each line" — the h1 advances to h2 while the paragraph becomes h1.
-test('a mixed selection gets the transition applied per line', async ({ page }) => {
-  expect(await afterExecAcross(page, '# a\n\nb', 'a', 'b', 'heading')).toBe('## a\n\n# b');
+test('a heading choice applies the same level across mixed blocks', async ({ page }) => {
+  expect(await afterExecAcross(page, '# a\n\nb', 'a', 'b', 'heading-1')).toBe('# a\n\n# b');
 });
 
 // A wikilink is an ATOM node inside the paragraph (#101). A block command has
@@ -437,7 +459,9 @@ test('a block command carries a wikilink through untouched', async ({ page }) =>
   );
   expect(await afterExec(page, 'see [[target]] here', 'bullet-list')).toBe('- see [[target]] here');
   expect(await afterExec(page, '- see [[target]] here', 'quote')).toBe('> see [[target]] here');
-  expect(await afterExec(page, '> see [[target]] here', 'heading')).toBe('# see [[target]] here');
+  expect(await afterExec(page, '> see [[target]] here', 'heading-1')).toBe(
+    '> # see [[target]] here',
+  );
 });
 
 // The task checkbox is a widget decoration keyed off the item's `checked`
@@ -482,7 +506,7 @@ async function caretInFence(page: Page): Promise<void> {
   await flushFrames(page);
 }
 
-const BLOCK_IDS = ['heading', 'quote', 'bullet-list', 'ordered-list', 'task-list'];
+const BLOCK_IDS = ['heading-1', 'quote', 'bullet-list', 'ordered-list', 'task-list'];
 
 for (const id of [...BLOCK_IDS, 'indent', 'outdent']) {
   test(`${id} inside a fenced code block leaves the note untouched`, async ({ page }) => {
@@ -591,7 +615,7 @@ test('formatState reports the kind a block command just applied', async ({ page 
     ['ordered-list', ['ordered-list']],
     ['task-list', ['task-list']],
     ['quote', ['quote']],
-    ['heading', ['heading']],
+    ['heading-1', ['heading-1', 'quote']],
   ] as Array<[string, string[]]>) {
     await clearMessages(page);
     await exec(page, id);
@@ -680,16 +704,28 @@ test('the embed toolbar highlights the command active at the caret', async ({ pa
 
   await quoteButton.click();
   await settle(page);
+  await expect(quoteButton).toHaveClass(/is-active/);
+  expect((await getContent(page)).trimEnd()).toBe('> hello');
+
+  await toolbarButton(page, 'Outdent').click();
+  await settle(page);
   await expect(quoteButton).not.toHaveClass(/is-active/);
 });
 
-test('the embed toolbar shows Indent/Outdent only on a list line', async ({ page }) => {
+test('the embed toolbar shows Indent/Outdent inside a list or quote', async ({ page }) => {
   await showEmbedToolbar(page, 'hello');
   await expect(toolbarButton(page, 'Indent')).toHaveCount(0);
 
   await toolbarButton(page, 'Bullet list').click();
   await settle(page);
   await expect(toolbarButton(page, 'Indent')).toBeVisible();
+
+  await toolbarButton(page, 'Block quote').click();
+  await settle(page);
+  await expect(toolbarButton(page, 'Indent')).toBeVisible();
+  await toolbarButton(page, 'Outdent').click();
+  await settle(page);
+  await expect(toolbarButton(page, 'Indent')).toHaveCount(0);
 });
 
 // ============================================================

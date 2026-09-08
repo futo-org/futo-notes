@@ -179,7 +179,7 @@ test.describe('empty-label links keep their href', () => {
   });
 });
 
-test.describe('numbered-looking bullets stay text', () => {
+test.describe('numbered-looking bullets follow CommonMark', () => {
   const BULLETS = '* 0. item one\n* 1. item two\n';
 
   test('canary: upstream injects a literal <br /> and a nested list', async ({ page }) => {
@@ -188,10 +188,12 @@ test.describe('numbered-looking bullets stay text', () => {
     expect(out).toContain('  0. item one');
   });
 
-  test('compat escapes the digit-dot instead', async ({ page }) => {
+  test('compat preserves CommonMark nesting without injecting a filler', async ({ page }) => {
     const out = await roundTrip(page, 'compat', BULLETS);
     expect(out).not.toContain('<br />');
-    expect(out).toContain('0\\. item one');
+    expect(out).not.toContain('0\\. item one');
+    expect(out).toContain('0. item one');
+    expect(await roundTrip(page, 'compat', out)).toBe(out);
   });
 
   test('compat leaves markdown inside a fence alone', async ({ page }) => {

@@ -328,7 +328,7 @@ export interface OpenUrlMessage {
  * selection event). Drives Notion-style active-state highlighting on the
  * keyboard toolbar — each host tints the matching button. `active`
  * is the subset of toolbar-manifest exec ids (`TOOLBAR_EXEC_IDS` in
- * toolbar.ts, e.g. `'bold'`, `'heading'`, `'task-list'`) that cover the
+ * toolbar.ts, e.g. `'bold'`, `'heading-2'`, `'task-list'`) that cover the
  * current cursor/selection; a task-list item never reports `'bullet-list'`
  * even though it is schema-nested inside one, so the two buttons don't both
  * light up.

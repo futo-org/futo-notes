@@ -21,10 +21,10 @@ describe('toolbar manifest', () => {
     // deliberate spec change (docs/spec/editor.md) and requires regenerating
     // the native specs (`just toolbar-spec`).
     expect(
-      TOOLBAR_GROUPS.map((g) => g.map((i) => (i.when === 'onListLine' ? `${i.id}?` : i.id))),
+      TOOLBAR_GROUPS.map((g) => g.map((i) => (i.when === 'inContainer' ? `${i.id}?` : i.id))),
     ).toEqual([
       ['bold', 'italic', 'strikethrough', 'link'],
-      ['heading', 'quote'],
+      ['paragraph', 'heading-1', 'heading-2', 'heading-3', 'quote'],
       ['bullet-list', 'ordered-list', 'task-list', 'outdent?', 'indent?'],
       ['camera', 'image'],
     ]);
@@ -38,7 +38,10 @@ describe('toolbar manifest', () => {
       'italic',
       'strikethrough',
       'link',
-      'heading',
+      'paragraph',
+      'heading-1',
+      'heading-2',
+      'heading-3',
       'quote',
       'bullet-list',
       'ordered-list',

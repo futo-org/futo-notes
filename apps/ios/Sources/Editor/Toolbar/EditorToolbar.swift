@@ -41,8 +41,7 @@ final class EditorToolbarState: ObservableObject {
     @Published var onListLine = false
     /// Toolbar-manifest ids active at the cursor/selection (bridge
     /// `formatState`, Milkdown editor) — drives the Notion-style highlighted
-    /// button state below. Empty on editors that never send `formatState` (the
-    /// shipping CodeMirror editor), so no button lights up. Android's
+    /// button state below. Android's
     /// counterpart is `EditorHost.activeFormats` (EditorWebView.kt).
     @Published var activeFormats: Set<String> = []
 }
@@ -55,7 +54,7 @@ final class EditorToolbarState: ObservableObject {
 ///
 /// This view owns NO editing behavior: every tap is handed to `perform`,
 /// which EditorHost routes over the bridge (`FutoEditor.exec`) into the same
-/// markdownToolbar.ts commands the web toolbar runs.
+/// toolbarExec.ts commands the web toolbar runs.
 struct EditorToolbarView: View {
     @ObservedObject var state: EditorToolbarState
     /// Dispatch the tapped item — exec over the bridge, native image picker,
@@ -120,7 +119,9 @@ struct EditorToolbarView: View {
                         separator
                     }
                     ForEach(group) { item in
-                        if !item.onlyOnListLine || state.onListLine {
+                        if !item.onlyInContainer || state.onListLine
+                            || state.activeFormats.contains("quote")
+                        {
                             button(for: item).background(buttonEdgeReader)
                         }
                     }
@@ -248,7 +249,13 @@ struct EditorToolbarView: View {
         return Button {
             perform(item)
         } label: {
-            Image(systemName: item.sfSymbol)
+            Group {
+                if let text = item.text {
+                    Text(text)
+                } else {
+                    Image(systemName: item.sfSymbol)
+                }
+            }
                 .font(.system(size: 17, weight: .medium))
                 // Theme.primary, not Color.accentColor: there is no AccentColor
                 // asset, so accentColor falls back to iOS system blue — and a

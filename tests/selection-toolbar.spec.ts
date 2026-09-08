@@ -53,6 +53,24 @@ test.describe('selection toolbar', () => {
     await expect(page.locator(button('Link'))).toBeVisible();
   });
 
+  test('heading choices and quote indentation use explicit controls', async ({ page }) => {
+    await typeAndSelectTail(page, 'hello', 5);
+    await page.locator(button('Heading 2')).click();
+    await waitForMarkdown(page, '## hello');
+    await page.locator(button('Heading 2')).click();
+    await waitForMarkdown(page, '## hello');
+    await page.locator(button('Heading 3')).click();
+    await waitForMarkdown(page, '### hello');
+    await page.locator(button('Text')).click();
+    await waitForMarkdown(page, 'hello');
+    await page.locator(button('Block quote')).click();
+    await waitForMarkdown(page, '> hello');
+    await page.locator(button('Indent')).click();
+    await waitForMarkdown(page, '> > hello');
+    await page.locator(button('Outdent')).click();
+    await waitForMarkdown(page, '> hello');
+  });
+
   test('Bold wraps the selection and lights up, and the selection survives the click', async ({
     page,
   }) => {

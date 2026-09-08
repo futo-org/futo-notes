@@ -1,81 +1,22 @@
-/*
- * The shared toolbar manifest's command ids, executed as Milkdown/ProseMirror
- * commands.
- *
- * The manifest (packages/editor/src/toolbar.ts) is the single source of the
- * toolbar surface for every shell (M10); `TOOLBAR_EXEC` in
- * `src/features/editor/markdownToolbar.ts` implements each id for CodeMirror.
- * This is the same id set implemented for the Milkdown editor, reached through
- * the editor handle's `exec()` — the embed toolbar and both native toolbars
- * call one of the two depending on which engine is mounted, never a per-shell
- * copy.
- *
- * Inline marks map onto the preset's own commands. The BLOCK commands do not:
- * the preset ships bare `wrapIn`/`wrapInList` wrappers with no toggle and no
- * conversion, so they live in `blockCommands.ts`, which implements the
- * one-prefix-per-line model the spec describes
- * ([editor.md](../../../../docs/spec/editor.md) → "Markdown toolbar").
- */
-import { type CmdKey, type Editor } from '@milkdown/kit/core';
+import { type Editor } from '@milkdown/kit/core';
 import {
-  liftListItemCommand,
-  sinkListItemCommand,
   toggleEmphasisCommand,
   toggleInlineCodeCommand,
   toggleLinkCommand,
   toggleStrongCommand,
 } from '@milkdown/kit/preset/commonmark';
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm';
-import type { Command as ProseCommand } from '@milkdown/kit/prose/state';
-import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-import { callCommand } from '@milkdown/kit/utils';
 
-import { blockCommand, blockFormatAtPos, type BlockCommandId } from './blockCommands';
-import { editorView } from './caretContext';
+import { blockCommand, changeBlockIndent, type BlockCommandId } from './blockCommands';
+import { createCommandRunner } from './commandRunner';
 
 /** Command ids this editor can execute, mapped to their implementations. */
 export type ToolbarExecMap = Record<string, () => void>;
 
 export function createToolbarExec(getEditor: () => Editor | null): ToolbarExecMap {
-  const view = (): ProseView | null => editorView(getEditor());
-
-  /** Run a Milkdown-registered command through the editor's command manager. */
-  function run<T>(command: { key: CmdKey<T> }, payload?: T): void {
-    const editor = getEditor();
-    if (!editor) return;
-    editor.action(callCommand(command.key, payload));
-    view()?.focus();
-  }
-
-  /** Run a plain ProseMirror command against the live view. */
-  function dispatch(command: ProseCommand): void {
-    const current = view();
-    if (!current) return;
-    command(current.state, current.dispatch.bind(current));
-    current.focus();
-  }
+  const { run, dispatch } = createCommandRunner(getEditor);
 
   const block = (id: BlockCommandId) => () => dispatch(blockCommand(id));
-
-  /**
-   * Whether the caret sits inside a code block, where NO block command acts.
-   *
-   * `blockCommand` answers that itself (a `code` run has no transition, so the
-   * document is left untouched), but Indent/Outdent are the preset's own list
-   * commands and would happily restructure the list a fence is indented under
-   * — with the caret on a code line, which is not a list line. One rule for
-   * every block command instead: inside a fence, the note's bytes do not move
-   * (docs/spec/editor.md -> "Markdown toolbar").
-   */
-  function caretInCodeBlock(): boolean {
-    const current = view();
-    return current !== null && blockFormatAtPos(current.state.selection.$from).kind === 'code';
-  }
-
-  const listStructure = (command: { key: CmdKey<unknown> }) => () => {
-    if (caretInCodeBlock()) return;
-    run(command);
-  };
 
   return {
     bold: () => run(toggleStrongCommand),
@@ -89,16 +30,15 @@ export function createToolbarExec(getEditor: () => Editor | null): ToolbarExecMa
     // stored marks) — the WYSIWYG equivalent of CodeMirror's `[]()` scaffold,
     // which existed only so the caret had a source slot to sit in.
     link: () => run(toggleLinkCommand, { href: '' }),
-    heading: block('heading'),
+    'heading-1': block('heading-1'),
+    'heading-2': block('heading-2'),
+    'heading-3': block('heading-3'),
+    paragraph: block('paragraph'),
     quote: block('quote'),
     'bullet-list': block('bullet'),
     'ordered-list': block('ordered'),
     'task-list': block('task'),
-    // Nesting is structural in ProseMirror: an item can only sink under a
-    // preceding SIBLING item, so Indent is a no-op on the first item of a list.
-    // Markdown source has no such rule, which is why the CodeMirror toolbar
-    // could indent it — into a nested list with no parent.
-    indent: listStructure(sinkListItemCommand),
-    outdent: listStructure(liftListItemCommand),
+    indent: () => dispatch(changeBlockIndent(1)),
+    outdent: () => dispatch(changeBlockIndent(-1)),
   };
 }

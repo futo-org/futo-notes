@@ -19,9 +19,8 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
 
 ## Milkdown compat plugins — the M6 carve-out
 
-`src/milkdown-compat/` fixes three round-trip defects in `@milkdown/kit` 7.22.1:
-an inline `<br>` deleted with no replacement, `[](url)` losing its href, and a
-spurious `<br />` on `* 0.`-style bullets — and retires the preset's `<br />`
+`src/milkdown-compat/` fixes round-trip defects in `@milkdown/kit` 7.22.1:
+an inline `<br>` deleted with no replacement and `[](url)` losing its href — and retires the preset's `<br />`
 stand-in for an empty paragraph in favour of extra blank lines (`emptyLine.ts`,
 both the parse-side transformer and the serializer `join`; never register a
 plugin under the name `remark-preserve-empty-line`, that is what turns the tag
@@ -31,6 +30,7 @@ back on). On the serializer side it narrows two of remark-stringify's escapes
 census harness, so both write the same bytes), and scopes the presets' three
 whole-document passes to the touched blocks (`listOrder.ts`, `tablePasses.ts`,
 `touchedRange.ts`; `gfmWithCompat()` pairs with `commonmarkWithCompat()`).
+**CommonMark decides ambiguous list syntax; there is no pre-parse bullet-number rewriting.**
 **These carry no Rust mirror.** They
 are adapters to one editor library's implementation — which mdast node a plugin
 deletes, how a link mark finds text to attach to — not note rules, so M6 does

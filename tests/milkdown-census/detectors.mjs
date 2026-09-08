@@ -23,12 +23,7 @@ export function countBrTags(markdown) {
 /**
  * Fenced code blocks and inline code spans.
  *
- * A deliberate copy of the mask in `milkdown-compat/bulletNumbers.ts` rather
- * than an import: this module is loaded by plain Node (`run.mjs`), which cannot
- * follow a reference into a `.ts` file — `scripts/typescript-script-runtime.test.mjs`
- * fails the build if it tries. The two masks serve different jobs anyway (that
- * one decides what to rewrite, this one what to count), so they are free to
- * diverge.
+ * This mask only excludes code from counters; it never rewrites editor input.
  */
 const CODE_MASK_RE = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`/g;
 

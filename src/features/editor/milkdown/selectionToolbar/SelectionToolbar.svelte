@@ -1,28 +1,19 @@
 <script lang="ts">
-  /*
-   * The desktop selection toolbar's DOM: five inline-format buttons and, behind
-   * the Link one, a URL field. Positioning is NOT here — `index.ts` hands this
-   * element to Milkdown's `TooltipProvider`, the same floating-ui placement the
-   * `/` menu and the ⠿ handle use. This only renders buttons and reports taps.
-   *
-   * The button set is the CodeMirror editor's (Bold / Italic / Strikethrough /
-   * Code / Link — docs/plan/desktop-editor-parity.md D1). Four of the five are
-   * manifest commands run through the shared `toolbarExec`; Link is the one
-   * with a UI of its own, because a link needs a URL and the desktop has no
-   * other place to type one (docs/spec/editor.md "Markdown toolbar" Gap).
-   *
-   * Mousedown is prevented on every control so the editor keeps focus and its
-   * selection — the same rule EmbedToolbar.svelte and the `/` menu follow. The
-   * URL field is the exception: it takes focus on purpose, and `index.ts` keeps
-   * the toolbar shown while it has it.
-   */
-  import { Bold, Code, Italic, Link, Strikethrough } from '@lucide/svelte';
+  import {
+    Bold,
+    Code,
+    Italic,
+    Link,
+    Strikethrough,
+    TextQuote,
+    ListIndentIncrease,
+    ListIndentDecrease,
+  } from '@lucide/svelte';
   import type { Component } from 'svelte';
-
-  import type { SelectionToolbarCommand } from './target';
+  import { TOOLBAR_GROUPS, TOOLBAR_ITEMS } from '@futo-notes/editor';
 
   interface Props {
-    onexec: (command: SelectionToolbarCommand) => void;
+    onexec: (command: string) => void;
     /** Apply `href` to the selection; `null` removes the link. */
     onlink: (href: string | null) => void;
     /** The URL field opened or closed. */
@@ -31,7 +22,17 @@
 
   let { onexec, onlink, onlinkediting }: Props = $props();
 
-  const BUTTONS: { id: SelectionToolbarCommand; label: string; icon: Component }[] = [
+  const BLOCK_BUTTONS = [
+    ...TOOLBAR_GROUPS[1],
+    ...TOOLBAR_ITEMS.filter((item) => item.when === 'inContainer'),
+  ];
+  const BLOCK_ICONS: Record<string, Component> = {
+    TextQuote,
+    ListIndentIncrease,
+    ListIndentDecrease,
+  };
+
+  const BUTTONS: { id: string; label: string; icon: Component }[] = [
     { id: 'bold', label: 'Bold', icon: Bold },
     { id: 'italic', label: 'Italic', icon: Italic },
     { id: 'strikethrough', label: 'Strikethrough', icon: Strikethrough },
@@ -113,6 +114,25 @@
       onclick={commitLink}>{linkHref === null ? 'Add' : 'Update'}</button
     >
   {:else}
+    {#each BLOCK_BUTTONS as item (item.id)}
+      {#if item.when !== 'inContainer' || active.some( (id) => ['quote', 'bullet-list', 'ordered-list', 'task-list'].includes(id) )}
+        <button
+          class="futo-selection-toolbar-btn"
+          class:is-active={active.includes(item.id)}
+          type="button"
+          aria-label={item.label}
+          aria-pressed={active.includes(item.id)}
+          onmousedown={preventFocus}
+          onclick={() => onexec(item.id)}
+        >
+          {#if item.text}{item.text}{:else}
+            {@const Icon = BLOCK_ICONS[item.lucide]}
+            <Icon size={16} strokeWidth={2.25} />
+          {/if}
+        </button>
+      {/if}
+    {/each}
+    <span class="futo-selection-toolbar-separator"></span>
     {#each BUTTONS as button (button.id)}
       {@const Icon = button.icon}
       <button

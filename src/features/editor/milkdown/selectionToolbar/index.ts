@@ -33,12 +33,7 @@ import { editorView } from '../caretContext';
 import { computeActiveFormats } from '../formatState';
 import { createToolbarExec } from '../toolbarExec';
 import SelectionToolbar from './SelectionToolbar.svelte';
-import {
-  linkRunAt,
-  selectionToolbarTarget,
-  type SelectionToolbarCommand,
-  type SelectionToolbarTarget,
-} from './target';
+import { linkRunAt, selectionToolbarTarget, type SelectionToolbarTarget } from './target';
 
 export { resolveSelectionToolbar } from './target';
 
@@ -109,7 +104,7 @@ export function createSelectionToolbarPlugin(
           const ui = mount(SelectionToolbar, {
             target: content,
             props: {
-              onexec: (command: SelectionToolbarCommand) => exec[command]?.(),
+              onexec: (command: string) => exec[command]?.(),
               onlink: applyLink,
               onlinkediting: (editing: boolean) => {
                 editingLink = editing;

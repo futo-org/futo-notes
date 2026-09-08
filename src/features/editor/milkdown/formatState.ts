@@ -87,20 +87,20 @@ export function computeActiveFormats(
   if (markActive(view, selection, storedMarks, 'link')) active.add('link');
 
   const at = selection.$from;
-  let inHeading = false;
+  let headingLevel: number | null = null;
   let inBlockquote = false;
   let inBulletList = false;
   let inOrderedList = false;
   let inTaskItem = false;
   for (let depth = at.depth; depth > 0; depth -= 1) {
     const node = at.node(depth);
-    if (node.type.name === 'heading') inHeading = true;
+    if (node.type.name === 'heading') headingLevel = Number(node.attrs.level);
     else if (node.type.name === 'blockquote') inBlockquote = true;
     else if (node.type.name === 'bullet_list') inBulletList = true;
     else if (node.type.name === 'ordered_list') inOrderedList = true;
     else if (node.type.name === 'list_item' && isTaskItem(node)) inTaskItem = true;
   }
-  if (inHeading) active.add('heading');
+  if (headingLevel !== null) active.add(`heading-${headingLevel}`);
   if (inBlockquote) active.add('quote');
   if (inOrderedList) active.add('ordered-list');
   if (inTaskItem) active.add('task-list');

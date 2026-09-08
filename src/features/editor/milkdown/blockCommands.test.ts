@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { Schema, type Node as ProseNode } from '@milkdown/kit/prose/model';
 import { EditorState, TextSelection, type Transaction } from '@milkdown/kit/prose/state';
 
-import { blockCommand, blockFormatAt, nextBlockFormat, type BlockCommandId } from './blockCommands';
+import {
+  blockCommand,
+  blockFormatAt,
+  changeBlockIndent,
+  setBlockFormat,
+  type BlockCommandId,
+} from './blockCommands';
 import { testSchema } from './__fixtures__/schema';
 
 const s = testSchema;
@@ -94,35 +100,9 @@ describe('blockFormatAt', () => {
     expect(blockFormatAt(stateAtFirstText(doc(bullets(item('a', false))))).kind).toBe('task');
   });
 
-  // A list prefix is read before a heading prefix, the same order
-  // blockFormatting.ts's parseLine reads one markdown line in.
   it('reads a list item wrapping a heading as a list, not a heading', () => {
     const nested = doc(bullets(s.nodes.list_item.create(null, h(1, 'x'))));
     expect(blockFormatAt(stateAtFirstText(nested)).kind).toBe('bullet');
-  });
-});
-
-describe('nextBlockFormat', () => {
-  it('removes the kind that is already there', () => {
-    expect(nextBlockFormat({ kind: 'bullet' }, 'bullet')).toEqual({ kind: 'none' });
-    expect(nextBlockFormat({ kind: 'ordered' }, 'ordered')).toEqual({ kind: 'none' });
-    expect(nextBlockFormat({ kind: 'task' }, 'task')).toEqual({ kind: 'none' });
-    expect(nextBlockFormat({ kind: 'quote' }, 'quote')).toEqual({ kind: 'none' });
-  });
-
-  it('converts between different kinds', () => {
-    expect(nextBlockFormat({ kind: 'bullet' }, 'ordered')).toEqual({ kind: 'ordered' });
-    expect(nextBlockFormat({ kind: 'quote' }, 'bullet')).toEqual({ kind: 'bullet' });
-    expect(nextBlockFormat({ kind: 'heading', level: 2 }, 'quote')).toEqual({ kind: 'quote' });
-  });
-
-  it('cycles heading h1 -> h2 -> h3 -> plain', () => {
-    expect(nextBlockFormat({ kind: 'none' }, 'heading')).toEqual({ kind: 'heading', level: 1 });
-    expect(nextBlockFormat({ kind: 'heading', level: 1 }, 'heading')).toEqual({
-      kind: 'heading',
-      level: 2,
-    });
-    expect(nextBlockFormat({ kind: 'heading', level: 3 }, 'heading')).toEqual({ kind: 'none' });
   });
 });
 
@@ -135,7 +115,7 @@ describe('blockCommand — applying a kind', () => {
       { ordered_list: [{ list_item: ['paragraph:x'] }] },
     ]);
     expect(shapes(run(doc(p('x')), 'quote'))).toEqual([{ blockquote: ['paragraph:x'] }]);
-    expect(shapes(run(doc(p('x')), 'heading'))).toEqual(['h1:x']);
+    expect(shapes(run(doc(p('x')), 'heading-1'))).toEqual(['h1:x']);
     expect(shapes(run(doc(p('x')), 'task'))).toEqual([
       { bullet_list: [{ 'list_item[ ]': ['paragraph:x'] }] },
     ]);
@@ -161,14 +141,12 @@ describe('blockCommand — removing the kind that is already there', () => {
   });
 
   // The bug this replaced: wrapInBlockquoteCommand nested, giving `> > x`.
-  it('quote on a quote unwraps instead of nesting', () => {
-    expect(shapes(run(doc(quote(p('x'))), 'quote'))).toEqual(['paragraph:x']);
+  it('quote on a quote leaves its depth alone', () => {
+    expect(shapes(run(doc(quote(p('x'))), 'quote'))).toEqual([{ blockquote: ['paragraph:x'] }]);
   });
 
-  it('heading past h3 returns to a paragraph', () => {
-    expect(shapes(runAll(doc(p('x')), 'heading', 'heading', 'heading', 'heading'))).toEqual([
-      'paragraph:x',
-    ]);
+  it('Text returns a heading to a paragraph', () => {
+    expect(shapes(runAll(doc(p('x')), 'heading-3', 'paragraph'))).toEqual(['paragraph:x']);
   });
 });
 
@@ -217,7 +195,7 @@ describe('blockCommand — converting between kinds', () => {
     expect(shapes(run(doc(h(2, 'x')), 'bullet'))).toEqual([
       { bullet_list: [{ list_item: ['paragraph:x'] }] },
     ]);
-    expect(shapes(run(doc(bullets(item('x'))), 'heading'))).toEqual(['h1:x']);
+    expect(shapes(run(doc(bullets(item('x'))), 'heading-1'))).toEqual(['h1:x']);
   });
 });
 
@@ -359,10 +337,8 @@ describe('blockCommand — a selection spanning several blocks', () => {
     ]);
   });
 
-  // editor.md: "A multi-line selection applies that transition separately to
-  // each line" — the h1 advances to h2, the paragraph becomes h1.
-  it('applies the heading cycle per line across a mixed selection', () => {
-    expect(runAcross(doc(h(1, 'a'), p('b')), 'heading')).toEqual(['h2:a', 'h1:b']);
+  it('sets the same heading level across a mixed selection', () => {
+    expect(runAcross(doc(h(1, 'a'), p('b')), 'heading-2')).toEqual(['h2:a', 'h2:b']);
   });
 
   it('toggles each kind separately across a mixed selection', () => {
@@ -372,13 +348,13 @@ describe('blockCommand — a selection spanning several blocks', () => {
     ]);
   });
 
-  it('leaves two same-level headings on the same cycle step', () => {
-    expect(runAcross(doc(h(2, 'a'), h(2, 'b')), 'heading')).toEqual(['h3:a', 'h3:b']);
+  it('chooses a level independently of the existing headings', () => {
+    expect(runAcross(doc(h(2, 'a'), h(2, 'b')), 'heading-3')).toEqual(['h3:a', 'h3:b']);
   });
 });
 
 describe('blockCommand — a code block is literal text', () => {
-  const ALL: BlockCommandId[] = ['heading', 'quote', 'bullet', 'ordered', 'task'];
+  const ALL: BlockCommandId[] = ['heading-1', 'quote', 'bullet', 'ordered', 'task'];
 
   /** The command run at `text`, as `[applied, resulting shapes]`. */
   function runAt(root: ProseNode, text: string, command: BlockCommandId): [boolean, unknown[]] {
@@ -467,5 +443,60 @@ describe('blockCommand — a selection spanning a code block', () => {
       { bullet_list: [{ list_item: ['paragraph:a'] }] },
       'code_block:cc',
     ]);
+  });
+});
+
+describe('explicit formatting and quote indentation', () => {
+  it('chooses each heading level without cycling on a second tap', () => {
+    for (const level of [1, 2, 3]) {
+      let state = stateAtFirstText(doc(h(3, 'x')));
+      const command = setBlockFormat({ kind: 'heading', level });
+      for (let i = 0; i < 2; i++)
+        command(state, (tr) => {
+          state = state.apply(tr);
+        });
+      expect(shapes(state.doc)).toEqual([`h${level}:x`]);
+    }
+  });
+
+  it('changes the heading inside a quote without removing its indentation', () => {
+    let state = stateAtFirstText(doc(quote(quote(p('x')))));
+    setBlockFormat({ kind: 'heading', level: 2 })(state, (tr) => {
+      state = state.apply(tr);
+    });
+    expect(shapes(state.doc)).toEqual([{ blockquote: [{ blockquote: ['h2:x'] }] }]);
+  });
+
+  it('outdents a quote exactly one level per transaction', () => {
+    let state = stateAtFirstText(doc(quote(quote(p('x')))));
+    const dispatched: Transaction[] = [];
+    const outdent = () =>
+      changeBlockIndent(-1)(state, (tr) => {
+        dispatched.push(tr);
+        state = state.apply(tr);
+      });
+    outdent();
+    expect(shapes(state.doc)).toEqual([{ blockquote: ['paragraph:x'] }]);
+    outdent();
+    expect(shapes(state.doc)).toEqual(['paragraph:x']);
+    expect(dispatched).toHaveLength(2);
+  });
+
+  it('indents a quote once and keeps its siblings outside the new level', () => {
+    let state = stateAtText(doc(quote(p('a'), p('b'), p('c'))), 'b');
+    changeBlockIndent(1)(state, (tr) => {
+      state = state.apply(tr);
+    });
+    expect(shapes(state.doc)).toEqual([
+      { blockquote: ['paragraph:a', { blockquote: ['paragraph:b'] }, 'paragraph:c'] },
+    ]);
+  });
+
+  it('does not indent ordinary prose or code', () => {
+    for (const root of [doc(p('x')), doc(quote(code('x')))]) {
+      const state = stateAtFirstText(root);
+      expect(changeBlockIndent(1)(state)).toBe(false);
+      expect(changeBlockIndent(-1)(state)).toBe(false);
+    }
   });
 });

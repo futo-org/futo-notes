@@ -1,34 +1,7 @@
-/*
- * The toolbar's BLOCK-format commands, as ProseMirror commands.
- *
- * The rule is "one line, one block prefix": a line is plain, a bullet, an
- * ordered item, a task, a heading or a quote, never two at once; a command
- * rewrites that one prefix, and a multi-line selection gets the transition
- * applied per line ([editor.md](../../../../docs/spec/editor.md) → "Markdown
- * toolbar"). The spec is the source of that rule — this used to be one of two
- * engines implementing it, alongside the CodeMirror toolbar's markdown-source
- * model in `toolbar/blockFormatting.ts`, and carried a drift-registry entry to
- * keep the pair honest. That engine was deleted with the Milkdown swap, so
- * there is one implementation now and no registry entry.
- *
- * A CODE BLOCK is the one block that rule cannot touch: its content is literal
- * text, so a `>` or `#` written there is code rather than a prefix. Every
- * command therefore leaves it — and every line of it, fence markers included —
- * exactly as it is, and a selection that spans one formats the prose around it
- * without swallowing the fence.
- *
- * Milkdown's own preset commands are NOT toggles — `wrapInBulletListCommand`
- * is a bare `wrapIn`, so tapping Bullet on a bullet did nothing and tapping
- * Quote on a quote produced `> > text`. Everything here is built from
- * prosemirror-commands / prosemirror-schema-list instead, so the transitions
- * are the standard, well-tested primitives.
- *
- * `tests/editor-embed-milkdown-toolbar.spec.ts` asserts the user-visible
- * outcomes.
- */
+/** Structural formatting shared by the toolbar and slash menu. */
 import { lift, setBlockType, wrapIn } from '@milkdown/kit/prose/commands';
 import type { Node as ProseNode, NodeType, ResolvedPos, Schema } from '@milkdown/kit/prose/model';
-import { liftListItem, wrapInList } from '@milkdown/kit/prose/schema-list';
+import { liftListItem, sinkListItem, wrapInList } from '@milkdown/kit/prose/schema-list';
 import {
   EditorState,
   TextSelection,
@@ -38,7 +11,7 @@ import {
 import { Mapping, type Step } from '@milkdown/kit/prose/transform';
 
 /**
- * The block kinds a single line can be, mirroring `blockFormatting.ts`, plus
+ * The block kinds a single line can be, plus
  * `code` for the one block whose lines can carry NO markdown prefix at all.
  */
 export type BlockKind = 'none' | 'bullet' | 'ordered' | 'task' | 'heading' | 'quote' | 'code';
@@ -50,7 +23,8 @@ export interface BlockFormat {
 }
 
 /** The toolbar-manifest ids that map to a block command. */
-export type BlockCommandId = 'bullet' | 'ordered' | 'task' | 'heading' | 'quote';
+export type BlockCommandId =
+  'bullet' | 'ordered' | 'task' | 'heading-1' | 'heading-2' | 'heading-3' | 'paragraph' | 'quote';
 
 const LIST_KINDS: ReadonlySet<BlockKind> = new Set<BlockKind>(['bullet', 'ordered', 'task']);
 
@@ -89,9 +63,7 @@ function isCodeTextblock(at: ResolvedPos): boolean {
 /**
  * The block kind at `at`, innermost structure first.
  *
- * A list item wins over a heading, which wins over a blockquote — the order the
- * prefixes on one markdown line would be read in, so `- # x` reads as a bullet
- * the same way `blockFormatting.ts`'s `parseLine` reads it.
+ * List membership takes precedence over the textblock format when converting lists.
  */
 export function blockFormatAtPos(at: ResolvedPos): BlockFormat {
   // A code block is read BEFORE any wrapper, because the caret's own textblock
@@ -118,38 +90,6 @@ export function blockFormatAtPos(at: ResolvedPos): BlockFormat {
 /** The block kind at the selection head. */
 export function blockFormatAt(state: EditorState): BlockFormat {
   return blockFormatAtPos(state.selection.$from);
-}
-
-/**
- * What `command` turns `current` into. Same transition table as
- * `blockFormatting.ts`'s `transitionLineKind`: tapping a kind onto itself
- * removes it, tapping a different kind converts, and Heading cycles
- * h1 → h2 → h3 → plain.
- */
-export function nextBlockFormat(current: BlockFormat, command: BlockCommandId): BlockFormat {
-  // A code block's content is LITERAL TEXT: `>` or `#` written into it is code,
-  // not a prefix, so no command has anything to turn it into. Reported unchanged
-  // so `applyTransition` finds nothing to strip and nothing to apply, and the
-  // tap lands on `blockCommand`'s document-untouched path — the same answer the
-  // CodeMirror engine gives by skipping the fence's lines
-  // (`toolbar/blockFormatting.ts`, and docs/spec/editor.md -> "Markdown toolbar").
-  if (current.kind === 'code') return current;
-
-  switch (command) {
-    case 'bullet':
-      return { kind: current.kind === 'bullet' ? 'none' : 'bullet' };
-    case 'ordered':
-      return { kind: current.kind === 'ordered' ? 'none' : 'ordered' };
-    case 'task':
-      return { kind: current.kind === 'task' ? 'none' : 'task' };
-    case 'quote':
-      return { kind: current.kind === 'quote' ? 'none' : 'quote' };
-    case 'heading':
-      if (current.kind !== 'heading') return { kind: 'heading', level: 1 };
-      return (current.level ?? 1) < 3
-        ? { kind: 'heading', level: (current.level ?? 1) + 1 }
-        : { kind: 'none' };
-  }
 }
 
 /**
@@ -244,13 +184,6 @@ function liftOutOfLists(state: EditorState, dispatch?: (tr: Transaction) => void
     (s) => ancestorDepth(s.selection.$from, 'list_item') > 0,
     listItem ? liftListItem(listItem) : lift,
   )(state, dispatch);
-}
-
-function liftOutOfQuotes(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
-  return liftUntilOut((s) => ancestorDepth(s.selection.$from, 'blockquote') > 0, lift)(
-    state,
-    dispatch,
-  );
 }
 
 function liftUntilOut(stillInside: (state: EditorState) => boolean, liftOnce: Command): Command {
@@ -353,7 +286,7 @@ function retargetList(target: BlockFormat): Command {
 function stripCommand(current: BlockFormat, schema: Schema): Command | null {
   // `code` falls through to null with the other prefix-less kinds.
   if (isListKind(current.kind)) return liftOutOfLists;
-  if (current.kind === 'quote') return liftOutOfQuotes;
+  if (current.kind === 'quote') return lift;
   if (current.kind === 'heading') {
     const paragraph = nodeType(schema, 'paragraph');
     return paragraph ? setBlockType(paragraph) : null;
@@ -367,10 +300,6 @@ function stripCommand(current: BlockFormat, schema: Schema): Command | null {
  */
 function applyCommand(target: BlockFormat, schema: Schema): Command | null {
   switch (target.kind) {
-    // Plain text writes no prefix — and neither does code, which is only ever
-    // its own target (`nextBlockFormat`): with `stripCommand` finding nothing
-    // to remove either, the chain comes out empty and the run is left exactly
-    // as it was.
     case 'none':
     case 'code':
       return null;
@@ -400,6 +329,18 @@ function applyCommand(target: BlockFormat, schema: Schema): Command | null {
 /** Turn the block(s) the command is acting on from `current` into `target`. */
 function applyTransition(current: BlockFormat, target: BlockFormat): Command {
   return (state, dispatch) => {
+    if (current.kind === 'code' || sameFormat(current, target)) return false;
+    if (target.kind === 'quote' && ancestorDepth(state.selection.$from, 'blockquote') > 0)
+      return false;
+    if ((target.kind === 'heading' || target.kind === 'none') && !isListKind(current.kind)) {
+      const type = nodeType(state.schema, target.kind === 'heading' ? 'heading' : 'paragraph');
+      return type
+        ? setBlockType(type, target.kind === 'heading' ? { level: target.level ?? 1 } : undefined)(
+            state,
+            dispatch,
+          )
+        : false;
+    }
     // Bullet ⇄ ordered ⇄ task: retarget in place so nesting survives.
     if (isListKind(current.kind) && isListKind(target.kind)) {
       return retargetList(target)(state, dispatch);
@@ -419,16 +360,7 @@ interface BlockRun {
   format: BlockFormat;
 }
 
-/**
- * The selection split into runs of same-kind blocks.
- *
- * Runs, not individual blocks, because both granularities are wrong on their
- * own: one command over the whole selection collapses a MIXED selection to a
- * single transition (selecting an h1 and a paragraph and tapping Heading has to
- * give h2 and h1, not h2 and h2), while one command per block would wrap two
- * selected paragraphs into two adjacent one-item lists instead of one list of
- * two. A run gets exactly one transition and one primitive, which is both.
- */
+/** Group adjacent formats so a selection creates one list rather than one per paragraph. */
 function blockRuns(state: EditorState): BlockRun[] {
   const { from, to } = state.selection;
   const runs: BlockRun[] = [];
@@ -494,24 +426,50 @@ function transitionRuns(target: (current: BlockFormat) => BlockFormat): Command 
   };
 }
 
-/** The ProseMirror command behind one block-format toolbar button. */
+/** List buttons toggle; heading levels, Text and Quote are explicit choices. */
 export function blockCommand(command: BlockCommandId): Command {
-  return transitionRuns((current) => nextBlockFormat(current, command));
+  switch (command) {
+    case 'heading-1':
+      return setBlockFormat({ kind: 'heading', level: 1 });
+    case 'heading-2':
+      return setBlockFormat({ kind: 'heading', level: 2 });
+    case 'heading-3':
+      return setBlockFormat({ kind: 'heading', level: 3 });
+    case 'paragraph':
+      return setBlockFormat({ kind: 'none' });
+    case 'quote':
+      return setBlockFormat({ kind: 'quote' });
+    default:
+      return transitionRuns((current) =>
+        current.kind === 'code'
+          ? current
+          : {
+              kind: current.kind === command ? 'none' : command,
+            },
+      );
+  }
 }
 
-/**
- * Set the block(s) to `target` outright, with no toggle and no cycle.
- *
- * This is what a MENU means and a button does not: picking "Heading 2" from a
- * list has to give a heading 2 whatever the block was, where tapping the
- * toolbar's one Heading button cycles h1 → h2 → h3 → plain because it is the
- * only heading control there is. Both go through the same transition table, so
- * the two surfaces cannot disagree about what a heading IS.
- *
- * A code block is still left alone — its lines can carry no prefix at all
- * (`nextBlockFormat`) — so a menu pick inside a fence does nothing rather than
- * writing a `#` into someone's code.
- */
+/** Set a format; heading/Text changes leave enclosing quotes in place. */
 export function setBlockFormat(target: BlockFormat): Command {
   return transitionRuns((current) => (current.kind === 'code' ? current : target));
+}
+
+/** Change the nearest list or quote container by exactly one level. */
+export function changeBlockIndent(direction: 1 | -1): Command {
+  return (state, dispatch) => {
+    const at = state.selection.$from;
+    if (isCodeTextblock(at)) return false;
+    for (let depth = at.depth; depth > 0; depth--) {
+      const node = at.node(depth);
+      if (node.type.name === 'list_item') {
+        const command = direction === 1 ? sinkListItem(node.type) : liftListItem(node.type);
+        return command(state, dispatch);
+      }
+      if (node.type.name === 'blockquote') {
+        return (direction === 1 ? wrapIn(node.type) : lift)(state, dispatch);
+      }
+    }
+    return false;
+  };
 }

@@ -2331,6 +2331,10 @@
     display: none;
   }
 
+  :global(.futo-wikilink-suggest[data-show='false']) {
+    display: none;
+  }
+
   :global(.futo-selection-toolbar-body) {
     display: flex;
     align-items: center;

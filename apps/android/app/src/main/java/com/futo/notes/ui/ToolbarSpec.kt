@@ -8,7 +8,7 @@ package com.futo.notes.ui
 /**
  * What tapping a toolbar item does. `Exec` dispatches
  * `FutoEditor.exec(item.id)` over the bridge into the SHARED
- * markdownToolbar.ts command (TOOLBAR_EXEC) — the native toolbar never
+ * toolbarExec.ts command — the native toolbar never
  * reimplements editing semantics, so behavior is identical to the web
  * toolbar by construction.
  */
@@ -23,9 +23,10 @@ data class ToolbarItemSpec(
     /** Accessibility label — same text as the web toolbar's aria-label. */
     val label: String,
     /** Material Symbols name; EditorToolbar.kt maps it to an ImageVector. */
+    val text: String?,
     val material: String,
-    /** Only visible while the cursor is on a list line (bridge cursorContext). */
-    val onlyOnListLine: Boolean,
+    /** Only visible in a list or quote (cursorContext and formatState). */
+    val onlyInContainer: Boolean,
     val action: ToolbarItemAction,
 )
 
@@ -36,45 +37,75 @@ object ToolbarSpec {
             ToolbarItemSpec(
                 id = "bold",
                 label = "Bold",
+                text = null,
                 material = "format_bold",
-                onlyOnListLine = false,
+                onlyInContainer = false,
                 action = ToolbarItemAction.Exec,
             ),
             ToolbarItemSpec(
                 id = "italic",
                 label = "Italic",
+                text = null,
                 material = "format_italic",
-                onlyOnListLine = false,
+                onlyInContainer = false,
                 action = ToolbarItemAction.Exec,
             ),
             ToolbarItemSpec(
                 id = "strikethrough",
                 label = "Strikethrough",
+                text = null,
                 material = "format_strikethrough",
-                onlyOnListLine = false,
+                onlyInContainer = false,
                 action = ToolbarItemAction.Exec,
             ),
             ToolbarItemSpec(
                 id = "link",
                 label = "Link",
+                text = null,
                 material = "link",
-                onlyOnListLine = false,
+                onlyInContainer = false,
                 action = ToolbarItemAction.Exec,
             ),
         ),
         listOf(
             ToolbarItemSpec(
-                id = "heading",
-                label = "Heading",
+                id = "paragraph",
+                label = "Text",
+                text = "Text",
                 material = "format_h1",
-                onlyOnListLine = false,
+                onlyInContainer = false,
+                action = ToolbarItemAction.Exec,
+            ),
+            ToolbarItemSpec(
+                id = "heading-1",
+                label = "Heading 1",
+                text = "H1",
+                material = "format_h1",
+                onlyInContainer = false,
+                action = ToolbarItemAction.Exec,
+            ),
+            ToolbarItemSpec(
+                id = "heading-2",
+                label = "Heading 2",
+                text = "H2",
+                material = "format_h1",
+                onlyInContainer = false,
+                action = ToolbarItemAction.Exec,
+            ),
+            ToolbarItemSpec(
+                id = "heading-3",
+                label = "Heading 3",
+                text = "H3",
+                material = "format_h1",
+                onlyInContainer = false,
                 action = ToolbarItemAction.Exec,
             ),
             ToolbarItemSpec(
                 id = "quote",
                 label = "Block quote",
+                text = null,
                 material = "format_quote",
-                onlyOnListLine = false,
+                onlyInContainer = false,
                 action = ToolbarItemAction.Exec,
             ),
         ),
@@ -82,36 +113,41 @@ object ToolbarSpec {
             ToolbarItemSpec(
                 id = "bullet-list",
                 label = "Bullet list",
+                text = null,
                 material = "format_list_bulleted",
-                onlyOnListLine = false,
+                onlyInContainer = false,
                 action = ToolbarItemAction.Exec,
             ),
             ToolbarItemSpec(
                 id = "ordered-list",
                 label = "Ordered list",
+                text = null,
                 material = "format_list_numbered",
-                onlyOnListLine = false,
+                onlyInContainer = false,
                 action = ToolbarItemAction.Exec,
             ),
             ToolbarItemSpec(
                 id = "task-list",
                 label = "Task list",
+                text = null,
                 material = "checklist",
-                onlyOnListLine = false,
+                onlyInContainer = false,
                 action = ToolbarItemAction.Exec,
             ),
             ToolbarItemSpec(
                 id = "outdent",
                 label = "Outdent",
+                text = null,
                 material = "format_indent_decrease",
-                onlyOnListLine = true,
+                onlyInContainer = true,
                 action = ToolbarItemAction.Exec,
             ),
             ToolbarItemSpec(
                 id = "indent",
                 label = "Indent",
+                text = null,
                 material = "format_indent_increase",
-                onlyOnListLine = true,
+                onlyInContainer = true,
                 action = ToolbarItemAction.Exec,
             ),
         ),
@@ -119,15 +155,17 @@ object ToolbarSpec {
             ToolbarItemSpec(
                 id = "camera",
                 label = "Take photo",
+                text = null,
                 material = "photo_camera",
-                onlyOnListLine = false,
+                onlyInContainer = false,
                 action = ToolbarItemAction.PickImage(source = "camera"),
             ),
             ToolbarItemSpec(
                 id = "image",
                 label = "Choose from library",
+                text = null,
                 material = "image",
-                onlyOnListLine = false,
+                onlyInContainer = false,
                 action = ToolbarItemAction.PickImage(source = "library"),
             ),
         ),
@@ -137,8 +175,9 @@ object ToolbarSpec {
     val dismiss = ToolbarItemSpec(
         id = "dismiss",
         label = "Dismiss keyboard",
+        text = null,
         material = "keyboard_hide",
-        onlyOnListLine = false,
+        onlyInContainer = false,
         action = ToolbarItemAction.Dismiss,
     )
 }

@@ -1,3 +1,7 @@
+> **2026-09-08 decision:** CommonMark now decides ambiguous list syntax. The
+> bullet-number pre-pass described in the historical results below was removed;
+> extra blank lines, content preservation and unchanged-open protection remain.
+
 # Milkdown round-trip census — scorecard
 
 What opening and re-saving a note in the Milkdown editor does to its bytes,
@@ -107,6 +111,30 @@ across). The chunk census (`just chunk-census`) is back at parity: 29,413
 equivalent, 1 divergent (`7383`, above), 1,581 harness failures — the known
 wikilink tokenizer crash, unchanged.
 
+## 2026-09-08 — CommonMark owns ambiguous lists
+
+Removed the bullet-number pre-parser. The same 30,995-note corpus, compared
+against the pre-change compat build, raised **zero new flags** and cleared
+28: seven each for instability, document mismatch, text loss, and structural
+differences. Both runs had zero harness failures and zero editor failures.
+
+| Detector | Before | After |
+|---|---:|---:|
+| `unstable` | 115 | 108 |
+| `doc_mismatch` | 230 | 223 |
+| `text_loss` | 60 | 53 |
+| `structural_diff` | 110 | 103 |
+
+Persistent instability (7), `<br>` loss (4), HTML loss (6), and wikilink loss
+(1) are unchanged; empty-link and frontmatter loss remain zero. These are
+heuristic flags with the limitations described above, not a claim of perfect
+preservation. The old pre-parser's second-pass reinterpretation is gone;
+`* 0. text` now consistently follows CommonMark's nested-list parse.
+
+Reproduce with `just milkdown-census --out <after> --diff <before>` using a
+baseline captured before this change. Results stayed in ignored local build
+outputs; no corpus documents were added to the repository.
+
 ## What each fix bought
 
 ### `<br>` deletion — 61 notes, fixed
@@ -158,7 +186,7 @@ untouched.
 `* 0. item` is CommonMark behaving as specified: a list item's content is its
 own mini-document, so `0. item` opens a nested ordered list and the item gets an
 empty leading paragraph — which comes back as a literal `* <br />` plus an
-indented continuation line. `bulletNumbers.ts` escapes the digit-dot before the
+indented continuation line. The former bullet-number pre-pass escaped the digit-dot before the
 parse, which is the only place the ambiguity can still be resolved.
 
 **342 → 299.** The plan scoped this fix to digit-dot ambiguity, and that is what

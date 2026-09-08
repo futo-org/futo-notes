@@ -15,9 +15,8 @@
  *    in front of `* > quote` is not written at all.
  * 2. `[](url)` loses its href along with its empty label. A remark transformer
  *    gives the link its URL as visible text (`./emptyLink`).
- * 3. `* 0. item` acquires a literal `<br />`. A pre-parse string pass escapes
- *    the digit-dot (`./bulletNumbers`); this one cannot be a transformer,
- *    because CommonMark has already resolved the ambiguity by then.
+ * Ambiguous bullet contents use CommonMark's interpretation. Empty schema
+ * fillers are still omitted by `listItemFiller`.
  *
  * A fourth upstream plugin is dropped rather than forked:
  *
@@ -67,7 +66,6 @@ import {
 import { gfm, keepTableAlignPlugin, tableEditingPlugin } from '@milkdown/kit/preset/gfm';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 
-import { bulletNumberEscapePlugin } from './bulletNumbers';
 import { remarkExpandEmptyLinksPlugin } from './emptyLink';
 import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
@@ -78,7 +76,6 @@ import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePas
 export * from './atxEscape';
 export * from './stringifyHandlers';
 export * from './underscoreEscape';
-export { escapeAmbiguousBulletNumbers } from './bulletNumbers';
 export { expandEmptyLinks } from './emptyLink';
 export { blankLineJoin, fixEmptyLinePlaceholders, restoreBlankLineParagraphs } from './emptyLine';
 export {
@@ -206,7 +203,6 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
     paragraphWithoutFillerSchema,
     paragraphFillerGuard,
     ...remarkExpandEmptyLinksPlugin,
-    bulletNumberEscapePlugin,
     /* The preset's list numbering over the touched blocks only (see
      * UPSTREAM_LIST_ORDER_ENTRIES). */
     scopedListOrderPlugin,

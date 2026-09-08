@@ -30,6 +30,9 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
@@ -82,8 +85,7 @@ private val FADE_WIDTH = 10.dp
  *
  * [activeFormats] is the bridge `formatState` set — the manifest ids that cover
  * the caret — and tints those buttons, the Android half of the Notion-style
- * active highlight iOS's EditorToolbarView draws. An engine that never sends
- * `formatState` (CodeMirror) leaves it empty and nothing lights up.
+ * active highlight iOS's EditorToolbarView draws.
  */
 @Composable
 fun EditorToolbar(
@@ -111,7 +113,7 @@ fun EditorToolbar(
     // Recompute the snap only while the bar is at rest (scroll == 0), where the
     // measured positions equal content positions. The snap is a fixed layout
     // inset, so it must not jitter as the user scrolls.
-    LaunchedEffect(slotPx, measureTick, onListLine, scrollState.value) {
+    LaunchedEffect(slotPx, measureTick, onListLine, activeFormats, scrollState.value) {
         if (scrollState.value == 0 && slotPx > 0f && buttonLefts.size > 1) {
             val lefts = buttonLefts.values.sorted()
             val insetPx = computeToolbarSnapPx(
@@ -166,7 +168,7 @@ fun EditorToolbar(
                             )
                         }
                         group.forEach { item ->
-                            if (!item.onlyOnListLine || onListLine) {
+                            if (!item.onlyInContainer || onListLine || "quote" in activeFormats) {
                                 ToolbarButton(
                                     item,
                                     tint = c.textPrimary,
@@ -271,12 +273,20 @@ private fun ToolbarButton(
                 .background(if (active) accent.copy(alpha = 0.15f) else Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = materialIcon(item.material),
-                contentDescription = item.label,
-                tint = if (active) accent else tint,
-                modifier = Modifier.size(22.dp),
-            )
+            if (item.text != null) {
+                Text(
+                    text = item.text,
+                    color = if (active) accent else tint,
+                    modifier = Modifier.semantics { contentDescription = item.label },
+                )
+            } else {
+                Icon(
+                    imageVector = materialIcon(item.material),
+                    contentDescription = item.label,
+                    tint = if (active) accent else tint,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
     }
 }

@@ -550,6 +550,12 @@ about.
   (two spaces after the marker) puts its content at column 3, so a two-space
   child is too shallow to nest and renders level with its parent as a sibling.
   → packages/editor/src/milkdown-compat/, tests/editor-embed-milkdown.spec.ts
+- Ambiguous list syntax follows CommonMark. A bullet followed by an ordered-list
+  marker on the same line (such as `* 0. text`) is a nested ordered list; authors
+  can escape the period to keep literal numbering. This does not change the
+  preservation of extra blank lines or the rule that opening alone never saves.
+  → packages/editor/src/milkdown-compat/index.ts,
+  tests/editor-embed-milkdown-compat.spec.ts
 - Nesting indentation is BOUNDED, so a deeply nested list stays readable at
   phone width: levels one to four indent 1.4em each, five to eight 0.7em, and
   from level nine the indent stops growing — at most 8.4em (143px) in total,
@@ -969,7 +975,8 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   src/features/editor/milkdown/wikilink/inputRule.ts
 
 - _(desktop)_ Selecting text raises a floating toolbar just above the
-  selection — Bold, Italic, Strikethrough, Code, Link — placed by the same
+  selection — Text/H1/H2/H3, Quote, Bold, Italic, Strikethrough, Code, Link,
+  plus Indent/Outdent inside lists and quotes — placed by the same
   floating-ui positioning the `/` menu and the ⠿ handle use. It shows for a
   non-empty TEXT selection that holds something to format, and not for a caret,
   a node selection (an image, a wikilink chip, a block picked up by the ⠿
@@ -977,7 +984,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   block, where nothing is markup. A button keeps the selection and the bar, so a
   format can be toggled straight back off; the buttons light up for the formats
   active on the selection. The bar hides when the note loses focus (a click into
-  the sidebar or the title) and during an IME composition. The four format
+  the sidebar or the title) and during an IME composition. The formatting
   buttons run the same shared commands the native toolbars dispatch. →
   src/features/editor/milkdown/selectionToolbar/, milkdown/toolbarExec.ts,
   tests/selection-toolbar.spec.ts
@@ -992,19 +999,19 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
 ## Markdown toolbar _(native shells / editor-embed fallback)_
 
 The shipping toolbar surface belongs to the native shells. The Tauri desktop
-shell renders no toolbar at all — it never switches to a mobile layout and never
-raises one on a selection (see the desktop formatting Gap under "Interactive
-elements"). The standalone editor embed retains a web toolbar as a bridge
+shell uses the floating selection toolbar described above. The standalone editor
+embed retains a web toolbar as a bridge
 fallback, but iOS and Android call `setNativeToolbar(true)` and render native
 toolbar chrome instead. → src/editor-embed/EmbedToolbar.svelte,
 EditorWebView.swift, EditorWebView.kt
 
 - When the editor body is focused, a formatting toolbar docks above the soft
-  keyboard: Bold, Italic, Strikethrough, Link, Heading, Quote, Bullet/Ordered/Task
-  list, Indent/Outdent (shown when the cursor is on a list line), Camera,
+  keyboard: Bold, Italic, Strikethrough, Link, Text/H1/H2/H3, Quote, Bullet/Ordered/Task
+  list, Indent/Outdent (shown inside a list or quote), Camera,
   Image — horizontally scrollable, with a collapse chevron that blurs the
   editor (dropping both the keyboard and the toolbar). Verified emulator +
-  simulator 2026-07-08 (Link sits after Strikethrough; no dialog appears —
+  simulator 2026-07-08 for the original controls (Link sits after Strikethrough;
+  no dialog appears —
   `window.prompt` is a no-op in the native WebViews). → EmbedToolbar.svelte,
   packages/editor/src/toolbar.ts, tests/editor-embed-milkdown-toolbar.spec.ts
 - Link toggles the link over the selection — tapping it on an existing link
@@ -1043,22 +1050,22 @@ EditorWebView.swift, EditorWebView.kt
   src/features/editor/milkdown/formatState.ts, EditorToolbar.swift,
   EditorToolbar.kt, EmbedToolbar.svelte,
   tests/editor-embed-milkdown-toolbar.spec.ts
-- A block-format command applies exactly one block kind per line — plain,
-  bullet, ordered, task, heading, or quote. The prefixes are document structure
-  rather than text: a kind tapped onto itself lifts the block clear of EVERY
-  enclosing list or blockquote (so a second Quote tap unwraps instead of nesting
-  `> >`), and a conversion between two list kinds retargets the enclosing list in
-  place, leaving a nested item nested. Markdown has no mixed bullet/ordered list,
-  so Bullet/Ordered convert the whole enclosing list; Task, which is a per-item
-  checkbox, converts only the items the selection touches. Converting a checked
-  task drops its checkbox state along with the task kind. →
-  src/features/editor/milkdown/blockCommands.ts,
-  src/features/editor/milkdown/blockCommands.test.ts,
+- Heading controls offer Text, H1, H2 and H3 explicitly. Choosing a level applies
+  that same level to every selected prose block; choosing it again does not cycle.
+  Text returns headings to paragraphs. Enclosing quotes keep their nesting.
+  Verified in the desktop WebView and Android emulator 2026-09-08. →
+  packages/editor/src/toolbar.ts, src/features/editor/milkdown/blockCommands.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts, tests/selection-toolbar.spec.ts
+- Quote applies quote formatting; pressing it inside a quote does not change its
+  depth. Indent and Outdent change the nearest list or quote container one level
+  at a time; outdenting a top-level quote returns its selected content to the
+  surrounding document. Verified in the desktop WebView and Android emulator
+  2026-09-08. → src/features/editor/milkdown/blockCommands.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts
-- Heading follows its own per-line cycle: a non-heading becomes h1, then h1 →
-  h2 → h3 → plain. A multi-line selection applies that transition separately
-  to each line, like the other block-format commands. →
-  src/features/editor/milkdown/blockCommands.ts,
+- Bullet, Ordered and Task retain their list toggles and conversions. Converting
+  between list kinds preserves nesting; Bullet/Ordered change the enclosing list,
+  while Task changes the selected items. Converting a checked task to another
+  list kind drops its checkbox state. → src/features/editor/milkdown/blockCommands.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts
 - A block-format command never touches a CODE BLOCK. Its content is literal
   text, so a `>` or `#` written there would BE code rather than a prefix:
@@ -1085,7 +1092,8 @@ EditorWebView.swift, EditorWebView.kt
 - Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
   the host renders its own toolbar from a GENERATED copy of the manifest and
   drives the editor over the bridge — `exec(id)` runs the shared command,
-  the `cursorContext` message drives Indent/Outdent visibility, `blur()`
+  the `cursorContext` and `formatState` messages drive Indent/Outdent visibility,
+  `blur()`
   backs the dismiss chevron, and `setNativeToolbar(true)` suppresses the
   embed's web toolbar so two never show. `just toolbar-spec` regenerates the
   native specs; `just toolbar-spec-check` (part of `just check`) fails when
@@ -1094,7 +1102,7 @@ EditorWebView.swift, EditorWebView.kt
 - iOS native: the toolbar is the keyboard's `inputAccessoryView` (generated
   ToolbarSpec.swift rendered by EditorToolbar.swift), replacing the stripped
   prev/next/Done bar — the system owns docking/animation with the keyboard.
-  All buttons verified end-to-end on the iOS simulator 2026-06-10 (exec
+  Original controls verified end-to-end on the iOS simulator 2026-06-10 (exec
   commands mutate the doc and autosave; Indent/Outdent appear only on list
   lines; pickers open natively; chevron blurs). → EditorToolbar.swift,
   EditorWebView.swift `futo_overrideInputAccessoryView`
@@ -1113,7 +1121,7 @@ EditorWebView.swift, EditorWebView.kt
 - Android native: the toolbar is a Compose bar (generated ToolbarSpec.kt
   rendered by EditorToolbar.kt) docked above the soft keyboard via the editor
   screen's `imePadding`, shown only while the editor is focused (bridge
-  `focus` message). All buttons verified end-to-end on the emulator
+  `focus` message). Original controls verified end-to-end on the emulator
   2026-06-10 (exec commands mutate the doc and autosave; Indent/Outdent
   appear only on list lines; pickers open natively; chevron blurs, dropping
   keyboard + toolbar). → EditorToolbar.kt, NoteEditorScreen.kt,

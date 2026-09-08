@@ -5,7 +5,7 @@
 
 /// What tapping a toolbar item does. `exec` dispatches
 /// `FutoEditor.exec(item.id)` over the bridge into the SHARED
-/// markdownToolbar.ts command (TOOLBAR_EXEC) — the native toolbar never
+/// toolbarExec.ts command — the native toolbar never
 /// reimplements editing semantics, so behavior is identical to the web
 /// toolbar by construction.
 enum ToolbarItemAction: Equatable {
@@ -18,9 +18,10 @@ struct ToolbarItemSpec: Identifiable, Equatable {
     let id: String
     /// Accessibility label — same text as the web toolbar's aria-label.
     let label: String
+    let text: String?
     let sfSymbol: String
-    /// Only visible while the cursor is on a list line (bridge cursorContext).
-    let onlyOnListLine: Bool
+    /// Only visible in a list or quote (cursorContext and formatState).
+    let onlyInContainer: Bool
     let action: ToolbarItemAction
 }
 
@@ -31,45 +32,75 @@ enum ToolbarSpec {
             ToolbarItemSpec(
                 id: "bold",
                 label: "Bold",
+                text: nil,
                 sfSymbol: "bold",
-                onlyOnListLine: false,
+                onlyInContainer: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "italic",
                 label: "Italic",
+                text: nil,
                 sfSymbol: "italic",
-                onlyOnListLine: false,
+                onlyInContainer: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "strikethrough",
                 label: "Strikethrough",
+                text: nil,
                 sfSymbol: "strikethrough",
-                onlyOnListLine: false,
+                onlyInContainer: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "link",
                 label: "Link",
+                text: nil,
                 sfSymbol: "link",
-                onlyOnListLine: false,
+                onlyInContainer: false,
                 action: .exec
             ),
         ],
         [
             ToolbarItemSpec(
-                id: "heading",
-                label: "Heading",
+                id: "paragraph",
+                label: "Text",
+                text: "Text",
                 sfSymbol: "textformat.size",
-                onlyOnListLine: false,
+                onlyInContainer: false,
+                action: .exec
+            ),
+            ToolbarItemSpec(
+                id: "heading-1",
+                label: "Heading 1",
+                text: "H1",
+                sfSymbol: "textformat.size",
+                onlyInContainer: false,
+                action: .exec
+            ),
+            ToolbarItemSpec(
+                id: "heading-2",
+                label: "Heading 2",
+                text: "H2",
+                sfSymbol: "textformat.size",
+                onlyInContainer: false,
+                action: .exec
+            ),
+            ToolbarItemSpec(
+                id: "heading-3",
+                label: "Heading 3",
+                text: "H3",
+                sfSymbol: "textformat.size",
+                onlyInContainer: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "quote",
                 label: "Block quote",
+                text: nil,
                 sfSymbol: "text.quote",
-                onlyOnListLine: false,
+                onlyInContainer: false,
                 action: .exec
             ),
         ],
@@ -77,36 +108,41 @@ enum ToolbarSpec {
             ToolbarItemSpec(
                 id: "bullet-list",
                 label: "Bullet list",
+                text: nil,
                 sfSymbol: "list.bullet",
-                onlyOnListLine: false,
+                onlyInContainer: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "ordered-list",
                 label: "Ordered list",
+                text: nil,
                 sfSymbol: "list.number",
-                onlyOnListLine: false,
+                onlyInContainer: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "task-list",
                 label: "Task list",
+                text: nil,
                 sfSymbol: "checklist",
-                onlyOnListLine: false,
+                onlyInContainer: false,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "outdent",
                 label: "Outdent",
+                text: nil,
                 sfSymbol: "decrease.indent",
-                onlyOnListLine: true,
+                onlyInContainer: true,
                 action: .exec
             ),
             ToolbarItemSpec(
                 id: "indent",
                 label: "Indent",
+                text: nil,
                 sfSymbol: "increase.indent",
-                onlyOnListLine: true,
+                onlyInContainer: true,
                 action: .exec
             ),
         ],
@@ -114,15 +150,17 @@ enum ToolbarSpec {
             ToolbarItemSpec(
                 id: "camera",
                 label: "Take photo",
+                text: nil,
                 sfSymbol: "camera",
-                onlyOnListLine: false,
+                onlyInContainer: false,
                 action: .pickImage(source: "camera")
             ),
             ToolbarItemSpec(
                 id: "image",
                 label: "Choose from library",
+                text: nil,
                 sfSymbol: "photo",
-                onlyOnListLine: false,
+                onlyInContainer: false,
                 action: .pickImage(source: "library")
             ),
         ],
@@ -132,8 +170,9 @@ enum ToolbarSpec {
     static let dismiss = ToolbarItemSpec(
         id: "dismiss",
         label: "Dismiss keyboard",
+        text: nil,
         sfSymbol: "keyboard.chevron.compact.down",
-        onlyOnListLine: false,
+        onlyInContainer: false,
         action: .dismiss
     )
 }

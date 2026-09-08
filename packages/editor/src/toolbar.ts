@@ -17,18 +17,7 @@
  * The EDITING BEHAVIOR behind each `exec` item is not defined here and never
  * lives in a native shell: every toolbar dispatches `exec(item.id)` — over the
  * bridge on the native shells — into the one shared implementation for
- * whichever engine is mounted:
- *
- *   - CodeMirror: `TOOLBAR_EXEC` in `src/features/editor/markdownToolbar.ts`.
- *   - Milkdown/ProseMirror: `createToolbarExec` in
- *     `src/features/editor/milkdown/toolbarExec.ts` (block formats in
- *     `blockCommands.ts`), while the transition is in flight
- *     (docs/plan/milkdown-transition.md).
- *
- * One implementation of every command per engine, identical behavior on every
- * platform by construction, and the two engines agree on what each command
- * MEANS — pinned by `tests/editor-embed-bridge.spec.ts` and
- * `tests/editor-embed-milkdown-toolbar.spec.ts`.
+ * Milkdown editor (`src/features/editor/milkdown/toolbarExec.ts`).
  */
 
 /** What tapping a toolbar item does. */
@@ -51,14 +40,16 @@ export interface ToolbarItem {
    * contentDescription on Android. Identical text on every platform.
    */
   label: string;
+  /** Optional visible text, used for explicit heading levels. */
+  text?: string;
   /** Icon name in `@lucide/svelte` (web renderers). */
   lucide: string;
   /** SF Symbol name (native iOS renderer). */
   sfSymbol: string;
   /** Material Symbols name (native Android renderer). */
   material: string;
-  /** `onListLine`: only visible while the cursor is on a list line. */
-  when: 'always' | 'onListLine';
+  /** Indentation is available inside lists and quotes. */
+  when: 'always' | 'inContainer';
   action: ToolbarAction;
 }
 
@@ -109,9 +100,40 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   ],
   [
     {
-      id: 'heading',
-      label: 'Heading',
-      lucide: 'Heading',
+      id: 'paragraph',
+      label: 'Text',
+      text: 'Text',
+      lucide: 'Type',
+      sfSymbol: 'textformat.size',
+      material: 'format_h1',
+      when: 'always',
+      action: EXEC,
+    },
+    {
+      id: 'heading-1',
+      label: 'Heading 1',
+      text: 'H1',
+      lucide: 'Heading1',
+      sfSymbol: 'textformat.size',
+      material: 'format_h1',
+      when: 'always',
+      action: EXEC,
+    },
+    {
+      id: 'heading-2',
+      label: 'Heading 2',
+      text: 'H2',
+      lucide: 'Heading2',
+      sfSymbol: 'textformat.size',
+      material: 'format_h1',
+      when: 'always',
+      action: EXEC,
+    },
+    {
+      id: 'heading-3',
+      label: 'Heading 3',
+      text: 'H3',
+      lucide: 'Heading3',
       sfSymbol: 'textformat.size',
       material: 'format_h1',
       when: 'always',
@@ -161,7 +183,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       lucide: 'ListIndentDecrease',
       sfSymbol: 'decrease.indent',
       material: 'format_indent_decrease',
-      when: 'onListLine',
+      when: 'inContainer',
       action: EXEC,
     },
     {
@@ -170,7 +192,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       lucide: 'ListIndentIncrease',
       sfSymbol: 'increase.indent',
       material: 'format_indent_increase',
-      when: 'onListLine',
+      when: 'inContainer',
       action: EXEC,
     },
   ],

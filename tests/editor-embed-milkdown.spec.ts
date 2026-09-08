@@ -582,7 +582,7 @@ test('formatState reports the block kind at the caret, deduped', async ({ page }
   // A load leaves the caret at the end of the document — inside the heading.
   await hostSetContent(page, 'plain paragraph\n\n## a heading');
   await focusEditor(page);
-  expect((await messagesOfType(page, 'formatState')).at(-1)?.active).toEqual(['heading']);
+  expect((await messagesOfType(page, 'formatState')).at(-1)?.active).toEqual(['heading-2']);
   await clearMessages(page);
 
   // Into the paragraph: the heading is no longer active. Wait on the message
