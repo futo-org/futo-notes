@@ -15,18 +15,26 @@ import { describe, expect, it } from 'vitest';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const justfile = readFileSync(join(ROOT, 'justfile'), 'utf8');
 
-/** The dependency list on a recipe's header line (`check: a b c` -> `a b c`). */
+// A recipe header is `name [params]: [dependencies]`, so both helpers have to
+// tolerate a parameter list — `journal *args:` is as much a recipe named
+// `journal` as `build:` is one named `build`.
+function header(name) {
+  const match = new RegExp(
+    `^${name}(?<params> [^\\n:]*)?:(?<rest>[^\\n]*)\\n(?<body>(?:[ \\t][^\\n]*\\n|\\n)*)`,
+    'm',
+  ).exec(justfile);
+  if (!match) throw new Error(`no recipe named '${name}' in the justfile`);
+  return match.groups;
+}
+
+/** The dependency list on a recipe's header line (`check: a b c` -> `[a, b, c]`). */
 function dependencies(name) {
-  const header = new RegExp(`^${name}:([^\\n]*)$`, 'm').exec(justfile);
-  if (!header) throw new Error(`no recipe named '${name}' in the justfile`);
-  return header[1].trim().split(/\s+/).filter(Boolean);
+  return header(name).rest.trim().split(/\s+/).filter(Boolean);
 }
 
 /** A recipe's indented body lines. */
 function body(name) {
-  const match = new RegExp(`^${name}:[^\\n]*\\n((?:[ \\t][^\\n]*\\n|\\n)*)`, 'm').exec(justfile);
-  if (!match) throw new Error(`no recipe named '${name}' in the justfile`);
-  return match[1];
+  return header(name).body;
 }
 
 describe('fresh-worktree install guard', () => {
@@ -43,4 +51,25 @@ describe('fresh-worktree install guard', () => {
     expect(guard).toContain('node_modules');
     expect(guard).toContain('just install');
   });
+});
+
+describe('argument passing', () => {
+  // pc_9b7fd5dba746: `just android-drive tap 'Connect & Sync'` exited without
+  // tapping anything, because a variadic `*args` is joined into one string
+  // before `{{args}}` is interpolated and the shell then re-splits it — the `&`
+  // backgrounded a truncated command. Same class: `just journal where --dir
+  // '/tmp/a b'` read `/tmp/a`, and `just test-one -t 'two words'` ran the whole
+  // suite instead of one test.
+  it('passes recipe arguments through as positional arguments', () => {
+    expect(justfile).toMatch(/^set positional-arguments := true$/m);
+  });
+
+  it.each(['journal', 'android-drive', 'qa-shot', 'test-one'])(
+    'forwards user-supplied text verbatim in `%s`',
+    (recipe) => {
+      const recipeBody = body(recipe);
+      expect(recipeBody).toContain('"$@"');
+      expect(recipeBody).not.toContain('{{args}}');
+    },
+  );
 });
