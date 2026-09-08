@@ -1,7 +1,8 @@
 # Agent developer experience — what an agent needs to verify its own work
 
-**Status:** proposed 2026-09-05. Nothing in §3 is built yet. Branch `chore/agent-dx`, worktree
-`../futo-notes-agent-dx`.
+**Status:** P1 built on this branch (MR !291), 2026-09-08: `just wt`, the three hooks + `just orient`,
+`just ci-wait`/`mr-status`, `just detached`, the weekly papercut sweep, and the fresh-worktree
+preflights. P2 and P3 are still proposals. Branch `chore/agent-dx`, worktree `../futo-notes-agent-dx`.
 **Audience:** Justin first, then whichever session picks up an item. Every P1 item is one small MR.
 **Evidence base:** 180 Claude Code sessions on both machines (113 on jfedora, 2026-08-05 → 09-05;
 67 on the MacBook), the committed `.papercuts.jsonl` (199 cuts, 64 resolves), a survey of every
