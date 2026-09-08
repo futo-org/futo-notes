@@ -9,7 +9,6 @@ import {
 } from '$shared/state/appState';
 import { initNotes } from '$features/notes/notes.svelte';
 import { initSyncPassword } from '$features/sync/syncServiceE2ee';
-import { applySystemAccentPreference, watchSystemAccentTauri } from '$features/system/accent';
 import {
   applyThemePreference,
   watchSystemThemeTauri,
@@ -48,7 +47,6 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
     let disposeThemeWatch = () => {};
     const disposeLanguageWatch = watchDesktopSystemLanguage();
     const initialLanguageSelectionRevision = desktopLocalization.selectionRevision;
-    let disposeAccentWatch = () => {};
 
     // Everything below is background work; none of it gates the render above.
     // Forward the OS-reported theme: on Linux the webview's matchMedia can't see
@@ -57,8 +55,6 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
       void applyThemePreference(getCachedPreferences().appearance.theme, systemTheme);
     applyCurrentTheme();
     disposeThemeWatch = watchSystemThemeTauri(applyCurrentTheme);
-    applySystemAccentPreference(getCachedPreferences().appearance.followSystemAccent);
-    disposeAccentWatch = watchSystemAccentTauri();
 
     void initNotes((label) => {
       const elapsed = performance.now();
@@ -79,7 +75,6 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
       void loadPreferences()
         .then(async (preferences) => {
           const themeApplication = applyThemePreference(preferences.appearance.theme);
-          applySystemAccentPreference(preferences.appearance.followSystemAccent);
           if (desktopLocalization.selectionRevision === initialLanguageSelectionRevision) {
             const storedLanguageTag = preferences.language.selectedLanguageTag;
             const selectedLanguageTag =
@@ -106,7 +101,6 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
     return () => {
       disposeThemeWatch();
       disposeLanguageWatch();
-      disposeAccentWatch();
       updateChecker.stop();
     };
   }

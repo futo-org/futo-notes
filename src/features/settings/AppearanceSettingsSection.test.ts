@@ -19,36 +19,16 @@ describe('AppearanceSettingsSection', () => {
     target.remove();
   });
 
-  function render(showLinuxDesktopOptions: boolean) {
-    const onfollowaccentchange = vi.fn();
-    app = mount(AppearanceSettingsSection, {
-      target,
-      props: {
-        preference: 'auto',
-        followSystemAccent: true,
-        showLinuxDesktopOptions,
-        onchange: vi.fn(),
-        onfollowaccentchange,
-      },
-    });
-    return { onfollowaccentchange };
-  }
+  it('offers the theme choice alone — no accent follower and no font changer', () => {
+    const onchange = vi.fn();
+    app = mount(AppearanceSettingsSection, { target, props: { preference: 'auto', onchange } });
 
-  it('shows the persisted Linux accent control without a font changer', () => {
-    const callbacks = render(true);
-
-    const accent = target.querySelector(
-      'button[aria-pressed="true"] .settings-btn-label',
-    ) as HTMLElement;
-    expect(accent.textContent).toBe('Follow system accent color');
-    accent.closest('button')?.click();
-    expect(callbacks.onfollowaccentchange).toHaveBeenCalledOnce();
-    expect(target.textContent).not.toContain('Interface font');
-  });
-
-  it('keeps Linux-only controls out of browser and native-mobile surfaces', () => {
-    render(false);
-
+    expect([...target.querySelectorAll('.settings-segment')].map((b) => b.textContent)).toEqual([
+      'Auto',
+      'Dark',
+      'Light',
+    ]);
     expect(target.textContent).not.toContain('Follow system accent color');
+    expect(target.textContent).not.toContain('Interface font');
   });
 });

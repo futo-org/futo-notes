@@ -4,19 +4,10 @@
 
   interface Props {
     preference: ThemePreference;
-    followSystemAccent: boolean;
-    showLinuxDesktopOptions: boolean;
     onchange: (theme: ThemePreference) => void;
-    onfollowaccentchange: () => void;
   }
 
-  let {
-    preference,
-    followSystemAccent,
-    showLinuxDesktopOptions,
-    onchange,
-    onfollowaccentchange,
-  }: Props = $props();
+  let { preference, onchange }: Props = $props();
 </script>
 
 <section class="settings-section">
@@ -48,19 +39,4 @@
     </div>
     <p class="settings-btn-desc settings-hint">{localizedText('settings.appearance.autoHint')}</p>
   </div>
-  {#if showLinuxDesktopOptions}
-    <button
-      class="settings-toggle-row settings-appearance-card"
-      aria-pressed={followSystemAccent}
-      onclick={onfollowaccentchange}
-    >
-      <span class="settings-toggle-text">
-        <span class="settings-btn-label">Follow system accent color</span>
-        <span class="settings-btn-desc">Use your desktop color for buttons and links.</span>
-      </span>
-      <span class:on={followSystemAccent} class="settings-switch" aria-hidden="true">
-        <span class="settings-switch-thumb"></span>
-      </span>
-    </button>
-  {/if}
 </section>

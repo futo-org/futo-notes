@@ -116,7 +116,6 @@ function seedAppState(extra: Record<string, unknown>): string {
 const PREFS = {
   appearance: {
     theme: 'dark' as const,
-    followSystemAccent: false,
   },
   language: { selectedLanguageTag: null },
   crashReporting: { enabled: true, alwaysSend: false },

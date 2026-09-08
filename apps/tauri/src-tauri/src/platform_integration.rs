@@ -82,7 +82,7 @@ fn install_linux_log_filters() {
 // portal's `org.freedesktop.appearance` / `color-scheme` is the desktop's
 // answer, and nothing this app does can overwrite it — so it is what `auto`
 // resolves from on a one-shot read. Live changes are the desktop_settings
-// module's portal watcher, which also carries accent.
+// module's portal watcher.
 
 /// The innermost D-Bus variant payload in a `gdbus` line: the text between the
 /// last `<` and the `>` that closes it. `<uint32 1>` and the doubly-wrapped

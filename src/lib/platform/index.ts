@@ -44,7 +44,7 @@ export const isMac =
 
 export type { WindowControl, WindowControlsLayout } from './tauri/windowControls';
 export type { ExternalFileOpenRequest } from './tauri/externalFileOpen';
-export type { LinuxDesktopSettings, SystemAccent } from './tauri/desktopSettings';
+export type { LinuxDesktopSettings } from './tauri/desktopSettings';
 
 let windowControlsLayoutPromise:
   Promise<import('./tauri/windowControls').WindowControlsLayout | null> | undefined;
@@ -111,26 +111,6 @@ export async function copyExternalNoteIntoVault(path: string): Promise<LocalNote
   if (!isTauri) throw new Error('External Markdown import is available only in the desktop app');
   const { importExternalNoteFile } = await import('./tauri/externalFileOpen');
   return importExternalNoteFile(path);
-}
-
-export function onLinuxAccentChanged(
-  handler: (accent: import('./tauri/desktopSettings').SystemAccent | null) => void,
-): () => void {
-  if (!isTauri || !isLinux) return () => {};
-  let unlisten: (() => void) | null = null;
-  let disposed = false;
-  void import('./tauri/desktopSettings')
-    .then(({ subscribeToLinuxAccent }) => subscribeToLinuxAccent(handler))
-    .then((stop) => {
-      if (disposed) stop();
-      else unlisten = stop;
-    })
-    .catch((error) => console.warn('Failed to watch the Linux desktop accent:', error));
-  return () => {
-    disposed = true;
-    unlisten?.();
-    unlisten = null;
-  };
 }
 
 export async function readLinuxDesktopSettings(): Promise<

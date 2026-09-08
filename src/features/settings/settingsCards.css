@@ -27,18 +27,6 @@
   border: 1px solid var(--color-border);
 }
 
-.settings-appearance-card {
-  margin-top: 8px;
-}
-
-button.settings-appearance-card {
-  width: 100%;
-  border: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
 .settings-segment {
   border: none;
   border-radius: 9px;

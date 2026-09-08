@@ -15,15 +15,11 @@ const preferenceMocks = vi.hoisted(() => ({
   loadPreferences: vi.fn(() => new Promise(() => {})),
   saveSelectedLanguageTag: vi.fn(() => Promise.resolve()),
 }));
-vi.mock('$features/system/accent', () => ({
-  applySystemAccentPreference: vi.fn(),
-  watchSystemAccentTauri: vi.fn(() => vi.fn()),
-}));
 vi.mock('$shared/state/appState', () => ({
   loadPreferences: preferenceMocks.loadPreferences,
   saveSelectedLanguageTag: preferenceMocks.saveSelectedLanguageTag,
   getCachedPreferences: vi.fn(() => ({
-    appearance: { theme: 'auto', followSystemAccent: true },
+    appearance: { theme: 'auto' },
     language: { selectedLanguageTag: null },
   })),
 }));
