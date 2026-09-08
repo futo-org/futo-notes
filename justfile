@@ -650,7 +650,15 @@ cdp-forward:
 android-drive *args:
   @node scripts/android-drive.mjs "$@"
 
-build:
+# A fresh worktree has no node_modules, and `just check` then died inside
+# toolbar-spec-check with 'ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL / Command "tsx"
+# not found' — an error naming the wrong problem entirely (pc_40406aa84bc1).
+# The two umbrellas AGENTS.md sends people to (`check`, `build`) now fail on
+# the real reason; `test-one` installs for you instead.
+_require-node-modules:
+  @[ -d node_modules ] || { echo "No node_modules in this worktree — run: just install" >&2; exit 1; }
+
+build: _require-node-modules
   #!/usr/bin/env bash
   # `just` runs each unshebanged line via a fresh `sh -c` with pipefail off, so
   # `cmd | head -N` reports head's exit status (always 0), not cmd's — a
@@ -1161,7 +1169,11 @@ check-node-modules:
 _require-install:
   @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }
 
-check: check-node-modules _require-install toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check
+# NOTE: `_require-node-modules` (justfile:658) is the same underlying guard as
+# `check-node-modules`/`_require-install` above — three independent fixes for
+# the same papercut that landed on parallel MR stacks. Kept all rather than
+# dropping any — see .rebase-log.md for mr-298.
+check: check-node-modules _require-install _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.
