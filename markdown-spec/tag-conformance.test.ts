@@ -3,8 +3,7 @@ import { loadSpecCases, getCasesDir } from './loader.js';
 import { extractTags, extractHeaderTagBlock } from '@futo-notes/editor';
 
 /**
- * Server-side conformance runner. Catches client/server drift —
- * the client uses CM6's syntax tree while the server uses regex.
+ * Exercises the editor's tag extraction against the shared markdown corpus.
  */
 
 const maxComplexity = process.env.SPEC_MAX_COMPLEXITY

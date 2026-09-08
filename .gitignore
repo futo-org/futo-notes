@@ -61,8 +61,6 @@ yarn-error.*
 !apps/ios/.swift-format
 
 
-# Server
-
 # Playwright
 .playwright-mcp
 test-results/
@@ -166,10 +164,6 @@ __pycache__/
 
 # VC++ redistributable, fetched at Windows build time by ci/win-build.ps1
 apps/tauri/src-tauri/redist/
-
-# Agent-tooling skill mirror (installed per machine; see `just skills-link`).
-# Already ignored above under "Codex" — kept here so the reason is findable.
-.pnpm-store/
 
 # Scratch verification scripts
 /tmp-*.mjs

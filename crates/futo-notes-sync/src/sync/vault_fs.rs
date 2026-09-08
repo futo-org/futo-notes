@@ -80,7 +80,7 @@ mod platform {
     }
 
     #[cfg(test)]
-    pub(super) fn fail_directory_sync_on_call(call: usize) {
+    pub(in crate::sync) fn fail_directory_sync_on_call(call: usize) {
         assert!(call > 0);
         FAIL_DIRECTORY_SYNC_ON_CALL.with(|failure| failure.set(Some(call)));
     }
@@ -245,7 +245,7 @@ mod platform {
         }
     }
 
-    pub(super) fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
+    pub(in crate::sync) fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
         let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
         let file = openat(
             &parent.directory,
@@ -261,7 +261,11 @@ mod platform {
         Ok(bytes)
     }
 
-    pub(super) fn write_atomic(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
+    pub(in crate::sync) fn write_atomic(
+        root: &Path,
+        relative: &str,
+        bytes: &[u8],
+    ) -> Result<(), String> {
         let parent = open_parent(root, relative, true).map_err(OpenParentError::message)?;
         reject_symlink(&parent, "write", relative)?;
         let (temp, mut file) = create_temp(&parent, relative)?;
@@ -280,7 +284,7 @@ mod platform {
         sync_directory(&parent.directory, "sync directory after write", relative)
     }
 
-    pub(super) fn remove(root: &Path, relative: &str) -> Result<bool, String> {
+    pub(in crate::sync) fn remove(root: &Path, relative: &str) -> Result<bool, String> {
         let parent = match open_parent(root, relative, false) {
             Ok(parent) => parent,
             Err(OpenParentError::NotFound(_)) => return Ok(false),
@@ -320,7 +324,11 @@ mod platform {
         destination_sync
     }
 
-    pub(super) fn rename(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
+    pub(in crate::sync) fn rename(
+        root: &Path,
+        source: &str,
+        destination: &str,
+    ) -> Result<bool, String> {
         let source_parent = match open_parent(root, source, false) {
             Ok(parent) => parent,
             Err(OpenParentError::NotFound(_)) => return Ok(false),
@@ -372,7 +380,7 @@ mod platform {
         Ok(true)
     }
 
-    pub(super) fn exists(root: &Path, relative: &str) -> Result<bool, String> {
+    pub(in crate::sync) fn exists(root: &Path, relative: &str) -> Result<bool, String> {
         let parent = match open_parent(root, relative, false) {
             Ok(parent) => parent,
             Err(OpenParentError::NotFound(_)) => return Ok(false),
@@ -393,7 +401,7 @@ mod platform {
         }
     }
 
-    pub(super) fn set_mtime_ms(
+    pub(in crate::sync) fn set_mtime_ms(
         root: &Path,
         relative: &str,
         modified_at_ms: i64,
@@ -423,7 +431,7 @@ mod platform {
         .map_err(|error| context("update timestamp for", relative, error))
     }
 
-    pub(super) fn sync_parent(root: &Path, relative: &str) -> Result<(), String> {
+    pub(in crate::sync) fn sync_parent(root: &Path, relative: &str) -> Result<(), String> {
         let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
         sync_directory(
             &parent.directory,
@@ -476,15 +484,19 @@ mod platform {
         Ok(path)
     }
 
-    pub(super) fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
+    pub(in crate::sync) fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
         std::fs::read(checked_path(root, relative, false)?).map_err(|error| error.to_string())
     }
 
-    pub(super) fn write_atomic(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
+    pub(in crate::sync) fn write_atomic(
+        root: &Path,
+        relative: &str,
+        bytes: &[u8],
+    ) -> Result<(), String> {
         futo_notes_core::files::write_atomic_bytes(&checked_path(root, relative, true)?, bytes)
     }
 
-    pub(super) fn remove(root: &Path, relative: &str) -> Result<bool, String> {
+    pub(in crate::sync) fn remove(root: &Path, relative: &str) -> Result<bool, String> {
         match std::fs::remove_file(checked_path(root, relative, false)?) {
             Ok(()) => Ok(true),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -492,7 +504,11 @@ mod platform {
         }
     }
 
-    pub(super) fn rename(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
+    pub(in crate::sync) fn rename(
+        root: &Path,
+        source: &str,
+        destination: &str,
+    ) -> Result<bool, String> {
         let source = checked_path(root, source, false)?;
         let destination = checked_path(root, destination, true)?;
         match std::fs::rename(source, destination) {
@@ -502,7 +518,7 @@ mod platform {
         }
     }
 
-    pub(super) fn exists(root: &Path, relative: &str) -> Result<bool, String> {
+    pub(in crate::sync) fn exists(root: &Path, relative: &str) -> Result<bool, String> {
         match std::fs::symlink_metadata(checked_path(root, relative, false)?) {
             Ok(_) => Ok(true),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -510,7 +526,7 @@ mod platform {
         }
     }
 
-    pub(super) fn set_mtime_ms(
+    pub(in crate::sync) fn set_mtime_ms(
         root: &Path,
         relative: &str,
         modified_at_ms: i64,
@@ -521,43 +537,15 @@ mod platform {
         )
     }
 
-    pub(super) fn sync_parent(_root: &Path, _relative: &str) -> Result<(), String> {
+    pub(in crate::sync) fn sync_parent(_root: &Path, _relative: &str) -> Result<(), String> {
         Ok(())
     }
 }
 
-pub(super) fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
-    platform::read(root, relative)
-}
-
-pub(super) fn write_atomic(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
-    platform::write_atomic(root, relative, bytes)
-}
-
-pub(super) fn remove(root: &Path, relative: &str) -> Result<bool, String> {
-    platform::remove(root, relative)
-}
-
-pub(super) fn rename(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
-    platform::rename(root, source, destination)
-}
-
-pub(super) fn exists(root: &Path, relative: &str) -> Result<bool, String> {
-    platform::exists(root, relative)
-}
-
-pub(super) fn set_mtime_ms(root: &Path, relative: &str, modified_at_ms: i64) -> Result<(), String> {
-    platform::set_mtime_ms(root, relative, modified_at_ms)
-}
-
-pub(super) fn sync_parent(root: &Path, relative: &str) -> Result<(), String> {
-    platform::sync_parent(root, relative)
-}
+pub(super) use platform::{exists, read, remove, rename, set_mtime_ms, sync_parent, write_atomic};
 
 #[cfg(all(test, unix))]
-pub(super) fn fail_directory_sync_on_call(call: usize) {
-    platform::fail_directory_sync_on_call(call);
-}
+pub(super) use platform::fail_directory_sync_on_call;
 
 #[cfg(all(test, unix))]
 mod tests {

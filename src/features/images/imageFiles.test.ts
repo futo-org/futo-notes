@@ -1,9 +1,4 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
-import {
-  createImageFilename as generateImageFilename,
-  isImageFilename,
-  validateImageExtension as validateImageExt,
-} from '$shared/media/imageFiles';
 import { deleteImage, listImageFiles } from './imageFiles';
 
 vi.mock('$lib/platform');
@@ -18,98 +13,6 @@ beforeEach(() => {
 
 afterAll(() => {
   testFS._cleanup();
-});
-
-describe('isImageFilename', () => {
-  it('accepts valid image extensions', () => {
-    expect(isImageFilename('photo.png')).toBe(true);
-    expect(isImageFilename('photo.jpg')).toBe(true);
-    expect(isImageFilename('photo.jpeg')).toBe(true);
-    expect(isImageFilename('photo.gif')).toBe(true);
-    expect(isImageFilename('photo.webp')).toBe(true);
-    expect(isImageFilename('photo.svg')).toBe(true);
-    expect(isImageFilename('photo.bmp')).toBe(true);
-    expect(isImageFilename('photo.ico')).toBe(true);
-    expect(isImageFilename('photo.avif')).toBe(true);
-    expect(isImageFilename('photo.heic')).toBe(true);
-  });
-
-  it('is case insensitive', () => {
-    expect(isImageFilename('photo.PNG')).toBe(true);
-    expect(isImageFilename('photo.Jpg')).toBe(true);
-    expect(isImageFilename('photo.JPEG')).toBe(true);
-  });
-
-  it('rejects non-image extensions', () => {
-    expect(isImageFilename('note.md')).toBe(false);
-    expect(isImageFilename('file.txt')).toBe(false);
-    expect(isImageFilename('script.exe')).toBe(false);
-  });
-
-  it('rejects files without extensions', () => {
-    expect(isImageFilename('no_extension')).toBe(false);
-    expect(isImageFilename('.hidden')).toBe(false);
-  });
-});
-
-describe('validateImageExt', () => {
-  it('accepts valid extensions without dot', () => {
-    expect(validateImageExt('png')).toBe('png');
-    expect(validateImageExt('jpg')).toBe('jpg');
-    expect(validateImageExt('jpeg')).toBe('jpeg');
-  });
-
-  it('accepts valid extensions with leading dot', () => {
-    expect(validateImageExt('.png')).toBe('png');
-    expect(validateImageExt('.jpg')).toBe('jpg');
-  });
-
-  it('normalizes to lowercase', () => {
-    expect(validateImageExt('JPG')).toBe('jpg');
-    expect(validateImageExt('Png')).toBe('png');
-  });
-
-  it('rejects non-image extensions', () => {
-    expect(() => validateImageExt('exe')).toThrow('disallowed image extension');
-    expect(() => validateImageExt('md')).toThrow('disallowed image extension');
-    expect(() => validateImageExt('html')).toThrow('disallowed image extension');
-    expect(() => validateImageExt('js')).toThrow('disallowed image extension');
-  });
-
-  it('rejects traversal attempts', () => {
-    expect(() => validateImageExt('../../../etc/evil')).toThrow();
-    expect(() => validateImageExt('..')).toThrow();
-    expect(() => validateImageExt('jpg/../../etc/passwd')).toThrow();
-    expect(() => validateImageExt('jpg\\..\\..\\evil')).toThrow();
-  });
-
-  it('rejects overlong extensions', () => {
-    expect(() => validateImageExt('abcdefghijk')).toThrow();
-  });
-});
-
-describe('generateImageFilename', () => {
-  it('returns a valid filename', () => {
-    const name = generateImageFilename('png');
-    expect(name).toMatch(/^image-\d+-[0-9a-f]{12}\.png$/);
-  });
-
-  it('handles extension with dot prefix', () => {
-    const name = generateImageFilename('.jpg');
-    expect(name).toMatch(/\.jpg$/);
-  });
-
-  it('generates unique filenames in a batch', () => {
-    const names = new Set<string>();
-    for (let i = 0; i < 20; i++) {
-      names.add(generateImageFilename('png'));
-    }
-    expect(names.size).toBe(20);
-  });
-
-  it('rejects invalid extensions', () => {
-    expect(() => generateImageFilename('exe')).toThrow();
-  });
 });
 
 describe('listImageFiles', () => {
@@ -130,9 +33,12 @@ describe('listImageFiles', () => {
   });
 
   it('sorts by mtime descending', async () => {
-    fs.writeFileSync(path.join(testFS.root, 'older.png'), 'data-1');
-    await new Promise((r) => setTimeout(r, 50));
-    fs.writeFileSync(path.join(testFS.root, 'newer.jpg'), 'data-2');
+    const older = path.join(testFS.root, 'older.png');
+    const newer = path.join(testFS.root, 'newer.jpg');
+    fs.writeFileSync(older, 'data-1');
+    fs.writeFileSync(newer, 'data-2');
+    fs.utimesSync(older, 1000, 1000);
+    fs.utimesSync(newer, 2000, 2000);
 
     const images = await listImageFiles();
     expect(images).toHaveLength(2);

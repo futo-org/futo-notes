@@ -2,16 +2,6 @@ package com.futo.notes.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-/**
- * FUTO Notes — color tokens ("Ambient Precision").
- *
- * Source of truth is the design handoff's /references/colors_and_type.css. The
- * neutral ramp and ember tints there are authored in oklch (warm hue ~60–70);
- * the hex below are faithful sRGB conversions for Compose.
- *
- * Golden rule: EMBER IS RATIONED. One accent per screen — the FAB, the active
- * state, the "answer/related" spark, the selected folder. Never decoration.
- */
 object FutoPalette {
     // Core brand (verbatim from the board)
     val Paper    = Color(0xFFFFFFFF)
@@ -80,12 +70,6 @@ data class FutoColors(
     val danger: Color = FutoPalette.Danger,
 )
 
-/**
- * Dark companion to the (light) [FutoColors] defaults. The brand only fully
- * specifies light, so this is a faithful inversion: ink surfaces, warm-light
- * neutrals for text, the SAME ember (it reads well on dark and stays the one
- * rationed accent). Tuned alongside the dark ColorScheme in Theme.kt.
- */
 val darkFutoColors = FutoColors(
     surface = FutoPalette.InkSurface,
     surfaceSunken = FutoPalette.InkSunken,

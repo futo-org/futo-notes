@@ -73,7 +73,7 @@ describe('createNotePersistence', () => {
 
       await expect(saveNote()).resolves.toBe(true);
 
-      expect(updateNote).toHaveBeenCalledWith('Original', 'Original', 'edited content', {
+      expect(updateNote).toHaveBeenCalledWith('Original', 'edited content', {
         originalId: 'Original',
         base: 'original content',
       });

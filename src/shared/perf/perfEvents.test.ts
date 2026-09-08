@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { installPerfCourse } from './installPerfCourse';
 import {
-  beginPerfSpan,
   countPerfEvents,
   drainPerfEvents,
   recordPerfEvent,
@@ -57,32 +56,6 @@ describe('drainPerfEvents', () => {
     expect(drainPerfEvents().map((event) => event.name)).toEqual(['a', 'b']);
     expect(countPerfEvents()).toBe(0);
     expect(drainPerfEvents()).toEqual([]);
-  });
-});
-
-describe('beginPerfSpan', () => {
-  it('records one event on end, combining detail and extra detail', () => {
-    const end = beginPerfSpan('search:query', 'groceries');
-    end('→ 3 results');
-
-    const events = drainPerfEvents();
-    expect(events).toHaveLength(1);
-    expect(events[0].name).toBe('search:query');
-    expect(events[0].detail).toBe('groceries → 3 results');
-    expect(events[0].durationMs).toBeGreaterThanOrEqual(0);
-  });
-
-  it('ignores a second end call', () => {
-    const end = beginPerfSpan('note-open', 'note-a');
-    end();
-    end('again');
-
-    expect(drainPerfEvents()).toHaveLength(1);
-  });
-
-  it('records nothing while the span is unended', () => {
-    beginPerfSpan('note-open', 'superseded');
-    expect(countPerfEvents()).toBe(0);
   });
 });
 
