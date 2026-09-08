@@ -1,0 +1,20 @@
+[Unit]
+Description=FUTO Notes weekly papercut sweep — a headless Opus session fixes tooling friction and opens one draft MR
+Documentation=file:__REPO_DIR__/scripts/papercut-sweep/README.md
+# No point running with no network: the agent must fetch, push, and open an MR.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# __NODE_BIN__, __REPO_DIR__ and __PATH__ are substituted by install-timer.sh so
+# this unit carries no machine-specific (nvm/pnpm/cargo) path in git. PATH is
+# baked in because systemd's own PATH has none of node, pnpm, just, cargo, or
+# the claude CLI the agent needs.
+ExecStart=__NODE_BIN__ __REPO_DIR__/scripts/papercut-sweep/sweep.mjs
+EnvironmentFile=%h/.config/futo-notes-papercut-sweep/env
+Environment=PATH=__PATH__
+# The launcher's own timebox is 90 minutes plus install and cleanup.
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=best-effort

@@ -1,0 +1,14 @@
+[Unit]
+Description=Weekly FUTO Notes papercut sweep (Monday morning)
+Documentation=file:__REPO_DIR__/scripts/papercut-sweep/README.md
+
+[Timer]
+# Monday 06:30 local, before the working day; the MR is waiting when it starts.
+OnCalendar=Mon *-*-* 06:30:00
+RandomizedDelaySec=10m
+# The workstation is not always awake at 06:30 — run on next boot if it slept
+# through, rather than skipping the week.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
