@@ -264,18 +264,26 @@ export function startProgressiveLoad(options: ProgressiveLoadOptions): Progressi
  * indefinitely, and the note would stop growing while the user watched. 200 ms
  * is long enough to stay out of the way of a keystroke and short enough that a
  * ~30-chunk note still finishes streaming in a few seconds at worst.
+ *
+ * `run` receives the real `IdleDeadline` when `requestIdleCallback` exists, so
+ * a caller that wants to keep working within the slice (the block-serializer
+ * priming loop) can read `deadline.timeRemaining()`; on the `setTimeout`
+ * fallback there is no deadline to report, so `run` gets `undefined` and a
+ * caller must supply its own budget for that case. `startProgressiveLoad`'s
+ * own `applyChunk` callers take no argument, which stays valid: a JS function
+ * may always be called with more arguments than it declares.
  */
-export function scheduleIdleSlice(run: () => void): CancelIdle {
+export function scheduleIdleSlice(run: (deadline: IdleDeadline | undefined) => void): CancelIdle {
   const idle = (globalThis as { requestIdleCallback?: typeof requestIdleCallback })
     .requestIdleCallback;
   if (typeof idle === 'function') {
-    const handle = idle(() => run(), { timeout: 200 });
+    const handle = idle((deadline) => run(deadline), { timeout: 200 });
     return () =>
       (globalThis as { cancelIdleCallback?: typeof cancelIdleCallback }).cancelIdleCallback?.(
         handle,
       );
   }
-  const handle = setTimeout(run, 0);
+  const handle = setTimeout(() => run(undefined), 0);
   return () => clearTimeout(handle);
 }
 

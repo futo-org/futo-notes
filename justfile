@@ -498,6 +498,10 @@ test-cross-platform:
 #   just chunk-census --corpus <path.jsonl>  # somewhere else
 # `--dump-divergences <path>` writes the offending notes for triage; that file
 # carries note TEXT, so keep it out of the repo.
+# `--serialize` runs the OTHER equivalence claim over the same corpus/harness:
+# blockSerializer.ts's per-block cache (the fix for the whole-document
+# getMarkdown() cost on a settled edit) must match Milkdown's own serializer
+# called directly. Report defaults to build/serialize-census/report.md.
 # Prove a chunked parse equals a whole-document parse, over a real note corpus.
 chunk-census *args:
   node scripts/milkdown-chunk-census.mjs {{args}}

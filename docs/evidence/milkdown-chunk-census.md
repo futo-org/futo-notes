@@ -9,6 +9,18 @@ the load path, or the Milkdown plugin chain.
 The corpus is real user notes and lives outside this repo, so nothing below is note content: only
 counts.
 
+> **2026-09-08 re-run**, after the planner learned to cut at a non-blank block start (a column-0
+> ATX heading, fence opener, blockquote start, or a list item CommonMark lets interrupt a paragraph;
+> `markdownChunks.ts`): **30,994 equivalent, 1 divergent, 0 harness failures** over all 30,995 notes
+> (the #101 crash is fixed, so the whole corpus opens). The one divergence is still note 7383, the
+> front matter plugin case below. A same-day baseline run on the previous planner gave the identical
+> verdict (30,994 / 1 / 0), with 25,327 notes chunked at a mean of 14.4 chunks; the new planner
+> chunks 25,482 at a mean of 15.7, so the new cut points were exercised across the corpus rather
+> than only on the device fixture. 20 synthetic shapes driven through the same `?census` hook (the
+> device gate's no-blank-line fixture at 1k and 10k lines, lazy blockquote continuation, adjacent
+> lists with every marker, `2.` after a paragraph, `<div>` swallowing a `#` line, setext underlines,
+> empty items, a fence inside a list item, CRLF, tabs) were all equivalent.
+
 > **2026-09-03 re-run**, after empty paragraphs began saving as blank lines instead of `<br />`
 > (packages/editor/src/milkdown-compat/emptyLine.ts; the loader now re-inserts the blank-line gap at
 > each chunk seam, `seamEmptyParagraphs`): **29,413 equivalent, 1 divergent, 1,581 harness

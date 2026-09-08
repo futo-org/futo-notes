@@ -50,18 +50,33 @@ export interface ChunkCensusEditor {
     text: string,
     chunkOptions: MarkdownChunkOptions,
   ) => { markdown: string | null; chunked: boolean; chunks: number; aborted: boolean };
+  /** See `SerializeCensusResult` below. */
+  censusSerialize?: (text: string) => SerializeCensusResult;
 }
 
 export interface ChunkCensusWindow {
   __futoChunkCensus?: (markdown: string) => ChunkCensusResult;
+  __futoSerializeCensus?: (markdown: string) => SerializeCensusResult;
 }
 
-/* Forces a whole-document parse: no document has an infinite number of lines. */
-const WHOLE: MarkdownChunkOptions = { minLines: Number.POSITIVE_INFINITY };
+/**
+ * Forces a whole-document parse: no document has an infinite number of lines.
+ * Exported so `MilkdownEditor.svelte`'s `censusSerialize` can force the same
+ * whole-document load without a second, drifting definition of "whole".
+ */
+export const WHOLE: MarkdownChunkOptions = { minLines: Number.POSITIVE_INFINITY };
 /* Forces the chunked path, at the finest granularity the planner will allow —
  * the census wants the MOST cut points, because every one of them is a place
  * the two parses could disagree. */
 const CHUNKED: MarkdownChunkOptions = { minLines: 0, firstChunkLines: 1, chunkLines: 1 };
+
+/** What the block-serializer-equivalence census learns about one note. */
+export interface SerializeCensusResult {
+  /** Milkdown's OWN serializer, called directly on the whole loaded document. */
+  whole: string | null;
+  /** A FRESH `BlockSerializer`'s `serialize()` of the same document. */
+  blocks: string | null;
+}
 
 export function installChunkCensusHook(editor: ChunkCensusEditor): void {
   (window as unknown as ChunkCensusWindow).__futoChunkCensus = (markdown: string) => {
@@ -77,5 +92,13 @@ export function installChunkCensusHook(editor: ChunkCensusEditor): void {
       chunks: chunked.chunks,
       aborted: chunked.aborted,
     };
+  };
+  (window as unknown as ChunkCensusWindow).__futoSerializeCensus = (markdown: string) => {
+    if (!editor.censusSerialize) {
+      throw new Error(
+        'editor.html?census: this engine has no censusSerialize (is it the ?cm engine?)',
+      );
+    }
+    return editor.censusSerialize(markdown);
   };
 }

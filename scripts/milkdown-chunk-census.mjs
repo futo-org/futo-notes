@@ -27,6 +27,15 @@
  * `~/Developer/futo-notes-ml/dataset/notes_corpus.jsonl.gz`, is NEVER read into
  * the report, and is not in this repo — the corpus is real user notes.
  *
+ * `--serialize` runs a DIFFERENT equivalence claim over the same corpus and
+ * page harness: `blockSerializer.ts`'s per-top-level-block serialization
+ * cache (the fix for the whole-document `getMarkdown()` cost on a settled
+ * edit, docs/plan/milkdown-transition.md "Gate run, real app, 2026-09-06")
+ * must produce the SAME bytes as Milkdown's own serializer called directly.
+ * It drives `window.__futoSerializeCensus` (chunkCensusHook.ts) instead of
+ * `window.__futoChunkCensus`, and defaults its report to
+ * `build/serialize-census/report.md` rather than `build/chunk-census/report.md`.
+ *
  * Exit status is the gate: 0 only when every note matched.
  */
 
@@ -52,9 +61,10 @@ function parseArgs(argv) {
     corpus: DEFAULT_CORPUS,
     limit: Infinity,
     jobs: 8,
-    report: 'build/chunk-census/report.md',
+    report: null,
     dumpDivergences: null,
     skipBuild: false,
+    serialize: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
@@ -65,10 +75,16 @@ function parseArgs(argv) {
     else if (flag === '--report') ((args.report = value), (i += 1));
     else if (flag === '--dump-divergences') ((args.dumpDivergences = value), (i += 1));
     else if (flag === '--skip-build') args.skipBuild = true;
+    else if (flag === '--serialize') args.serialize = true;
     else {
       console.error(`Unknown flag: ${flag}`);
       process.exit(2);
     }
+  }
+  if (args.report === null) {
+    args.report = args.serialize
+      ? 'build/serialize-census/report.md'
+      : 'build/chunk-census/report.md';
   }
   return args;
 }
@@ -101,15 +117,116 @@ async function* readCorpus(corpusPath, limit) {
  * editor per note would dominate the run and prove nothing extra — the hook
  * loads each note from scratch anyway.
  */
-async function openCensusPage(browser) {
+async function openCensusPage(browser, serialize) {
   const context = await browser.newContext();
   const page = await context.newPage();
   page.on('pageerror', (error) => {
     console.error('page error:', error.message);
   });
   await page.goto(`${pathToFileURL(BUNDLE).href}?census`);
-  await page.waitForFunction(() => typeof window.__futoChunkCensus === 'function');
+  await page.waitForFunction(
+    (name) => typeof window[name] === 'function',
+    serialize ? '__futoSerializeCensus' : '__futoChunkCensus',
+  );
   return { context, page };
+}
+
+/**
+ * The `--serialize` census: does `blockSerializer.ts`'s per-block cache
+ * produce the same bytes as Milkdown's own serializer, over the same corpus
+ * and page harness as the chunk-equivalence census above? Split out rather
+ * than interleaved with `main()`'s chunk-census loop because the two share
+ * only the corpus reader and the worker pages — the verdict, stats, and
+ * report shape are unrelated claims.
+ */
+async function runSerializeCensus(args, workers, browser) {
+  const stats = { notes: 0, equal: 0, divergent: 0, failed: 0 };
+  const divergences = [];
+  const startedAt = Date.now();
+
+  async function run(worker, note) {
+    let result;
+    try {
+      result = await worker.page.evaluate((body) => window.__futoSerializeCensus(body), note.body);
+    } catch (error) {
+      stats.failed += 1;
+      divergences.push({ index: note.index, kind: 'harness', detail: String(error) });
+      return;
+    }
+    stats.notes += 1;
+    if (result.whole === result.blocks) {
+      stats.equal += 1;
+      return;
+    }
+    stats.divergent += 1;
+    divergences.push({
+      index: note.index,
+      kind: 'divergence',
+      whole: result.whole,
+      blocks: result.blocks,
+    });
+  }
+
+  const inFlight = new Map();
+  for await (const note of readCorpus(args.corpus, args.limit)) {
+    if (inFlight.size >= workers.length) {
+      const settled = await Promise.race(inFlight.values());
+      inFlight.delete(settled);
+    }
+    const worker = workers.find((w) => !inFlight.has(w));
+    inFlight.set(
+      worker,
+      run(worker, note).then(() => worker),
+    );
+    if (stats.notes > 0 && stats.notes % 2000 === 0) {
+      process.stdout.write(`  ${stats.notes} notes, ${stats.divergent} divergent\n`);
+    }
+  }
+  await Promise.all(inFlight.values());
+
+  for (const worker of workers) await worker.context.close();
+  await browser.close();
+
+  const elapsedS = ((Date.now() - startedAt) / 1000).toFixed(1);
+  const report = [
+    '# Block-serializer equivalence census',
+    '',
+    `Corpus: \`${path.basename(args.corpus)}\` — note CONTENT is never recorded here.`,
+    `Bundle: \`build/native-editor/editor.html\` (rebuilt this run: ${!args.skipBuild}).`,
+    `Claim: a FRESH BlockSerializer's serialize() of a note equals Milkdown's own serializer called directly on the same document.`,
+    '',
+    '| Metric | Count |',
+    '|---|---:|',
+    `| Notes processed | ${stats.notes} |`,
+    `| **Equivalent** | **${stats.equal}** |`,
+    `| **Divergent** | **${stats.divergent}** |`,
+    `| Harness failures | ${stats.failed} |`,
+    `| Wall clock | ${elapsedS}s |`,
+    '',
+    stats.divergent === 0 && stats.failed === 0
+      ? `Every one of the ${stats.notes} notes serialized identically through the block cache and the direct serializer.`
+      : `Divergent note indices: ${divergences
+          .slice(0, 50)
+          .map((d) => d.index)
+          .join(', ')}${divergences.length > 50 ? ', …' : ''}`,
+    '',
+  ].join('\n');
+
+  mkdirSync(path.dirname(path.resolve(args.report)), { recursive: true });
+  writeFileSync(path.resolve(args.report), report);
+  process.stdout.write(`\n${report}\nReport written to ${args.report}\n`);
+
+  if (args.dumpDivergences && divergences.length > 0) {
+    // Carries note CONTENT — for local triage only, never committed.
+    mkdirSync(path.dirname(path.resolve(args.dumpDivergences)), { recursive: true });
+    writeFileSync(
+      path.resolve(args.dumpDivergences),
+      divergences.map((d) => JSON.stringify(d)).join('\n'),
+    );
+    process.stdout.write(`Divergences dumped to ${args.dumpDivergences} (contains note text)\n`);
+  }
+
+  process.exit(stats.divergent === 0 && stats.failed === 0 ? 0 : 1);
 }
 
 async function main() {
@@ -138,8 +255,13 @@ async function main() {
 
   const browser = await chromium.launch();
   const workers = await Promise.all(
-    Array.from({ length: Math.max(1, args.jobs) }, () => openCensusPage(browser)),
+    Array.from({ length: Math.max(1, args.jobs) }, () => openCensusPage(browser, args.serialize)),
   );
+
+  if (args.serialize) {
+    await runSerializeCensus(args, workers, browser);
+    return;
+  }
 
   const stats = {
     notes: 0,

@@ -1366,6 +1366,14 @@ EditorWebView.swift, EditorWebView.kt
   per-unit open cost to within 2.5x of its smaller reference, which catches a
   scaling wall rather than policing constant factors. →
   tests/editor-gauntlet/performanceFloor.ts
+- The debounced `change` notification and `getContent()` serialize the note per
+  top-level block, cached on ProseMirror node identity, so a settled edit costs
+  the blocks it touched rather than the whole note; the bytes are identical to
+  Milkdown's whole-document serializer (`just chunk-census --serialize`,
+  docs/evidence/milkdown-serialize-census.md). A document whose cache is still
+  cold primes it in idle slices and reports the change once primed, instead of
+  serializing the whole note on the main thread. → milkdown/blockSerializer.ts,
+  MilkdownEditor.svelte `readSerialized`
 - A note of 400 lines or more is opened PROGRESSIVELY: the first ~80 lines are
   parsed and mounted synchronously so the first viewport is interactive, and the
   rest stream in idle slices. Chunk boundaries are only ever taken where a chunk

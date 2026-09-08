@@ -32,6 +32,8 @@
     editorViewOptionsCtx,
     remarkStringifyOptionsCtx,
     rootCtx,
+    schemaCtx,
+    serializerCtx,
   } from '@milkdown/kit/core';
   import { codeBlockAttr, inlineCodeAttr } from '@milkdown/kit/preset/commonmark';
 
@@ -45,7 +47,7 @@
   import { gapCursorPlugin } from '@milkdown/kit/plugin/cursor';
   import { trailing } from '@milkdown/kit/plugin/trailing';
   import { block, BlockProvider } from '@milkdown/kit/plugin/block';
-  import { getMarkdown, insert, replaceAll } from '@milkdown/kit/utils';
+  import { insert, replaceAll } from '@milkdown/kit/utils';
   import { history as proseHistory, redoDepth, undoDepth } from '@milkdown/kit/prose/history';
   import { EditorState, TextSelection, type PluginKey } from '@milkdown/kit/prose/state';
   import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
@@ -91,6 +93,8 @@
   } from './progressiveLoad';
   import { tagDecorations } from './tagDecorations';
   import { DOCUMENT_CHANGE_DEBOUNCE_MS, documentChanges } from './documentChanges';
+  import { createBlockSerializer, type BlockSerializer } from './blockSerializer';
+  import { WHOLE as CENSUS_WHOLE } from './chunkCensusHook';
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
   import { createToolbarExec } from './toolbarExec';
   import { vaultImageView } from './vaultImageView';
@@ -205,6 +209,13 @@
   let liveMarkdown: string | null = null;
   let pendingContent: string | null = null;
   let onListLine: boolean | null = null;
+
+  /* The per-top-level-block serialization cache (blockSerializer.ts). One
+   * instance per editor, built once `serializerCtx`/`schemaCtx` exist. */
+  let blockSerializer: BlockSerializer | null = null;
+  /* The in-flight idle priming loop over `blockSerializer`, if any — see
+   * `startPriming`/`stopPriming`. */
+  let primeCancelIdle: (() => void) | null = null;
 
   /* The in-flight progressive open, if this note was large enough to stream
    * (progressiveLoad.ts). Null the rest of the time, which is every note in an
@@ -610,6 +621,15 @@
       }
 
       editor = created;
+      // One cache per editor instance, built as soon as the ctx slices it
+      // reads (serializerCtx/schemaCtx) exist — both are set by Milkdown's
+      // own internal plugins during `.create()`, so this is always safe here.
+      const schema = created.ctx.get(schemaCtx);
+      const serializeDoc = created.ctx.get(serializerCtx);
+      blockSerializer = createBlockSerializer({
+        serializeDoc: (doc) => serializeDoc(doc),
+        createDoc: (nodes) => schema.topNodeType.create(null, nodes),
+      });
       // Here, not after the chrome below and not after the first document is
       // parsed: the question this answers is "can this WebView run the editor
       // engine", and tying it to a parse would make a big note look like an
@@ -707,6 +727,8 @@
       // serialize a destroyed editor and report it as the note.
       if (changeTimer !== null) window.clearTimeout(changeTimer);
       changeTimer = null;
+      stopPriming();
+      blockSerializer = null;
       stopFileDrop?.();
       stopFileDrop = null;
       dropHandler = null;
@@ -747,6 +769,61 @@
    * matches its own baseline, and a note cleared inside the same window as its
    * load matches the pristine empty document that baseline is still sitting on.
    */
+  /**
+   * How long `reportDocumentChange` will serialize SYNCHRONOUSLY before
+   * falling back to the idle priming loop. One or a few changed units on any
+   * real note fit in this easily; a still-cold multi-thousand-block document
+   * does not, and THAT is the case the idle loop below exists for.
+   */
+  const SYNC_PRIME_BUDGET_MS = 8;
+
+  /**
+   * Runs `blockSerializer.prime()` in idle slices until `view.state.doc` is
+   * fully cached, then calls `onDone` (if the editor and document are still
+   * around — `pmView()`/`blockSerializer` can go null on a race with destroy
+   * or a fresh load elsewhere in this file, and there is nothing to prime
+   * against then).
+   *
+   * Safe to call while a priming loop is already running: it cancels that
+   * loop's SCHEDULING first, but the cache itself (a `WeakMap` inside
+   * `blockSerializer`) is untouched, so nothing already primed is redone —
+   * only the "who to call when done" is replaced. That is also what makes it
+   * safe to call from `reportDocumentChange` with no separate queue: the next
+   * idle slice always primes whatever `view.state.doc` is AT THAT MOMENT, so
+   * a doc that kept changing simply keeps the loop going instead of losing
+   * work.
+   */
+  function startPriming(onDone?: () => void): void {
+    stopPriming();
+    const step = (deadline: IdleDeadline | undefined): void => {
+      primeCancelIdle = null;
+      const view = pmView();
+      if (!view || !blockSerializer) return;
+      // A real deadline reports its own remaining time; the setTimeout
+      // fallback (no requestIdleCallback — Safari/WKWebView) gets a fixed
+      // ~6 ms slice budget instead, tracked from when this slice started.
+      const timeRemainingMs = deadline
+        ? (): number => deadline.timeRemaining()
+        : ((): (() => number) => {
+            const sliceStart = performance.now();
+            return (): number => 6 - (performance.now() - sliceStart);
+          })();
+      const done = blockSerializer.prime(view.state.doc, timeRemainingMs);
+      if (done) {
+        onDone?.();
+        return;
+      }
+      primeCancelIdle = scheduleIdleSlice(step);
+    };
+    primeCancelIdle = scheduleIdleSlice(step);
+  }
+
+  /** Cancels the in-flight priming loop, if any. Does not touch the cache. */
+  function stopPriming(): void {
+    primeCancelIdle?.();
+    primeCancelIdle = null;
+  }
+
   function scheduleChangeNotification(): void {
     if (changeTimer !== null) window.clearTimeout(changeTimer);
     changeTimer = window.setTimeout(() => {
@@ -773,6 +850,36 @@
     // The debounced echo of host content we just loaded — not an edit, and
     // decided without serializing anything.
     if (unchangedSinceLoad()) return;
+
+    // Most notes are already fully primed here (noteLoaded/finishProgressiveLoad
+    // warm the cache in the background), so this budget almost never does real
+    // work — it exists for the note that JUST loaded or streamed in and whose
+    // background priming hasn't caught up yet. A SMALL synchronous budget
+    // keeps that ordinary case on the same cadence as before this cache
+    // existed: one or a few changed units serialize well inside it. Only a
+    // document that is still cold at multi-thousand-block scale exceeds it,
+    // which is exactly the case the whole-document `getMarkdown()` cost this
+    // module replaces was unacceptable for
+    // (docs/plan/milkdown-transition.md "Gate run, real app, 2026-09-06").
+    const primingView = pmView();
+    if (primingView && blockSerializer && !blockSerializer.isPrimed(primingView.state.doc)) {
+      const budgetStart = performance.now();
+      const primed = blockSerializer.prime(
+        primingView.state.doc,
+        () => SYNC_PRIME_BUDGET_MS - (performance.now() - budgetStart),
+      );
+      if (!primed) {
+        // Still cold past the budget: finish priming in idle slices and let
+        // the NORMAL debounce fire again once the document settles, rather
+        // than reporting the moment priming happens to land (which could be
+        // mid-typing-burst). Any keystrokes that arrive meanwhile are one or
+        // two more cache misses, absorbed by the sync budget on that next
+        // pass.
+        startPriming(scheduleChangeNotification);
+        return;
+      }
+    }
+
     // The LIVE document, never a snapshot of an earlier transaction: this is
     // the answer the host would get from `getContent()` at this instant.
     const markdown = readSerialized();
@@ -783,14 +890,19 @@
     onchange?.(markdown);
   }
 
-  /** Milkdown's serialization of the live document, cached against that document. */
+  /**
+   * Milkdown's serialization of the live document, cached against that
+   * document. Delegates to `blockSerializer` (blockSerializer.ts) rather than
+   * `getMarkdown()`: byte-identical output, but proportional to what changed
+   * since the last serialization instead of to the whole document.
+   */
   function readSerialized(): string | null {
     const view = pmView();
-    if (!editor || !view) return null;
+    if (!editor || !view || !blockSerializer) return null;
     const doc = view.state.doc;
     if (liveDoc === doc && liveMarkdown !== null) return liveMarkdown;
     try {
-      const markdown = editor.action(getMarkdown());
+      const markdown = blockSerializer.serialize(doc);
       liveDoc = doc;
       liveMarkdown = markdown;
       return markdown;
@@ -817,6 +929,9 @@
     loadedDoc = pmView()?.state.doc ?? null;
     liveDoc = null;
     liveMarkdown = null;
+    // Warm the block cache in the background so the FIRST edit's debounce
+    // never meets an unprimed document.
+    startPriming();
   }
 
   /**
@@ -978,13 +1093,18 @@
     if (!editedSinceLoadStart()) {
       // The finished document IS the host's note: the load echo now applies.
       loadedDoc = pmView()?.state.doc ?? null;
+      // Warm the block cache now that the whole note has landed.
+      startPriming();
       return;
     }
     // The host's bytes are no longer what the document says.
     hostMarkdown = null;
     loadedDoc = null;
+    // This fills every cache miss synchronously, so the document is already
+    // fully primed by the time startPriming() below gets to run it.
     const complete = readSerialized();
     if (complete !== null) onchange?.(complete);
+    startPriming();
   }
 
   /**
@@ -1003,6 +1123,10 @@
     progressive = null;
     streamingTail = false;
     abortedToWholeDocument = false;
+    // A priming loop from the PREVIOUS document has nothing left to prime —
+    // its cache entries key on that document's own node identities, which
+    // this load is about to replace.
+    stopPriming();
     /* Whatever this load does, it is now the one that owns the answer: a note
      * that failed to parse must not leave the NEXT note read-only, and a note
      * that parses must not inherit the previous one's failure. */
@@ -1433,6 +1557,44 @@
       chunks: plan.chunks.length,
       aborted: abortedToWholeDocument,
     };
+  }
+
+  /**
+   * Loads `text` as a whole document and reports Milkdown's OWN serialization
+   * of the result next to a FRESH `BlockSerializer`'s serialization of the
+   * SAME document — the equivalence the block-serialization census
+   * (blockSerializer.ts, `scripts/milkdown-chunk-census.mjs --serialize`)
+   * exists to measure.
+   *
+   * A fresh serializer rather than the component's own `blockSerializer`,
+   * because the claim under test is "the cache computes the same bytes as the
+   * direct call", and the component's cache may already hold entries from
+   * whatever this instance loaded before — reusing it would let a STALE cache
+   * entry pass unnoticed. `whole` bypasses `blockSerializer` entirely by
+   * calling the ctx-provided serializer directly, so it is unaffected by any
+   * bug this module might have.
+   *
+   * Same door as `censusLoad`: read-only with respect to the host, never
+   * posts a message, and installed only behind `editor.html?census`
+   * (chunkCensusHook.ts).
+   */
+  export function censusSerialize(text: string): { whole: string | null; blocks: string | null } {
+    applyExternal(text, CENSUS_WHOLE);
+    progressive?.finishNow();
+    const view = pmView();
+    if (!editor || !view) return { whole: null, blocks: null };
+    try {
+      const schema = editor.ctx.get(schemaCtx);
+      const rawSerialize = editor.ctx.get(serializerCtx);
+      const whole = rawSerialize(view.state.doc);
+      const fresh = createBlockSerializer({
+        serializeDoc: (doc) => rawSerialize(doc),
+        createDoc: (nodes) => schema.topNodeType.create(null, nodes),
+      });
+      return { whole, blocks: fresh.serialize(view.state.doc) };
+    } catch {
+      return { whole: null, blocks: null };
+    }
   }
 
   /**
