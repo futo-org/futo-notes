@@ -1807,8 +1807,31 @@
     padding-left: calc(18px + env(safe-area-inset-left));
   }
 
-  :global(.futo-milkdown .ProseMirror > * + *) {
+  /* NOT `> * + *` (2026-09-08 device trace, streamed 10k-line open):
+   * Chromium cannot scope invalidation for a universal adjacent-sibling
+   * selector, so every child insert/remove under `.ProseMirror` invalidates
+   * the ROOT's WHOLE SUBTREE — twice per streamed chunk (the chunk itself,
+   * plus the trailing plugin's paragraph swap) and on every Enter/Backspace
+   * that adds or removes a block. A trace of the streamed open showed
+   * `UpdateLayoutTree` running after every chunk append with an elementCount
+   * that GREW WITH THE DOCUMENT (3,056 → 5,682 → … → 39,816) — 16.4 s of a
+   * 32 s open — while `Layout` correctly touched only the new chunk; the 25k
+   * fixture never completed the harness's 180 s budget at all (it used to
+   * finish in 36 s). `:first-child` re-evaluates exactly the ONE element that
+   * changed on an insert, not the whole subtree.
+   *
+   * The split below keeps the SAME specificity `* + *` had (0,1,1 for the
+   * first rule; `:where()` on the second keeps IT at 0,2,0 rather than 0,3,0,
+   * so source order — this rule sits below it — is what makes the
+   * `:first-child` override win, exactly the way `* + *` losing to `:first-
+   * child` naturally would not have applied here in the first place). An
+   * element's own more specific rule (e.g. `.futo-milkdown .ProseMirror h1`)
+   * still wins against either of these, same as it did against `* + *`. */
+  :global(.futo-milkdown .ProseMirror > *) {
     margin-top: 0.75em;
+  }
+  :global(.futo-milkdown .ProseMirror > :where(:first-child)) {
+    margin-top: 0;
   }
 
   /* Every top-level block is rendered eagerly — there is deliberately no
