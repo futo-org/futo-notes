@@ -9,31 +9,37 @@ actor NoteVault {
     /// without queueing on this actor. Every other use stays actor-isolated.
     nonisolated(unsafe) private let core: NoteStore
 
+    private var generation: UInt64 = 0
+    private func requireGeneration(_ epoch: UInt64) throws {
+        guard epoch == generation else { throw NSError(domain: "NotesStore", code: 1) }
+    }
+
     init(notesRoot: String) {
         core = NoteStore(notesRoot: notesRoot)
     }
 
     func bootstrap(indexDir: String) throws -> NoteBootstrap {
-        try core.bootstrap(indexDir: indexDir)
+        return try core.bootstrap(indexDir: indexDir)
     }
 
     func scan() -> NoteSnapshot { core.scan() }
     func read(_ id: String) -> String { core.read(id: id) }
     func exists(_ id: String) -> Bool { core.exists(id: id) }
     func readIfExists(_ id: String) throws -> String? {
-        try core.readIfExists(id: id)
+        return try core.readIfExists(id: id)
     }
 
     func refreshExternalChanges(_ summary: SyncSummary) throws -> NoteMutation {
-        try core.refreshExternalChanges(
+        return try core.refreshExternalChanges(
             updatedIds: summary.updatedIds,
             deletedIds: summary.deletedIds,
             renamed: summary.renamed
         )
     }
 
-    func write(_ id: String, content: String) throws -> NoteMutation {
-        try core.write(id: id, content: content)
+    func write(_ id: String, content: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.write(id: id, content: content)
     }
 
     /// THE draft-saving verb (persist-or-park, ADR-0001 / issue #37): the
@@ -43,42 +49,68 @@ actor NoteVault {
     /// mutation to project. This replaced the Swift-side
     /// writeIfUnchanged → createIfAbsent → park composition, whose
     /// check-then-act windows spanned FFI calls (PKT-10 P1a/P1b).
-    func flushDraft(_ id: String, base: String, content: String) throws -> FlushDraftResult {
-        try core.flushDraft(id: id, base: base, content: content)
+    func flushDraft(_ id: String, base: String, content: String, epoch: UInt64) throws -> FlushDraftResult {
+        try requireGeneration(epoch)
+        return try core.flushDraft(id: id, base: base, content: content)
     }
 
-    func createNote(title: String, folder: String) throws -> NoteMutation {
-        try core.createNote(title: title, folder: folder, content: "")
+    func saveDraftAs(_ draft: PendingDraft, wantedId: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.saveDraftAs(
+            id: draft.id, wantedId: wantedId, base: draft.base, content: draft.content
+        )
     }
 
-    func delete(_ id: String) throws -> NoteMutation { try core.delete(id: id) }
-
-    func rename(oldId: String, newId: String) throws -> NoteMutation {
-        try core.rename(oldId: oldId, newId: newId)
+    func moveDraft(_ draft: PendingDraft, folder: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.moveDraft(
+            id: draft.id, folder: folder, base: draft.base, content: draft.content,
+            createFolder: false
+        )
     }
 
-    func moveNote(_ id: String, folder: String) throws -> NoteMutation {
-        try core.moveNote(id: id, folder: folder)
+    func createNote(title: String, folder: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.createNote(title: title, folder: folder, content: "")
     }
 
-    func createFolder(_ path: String) throws -> NoteMutation {
-        try core.createFolder(path: path)
+    func delete(_ id: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.delete(id: id)
     }
 
-    func renameFolder(from: String, to: String) throws -> NoteMutation {
-        try core.renameFolder(from: from, to: to)
+    func rename(oldId: String, newId: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.rename(oldId: oldId, newId: newId)
     }
 
-    func moveFolder(from: String, destinationParent: String) throws -> NoteMutation {
-        try core.moveFolder(from: from, destinationParent: destinationParent)
+    func moveNote(_ id: String, folder: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.moveNote(id: id, folder: folder)
     }
 
-    func deleteFolder(_ folder: String) throws -> NoteMutation {
-        try core.deleteFolder(folder: folder)
+    func createFolder(_ path: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.createFolder(path: path)
+    }
+
+    func renameFolder(from: String, to: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.renameFolder(from: from, to: to)
+    }
+
+    func moveFolder(from: String, destinationParent: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.moveFolder(from: from, destinationParent: destinationParent)
+    }
+
+    func deleteFolder(_ folder: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.deleteFolder(folder: folder)
     }
 
     func search(_ query: String, limit: UInt32) throws -> [SearchHit] {
-        try core.search(query: query, limit: limit)
+        return try core.search(query: query, limit: limit)
     }
 
     /// The engine wait blocks, so run it on overcommitting GCD rather than the
@@ -98,7 +130,10 @@ actor NoteVault {
         return core.scan()
     }
 
-    func reset() throws { try core.reset() }
+    func reset(epoch: UInt64) throws {
+        generation = epoch
+        try core.reset()
+    }
 }
 
 /// An open editor's unsaved draft: the note `id` to persist, the `content` to
@@ -252,12 +287,21 @@ final class NotesStore: ObservableObject {
     /// the eviction is impossible by construction; `releaseDraftOwnership` removes
     /// only the caller's own entry.
     private var draftSeq: UInt64 = 0
+    private var retiredDraftTokensThrough: UInt64 = 0
+    private var resetting = false
+    private var resetEpoch: UInt64 = 0
     private var draftRegister: [UInt64: PendingDraft] = [:]
     private var oneShotDraftTokens: Set<UInt64> = []
 
     /// A newly-appeared editor claims a register entry; returns its unique token.
     /// Entries are keyed by it, so editors overlapping during a push/pop
     /// transition never evict each other's draft (PKT-1 R2).
+    private func ownsDraft(_ token: UInt64?) -> Bool {
+        guard !resetting else { return false }
+        guard let token else { return true }
+        return token > retiredDraftTokensThrough && token <= draftSeq
+    }
+
     func claimDraftOwnership() -> UInt64 {
         draftSeq += 1
         return draftSeq
@@ -270,6 +314,7 @@ final class NotesStore: ObservableObject {
     /// clears the draft by construction (PKT-1 R1). Never touches another editor's
     /// entry.
     func publishDraft(token: UInt64, _ draft: PendingDraft?) {
+        guard !resetting, token > retiredDraftTokensThrough else { return }
         draftRegister[token] = draft
     }
 
@@ -343,6 +388,7 @@ final class NotesStore: ObservableObject {
     private var flushedThisEpisode: [String: PendingDraft] = [:]
     private let editorDraftCoordinator = EditorDraftCoordinator()
     private var editorDraftTail: Task<Void, Never>?
+    private var folderMutationTail: Task<Void, Never>?
     private var localTreeChangeTail: Task<Void, Never>?
 
     /// Flush every live editor's pending draft to disk (scenePhase inactive/
@@ -354,7 +400,7 @@ final class NotesStore: ObservableObject {
     /// changed since (see `flushedThisEpisode`). No-op when every draft is clean /
     /// closed; safe at every leave-active signal.
     func flushPendingEditor() {
-        guard !draftRegister.isEmpty else { return }
+        guard !resetting, !draftRegister.isEmpty else { return }
         var byId: [String: (token: UInt64, draft: PendingDraft)] = [:]
         for (token, draft) in draftRegister {
             if let existing = byId[draft.id], existing.token >= token { continue }
@@ -415,15 +461,16 @@ final class NotesStore: ObservableObject {
     }
 
     private func bootstrap() async {
+        let epoch = resetEpoch
         do {
             let result = try await vault.bootstrap(indexDir: Self.resolveSearchIndex().path)
-            applySnapshot(result.snapshot)
+            applySnapshot(result.snapshot, expectedEpoch: epoch)
             for warning in result.warnings {
                 print("local-note bootstrap: \(warning)")
             }
         } catch {
             print("local-note bootstrap failed: \(error)")
-            applySnapshot(await vault.scan())
+            applySnapshot(await vault.scan(), expectedEpoch: epoch)
         }
         hasBootstrapped = true
     }
@@ -439,13 +486,15 @@ final class NotesStore: ObservableObject {
         )
     }
 
-    private func applySnapshot(_ snapshot: NoteSnapshot) {
+    private func applySnapshot(_ snapshot: NoteSnapshot, expectedEpoch: UInt64) {
+        guard expectedEpoch == resetEpoch, !resetting else { return }
         notes = snapshot.notes.map(Self.item(from:))
         folders = snapshot.folders
     }
 
     /// Positions are post-removal; clamp them against a stale shell cache.
-    private func applyMutation(_ mutation: NoteMutation) {
+    private func applyMutation(_ mutation: NoteMutation, expectedEpoch: UInt64) {
+        guard expectedEpoch == resetEpoch, !resetting else { return }
         let affected = Set(mutation.removed).union(mutation.upserted.map { $0.note.id })
         var next = notes.filter { !affected.contains($0.id) }
         for entry in mutation.upserted {
@@ -469,10 +518,12 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    func write(_ id: String, content: String) async -> NoteMutationOutcome<Void> {
+    func write(_ id: String, content: String, ownerToken: UInt64? = nil) async -> NoteMutationOutcome<Void> {
+        let epoch = resetEpoch
+        guard ownsDraft(ownerToken) else { return .failed }
         do {
             let retainedAtAdmission = retainedDraftSnapshot(for: id)
-            applyMutation(try await vault.write(id, content: content))
+            applyMutation(try await vault.write(id, content: content, epoch: epoch), expectedEpoch: epoch)
             completeRetainedDraftSnapshot(retainedAtAdmission)
             onLocalChange?()
             return .committed(())
@@ -486,9 +537,11 @@ final class NotesStore: ObservableObject {
     /// Create a new note. Returns its id, or nil on failure.
     @discardableResult
     func createNote(title: String, folder: String = "") async -> String? {
+        let epoch = resetEpoch
+        guard !resetting else { return nil }
         do {
-            let mutation = try await vault.createNote(title: title, folder: folder)
-            applyMutation(mutation)
+            let mutation = try await vault.createNote(title: title, folder: folder, epoch: epoch)
+            applyMutation(mutation, expectedEpoch: epoch)
             let createdId = mutation.finalId ?? title
             editorDraftCoordinator.reopen(createdId)
             onLocalChange?()
@@ -499,12 +552,15 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    func delete(_ id: String) async -> NoteMutationOutcome<Void> {
+    func delete(_ id: String, ownerToken: UInt64? = nil) async -> NoteMutationOutcome<Void> {
+        let epoch = resetEpoch
+        guard ownsDraft(ownerToken) else { return .failed }
         let identity = editorDraftCoordinator.beginIdentityMutation(id)
         let pendingFlushes = editorDraftTail
         do {
             await pendingFlushes?.value
-            applyMutation(try await vault.delete(id))
+            guard ownsDraft(ownerToken) else { return .failed }
+            applyMutation(try await vault.delete(id, epoch: epoch), expectedEpoch: epoch)
             discardDrafts(for: id)
             editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
             onLocalChange?()
@@ -516,21 +572,32 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    func deleteAsync(_ id: String) {
+    func deleteAsync(_ id: String, ownerToken: UInt64? = nil) {
+        if let ownerToken, ownerToken <= retiredDraftTokensThrough { return }
         Task {
-            _ = await delete(id)
+            _ = await delete(id, ownerToken: ownerToken)
         }
     }
 
     @discardableResult
-    func rename(oldId: String, newId: String) async -> NoteMutationOutcome<String> {
+    func rename(
+        oldId: String, newId: String, draft: PendingDraft? = nil, ownerToken: UInt64? = nil
+    ) async -> NoteMutationOutcome<String> {
+        let epoch = resetEpoch
+        guard ownsDraft(ownerToken) else { return .failed }
         let identity = editorDraftCoordinator.beginIdentityMutation(oldId)
         let pendingFlushes = editorDraftTail
         do {
             await pendingFlushes?.value
-            let mutation = try await vault.rename(oldId: oldId, newId: newId)
+            guard ownsDraft(ownerToken) else { return .failed }
+            let mutation: NoteMutation
+            if let draft {
+                mutation = try await vault.saveDraftAs(draft, wantedId: newId, epoch: epoch)
+            } else {
+                mutation = try await vault.rename(oldId: oldId, newId: newId, epoch: epoch)
+            }
             let finalId = mutation.finalId ?? oldId
-            applyMutation(mutation)
+            applyMutation(mutation, expectedEpoch: epoch)
             retargetRetainedDrafts(from: oldId, to: finalId)
             editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
             editorDraftCoordinator.reopen(finalId)
@@ -556,18 +623,21 @@ final class NotesStore: ObservableObject {
     /// an I/O failure) so the live-pull conflict path can react; iOS remains
     /// the shell that never drops a draft (Android drops on skip until #38).
     @discardableResult
-    func flushDraft(_ draft: PendingDraft) async -> FlushDisposition? {
-        await flushDraftDirect(draft)
+    func flushDraft(_ draft: PendingDraft, ownerToken: UInt64? = nil) async -> FlushDisposition? {
+        guard ownsDraft(ownerToken) else { return nil }
+        guard !resetting else { return nil }
+        return await flushDraftDirect(draft)
     }
 
     private func flushDraftDirect(_ draft: PendingDraft) async -> FlushDisposition? {
+        let epoch = resetEpoch
         do {
             let result = try await vault.flushDraft(
-                draft.id, base: draft.base, content: draft.content)
+                draft.id, base: draft.base, content: draft.content, epoch: epoch)
             // Converged and already-parked outcomes carry no mutation —
             // nothing changed on disk, nothing to project or sync.
             if let mutation = result.mutation {
-                applyMutation(mutation)
+                applyMutation(mutation, expectedEpoch: epoch)
                 onLocalChange?()
             }
             return result.disposition
@@ -580,7 +650,8 @@ final class NotesStore: ObservableObject {
     /// Fire-and-forget flush for contexts that cannot `await` —
     /// `NoteEditorView.onDisappear` (pop) and the app's scenePhase background
     /// handler (the F8 jetsam guard).
-    func flushAsync(_ draft: PendingDraft) {
+    func flushAsync(_ draft: PendingDraft, ownerToken: UInt64? = nil) {
+        if let ownerToken, ownerToken <= retiredDraftTokensThrough { return }
         guard let admission = editorDraftCoordinator.admit(draft.id) else { return }
         let previous = editorDraftTail
         editorDraftTail = Task { @MainActor in
@@ -592,14 +663,24 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    func moveNote(_ id: String, toFolder folder: String) async -> NoteMutationOutcome<String> {
+    func moveNote(
+        _ id: String, toFolder folder: String, draft: PendingDraft? = nil, ownerToken: UInt64? = nil
+    ) async -> NoteMutationOutcome<String> {
+        let epoch = resetEpoch
+        guard ownsDraft(ownerToken) else { return .failed }
         let identity = editorDraftCoordinator.beginIdentityMutation(id)
         let pendingFlushes = editorDraftTail
         do {
             await pendingFlushes?.value
-            let mutation = try await vault.moveNote(id, folder: folder)
+            guard ownsDraft(ownerToken) else { return .failed }
+            let mutation: NoteMutation
+            if let draft {
+                mutation = try await vault.moveDraft(draft, folder: folder, epoch: epoch)
+            } else {
+                mutation = try await vault.moveNote(id, folder: folder, epoch: epoch)
+            }
             let finalId = mutation.finalId ?? id
-            applyMutation(mutation)
+            applyMutation(mutation, expectedEpoch: epoch)
             retargetRetainedDrafts(from: id, to: finalId)
             editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
             editorDraftCoordinator.reopen(finalId)
@@ -613,9 +694,14 @@ final class NotesStore: ObservableObject {
     }
 
     func deleteFolder(_ folder: String) {
-        Task {
+        let epoch = resetEpoch
+        guard !resetting else { return }
+        let previous = folderMutationTail
+        folderMutationTail = Task {
+            await previous?.value
+            guard !resetting else { return }
             do {
-                applyMutation(try await vault.deleteFolder(folder))
+                applyMutation(try await vault.deleteFolder(folder, epoch: epoch), expectedEpoch: epoch)
                 onLocalChange?()
             } catch {
                 print("deleteFolder failed for \(folder): \(error)")
@@ -624,9 +710,14 @@ final class NotesStore: ObservableObject {
     }
 
     func createFolder(_ path: String) {
-        Task {
+        let epoch = resetEpoch
+        guard !resetting else { return }
+        let previous = folderMutationTail
+        folderMutationTail = Task {
+            await previous?.value
+            guard !resetting else { return }
             do {
-                applyMutation(try await vault.createFolder(path))
+                applyMutation(try await vault.createFolder(path, epoch: epoch), expectedEpoch: epoch)
                 onLocalChange?()
             } catch {
                 print("createFolder failed for \(path): \(error)")
@@ -635,9 +726,11 @@ final class NotesStore: ObservableObject {
     }
 
     func renameFolder(from: String, to: String) async -> String? {
+        let epoch = resetEpoch
+        guard !resetting else { return nil }
         do {
-            let mutation = try await vault.renameFolder(from: from, to: to)
-            applyMutation(mutation)
+            let mutation = try await vault.renameFolder(from: from, to: to, epoch: epoch)
+            applyMutation(mutation, expectedEpoch: epoch)
             onLocalChange?()
             return mutation.finalFolder ?? to
         } catch {
@@ -647,10 +740,12 @@ final class NotesStore: ObservableObject {
     }
 
     func moveFolder(from: String, destinationParent: String) async -> String? {
+        let epoch = resetEpoch
+        guard !resetting else { return nil }
         do {
             let mutation = try await vault.moveFolder(
-                from: from, destinationParent: destinationParent)
-            applyMutation(mutation)
+                from: from, destinationParent: destinationParent, epoch: epoch)
+            applyMutation(mutation, expectedEpoch: epoch)
             onLocalChange?()
             return mutation.finalFolder ?? from
         } catch {
@@ -712,29 +807,50 @@ final class NotesStore: ObservableObject {
     /// then publish the same lossless summary to open editors only after the
     /// durable mutation is visible to the rest of the native shell.
     func localTreeChanged(_ summary: SyncSummary) {
+        let epoch = resetEpoch
+        guard !resetting else { return }
         let previous = localTreeChangeTail
         localTreeChangeTail = Task {
             await previous?.value
+            guard epoch == resetEpoch, !resetting else { return }
             do {
-                applyMutation(try await vault.refreshExternalChanges(summary))
+                applyMutation(try await vault.refreshExternalChanges(summary), expectedEpoch: epoch)
             } catch {
                 // Scoped projection should fail only for an engine/storage
                 // error. Keep the shell usable with a recovery scan; normal
                 // sync cycles never pay for a whole-vault refresh.
                 print("external-change projection failed: \(error)")
-                applySnapshot(await vault.recoveryScan())
+                applySnapshot(await vault.recoveryScan(), expectedEpoch: epoch)
             }
+            guard epoch == resetEpoch, !resetting else { return }
             localTreeChange = summary
         }
     }
 
-    func fullReset() async {
-        do {
-            try await vault.reset()
-            notes = []
-            folders = []
-        } catch {
-            print("full reset failed: \(error)")
+    func beginFullReset() {
+        resetting = true
+        resetEpoch += 1
+        retiredDraftTokensThrough = draftSeq
+        editorDraftCoordinator.beginReset()
+        draftRegister.removeAll()
+        oneShotDraftTokens.removeAll()
+        flushedThisEpisode.removeAll()
+    }
+
+    func fullReset() async throws {
+        if !resetting { beginFullReset() }
+        let epoch = resetEpoch
+        defer {
+            resetting = false
+            editorDraftCoordinator.endReset()
         }
+        await editorDraftTail?.value
+        await folderMutationTail?.value
+        await localTreeChangeTail?.value
+        try await vault.reset(epoch: epoch)
+        notes = []
+        folders = []
+        localTreeChange = nil
+        searchReadyWait = nil
     }
 }

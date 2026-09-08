@@ -90,6 +90,33 @@ impl NoteStore {
             .map_err(NoteError::Io)
     }
 
+    pub fn save_draft_as(
+        &self,
+        id: String,
+        wanted_id: String,
+        base: String,
+        content: String,
+    ) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .save_draft_as(&id, &wanted_id, &base, &content)
+            .map(Into::into)
+            .map_err(NoteError::Io)
+    }
+
+    pub fn move_draft(
+        &self,
+        id: String,
+        folder: String,
+        base: String,
+        content: String,
+        create_folder: bool,
+    ) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .move_draft(&id, &folder, &base, &content, create_folder)
+            .map(Into::into)
+            .map_err(NoteError::Io)
+    }
+
     pub fn create_note(
         &self,
         title: String,

@@ -224,10 +224,18 @@ struct SettingsView: View {
     /// wiping the vault root, so an in-flight sync cannot restore deleted data.
     private func runFullReset() async {
         resetting = true
-        await performFullReset(
-            disconnectSync: { await sync.disconnect() },
-            resetStore: { await store.fullReset() }
-        )
-        resetting = false
+        defer {
+            sync.finishReset()
+            resetting = false
+        }
+        do {
+            try await performFullReset(
+                beginStoreReset: { store.beginFullReset() },
+                disconnectSync: { await sync.disconnectForReset() },
+                resetStore: { try await store.fullReset() }
+            )
+        } catch {
+            store.showTransient(LocalizedMessage("settings.danger.failed"))
+        }
     }
 }

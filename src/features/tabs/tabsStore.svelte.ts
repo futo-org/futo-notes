@@ -276,6 +276,20 @@ export const tabsStore = {
     persist();
   },
 
+  // Navigation is projected before the asynchronous draft flush. Restore even
+  // a closed tab when that flush fails: its editor still owns unsaved content.
+  restoreAfterFailedNavigation(tabId: string, noteId: string | null): void {
+    let tab = findTab(tabId);
+    if (!tab) {
+      tab = { id: tabId, noteId };
+      _tabs.push(tab);
+      _recentlyClosed = _recentlyClosed.filter((closed) => closed.id !== tabId);
+    }
+    tab.noteId = noteId;
+    _activeTabId = tabId;
+    persist();
+  },
+
   replaceTabNoteId(tabId: string, newNoteId: string): void {
     const tab = findTab(tabId);
     if (!tab) return;

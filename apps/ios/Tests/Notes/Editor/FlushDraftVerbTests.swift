@@ -17,14 +17,30 @@ struct FlushDraftVerbTests {
         return root
     }
 
+    @Test("reset rejects previously admitted writes even after new work resumes")
+    func resetRetiresOldEpoch() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let vault = NoteVault(notesRoot: root.path)
+        _ = try await vault.write("old", content: "old body", epoch: 0)
+        try await vault.reset(epoch: 1)
+        await #expect(throws: (any Error).self) {
+            _ = try await vault.write("old", content: "late body", epoch: 0)
+        }
+        #expect(await vault.read("old") == "")
+        _ = try await vault.write("new", content: "new body", epoch: 1)
+        #expect(await vault.read("new") == "new body")
+    }
+
     @Test("a draft whose base still matches disk is written")
     func writesOnMatchingBase() async throws {
         let root = try makeVaultRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let vault = NoteVault(notesRoot: root.path)
-        _ = try await vault.write("note", content: "base text")
+        _ = try await vault.write("note", content: "base text", epoch: 0)
 
-        let result = try await vault.flushDraft("note", base: "base text", content: "draft text")
+        let result = try await vault.flushDraft("note", base: "base text", content: "draft text", epoch: 0)
 
         #expect(result.disposition == .wrote)
         #expect(result.mutation?.finalId == "note")
@@ -36,9 +52,9 @@ struct FlushDraftVerbTests {
         let root = try makeVaultRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let vault = NoteVault(notesRoot: root.path)
-        _ = try await vault.write("note", content: "same text")
+        _ = try await vault.write("note", content: "same text", epoch: 0)
 
-        let result = try await vault.flushDraft("note", base: "stale base", content: "same text")
+        let result = try await vault.flushDraft("note", base: "stale base", content: "same text", epoch: 0)
 
         #expect(result.disposition == .converged)
         #expect(result.mutation == nil)
@@ -51,7 +67,7 @@ struct FlushDraftVerbTests {
         let vault = NoteVault(notesRoot: root.path)
 
         let result = try await vault.flushDraft(
-            "Gone", base: "old base", content: "surviving draft")
+            "Gone", base: "old base", content: "surviving draft", epoch: 0)
 
         #expect(result.disposition == .recreated)
         let mutation = try #require(result.mutation)
@@ -65,9 +81,9 @@ struct FlushDraftVerbTests {
         let root = try makeVaultRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let vault = NoteVault(notesRoot: root.path)
-        _ = try await vault.write("note", content: "peer version")
+        _ = try await vault.write("note", content: "peer version", epoch: 0)
 
-        let first = try await vault.flushDraft("note", base: "original", content: "my draft")
+        let first = try await vault.flushDraft("note", base: "original", content: "my draft", epoch: 0)
 
         guard case .parkedConflict(let parkedId) = first.disposition else {
             Issue.record("expected the diverged draft to be parked, got \(first.disposition)")
@@ -80,7 +96,7 @@ struct FlushDraftVerbTests {
 
         // The crash-window double-park (scenePhase flush firing at both .inactive
         // and .background): the identical draft reports the same copy, mints none.
-        let again = try await vault.flushDraft("note", base: "original", content: "my draft")
+        let again = try await vault.flushDraft("note", base: "original", content: "my draft", epoch: 0)
         #expect(again.disposition == .parkedConflict(parkedId: parkedId))
         #expect(again.mutation == nil)
         #expect(await vault.scan().notes.count == 2, "original + exactly one copy")

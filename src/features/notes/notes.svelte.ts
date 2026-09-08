@@ -269,7 +269,10 @@ export async function updateNote(
     };
   }
 
-  const mutation = await store.save(originalId ?? null, id, content, overrideMtime);
+  const mutation =
+    base !== undefined && overrideMtime === undefined
+      ? await store.save(originalId ?? null, id, content, undefined, base)
+      : await store.save(originalId ?? null, id, content, overrideMtime);
   const savedId = mutation.finalId ?? id;
   return {
     id: savedId,
