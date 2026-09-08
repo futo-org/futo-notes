@@ -99,6 +99,10 @@ infrastructure owner.
 - Repo-tooling friction (dead-end tool call, stale doc, broken recipe, missing helper) is a
   **papercut**: file it without stopping the task, `papercuts add "<what you hit>" --tag <area>`.
   Product bugs and spec gaps are never papercuts. Full procedure: `docs/agents/papercuts.md`.
+- Runtime guards are Claude Code hooks in `.claude/settings.json` (`scripts/hooks/`): they deny
+  process-name kills, `git stash` in a linked worktree, and OS-level input, and every denial names
+  the sanctioned alternative — do not work around one. Sessions open with `just orient`; agent
+  worktrees come from `just wt new <name>` and go via `just wt gc`.
 
 ## 6. Named mistakes — and the rule that prevents each
 
@@ -198,6 +202,10 @@ These are observed failures, not generic advice.
   needs no platform APIs to RUN (plain `std::fs`) gets compiled under `cfg(test)` everywhere and
   held to the shipped branch's rules — `crates/futo-notes-core/src/files/vault_fs/contract_tests.rs`
   stamps one rule set over both implementations.
+- **M27 — Invisible characters through Write/Edit.** The file tools normalize exotic whitespace
+  (U+0085, U+205F) to plain spaces, so a script whose map keys were those characters lost them and a
+  `split('')` destroyed an 1100-line file. Write non-printable characters as ASCII escapes
+  (`\u0085`), never literally.
 
 ## 7. Quality bar per deliverable
 
@@ -243,6 +251,9 @@ Resolve from spec → fixtures → canonical Rust → `git log` + `docs/learning
 the existing pattern; do not invent one. **Act without asking** on reversible in-repo work: fixes,
 tests, refactors within a layer, running suites, dev builds/installs, spec edits that record
 verified behavior, and force-pushing a feature branch (`--force-with-lease`, never bare `--force`).
+Put choices to the user as numbered options in plain text (1A/1B/2A), never a picker
+(`AskUserQuestion`): the maintainer cannot arrow-key it, and pickers cost 85 minutes of blocked
+wall-clock in one month of transcripts.
 
 **Stop and ask first — exact list:**
 1. Anything under `keys/`, signing keys, or the updater trust boundary (M23).

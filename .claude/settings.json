@@ -2,9 +2,43 @@
   "permissions": {
     "allow": [
       "Bash(gh api *)",
-      "Bash(cargo clippy *)",
-      "Bash(pkill -f \"target/debug/futo-notes-tauri\")",
-      "Bash(pkill -9 -f \"target/debug/futo-notes-tauri\")"
+      "Bash(cargo clippy *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/guard-bash.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/session-orient.mjs\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/subagent-scratch.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
