@@ -454,10 +454,31 @@ about.
   focused and unfocused, draws no word highlight, no selection handles, no
   floating Cut/Copy action mode and no magnifier — the page's own suppression
   holds, which is the difference from WebKit. So the shell ignores `blockDrag`
-  entirely. Measured on a device 2026-09-01. →
+  entirely FOR THOSE SELECTION VISUALS. Measured on a device 2026-09-01. Focus
+  is a separate story — see the next two lines. →
   src/features/editor/milkdown/mobileBlockDnd.ts,
   packages/editor/src/bridge.ts `BlockDragMessage`
   _(native shells, Android)_
+- An empty paragraph cannot be lifted: a hold on it lifts nothing and buzzes
+  nothing, though the press still stands the platform's own hold gestures
+  down like any block press. A tester's report — holding an empty line lifted
+  a blank "phantom" card while, by the next line's mechanism, the keyboard
+  rose underneath it — made the two visibly collide. →
+  src/features/editor/milkdown/mobileBlockDnd.ts, tests/editor-embed-milkdown.spec.ts
+  _(native shells)_
+- A block press that begins with the editor unfocused never focuses it or
+  raises the keyboard, however long it lasts and whether or not it lifts; a
+  press that begins focused leaves focus alone (a drag while typing must not
+  drop the keyboard). Measured on the pool emulator 2026-09-08 (Android 16,
+  System WebView 133), touch stationary with the editor unfocused: Chromium's
+  OWN long-press fires at touch-down + ~500ms and dispatches, in the same
+  millisecond, `selectstart` on the block, `focus` on the editable, `focusin`,
+  then `contextmenu` — and the `focus` lands regardless of the page cancelling
+  `selectstart`/`contextmenu`/`touchend`; none of those three levers stop it,
+  on text blocks as well as empty ones. A capture-phase `focus` listener on
+  the document undoes it for a press that began unfocused. →
+  src/features/editor/milkdown/mobileBlockDnd.ts, packages/editor/src/bridge.ts
+  `FocusMessage`, tests/editor-embed-milkdown.spec.ts _(native shells, Android)_
 - A block drag holding the pointer within 64px of the editor scroller's top or
   bottom edge scrolls the note continuously — 200px/s at the zone's inner lip
   ramping to 1400px/s at the edge — so a block can be dropped at a boundary that

@@ -96,6 +96,27 @@
  *    from there (a range that is no longer one top-level node, a target that
  *    stopped being a top-level gap, a node the Fitter would silently unwrap)
  *    is refused by `blockMove.ts`.
+ *  - A BLOCK PRESS MUST NEVER FOCUS THE EDITOR OR RAISE THE KEYBOARD, however
+ *    long it lasts and whether or not it lifts. Measured on the pool emulator,
+ *    2026-09-08 (Android 16, System WebView 133), touch stationary on a block
+ *    with the editor unfocused: Chromium's OWN long-press fires at touch-down
+ *    + ~500ms and dispatches, in this order and in the same millisecond,
+ *    `selectstart` on the block, `focus` on `.ProseMirror`, `focusin`, then
+ *    `contextmenu` — and the `focus` lands regardless of the page cancelling
+ *    `selectstart`/`contextmenu`/`touchend`; none of the three levers stop it.
+ *    This happens on TEXT blocks too, not only empty ones. So a capture-phase
+ *    `focus` listener on the document undoes it for a press that began
+ *    unfocused: `stopPropagation()` keeps the event from ever reaching
+ *    `view.dom`'s own focus listener (the one bridge.ts's `focus: true`
+ *    message rides), then `blur()` returns focus to `body`. A press that
+ *    began with the editor already focused is left alone — dragging while
+ *    typing must not drop the keyboard.
+ *  - AN EMPTY PARAGRAPH CANNOT BE LIFTED. Holding one used to lift a blank
+ *    "phantom" card AND (via the point above) raise the keyboard underneath
+ *    it — visibly colliding. The press still arms exactly like any other
+ *    block press (it still needs to stand the platform's own long-press
+ *    gestures down), it just never starts the lift timer, so no ghost, no
+ *    haptic, and no `blockDrag` message ever follow it.
  *
  * Geometry and commit are both SHARED with the ⠿-handle drag path
  * (the desktop ⠿ handle): `blockDragGeometry.ts` resolves the target and
@@ -311,7 +332,16 @@ function ensureStyles(): void {
   document.head.appendChild(style);
 }
 
-type PressedBlock = { pos: number; size: number; dom: HTMLElement; clone: HTMLElement };
+type PressedBlock = {
+  pos: number;
+  size: number;
+  dom: HTMLElement;
+  clone: HTMLElement;
+  /** False for an empty paragraph (module doc's "an empty paragraph cannot be
+   * lifted") — the press still arms and runs the timer, `beginLift` just
+   * refuses to actually lift it. */
+  liftable: boolean;
+};
 
 /** Owns the whole long-press/lift/drag/drop state machine for one editor
  * instance. Constructed as this Plugin's `view()` (a ProseMirror PluginView),
@@ -328,6 +358,16 @@ class MobileBlockDndView {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dragging = false;
   private pressed: PressedBlock | null = null;
+  /** True when the editor already held focus at the moment this press
+   * started. Decides whether `onFocusCapture` undoes a focus that lands mid-
+   * press (module doc's "a block press must never focus the editor"). */
+  private pressWasFocused = false;
+  /** True once the lift timer has fired for this press, whether or not it
+   * actually lifted anything (an empty paragraph arms the timer but never
+   * lifts). Distinguishes an ordinary short tap — which must still be free to
+   * focus and place a caret on release — from a genuine hold, which must not,
+   * however it resolves (see `guardFocusBriefly`). */
+  private heldPastThreshold = false;
 
   /** The boundary the indicator is currently drawn at. `pos` IS the boundary's
    * whole identity (blockDragGeometry.ts), so only a CHANGE of this fires a
@@ -384,6 +424,11 @@ class MobileBlockDndView {
     doc.addEventListener('selectstart', this.onSelectStart, true);
     doc.addEventListener('contextmenu', this.onContextMenu, true);
     doc.addEventListener('selectionchange', this.onSelectionChange);
+    // Capture phase, ahead of `view.dom`'s own focus listener — see the module
+    // doc's "a block press must never focus the editor". Focus events don't
+    // bubble, but they DO run a capture phase, so this fires before the
+    // editable's own listener ever sees the event.
+    doc.addEventListener('focus', this.onFocusCapture, true);
   }
 
   private removeGestureListeners(): void {
@@ -397,6 +442,7 @@ class MobileBlockDndView {
     doc.removeEventListener('selectstart', this.onSelectStart, true);
     doc.removeEventListener('contextmenu', this.onContextMenu, true);
     doc.removeEventListener('selectionchange', this.onSelectionChange);
+    doc.removeEventListener('focus', this.onFocusCapture, true);
   }
 
   private cancelTimer(): void {
@@ -420,6 +466,7 @@ class MobileBlockDndView {
     this.indicatorPos = null;
     const wasDragging = this.dragging;
     this.dragging = false;
+    this.heldPastThreshold = false;
     this.view.dom.classList.remove(ARMED_CLASS);
     // Paired with the lift's / the arm's `true`, from the ONE exit every
     // abandoned gesture goes through — a shell left suspended would swallow
@@ -445,6 +492,45 @@ class MobileBlockDndView {
     if (this.pointerId === null) return;
     this.collapseSelection();
   };
+
+  /** Undoes a focus that Chromium's own long-press forces onto the editable
+   * mid-press (module doc's "a block press must never focus the editor").
+   * Only for a press that began UNFOCUSED — a press that began focused must
+   * leave focus (and the keyboard) exactly where it was, since dragging while
+   * typing should not dismiss it. `stopPropagation()` first, so `view.dom`'s
+   * own focus listener (which is what emits bridge.ts's `focus: true`
+   * message and flips the Android toolbar) never sees this focus at all. */
+  private onFocusCapture = (event: FocusEvent): void => {
+    if (this.pointerId === null || this.pressWasFocused) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !this.view.dom.contains(target)) return;
+    event.stopPropagation();
+    target.blur();
+  };
+
+  /** `disarm()` (called from `finish()`, just before this) intentionally tears
+   * down `onFocusCapture` at release so an ORDINARY short tap can still focus
+   * and place a caret — that is the existing, load-bearing "tap-to-place-caret
+   * untouched" behaviour. But a press that reached the hold threshold is not
+   * an ordinary tap, and measured in this very harness: releasing one in place
+   * (no movement) still resolves to a native click that focuses the editable,
+   * exactly the "however long it lasts... whether or not it lifts" case the
+   * module doc names, not the short-tap case `disarm()`'s timing protects. A
+   * short-lived, self-removing capture listener absorbs that one deferred
+   * focus without staying registered a moment longer than it has to, so it
+   * can never shadow a genuinely new press's own guard. */
+  private guardFocusBriefly(): void {
+    const doc = this.doc;
+    const handler = (event: FocusEvent): void => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !this.view.dom.contains(target)) return;
+      event.stopPropagation();
+      target.blur();
+      doc.removeEventListener('focus', handler, true);
+    };
+    doc.addEventListener('focus', handler, true);
+    requestAnimationFrame(() => doc.removeEventListener('focus', handler, true));
+  }
 
   /** Collapses any live range in BOTH representations. The ProseMirror state
    * is authoritative for the editor, but WebKit can leave a DOM range behind
@@ -474,7 +560,11 @@ class MobileBlockDndView {
     if (this.pointerId !== null) return; // a second simultaneous touch
     const block = topLevelBlockAt(this.view, event.clientX, event.clientY);
     if (!block) return;
+    // An empty paragraph arms like any other block (below) but is never
+    // liftable — see the module doc's "an empty paragraph cannot be lifted".
+    const liftable = !(block.node.isTextblock && block.node.content.size === 0);
     this.pointerId = event.pointerId;
+    this.pressWasFocused = this.view.hasFocus();
     // FIRST, before any of the page-side work below: this is a message to the
     // shell and it has a WebContent->UI hop to make, and everything it buys is
     // bought by arriving before WKWebView's own long press does (module doc).
@@ -491,6 +581,7 @@ class MobileBlockDndView {
       size: block.node.nodeSize,
       dom: block.dom,
       clone: block.dom.cloneNode(true) as HTMLElement,
+      liftable,
     };
     // ARM the suppression here, not at lift: iOS's selection long-press is
     // already running by the time our 340ms timer fires.
@@ -499,6 +590,10 @@ class MobileBlockDndView {
     // A hold that STARTS on top of an existing selection produces no
     // `selectionchange`, so the watcher below would never see it.
     this.collapseSelection();
+    // The timer always runs, liftable or not: an unliftable press (an empty
+    // paragraph) still needs `heldPastThreshold` set for the focus guard
+    // below, and `beginLift` itself refuses to lift when `!liftable` — no
+    // ghost, no haptic, no `blockDrag` message.
     const { clientX, clientY } = event;
     this.timer = setTimeout(() => this.beginLift(clientX, clientY), this.options.longPressMs);
   };
@@ -608,6 +703,14 @@ class MobileBlockDndView {
   private beginLift(clientX: number, clientY: number): void {
     this.timer = null;
     if (this.pointerId === null || !this.pressed) return;
+    // The press has now held long enough to be a genuine hold rather than an
+    // ordinary tap, whether or not it actually lifts below — the focus guard
+    // in `finish()` reads this. */
+    this.heldPastThreshold = true;
+    // An empty paragraph arms and stands the platform's own gestures down
+    // like any other press, but is never liftable (module doc's "an empty
+    // paragraph cannot be lifted"): no ghost, no haptic, no `blockDrag`.
+    if (!this.pressed.liftable) return;
     const view = this.view;
 
     // Belt and braces: the shell has been holding WKWebView's delayed text
@@ -786,7 +889,15 @@ class MobileBlockDndView {
   private finish(clientY: number, commit: boolean): void {
     const wasDragging = this.dragging;
     const pressed = this.pressed;
+    // Captured before `disarm()` resets both: a press that reached the hold
+    // threshold — lifted or not (an empty paragraph never lifts) — while
+    // starting unfocused must not end up focused either, however it resolves
+    // (module doc's "a block press must never focus the editor"). A plain
+    // short tap is deliberately excluded: that is ordinary tap-to-place-caret,
+    // which `disarm()`'s own listener teardown already leaves alone.
+    const guardFocusOnRelease = !this.pressWasFocused && this.heldPastThreshold;
     this.disarm();
+    if (guardFocusOnRelease) this.guardFocusBriefly();
 
     if (!wasDragging || !pressed) return; // a plain tap / short hold: nothing to undo
 
