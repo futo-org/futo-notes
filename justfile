@@ -31,6 +31,14 @@ alias wt := worktree
 install:
   pnpm install
 
+# Provision pinned Node when needed, then install dependencies/check prerequisites.
+setup *args:
+  @bash scripts/dev-env.sh --install node scripts/setup-worktree.mjs "$@"
+
+# Preserve a recipe's log, source identity and artifacts in a unique run directory.
+verify-run +args:
+  @node scripts/verify-run.mjs "$@"
+
 preview:
   pnpm run preview
 
@@ -156,20 +164,21 @@ build-rust-ios:
 # the `dev` profile (the only one that honours the override) and launches
 # already pointed at that address — see docs/qa/hosted-sync-android.md.
 # Build + run the native Android Compose app (Rust core + WebView editor).
-android-native:
+# Requires Android SDK + NDK + cargo-ndk + a device/emulator.
+android-native: _preflight-android
   apps/android/run.sh
 
 # Build + run the native iOS app on the booted SIMULATOR (no signing).
-ios-native:
+ios-native: _preflight-ios
   apps/ios/run.sh
 
 # Build + run the native iOS app on a CONNECTED PHYSICAL iPhone (Debug, signed).
 # Reuses the Tauri app's dev team; override with FUTO_DEV_TEAM=<team id>.
-ios-native-device:
+ios-native-device: _preflight-ios
   apps/ios/run-device.sh
 
 # Compile-only sanity for the native iOS app (no install); `just ios-native` runs it.
-build-ios-native: editor-deps build-rust-ios
+build-ios-native: _preflight-ios build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -221,12 +230,20 @@ android-env-check:
 # or buildConfigField that only breaks one of them fails here rather than at
 # release time.
 # Compile-only sanity for the native Android app (both flavors, no install).
-build-android-native: editor-deps android-env-check build-rust-android
+build-android-native: _preflight-android android-env-check build-rust-android
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/android
   ./gradlew :app:assembleDirectDebug :app:assemblePlayDebug
+
+[private]
+_preflight-ios: editor-deps
+  @bash scripts/dev-env.sh node scripts/setup-worktree.mjs ios --check
+
+[private]
+_preflight-android: editor-deps
+  @bash scripts/dev-env.sh node scripts/setup-worktree.mjs android --check
 
 # ── Native unit tests ──
 
@@ -234,7 +251,7 @@ build-android-native: editor-deps android-env-check build-rust-android
 # on a CONCRETE simulator — `xcodebuild test` cannot run against a generic
 # destination. Honors $SIM (from `just qa-claim ios`); otherwise the single
 # booted simulator. Fails red on any test failure.
-test-ios-native: editor-deps build-rust-ios
+test-ios-native: _preflight-ios build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -260,14 +277,14 @@ test-ios-native: editor-deps build-rust-ios
 # flavors: DistributionFlavorTest asserts a per-flavor constant, so one run
 # would only ever see half of it.
 # JVM unit tests for the native Android app, under both flavors.
-test-android-native: editor-deps android-env-check build-rust-android
+test-android-native: _preflight-android android-env-check build-rust-android
   cd apps/android && ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
 
 # `direct` only: the flavors compile the same androidTest sources against the
 # same applicationId, so running both would install one over the other for no
 # extra signal.
 # Runs Compose instrumentation tests on $ANDROID_SERIAL.
-test-android-native-ui: editor-deps android-env-check build-rust-android
+test-android-native-ui: _preflight-android android-env-check build-rust-android
   cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest
 
 # Editor performance stories against the REAL native Android app on an
@@ -333,6 +350,7 @@ test-ios-stories:
   #!/usr/bin/env bash
   set -euo pipefail
   [ -n "${SIM:-}" ] || { echo 'No claimed simulator — run: eval "$(just qa-claim ios)"' >&2; exit 1; }
+  command -v axe >/dev/null || { echo "AXe is missing; install it before building (see the verify iOS playbook)." >&2; exit 1; }
   SIM="$SIM" just ios-native
   SIM="$SIM" node tests/ios-editor-stories.mjs
 
@@ -687,8 +705,8 @@ test-e2e-full:
 test-e2e-rest:
   pnpm run test:e2e:rest
 
-test-cross-platform:
-  pnpm run test:cross-platform
+test-cross-platform *args:
+  pnpm run test:cross-platform "$@"
 
 # The Rust server-backed sync suites against REAL servers, in one command.
 # server_integration.rs holds two families that need two different server
@@ -738,6 +756,22 @@ test-ui:
 
 test-desktop-smoke:
   node tests/desktop-smoke.mjs
+
+# Embedded debug app with test hooks; always build current web and Rust sources.
+build-desktop-test:
+  bash scripts/dev-env.sh node scripts/setup-worktree.mjs desktop --check
+  VITE_INCLUDE_TEST_HOOKS=true just build
+  # cargo clean -p so the build re-runs and re-embeds dist/ with the test
+  # hooks: a futo-notes-tauri crate cached from a build without
+  # VITE_INCLUDE_TEST_HOOKS can otherwise re-link a hooks-free binary. This
+  # guard lived in the CI job script; it belongs here so every rebuild —
+  # local or CI — gets it, and CI doesn't pay for a second identical build.
+  cd apps/tauri && cargo clean -p futo-notes-tauri
+  cargo build -p futo-notes-tauri
+
+# Complete user journeys with a synthetic vault and real process restarts.
+test-desktop-journeys: build-desktop-test
+  node tests/desktop-journeys.mjs
 
 test-rust:
   cargo test -p futo-notes-model --test conformance

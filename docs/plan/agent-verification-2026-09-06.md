@@ -12,9 +12,11 @@ the result, and leave a replayable record. FUTO already has most of the individu
 pieces. The highest-value changes connect those pieces and close the places where
 an agent can obtain a misleading result.
 
-The next implementation priority is sync QA server ownership. After that, preserve
-per-run evidence and make native-host setup repeatable. More general instructions
-or another orchestration framework would not address the failures observed here.
+September 8 follow-up: Justin deferred sync QA server ownership as a papercut and
+requested evidence retention, repeatable setup/Mac access, and complete journeys.
+Those are implemented through the [worktree verification commands](../agents/verification-runs.md).
+The roadmap below preserves the original recommendations; it is not an instruction
+to implement the deferred server change.
 
 ## Evidence reviewed
 
@@ -69,7 +71,40 @@ owner's complete chain, condition-based waits, real-engine checks and explicit
 code/target/evidence identity in the handoff. Both last-commit-only scope snippets
 were removed. The finite-slot and sync-server limitations are stated explicitly.
 
-## What remains, in priority order
+## September 8 follow-up verification
+
+- `just verify-run check`: passed on Linux, including 1,846 unit tests and 381
+  editor tests; nine existing unit skips remain.
+- `just verify-run test-cross-platform --no-android`: all 33 desktop scenarios
+  passed, including offline accumulation and peer deletion. Six Android scenarios
+  were explicitly skipped. The bundle retains sync results, server logs/databases
+  and both verified desktop instances.
+- `just verify-run test-e2e`: both Chromium P0 regressions passed; JSON and HTML
+  reports landed inside the unique evidence directory.
+- `just verify-run test-desktop-journeys`: both save/relaunch and rename/backlink
+  journeys passed on Linux WebKitGTK and Mac WKWebView. These use bridge/editor
+  hooks; they do not establish native keyboard or visual-painting behavior.
+- Public CLI tests cover retained red/green bundles, source-change invalidation,
+  literal command arguments, platform preflight and refusal of unsafe restart
+  storage. The Mac caught stdout contamination from fnm activation; that test
+  failed before the stderr fix and all seven new tests now pass there.
+- Mac setup completed twice from plain SSH, and iOS prerequisites passed. AXe is
+  unavailable in the tested tool environment: the iOS story recipe now fails
+  before a native build. No iOS/Android device journey was run in this follow-up.
+
+Reports are retained under `verification-runs/` in each task worktree; Mac reports
+are also copied into the Linux worktree's `verification-runs/mac-20260908/`.
+Evidence is local and gitignored. The commands and interpretation are documented
+in [worktree verification](../agents/verification-runs.md).
+
+## Original roadmap and follow-up status
+
+The follow-up adds `just verify-run`, `just setup`, the noninteractive `dev-env.sh`
+entry point, native build preflights and `just test-desktop-journeys`. Playwright and
+desktop sync artifacts use per-run storage. Linux desktop save/relaunch and
+rename/backlink journeys pass; a separate Mac worktree completed setup twice and
+passed iOS prerequisites. Native keyboard and device result collection remain
+platform-specific; they are not implied by setup or desktop results.
 
 | Priority | Improvement                                                                                                                                                                                                                                 | Concrete acceptance test                                                                                                                                                                                              |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -89,7 +124,9 @@ The Mac smoke check confirmed authenticated access and exposed an immediate boot
 problem: its plain SSH shell could not find Node, `just` or `pnpm`; invoking
 `/opt/homebrew/bin/node` explicitly ran version 26.5.0 against a 22.23.1 repo pin.
 That does not establish how an interactive terminal is configured. Papercut
-`pc_bd8eeb546f89` records the remote-shell gap. No host toolchain was changed.
+`pc_bd8eeb546f89` records the remote-shell gap. In the September 8 follow-up, the
+bootstrap installed fnm and pinned Node on the Mac without changing shell profiles
+or the global Node default; rerunning setup reused the installation.
 
 For visual QA, add a Linux compositor screenshot adapter behind `qa-target` and
 provide a visible test display for frame/animation measurements on the Mac.

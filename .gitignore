@@ -122,6 +122,7 @@ scratch/
 
 # Verification
 test-screenshots
+verification-runs/
 
 # Perf harness output (regenerable); already excluded from remote runs
 # (RSYNC_EXCLUDES in scripts/remote-test.mjs).

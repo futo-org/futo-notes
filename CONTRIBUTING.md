@@ -1,6 +1,6 @@
 # Contributing / Setup
 
-New-hire setup for FUTO Notes. For *how the codebase is organized* and the
+New-hire setup for FUTO Notes. For _how the codebase is organized_ and the
 day-to-day rules, read [AGENTS.md](./AGENTS.md) next — this doc only gets your
 machine ready.
 
@@ -27,14 +27,19 @@ staged/unstaged changes and untracked files. It reports installed tool paths, mi
 and worktrees sharing a slot; presence alone does not prove a working build or a safe QA target.
 
 ```bash
-just install      # install all workspace dependencies
+just setup        # check tools and install pinned workspace dependencies
 just tauri-dev    # run the desktop app (Wayland-first, port 5180)
-just check        # lint + tests + build sanity — run this before pushing
+just verify-run check  # lint + tests + build sanity, with a retained evidence bundle
 ```
 
 Working alongside another session? `just wt new <name>` makes a sibling worktree
 with deps installed and a warm Rust cache; `just wt gc` reaps stale ones. `just
 orient` says where you are.
+
+If a fresh worktree or SSH shell cannot find Node/just, start with
+`bash scripts/dev-env.sh --install just setup`. Wrap later SSH commands with
+`bash scripts/dev-env.sh` too. See [worktree setup and verification](docs/agents/verification-runs.md)
+for platform preflight, Mac usage, real-app journeys and evidence retention.
 
 > Dev/debug builds isolate their notes from production. Desktop/iOS use
 > `com.futo.notes.dev` and `fake-notes`; Android isolates package storage by
