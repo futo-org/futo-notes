@@ -1,32 +1,10 @@
 use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::*;
-
-struct TestRoot(PathBuf);
-
-impl TestRoot {
-    fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "futo-local-note-store-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&path).unwrap();
-        Self(path)
-    }
-}
-
-impl Drop for TestRoot {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
+use crate::test_support::TestRoot;
 
 #[derive(Default)]
 struct RecordingObserver(Mutex<Vec<Vec<FileChange>>>);
@@ -867,82 +845,6 @@ fn a_failed_source_removal_during_rename_leaves_no_duplicate() {
         !store.exists("Dst/note"),
         "no stranded duplicate at the destination"
     );
-}
-
-// ── search-engine start self-heal (F13 retry, PKT-10, now shared) ──
-
-// A failed engine start degrades (never crashes) and is retried lazily on a
-// later call — but only after the cooldown, so a persistent failure is not
-// reopened on every call. Uses the cheapest real seam: an index dir that is a
-// regular file (TantivyIndices::open's create_dir_all fails), cleared between
-// attempts so the retry can succeed.
-#[test]
-fn search_engine_start_failure_self_heals_after_cooldown() {
-    let root = TestRoot::new();
-    let store = store(&root);
-
-    let index_path = root.0.join("blocking-index");
-    fs::write(&index_path, "not a directory").unwrap();
-    let observer: StatusObserver = Arc::new(|_| {});
-
-    // Degraded, not crashed: start returns Err, search stays usable (empty).
-    assert!(store.start_search(index_path.clone(), observer).is_err());
-    assert!(!store.search_engine_installed());
-    assert!(store.search("anything", None).unwrap().is_empty());
-
-    // Cause cleared, but still WITHIN the cooldown → no re-attempt yet.
-    fs::remove_file(&index_path).unwrap();
-    assert!(store.search("anything", None).unwrap().is_empty());
-    assert!(
-        !store.search_engine_installed(),
-        "must not re-attempt the start within the cooldown"
-    );
-
-    // Cooldown elapsed → the next call retries and, the cause now gone, starts.
-    store.expire_search_retry_cooldown();
-    let _ = store.search("anything", None);
-    assert!(
-        store.search_engine_installed(),
-        "must retry and start once the cooldown elapses"
-    );
-}
-
-#[test]
-fn wait_until_search_ready_returns_false_once_the_budget_elapses() {
-    let root = TestRoot::new();
-    let store = store(&root);
-
-    let started = Instant::now();
-    assert!(!store.wait_until_search_ready(80));
-    let waited = started.elapsed();
-    assert!(
-        waited >= Duration::from_millis(80),
-        "returned before the budget: {waited:?}"
-    );
-    assert!(
-        waited < Duration::from_secs(5),
-        "wait unbounded: {waited:?}"
-    );
-}
-
-#[test]
-fn wait_until_search_ready_reports_readiness_of_a_real_engine() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.write("note", "indexable body", None).unwrap();
-    let observer: StatusObserver = Arc::new(|_| {});
-    store
-        .bootstrap_with_search(root.0.join("index"), observer)
-        .unwrap();
-
-    // 60s, not 10s: same background-indexer wait as the ffi note_contract
-    // bootstrap test, which timed out just past 10s on a contended CI runner
-    // (pipeline 32195 / job 201804).
-    assert!(
-        store.wait_until_search_ready(60_000),
-        "keyword index never became ready"
-    );
-    assert!(store.search_status().keyword.ready);
 }
 
 #[test]
