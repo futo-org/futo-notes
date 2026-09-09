@@ -20,8 +20,15 @@ final class EditorDraftCoordinator {
     private var epoch: UInt64 = 0
     private var paused = false
 
-    func beginReset() { paused = true; epoch += 1 }
-    func endReset() { paused = false; generations.removeAll(); blocked.removeAll() }
+    func beginReset() {
+        paused = true
+        epoch += 1
+    }
+    func endReset() {
+        paused = false
+        generations.removeAll()
+        blocked.removeAll()
+    }
 
     private var generations: [String: UInt64] = [:]
     private var blocked: Set<String> = []
@@ -44,7 +51,9 @@ final class EditorDraftCoordinator {
     }
 
     func finishIdentityMutation(_ mutation: IdentityMutation, committed: Bool) {
-        guard mutation.epoch == epoch, generations[mutation.id] == mutation.generation else { return }
+        guard mutation.epoch == epoch, generations[mutation.id] == mutation.generation else {
+            return
+        }
         if !committed { blocked.remove(mutation.id) }
     }
 

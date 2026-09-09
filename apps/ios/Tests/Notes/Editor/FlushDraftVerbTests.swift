@@ -40,7 +40,8 @@ struct FlushDraftVerbTests {
         let vault = NoteVault(notesRoot: root.path)
         _ = try await vault.write("note", content: "base text", epoch: 0)
 
-        let result = try await vault.flushDraft("note", base: "base text", content: "draft text", epoch: 0)
+        let result = try await vault.flushDraft(
+            "note", base: "base text", content: "draft text", epoch: 0)
 
         #expect(result.disposition == .wrote)
         #expect(result.mutation?.finalId == "note")
@@ -54,7 +55,8 @@ struct FlushDraftVerbTests {
         let vault = NoteVault(notesRoot: root.path)
         _ = try await vault.write("note", content: "same text", epoch: 0)
 
-        let result = try await vault.flushDraft("note", base: "stale base", content: "same text", epoch: 0)
+        let result = try await vault.flushDraft(
+            "note", base: "stale base", content: "same text", epoch: 0)
 
         #expect(result.disposition == .converged)
         #expect(result.mutation == nil)
@@ -83,7 +85,8 @@ struct FlushDraftVerbTests {
         let vault = NoteVault(notesRoot: root.path)
         _ = try await vault.write("note", content: "peer version", epoch: 0)
 
-        let first = try await vault.flushDraft("note", base: "original", content: "my draft", epoch: 0)
+        let first = try await vault.flushDraft(
+            "note", base: "original", content: "my draft", epoch: 0)
 
         guard case .parkedConflict(let parkedId) = first.disposition else {
             Issue.record("expected the diverged draft to be parked, got \(first.disposition)")
@@ -96,7 +99,8 @@ struct FlushDraftVerbTests {
 
         // The crash-window double-park (scenePhase flush firing at both .inactive
         // and .background): the identical draft reports the same copy, mints none.
-        let again = try await vault.flushDraft("note", base: "original", content: "my draft", epoch: 0)
+        let again = try await vault.flushDraft(
+            "note", base: "original", content: "my draft", epoch: 0)
         #expect(again.disposition == .parkedConflict(parkedId: parkedId))
         #expect(again.mutation == nil)
         #expect(await vault.scan().notes.count == 2, "original + exactly one copy")

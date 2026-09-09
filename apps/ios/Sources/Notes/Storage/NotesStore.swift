@@ -49,12 +49,15 @@ actor NoteVault {
     /// mutation to project. This replaced the Swift-side
     /// writeIfUnchanged → createIfAbsent → park composition, whose
     /// check-then-act windows spanned FFI calls (PKT-10 P1a/P1b).
-    func flushDraft(_ id: String, base: String, content: String, epoch: UInt64) throws -> FlushDraftResult {
+    func flushDraft(_ id: String, base: String, content: String, epoch: UInt64) throws
+        -> FlushDraftResult
+    {
         try requireGeneration(epoch)
         return try core.flushDraft(id: id, base: base, content: content)
     }
 
-    func saveDraftAs(_ draft: PendingDraft, wantedId: String, epoch: UInt64) throws -> NoteMutation {
+    func saveDraftAs(_ draft: PendingDraft, wantedId: String, epoch: UInt64) throws -> NoteMutation
+    {
         try requireGeneration(epoch)
         return try core.saveDraftAs(
             id: draft.id, wantedId: wantedId, base: draft.base, content: draft.content
@@ -518,12 +521,15 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    func write(_ id: String, content: String, ownerToken: UInt64? = nil) async -> NoteMutationOutcome<Void> {
+    func write(_ id: String, content: String, ownerToken: UInt64? = nil) async
+        -> NoteMutationOutcome<Void>
+    {
         let epoch = resetEpoch
         guard ownsDraft(ownerToken) else { return .failed }
         do {
             let retainedAtAdmission = retainedDraftSnapshot(for: id)
-            applyMutation(try await vault.write(id, content: content, epoch: epoch), expectedEpoch: epoch)
+            applyMutation(
+                try await vault.write(id, content: content, epoch: epoch), expectedEpoch: epoch)
             completeRetainedDraftSnapshot(retainedAtAdmission)
             onLocalChange?()
             return .committed(())
@@ -701,7 +707,8 @@ final class NotesStore: ObservableObject {
             await previous?.value
             guard !resetting else { return }
             do {
-                applyMutation(try await vault.deleteFolder(folder, epoch: epoch), expectedEpoch: epoch)
+                applyMutation(
+                    try await vault.deleteFolder(folder, epoch: epoch), expectedEpoch: epoch)
                 onLocalChange?()
             } catch {
                 print("deleteFolder failed for \(folder): \(error)")
@@ -717,7 +724,8 @@ final class NotesStore: ObservableObject {
             await previous?.value
             guard !resetting else { return }
             do {
-                applyMutation(try await vault.createFolder(path, epoch: epoch), expectedEpoch: epoch)
+                applyMutation(
+                    try await vault.createFolder(path, epoch: epoch), expectedEpoch: epoch)
                 onLocalChange?()
             } catch {
                 print("createFolder failed for \(path): \(error)")

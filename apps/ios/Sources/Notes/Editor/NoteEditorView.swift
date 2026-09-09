@@ -627,8 +627,10 @@ struct NoteEditorView: View {
         let targetId = makeId(folder: parts.folder, title: sanitized)
         let resolution = resolvedRename(
             currentId: noteId,
-            outcome: await store.rename(oldId: noteId, newId: targetId,
-                draft: PendingDraft(id: noteId, base: savedContent, content: flushed), ownerToken: draftToken)
+            outcome: await store.rename(
+                oldId: noteId, newId: targetId,
+                draft: PendingDraft(id: noteId, base: savedContent, content: flushed),
+                ownerToken: draftToken)
         )
         guard resolution.isCommitted else {
             store.showTransient(LocalizedMessage("notes.title.renameFailed"))
@@ -799,7 +801,8 @@ struct NoteEditorView: View {
                     // Only a loaded, dirty editor has anything to persist.
                     guard loaded, flushed != savedContent else { return true }
                     let disposition = await store.flushDraft(
-                        PendingDraft(id: noteId, base: savedContent, content: flushed), ownerToken: draftToken)
+                        PendingDraft(id: noteId, base: savedContent, content: flushed),
+                        ownerToken: draftToken)
                     // Any durable persist-or-park outcome lets navigation finish.
                     guard disposition != nil else { return false }
                     savedContent = flushed
@@ -856,8 +859,11 @@ struct NoteEditorView: View {
                 },
                 perform: { _ in
                     let flushed = content
-                    switch await store.moveNote(noteId, toFolder: folder,
-                        draft: PendingDraft(id: noteId, base: savedContent, content: flushed), ownerToken: draftToken) {
+                    switch await store.moveNote(
+                        noteId, toFolder: folder,
+                        draft: PendingDraft(id: noteId, base: savedContent, content: flushed),
+                        ownerToken: draftToken)
+                    {
                     case .committed(let finalId):
                         // Apply even if a delete latched the session closed while
                         // the actor call was in flight. Delete awaits this task
