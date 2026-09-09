@@ -88,8 +88,8 @@
         "sendAutomatically": "Send crashes automatically",
         "skipCrashDialog": "Skip the crash dialog",
         "sendWithoutAsking": "Send reports without asking each time",
-        "reportIssue": "Report an issue",
-        "openGitHubIssueTracker": "Open the GitHub issue tracker"
+        "sendFeedback": "Send feedback",
+        "sendFeedbackDescription": "Report a bug, request a feature, or leave a comment"
       },
       "storage": {
         "notesFolder": "Notes folder",
@@ -763,6 +763,19 @@
           }
         }
       }
+    },
+    "feedback": {
+      "placeholder": "What would you like us to hear?",
+      "addScreenshot": "Add screenshot",
+      "attachedScreenshot": "Attached screenshot {index}",
+      "removeScreenshot": "Remove screenshot {index}",
+      "sending": "Sending…",
+      "sentThanks": "Thanks. We'll read it.",
+      "screenshotsTooLarge": "Some screenshots were too large to send.",
+      "attachFailed": "Could not attach that image: {reason}",
+      "sendFailed": "Could not send that: {reason}",
+      "sendFailedRetry": "Could not send that. Check your connection and try again.",
+      "stagingServer": "Send to the staging server"
     }
   }
 }

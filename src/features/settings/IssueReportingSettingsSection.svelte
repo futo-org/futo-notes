@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { openExternalUrl } from '$lib/platform/openExternalUrl';
-  import { localizedText } from '$shared/localization';
+  import { slide } from 'svelte/transition';
 
-  const ISSUE_TRACKER_URL = 'https://github.com/futo-org/futo-notes/issues';
+  import FeedbackForm from '$features/feedback/FeedbackForm.svelte';
+  import { localizedText } from '$shared/localization';
+  import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
   interface Props {
     enabled: boolean;
@@ -12,6 +13,8 @@
   }
 
   let { enabled, alwaysSend, ontoggleenabled, ontogglealwayssend }: Props = $props();
+
+  let composing = $state(false);
 </script>
 
 <section class="settings-section">
@@ -29,7 +32,9 @@
       >
       <span class="settings-btn-desc">{localizedText('settings.issueReporting.shareHelp')}</span>
     </span>
-    <div class="settings-switch" class:on={enabled}><div class="settings-switch-thumb"></div></div>
+    <div class="settings-switch" class:on={enabled}>
+      <div class="settings-switch-thumb"></div>
+    </div>
   </div>
   {#if enabled}
     <div
@@ -52,16 +57,45 @@
       </div>
     </div>
   {/if}
-  <button
-    class="settings-btn settings-issue-link"
-    onclick={() => openExternalUrl(ISSUE_TRACKER_URL)}
-  >
-    <span class="settings-btn-text">
-      <span class="settings-btn-label">{localizedText('settings.issueReporting.reportIssue')}</span>
-      <span class="settings-btn-desc"
-        >{localizedText('settings.issueReporting.openGitHubIssueTracker')}</span
+  <div class="settings-issue-feedback">
+    <button
+      class="settings-btn settings-issue-link"
+      class:open={composing}
+      aria-expanded={composing}
+      onclick={() => (composing = !composing)}
+    >
+      <span class="settings-btn-text">
+        <span class="settings-btn-label"
+          >{localizedText('settings.issueReporting.sendFeedback')}</span
+        >
+        <span class="settings-btn-desc"
+          >{localizedText('settings.issueReporting.sendFeedbackDescription')}</span
+        >
+      </span>
+      <svg
+        class="settings-issue-chevron"
+        aria-hidden="true"
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
       >
-    </span>
-    <span class="settings-external-icon" aria-hidden="true">↗</span>
-  </button>
+        <path d="m9 6 6 6-6 6" />
+      </svg>
+    </button>
+    {#if composing}
+      <div class="settings-issue-form" transition:slide={{ duration: 220 }}>
+        <FeedbackForm
+          onsent={() => {
+            composing = false;
+            showGlobalToast({ path: 'feedback.sentThanks' });
+          }}
+        />
+      </div>
+    {/if}
+  </div>
 </section>

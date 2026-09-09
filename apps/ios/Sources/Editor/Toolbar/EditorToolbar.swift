@@ -20,6 +20,25 @@ enum ToolbarMetrics {
     static let separatorHeight: CGFloat = 20
 }
 
+private struct ToolbarIconButton: View {
+    let item: ToolbarItemSpec
+    let label: String
+    var foreground: Color = .primary
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: item.sfSymbol)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(foreground)
+                .frame(width: ToolbarMetrics.buttonWidth, height: ToolbarMetrics.buttonHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
 /// Floating-control material: Liquid Glass on iOS 26 (what Safari's own keyboard
 /// accessory controls use), the closest chrome material below it.
 extension View {
@@ -30,6 +49,38 @@ extension View {
         } else {
             self.background(.regularMaterial, in: Capsule())
         }
+    }
+}
+
+private struct KeyboardDismissCapsule: View {
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        ToolbarIconButton(
+            item: ToolbarSpec.dismiss, label: label, foreground: .secondary, action: action
+        )
+        .frame(width: ToolbarMetrics.capsuleHeight, height: ToolbarMetrics.capsuleHeight)
+        .clipShape(.capsule)
+        .futoToolbarGlass()
+    }
+}
+
+struct KeyboardDismissAccessoryView: View {
+    @ObservedObject var toolbarLocalization: EditorToolbarLocalization
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: ToolbarMetrics.capsuleGap) {
+            Spacer(minLength: 0)
+            KeyboardDismissCapsule(
+                label: toolbarLocalization.localization.localizedText(
+                    ToolbarSpec.dismiss.localizationPath),
+                action: action
+            )
+        }
+        .padding(.horizontal, ToolbarMetrics.capsuleGap)
+        .frame(height: ToolbarMetrics.barHeight)
     }
 }
 
@@ -106,13 +157,9 @@ struct EditorToolbarView: View {
                 .frame(height: ToolbarMetrics.capsuleHeight)
                 .clipShape(.capsule)
                 .futoToolbarGlass()
-            button(for: ToolbarSpec.dismiss, foreground: .secondary)
-                .frame(
-                    width: ToolbarMetrics.capsuleHeight,
-                    height: ToolbarMetrics.capsuleHeight
-                )
-                .clipShape(.capsule)
-                .futoToolbarGlass()
+            KeyboardDismissCapsule(label: label(for: ToolbarSpec.dismiss)) {
+                perform(ToolbarSpec.dismiss)
+            }
         }
         .padding(.horizontal, ToolbarMetrics.capsuleGap)
         .frame(height: ToolbarMetrics.barHeight)
@@ -130,7 +177,8 @@ struct EditorToolbarView: View {
                     }
                     ForEach(group) { item in
                         if !item.onlyOnListLine || state.onListLine {
-                            button(for: item).background(buttonEdgeReader)
+                            ToolbarIconButton(item: item, label: label(for: item)) { perform(item) }
+                                .background(buttonEdgeReader)
                         }
                     }
                 }
@@ -245,18 +293,8 @@ struct EditorToolbarView: View {
             .padding(.horizontal, 4)
     }
 
-    private func button(for item: ToolbarItemSpec, foreground: Color = .primary) -> some View {
-        Button {
-            perform(item)
-        } label: {
-            Image(systemName: item.sfSymbol)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(foreground)
-                .frame(width: ToolbarMetrics.buttonWidth, height: ToolbarMetrics.buttonHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(toolbarLocalization.localization.localizedText(item.localizationPath))
+    private func label(for item: ToolbarItemSpec) -> String {
+        toolbarLocalization.localization.localizedText(item.localizationPath)
     }
 }
 
@@ -275,24 +313,12 @@ struct EditorToolbarView: View {
 /// color depends on what is behind it, so any hex is a near-miss and the bar
 /// reads as a slab pasted onto the keyboard — which is what `Theme.surface`
 /// (#F2F2F2/#171717) did here. Spec: docs/spec/editor.md → "Markdown toolbar".
-final class EditorToolbarAccessory: UIInputView {
-    private let hosting: UIHostingController<EditorToolbarView>
-    private let toolbarLocalization: EditorToolbarLocalization
+class FutoKeyboardAccessory<Content: View>: UIInputView {
+    private let hosting: UIHostingController<Content>
 
     @MainActor
-    init(
-        state: EditorToolbarState,
-        localization: Localization,
-        perform: @escaping (ToolbarItemSpec) -> Void
-    ) {
-        let toolbarLocalization = EditorToolbarLocalization(localization)
-        self.toolbarLocalization = toolbarLocalization
-        hosting = UIHostingController(
-            rootView: EditorToolbarView(
-                state: state,
-                toolbarLocalization: toolbarLocalization,
-                perform: perform
-            ))
+    init(content: Content) {
+        hosting = UIHostingController(rootView: content)
         // CRITICAL — the content must fill the accessory's own bounds. In the
         // keyboard's window the bottom safe-area inset is the home-indicator gap
         // (~34pt), which UIHostingController feeds into the hosted content by
@@ -320,14 +346,38 @@ final class EditorToolbarAccessory: UIInputView {
         fatalError("init(coder:) is not supported")
     }
 
-    @MainActor
-    func updateLocalization(_ localization: Localization) {
-        toolbarLocalization.update(localization)
-    }
-
     /// The keyboard window sizes the accessory from this (width is imposed).
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric, height: ToolbarMetrics.barHeight)
+    }
+}
+
+final class EditorToolbarAccessory: FutoKeyboardAccessory<EditorToolbarView> {
+    private let toolbarLocalization: EditorToolbarLocalization
+
+    @MainActor
+    init(
+        state: EditorToolbarState,
+        localization: Localization,
+        perform: @escaping (ToolbarItemSpec) -> Void
+    ) {
+        let toolbarLocalization = EditorToolbarLocalization(localization)
+        self.toolbarLocalization = toolbarLocalization
+        super.init(
+            content: EditorToolbarView(
+                state: state,
+                toolbarLocalization: toolbarLocalization,
+                perform: perform
+            ))
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    @MainActor
+    func updateLocalization(_ localization: Localization) {
+        toolbarLocalization.update(localization)
     }
 }
 

@@ -6,7 +6,6 @@ import UIKit
 /// storage readout, issue reporting, about, and the danger-zone full reset.
 /// Sync details/actions stay in SyncView — the Sync row just opens it.
 struct SettingsView: View {
-    private let issueTrackerURL = URL(string: "https://github.com/futo-org/futo-notes/issues")!
     static let systemSettingsURL = URL(string: UIApplication.openSettingsURLString)!
 
     @EnvironmentObject private var store: NotesStore
@@ -119,12 +118,10 @@ struct SettingsView: View {
                         isOn: $crashAlwaysSend
                     )
                     .disabled(!crashEnabled)
-                    Link(destination: issueTrackerURL) {
-                        HStack {
-                            Text(localization.localizedText("settings.issueReporting.reportIssue"))
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                        }
+                    NavigationLink {
+                        FeedbackView()
+                    } label: {
+                        Text(localization.localizedText("settings.issueReporting.sendFeedback"))
                     }
                 }
 
@@ -160,9 +157,6 @@ struct SettingsView: View {
                         }
                     }
                     #if DEBUG
-                        // On-device verification hook for the crash pipeline: traps
-                        // (SIGTRAP) → the signal handler writes a .crashlogs report
-                        // → next launch surfaces the Crash Report sheet.
                         Button(role: .destructive) {
                             fatalError("Test crash from Settings (DEBUG)")
                         } label: {
@@ -201,6 +195,7 @@ struct SettingsView: View {
                 }
             }
         }
+        .transientMessageBanner(store)
         .interactiveDismissDisabled(resetting)
     }
 

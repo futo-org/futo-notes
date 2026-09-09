@@ -1,0 +1,100 @@
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0 4px;
+}
+
+.feedback-message-wrap {
+  position: relative;
+}
+
+.feedback-message-wrap > .feedback-message {
+  display: block;
+  resize: none;
+  min-height: 96px;
+  margin-bottom: 0;
+  padding-bottom: 40px;
+  font-family: inherit;
+  line-height: 1.45;
+}
+
+.feedback-attach {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  padding: 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.feedback-attach:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.feedback-attach:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.feedback-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feedback-attachment {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+.feedback-attachment img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.feedback-attachment-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.feedback-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.settings-btn.feedback-send:not(:disabled) {
+  background: var(--color-primary);
+  color: var(--color-bg);
+}
+
+.feedback-dev-endpoint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+  border-top: 1px solid var(--color-border);
+  padding-top: 10px;
+}

@@ -36,6 +36,7 @@ internal sealed interface Screen {
     data object Settings : Screen
     data object StorageLocation : Screen
     data object Sync : Screen
+    data object Feedback : Screen
 }
 
 /** The vault root folder route — the stack floor [nav.md]. */
@@ -122,6 +123,10 @@ internal class AppNavigator internal constructor(
 
     fun openSync() {
         stack.add(Screen.Sync)
+    }
+
+    fun openFeedback() {
+        stack.add(Screen.Feedback)
     }
 
     /**

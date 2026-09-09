@@ -26,4 +26,8 @@ object Prefs {
     // Crash reporting [settings.md:43]. Enabled defaults ON; always-send OFF.
     const val CRASH_ENABLED = "crash_reporting_enabled"
     const val CRASH_ALWAYS_SEND = "crash_always_send"
+
+    const val FEEDBACK_DRAFT = "feedback_draft"
+
+    const val CRASHLOG_STAGING = "crashlog_staging"
 }

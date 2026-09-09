@@ -88,8 +88,8 @@
         "sendAutomatically": "自动发送崩溃报告",
         "skipCrashDialog": "跳过崩溃报告对话框",
         "sendWithoutAsking": "每次不再询问并直接发送报告",
-        "reportIssue": "报告问题",
-        "openGitHubIssueTracker": "打开 GitHub 问题跟踪器"
+        "sendFeedback": "发送反馈",
+        "sendFeedbackDescription": "报告错误、提出功能建议或留言"
       },
       "storage": {
         "notesFolder": "笔记文件夹",
@@ -749,6 +749,19 @@
           }
         }
       }
+    },
+    "feedback": {
+      "placeholder": "你想让我们听到什么？",
+      "addScreenshot": "添加截图",
+      "attachedScreenshot": "已附加截图 {index}",
+      "removeScreenshot": "移除截图 {index}",
+      "sending": "正在发送…",
+      "sentThanks": "谢谢，我们会认真阅读。",
+      "screenshotsTooLarge": "部分截图过大，无法发送。",
+      "attachFailed": "无法附加该图片：{reason}",
+      "sendFailed": "无法发送：{reason}",
+      "sendFailedRetry": "无法发送。请检查网络连接后重试。",
+      "stagingServer": "发送到预发布服务器"
     }
   }
 }
