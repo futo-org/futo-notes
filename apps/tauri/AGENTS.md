@@ -31,7 +31,7 @@ The desktop adapter is split by responsibility:
 - **`background_tasks.rs`**: the shared `spawn_blocking`/thread boundary and uniform join/I/O error mapping.
 - **`main.rs`**: process entry point; disables WebKitGTK DMA-BUF on Linux before calling `run()`.
 
-Unit tests live inline at the bottom of their owning module in a `#[cfg(test)] mod tests { ... }` block. This keeps private `_impl` functions directly testable without adding test-only directories; IDE folding can hide the blocks when navigating production code.
+Unit tests live inline at the bottom of their owning module in a `#[cfg(test)] mod tests { ... }` block. Test adapter-specific mapping and behavior here; canonical note workflows are tested in their owning crate. Do not add forwarding `_impl` functions solely to repeat those tests.
 
 TypeScript handles reactive note projection state, preferences, and sync coordination. Note/folder/search calls go through `localNoteStore.ts` to `local_notes_*`; there is no plugin-fs or client-index path for notes.
 
@@ -41,7 +41,7 @@ TypeScript handles reactive note projection state, preferences, and sync coordin
 - **Path safety**: pushed DOWN into the crates — `futo_notes_core::files::safe_note_path` and `futo-notes-model`'s folder primitives. Desktop code resolves the vault only through `vault_location.rs`; compatibility commands may not hand-build paths. TypeScript has `pathSafety.ts` for paths it forms before a command call.
 - **Filesystem watcher**: `filesystem_watcher.rs` watches the vault for external edits and emits `fs:change`. The store's `BeforeWrite` projection registers every affected path before the first filesystem syscall. Suppression is one-shot, so it cannot hide a later external edit inside the five-second expiry window.
 - **Platform configs**: `#[cfg(target_os = "...")]` and `#[cfg(debug_assertions)]` for platform/build-specific behavior.
-- **Tempdirs in tests are hand-rolled** — `temp_dir().join(format!(...))` + an `AtomicU32` counter + the pid. There is no `tempfile` crate in this workspace. Env-var tests serialize on a `static Mutex`.
+- **Tauri test tempdirs** use `temp_dir().join(format!(...))` + an `AtomicU32` counter + the pid. Env-var tests serialize on a `static Mutex`.
 - **Commands are projections**: the `local_notes_*` surface projects the one `LocalNoteStore` in `AppState`. Do not recreate filesystem or search workflow logic in an adapter.
 
 ## Dev Ports
@@ -86,7 +86,7 @@ just test-rust-full  # Full Rust workspace, this crate included (creates dist/ f
 | What changed | Run |
 |---|---|
 | Desktop adapter logic (`apps/tauri/src-tauri/src`) | `cargo test -p futo-notes-tauri --lib` + `just test-rust-full` |
-| New `#[tauri::command]` | Add unit test for `_impl` function, then `cargo test -p futo-notes-tauri --lib` (`just test-rust` runs only the model conformance suite and never compiles this crate) |
+| New `#[tauri::command]` | Test command-specific mapping/behavior, then `just test-rust-full` |
 | Tauri config / capabilities | `just tauri-dev` → manual smoke test |
 
 A new `#[tauri::command]` is not done until it is registered in `application.rs`'s

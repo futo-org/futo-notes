@@ -183,7 +183,7 @@ describe('TypeScript local-note projection', () => {
     const save = vi.fn();
     _setLocalNoteStoreForTest(fakeStore({ flushDraft, save }));
 
-    const result = await updateNote('Note', 'ignored shell title', 'latest body', {
+    const result = await updateNote('Note', 'latest body', {
       originalId: 'Note',
       base: 'saved body',
     });
@@ -201,7 +201,7 @@ describe('TypeScript local-note projection', () => {
     _setLocalNoteStoreForTest(fakeStore({ flushDraft }));
 
     await expect(
-      updateNote('Note', 'ignored shell title', 'same body', {
+      updateNote('Note', 'same body', {
         originalId: 'Note',
         base: 'saved body',
       }),
@@ -217,7 +217,7 @@ describe('TypeScript local-note projection', () => {
     const flushDraft = vi.fn(async () => flushResult('parkedConflict', parked, parkedId));
     _setLocalNoteStoreForTest(fakeStore({ flushDraft }));
 
-    const result = await updateNote('Note', 'ignored shell title', 'my draft', {
+    const result = await updateNote('Note', 'my draft', {
       originalId: 'Note',
       base: 'saved body',
     });
@@ -240,7 +240,7 @@ describe('TypeScript local-note projection', () => {
     _setLocalNoteStoreForTest(fakeStore({ flushDraft, move, save }));
 
     await expect(
-      updateNote('New', 'ignored shell title', 'latest body', {
+      updateNote('New', 'latest body', {
         originalId: 'Old',
         base: 'saved body',
       }),
@@ -256,7 +256,7 @@ describe('TypeScript local-note projection', () => {
     const flushDraft = vi.fn();
     _setLocalNoteStoreForTest(fakeStore({ save, flushDraft }));
 
-    await updateNote('Note', 'ignored shell title', 'restored body', {
+    await updateNote('Note', 'restored body', {
       originalId: 'Note',
       base: 'saved body',
       overrideMtime: 456,

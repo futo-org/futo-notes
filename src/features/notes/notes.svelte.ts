@@ -239,7 +239,6 @@ export interface UpdateNoteResult {
 
 export async function updateNote(
   id: string,
-  _title: string,
   content: string,
   options: UpdateNoteOptions = {},
 ): Promise<UpdateNoteResult> {

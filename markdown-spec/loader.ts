@@ -19,7 +19,7 @@ export function loadSpecCases(dir: string, maxComplexity?: number): SpecCase[] {
   return maxComplexity !== undefined ? cases.filter((c) => c.complexity <= maxComplexity) : cases;
 }
 
-export function loadSpecFile(filePath: string): SpecCase[] {
+function loadSpecFile(filePath: string): SpecCase[] {
   const content = readFileSync(filePath, 'utf-8');
   const parsed = yaml.load(content);
 

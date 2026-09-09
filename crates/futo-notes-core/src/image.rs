@@ -22,11 +22,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn canonical_set_is_ten() {
-        assert_eq!(IMAGE_EXTENSIONS.len(), 10);
-    }
-
-    #[test]
     fn recognizes_canonical_extensions() {
         for ext in IMAGE_EXTENSIONS {
             assert!(is_image_filename(&format!("photo.{ext}")), "{ext}");

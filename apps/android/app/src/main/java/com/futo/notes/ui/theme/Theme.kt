@@ -9,20 +9,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 
-/**
- * FUTO Notes theme ("Ambient Precision"). Wraps MaterialTheme so standard M3
- * components (TopAppBar, Card, FilterChip, Switch, FloatingActionButton,
- * ModalNavigationDrawer, SegmentedButton, …) inherit the brand out of the box,
- * and ALSO exposes the extended FUTO tokens via `FutoTheme.colors`.
- *
- * Usage:
- *   FutoNotesTheme { AppScaffold() }
- *   val c = FutoTheme.colors            // FutoColors (light or dark)
- *   Text("Title", style = FutoType.title, color = c.textPrimary)
- *
- * Dark mode: the brand only fully specifies light, so the dark scheme is a
- * faithful inversion (ink surfaces, warm-light neutrals, same rationed ember).
- */
 private val FutoLightColorScheme = lightColorScheme(
     primary = FutoPalette.Ember500,
     onPrimary = FutoPalette.Paper,
@@ -91,9 +77,7 @@ fun FutoNotesTheme(
     }
 }
 
-/** Convenience accessor: `FutoTheme.colors`, `FutoTheme.radius`. */
 object FutoTheme {
     val colors: FutoColors
         @Composable @ReadOnlyComposable get() = LocalFutoColors.current
-    val radius get() = FutoRadius
 }

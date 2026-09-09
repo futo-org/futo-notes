@@ -3,7 +3,7 @@
  *
  * Each YAML file contains an array of SpecCase objects.
  * Cases are run by both Playwright (decoration/visible text checks)
- * and Vitest (server-side tag/chunk conformance).
+ * and Vitest (editor tag extraction).
  */
 
 export interface SpecCase {
@@ -88,7 +88,7 @@ export interface Expectations {
   /** Expected widget types present in the editor DOM */
   widgets?: WidgetExpectation[];
 
-  /** Expected tags from extractTags() — server-side conformance */
+  /** Expected tags from the editor's extractTags() */
   tags?: string[];
 
   /** Expected header tag block result */

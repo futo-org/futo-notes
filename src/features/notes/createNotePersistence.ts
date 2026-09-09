@@ -74,7 +74,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         return false;
       }
 
-      const result = await updateNote(newId, newTitle, editorContent, {
+      const result = await updateNote(newId, editorContent, {
         originalId: state.originalId ?? undefined,
         base: state.savedContent,
       });

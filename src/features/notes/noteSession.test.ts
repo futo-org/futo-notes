@@ -222,8 +222,10 @@ describe('committing the title without waiting out the debounce', () => {
     typeTitle(session, 'Grocery list');
     await session.flushSave();
 
-    expect(updateNote).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
+    expect(updateNote).toHaveBeenCalledExactlyOnceWith('Grocery list', '', {
+      originalId: undefined,
+      base: '',
+    });
   });
 
   it('renames when the title field loses focus', async () => {
@@ -235,8 +237,10 @@ describe('committing the title without waiting out the debounce', () => {
     // Microtasks only: reaching the 10 s backstop would rename regardless.
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(updateNote).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
+    expect(updateNote).toHaveBeenCalledExactlyOnceWith('Grocery list', '', {
+      originalId: undefined,
+      base: '',
+    });
   });
 });
 
@@ -262,8 +266,10 @@ describe('title debounce vs body debounce (character-loss race)', () => {
 
     vi.advanceTimersByTime(2000);
     await vi.runAllTicks();
-    expect(updateNote).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
+    expect(updateNote).toHaveBeenCalledExactlyOnceWith('Grocery list', '', {
+      originalId: undefined,
+      base: '',
+    });
   });
 
   it('body content edits keep the existing short (500ms) debounce', async () => {
@@ -295,7 +301,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     await session.flushSave();
 
     const { updateNote } = await import('./notes.svelte');
-    expect(updateNote).toHaveBeenCalledWith('Untitled', 'Untitled', '# hidden-window keystroke', {
+    expect(updateNote).toHaveBeenCalledWith('Untitled', '# hidden-window keystroke', {
       originalId: undefined,
       base: '',
     });
@@ -331,12 +337,10 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     releaseMove();
     await moving;
     await vi.waitFor(() => expect(updateNote).toHaveBeenCalledOnce());
-    expect(updateNote).toHaveBeenCalledWith(
-      'Archive/Roadmap',
-      'Roadmap',
-      'draft typed during move',
-      { originalId: 'Archive/Roadmap', base: 'base' },
-    );
+    expect(updateNote).toHaveBeenCalledWith('Archive/Roadmap', 'draft typed during move', {
+      originalId: 'Archive/Roadmap',
+      base: 'base',
+    });
   });
 });
 

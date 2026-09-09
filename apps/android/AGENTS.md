@@ -9,7 +9,7 @@ WebView. There is no Tauri Android shell.
 ```bash
 just android-native            # Rust ffi (all ABIs) → editor bundle → installDebug → launch
 just build-android-native      # compile-only sanity
-just test-android-native       # JVM unit tests (the only Android tests CI runs)
+just test-android-native       # JVM unit tests
 just test-android-native-ui    # Compose instrumentation tests on $ANDROID_SERIAL
 just android-drive             # drive the running app; no args prints the commands
 just test-android-storage      # user-level storage stories on a real device

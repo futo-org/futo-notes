@@ -271,8 +271,6 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   trashes the shell through `trash::delete` and asks the plain question. →
   `system_trash::folder_deletes_are_permanent`, deleteConfirmation.ts
   `folderDeleteWarning`
-- A note row in the folder tree offers the same Move/Delete via context menu
-  (desktop right-click / mobile long-press). → FolderTreeView.svelte
 - A note row in the folder tree offers Rename / Move to folder / Delete via
   context menu (desktop right-click / mobile long-press). → FolderTreeView.svelte
 - _(desktop)_ **A note row renames inline**, by the same three gestures as a

@@ -44,8 +44,14 @@ describe('resolveTheme', () => {
     expect(resolveTheme('light')).toBe('light');
   });
 
-  it('returns a value for auto preference', () => {
-    expect(['dark', 'light']).toContain(resolveTheme('auto'));
+  it.each([true, false])('resolves auto from the dark media query (%s)', (dark) => {
+    stubPageColorScheme(dark);
+    expect(resolveTheme('auto')).toBe(dark ? 'dark' : 'light');
+  });
+
+  it('defaults auto to light when media queries are unavailable', () => {
+    vi.stubGlobal('matchMedia', undefined);
+    expect(resolveTheme('auto')).toBe('light');
   });
 });
 
@@ -70,10 +76,17 @@ describe('applyThemePreference', () => {
     expect(document.documentElement.dataset.theme).toBe('light');
   });
 
-  it('falls back to resolveTheme when no override provided', async () => {
-    const result = await applyThemePreference('auto');
-    expect(['dark', 'light']).toContain(result);
-  });
+  it.each([true, false])(
+    'applies the page color scheme when no override is provided (%s)',
+    async (dark) => {
+      stubPageColorScheme(dark);
+      const expected = dark ? 'dark' : 'light';
+
+      await expect(applyThemePreference('auto')).resolves.toBe(expected);
+      expect(document.documentElement.dataset.theme).toBe(expected);
+      expect(document.documentElement.style.colorScheme).toBe(expected);
+    },
+  );
 });
 
 describe('applyThemePreference — native window appearance', () => {

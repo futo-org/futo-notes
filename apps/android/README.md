@@ -1,7 +1,7 @@
 # FUTO Notes — native Android shell
 
-A from-scratch **native Jetpack Compose** app that is the Android sibling of
-`apps/ios`. It reuses, unchanged:
+The Android app is a native Jetpack Compose shell over the shared Rust engines
+and CodeMirror editor. It shares these boundaries with `apps/ios`:
 
 - **The same Rust core** — `futo-notes-ffi` (note CRUD + rules + E2EE sync),
   built per-ABI into `jniLibs/<abi>/libfuto_notes_ffi.so` with UniFFI **Kotlin**
@@ -49,13 +49,18 @@ the bridge messages both hosts handle are listed in the generated
 
 ## Build & run
 
+Run from the repository root so the recipes rebuild the generated Rust bindings
+and editor assets:
+
 ```bash
-apps/android/run.sh        # build Rust core + editor + Gradle install + launch
-# or step-by-step:
-scripts/build-rust-android.sh                      # .so + Kotlin bindings
-pnpm exec vite build --config vite.editor.config.ts # editor.html
-# (copy editor.html into app/src/main/assets/, then `gradle :app:installDebug`)
+just android-native        # build, install Debug, and launch on a claimed device
+just build-android-native  # compile without installing
+just test-android-native   # JVM tests; rebuilds Rust bindings first
+just test-android-native-ui # Compose instrumentation tests on $ANDROID_SERIAL
 ```
+
+[AGENTS.md](AGENTS.md) covers fresh-worktree setup, device claims, and the
+required verification chain.
 
 ### Prerequisites
 
@@ -65,10 +70,6 @@ pnpm exec vite build --config vite.editor.config.ts # editor.html
   for it early and errors with install instructions if missing.
 - `cargo install cargo-ndk` + the android rust targets:
   `rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android`.
-
-> Verified independently of the NDK/SDK: `futo-notes-ffi` builds as a `cdylib`
-> and `uniffi-bindgen --language kotlin` generates the bindings the app imports.
-> Full device build/run requires the Android toolchain above.
 
 ## Device notes
 

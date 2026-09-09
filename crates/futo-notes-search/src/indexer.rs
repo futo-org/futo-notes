@@ -12,21 +12,6 @@ use walkdir::WalkDir;
 use crate::tantivy_indices::TantivyIndices;
 use crate::{KeywordStatus, SearchHit, SearchStatus, StatusObserver, DEFAULT_TOPK};
 
-#[derive(Clone)]
-pub(crate) struct Ctx {
-    on_status: StatusObserver,
-}
-
-impl Ctx {
-    pub(crate) fn new(on_status: StatusObserver) -> Self {
-        Self { on_status }
-    }
-
-    fn emit_status(&self, status: &SearchStatus) {
-        (self.on_status)(status);
-    }
-}
-
 #[derive(Debug)]
 pub enum IndexerMsg {
     Changed(String),
@@ -66,7 +51,7 @@ impl IndexerHandle {
 }
 
 pub(crate) fn spawn(
-    ctx: Ctx,
+    on_status: StatusObserver,
     notes_root: PathBuf,
     index_root: PathBuf,
     rx: UnboundedReceiver<IndexerMsg>,
@@ -80,9 +65,9 @@ pub(crate) fn spawn(
     cleanup_legacy(&notes_root);
 
     let status_for_supervisor = status.clone();
-    let ctx_for_supervisor = ctx.clone();
+    let on_status_for_supervisor = on_status.clone();
     tokio::spawn(async move {
-        let inner = tokio::task::spawn(run_loop(ctx, notes_root, indices, status, rx));
+        let inner = tokio::task::spawn(run_loop(on_status, notes_root, indices, status, rx));
         match inner.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
@@ -96,14 +81,14 @@ pub(crate) fn spawn(
             .lock()
             .map(|s| s.clone())
             .unwrap_or_default();
-        ctx_for_supervisor.emit_status(&snap);
+        on_status_for_supervisor(&snap);
     });
 
     Ok(handle)
 }
 
 async fn run_loop(
-    ctx: Ctx,
+    on_status: StatusObserver,
     notes_root: PathBuf,
     indices: Arc<Mutex<TantivyIndices>>,
     status: Arc<Mutex<SearchStatus>>,
@@ -113,9 +98,9 @@ async fn run_loop(
         let notes_root = notes_root.clone();
         let indices = indices.clone();
         let status_arc = status.clone();
-        let ctx2 = ctx.clone();
+        let on_status = on_status.clone();
         tokio::task::spawn_blocking(move || {
-            let _ = reconcile_bm25(&ctx2, &notes_root, &indices, &status_arc);
+            let _ = reconcile_bm25(&on_status, &notes_root, &indices, &status_arc);
         })
         .await
         .map_err(|e| format!("bm25 join: {e}"))?;
@@ -152,9 +137,9 @@ async fn run_loop(
                 let notes_root = notes_root.clone();
                 let indices = indices.clone();
                 let status_arc = status.clone();
-                let ctx2 = ctx.clone();
+                let on_status = on_status.clone();
                 tokio::task::spawn_blocking(move || {
-                    let _ = reconcile_bm25(&ctx2, &notes_root, &indices, &status_arc);
+                    let _ = reconcile_bm25(&on_status, &notes_root, &indices, &status_arc);
                 })
                 .await
                 .ok();
@@ -172,9 +157,9 @@ async fn run_loop(
                 let notes_root = notes_root.clone();
                 let indices = indices.clone();
                 let status_arc = status.clone();
-                let ctx2 = ctx.clone();
+                let on_status = on_status.clone();
                 tokio::task::spawn_blocking(move || {
-                    apply_pending(&ctx2, &notes_root, &indices, &status_arc, drained);
+                    apply_pending(&on_status, &notes_root, &indices, &status_arc, drained);
                 })
                 .await
                 .ok();
@@ -191,7 +176,7 @@ enum ChangeKind {
 }
 
 fn apply_pending(
-    ctx: &Ctx,
+    on_status: &StatusObserver,
     notes_root: &Path,
     indices: &Arc<Mutex<TantivyIndices>>,
     status: &Arc<Mutex<SearchStatus>>,
@@ -235,7 +220,7 @@ fn apply_pending(
         }
         let _ = idx.commit_bm25();
     }
-    emit_keyword_ready(ctx, status);
+    emit_keyword_ready(on_status, status);
 }
 
 /// Reconcile the BM25 index against the filesystem.
@@ -243,7 +228,7 @@ fn apply_pending(
 /// Returns the number of notes re-read + re-indexed this pass. On a warm second
 /// launch with no edits this is 0 because the mtime gate skips unchanged files.
 fn reconcile_bm25(
-    ctx: &Ctx,
+    on_status: &StatusObserver,
     notes_root: &Path,
     indices: &Arc<Mutex<TantivyIndices>>,
     status: &Arc<Mutex<SearchStatus>>,
@@ -303,16 +288,16 @@ fn reconcile_bm25(
         "[search/indexer] BM25 reconcile: {reindexed} new/changed of {total} total ({} skipped via mtime gate)",
         total.saturating_sub(reindexed)
     );
-    emit_keyword_ready(ctx, status);
+    emit_keyword_ready(on_status, status);
     reindexed
 }
 
-fn emit_keyword_ready(ctx: &Ctx, status: &Arc<Mutex<SearchStatus>>) {
+fn emit_keyword_ready(on_status: &StatusObserver, status: &Arc<Mutex<SearchStatus>>) {
     if let Ok(mut s) = status.lock() {
         s.keyword = KeywordStatus { ready: true };
     }
     let snap = status.lock().map(|s| s.clone()).unwrap_or_default();
-    ctx.emit_status(&snap);
+    on_status(&snap);
 }
 
 /// Note ID, absolute path, and mtime for each file. Normalize the ID once so
@@ -444,18 +429,22 @@ mod tests {
 
     fn make_state(
         index_root: &Path,
-    ) -> (Ctx, Arc<Mutex<TantivyIndices>>, Arc<Mutex<SearchStatus>>) {
-        let ctx = Ctx::new(Arc::new(|_| {}));
+    ) -> (
+        StatusObserver,
+        Arc<Mutex<TantivyIndices>>,
+        Arc<Mutex<SearchStatus>>,
+    ) {
+        let on_status: StatusObserver = Arc::new(|_| {});
         let indices = Arc::new(Mutex::new(
             TantivyIndices::open(index_root).expect("open indices"),
         ));
         let status = Arc::new(Mutex::new(SearchStatus::default()));
-        (ctx, indices, status)
+        (on_status, indices, status)
     }
 
     fn run_reconcile(notes_root: &Path, index_root: &Path) -> u32 {
-        let (ctx, indices, status) = make_state(index_root);
-        reconcile_bm25(&ctx, notes_root, &indices, &status)
+        let (on_status, indices, status) = make_state(index_root);
+        reconcile_bm25(&on_status, notes_root, &indices, &status)
     }
 
     #[test]
@@ -508,7 +497,12 @@ mod tests {
         let edited = vault.path().join("n7.md");
         std::fs::write(&edited, "v1 changed body").unwrap();
         let future = SystemTime::now() + std::time::Duration::from_secs(120);
-        filetime_set(&edited, future);
+        std::fs::File::options()
+            .write(true)
+            .open(&edited)
+            .unwrap()
+            .set_modified(future)
+            .unwrap();
 
         std::fs::remove_file(vault.path().join("n3.md")).unwrap();
 
@@ -520,50 +514,6 @@ mod tests {
         ids.sort();
         assert!(!ids.contains(&"n3".to_string()), "deleted note tombstoned");
         assert_eq!(ids.len(), 19, "19 survivors");
-    }
-
-    fn filetime_set(path: &Path, when: SystemTime) {
-        let dur = when
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(std::time::Duration::ZERO);
-        set_mtime_secs(path, dur.as_secs() as i64);
-    }
-
-    #[cfg(unix)]
-    fn set_mtime_secs(path: &Path, secs: i64) {
-        use std::ffi::CString;
-        use std::os::unix::ffi::OsStrExt;
-        let c = CString::new(path.as_os_str().as_bytes()).unwrap();
-        let times = [
-            libc_timeval {
-                tv_sec: secs,
-                tv_usec: 0,
-            },
-            libc_timeval {
-                tv_sec: secs,
-                tv_usec: 0,
-            },
-        ];
-        unsafe {
-            utimes(c.as_ptr(), times.as_ptr());
-        }
-    }
-
-    #[cfg(not(unix))]
-    fn set_mtime_secs(path: &Path, _secs: i64) {
-        let body = std::fs::read(path).unwrap_or_default();
-        std::fs::write(path, body).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[repr(C)]
-    struct libc_timeval {
-        tv_sec: i64,
-        tv_usec: i64,
-    }
-    #[cfg(unix)]
-    extern "C" {
-        fn utimes(path: *const std::os::raw::c_char, times: *const libc_timeval) -> i32;
     }
 
     #[test]
@@ -578,9 +528,9 @@ mod tests {
         // only the Upsert survives — and by apply time the file is gone.
         std::fs::remove_file(vault.path().join("old.md")).unwrap();
         {
-            let (ctx, indices, status) = make_state(index.path());
+            let (on_status, indices, status) = make_state(index.path());
             apply_pending(
-                &ctx,
+                &on_status,
                 vault.path(),
                 &indices,
                 &status,
