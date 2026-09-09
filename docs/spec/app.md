@@ -279,6 +279,17 @@ Behaviors and constraints that hold across every surface and platform.
   document-level handler and a dialog stack. Escape consumed by an open overlay
   does not also reach the editor or the screen behind it. → shared/dialogs/dismissable.ts,
   shared/dialogs/Modal.svelte, shared/dialogs/dismissable.test.ts
+- **A popover anchored to a trigger (the Settings language dropdown, the
+  sidebar context menu) also closes on a pointer press outside it**, on the
+  press itself, before the click lands on whatever was pressed.
+  → shared/dialogs/dismissable.ts, features/sidebar/components/ContextMenu.svelte.test.ts
+- Focus moving to an element outside such a popover (Tab past the last item)
+  closes it. → shared/dialogs/dismissable.ts,
+  features/settings/LanguageSettingsSection.svelte.test.ts
+- Pressing the language dropdown's trigger while it is open closes it once and
+  returns focus to the trigger; the press itself never moves focus, so the
+  listbox cannot close on press and reopen on release. Pressing elsewhere
+  leaves focus where the user put it. → features/settings/LanguageSettingsSection.svelte
 - A standard modal is `role="dialog" aria-modal="true"`, named by its title,
   traps Tab inside the card, dismisses on a backdrop click, and returns focus to
   whatever was focused when it opened. → shared/dialogs/Modal.svelte

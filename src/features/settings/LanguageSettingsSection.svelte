@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Check, ChevronDown, Globe } from '@lucide/svelte';
-  import { onMount, tick } from 'svelte';
+  import { tick } from 'svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
   import { desktopLocalization, type Language } from '$shared/localization';
 
@@ -16,7 +16,6 @@
   }
 
   let { selectedLanguageTag, languages, onchange }: Props = $props();
-  let languagePickerElement: HTMLDivElement | undefined = $state();
   let languagePickerTriggerElement: HTMLButtonElement | undefined = $state();
   let languageOptionsElement: HTMLDivElement | undefined = $state();
   let languageOptionsOpen = $state(false);
@@ -32,17 +31,6 @@
   const selectedLanguageName = $derived(
     languageOptions.find((language) => language.tag === selectedLanguageTag)?.name ?? systemOption,
   );
-
-  onMount(() => {
-    function closeLanguageOptionsOnOutsidePointer(event: PointerEvent): void {
-      if (languageOptionsOpen && !languagePickerElement?.contains(event.target as Node)) {
-        closeLanguageOptions();
-      }
-    }
-
-    document.addEventListener('pointerdown', closeLanguageOptionsOnOutsidePointer);
-    return () => document.removeEventListener('pointerdown', closeLanguageOptionsOnOutsidePointer);
-  });
 
   function languageOptionElements(): HTMLButtonElement[] {
     return Array.from(
@@ -74,11 +62,9 @@
     else void openLanguageOptions();
   }
 
-  async function selectLanguageOption(selectedTag: string | null): Promise<void> {
-    languageOptionsOpen = false;
+  function selectLanguageOption(selectedTag: string | null): void {
+    closeLanguageOptions(true);
     onchange(selectedTag);
-    await tick();
-    languagePickerTriggerElement?.focus();
   }
 
   function handleLanguageTriggerKeydown(event: KeyboardEvent): void {
@@ -98,13 +84,6 @@
     const nextIndex = (currentIndex + step + options.length) % options.length;
     options[nextIndex]?.focus();
   }
-
-  function handleLanguagePickerFocusout(event: FocusEvent): void {
-    if (!languageOptionsOpen) return;
-    const nextTarget = event.relatedTarget;
-    if (nextTarget instanceof Node && languagePickerElement?.contains(nextTarget)) return;
-    closeLanguageOptions();
-  }
 </script>
 
 <section class="settings-section">
@@ -115,8 +94,11 @@
   <div class="settings-card settings-language-card">
     <div
       class="settings-language-picker"
-      bind:this={languagePickerElement}
-      onfocusout={handleLanguagePickerFocusout}
+      use:dismissable={{
+        ondismiss: (reason) => closeLanguageOptions(reason === 'escape'),
+        enabled: languageOptionsOpen,
+        outside: true,
+      }}
     >
       <button
         bind:this={languagePickerTriggerElement}
@@ -127,6 +109,7 @@
         aria-haspopup="listbox"
         aria-expanded={languageOptionsOpen}
         aria-controls="settings-language-options"
+        onmousedown={(event) => event.preventDefault()}
         onclick={toggleLanguageOptions}
         onkeydown={handleLanguageTriggerKeydown}
       >
@@ -146,7 +129,6 @@
       {#if languageOptionsOpen}
         <div
           bind:this={languageOptionsElement}
-          use:dismissable={{ ondismiss: () => closeLanguageOptions(true) }}
           id="settings-language-options"
           class="settings-language-options"
           role="listbox"
@@ -162,7 +144,7 @@
               role="option"
               aria-selected={selectedLanguageTag === languageOption.tag}
               tabindex={selectedLanguageTag === languageOption.tag ? 0 : -1}
-              onclick={() => void selectLanguageOption(languageOption.tag)}
+              onclick={() => selectLanguageOption(languageOption.tag)}
             >
               <span>{languageOption.name}</span>
               {#if selectedLanguageTag === languageOption.tag}
