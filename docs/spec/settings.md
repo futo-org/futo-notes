@@ -17,6 +17,10 @@
 
 
 - The app version is shown.
+- **License**: the License row (Unlicensed / Licensed / Expired, Buy, Enter
+  license key, Remove) follows [license.md](license.md). On the native shells it
+  is the first row at the top of Settings; on desktop the ambient label lives in
+  the list view and opens Settings here.
 
 ## Native shells
 

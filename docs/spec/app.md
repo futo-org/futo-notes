@@ -170,6 +170,9 @@ Behaviors and constraints that hold across every surface and platform.
   URL policy, and capability state; clipboard access is part of `PlatformFS`;
   the remaining capability files own config/root policies; and
   `src/lib/platform/tauri.ts` is only the stable public composition facade.
+- License parsing, verification, expiry, and activation are one Rust crate
+  (`futo-notes-license`) projected to every shell; see
+  [license.md](license.md).
 
 ## Performance
 

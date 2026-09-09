@@ -31,6 +31,7 @@ satisfy it yet — that's what makes gaps visible.
 | [desktop-rust.md](desktop-rust.md) | Desktop Rust adapter architecture, naming, IPC/event stability, and compatibility rules |
 | [editor.md](editor.md) | The Markdown editor (shared CodeMirror 6 WebView) |
 | [editor-visual.md](editor-visual.md) | Markdown editor appearance and layout |
+| [license.md](license.md) | Paid client license: contract, states, deep link, store posture |
 | [list.md](list.md) | Note list, home feed, folder browsing, note/folder ops |
 | [localization.md](localization.md) | UI language catalogs, selection, lookup, fallback, and formatting |
 | [nav.md](nav.md) | Navigation / screen stack |
