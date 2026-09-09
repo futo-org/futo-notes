@@ -8,12 +8,23 @@ import net from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { startServer } from './sync-test-server.mjs';
-import { XPLAT_SYNC_BAND } from '../../scripts/lib/slot.mjs';
+import { probeBand } from '../../scripts/lib/slot.mjs';
 
 const closers = [];
 
-/** A port well outside every slot band, so these tests never touch a real run. */
-const PROBE_PORT = XPLAT_SYNC_BAND.base - 7;
+// The probe port must satisfy BOTH constraints at once — a hardcoded constant
+// gives you only the first:
+//   1. outside every real slot band, so these tests never touch a live sync
+//      server, dev server or QA bridge;
+//   2. different in every checkout, so two worktrees running THIS file at the
+//      same moment do not fight over one port.
+// It used to be `XPLAT_SYNC_BAND.base - 7` — 20993 everywhere — and seven
+// concurrent worktrees made the file that exists to pin a port-ownership bug
+// reproduce that same bug on itself: "listen EADDRINUSE: address already in use
+// 127.0.0.1:20993", red in the five checkouts that raced and green in the two
+// that did not. Never collapse this back to a constant; PROBE_BAND in
+// scripts/lib/slot.mjs is where the placement is decided.
+const PROBE_PORT = probeBand().base;
 
 afterEach(async () => {
   while (closers.length) await closers.pop()();
