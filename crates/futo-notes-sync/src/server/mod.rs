@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use futo_notes_core::e2ee::KeyMaterial;
@@ -214,7 +215,25 @@ pub(crate) struct HttpClients {
 
 impl HttpClients {
     pub(crate) fn new() -> Result<Self, HttpError> {
-        let builder = || reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT);
+        Self::with_tls(None)
+    }
+
+    /// `tls`: `None` builds the OS-trust-store config used in production;
+    /// `Some` lets tests pin an exact `rustls::ClientConfig` (an untrusted
+    /// private CA, a `ReloadingVerifier`, …) onto both pooled clients.
+    pub(crate) fn with_tls(tls: Option<Arc<rustls::ClientConfig>>) -> Result<Self, HttpError> {
+        let tls = match tls {
+            Some(tls) => tls,
+            None => crate::tls::shared_client_config().map_err(|message| HttpError {
+                status: None,
+                message,
+            })?,
+        };
+        let builder = || {
+            reqwest::Client::builder()
+                .use_preconfigured_tls((*tls).clone())
+                .connect_timeout(CONNECT_TIMEOUT)
+        };
         Ok(Self {
             request: builder()
                 .timeout(REQUEST_TIMEOUT)
@@ -233,6 +252,14 @@ impl Http {
     #[cfg(test)]
     pub fn new(base: &str) -> Result<Self, HttpError> {
         HttpClients::new()?.for_base(base)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_tls(
+        base: &str,
+        tls: Option<Arc<rustls::ClientConfig>>,
+    ) -> Result<Self, HttpError> {
+        HttpClients::with_tls(tls)?.for_base(base)
     }
 
     fn with_clients(base: &str, clients: &HttpClients) -> Result<Self, HttpError> {

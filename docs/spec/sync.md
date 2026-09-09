@@ -68,6 +68,17 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
   `usesCleartextTraffic="true"` (all build types); iOS `Info.plist`
   `NSAppTransportSecurity → NSAllowsArbitraryLoads` (shared by Debug + Release
   via `project.yml` `settings.base`).
+- **An `https://` sync server is verified against the OS trust store plus the
+  bundled Mozilla roots**, on every platform, so a CA the user installed on the
+  device (self-hosted or corporate) is trusted and no public root is lost. An
+  untrusted certificate fails with an unknown-issuer diagnostic. Desktop and iOS
+  read the OS store through `rustls-platform-verifier`; Android reads
+  `AndroidCAStore` (system + user CAs) in the shell and hands the anchors to
+  Rust, so rustls, not Android's trust manager, validates them. On iOS a root
+  from a configuration profile also needs full trust enabled under Settings →
+  General → About → Certificate Trust Settings.
+  → crates/futo-notes-sync/src/tls/mod.rs (`tls::tests`), SyncManager.kt
+  `operatingSystemTrustAnchors`
 - When no server is connected yet, the Sync screen points the user at how to
   get one: a **bordered link row** — a leading external-link icon (iOS
   `arrow.up.forward.square` / Android `OpenInNew`) followed by the

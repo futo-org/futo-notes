@@ -1,6 +1,7 @@
 package com.futo.notes
 
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -9,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.security.KeyStore
 import com.futo.notes.storage.StorageMigrationGate
 import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.localization.Localization
@@ -167,7 +169,8 @@ class SyncManager(
         statusMessage = LocalizedMessage("sync.status.connecting")
         this.notesRoot = notesRoot
         try {
-            val c = SyncClient(notesRoot, url)
+            val anchors = withContext(Dispatchers.IO) { operatingSystemTrustAnchors() }
+            val c = SyncClient(notesRoot, url, anchors)
             val info = c.connect(password)
             // Persist the session so the next launch reconnects silently
             // [sync.md:91]. Keystore + prefs I/O — off the main thread.
@@ -593,12 +596,22 @@ class SyncManager(
         errorMessage = null
     }
 
-    private fun describe(e: Exception): String = when (e) {
-        is SyncException.Http -> "HTTP: ${e.message}"
-        is SyncException.Crypto -> "Crypto: ${e.message}"
-        is SyncException.Io -> "IO: ${e.message}"
-        is SyncException.Auth -> "Auth: ${e.message}"
-        is SyncException.CollectionGone -> e.message ?: "collection-gone"
+    private fun operatingSystemTrustAnchors(): List<ByteArray> = runCatching {
+        val store = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
+        store.aliases().asSequence().mapNotNull { alias ->
+            runCatching { store.getCertificate(alias)?.encoded }.getOrNull()
+        }.toList()
+    }.getOrElse { error ->
+        Log.w("SyncManager", "could not read the Android CA store", error)
+        emptyList()
+    }
+
+    internal fun describe(e: Exception): String = when (e) {
+        is SyncException.Http -> "HTTP: ${e.v1}"
+        is SyncException.Crypto -> "Crypto: ${e.v1}"
+        is SyncException.Io -> "IO: ${e.v1}"
+        is SyncException.Auth -> "Auth: ${e.v1}"
+        is SyncException.CollectionGone -> e.v1
         is SyncException.NotConnected -> "Not connected"
         else -> e.message ?: e.toString()
     }

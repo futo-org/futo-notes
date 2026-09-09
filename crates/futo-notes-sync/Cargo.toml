@@ -8,7 +8,9 @@ name = "futo_notes_sync"
 
 [dependencies]
 futo-notes-core = { path = "../futo-notes-core" }
-reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls", "stream", "http2"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls-manual-roots", "stream", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-root-certs = "1"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -19,7 +21,7 @@ base64 = "0.22"
 uuid = { version = "1", features = ["v7"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["test-util"] }
+tokio = { version = "1", features = ["test-util", "io-util", "net"] }
 wiremock = "0.6"
 # The hosted scenarios stand in for a platform auth sheet with a browser-shaped
 # client: the login chain hands back an `oidc_flow` cookie at the callback, so a
@@ -30,6 +32,14 @@ reqwest = { version = "0.12.12", default-features = false, features = ["json", "
 # writing RFC 3339. The client only ever parses one, so `formatting` stays
 # dev-only for the same reason the cookie jar does.
 time = { version = "0.3", features = ["formatting"] }
+rcgen = "0.14"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rustls-platform-verifier = "0.6"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies.futo-notes-core]
 path = "../futo-notes-core"

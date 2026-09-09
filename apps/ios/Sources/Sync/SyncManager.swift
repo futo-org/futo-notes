@@ -290,7 +290,8 @@ final class SyncManager: ObservableObject {
         let normalizedURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         UserDefaults.standard.set(normalizedURL, forKey: "futo.serverURL")
         do {
-            let c = SyncClient(notesRoot: notesRoot, serverUrl: normalizedURL)
+            let c = SyncClient(
+                notesRoot: notesRoot, serverUrl: normalizedURL, extraRootCertificates: [])
             let info = try await c.connect(password: password)
             // Persist the (now-validated) password so a cold relaunch can
             // auto-reconnect — see `restoreSession`. Cleared on `disconnect`.

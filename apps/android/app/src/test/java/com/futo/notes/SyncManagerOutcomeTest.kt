@@ -3,6 +3,7 @@ package com.futo.notes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import uniffi.futo_notes_ffi.SyncException
 import uniffi.futo_notes_ffi.SyncFailure
 import uniffi.futo_notes_ffi.WriteRefusal
 
@@ -105,5 +106,16 @@ class SyncManagerOutcomeTest {
             "sync.errors.writePausedQuota",
             SyncManager.writeRefusalExplanation(WriteRefusal.QUOTA_EXCEEDED),
         )
+    }
+
+    @Test
+    fun describeReportsTheErrorPayloadRatherThanUniffisRendering() {
+        val mgr = SyncManager()
+        val payload = "error sending request: invalid peer certificate: UnknownIssuer"
+        assertEquals("HTTP: $payload", mgr.describe(SyncException.Http(payload)))
+        assertEquals("Crypto: $payload", mgr.describe(SyncException.Crypto(payload)))
+        assertEquals("IO: $payload", mgr.describe(SyncException.Io(payload)))
+        assertEquals("Auth: $payload", mgr.describe(SyncException.Auth(payload)))
+        assertEquals("collection-gone", mgr.describe(SyncException.CollectionGone("collection-gone")))
     }
 }
