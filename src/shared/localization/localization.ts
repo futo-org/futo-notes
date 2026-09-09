@@ -473,7 +473,7 @@ export function createLocalizationModule(options: LocalizationModuleOptions): Lo
       const exactSelector = `=${pluralValue}`;
       let template = message.variants.get(exactSelector);
       if (!template) {
-        let category = 'other';
+        let category: string;
         try {
           category = new Intl.PluralRules(catalog.tag, { type: 'cardinal' }).select(pluralValue);
         } catch {

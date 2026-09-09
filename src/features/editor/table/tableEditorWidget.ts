@@ -103,9 +103,9 @@ export class TableEditorWidget extends WidgetType {
         : lastLine.number < doc.lines
           ? doc.line(lastLine.number + 1).from
           : null;
+      event.preventDefault();
       if (target === null) return;
 
-      event.preventDefault();
       const { anchor } = view.state.selection.main;
       view.dispatch({
         selection: event.shiftKey

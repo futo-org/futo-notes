@@ -1050,7 +1050,9 @@ async function rapidReconnect(a, _b, server) {
     try {
       await a.connectSync(server.url, server.password);
     } catch (err) {
-      throw new Error(`Connect failed on iteration ${i} (server ${server.url}): ${err.message}`);
+      throw new Error(`Connect failed on iteration ${i} (server ${server.url}): ${err.message}`, {
+        cause: err,
+      });
     }
     const status = await a.syncStatus();
     assert(

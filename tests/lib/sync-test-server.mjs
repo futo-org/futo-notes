@@ -288,7 +288,9 @@ async function assertServerVersion(baseUrl, expectedVersion, proc) {
     reported = await reportedServerVersion(baseUrl);
   } catch (err) {
     proc.kill('SIGKILL');
-    throw new Error(`Could not read the sync server's version at ${baseUrl}/: ${err.message}`);
+    throw new Error(`Could not read the sync server's version at ${baseUrl}/: ${err.message}`, {
+      cause: err,
+    });
   }
   if (reported !== expectedVersion) {
     proc.kill('SIGKILL');

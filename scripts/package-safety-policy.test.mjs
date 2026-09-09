@@ -23,6 +23,6 @@ describe('package safety policy', () => {
   });
 
   it('pins the shared Lezer runtime used by CodeMirror', () => {
-    expect(packageManifest.dependencies['@lezer/common']).toBe('1.5.1');
+    expect(packageManifest.dependencies['@lezer/common']).toBe('1.5.2');
   });
 });

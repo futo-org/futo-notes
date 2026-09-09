@@ -18,7 +18,7 @@ export function warmHeightMap(view: EditorView): { grew: number; steps: number }
     forceMeasure(view);
     steps++;
     if (pos >= docLen) break;
-    let nextPos = pos;
+    let nextPos: number;
     try {
       const vpBottom = scroller.scrollTop + scroller.clientHeight;
       nextPos = view.lineBlockAtHeight(vpBottom).to;

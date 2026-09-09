@@ -28,7 +28,7 @@ export function snapSelectionPastMarkdownMarkers(view: EditorView, wasDragging: 
         return;
       }
 
-      let markerLength = 0;
+      let markerLength: number;
       if (node.name === 'StrongEmphasis' || node.name === 'Strikethrough') markerLength = 2;
       else if (node.name === 'Emphasis') markerLength = 1;
       else if (node.name === 'InlineCode') {
