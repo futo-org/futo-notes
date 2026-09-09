@@ -1,3 +1,4 @@
+import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
 import type { LocalizedMessage } from '$shared/localization';
@@ -18,6 +19,7 @@ interface SavedNoteState {
   content: string;
   id: string;
   savedOriginalId: string | null;
+  requestedTitle: string;
   title: string;
 }
 
@@ -42,7 +44,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
     try {
       const state = options.getState();
       // Navigating Home clears the tab's note id before this queued save runs.
-      if (noteId === null && state.originalId === null) return false;
+      if (noteId === null && state.originalId === null && !state.title) return false;
       const newTitle = normalizeTitleForPersistence(state.title);
       const blockingTitleIssue = validateTitle(newTitle).find((issue) => issue.kind !== 'empty');
       if (blockingTitleIssue) {
@@ -86,16 +88,21 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
 
       options.clearPendingFolder();
       if (result.id !== state.originalId) recordSaveIdentityChange(state.originalId, result.id);
+      const savedNote = result.unappliedMutation?.upserted.find(
+        ({ note }) => note.id === result.id,
+      )?.note;
       options.onSaved({
         id: result.id,
-        title: newTitle,
+        title: savedNote?.title ?? newTitle,
+        requestedTitle: state.title,
         content: editorContent,
         savedOriginalId: state.originalId,
       });
       return result.disposition !== 'converged';
     } catch (error) {
       console.warn('Failed to save note:', error);
-      return false;
+      showGlobalToast({ path: 'notes.save.failedPending' });
+      throw error;
     }
   };
 }

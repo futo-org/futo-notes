@@ -460,7 +460,7 @@ struct NoteEditorView: View {
                 && content.isEmpty && savedContent.isEmpty
             var shouldReleaseDraft = true
             if !session.isClosing && untouched {
-                store.deleteAsync(noteId)
+                store.deleteAsync(noteId, ownerToken: draftToken)
             } else if session.shouldFlushOnLeave(
                 loaded: loaded,
                 content: content,
@@ -473,7 +473,7 @@ struct NoteEditorView: View {
                 let draft = PendingDraft(id: noteId, base: savedContent, content: content)
                 store.publishDraft(token: draftToken, draft)
                 store.retainDraftUntilFlushed(token: draftToken)
-                store.flushAsync(draft)
+                store.flushAsync(draft, ownerToken: draftToken)
                 shouldReleaseDraft = false
             }
             // A clean/untouched editor releases its own entry. A dirty editor's
@@ -544,7 +544,7 @@ struct NoteEditorView: View {
             let savedId = noteId
             let base = savedContent
             let disposition = await store.flushDraft(
-                PendingDraft(id: savedId, base: base, content: newContent))
+                PendingDraft(id: savedId, base: base, content: newContent), ownerToken: draftToken)
             // No cancellation guard here, deliberately: by the time the flush
             // answers, its write is durable, and this task is routinely cancelled
             // by the next keystroke's `session.schedule(.save)`. Skipping the
@@ -624,25 +624,19 @@ struct NoteEditorView: View {
         // after the rename (its content follows the live noteId), so no manual
         // clear is needed.
         let flushed = content
-        if flushed != savedContent {
-            let outcome = await store.write(noteId, content: flushed)
-            savedContent = confirmedSavedContent(
-                previousSavedContent: savedContent,
-                writtenContent: flushed,
-                outcome: outcome
-            )
-            guard case .committed = outcome else { return false }
-        }
-
         let targetId = makeId(folder: parts.folder, title: sanitized)
         let resolution = resolvedRename(
             currentId: noteId,
-            outcome: await store.rename(oldId: noteId, newId: targetId)
+            outcome: await store.rename(
+                oldId: noteId, newId: targetId,
+                draft: PendingDraft(id: noteId, base: savedContent, content: flushed),
+                ownerToken: draftToken)
         )
         guard resolution.isCommitted else {
             store.showTransient(LocalizedMessage("notes.title.renameFailed"))
             return false
         }
+        savedContent = flushed
         noteId = resolution.id
         titleField = splitId(id: resolution.id).title
         return true
@@ -807,7 +801,8 @@ struct NoteEditorView: View {
                     // Only a loaded, dirty editor has anything to persist.
                     guard loaded, flushed != savedContent else { return true }
                     let disposition = await store.flushDraft(
-                        PendingDraft(id: noteId, base: savedContent, content: flushed))
+                        PendingDraft(id: noteId, base: savedContent, content: flushed),
+                        ownerToken: draftToken)
                     // Any durable persist-or-park outcome lets navigation finish.
                     guard disposition != nil else { return false }
                     savedContent = flushed
@@ -860,28 +855,20 @@ struct NoteEditorView: View {
                 captureBody: { await EditorHost.shared.captureCurrentContent() },
                 commitBody: { flushed in
                     content = flushed
-                    guard flushed != savedContent else { return true }
-                    guard
-                        let disposition = await store.flushDraft(
-                            PendingDraft(id: noteId, base: savedContent, content: flushed))
-                    else { return false }
-                    savedContent = flushed
-                    // A parked draft moved the live note to the conflict copy,
-                    // so that is what the move must carry.
-                    let sourceId = editorMoveSourceId(
-                        currentId: noteId, disposition: disposition)
-                    if sourceId != noteId {
-                        noteId = sourceId
-                        titleField = splitId(id: sourceId).title
-                    }
                     return true
                 },
                 perform: { _ in
-                    switch await store.moveNote(noteId, toFolder: folder) {
+                    let flushed = content
+                    switch await store.moveNote(
+                        noteId, toFolder: folder,
+                        draft: PendingDraft(id: noteId, base: savedContent, content: flushed),
+                        ownerToken: draftToken)
+                    {
                     case .committed(let finalId):
                         // Apply even if a delete latched the session closed while
                         // the actor call was in flight. Delete awaits this task
                         // and must see the committed id.
+                        savedContent = flushed
                         noteId = finalId
                         titleField = splitId(id: finalId).title
                         return true
@@ -923,7 +910,7 @@ struct NoteEditorView: View {
                     let hasPendingChanges = body != savedContent
                     let writeOutcome =
                         hasPendingChanges
-                        ? await store.write(noteId, content: body)
+                        ? await store.write(noteId, content: body, ownerToken: draftToken)
                         : nil
                     if let writeOutcome {
                         savedContent = confirmedSavedContent(
@@ -943,7 +930,7 @@ struct NoteEditorView: View {
                     // Clear the draft register only after every dirty snapshot
                     // commits. A retained draft cannot then recreate the note.
                     publishDraft()
-                    let outcome = await store.delete(noteId)
+                    let outcome = await store.delete(noteId, ownerToken: draftToken)
                     if case .committed = outcome { return true }
                     return false
                 },

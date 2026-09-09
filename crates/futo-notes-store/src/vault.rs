@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use futo_notes_core::files::{file_mtime_ms, note_id_from_relative_path, safe_note_path};
+use futo_notes_core::files::{file_mtime_ms, note_id_from_relative_path, safe_note_path, vault_fs};
 use futo_notes_model::{make_preview, make_rich_preview, note_tags, split_id};
 use rayon::prelude::*;
 use walkdir::{DirEntry, WalkDir};
@@ -20,7 +20,7 @@ pub(crate) fn snapshot(root: &Path) -> Snapshot {
     let (paths, folders) = walk(root);
     let mut notes: Vec<NoteMetadata> = paths
         .into_par_iter()
-        .filter_map(|(id, path)| metadata_at(&id, &path))
+        .filter_map(|(id, path)| metadata_at(root, &id, &path))
         .collect();
     notes.sort_by(|left, right| {
         note_list_order((left.modified_ms, &left.id), (right.modified_ms, &right.id))
@@ -83,13 +83,16 @@ pub(crate) fn note_paths(root: &Path) -> Vec<(String, PathBuf)> {
 pub(crate) fn bodies(root: &Path) -> HashMap<String, String> {
     note_paths(root)
         .into_iter()
-        .map(|(id, path)| (id, fs::read_to_string(path).unwrap_or_default()))
+        .filter_map(|(id, _)| {
+            let bytes = vault_fs::read(root, &format!("{id}.md")).ok()?;
+            Some((id, String::from_utf8_lossy(&bytes).into_owned()))
+        })
         .collect()
 }
 
 pub(crate) fn metadata(root: &Path, id: &str) -> Option<NoteMetadata> {
     let path = safe_note_path(root, id).ok()?;
-    metadata_at(id, &path)
+    metadata_at(root, id, &path)
 }
 
 pub(crate) fn inventory(root: &Path) -> Vec<VaultFile> {
@@ -113,12 +116,13 @@ pub(crate) fn inventory(root: &Path) -> Vec<VaultFile> {
     files
 }
 
-fn metadata_at(id: &str, path: &Path) -> Option<NoteMetadata> {
+fn metadata_at(root: &Path, id: &str, path: &Path) -> Option<NoteMetadata> {
     let metadata = fs::metadata(path).ok()?;
     if !metadata.is_file() {
         return None;
     }
-    let content = fs::read_to_string(path).unwrap_or_default();
+    let bytes = vault_fs::read(root, &format!("{id}.md")).ok()?;
+    let content = String::from_utf8_lossy(&bytes);
     let (folder, title) = split_id(id);
     Some(NoteMetadata {
         id: id.to_owned(),

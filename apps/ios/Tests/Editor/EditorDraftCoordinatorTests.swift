@@ -5,6 +5,18 @@ import Testing
 @MainActor
 @Suite("Editor draft coordinator")
 struct EditorDraftCoordinatorTests {
+    @Test("reset invalidates queued work after admission resumes")
+    func resetInvalidatesOldAdmissions() {
+        let coordinator = EditorDraftCoordinator()
+        let old = coordinator.admit("note")!
+        coordinator.beginReset()
+        #expect(coordinator.admit("new") == nil)
+        #expect(!coordinator.permits(old))
+        coordinator.endReset()
+        #expect(!coordinator.permits(old))
+        #expect(coordinator.admit("note") != nil)
+    }
+
     @Test("identity mutation rejects queued and newly submitted old drafts")
     func committedMutationBlocksOldIdentity() {
         let coordinator = EditorDraftCoordinator()

@@ -7,6 +7,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
@@ -169,6 +171,9 @@ internal fun derivePendingDraft(
  */
 internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> Unit) {
     private var seq: Long = 0
+    private var retiredThrough = 0L
+    fun reset() { retiredThrough = seq; providers.clear(); retained.clear() }
+    fun owns(token: Long): Boolean = token > retiredThrough && token <= seq
     private val providers = LinkedHashMap<Long, () -> PendingDraft?>()
     private val retained = LinkedHashMap<Long, PendingDraft>()
 
@@ -180,7 +185,7 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
     /** The editor registers (or re-registers) its derivation closure under its
      *  own [token]. Never evicts another editor's entry. */
     fun setProvider(token: Long, provider: () -> PendingDraft?) {
-        providers[token] = provider
+        if (token > retiredThrough) providers[token] = provider
     }
 
     /** The editor left composition. Keep its last dirty value until a storage
@@ -266,6 +271,20 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  reset flow so the bulk wipe can't trigger an auto-push mid-delete
      *  [settings.md:43]. Mirrors desktop `resetAllNotes` pausing auto-sync. */
     var suppressAutoPush = false
+    private var resetting = false
+    @Volatile private var vaultEpoch = 0L
+    private val mutationGate = Mutex()
+
+    // Keep the committed projection inside the same admission as its I/O.
+    private suspend fun <T> runMutationTransaction(transaction: suspend () -> T): T {
+        val epoch = vaultEpoch
+        return com.futo.notes.runMutationTransaction {
+            mutationGate.withLock {
+                check(!resetting && epoch == vaultEpoch) { "Vault mutation was retired by reset" }
+                transaction()
+            }
+        }
+    }
 
     /** The Rust-owned vault — the single source of truth for the rules.
      *
@@ -296,10 +315,11 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         // Bootstrap, migrations, seeding, and search startup are one Rust call,
         // kept off-main so first render never waits for disk I/O.
         scope.launch {
+            val epoch = vaultEpoch
             val bootstrap = withCore {
                 core.bootstrap(searchIndex.absolutePath)
             }
-            applySnapshot(bootstrap.snapshot.notes, bootstrap.snapshot.folders)
+            applySnapshot(bootstrap.snapshot.notes, bootstrap.snapshot.folders, epoch)
             hasBootstrapped = true
             bootstrap.warnings.forEach {
                 android.util.Log.w("NotesStore", "local-note bootstrap: $it")
@@ -338,7 +358,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *
      *  Rust's one `flush_draft` workflow writes, converges, recreates, or parks
      *  the draft under the store's mutation gate. */
-    fun flushAsync(draft: PendingDraft) {
+    fun flushAsync(draft: PendingDraft, ownerToken: Long? = null) {
+        if (ownerToken != null && !pendingEditor.owns(ownerToken)) return
         val admission = editorDraftCoordinator.admit(draft.id) ?: return
         val previous = editorDraftTail
         editorDraftTail = scope.launch {
@@ -349,8 +370,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     }
 
     /** Persist-or-park one exact editor snapshot through the Rust workflow. */
-    suspend fun flushDraft(draft: PendingDraft): FlushDisposition? =
-        flushDraftDirect(draft)
+    suspend fun flushDraft(draft: PendingDraft, ownerToken: Long? = null): FlushDisposition? =
+        if (ownerToken != null && !pendingEditor.owns(ownerToken)) null else flushDraftDirect(draft)
 
     private suspend fun flushDraftDirect(draft: PendingDraft): FlushDisposition? = try {
         runMutationTransaction {
@@ -508,8 +529,9 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         }
 
     /** Write one note and consume the complete committed mutation. */
-    suspend fun write(id: String, content: String): NoteMutationOutcome<Unit> =
+    suspend fun write(id: String, content: String, ownerToken: Long? = null): NoteMutationOutcome<Unit> =
         try {
+            check(ownerToken == null || pendingEditor.owns(ownerToken)) { "Editor was retired by reset" }
             runMutationTransaction {
                 val retainedAtAdmission = pendingEditor.retainedSnapshot(id)
                 val mutation = withCore { core.write(id, content) }
@@ -550,12 +572,14 @@ class NotesStore(notesRoot: File, searchIndex: File) {
             NoteMutationOutcome.Failed
         }
 
-    suspend fun delete(id: String): NoteMutationOutcome<Unit> {
+    suspend fun delete(id: String, ownerToken: Long? = null): NoteMutationOutcome<Unit> {
+        if (ownerToken != null && !pendingEditor.owns(ownerToken)) return NoteMutationOutcome.Failed
         currentCoroutineContext().ensureActive()
         val identity = editorDraftCoordinator.beginIdentityMutation(id)
         val pendingFlushes = editorDraftTail
         return try {
             pendingFlushes?.join()
+            if (ownerToken != null && !pendingEditor.owns(ownerToken)) return NoteMutationOutcome.Failed
             runMutationTransaction {
                 val mutation = withCore { core.delete(id) }
                 applyMutation(mutation)
@@ -578,18 +602,24 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  composable's scope is already gone). Runs on the store's scope, which
      *  outlives the screen — used to discard an untouched quick-capture note on
      *  back-out (NoteEditorScreen.kt onDispose). Mirrors [flushAsync]. */
-    fun deleteAsync(id: String) {
-        scope.launch { delete(id) }
+    fun deleteAsync(id: String, ownerToken: Long? = null) {
+        if (ownerToken != null && !pendingEditor.owns(ownerToken)) return
+        scope.launch { delete(id, ownerToken = ownerToken) }
     }
 
-    suspend fun rename(oldId: String, newId: String): NoteMutationOutcome<String> {
+    suspend fun rename(oldId: String, newId: String, draft: PendingDraft? = null, ownerToken: Long? = null): NoteMutationOutcome<String> {
+        if (ownerToken != null && !pendingEditor.owns(ownerToken)) return NoteMutationOutcome.Failed
         currentCoroutineContext().ensureActive()
         val identity = editorDraftCoordinator.beginIdentityMutation(oldId)
         val pendingFlushes = editorDraftTail
         return try {
             pendingFlushes?.join()
+            if (ownerToken != null && !pendingEditor.owns(ownerToken)) return NoteMutationOutcome.Failed
             runMutationTransaction {
-                val mutation = withCore { core.rename(oldId, newId) }
+                val mutation = withCore {
+                    if (draft == null) core.rename(oldId, newId)
+                    else core.saveDraftAs(oldId, newId, draft.base, draft.content)
+                }
                 val finalId = mutation.finalId ?: oldId
                 applyMutation(mutation)
                 pendingEditor.retargetRetainedNote(oldId, finalId)
@@ -612,15 +642,21 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         id: String,
         toFolder: String,
         createFolder: Boolean = false,
+        draft: PendingDraft? = null,
+        ownerToken: Long? = null,
     ): NoteMutationOutcome<String> {
+        if (ownerToken != null && !pendingEditor.owns(ownerToken)) return NoteMutationOutcome.Failed
         currentCoroutineContext().ensureActive()
         val identity = editorDraftCoordinator.beginIdentityMutation(id)
         val pendingFlushes = editorDraftTail
         return try {
             pendingFlushes?.join()
+            if (ownerToken != null && !pendingEditor.owns(ownerToken)) return NoteMutationOutcome.Failed
             runMutationTransaction {
                 val mutation = withCore {
-                    if (createFolder) {
+                    if (draft != null) {
+                        core.moveDraft(id, toFolder, draft.base, draft.content, createFolder)
+                    } else if (createFolder) {
                         core.moveNoteToNewFolder(id, toFolder)
                     } else {
                         core.moveNote(id, toFolder)
@@ -717,11 +753,25 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  under the vault root. Parity model: desktop `resetAllNotes`
      *  (src/app/resetAllNotes.ts). Callers pause sync + set [suppressAutoPush]
      *  for the duration and disconnect sync afterwards. */
-    suspend fun deleteAll() {
-        runMutationTransaction {
-            withCore { core.reset() }
-            notes = emptyList()
-            folders = emptyList()
+    suspend fun deleteAll(disconnectSync: suspend () -> Unit) {
+        storageMigrationGate.beginMigration()
+        editorDraftCoordinator.beginReset()
+        pendingEditor.reset()
+        resetting = true
+        vaultEpoch++
+        try {
+            disconnectSync()
+            editorDraftTail?.join()
+            localTreeChangeTail?.join()
+            mutationGate.withLock {
+                withContext(Dispatchers.IO) { storageMigrationGate.runMigration { core.reset() } }
+                notes = emptyList()
+                folders = emptyList()
+            }
+        } finally {
+            resetting = false
+            editorDraftCoordinator.endReset()
+            storageMigrationGate.resume()
         }
     }
 
@@ -729,9 +779,12 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  final filesystem state and returns canonical row positions/folders, so
      *  this path needs neither a full vault scan nor a shell-side comparator. */
     fun localTreeChanged(summary: SyncSummary) {
+        val epoch = vaultEpoch
+        if (resetting) return
         val previous = localTreeChangeTail
         localTreeChangeTail = scope.launch {
             previous?.join()
+            if (resetting || epoch != vaultEpoch) return@launch
             try {
                 val mutation = withCore {
                     core.refreshExternalChanges(
@@ -740,6 +793,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
                         summary.renamed,
                     )
                 }
+                if (resetting || epoch != vaultEpoch) return@launch
                 applyMutation(mutation)
                 _localTreeChanges.emit(summary)
             } catch (e: CancellationException) {
@@ -755,7 +809,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
                         core.rescan()
                         core.scan()
                     }
-                    applySnapshot(snapshot.notes, snapshot.folders)
+                    applySnapshot(snapshot.notes, snapshot.folders, epoch)
                 } catch (fallback: CancellationException) {
                     throw fallback
                 } catch (fallback: Exception) {
@@ -767,7 +821,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
                 }
                 // The list recovery is best effort, but the open editor can
                 // still reconcile itself from one atomic note read.
-                _localTreeChanges.emit(summary)
+                if (!resetting && epoch == vaultEpoch) _localTreeChanges.emit(summary)
             }
         }
     }
@@ -787,10 +841,15 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         if (!suppressAutoPush) onLocalChange?.invoke()
     }
 
-    private suspend fun <T> withVaultAccess(block: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            storageMigrationGate.runAccess { block() }
+    private suspend fun <T> withVaultAccess(block: suspend () -> T): T {
+        val admittedEpoch = vaultEpoch
+        return withContext(Dispatchers.IO) {
+            storageMigrationGate.runAccess {
+                check(admittedEpoch == vaultEpoch) { "Vault work was retired by reset" }
+                block()
+            }
         }
+    }
 
     private suspend fun <T> withCore(block: () -> T): T = withVaultAccess(block)
 
@@ -800,13 +859,15 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     /** Notes whose parent folder is exactly `folder`. */
     fun notesIn(folder: String): List<NoteItem> = notes.filter { it.folder == folder }
 
-    private fun applySnapshot(metadata: List<NoteMetadata>, folderPaths: List<String>) {
+    private fun applySnapshot(metadata: List<NoteMetadata>, folderPaths: List<String>, epoch: Long) {
+        if (resetting || epoch != vaultEpoch) return
         notes = metadata.map { it.toItem() }
         folders = folderPaths
     }
 
     /** Positions are post-removal; clamp them against a stale shell cache. */
     private fun applyMutation(mutation: NoteMutation) {
+        if (resetting) return
         val affected = mutation.removed.toSet() + mutation.upserted.map { it.note.id }
         val next = notes.filterNot { it.id in affected }.toMutableList()
         mutation.upserted.forEach { entry ->

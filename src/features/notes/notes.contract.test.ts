@@ -246,7 +246,13 @@ describe('TypeScript local-note projection', () => {
       }),
     ).resolves.toMatchObject({ id: 'New', disposition: 'wrote' });
 
-    expect(save).toHaveBeenCalledExactlyOnceWith('Old', 'New', 'latest body', undefined);
+    expect(save).toHaveBeenCalledExactlyOnceWith(
+      'Old',
+      'New',
+      'latest body',
+      undefined,
+      'saved body',
+    );
     expect(flushDraft).not.toHaveBeenCalled();
     expect(move).not.toHaveBeenCalled();
   });

@@ -44,6 +44,29 @@ class EditorLifecycleFlushTest {
     // ── the derivation predicate itself (single source of truth) ──
 
     @Test
+    fun resetRetiresLiveAndRetainedDraftOwners() {
+        val writes = mutableListOf<PendingDraft>()
+        val pending = PendingEditorDraft { writes += it }
+        val old = pending.claim()
+        val draft = PendingDraft("old", "base", "dirty")
+        pending.setProvider(old) { draft }
+        pending.release(old)
+        val live = pending.claim()
+        pending.setProvider(live) { draft }
+        pending.reset()
+        pending.setProvider(old) { draft }
+        pending.setProvider(live) { draft }
+        pending.release(live)
+        pending.flush()
+        assertEquals(emptyList<PendingDraft>(), writes)
+        assertEquals(false, pending.owns(old))
+        val fresh = pending.claim()
+        pending.setProvider(fresh) { draft }
+        pending.flush()
+        assertEquals(listOf(draft), writes)
+    }
+
+    @Test
     fun derivationIsDirtyWhenContentDivergesFromSaved() {
         assertEquals(
             PendingDraft("todo", "saved", "saved + edit"),

@@ -215,6 +215,28 @@ describe('committing the title without waiting out the debounce', () => {
   beforeEach(useTitleSaveFakes);
   afterEach(restoreTitleSaveFakes);
 
+  it.each(['B', 'new', null])(
+    'keeps the outgoing draft when save fails before opening %s',
+    async (destination) => {
+      const deps = makeTitleDeps();
+      const session = createNoteSession(deps);
+      const { updateNote, readNote } = await import('./notes.svelte');
+      session.seedOpenNote('A', 'original A');
+      titleEditorContent = 'unsaved A';
+      vi.mocked(updateNote).mockRejectedValueOnce(new Error('disk full'));
+      vi.mocked(readNote).mockClear();
+
+      await expect(session.loadNote(destination)).rejects.toThrow('disk full');
+
+      expect(titleEditorContent).toBe('unsaved A');
+      expect(session.originalId).toBe('A');
+      expect(session.savedContent).toBe('original A');
+      expect(readNote).not.toHaveBeenCalled();
+      await session.flushSave();
+      expect(session.savedContent).toBe('unsaved A');
+    },
+  );
+
   it('renames on flush with no timer advance at all', async () => {
     const session = createNoteSession(makeTitleDeps());
     const { updateNote } = await import('./notes.svelte');

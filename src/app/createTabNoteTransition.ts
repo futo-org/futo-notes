@@ -28,10 +28,17 @@ export function createTabNoteTransition(deps: TabNoteTransitionDeps) {
       const body = deps.getNoteBody();
       if (body) tabsStore.setTabState(previousTabId, { scroll: body.scrollTop });
     }
-    previousTabId = nextTabId;
-
-    await deps.loadNote(nextNoteId);
+    try {
+      await deps.loadNote(nextNoteId);
+    } catch {
+      if (version === transitionVersion && previousTabId) {
+        tabsStore.restoreAfterFailedNavigation(previousTabId, loadedNoteId);
+      }
+      endNoteSwitch();
+      return;
+    }
     if (version !== transitionVersion || tabsStore.activeTabId !== nextTabId) return;
+    previousTabId = nextTabId;
     loadedNoteId = nextNoteId;
 
     if (savedScroll > 0) {

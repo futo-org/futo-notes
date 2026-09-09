@@ -104,8 +104,13 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   `.crashlogs`) behind a blocking "Deleting all notes…" overlay, with live
   sync paused and the connection + stored password dropped so a racing sync
   cannot resurrect files; the next launch reseeds the welcome note and stays
-  LOCAL. On iOS the disconnect is awaited before the vault reset begins,
-  guarded by `FullResetTests`. iOS presents a `.confirmationDialog`; Android presents the shared
+  LOCAL. Both native shells stop admitting store and sync work before awaiting
+  sync shutdown and draining admitted mutations. Reset retires all live and
+  retained draft owners, queued flushes, and stale projections; callbacks from
+  retired editors cannot recreate wiped notes after admission resumes. Wipe
+  failures are visible. → `FullResetTests`, `EditorDraftCoordinatorTests`,
+  `EditorLifecycleFlushTest`, native `NotesStore`.
+  iOS presents a `.confirmationDialog`; Android presents the shared
   `ConfirmDialog` (Material 3 `AlertDialog`). (Modal confirm verified on both
   2026-06-30; the earlier two-tap arm/confirm was removed because a stray
   double-tap wiped everything too easily.)

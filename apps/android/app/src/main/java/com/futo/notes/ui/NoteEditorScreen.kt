@@ -243,6 +243,7 @@ fun NoteEditorScreen(
     // The one owner of "a note is open; here is every way it ends" — the task
     // ordering, the latches, and the drain-and-commit each exit runs. See
     // EditorSession.kt for the drain table.
+    val ownerToken = remember(initialNoteId) { store.claimDraftOwnership() }
     val session = remember(initialNoteId) {
         EditorSession(scope) { locked -> interactionLocked = locked }
     }
@@ -257,8 +258,7 @@ fun NoteEditorScreen(
                 val base = savedContent
                 when (
                     val disposition = store.flushDraft(
-                        PendingDraft(targetId, base, snapshot),
-                    )
+                        PendingDraft(targetId, base, snapshot), ownerToken = ownerToken)
                 ) {
                     FlushDisposition.Wrote,
                     FlushDisposition.Converged,
@@ -438,7 +438,7 @@ fun NoteEditorScreen(
                         savedContent = savedContent,
                         content = body,
                         flush = { base, snapshot ->
-                            store.flushDraft(PendingDraft(noteId, base, snapshot))
+                            store.flushDraft(PendingDraft(noteId, base, snapshot), ownerToken = ownerToken)
                         },
                     )
                     savedContent = commit.savedContent
@@ -449,6 +449,8 @@ fun NoteEditorScreen(
                 }
 
                 override suspend fun commitTitle(): Boolean {
+                    val requestedTitle = titleValue.text
+                    val flushed = content
                     val titleCommit = commitEditorTitleSnapshot(
                         currentId = noteId,
                         targetId = editorTitleTarget(
@@ -456,9 +458,19 @@ fun NoteEditorScreen(
                             rawTitle = titleValue.text,
                             existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
                         ),
-                        rename = store::rename,
+                        rename = { old, wanted ->
+                            store.rename(
+                                old, wanted, PendingDraft(old, savedContent, flushed),
+                                ownerToken = ownerToken,
+                            ).also { outcome ->
+                                if (outcome is NoteMutationOutcome.Committed) savedContent = flushed
+                            }
+                        },
                     )
                     noteId = titleCommit.id
+                    if (titleCommit.isCommitted && titleValue.text == requestedTitle) {
+                        titleValue = TextFieldValue(splitId(noteId).title)
+                    }
                     return titleCommit.isCommitted
                 }
 
@@ -559,9 +571,8 @@ fun NoteEditorScreen(
     // remote adopted) and re-keys to the new id on rename (content follows the
     // live noteId), both by construction. `base` = savedContent is the flush's
     // conditional-write expected-previous.
-    // Claim ownership + register the provider inside the effect (NOT in remember —
-    // remember must stay pure; claiming there would advance the generation counter
-    // for a composition that is later abandoned without ever releasing, PKT-12 F6).
+    // Token allocation alone does not register a draft. Publish the provider
+    // inside the effect so an abandoned composition cannot leave a live draft.
     // Keyed on initialNoteId (stable for this editor instance, so a rename doesn't
     // re-claim mid-life). The effect body runs before any leave-foreground flush
     // can occur, so first-publish ordering holds. A superseded editor's release is
@@ -569,7 +580,6 @@ fun NoteEditorScreen(
     // (PKT-1 R2). The provider is the single derivation (derivePendingDraft),
     // pulled synchronously at flush time.
     DisposableEffect(initialNoteId) {
-        val ownerToken = store.claimDraftOwnership()
         store.setDraftProvider(ownerToken) {
             derivePendingDraft(loaded, noteId, savedContent, content)
         }
@@ -591,9 +601,9 @@ fun NoteEditorScreen(
             // scope (onDispose can't suspend and the composable scope is gone).
             if (autoFocus && noteId == initialNoteId && content.isEmpty()
                 && titleValue.text == splitId(initialNoteId).title) {
-                store.deleteAsync(noteId)
+                store.deleteAsync(noteId, ownerToken)
             } else if (loaded && content != savedContent) {
-                store.flushAsync(PendingDraft(noteId, savedContent, content))
+                store.flushAsync(PendingDraft(noteId, savedContent, content), ownerToken)
             }
         }
     }
@@ -662,6 +672,11 @@ fun NoteEditorScreen(
             // register re-keys to the new id after the rename (its content follows
             // the live noteId), so no manual draft repointing is needed (PKT-1 R4).
             session.runWork {
+                val wantedId = editorTitleTarget(
+                    currentId = noteId, rawTitle = next,
+                    existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
+                )
+                if (wantedId == null || wantedId == noteId) return@runWork
                 saveJob?.cancel()
                 // Snapshot the body BEFORE the suspending write and advance savedContent
                 // to exactly that snapshot — never to the live `content`. If the user
@@ -670,28 +685,19 @@ fun NoteEditorScreen(
                 // newer keystroke as saved and the register would go clean, losing it on
                 // background/process death (PKT-12 F1).
                 val flushed = content
-                if (flushed != savedContent) {
-                    val outcome = store.write(noteId, flushed)
-                    savedContent = confirmedSavedContent(savedContent, flushed, outcome)
-                    if (outcome === NoteMutationOutcome.Failed) {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("notes.save.failedPending"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        return@runWork
-                    }
-                }
                 val titleCommit = commitEditorTitleSnapshot(
                     currentId = noteId,
-                    targetId = editorTitleTarget(
-                        currentId = noteId,
-                        rawTitle = next,
-                        existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
-                    ),
-                    rename = store::rename,
+                    targetId = wantedId,
+                    rename = { old, wanted ->
+                        store.rename(old, wanted, PendingDraft(old, savedContent, flushed), ownerToken = ownerToken).also { outcome ->
+                            if (outcome is NoteMutationOutcome.Committed) savedContent = flushed
+                        }
+                    },
                 )
                 noteId = titleCommit.id
+                if (titleCommit.isCommitted && titleValue.text == next) {
+                    titleValue = TextFieldValue(splitId(noteId).title)
+                }
                 if (!titleCommit.isCommitted) {
                     Toast.makeText(
                         context,
@@ -1049,7 +1055,7 @@ fun NoteEditorScreen(
                         override suspend fun commitBody(body: String): Boolean {
                             val hasPendingChanges = body != savedContent
                             val writeOutcome = if (hasPendingChanges) {
-                                store.write(noteId, body)
+                                store.write(noteId, body, ownerToken = ownerToken)
                             } else {
                                 null
                             }
@@ -1067,7 +1073,7 @@ fun NoteEditorScreen(
                         }
 
                         override suspend fun perform(): Boolean =
-                            shouldCompleteNoteAction(store.delete(noteId))
+                            shouldCompleteNoteAction(store.delete(noteId, ownerToken = ownerToken))
 
                         override fun onSucceeded() {
                             // Mark clean only after delete commits, so onDispose
@@ -1120,38 +1126,30 @@ fun NoteEditorScreen(
                             saveJob?.cancel()
                         }
 
-                        // Flush the draft to the CURRENT id before the file
-                        // moves — a stale save would recreate a ghost at the old
-                        // id. The derived register re-keys to the moved id
-                        // afterwards (its content follows the live noteId), so
-                        // no manual clear (R4).
+                        // The engine will save this snapshot and move it under
+                        // one guard, comparing the original saved baseline.
                         override suspend fun commitBody(body: String): Boolean {
-                            if (body == savedContent) return true
-                            val writeOutcome = store.write(noteId, body)
-                            savedContent =
-                                confirmedSavedContent(savedContent, body, writeOutcome)
-                            if (writeOutcome === NoteMutationOutcome.Failed) {
-                                Toast.makeText(
-                                    context,
-                                    localization.localizedText("notes.save.failedPending"),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                                return false
-                            }
+                            content = body
                             return true
                         }
 
                         override suspend fun perform(): Boolean {
+                            val requestedTitle = titleValue.text
+                            val flushed = content
                             val moveOutcome = store.moveNote(
                                 noteId,
                                 folder,
                                 createFolder = isNew,
-                            )
+                                draft = PendingDraft(noteId, savedContent, flushed), ownerToken = ownerToken)
                             if (moveOutcome !is NoteMutationOutcome.Committed) return false
                             // Update the live id before releasing the drain. A
                             // delete already waiting behind this move must
                             // target the final id.
+                            savedContent = flushed
                             noteId = moveOutcome.value
+                            if (titleValue.text == requestedTitle) {
+                                titleValue = TextFieldValue(splitId(noteId).title)
+                            }
                             return true
                         }
 

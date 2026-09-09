@@ -1,5 +1,6 @@
 //! One durable owner for the local Markdown vault and its derived search index.
 
+mod editor_draft;
 mod paths;
 mod search;
 mod vault;
@@ -13,8 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use futo_notes_core::conflict_names::{conflict_filename, current_conflict_date};
 use futo_notes_core::files::{
-    collides_but_differs, create_new_atomic, move_no_replace, rename_through_temp,
-    safe_appdata_path, set_file_mtime_ms, vault_mutation_guard, write_atomic_text,
+    collides_but_differs, safe_appdata_path, vault_fs, vault_mutation_guard, write_atomic_text,
 };
 use futo_notes_model::{make_id, rewrite_wikilinks, sanitize_folder_path, split_id};
 use futo_notes_search::StatusObserver;
@@ -315,22 +315,20 @@ impl LocalNoteStore {
     }
 
     pub fn read(&self, id: &str) -> String {
-        paths::note_path(&self.root, id)
-            .ok()
-            .and_then(|path| fs::read_to_string(path).ok())
-            .unwrap_or_default()
+        self.read_existing(id).ok().flatten().unwrap_or_default()
     }
 
-    /// Atomically distinguish a missing note from an existing, possibly-empty
-    /// note with one filesystem open. Unlike `exists` followed by `read`, this
-    /// cannot observe two different filesystem states.
     pub fn read_existing(&self, id: &str) -> Result<Option<String>, String> {
-        let path = paths::note_path(&self.root, id)?;
-        match fs::read_to_string(path) {
-            Ok(content) => Ok(Some(content)),
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(io_error(error)),
-        }
+        paths::note_path(&self.root, id)?;
+        vault_fs::read_optional(&self.root, &note_filename(id))?
+            .map(|bytes| String::from_utf8(bytes).map_err(|error| error.to_string()))
+            .transpose()
+    }
+
+    fn read_note_file(&self, id: &str) -> std::io::Result<String> {
+        self.read_existing(id)
+            .map_err(std::io::Error::other)?
+            .ok_or_else(|| std::io::Error::from(ErrorKind::NotFound))
     }
 
     pub fn exists(&self, id: &str) -> bool {
@@ -472,9 +470,9 @@ impl LocalNoteStore {
         content: &str,
     ) -> Result<FlushDraftResult, String> {
         let _gate = self.lock_gate()?;
-        let path = paths::note_path(&self.root, id)?;
+        paths::note_path(&self.root, id)?;
         let vault_mutation = vault_mutation_guard()?;
-        let current = fs::read_to_string(&path);
+        let current = self.read_note_file(id);
         #[cfg(test)]
         if current.is_ok() {
             if let Some(hook) = self.flush_window_hook.lock().unwrap().as_ref() {
@@ -503,7 +501,7 @@ impl LocalNoteStore {
             Ok(_) => self.park_conflict_draft(id, content),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 drop(vault_mutation);
-                self.recreate_missing_draft(id, content, &path)
+                self.recreate_missing_draft(id, content)
             }
             Err(error) => Err(io_error(error)),
         }
@@ -515,12 +513,7 @@ impl LocalNoteStore {
     /// install is atomic no-replace: a live-sync pull that recreated the id
     /// outside the store's serialization is never clobbered — if the id
     /// reappeared, park the draft unless it converged.
-    fn recreate_missing_draft(
-        &self,
-        id: &str,
-        content: &str,
-        path: &Path,
-    ) -> Result<FlushDraftResult, String> {
+    fn recreate_missing_draft(&self, id: &str, content: &str) -> Result<FlushDraftResult, String> {
         let _vault_mutation = vault_mutation_guard()?;
         // Never recreate at an id that cross-platform-collides (case-insensitive
         // / NFC) with a DIFFERENT surviving note. `create_new_atomic` only fails
@@ -538,7 +531,7 @@ impl LocalNoteStore {
         if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
             hook(id);
         }
-        if create_new_atomic(path, content.as_bytes())? {
+        if vault_fs::create_new(&self.root, &note_filename(&id), content.as_bytes())? {
             let metadata = vault::metadata(&self.root, id)
                 .ok_or_else(|| "note metadata unavailable after recreate".to_owned())?;
             self.search.notify(&change);
@@ -547,7 +540,7 @@ impl LocalNoteStore {
                 mutation: Some(self.upsert_mutation(metadata)),
             });
         }
-        match fs::read_to_string(path) {
+        match self.read_note_file(id) {
             Ok(current) if current == content => Ok(FlushDraftResult {
                 disposition: FlushDisposition::Converged,
                 mutation: None,
@@ -613,15 +606,12 @@ impl LocalNoteStore {
                 existing.insert(filename);
                 continue;
             }
-            let path = paths::note_path(&self.root, &parked_id)?;
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).map_err(io_error)?;
-            }
+            paths::note_path(&self.root, &parked_id)?;
             #[cfg(test)]
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&parked_id);
             }
-            if create_new_atomic(&path, content.as_bytes())? {
+            if vault_fs::create_new(&self.root, &note_filename(&parked_id), content.as_bytes())? {
                 let metadata = vault::metadata(&self.root, &parked_id)
                     .ok_or_else(|| "note metadata unavailable after park".to_owned())?;
                 self.search
@@ -668,24 +658,22 @@ impl LocalNoteStore {
         if folder.is_empty() {
             return Err("new folder path is empty".into());
         }
-        let folder_path = paths::folder_path(&self.root, &folder)?;
-        fs::create_dir(&folder_path).map_err(io_error)?;
+        paths::folder_path(&self.root, &folder)?;
+        vault_fs::create_dir(&self.root, &folder)?;
         let (_, title) = split_id(id);
         let wanted = format!("{folder}/{title}");
         match self.rename_raw(id, &wanted) {
             Ok(mutation) => Ok(mutation),
             Err(error) => {
-                let _ = fs::remove_dir(&folder_path);
+                let _ = vault_fs::remove_dir(&self.root, &folder, false);
                 Err(error)
             }
         }
     }
 
     pub fn delete(&self, id: &str) -> Result<MutationResult, String> {
-        self.delete_with(id, |path| match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(io_error(error)),
+        self.delete_with(id, |_| {
+            vault_fs::remove_local(&self.root, &note_filename(id)).map(|_| ())
         })
     }
 
@@ -720,8 +708,8 @@ impl LocalNoteStore {
         if clean.is_empty() {
             return Ok(self.finish_mutation(Vec::new(), MutationResult::default()));
         }
-        let path = paths::folder_path(&self.root, &clean)?;
-        fs::create_dir_all(path).map_err(io_error)?;
+        paths::folder_path(&self.root, &clean)?;
+        vault_fs::create_dir_all(&self.root, &clean)?;
         Ok(self.finish_mutation(Vec::new(), MutationResult::default()))
     }
 
@@ -813,11 +801,8 @@ impl LocalNoteStore {
         );
         self.before_write.before_write(&changes);
 
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent).map_err(io_error)?;
-        }
         if collides_but_differs(&from, &to) {
-            rename_through_temp(&source, &destination)?;
+            vault_fs::rename_case(&self.root, from, to)?;
         } else {
             // This renames a DIRECTORY, so the file no-replace primitive
             // (move_no_replace) doesn't apply, and POSIX rename onto a non-empty dir
@@ -827,7 +812,7 @@ impl LocalNoteStore {
             // (contained notes move via the mapping loop, not this dir rename).
             // A platform-specific no-replace dir rename (renameat2) isn't worth
             // it for that (M17 #8, adjudicated).
-            fs::rename(&source, &destination).map_err(io_error)?;
+            vault_fs::rename_local(&self.root, from, to)?;
         }
         let mut mutation = self.finish_mappings(mappings, relinks, None);
         mutation.final_folder = Some(to.to_owned());
@@ -838,7 +823,10 @@ impl LocalNoteStore {
     }
 
     pub fn delete_folder(&self, folder: &str) -> Result<MutationResult, String> {
-        self.delete_folder_with(folder, |path| fs::remove_dir_all(path).map_err(io_error))
+        self.delete_folder_with(folder, |path| {
+            let relative = path.strip_prefix(&self.root).map_err(|e| e.to_string())?;
+            vault_fs::remove_dir(&self.root, &relative.to_string_lossy(), true)
+        })
     }
 
     /// Move every note out first, with rollback on a failed move. Only after
@@ -910,20 +898,14 @@ impl LocalNoteStore {
     /// images and hidden app-data, and reconciles search from the empty tree.
     pub fn reset(&self) -> Result<(), String> {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         fs::create_dir_all(&self.root).map_err(io_error)?;
         let removals = vault::note_paths(&self.root)
             .into_iter()
             .map(|(id, _)| FileChange::Removed(note_filename(&id)))
             .collect::<Vec<_>>();
         self.before_write.before_write(&removals);
-        for entry in fs::read_dir(&self.root).map_err(io_error)? {
-            let path = entry.map_err(io_error)?.path();
-            if path.is_dir() {
-                fs::remove_dir_all(path).map_err(io_error)?;
-            } else {
-                fs::remove_file(path).map_err(io_error)?;
-            }
-        }
+        vault_fs::clear(&self.root)?;
         self.rebuild_search();
         Ok(())
     }
@@ -992,9 +974,9 @@ impl LocalNoteStore {
         let mut warnings = Vec::new();
         let mut touched = HashSet::new();
         for (id, content) in relinks {
-            match paths::note_path(&self.root, &id)
-                .and_then(|path| write_atomic_text(&path, &content))
-            {
+            match paths::note_path(&self.root, &id).and_then(|_| {
+                vault_fs::write_atomic_local(&self.root, &note_filename(&id), content.as_bytes())
+            }) {
                 Ok(()) => {
                     touched.insert(id.clone());
                     self.search.notify(&FileChange::Changed(note_filename(&id)));
@@ -1099,19 +1081,19 @@ impl LocalNoteStore {
     ) -> Result<NoteMetadata, String> {
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, wanted, None)?;
-            let path = paths::note_path(&self.root, &id)?;
+            paths::note_path(&self.root, &id)?;
             #[cfg(test)]
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&id);
             }
-            if !create_new_atomic(&path, content.as_bytes())? {
+            if !vault_fs::create_new(&self.root, &note_filename(&id), content.as_bytes())? {
                 // A writer outside this store's serialization took the id; the
                 // write did not happen. Re-allocate against the now-larger tree
                 // and retry — no suppression to unwind.
                 continue;
             }
             if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
-                set_file_mtime_ms(&path, modified_ms)?;
+                vault_fs::set_mtime_ms(&self.root, &note_filename(&id), modified_ms)?;
             }
             let metadata = vault::metadata(&self.root, &id)
                 .ok_or_else(|| "note metadata unavailable after create".to_owned())?;
@@ -1151,7 +1133,14 @@ impl LocalNoteStore {
         // landed; just finish the interrupted cleanup. (Content identity, not
         // inode nlink, so it holds on Windows too; mirrors the Swift
         // parkConflictCopyIfAbsent guard.)
-        let backup_content = fs::read_to_string(&recovered.backup).map_err(io_error)?;
+        let backup_relative = recovered
+            .backup
+            .strip_prefix(&self.root)
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let backup_content = String::from_utf8(vault_fs::read(&self.root, &backup_relative)?)
+            .map_err(|e| e.to_string())?;
         let already_parked = vault::note_paths(&self.root).into_iter().any(|(id, _)| {
             let (id_folder, id_title) = split_id(&id);
             // Only a note this park could have produced — the exact stem or its
@@ -1181,15 +1170,12 @@ impl LocalNoteStore {
         // park re-sweeps rather than strands.
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, &wanted, None)?;
-            let path = paths::note_path(&self.root, &id)?;
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).map_err(io_error)?;
-            }
+            paths::note_path(&self.root, &id)?;
             #[cfg(test)]
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&id);
             }
-            match move_no_replace(&recovered.backup, &path) {
+            match vault_fs::move_no_replace(&self.root, &backup_relative, &note_filename(&id)) {
                 Ok(true) => {
                     let _ = fs::remove_file(&recovered.sidecar);
                     self.search.notify(&FileChange::Changed(note_filename(&id)));
@@ -1227,13 +1213,13 @@ impl LocalNoteStore {
                 "note id collides with existing cross-platform path: {existing}"
             ));
         }
-        let path = paths::note_path(&self.root, id)?;
+        paths::note_path(&self.root, id)?;
         let change = FileChange::Changed(note_filename(id));
         self.before_write
             .before_write(std::slice::from_ref(&change));
-        write_atomic_text(&path, content)?;
+        vault_fs::write_atomic_local(&self.root, &note_filename(id), content.as_bytes())?;
         if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
-            set_file_mtime_ms(&path, modified_ms)?;
+            vault_fs::set_mtime_ms(&self.root, &note_filename(&id), modified_ms)?;
         }
         let metadata = vault::metadata(&self.root, id)
             .ok_or_else(|| "note metadata unavailable after write".to_owned())?;
@@ -1267,7 +1253,9 @@ impl LocalNoteStore {
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
-            if !entry.path().is_file() || !name.to_lowercase().ends_with(".txt") {
+            if !entry.file_type().is_ok_and(|kind| kind.is_file())
+                || !name.to_lowercase().ends_with(".txt")
+            {
                 continue;
             }
             let stem = &name[..name.len() - 4];
@@ -1281,21 +1269,22 @@ impl LocalNoteStore {
                     target = format!("{stem} (imported {suffix}).md");
                 }
             }
-            let source = entry.path();
-            let destination = self.root.join(&target);
             let change = FileChange::Renamed {
                 from: name.clone(),
                 to: target.clone(),
             };
             self.before_write
                 .before_write(std::slice::from_ref(&change));
-            match rename_through_temp(&source, &destination) {
-                Ok(()) => {
+            match vault_fs::move_no_replace(&self.root, &name, &target) {
+                Ok(true) => {
                     migrated += 1;
                     occupied.insert(target.to_lowercase());
                     names.push(target);
                     self.search.notify(&change);
                 }
+                Ok(false) => warnings.push(format!(
+                    "{name}: migration destination appeared concurrently"
+                )),
                 Err(error) => warnings.push(format!("{name}: {error}")),
             }
         }
@@ -1404,15 +1393,12 @@ fn rename_changes(mappings: &[(String, String)]) -> Vec<FileChange> {
 }
 
 fn move_files_with_rollback(root: &Path, mappings: &[(String, String)]) -> Result<(), String> {
-    let mut completed: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let mut completed: Vec<(String, String)> = Vec::new();
     for (from, to) in mappings {
-        let source = paths::note_path(root, from)?;
+        paths::note_path(root, from)?;
         let destination = paths::note_path(root, to)?;
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent).map_err(io_error)?;
-        }
         let result = if collides_but_differs(from, to) {
-            rename_through_temp(&source, &destination)
+            vault_fs::rename_case(root, &note_filename(from), &note_filename(to))
         } else {
             // No-replace move. The destination id was allocated unique, so a
             // file there now is a writer outside this store's serialization —
@@ -1421,7 +1407,7 @@ fn move_files_with_rollback(root: &Path, mappings: &[(String, String)]) -> Resul
             // carries mtime across, and consumes the source to complete the move;
             // on a collision the caller rolls back — the newcomer and the source
             // both survive.
-            match move_no_replace(&source, &destination) {
+            match vault_fs::move_no_replace(root, &note_filename(from), &note_filename(to)) {
                 Ok(true) => Ok(()),
                 Ok(false) => Err(format!(
                     "rename destination {} appeared under a concurrent writer",
@@ -1432,14 +1418,18 @@ fn move_files_with_rollback(root: &Path, mappings: &[(String, String)]) -> Resul
         };
         if let Err(error) = result {
             for (original, moved) in completed.into_iter().rev() {
-                let _ = fs::rename(moved, original);
+                let _ = vault_fs::move_no_replace(
+                    root,
+                    &note_filename(&moved),
+                    &note_filename(&original),
+                );
             }
             return Err(error);
         }
-        completed.push((source, destination));
+        completed.push((from.clone(), to.clone()));
     }
     for (source, _) in &completed {
-        prune_empty_parents(root, source);
+        prune_empty_parents(root, &root.join(note_filename(source)));
     }
     Ok(())
 }
@@ -1453,7 +1443,14 @@ fn prune_empty_parents(root: &Path, note_path: &Path) {
             .ok()
             .and_then(|mut entries| entries.next())
             .is_none();
-        if !empty || fs::remove_dir(&directory).is_err() {
+        if !empty
+            || vault_fs::remove_dir(
+                root,
+                &directory.strip_prefix(root).unwrap().to_string_lossy(),
+                false,
+            )
+            .is_err()
+        {
             return;
         }
         let Some(parent) = directory.parent() else {

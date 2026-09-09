@@ -1085,7 +1085,7 @@ describe('editor reconciliation', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.mocked(updateNote).mockRejectedValueOnce(new Error('write failed'));
     live.editContent('converged content');
-    await live.session.flushSave();
+    await expect(live.session.flushSave()).rejects.toThrow('write failed');
     warn.mockRestore();
     expect(live.session.savedContent).toBe('old base');
     expect(live.session.dirty).toBe(true);
