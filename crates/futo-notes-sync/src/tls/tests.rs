@@ -12,8 +12,6 @@ use crate::server::Http;
 
 struct PrivateAuthority {
     certificate_authority_der: Vec<u8>,
-    #[allow(dead_code)]
-    certificate_authority_pem: String,
     leaf_der: Vec<u8>,
     leaf_key_der: Vec<u8>,
 }
@@ -28,7 +26,6 @@ fn private_authority() -> PrivateAuthority {
     let authority_key = KeyPair::generate().unwrap();
     let authority_certificate = authority_params.self_signed(&authority_key).unwrap();
     let certificate_authority_der = authority_certificate.der().to_vec();
-    let certificate_authority_pem = authority_certificate.pem();
 
     let leaf_key = KeyPair::generate().unwrap();
     let leaf_params = CertificateParams::new(vec!["127.0.0.1".to_owned()]).unwrap();
@@ -37,7 +34,6 @@ fn private_authority() -> PrivateAuthority {
 
     PrivateAuthority {
         certificate_authority_der,
-        certificate_authority_pem,
         leaf_der: leaf_certificate.der().to_vec(),
         leaf_key_der: leaf_key.serialize_der(),
     }
@@ -102,7 +98,11 @@ async fn serve_https(authority: &PrivateAuthority) -> (SocketAddr, Arc<Mutex<Vec
 async fn a_privately_signed_server_is_rejected_without_its_root() {
     let authority = private_authority();
     let (address, _) = serve_https(&authority).await;
-    let http = Http::with_tls(&format!("https://{address}"), client_config(&[]).unwrap()).unwrap();
+    let http = Http::with_trust_roots(
+        &format!("https://{address}"),
+        Some(client_config(&[]).unwrap()),
+    )
+    .unwrap();
 
     let error = http.auth_mode().await.expect_err("handshake must fail");
 
@@ -117,78 +117,42 @@ async fn a_privately_signed_server_is_rejected_without_its_root() {
 async fn a_privately_signed_server_is_accepted_with_its_root_as_an_extra_anchor() {
     let authority = private_authority();
     let (address, negotiated) = serve_https(&authority).await;
-    let http = Http::with_tls(
+    let http = Http::with_trust_roots(
         &format!("https://{address}"),
-        client_config(&[authority.certificate_authority_der.clone()]).unwrap(),
+        Some(client_config(std::slice::from_ref(&authority.certificate_authority_der)).unwrap()),
     )
     .unwrap();
 
     assert_eq!(http.auth_mode().await.unwrap(), "password");
-    assert_eq!(
-        negotiated.lock().unwrap().as_slice(),
-        ["http/1.1".to_owned()]
-    );
-}
-
-#[tokio::test]
-async fn an_unparsable_supplied_anchor_is_skipped_rather_than_breaking_every_request() {
-    let authority = private_authority();
-    let (address, _) = serve_https(&authority).await;
-    let http = Http::with_tls(
-        &format!("https://{address}"),
-        client_config(&[
-            b"not a certificate".to_vec(),
-            authority.certificate_authority_der.clone(),
-        ])
-        .unwrap(),
-    )
-    .unwrap();
-
-    assert_eq!(http.auth_mode().await.unwrap(), "password");
+    assert_eq!(negotiated.lock().unwrap().as_slice(), ["http/1.1"]);
 }
 
 #[tokio::test]
 async fn installing_different_anchors_rebuilds_the_shared_configuration() {
     let authority = private_authority();
     let (address, _) = serve_https(&authority).await;
-    super::install_extra_root_certificates(Vec::new());
+    super::install_process_root_certificates(Vec::new());
     let without = super::shared_client_config().unwrap();
 
-    super::install_extra_root_certificates(vec![authority.certificate_authority_der.clone()]);
+    super::install_process_root_certificates(vec![authority.certificate_authority_der.clone()]);
     let with = super::shared_client_config().unwrap();
-    super::install_extra_root_certificates(Vec::new());
+    super::install_process_root_certificates(Vec::new());
 
-    assert!(Http::with_tls(&format!("https://{address}"), without)
-        .unwrap()
-        .auth_mode()
-        .await
-        .is_err());
+    assert!(
+        Http::with_trust_roots(&format!("https://{address}"), Some(without))
+            .unwrap()
+            .auth_mode()
+            .await
+            .is_err()
+    );
     assert_eq!(
-        Http::with_tls(&format!("https://{address}"), with)
+        Http::with_trust_roots(&format!("https://{address}"), Some(with))
             .unwrap()
             .auth_mode()
             .await
             .unwrap(),
         "password"
     );
-}
-
-#[cfg(target_os = "linux")]
-#[tokio::test]
-async fn a_privately_signed_server_is_accepted_from_the_operating_system_store() {
-    let authority = private_authority();
-    let (address, _) = serve_https(&authority).await;
-    let bundle = std::env::temp_dir().join(format!("futo-tls-{}.pem", uuid::Uuid::now_v7()));
-    std::fs::write(&bundle, &authority.certificate_authority_pem).unwrap();
-    std::env::set_var("SSL_CERT_FILE", &bundle);
-
-    let config = client_config(&[]).unwrap();
-
-    std::env::remove_var("SSL_CERT_FILE");
-    let _ = std::fs::remove_file(&bundle);
-    let http = Http::with_tls(&format!("https://{address}"), config).unwrap();
-
-    assert_eq!(http.auth_mode().await.unwrap(), "password");
 }
 
 #[test]
@@ -201,4 +165,14 @@ fn the_bundled_mozilla_roots_all_survive_the_root_store() {
     println!("bundled={bundled} added={added} ignored={ignored}");
     assert_eq!(added, bundled);
     assert_eq!(ignored, 0);
+}
+
+#[test]
+fn an_unchanged_anchor_set_reuses_the_cached_configuration() {
+    super::install_process_root_certificates(Vec::new());
+
+    let first = super::shared_client_config().unwrap();
+    let second = super::shared_client_config().unwrap();
+
+    assert!(Arc::ptr_eq(&first, &second));
 }

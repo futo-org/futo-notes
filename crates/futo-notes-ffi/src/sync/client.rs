@@ -33,7 +33,7 @@ impl SyncClient {
         server_url: String,
         extra_root_certificates: Vec<Vec<u8>>,
     ) -> Arc<Self> {
-        futo_notes_sync::install_extra_root_certificates(extra_root_certificates);
+        futo_notes_sync::install_process_root_certificates(extra_root_certificates);
         Arc::new(Self {
             notes_root: PathBuf::from(notes_root),
             server_url,

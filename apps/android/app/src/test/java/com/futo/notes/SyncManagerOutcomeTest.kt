@@ -118,4 +118,21 @@ class SyncManagerOutcomeTest {
         assertEquals("Auth: $payload", mgr.describe(SyncException.Auth(payload)))
         assertEquals("collection-gone", mgr.describe(SyncException.CollectionGone("collection-gone")))
     }
+
+    @Test
+    fun anUntrustedCertificateGetsItsOwnMessageRatherThanTheGenericOne() {
+        val mgr = SyncManager()
+        val untrusted = SyncException.Http(
+            "error sending request: invalid peer certificate: UnknownIssuer",
+        )
+
+        assertEquals(
+            "sync.errors.certificateNotTrusted",
+            mgr.failureMessage(untrusted, "sync.errors.connectFailed").path,
+        )
+        assertEquals(
+            "sync.errors.connectFailed",
+            mgr.failureMessage(SyncException.Http("connection refused"), "sync.errors.connectFailed").path,
+        )
+    }
 }

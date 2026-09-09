@@ -68,17 +68,31 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
   `usesCleartextTraffic="true"` (all build types); iOS `Info.plist`
   `NSAppTransportSecurity → NSAllowsArbitraryLoads` (shared by Debug + Release
   via `project.yml` `settings.base`).
-- **An `https://` sync server is verified against the OS trust store plus the
-  bundled Mozilla roots**, on every platform, so a CA the user installed on the
-  device (self-hosted or corporate) is trusted and no public root is lost. An
-  untrusted certificate fails with an unknown-issuer diagnostic. Desktop and iOS
-  read the OS store through `rustls-platform-verifier`; Android reads
-  `AndroidCAStore` (system + user CAs) in the shell and hands the anchors to
-  Rust, so rustls, not Android's trust manager, validates them. On iOS a root
-  from a configuration profile also needs full trust enabled under Settings →
-  General → About → Certificate Trust Settings.
-  → crates/futo-notes-sync/src/tls/mod.rs (`tls::tests`), SyncManager.kt
-  `operatingSystemTrustAnchors`
+- **An `https://` sync server is verified against the device's own trust store**,
+  so a certificate authority the user installed — self-hosted or corporate — is
+  trusted, and one the platform distrusts is not.
+  → crates/futo-notes-sync/src/tls/mod.rs (`tls::tests`)
+- *(desktop, iOS)* The platform's verifier decides, through
+  `rustls-platform-verifier`: SecTrust on Apple, schannel on Windows, the native
+  bundle on Linux. No certificates are added to what the OS already trusts.
+  → crates/futo-notes-sync/src/tls/mod.rs `trusted_roots`
+- *(Android)* The shell reads `AndroidCAStore` (system plus user-installed CAs,
+  minus any the user disabled) and hands the anchors to Rust, because
+  `rustls-platform-verifier`'s Android backend needs a Kotlin AAR and JNI
+  initialization that UniFFI's JNA loading never delivers. rustls validates
+  against those anchors **plus the bundled Mozilla roots**, so a device whose
+  system store is frozen (Android 9–13) keeps working — at the cost that a
+  public root the user disabled on the device stays trusted here.
+  → SyncManager.kt `operatingSystemTrustAnchors`
+- **Trust anchors are captured when a sync client is created**, so installing or
+  removing a CA takes effect on the next connect, not on the current session.
+  → crates/futo-notes-ffi `SyncClient::new`
+- *(iOS)* A root installed from a configuration profile also needs full trust
+  enabled under Settings → General → About → Certificate Trust Settings.
+- **An untrusted certificate is reported as such**, not as a generic connection
+  failure: the shells surface _"This server's certificate isn't trusted by this
+  device. Install its certificate authority in the device settings, then try
+  again."_ → SyncManager.kt / SyncManager.swift `failureMessage`
 - When no server is connected yet, the Sync screen points the user at how to
   get one: a **bordered link row** — a leading external-link icon (iOS
   `arrow.up.forward.square` / Android `OpenInNew`) followed by the

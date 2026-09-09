@@ -190,7 +190,7 @@ class SyncManager(
             connected = client != null
             lastErrorDiagnostic = describe(e)
             statusMessage = LocalizedMessage("sync.status.error")
-            errorMessage = LocalizedMessage("sync.errors.connectFailed")
+            errorMessage = failureMessage(e, "sync.errors.connectFailed")
         } finally {
             busy = false
         }
@@ -364,7 +364,7 @@ class SyncManager(
                 } else {
                     lastErrorDiagnostic = describe(e)
                     statusMessage = LocalizedMessage("sync.status.error")
-                    errorMessage = LocalizedMessage("sync.errors.syncFailed")
+                    errorMessage = failureMessage(e, "sync.errors.syncFailed")
                 }
             } finally {
                 busy = false
@@ -374,6 +374,13 @@ class SyncManager(
 
     private fun isRecoverableSessionError(e: Exception): Boolean =
         e is SyncException.Auth || e is SyncException.CollectionGone
+
+    internal fun failureMessage(e: Exception, fallbackPath: String): LocalizedMessage =
+        if (describe(e).contains("UnknownIssuer")) {
+            LocalizedMessage("sync.errors.certificateNotTrusted")
+        } else {
+            LocalizedMessage(fallbackPath)
+        }
 
     /** Re-login with the stored password to recover an expired session or
      *  collapsed vault without deleting state. Guarded against re-entry;
@@ -596,7 +603,7 @@ class SyncManager(
         errorMessage = null
     }
 
-    private fun operatingSystemTrustAnchors(): List<ByteArray> = runCatching {
+    internal fun operatingSystemTrustAnchors(): List<ByteArray> = runCatching {
         val store = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
         store.aliases().asSequence().mapNotNull { alias ->
             runCatching { store.getCertificate(alias)?.encoded }.getOrNull()

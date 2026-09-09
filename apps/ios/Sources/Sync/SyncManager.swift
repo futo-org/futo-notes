@@ -307,7 +307,7 @@ final class SyncManager: ObservableObject {
             NSLog("[Sync] connect failed: %@", describe(error))
             connected = client != nil
             statusMessage = LocalizedMessage("sync.status.error")
-            lastErrorMessage = LocalizedMessage("sync.errors.connectFailed")
+            lastErrorMessage = failureMessage(error, fallback: "sync.errors.connectFailed")
         }
     }
 
@@ -458,7 +458,7 @@ final class SyncManager: ObservableObject {
             }
             NSLog("[Sync] sync failed: %@", describe(error))
             statusMessage = LocalizedMessage("sync.status.error")
-            lastErrorMessage = LocalizedMessage("sync.errors.syncFailed")
+            lastErrorMessage = failureMessage(error, fallback: "sync.errors.syncFailed")
         }
     }
 
@@ -659,6 +659,12 @@ final class SyncManager: ObservableObject {
         statusMessage = LocalizedMessage("sync.status.notConnected")
         lastErrorMessage = nil
         liveErrorMessage = nil
+    }
+
+    func failureMessage(_ error: Error, fallback: String) -> LocalizedMessage {
+        describe(error).contains("UnknownIssuer")
+            ? LocalizedMessage("sync.errors.certificateNotTrusted")
+            : LocalizedMessage(fallback)
     }
 
     private func describe(_ error: Error) -> String {

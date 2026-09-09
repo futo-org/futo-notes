@@ -33,7 +33,7 @@ pub use sync::{
     ConnectInfo, FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure,
     SyncProgress, SyncSummary, WriteRefusal,
 };
-pub use tls::install_extra_root_certificates;
+pub use tls::install_process_root_certificates;
 
 /// Logs in and resolves the collection to sync. The vault stays locked: a
 /// session on its own cannot read a note.
