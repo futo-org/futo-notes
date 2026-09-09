@@ -386,6 +386,26 @@
       ]
     },
     {
+      "concept": "feedback-image-normalisation",
+      "description": "The 5 MB per-image cap and the JPEG q95 fallback appear in each shell because each uses its own OS image codec (canvas / UIImage / Bitmap); there is no portable decoder that also handles HEIC. The server re-validates every upload, so a drifted copy costs a worse error message, never a bad row.",
+      "lockStatus": "unlocked",
+      "note": "Change the cap or the accepted-format set in all three copies in one commit. The shells only decide whether to re-encode before sending; the server decides what it accepts.",
+      "copies": [
+        {
+          "location": "src/features/feedback/normalizeImage.ts",
+          "pattern": "MAX_IMAGE_BYTES"
+        },
+        {
+          "location": "apps/ios/Sources/Feedback/FeedbackImages.swift",
+          "pattern": "maxBytes"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/FeedbackImages.kt",
+          "pattern": "MAX_BYTES"
+        }
+      ]
+    },
+    {
       "concept": "kitchensink-image-digest",
       "description": "The futocore/ci/kitchensink digest. `.gitlab-ci.yml` runs jobs on it directly and both CI image Dockerfiles build FROM it, so a bump that moves one copy silently leaves jobs and images on different bases. Nothing enforces agreement but this entry — bump all three together.",
       "lockStatus": "unlocked",
@@ -437,6 +457,31 @@
           "kind": "test"
         }
       ]
+    },
+    {
+      "concept": "crashlog-endpoint",
+      "description": "The crashlog base URLs (production, staging, local dev collector) and the debug-only staging switch exist once per shell, because each reads its own preference store and each debug build reaches localhost differently (browser localhost, simulator localhost, emulator 10.0.2.2).",
+      "lockStatus": "unlocked",
+      "note": "Change a host in all three copies in one commit. Release builds must always resolve to production; only debug/dev builds may select local or staging. Deliberately NOT generated: these are deployment constants that change about never, so a generator plus its gate would cost more than the drift it prevents.",
+      "copies": [
+        {
+          "location": "src/features/system/crashlogEndpoint.ts",
+          "pattern": "PRODUCTION_BASE_URL"
+        },
+        {
+          "location": "apps/ios/Sources/CrashReporting/CrashlogEndpoint.swift",
+          "pattern": "productionBaseUrl"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/CrashlogEndpoint.kt",
+          "pattern": "PRODUCTION_BASE_URL"
+        }
+      ],
+      "scan": {
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
+        "pattern": "(PRODUCTION_BASE_URL|productionBaseUrl)\\b"
+      }
     }
   ]
 }

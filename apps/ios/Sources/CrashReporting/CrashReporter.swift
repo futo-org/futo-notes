@@ -71,16 +71,9 @@ final class CrashReporter: ObservableObject {
     private nonisolated static let alwaysSendKey = "futo.crashReporting.alwaysSend"
 
     /// Upload endpoints — mirror src/features/system/crashReporter.ts exactly: single report
-    /// to /api/crash, batch to /api/crashes. DEBUG talks to the local crash
-    /// server (simulator reaches the Mac's localhost directly).
-    #if DEBUG
-        private static let crashApiUrl = URL(string: "http://localhost:5100/api/crash")!
-        private static let crashBatchApiUrl = URL(string: "http://localhost:5100/api/crashes")!
-    #else
-        private static let crashApiUrl = URL(string: "https://notes-crashlog.futo.org/api/crash")!
-        private static let crashBatchApiUrl = URL(
-            string: "https://notes-crashlog.futo.org/api/crashes")!
-    #endif
+    /// to /api/crash, batch to /api/crashes.
+    private static var crashApiUrl: URL { CrashlogEndpoint.url("/api/crash") }
+    private static var crashBatchApiUrl: URL { CrashlogEndpoint.url("/api/crashes") }
 
     /// Install the NSException + fatal-signal hooks. Call EARLY (FutoNotesApp
     /// init) — everything crash time needs (dir, session id, version, the

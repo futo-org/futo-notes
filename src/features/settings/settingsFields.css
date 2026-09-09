@@ -198,15 +198,54 @@
   color: var(--color-danger);
 }
 
-.settings-btn.settings-issue-link {
-  margin-top: 0;
+.settings-issue-feedback {
+  background: var(--color-surface);
   border-radius: 0 0 12px 12px;
+  overflow: hidden;
+  transition: transform 0.1s ease;
 }
 
-.settings-external-icon {
+.settings-issue-feedback:has(> .settings-issue-link:active) {
+  transform: scale(0.98);
+}
+
+.settings-issue-feedback > .settings-issue-link {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-issue-feedback > .settings-issue-link:active {
+  transform: none;
+}
+
+.settings-issue-chevron {
+  flex-shrink: 0;
   color: var(--color-muted);
-  font-size: 20px;
-  line-height: 1;
+  transition: transform 0.18s ease;
+}
+
+.settings-issue-link.open .settings-issue-chevron {
+  transform: rotate(90deg);
+}
+
+.settings-issue-form {
+  padding: 0 16px 14px;
+}
+
+.settings-issue-form > * {
+  animation: settings-issue-pop 0.22s ease-out;
+}
+
+@keyframes settings-issue-pop {
+  from {
+    transform: scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .settings-btn-text {

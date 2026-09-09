@@ -24,11 +24,6 @@ object CrashReporter {
     private const val TAG = "CrashReporter"
     private const val CRASHLOGS_DIR = ".crashlogs"
 
-    // POST mirror of src/features/system/crashReporter.ts: same /api/crash + /api/crashes
-    // routes; debug builds target the dev collector through the emulator's
-    // host loopback, release builds target production.
-    private val baseUrl =
-        if (BuildConfig.DEBUG) "http://10.0.2.2:5100" else "https://notes-crashlog.futo.org"
 
     /** Per-launch session id — mirrors the desktop `sessionId` UUID. */
     val sessionId: String = UUID.randomUUID().toString()
@@ -104,7 +99,7 @@ object CrashReporter {
 
         // Try batch send first.
         val batch = JSONObject().put("crashes", JSONArray(parsed.map { it.second }))
-        if (post("$baseUrl/api/crashes", batch.toString())) {
+        if (post("${CrashlogEndpoint.baseUrl}/api/crashes", batch.toString())) {
             parsed.forEach { it.first.delete() }
             return parsed.size to 0
         }
@@ -113,7 +108,7 @@ object CrashReporter {
         var sent = 0
         var failed = 0
         for ((file, report) in parsed) {
-            if (post("$baseUrl/api/crash", report.toString())) {
+            if (post("${CrashlogEndpoint.baseUrl}/api/crash", report.toString())) {
                 file.delete()
                 sent++
             } else {

@@ -35,6 +35,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.futo.notes.ui.CrashReportDialog
 import com.futo.notes.ui.EditorHost
+import com.futo.notes.ui.FeedbackScreen
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.PendingStorageMigration
 import com.futo.notes.storage.StorageActivationOutcome
@@ -198,6 +199,7 @@ class MainActivity : ComponentActivity() {
         // after setContent, preserving the never-gate-render invariant.
         prefs = getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE)
         appLanguage = AppLanguageController(this, prefs)
+        CrashlogEndpoint.attach(prefs)
 
         // Re-check the All-files grant when we return from the system settings
         // screen, then run whatever device-storage action was pending.
@@ -431,6 +433,7 @@ class MainActivity : ComponentActivity() {
                     selectedLanguageTag = appLanguage.selectedLanguageTag,
                     onSelectLanguage = { languageTag -> selectLanguage(s, languageTag) },
                     onOpenSync = navigator::openSync,
+                    onOpenFeedback = navigator::openFeedback,
                     storageMode = currentMode(),
                     onChangeStorage = navigator::openStorageLocation,
                     onBack = navigator::goBack,
@@ -451,6 +454,11 @@ class MainActivity : ComponentActivity() {
                     store = s,
                     sync = sync,
                     onBack = navigator::goBack,
+                )
+                is Screen.Feedback -> FeedbackScreen(
+                    picker = imagePicker,
+                    onBack = navigator::goBack,
+                    onSent = navigator::goBack,
                 )
             }
         }

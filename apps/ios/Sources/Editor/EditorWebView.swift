@@ -142,7 +142,7 @@ final class EditorCompletionQueue {
 ///   { type: 'pasteClipboardImage' }                            (v5)
 ///
 /// The markdown toolbar is NATIVE on iOS: EditorHost installs
-/// EditorToolbarAccessory as the keyboard's inputAccessoryView (so it docks
+/// FutoKeyboardAccessory as the keyboard's inputAccessoryView (so it docks
 /// and animates with the keyboard), tells the embed to suppress its web
 /// toolbar (setNativeToolbar), and dispatches taps back over the bridge —
 /// `exec(<manifest id>)` runs the SHARED markdownToolbar.ts command, so the

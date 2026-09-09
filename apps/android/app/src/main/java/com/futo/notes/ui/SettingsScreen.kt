@@ -75,7 +75,6 @@ import kotlinx.coroutines.withContext
 enum class ThemeMode { LIGHT, DARK, AUTO }
 
 private const val SOURCE_URL = "https://gitlab.futo.org/futo-notes/futo-notes"
-private const val ISSUE_TRACKER_URL = "https://github.com/futo-org/futo-notes/issues"
 
 private fun storageModeLabel(mode: StorageMode, localization: Localization): String = when (mode) {
     StorageMode.DEVICE -> localization.localizedText("settings.storage.sharedFolderDescription")
@@ -93,6 +92,7 @@ fun SettingsScreen(
     selectedLanguageTag: String?,
     onSelectLanguage: (String?) -> Unit,
     onOpenSync: () -> Unit,
+    onOpenFeedback: () -> Unit,
     storageMode: StorageMode,
     onChangeStorage: () -> Unit,
     onBack: () -> Unit,
@@ -216,16 +216,12 @@ fun SettingsScreen(
                 }
                 Divider()
                 SettingsRow(
-                    title = localization.localizedText("settings.issueReporting.reportIssue"),
-                    subtitle = localization.localizedText("settings.issueReporting.openGitHubIssueTracker"),
-                    onClick = {
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ISSUE_TRACKER_URL)))
-                        }
-                    },
+                    title = localization.localizedText("settings.issueReporting.sendFeedback"),
+                    subtitle = localization.localizedText("settings.issueReporting.sendFeedbackDescription"),
+                    onClick = onOpenFeedback,
                 ) {
                     Icon(
-                        Icons.Filled.NorthEast,
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = null,
                         tint = c.textMuted,
                         modifier = Modifier.size(18.dp),
@@ -293,6 +289,7 @@ fun SettingsScreen(
                     )
                 }
             }
+
             Spacer(Modifier.height(32.dp))
         }
     }
