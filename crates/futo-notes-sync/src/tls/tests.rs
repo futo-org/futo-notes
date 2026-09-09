@@ -190,3 +190,15 @@ async fn a_privately_signed_server_is_accepted_from_the_operating_system_store()
 
     assert_eq!(http.auth_mode().await.unwrap(), "password");
 }
+
+#[test]
+fn the_bundled_mozilla_roots_all_survive_the_root_store() {
+    let bundled = webpki_root_certs::TLS_SERVER_ROOT_CERTS.len();
+    let mut store = rustls::RootCertStore::empty();
+    let (added, ignored) =
+        store.add_parsable_certificates(super::bundled_mozilla_roots().collect::<Vec<_>>());
+
+    println!("bundled={bundled} added={added} ignored={ignored}");
+    assert_eq!(added, bundled);
+    assert_eq!(ignored, 0);
+}
