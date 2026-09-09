@@ -72,7 +72,6 @@ private val FutoDarkColorScheme = darkColorScheme(
 )
 
 val LocalFutoColors = staticCompositionLocalOf { FutoColors() }
-val LocalFutoSpacing = staticCompositionLocalOf { FutoSpacing }
 
 @Composable
 fun FutoNotesTheme(
@@ -92,10 +91,9 @@ fun FutoNotesTheme(
     }
 }
 
-/** Convenience accessor: `FutoTheme.colors`, `FutoTheme.spacing`, `FutoTheme.radius`. */
+/** Convenience accessor: `FutoTheme.colors`, `FutoTheme.radius`. */
 object FutoTheme {
     val colors: FutoColors
         @Composable @ReadOnlyComposable get() = LocalFutoColors.current
-    val spacing get() = FutoSpacing
     val radius get() = FutoRadius
 }

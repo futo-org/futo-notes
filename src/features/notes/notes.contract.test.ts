@@ -402,7 +402,7 @@ describe('search readiness (A4)', () => {
     await notes.initNotes();
 
     const results = await notes.search('q');
-    expect(results.map((item) => item.note.id)).toEqual(['X']);
+    expect(results.map((item) => item.id)).toEqual(['X']);
   });
 });
 

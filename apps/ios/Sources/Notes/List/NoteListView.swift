@@ -24,8 +24,9 @@ struct NoteListView: View {
     @State private var searchHits: [NoteItem] = []
 
     private var filtered: [NoteItem] {
-        let q = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return store.notes }
+        guard !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return store.notes
+        }
         return searchHits
     }
 
@@ -737,9 +738,6 @@ struct MoveToFolderSheet: View {
     /// Folder currently being browsed — used as the parent for a brand-new
     /// folder created from this sheet.
     let currentFolder: String
-    /// Invoked with the note's FINAL id once the move lands (a move changes the
-    /// id). The open editor uses this to keep the note open under its new id.
-    var onMoved: ((String) -> Void)? = nil
     /// The editor supplies this synchronous handoff so it owns and tracks the
     /// complete asynchronous move. List-row moves use the default store task.
     var onMoveRequested: ((String) -> Void)? = nil
@@ -847,13 +845,7 @@ struct MoveToFolderSheet: View {
         if let onMoveRequested {
             onMoveRequested(folder)
         } else {
-            Task {
-                if case .committed(let finalId) =
-                    await store.moveNote(note.id, toFolder: folder)
-                {
-                    onMoved?(finalId)
-                }
-            }
+            Task { _ = await store.moveNote(note.id, toFolder: folder) }
         }
     }
 

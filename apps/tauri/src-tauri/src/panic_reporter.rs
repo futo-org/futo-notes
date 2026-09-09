@@ -110,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn install_creates_target_dir_and_returns_idempotently() {
+    fn install_is_idempotent_and_keeps_the_first_dir() {
         let temp = std::env::temp_dir().join(format!("futo-panic-test-{}", std::process::id()));
         std::fs::create_dir_all(&temp).unwrap();
         install(temp.clone());

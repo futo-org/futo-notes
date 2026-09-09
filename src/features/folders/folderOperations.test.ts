@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/localNoteStore', () => ({
-  getLocalNoteStore: vi.fn(async () => ({
+  getLocalNoteStoreSync: vi.fn(() => ({
     createFolder: mocks.createFolder,
     moveFolder: mocks.moveFolder,
     renameFolder: mocks.renameFolder,

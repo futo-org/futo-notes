@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { NotePreview } from '$shared/types/note';
-  import { getForYouNotes } from './forYou';
   import { localizedRelativeTime, localizedText } from '$shared/localization';
 
   interface Props {
@@ -9,7 +8,7 @@
   }
 
   let { notes, onnavigate }: Props = $props();
-  const forYouNotes = $derived(getForYouNotes(notes));
+  const forYouNotes = $derived(notes.slice(0, 3));
 
   function handleCardClick(id: string): void {
     onnavigate(id);

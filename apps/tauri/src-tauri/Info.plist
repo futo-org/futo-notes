@@ -2,10 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSCameraUsageDescription</key>
-	<string>FUTO Notes uses the camera to take photos and insert them into your notes.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>FUTO Notes accesses your photo library to insert images into your notes.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSAppTransportSecurity</key>

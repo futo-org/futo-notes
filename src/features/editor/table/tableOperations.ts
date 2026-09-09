@@ -1,8 +1,6 @@
 import type { ParsedTable, TableAlignment, TableCell } from './tableModel';
 
-export type Align = TableAlignment;
-
-function emptyCell(align: Align): TableCell {
+function emptyCell(align: TableAlignment): TableCell {
   return { content: '', align };
 }
 
@@ -39,7 +37,11 @@ export function moveRow(t: ParsedTable, from: number, to: number): ParsedTable {
   return out;
 }
 
-export function addColumn(t: ParsedTable, index: number, align: Align = 'left'): ParsedTable {
+export function addColumn(
+  t: ParsedTable,
+  index: number,
+  align: TableAlignment = 'left',
+): ParsedTable {
   const numCols = t.headers.length;
   const clamped = Math.max(0, Math.min(index, numCols));
   const out = cloneTable(t);
@@ -79,7 +81,7 @@ export function moveColumn(t: ParsedTable, from: number, to: number): ParsedTabl
   return out;
 }
 
-export function setAlign(t: ParsedTable, colIndex: number, align: Align): ParsedTable {
+export function setAlign(t: ParsedTable, colIndex: number, align: TableAlignment): ParsedTable {
   if (colIndex < 0 || colIndex >= t.alignments.length) return t;
   const out = cloneTable(t);
   out.alignments[colIndex] = align;
@@ -90,7 +92,7 @@ export function setAlign(t: ParsedTable, colIndex: number, align: Align): Parsed
   return out;
 }
 
-export function cycleAlign(current: Align): Align {
+export function cycleAlign(current: TableAlignment): TableAlignment {
   if (current === 'left') return 'center';
   if (current === 'center') return 'right';
   return 'left';
@@ -117,7 +119,7 @@ function escapeCell(text: string): string {
   return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim();
 }
 
-function alignmentToken(a: Align): string {
+function alignmentToken(a: TableAlignment): string {
   switch (a) {
     case 'center':
       return ':---:';
@@ -144,9 +146,3 @@ export function serialize(t: ParsedTable): string {
 
   return lines.join('\n');
 }
-
-export function duplicate(t: ParsedTable): ParsedTable {
-  return cloneTable(t);
-}
-
-export type { ParsedTable, TableCell };

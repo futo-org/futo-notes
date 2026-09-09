@@ -59,7 +59,7 @@ against spec. Written so the **next** run is faster. Append freely.
 - Gaps live as inline `> **Gap:**` notes in `docs/spec/*.md`; list them with
   `rg '> \*\*Gap' docs/spec/`. (Until 2026-08-24 these also rolled up into a
   generated `docs/spec/GAPS.md` with closure probes; both were removed — see
-  `docs/plan/scaffolding-simplification.md`. Counts below are historical.)
+  `docs/plan/archive/scaffolding-simplification.md`. Counts below are historical.)
 - **IMPORTANT drift found:** `settings-visual.md` uses `> **Gap (iOS):**` and
   `> **Gap (parity):**` (parenthetical qualifier). GAPS.md says "3 gaps" and
   omits both → the generator regex likely matches only the bare `> **Gap:**`.

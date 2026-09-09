@@ -1,6 +1,6 @@
 # The factory: comparing our editor to Obsidian's (historical record)
 
-**Removed 2026-08-24** (`docs/plan/scaffolding-simplification.md`). The harness lived in
+**Removed 2026-08-24** (`docs/plan/archive/scaffolding-simplification.md`). The harness lived in
 `factory/`; recover the code from git history at the commit that deleted this directory if a parity
 campaign restarts. This file exists so the operational knowledge does not have to be re-learned —
 it is a record of how the thing worked and what it cost, not a set of live instructions.

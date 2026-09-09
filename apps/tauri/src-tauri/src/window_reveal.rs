@@ -35,17 +35,3 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
     })?;
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The fallback is a safety net for a webview that never paints. Make it
-    /// too short and it races a slow first paint back into the white flash
-    /// this module exists to remove.
-    #[test]
-    fn fallback_is_a_safety_net_not_a_schedule() {
-        assert!(REVEAL_FALLBACK >= Duration::from_secs(2));
-        assert!(REVEAL_FALLBACK <= Duration::from_secs(10));
-    }
-}

@@ -20,10 +20,6 @@ describe('imageMimeForExtension', () => {
     expect(imageMimeForExtension(ext)).toBe(mime);
   });
 
-  it('serves SVG as image/svg+xml, not image/png (the rendering bug)', () => {
-    expect(imageMimeForExtension('svg')).toBe('image/svg+xml');
-  });
-
   it('is case-insensitive on the extension', () => {
     expect(imageMimeForExtension('PNG')).toBe('image/png');
     expect(imageMimeForExtension('SVG')).toBe('image/svg+xml');

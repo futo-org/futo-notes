@@ -136,40 +136,40 @@ async function performSync(
   }
 }
 
-export function notifySavedV2(): void {
+export function notifySaved(): void {
   if (!callbacks || !isE2eeConfigured()) return;
   if (!autoPaused) void notifyNoteChanged();
 }
 
-export function pauseSyncV2(): void {
+export function pauseSync(): void {
   paused = true;
 }
-export function resumeSyncV2(): void {
+export function resumeSync(): void {
   paused = false;
 }
 
-export async function pauseAutoSyncV2(): Promise<void> {
+export async function pauseAutoSync(): Promise<void> {
   autoPaused = true;
   await stopLiveSync();
 }
-export function resumeAutoSyncV2(): void {
+export function resumeAutoSync(): void {
   autoPaused = false;
   void ensureLiveSync();
 }
 
-export async function waitForSyncIdleV2(): Promise<void> {
+export async function waitForSyncIdle(): Promise<void> {
   while (syncing) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
 
-export async function requestSyncV2(): Promise<SyncSummary> {
+export async function requestSync(): Promise<SyncSummary> {
   if (!isE2eeConfigured()) throw new Error('Sync not configured');
   if (!callbacks) {
     if (flushPendingSaveFn) await flushPendingSaveFn();
     return await syncE2eeAuto();
   }
-  if (syncing) await waitForSyncIdleV2();
+  if (syncing) await waitForSyncIdle();
   const summary = await performSync('manual', { propagateErrors: true, requireExecution: true });
   if (!summary) {
     throw new Error(
@@ -285,7 +285,7 @@ function scheduleInitialRetry(): void {
   }, delay);
 }
 
-export function startAutoSyncV2(cb: AutoSyncCallbacks): void {
+export function startAutoSync(cb: AutoSyncCallbacks): void {
   callbacks = cb;
   flushPendingSaveFn = cb.flushPendingSave;
   cancelBackgroundRetry();
@@ -331,7 +331,7 @@ export function startAutoSyncV2(cb: AutoSyncCallbacks): void {
   cleanupFns.push(() => window.removeEventListener('focus', focusHandler));
 }
 
-export function stopAutoSyncV2(): void {
+export function stopAutoSync(): void {
   stopPolling();
   liveStateUnlisten?.();
   liveStateUnlisten = null;

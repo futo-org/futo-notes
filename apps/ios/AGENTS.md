@@ -27,9 +27,9 @@ Swift tests, and `just deploy-ios` ship. `just ios-native` and `just ios-native-
 `FUTO_IOS_FFI_PROFILE=dev` for a fast incremental edit loop; set it to `release-ffi` there to run
 the shipped Rust on a simulator or device.
 
-`just build-ios-native` passes `EXCLUDED_ARCHS=x86_64` because `build-rust-ios.sh` assembles an
-arm64-only simulator slice. `just test-ios-native` instead targets one concrete simulator by id, so
-it links without that flag.
+`build-rust-ios.sh` lipos a universal (arm64 + x86_64) simulator slice, so both the generic
+simulator destination `just build-ios-native` uses and the single concrete simulator
+`just test-ios-native` targets link without any `EXCLUDED_ARCHS` override.
 
 ## Constraints
 

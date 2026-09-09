@@ -5,10 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use futo_notes_store::{
     BeforeWrite, BootstrapResult, FileChange, FlushDraftResult, ListingSnapshot, LocalNoteStore,
-    MutationResult, NoteRename, SearchHit, SearchStatus, Snapshot, VaultFile,
+    MutationResult, NoteRename, SearchHit, Snapshot, VaultFile,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::application_state::AppState;
 use crate::background_tasks::blocking;
@@ -109,13 +109,6 @@ fn search_index_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(directory)
 }
 
-fn search_observer(app: &AppHandle) -> Arc<dyn Fn(&SearchStatus) + Send + Sync> {
-    let emit_app = app.clone();
-    Arc::new(move |status: &SearchStatus| {
-        let _ = emit_app.emit("search:status", status);
-    })
-}
-
 pub(crate) fn init_on_startup(app: &AppHandle) {
     let app = app.clone();
     let _ = crate::background_tasks::spawn("futo-local-notes-listing", move || {
@@ -142,8 +135,9 @@ pub async fn local_notes_bootstrap(
     // (and search self-heals on the retry cooldown); the desktop no longer
     // propagates the error with `?`.
     let index_dir = search_index_dir(&app)?;
-    let observer = search_observer(&app);
-    blocking(move || store.bootstrap_with_search(index_dir, observer)).await
+    // Readiness is served by `local_notes_wait_until_search_ready`; nothing
+    // listens for a status event, so the observer is a no-op.
+    blocking(move || store.bootstrap_with_search(index_dir, Arc::new(|_| {}))).await
 }
 
 fn local_notes_startup_listing_impl(store: &LocalNoteStore) -> DesktopListingSnapshot {

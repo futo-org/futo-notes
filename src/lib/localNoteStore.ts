@@ -145,10 +145,6 @@ export function getLocalNoteStoreSync(): LocalNoteStore {
   return localNotes;
 }
 
-export async function getLocalNoteStore(): Promise<LocalNoteStore> {
-  return getLocalNoteStoreSync();
-}
-
 export function _setLocalNoteStoreForTest(store: LocalNoteStore | null): void {
   localNotes = store;
 }

@@ -17,7 +17,7 @@ import com.futo.notes.localization.LocalizedMessage
  *
  * [EditorHost] reads both with [ENGINE_PROBE_JS] and reduces them through
  * [editorEngineFailure]; version numbers survive only as wording in
- * [editorEngineNoticeBody].
+ * [editorEngineNoticeMessage].
  */
 
 private const val BOOTED = "booted"

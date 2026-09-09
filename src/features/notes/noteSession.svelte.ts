@@ -1,7 +1,7 @@
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename } from '$lib/rules';
 import type { NotePreview } from '$shared/types/note';
-import { notifySavedV2 } from '$features/sync/autoSyncV2';
+import { notifySaved } from '$features/sync/autoSync';
 import { createNoteSaveQueue } from './noteSaveQueue';
 import { createNoteTitleController } from './createNoteTitleController.svelte';
 import { createNotePersistence } from './createNotePersistence';
@@ -12,12 +12,6 @@ import {
   normalizeTitleForPersistence,
 } from './noteSessionChanges';
 import { getNoteById } from './notes.svelte';
-
-export {
-  editorHasUnseenChanges,
-  isEditorChangeEcho,
-  shouldWriteNoteToDisk,
-} from './noteSessionChanges';
 
 export interface NoteSessionDeps {
   getEditorContent: () => string | undefined;
@@ -64,7 +58,6 @@ export interface NoteSession {
   debouncedSave: (content?: string) => void;
   resumeDraftPersistence: () => void;
   flushSave: () => Promise<void>;
-  awaitSaveIdle: () => Promise<void>;
   runWithSaveLock: <T>(operation: () => Promise<T>) => Promise<T>;
   loadNote: (id: string | null) => Promise<void>;
   handleTitleInput: (event: Event) => void;
@@ -189,7 +182,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   const saveQueue = createNoteSaveQueue({
     save: () => serializePersistence(saveNote),
     hasUnseenChanges: hasUnseenEditorChanges,
-    notifySaved: notifySavedV2,
+    notifySaved,
   });
   const noteLoader = createNoteLoader({
     flushSave: saveQueue.flush,
@@ -292,9 +285,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     get title() {
       return title;
     },
-    set title(v: string) {
-      title = v;
-    },
     get content() {
       return content;
     },
@@ -334,7 +324,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     debouncedSave,
     resumeDraftPersistence: saveQueue.resume,
     flushSave: saveQueue.flush,
-    awaitSaveIdle: saveQueue.awaitSaveIdle,
     runWithSaveLock,
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,

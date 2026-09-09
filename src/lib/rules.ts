@@ -3,15 +3,9 @@ export {
   FORBIDDEN_CHARS_RE,
   MAX_FOLDER_DEPTH,
   MAX_TITLE_LENGTH,
-  sanitizeTitle,
   validateTitle,
   validateFolderName,
-  isValidFolderName,
   hasCaseInsensitiveSiblingCollision,
-  validateFolderPath,
-  isValidFolderPath,
-  pathDepth,
-  TAG_REGEX,
   isValidTagName,
   normalizeTagName,
   extractTags,
@@ -19,4 +13,4 @@ export {
   scanTags,
 } from '@futo-notes/editor';
 export { sanitizeTitle as sanitizeFilename } from '@futo-notes/editor';
-export type { FilenameIssue, FilenameIssueKind, TagMatch } from '@futo-notes/editor';
+export type { FilenameIssueKind } from '@futo-notes/editor';

@@ -36,7 +36,7 @@ Every invocation re-establishes the environment, because `ssh host cmd` gets a n
 that reads no profile: the fnm environment is loaded (node is otherwise **absent from `PATH`**), and
 the exact version in `.nvmrc` is activated once the worktree is checked out. The box needs `fnm`
 installed once — `just remote-doctor` reports it as required and prints the command. `~/.local/bin` and
-`~/.cargo/bin` are prepended (plus `~/.bun/bin` — the E2EE sync test server is a bun project),
+`~/.cargo/bin` are prepended,
 `ANDROID_NDK_HOME` is pinned, and a repo-root `dist/` is created (M20 — `cargo build` needs it to
 exist).
 
@@ -89,7 +89,7 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
 1. **Refused** (exit 2, before any network call) — recipes that need Xcode, the iOS simulator or
    swift-format (`build-rust-ios`, `build-ios-native`, `test-ios-native`, `ios-native*`,
    `deploy-ios`, `lint-swift`, every `sim-*`), recipes whose _purpose_ is the shipped desktop engine
-   (`test-desktop-smoke`, `perf-course`), interactive dev/QA commands
+   (`test-desktop-smoke`), interactive dev/QA commands
    (`tauri-dev`, `test-headed`, `test-ui`, `android-drive`, …), recipes needing root
    (`deploy-deb`, `deploy-rpm`), and ones that manage the machine you are sitting at (`qa-claim`,
    `qa-release`, `qa-clone-target` — the last is APFS `cp -Rc`). Refusal resolves the justfile's

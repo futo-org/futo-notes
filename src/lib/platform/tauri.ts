@@ -8,7 +8,6 @@ export { vaultDisplayPath, vaultStatus } from './tauri/notesRoot';
 const adapter = createTauriAdapter();
 
 export const tauriFS = adapter.fs;
-export const invalidateNotesRootCache = adapter.invalidateNotesRoot;
 export const onFileChange = adapter.onFileChange;
 
 const appConfig = createAppConfigStore({

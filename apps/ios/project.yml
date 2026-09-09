@@ -56,7 +56,7 @@ targets:
         # see .cirrus.yml). Without these a local Release archive ships no
         # CFBundleShortVersionString/CFBundleVersion, which App Store Connect
         # rejects. Keep MARKETING_VERSION in step with the latest release tag.
-        MARKETING_VERSION: "1.5.2"
+        MARKETING_VERSION: "1.7.1"
         CURRENT_PROJECT_VERSION: "1"
         # Export compliance (App Store upload). The app uses only standard
         # cryptography (AES-256-GCM + PBKDF2 for E2EE, TLS for transport) and

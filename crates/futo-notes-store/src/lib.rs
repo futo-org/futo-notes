@@ -114,29 +114,6 @@ pub struct VaultFile {
     pub size_bytes: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FlushOutcome {
-    Wrote,
-    SkippedMissing,
-    SkippedChanged,
-}
-
-/// Outcome of [`LocalNoteStore::create_if_absent`] — an atomic create-if-absent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CreateOutcome {
-    /// No file existed at the id; `content` was created there.
-    Created,
-    /// A file already exists at the id — nothing written (a concurrent writer,
-    /// e.g. a live-sync pull, got there first).
-    Existed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConditionalWriteResult {
-    pub outcome: FlushOutcome,
-    pub mutation: Option<MutationResult>,
-}
-
 /// The single outcome of one draft flush (CONTEXT.md: flush disposition).
 /// Shells render dispositions; they never decide them (ADR-0001).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -473,64 +450,6 @@ impl LocalNoteStore {
                 self.write_raw(original, content, modified_ms)?;
                 self.rename_raw(original, wanted_id)
             }
-        }
-    }
-
-    pub fn write_if_unchanged(
-        &self,
-        id: &str,
-        expected: &str,
-        content: &str,
-    ) -> Result<ConditionalWriteResult, String> {
-        let _gate = self.lock_gate()?;
-        let _vault_mutation = vault_mutation_guard()?;
-        let path = paths::note_path(&self.root, id)?;
-        match fs::read_to_string(&path) {
-            Ok(current) if current == expected => {
-                let metadata = self.write_raw(id, content, None)?;
-                Ok(ConditionalWriteResult {
-                    outcome: FlushOutcome::Wrote,
-                    mutation: Some(self.upsert_mutation(metadata)),
-                })
-            }
-            Ok(_) => Ok(ConditionalWriteResult {
-                outcome: FlushOutcome::SkippedChanged,
-                mutation: None,
-            }),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Ok(ConditionalWriteResult {
-                    outcome: FlushOutcome::SkippedMissing,
-                    mutation: None,
-                })
-            }
-            Err(error) => Err(io_error(error)),
-        }
-    }
-
-    /// Atomically (re-)create the note at `id` with `content` ONLY IF no file
-    /// exists there yet — a no-replace install via [`create_new_atomic`], so a
-    /// concurrent scan/sync never observes an empty or partial file. The
-    /// editor's leave/background flush uses this to
-    /// honor the peer-delete dirty-keep edit-wins semantic: recreate a note the
-    /// conditional flush just reported [`FlushOutcome::SkippedMissing`] for,
-    /// WITHOUT the unconditional-write clobber risk — a live-sync pull writing
-    /// the same id OUTSIDE this store's serialization cannot have its content
-    /// overwritten. Returns [`CreateOutcome::Existed`] if the id reappeared in
-    /// the window (the caller parks a conflict copy instead). On a
-    /// case-insensitive filesystem (APFS/iOS) a case-variant already on disk
-    /// counts as existing — the safe outcome, we never clobber it.
-    pub fn create_if_absent(&self, id: &str, content: &str) -> Result<CreateOutcome, String> {
-        let _gate = self.lock_gate()?;
-        let _vault_mutation = vault_mutation_guard()?;
-        let path = paths::note_path(&self.root, id)?;
-        let change = FileChange::Changed(note_filename(id));
-        self.before_write
-            .before_write(std::slice::from_ref(&change));
-        if create_new_atomic(&path, content.as_bytes())? {
-            self.search.notify(&change);
-            Ok(CreateOutcome::Created)
-        } else {
-            Ok(CreateOutcome::Existed)
         }
     }
 

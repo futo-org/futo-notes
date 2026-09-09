@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { makePreview } from './notesIndex';
+import { makePreview } from './preview';
 
 // ── makePreview ───────────────────────────────────────────────────────
 

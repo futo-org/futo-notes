@@ -2,7 +2,7 @@ import { getNoteById, noteExists, refreshNotesAfterSync } from '$features/notes/
 import type { NoteSession } from '$features/notes/noteSession.svelte';
 import { updateAppState } from '$shared/state/appState';
 
-import type { SyncTrigger } from './autoSyncV2';
+import type { SyncTrigger } from './autoSync';
 import type { createExternalChangeCoordinator } from './createExternalChangeCoordinator';
 import type { SyncSummary } from './syncServiceE2ee';
 import type { WriteSuppressor } from '$lib/platform/writeSuppression';

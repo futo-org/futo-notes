@@ -5,8 +5,8 @@
 // machine without colliding. The model mirrors the /verify skill's port
 // scheme: the worktree path hashes to a SLOT, and the slot deterministically
 // claims pooled devices (iOS simulators + Android AVDs named futo-qa-0..6)
-// and a sync server (per-slot port + per-slot Postgres DATABASE so parallel
-// runs can't TRUNCATE each other's data).
+// and a sync server (per-slot port + per-slot SQLite database so parallel
+// runs can't clobber each other's data).
 //
 // Ownership is an owner-file per device under ~/.futo-notes-qa/devices/,
 // containing the claiming worktree path. Staleness is self-healing: an owner

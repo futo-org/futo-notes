@@ -52,13 +52,6 @@ export function safeNotePath(base: string, id: string): string {
   return `${base}/${id}.md`;
 }
 
-export function noteParentDir(base: string, id: string): string {
-  ensureSafeNoteId(id);
-  const slash = id.lastIndexOf('/');
-  if (slash === -1) return base;
-  return `${base}/${id.slice(0, slash)}`;
-}
-
 export function idParent(id: string): string {
   const slash = id.lastIndexOf('/');
   return slash === -1 ? '' : id.slice(0, slash);

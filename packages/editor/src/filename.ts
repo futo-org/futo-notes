@@ -34,17 +34,11 @@ export const FORBIDDEN_CHARS_RE = new RegExp(FORBIDDEN_PATTERN, 'g');
 /** Non-global regex for testing if a string contains forbidden characters. */
 const FORBIDDEN_CHARS_TEST = new RegExp(FORBIDDEN_PATTERN);
 
-/** Human-readable list of forbidden characters for UI messages. */
-export const FORBIDDEN_CHARS_DISPLAY = '< > : " / \\ | ? *';
-
 /** Maximum title length (characters, before .md extension). */
 export const MAX_TITLE_LENGTH = 200;
 
 /** Fallback title when input is empty or all-invalid. */
 export const FALLBACK_TITLE = 'Untitled';
-
-/** Legacy replacement char retained for compatibility with existing imports. */
-export const REPLACEMENT_CHAR = '-';
 
 export type FilenameIssueKind =
   | 'forbidden_chars'

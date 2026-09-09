@@ -1,19 +1,19 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-let autoSyncCallbacks: import('./autoSyncV2').AutoSyncCallbacks | null = null;
+let autoSyncCallbacks: import('./autoSync').AutoSyncCallbacks | null = null;
 const tauriEventMocks = vi.hoisted(() => ({
   listeners: new Map<string, (event: { payload: unknown }) => void>(),
 }));
 const openNoteMocks = vi.hoisted(() => ({
   classifyOpenNote: vi.fn(),
 }));
-vi.mock('./autoSyncV2', () => ({
-  startAutoSyncV2: (callbacks: import('./autoSyncV2').AutoSyncCallbacks) => {
+vi.mock('./autoSync', () => ({
+  startAutoSync: (callbacks: import('./autoSync').AutoSyncCallbacks) => {
     autoSyncCallbacks = callbacks;
   },
-  stopAutoSyncV2: vi.fn(),
-  notifySavedV2: vi.fn(),
+  stopAutoSync: vi.fn(),
+  notifySaved: vi.fn(),
 }));
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async (event: string, listener: (event: { payload: unknown }) => void) => {
@@ -29,7 +29,7 @@ vi.mock('$shared/state/appState', () => ({ updateAppState: vi.fn(async () => {})
 const rescanLocalNotes = vi.hoisted(() => vi.fn(async () => {}));
 const refreshNotesAfterSync = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('$lib/localNoteStore', () => ({
-  getLocalNoteStore: vi.fn(async () => ({ rescan: rescanLocalNotes })),
+  getLocalNoteStoreSync: vi.fn(() => ({ rescan: rescanLocalNotes })),
 }));
 vi.mock('$features/notes/notes.svelte', () => ({
   updateNote: vi.fn(async (id: string) => ({ id, mtime: 0, disposition: 'wrote' })),
@@ -108,7 +108,6 @@ function makeSession(overrides: Partial<SessionState> = {}) {
   const cancelAndClear = vi.fn(() => {
     state.id = null;
   });
-  const awaitSaveIdle = vi.fn(async () => {});
   const session = {
     get title() {
       return state.title;
@@ -142,7 +141,6 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     },
     flushSave: vi.fn(async () => {}),
     resumeDraftPersistence: vi.fn(),
-    awaitSaveIdle,
     applyExternalContent,
     rebaseSavedContent,
     applyRemoteRename,
@@ -154,7 +152,6 @@ function makeSession(overrides: Partial<SessionState> = {}) {
     applyExternalContent,
     rebaseSavedContent,
     applyRemoteRename,
-    awaitSaveIdle,
     cancelAndClear,
   };
 }

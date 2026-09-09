@@ -47,10 +47,6 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
     }
   }
 
-  async function awaitSaveIdle(): Promise<void> {
-    if (saveInFlight) await saveInFlight;
-  }
-
   async function runQueuedSave(): Promise<void> {
     if (saveInFlight) {
       saveQueued = true;
@@ -88,7 +84,6 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
     schedule,
     resume,
     flush,
-    awaitSaveIdle,
     cancelPending,
   };
 }

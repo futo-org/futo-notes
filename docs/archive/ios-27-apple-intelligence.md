@@ -1,3 +1,5 @@
+> **Archived.** Research notes captured 2026-06-19; not a commitment and not tracked by any plan.
+
 # iOS 27 / macOS 27 Apple Intelligence — Research Notes
 
 > Captured 2026-06-19, ~10 days after the WWDC26 keynote (2026-06-08).

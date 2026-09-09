@@ -1,4 +1,4 @@
-import { isDesktop } from '$lib/platform';
+import { isTauri } from '$lib/platform';
 
 // Right-clicking a webview's chrome opens WebKit's own menu — "Reload",
 // "Services", "Inspect Element". Nothing ends the illusion of a native app
@@ -26,7 +26,7 @@ export function shouldSuppressContextMenu(
 }
 
 export function installDesktopContextMenuGuard(): () => void {
-  if (!isDesktop) return () => {};
+  if (!isTauri) return () => {};
 
   function handleContextMenu(event: MouseEvent): void {
     // An app-owned menu (note/folder rows) already claimed this click.

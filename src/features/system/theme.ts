@@ -105,7 +105,6 @@ export async function applyThemePreference(
   if (apply !== latestApply) return resolved;
   applyResolvedTheme(resolved);
   setNativeWindowAppearance(windowAppearanceFor(preference, resolved));
-  await syncStatusBarTheme(resolved);
   return resolved;
 }
 
@@ -174,8 +173,4 @@ export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void)
     p?.();
     f?.();
   };
-}
-
-async function syncStatusBarTheme(theme: ResolvedTheme): Promise<void> {
-  void theme;
 }

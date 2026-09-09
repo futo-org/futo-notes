@@ -1,4 +1,4 @@
-import { getLocalNoteStore } from '$lib/localNoteStore';
+import { getLocalNoteStoreSync } from '$lib/localNoteStore';
 import {
   _injectTestNote,
   createNote,
@@ -15,7 +15,7 @@ export async function installDevelopmentHooks(): Promise<void> {
   if (!testHooksEnabled()) return;
 
   installPerfCourse();
-  const notes = await getLocalNoteStore();
+  const notes = getLocalNoteStoreSync();
   Object.assign(window, {
     __testNotes: {
       createNote,

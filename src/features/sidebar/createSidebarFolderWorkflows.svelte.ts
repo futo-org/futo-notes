@@ -6,10 +6,8 @@ import {
   confirmDeleteSidebarFolder,
   confirmDeleteSidebarNote,
   moveSidebarFolder,
-  moveSidebarFolderToRoot,
   moveSidebarNote,
   moveSidebarNoteToFolder,
-  moveSidebarNoteToRoot,
   renameSidebarFolder,
   renameSidebarNote,
 } from './sidebarFolderMutations';
@@ -207,9 +205,9 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     closeFolderPicker,
     moveNoteToFolder: (noteId: string, folderPath: string) =>
       moveSidebarNoteToFolder(noteId, folderPath, options),
-    moveNoteToRoot: (noteId: string) => moveSidebarNoteToRoot(noteId, options),
+    moveNoteToRoot: (noteId: string) => moveSidebarNoteToFolder(noteId, '', options),
     moveFolder: (folderPath: string, targetPath: string) =>
       moveSidebarFolder(folderPath, targetPath, options),
-    moveFolderToRoot: (folderPath: string) => moveSidebarFolderToRoot(folderPath, options),
+    moveFolderToRoot: (folderPath: string) => moveSidebarFolder(folderPath, '', options),
   };
 }

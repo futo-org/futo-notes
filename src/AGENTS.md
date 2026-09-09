@@ -31,18 +31,13 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **Adding markdown elements**: Put traversal in `src/features/editor/live-preview/buildLiveMarkdownDecorations.ts`, element-specific processing in the matching `src/features/editor/live-preview/*Decorations.ts` module, and styling in the matching `src/styles/markdown-*.css` capability file. Keep `liveMarkdownTransform.ts` and `src/styles/markdown.css` as public facades. Test with `tests/gfm-test-note.md`.
 - **Theme tokens**: Tailwind v4; `src/styles/theme.css` → `@theme` block (primary, text, border, surface, muted, bg). Dark mode is `[data-theme='dark']` overrides — there is no `dark:` variant.
 - **New persisted setting**: add the field to `AppState` (`src/shared/state/appState.ts`), guard it in `sanitize()`, default it in `defaultState()`, then thread it through the `AppPreferences` facade. UI-layout state (sidebar width, open folders, tabs) goes in `.app-config.json` via `getConfig`/`saveConfig` instead.
-- **Toasts and dialogs**: `showGlobalToast()` from non-component code; `confirmDialog()` / `ask()` / `message()` from `@tauri-apps/plugin-dialog`. `window.confirm()`/`alert()` do **not** block in Tauri's webview.
+- **Toasts and dialogs**: `showGlobalToast()` from non-component code; `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`) for confirmations — never import `@tauri-apps/plugin-dialog` from a component (the platform-discipline gate rejects it). `window.confirm()`/`alert()` do **not** block in Tauri's webview.
 - **Platform-specific behavior**: Implement in `PlatformFS` interface, never branch on platform in components.
 - **Search**: Full-text search is owned solely by the shared Rust local-note store. UI code consumes ranked note IDs and must not build, persist, or maintain a second body index in JavaScript. Synchronous wikilink completion filters note IDs from `notesCache`.
 
 ## Tauri MCP Shortcuts
 
-Use `webview-execute-js` against the live app and call:
-
-- `await window.__testSync.connect('http://127.0.0.1:3100', 'testing123')` on desktop
-- `await window.__testSync.status()`
-- `await window.__testSync.syncNow()`
-- `await window.__testSync.disconnect()`
+The dev-only `window.__testSync` hooks and the MCP bridge are documented once, in `apps/tauri/AGENTS.md` (§Tauri MCP).
 
 ## Testing
 

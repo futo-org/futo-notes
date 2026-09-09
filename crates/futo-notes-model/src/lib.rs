@@ -15,7 +15,6 @@
 //! (`crates/futo-notes-model/tests/conformance.rs`).
 
 pub mod filename;
-pub mod image;
 pub mod note;
 pub mod tags;
 pub mod wikilinks;
@@ -31,7 +30,7 @@ pub use filename::{
     has_case_insensitive_sibling_collision, is_valid_folder_name, is_valid_folder_path,
     is_windows_reserved_name, path_depth, validate_folder_name, validate_folder_path,
 };
-pub use image::{is_image_filename, IMAGE_EXTENSIONS};
+pub use futo_notes_core::image::{is_image_filename, IMAGE_EXTENSIONS};
 pub use note::{
     make_id, make_preview, make_rich_preview, note_tags, sanitize_folder_path, split_id,
     IMAGE_PLACEHOLDER, WELCOME_NOTE, WELCOME_NOTE_ID,

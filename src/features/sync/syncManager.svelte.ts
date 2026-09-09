@@ -5,7 +5,7 @@ import { writeSuppressor } from '$lib/platform/writeSuppression';
 import { createSyncCoordinator, type SyncCoordinator } from './syncCoordinator';
 import type { FileChangeEvent } from '$lib/platform/types';
 import type { SyncSummary } from './syncServiceE2ee';
-import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2, type SyncTrigger } from './autoSyncV2';
+import { startAutoSync, stopAutoSync, notifySaved, type SyncTrigger } from './autoSync';
 import {
   createExternalChangeCoordinator,
   type OpenNoteReconcileResult,
@@ -199,8 +199,6 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let live = $state(false);
   const failureState = createSyncFailureState(deps.showToast);
 
-  const notifySaved = notifySavedV2;
-
   // The one way an engine-reported rename reaches the UI, whichever path
   // applies it: the executor's FollowRename verdict or sync completion's
   // background projection. Tab/route and open session move together, so they
@@ -277,13 +275,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         onIndicatorChange: (visible) => {
           syncIndicatorVisible = visible;
         },
-        onOfflineChange: (offline) => {
-          syncOffline = offline;
-        },
       },
     );
     const coord = syncCoord;
-    startAutoSyncV2({
+    startAutoSync({
       onSyncComplete: (summary, trigger) => void handleSyncComplete(summary, trigger),
       onSyncError: (err, trigger) => {
         failureState.reportFailure(syncErrorDedupeKey(err), {
@@ -295,7 +290,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       },
       flushPendingSave: deps.session.flushSave,
       shouldDeferSync: coord.shouldDeferSync,
-      onOfflineChange: coord.onOfflineChange,
+      onOfflineChange: (offline) => {
+        syncOffline = offline;
+      },
       onSyncStateChange: coord.onSyncStateChange,
     });
 
@@ -320,7 +317,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     }
 
     return () => {
-      stopAutoSyncV2();
+      stopAutoSync();
       for (const un of liveUnlisteners) un();
       liveUnlisteners = [];
       externalChanges.stop();

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SearchResultItem } from '$shared/types/search';
+  import type { NotePreview } from '$shared/types/note';
   import { search } from '$features/notes/notes.svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
   import { localizedText } from '$shared/localization';
@@ -17,7 +17,7 @@
   let selectedIndex = $state(-1);
   let resultEls: HTMLElement[] = $state([]);
 
-  let results: SearchResultItem[] = $state([]);
+  let results: NotePreview[] = $state([]);
 
   let keywordRequestId = 0;
 
@@ -87,7 +87,7 @@
     }
     if (event.key === 'Enter' && selectedIndex >= 0 && results[selectedIndex]) {
       event.preventDefault();
-      onselect(results[selectedIndex].note.id);
+      onselect(results[selectedIndex].id);
       return;
     }
   }
@@ -150,16 +150,16 @@
     </div>
 
     <div class="search-results">
-      {#each results as result, i (result.note.id)}
+      {#each results as result, i (result.id)}
         <button
           class="search-result-item"
           class:selected={i === selectedIndex}
           bind:this={resultEls[i]}
-          onclick={(e) => onselect(result.note.id, e)}
+          onclick={(e) => onselect(result.id, e)}
           onauxclick={(e) => {
             if (e.button === 1) {
               e.preventDefault();
-              onselect(result.note.id, e);
+              onselect(result.id, e);
             }
           }}
           onpointerenter={() => {
@@ -167,14 +167,14 @@
           }}
         >
           <div class="search-result-title">
-            <span class="search-result-leaf">{result.note.title.split('/').pop()}</span>
-            {#if result.note.id.includes('/')}
-              {@const parent = result.note.id.split('/').slice(-2, -1)[0]}
+            <span class="search-result-leaf">{result.title.split('/').pop()}</span>
+            {#if result.id.includes('/')}
+              {@const parent = result.id.split('/').slice(-2, -1)[0]}
               <span class="search-result-folder-badge" data-testid="folder-badge">{parent}</span>
             {/if}
           </div>
-          {#if result.note.preview}
-            <div class="search-result-preview">{result.note.preview}</div>
+          {#if result.preview}
+            <div class="search-result-preview">{result.preview}</div>
           {/if}
         </button>
       {:else}

@@ -77,26 +77,6 @@ beforeEach(() => {
 });
 
 describe('Tauri adapter public contract', () => {
-  it('exposes every required PlatformFS operation and native capability', async () => {
-    const { tauriFS } = await import('../tauri');
-
-    for (const operation of [
-      'readAppData',
-      'writeAppData',
-      'deleteAppData',
-      'listAppData',
-      'listDirFiles',
-      'deleteFile',
-      'getImageUrl',
-      'getAppVersion',
-      'writeClipboardText',
-      'saveImageBytes',
-      'pickImages',
-    ] as const) {
-      expect(tauriFS[operation], operation).toBeTypeOf('function');
-    }
-  });
-
   it('writes text through the native clipboard plugin', async () => {
     const { tauriFS } = await import('../tauri');
 

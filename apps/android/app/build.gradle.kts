@@ -174,14 +174,11 @@ dependencies {
     // FileProvider (camera capture staging for the editor image picker).
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     // View-based Material Components: supplies the app's manifest theme
     // (Theme.Material3.DayNight.NoActionBar) used as the Activity window theme.
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.navigation:navigation-compose:2.8.0")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.5")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.5")
 
     // UniFFI-generated Kotlin bindings use JNA to call libfuto_notes_ffi.so.

@@ -1,5 +1,5 @@
 import { getAppState, getCachedPreferences } from '$shared/state/appState';
-import { requestSyncV2, wasSyncErrorReported } from '$features/sync/autoSyncV2';
+import { requestSync, wasSyncErrorReported } from '$features/sync/autoSync';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
 import {
   localizedText,
@@ -57,7 +57,7 @@ export function createSyncSettings() {
       connectPhase = { path: 'sync.progress.syncingNotes' };
       setSyncProgressListener((progress) => (connectPhase = syncProgressMessage(progress)));
       try {
-        await requestSyncV2();
+        await requestSync();
       } finally {
         setSyncProgressListener(null);
       }
@@ -122,7 +122,7 @@ export function createSyncSettings() {
         passwordSaved = hasStoredSyncPassword();
         connected = true;
       }
-      await requestSyncV2();
+      await requestSync();
       connected = Boolean(getAppState().e2eeAuthToken);
       lastSyncedAt = getCachedPreferences().sync.lastSyncedAt;
       status = null;

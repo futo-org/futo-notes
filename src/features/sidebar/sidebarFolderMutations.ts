@@ -264,23 +264,17 @@ export async function moveSidebarNoteToFolder(
   }
 }
 
-export async function moveSidebarNoteToRoot(
-  noteId: string,
-  options: SidebarMutationOptions,
-): Promise<void> {
-  try {
-    await moveSidebarNote(noteId, '', options);
-  } finally {
-    clearDragHoverExpanded();
-  }
-}
-
+/** Moves a folder under `targetPath`; an empty `targetPath` is the vault root. */
 export async function moveSidebarFolder(
   folderPath: string,
   targetPath: string,
   options: SidebarMutationOptions,
 ): Promise<void> {
-  if (folderPath === targetPath || targetPath.startsWith(`${folderPath}/`)) return;
+  if (targetPath === '') {
+    if (idLeaf(folderPath) === folderPath) return; // already at the root
+  } else if (folderPath === targetPath || targetPath.startsWith(`${folderPath}/`)) {
+    return;
+  }
   await runWithActiveNoteLockIfInFolder(folderPath, options, async () => {
     const result = await moveFolder(folderPath, targetPath);
     if (!result.ok) {
@@ -289,26 +283,11 @@ export async function moveSidebarFolder(
     }
     options.onNoteIdsRenamed(result.renames ?? []);
     retargetActiveNote(result.renames, options);
-    showGlobalToast({ path: 'folders.movedTo', arguments: { destination: targetPath } });
-    clearDragHoverExpanded();
-  });
-}
-
-export async function moveSidebarFolderToRoot(
-  folderPath: string,
-  options: SidebarMutationOptions,
-): Promise<void> {
-  const leaf = idLeaf(folderPath);
-  if (folderPath === leaf) return;
-  await runWithActiveNoteLockIfInFolder(folderPath, options, async () => {
-    const result = await moveFolder(folderPath, '');
-    if (!result.ok) {
-      showGlobalToast(result.error ?? { path: 'folders.errors.moveFailed' });
-      return;
-    }
-    options.onNoteIdsRenamed(result.renames ?? []);
-    retargetActiveNote(result.renames, options);
-    showGlobalToast({ path: 'folders.movedToNotes' });
+    showGlobalToast(
+      targetPath
+        ? { path: 'folders.movedTo', arguments: { destination: targetPath } }
+        : { path: 'folders.movedToNotes' },
+    );
     clearDragHoverExpanded();
   });
 }

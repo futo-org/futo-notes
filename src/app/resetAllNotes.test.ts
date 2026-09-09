@@ -1,7 +1,7 @@
 // Regression: Full reset while connected pushed REAL deletions to the sync
 // server (settings.md "Full reset", 2026-07-02 QA).
 //
-// deleteAllNotes() used to pause→wipe→resume: `resumeSyncV2()` re-armed the
+// deleteAllNotes() used to pause→wipe→resume: `resumeSync()` re-armed the
 // still-authenticated in-memory session before the caller's
 // `window.location.reload()` landed, and in that window the resumed sync/live
 // loop diffed the emptied vault against the persisted object map and pushed
@@ -14,12 +14,12 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 vi.mock('$lib/platform');
 const resetVault = vi.hoisted(() => vi.fn());
 vi.mock('$lib/localNoteStore', () => ({
-  getLocalNoteStore: vi.fn(async () => ({ reset: resetVault })),
+  getLocalNoteStoreSync: vi.fn(() => ({ reset: resetVault })),
 }));
-vi.mock('$features/sync/autoSyncV2', () => ({
-  pauseSyncV2: vi.fn(),
-  resumeSyncV2: vi.fn(),
-  waitForSyncIdleV2: vi.fn(),
+vi.mock('$features/sync/autoSync', () => ({
+  pauseSync: vi.fn(),
+  resumeSync: vi.fn(),
+  waitForSyncIdle: vi.fn(),
 }));
 vi.mock('$features/sync/syncServiceE2ee', () => ({
   stopLiveSync: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock('$features/sync/syncServiceE2ee', () => ({
 }));
 
 import { deleteAllNotes } from '$features/notes/notes.svelte';
-import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from '$features/sync/autoSyncV2';
+import { pauseSync, resumeSync, waitForSyncIdle } from '$features/sync/autoSync';
 import { disconnectE2ee } from '$features/sync/syncServiceE2ee';
 
 /** First invocation order of a mock, for cross-mock sequencing assertions. */
@@ -53,15 +53,15 @@ describe('deleteAllNotes (Full reset) durably kills the sync session', () => {
   it('pauses and drains in-flight sync before disconnecting', async () => {
     await deleteAllNotes();
 
-    expect(callOrder(pauseSyncV2)).toBeLessThan(callOrder(disconnectE2ee));
-    expect(callOrder(waitForSyncIdleV2)).toBeLessThan(callOrder(disconnectE2ee));
+    expect(callOrder(pauseSync)).toBeLessThan(callOrder(disconnectE2ee));
+    expect(callOrder(waitForSyncIdle)).toBeLessThan(callOrder(disconnectE2ee));
   });
 
   it('never re-arms sync while the session is still connected (resume only after disconnect)', async () => {
     await deleteAllNotes();
 
-    expect(resumeSyncV2).toHaveBeenCalledTimes(1);
-    expect(callOrder(resumeSyncV2)).toBeGreaterThan(callOrder(disconnectE2ee));
+    expect(resumeSync).toHaveBeenCalledTimes(1);
+    expect(callOrder(resumeSync)).toBeGreaterThan(callOrder(disconnectE2ee));
   });
 
   it('a failed wipe still propagates AND un-pauses sync (reset failure must not leave sync dead)', async () => {
@@ -71,7 +71,7 @@ describe('deleteAllNotes (Full reset) durably kills the sync session', () => {
     // The session was already disconnected before the wipe attempt, so
     // un-pausing here cannot push anything; it just keeps the sync layer
     // usable if the user reconnects without restarting.
-    expect(resumeSyncV2).toHaveBeenCalledTimes(1);
+    expect(resumeSync).toHaveBeenCalledTimes(1);
   });
 
   it('a failed disconnect aborts the reset without touching the vault', async () => {
@@ -82,6 +82,6 @@ describe('deleteAllNotes (Full reset) durably kills the sync session', () => {
     // that produced the mass-tombstone push). Sync is un-paused so the
     // still-connected session keeps working normally.
     expect(resetVault).not.toHaveBeenCalled();
-    expect(resumeSyncV2).toHaveBeenCalledTimes(1);
+    expect(resumeSync).toHaveBeenCalledTimes(1);
   });
 });

@@ -54,7 +54,7 @@ internal const val SEARCH_READY_TIMEOUT_MS: ULong = 5_000uL
 /** An open editor's unsaved draft: the note [id] to persist, the [content] to
  *  write, and [base] — the content the editor believes is on disk (its
  *  savedContent). [base] is the expected-previous for the conditional flush
- *  (see [NotesStore.flushAsync] → `write_if_unchanged`): the flush writes only
+ *  (see [NotesStore.flushAsync] → `flush_draft`): the flush writes only
  *  if the note still holds [base], so a note deleted or sync-adopted while
  *  backgrounded is neither resurrected nor clobbered. Mirrors the iOS
  *  `pendingDraft` tuple. */
@@ -308,19 +308,6 @@ class NotesStore(notesRoot: File, searchIndex: File) {
                 android.util.Log.i("FutoStartup", "initial scan complete: ${notes.size} notes")
             }
         }
-    }
-
-    /** Fire-and-forget rescan for non-coroutine callers (e.g. the [SyncManager]
-     *  live-pull callback, which is a plain lambda). Launches on the store's
-     *  main-immediate scope; the scan itself still runs on IO inside [reload]. */
-    fun reloadAsync() {
-        scope.launch { reload() }
-    }
-
-    /** Rescan the vault off the main thread, then publish on the main thread. */
-    suspend fun reload() {
-        val snapshot = withCore { core.scan() }
-        applySnapshot(snapshot.notes, snapshot.folders)
     }
 
     suspend fun read(id: String): String = withCore { core.read(id) }

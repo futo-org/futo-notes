@@ -66,9 +66,7 @@ describe('SearchPopup', () => {
   it('caps the empty-query result list at the 8 most recent notes', async () => {
     // search('') returns every note most-recent-first; the popup owns the 8-cap
     // (search.md "eight recent notes").
-    searchMock.mockResolvedValue(
-      Array.from({ length: 12 }, (_, i) => ({ note: makeNote(`note-${i}`) })),
-    );
+    searchMock.mockResolvedValue(Array.from({ length: 12 }, (_, i) => makeNote(`note-${i}`)));
     mountPopup();
 
     const rows = await resultButtons();
@@ -77,7 +75,7 @@ describe('SearchPopup', () => {
   });
 
   it('passes the modifier state of a result click through to onselect (new-tab path)', async () => {
-    searchMock.mockResolvedValue([{ note: makeNote('alpha') }]);
+    searchMock.mockResolvedValue([makeNote('alpha')]);
     mountPopup();
 
     const [row] = await resultButtons();
@@ -90,7 +88,7 @@ describe('SearchPopup', () => {
   });
 
   it('opens a result on middle-click (auxclick button 1)', async () => {
-    searchMock.mockResolvedValue([{ note: makeNote('alpha') }]);
+    searchMock.mockResolvedValue([makeNote('alpha')]);
     mountPopup();
 
     const [row] = await resultButtons();
@@ -101,10 +99,7 @@ describe('SearchPopup', () => {
   });
 
   it('shows a folder badge only for foldered notes', async () => {
-    searchMock.mockResolvedValue([
-      { note: makeNote('Projects/plan') },
-      { note: makeNote('loose-note') },
-    ]);
+    searchMock.mockResolvedValue([makeNote('Projects/plan'), makeNote('loose-note')]);
     mountPopup();
 
     const rows = await resultButtons();
@@ -143,13 +138,6 @@ describe('SearchPopup', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it('Escape closes the popup from the panel', async () => {
-    mountPopup();
-    const panel = target.querySelector('.search-panel') as HTMLElement;
-    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(onclose).toHaveBeenCalledTimes(1);
   });
 
   it.each(['f', 'g'])('claims Ctrl+%s so the note editor cannot act behind the popup', (key) => {

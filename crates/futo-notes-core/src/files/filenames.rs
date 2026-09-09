@@ -211,13 +211,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_title_is_readonly() {
-        let title = "hello<world>";
-        assert_eq!(validate_title(title), validate_title(title));
-        assert_eq!(title, "hello<world>");
-    }
-
-    #[test]
     fn sanitize_is_idempotent() {
         for input in [
             "hello<world>",

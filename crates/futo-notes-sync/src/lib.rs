@@ -87,11 +87,8 @@ pub async fn run_sync(
     .await
 }
 
+/// Test-only: demote a vault's live sync state to ancestry (what disconnect does).
 #[doc(hidden)]
-pub mod state {
-    pub use crate::checkpoint::{ConnectedState, ObjectState as E2eeObjectMapEntry};
-
-    pub fn demote_state_to_ancestry(root: &std::path::Path) -> Result<(), String> {
-        crate::checkpoint::demote(root)
-    }
+pub fn demote_state_to_ancestry(root: &std::path::Path) -> Result<(), String> {
+    checkpoint::demote(root)
 }

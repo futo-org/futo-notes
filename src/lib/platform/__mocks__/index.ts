@@ -11,8 +11,6 @@ globalStore.__futoTestFS ??= createNodeFS();
 globalStore.__futoActiveFS ??= globalStore.__futoTestFS;
 
 export const testFS = globalStore.__futoTestFS;
-export { createNodeFS };
-export type { TestPlatformFS };
 
 export function setActiveFS(fs: TestPlatformFS): void {
   globalStore.__futoActiveFS = fs;
@@ -24,7 +22,6 @@ export function resetActiveFS(): void {
 
 export const platformName: PlatformName = 'web';
 export const isTauri = false;
-export const isDesktop = false;
 export const hasFileSystem = true;
 
 export async function getPlatformFS(): Promise<PlatformFS> {

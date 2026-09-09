@@ -6,7 +6,7 @@ import {
   type AppPreferences,
   type AppState,
 } from '$shared/state/appState';
-import { pauseAutoSyncV2, requestSyncV2, resumeAutoSyncV2 } from './autoSyncV2';
+import { pauseAutoSync, requestSync, resumeAutoSync } from './autoSync';
 import { connectE2ee, disconnectE2ee, type SyncSummary } from './syncServiceE2ee';
 
 export interface TestSyncStatus {
@@ -60,7 +60,7 @@ export async function testSyncNow(): Promise<{
   summary: SyncSummary;
   status: TestSyncStatus;
 }> {
-  const summary = await requestSyncV2();
+  const summary = await requestSync();
   return {
     summary,
     status: getTestSyncStatus(),
@@ -78,7 +78,7 @@ export function installTestSync(target: Window = window): void {
     status: getTestSyncStatus,
     syncNow: testSyncNow,
     disconnect: testDisconnectSync,
-    pauseAutoSync: pauseAutoSyncV2,
-    resumeAutoSync: resumeAutoSyncV2,
+    pauseAutoSync,
+    resumeAutoSync,
   };
 }

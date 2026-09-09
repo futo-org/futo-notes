@@ -21,22 +21,31 @@ apps/android/
 ├── settings.gradle.kts / build.gradle.kts / gradle.properties
 └── app/
     ├── build.gradle.kts            # Compose + JNA (for UniFFI) + coroutines
-    └── src/main/
-        ├── AndroidManifest.xml
-        ├── assets/editor.html      # staged from the editor build (gitignored)
-        ├── jniLibs/<abi>/*.so      # staged by build-rust-android.sh (gitignored)
-        └── java/
-            ├── com/futo/notes/     # Compose UI + thin FFI shells
-            │   ├── MainActivity.kt
-            │   ├── NotesStore.kt    # reactive shell over the Rust NoteStore
-            │   ├── SyncManager.kt   # reactive shell over the Rust SyncClient
-            │   └── ui/{NoteListScreen,NoteEditorScreen,SyncScreen,EditorWebView}.kt
-            └── uniffi/futo_notes_ffi/futo_notes_ffi.kt  # generated (gitignored)
+    └── src/
+        ├── main/
+        │   ├── AndroidManifest.xml
+        │   ├── assets/editor.html      # staged from the editor build (gitignored)
+        │   ├── jniLibs/<abi>/*.so      # staged by build-rust-android.sh (gitignored)
+        │   ├── res/                    # fonts, launcher icons; strings are GENERATED
+        │   └── java/
+        │       ├── com/futo/notes/
+        │       │   ├── MainActivity.kt
+        │       │   ├── NotesStore.kt         # reactive shell over the Rust NoteStore
+        │       │   ├── SyncManager.kt        # reactive shell over the Rust SyncClient
+        │       │   ├── localization/         # catalog runtime (shared fixture-locked)
+        │       │   ├── storage/              # storage location + vault migration
+        │       │   └── ui/                   # screens, EditorWebView, components/, navigation/, theme/
+        │       └── uniffi/futo_notes_ffi/futo_notes_ffi.kt  # generated (gitignored)
+        ├── debug/                  # debug-only surfaces (testhook/)
+        ├── release/                # no-op stand-ins for the debug-only surfaces
+        └── test/                   # JVM unit tests
 ```
 
-The three Compose screens mirror the iOS `NoteListView`, `NoteEditorView`,
-and `SyncView`. `EditorWebView.kt` is the Android counterpart of the iOS
-`EditorWebView.swift` (same bridge messages: `ready` / `change` / `focus`).
+The screens (`NoteListScreen`, `NoteEditorScreen`, `SearchScreen`,
+`SettingsScreen`, `SyncScreen`, `StorageOnboarding`) mirror the iOS app's views.
+`EditorWebView.kt` is the Android counterpart of the iOS `EditorWebView.swift`;
+the bridge messages both hosts handle are listed in the generated
+`ui/BridgeSpec.kt` (source of truth: `packages/editor/src/bridge.ts`).
 
 ## Build & run
 
@@ -66,9 +75,9 @@ pnpm exec vite build --config vite.editor.config.ts # editor.html
 - **Gradle wrapper is committed** and pinned to 8.14.3 (`gradle/wrapper/gradle-wrapper.properties`).
   Use `./gradlew`; don't run `gradle wrapper`, it would overwrite the pin.
 - **Empty-editor soft keyboard.** Android `WebView` can refuse to raise the keyboard for an empty
-  `contenteditable`. `EditorWebView.kt` does not yet carry the iOS swizzle / Tauri "IME shield"
-  equivalent — if a brand-new note won't accept typing until a second tap, port the approach in
-  `docs/learnings/ime-shield-workaround.md`.
+  `contenteditable`; `EditorWebView.kt`'s `focusEditor()` does the JS focus and then the native
+  half (`requestFocus()` + `showKeyboardWhenServed`), because CM6 DOM focus alone does not bind
+  the IME to the WebView.
 - **`usesCleartextTraffic=true` in all build types** (deliberate) so self-hosters can sync to a
   plain `http://` server; note content is E2EE before upload, so cleartext carries only encrypted
   blobs + auth. HTTPS is still recommended.

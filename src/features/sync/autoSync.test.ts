@@ -32,7 +32,7 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: mocks.listen,
 }));
 
-import { startAutoSyncV2, stopAutoSyncV2, type AutoSyncCallbacks } from './autoSyncV2';
+import { startAutoSync, stopAutoSync, type AutoSyncCallbacks } from './autoSync';
 
 function summary() {
   return {
@@ -56,7 +56,7 @@ function callbacks(): AutoSyncCallbacks {
   };
 }
 
-describe('autoSyncV2 polling cadence', () => {
+describe('autoSync polling cadence', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     if (!('navigator' in globalThis)) {
@@ -83,14 +83,14 @@ describe('autoSyncV2 polling cadence', () => {
   });
 
   afterEach(() => {
-    stopAutoSyncV2();
+    stopAutoSync();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
   it('keeps the 15s poll cadence while live sync is disconnected', async () => {
-    startAutoSyncV2(callbacks());
+    startAutoSync(callbacks());
     mocks.settleCredentials();
     await vi.advanceTimersByTimeAsync(8_000);
     mocks.syncE2eeAuto.mockClear();
@@ -101,7 +101,7 @@ describe('autoSyncV2 polling cadence', () => {
   });
 
   it('backs off polling while live sync is connected', async () => {
-    startAutoSyncV2(callbacks());
+    startAutoSync(callbacks());
     mocks.settleCredentials();
     await vi.advanceTimersByTimeAsync(8_000);
     mocks.syncE2eeAuto.mockClear();
@@ -120,7 +120,7 @@ describe('autoSyncV2 polling cadence', () => {
 // mobile perf pass for a shell that no longer runs this code. The first cycle
 // now waits on the one thing it genuinely depends on — the boot credential load
 // that makes `isE2eeConfigured()` answer truthfully — and on nothing else.
-describe('autoSyncV2 first cycle after launch', () => {
+describe('autoSync first cycle after launch', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
@@ -137,13 +137,13 @@ describe('autoSyncV2 first cycle after launch', () => {
   });
 
   afterEach(() => {
-    stopAutoSyncV2();
+    stopAutoSync();
     vi.useRealTimers();
     vi.clearAllMocks();
   });
 
   it('runs the first cycle as soon as boot credentials settle, with no timer wait', async () => {
-    startAutoSyncV2(callbacks());
+    startAutoSync(callbacks());
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.syncE2eeAuto).not.toHaveBeenCalled();
 
@@ -155,7 +155,7 @@ describe('autoSyncV2 first cycle after launch', () => {
 
   it('reports the first cycle as the initial trigger', async () => {
     const cb = callbacks();
-    startAutoSyncV2(cb);
+    startAutoSync(cb);
     mocks.settleCredentials();
     await vi.advanceTimersByTimeAsync(0);
 
@@ -166,7 +166,7 @@ describe('autoSyncV2 first cycle after launch', () => {
     const cb = callbacks();
     const error = new TypeError('Load failed');
     mocks.syncE2eeAuto.mockRejectedValueOnce(error);
-    startAutoSyncV2(cb);
+    startAutoSync(cb);
     mocks.settleCredentials();
     await vi.advanceTimersByTimeAsync(0);
 
@@ -174,7 +174,7 @@ describe('autoSyncV2 first cycle after launch', () => {
   });
 
   it('does not run a second first cycle when the fallback timer comes due', async () => {
-    startAutoSyncV2(callbacks());
+    startAutoSync(callbacks());
     mocks.settleCredentials();
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.syncE2eeAuto).toHaveBeenCalledTimes(1);
@@ -188,7 +188,7 @@ describe('autoSyncV2 first cycle after launch', () => {
   it('still runs a first cycle when nothing ever settles the credentials', async () => {
     // A host that never runs the boot credential hook must not be left with a
     // session that never syncs at all.
-    startAutoSyncV2(callbacks());
+    startAutoSync(callbacks());
     await vi.advanceTimersByTimeAsync(7_000);
     expect(mocks.syncE2eeAuto).not.toHaveBeenCalled();
 
@@ -199,7 +199,7 @@ describe('autoSyncV2 first cycle after launch', () => {
 
   it('retries on the initial ladder when credentials settle to no configured vault', async () => {
     mocks.isE2eeConfigured.mockReturnValue(false);
-    startAutoSyncV2(callbacks());
+    startAutoSync(callbacks());
     mocks.settleCredentials();
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.syncE2eeAuto).not.toHaveBeenCalled();

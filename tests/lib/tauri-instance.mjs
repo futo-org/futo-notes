@@ -95,5 +95,3 @@ export async function startDesktopTauriInstance(name, repoRoot) {
     logFile,
   });
 }
-
-export const startTauriInstance = startDesktopTauriInstance;

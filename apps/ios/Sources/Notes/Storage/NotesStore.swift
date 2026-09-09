@@ -434,7 +434,6 @@ final class NotesStore: ObservableObject {
             title: metadata.title,
             folder: metadata.folder,
             modified: Date(timeIntervalSince1970: Double(metadata.modifiedMs) / 1000.0),
-            preview: metadata.preview,
             richPreview: metadata.richPreview,
             tags: metadata.tags
         )
@@ -658,10 +657,6 @@ final class NotesStore: ObservableObject {
             print("moveFolder failed \(from) -> \(destinationParent): \(error)")
             return nil
         }
-    }
-
-    func noteCount(under folder: String) -> Int {
-        notes.filter { $0.folder == folder || $0.folder.hasPrefix(folder + "/") }.count
     }
 
     func subfolders(of folder: String) -> [String] {

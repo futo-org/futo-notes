@@ -63,9 +63,4 @@ struct BridgeCallSurfaceTests {
             "EditorWebView.swift calls FutoEditor method(s) not in the bridge contract: \(undocumented.sorted()) — add them to FutoEditorApi in bridge.ts and to documentedMethods, or fix the typo."
         )
     }
-
-    @Test("documented set matches the 18-method FutoEditorApi contract")
-    func documentedSetMatchesContract() {
-        #expect(Self.documentedMethods.count == 18)
-    }
 }

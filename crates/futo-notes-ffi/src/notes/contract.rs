@@ -104,38 +104,6 @@ pub enum NoteError {
 }
 
 #[derive(Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum FlushOutcome {
-    Wrote,
-    SkippedMissing,
-    SkippedChanged,
-}
-
-impl From<store::FlushOutcome> for FlushOutcome {
-    fn from(outcome: store::FlushOutcome) -> Self {
-        match outcome {
-            store::FlushOutcome::Wrote => Self::Wrote,
-            store::FlushOutcome::SkippedMissing => Self::SkippedMissing,
-            store::FlushOutcome::SkippedChanged => Self::SkippedChanged,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum CreateOutcome {
-    Created,
-    Existed,
-}
-
-impl From<store::CreateOutcome> for CreateOutcome {
-    fn from(outcome: store::CreateOutcome) -> Self {
-        match outcome {
-            store::CreateOutcome::Created => Self::Created,
-            store::CreateOutcome::Existed => Self::Existed,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum VaultMigrationStatus {
     Migrated,
     EmptySource,
@@ -216,12 +184,6 @@ impl From<store::VaultMigrationOutcome> for VaultMigrationOutcome {
             files: outcome.files,
         }
     }
-}
-
-#[derive(uniffi::Record)]
-pub struct ConditionalWrite {
-    pub outcome: FlushOutcome,
-    pub mutation: Option<NoteMutation>,
 }
 
 /// The single outcome of one draft flush (CONTEXT.md: flush disposition).

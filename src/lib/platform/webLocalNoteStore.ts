@@ -1,4 +1,5 @@
-import { makePreview, noteTags } from '$features/notes/notesIndex';
+import { makePreview } from '@futo-notes/editor';
+import { noteTags } from '$features/notes/notesIndex';
 import type {
   LocalFlushDraftResult,
   LocalNoteBootstrap,

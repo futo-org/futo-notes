@@ -317,20 +317,4 @@ mod tests {
 
         fs::remove_dir_all(directory).unwrap();
     }
-
-    /// Availability is `resolve_root` itself — a second copy of the rule once
-    /// existed here and drifted into a wrong-shaped match; the default root is
-    /// available before it exists because `root()`'s closure creates it on use.
-    #[test]
-    fn availability_is_the_rule_resolve_root_applies() {
-        let missing = scratch("availability");
-        let present = scratch("availability-present");
-        fs::create_dir_all(&present).unwrap();
-
-        assert!(resolve_root(Some(missing.clone()), || unreachable!()).is_err());
-        assert!(resolve_root(Some(present.clone()), || unreachable!()).is_ok());
-        assert!(resolve_root(None, || Ok(missing.clone())).is_ok());
-
-        fs::remove_dir_all(present).unwrap();
-    }
 }

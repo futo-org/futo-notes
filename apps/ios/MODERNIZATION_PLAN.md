@@ -67,8 +67,8 @@ the iOS 18 floor with no concurrency warnings.
 ## Workstream B — State management (`@Observable`, iOS 17+)
 
 App targets iOS 18 but uses the pre-17 `ObservableObject` / `@Published` /
-`@EnvironmentObject` stack throughout (`NotesStore:151`, `SyncManager:8`,
-`CrashReporter:54`, `EditorToolbarState:7`).
+`@EnvironmentObject` stack throughout (`NotesStore.swift`, `SyncManager.swift`,
+`CrashReporter.swift`, `EditorToolbar.swift`).
 
 - [ ] **Migrate all four model classes to `@Observable`.** Views move from
   `@EnvironmentObject` → `@Environment(Type.self)`; ownership moves to `@State`
@@ -80,7 +80,7 @@ App targets iOS 18 but uses the pre-17 `ObservableObject` / `@Published` /
 - [ ] **Fix the per-keystroke note-universe re-push (real perf bug).**
   `NoteEditorView.onReceive(store.$notes)` fires on every autosave
   (each save replaces `notes[idx]`), rebuilds the universe JSON *including
-  `modifiedMs`* (`:291`) which changes every save → defeats `EditorHost`'s
+  `modifiedMs`* which changes every save → defeats `EditorHost`'s
   dedup (`Sources/Editor/EditorWebView.swift`) → `setNotes(...)` is
   re-`evaluateJavaScript`'d
   into the WebView on every keystroke-save. Fix: exclude `modifiedMs` from the
@@ -100,8 +100,7 @@ bridge calls (Web Inspector). Behavior parity for wikilink autocomplete.
 | Hand-rolled empty / no-match `VStack`s | `Sources/Notes/List/NoteListView.swift` | `ContentUnavailableView` / `ContentUnavailableView.search(text:)` (iOS 17+, auto-localized) |
 | `Task.sleep(nanoseconds:)` | `Sources/Notes/Editor/NoteEditorView.swift` | `Task.sleep(for: .milliseconds(400))` |
 | No haptics on create/delete/move | list/editor actions | `.sensoryFeedback(_:trigger:)` (iOS 17+) |
-| Decorative SF Symbols not hidden from VoiceOver; rows not combined | empty states, `NoteRow:507` | `.accessibilityHidden(true)` / `.accessibilityElement(children: .combine)` |
-| UI strings are literals; no String Catalog | everywhere | add a `Localizable` String Catalog before GA |
+| Decorative SF Symbols not hidden from VoiceOver; rows not combined | empty states, `NoteListView.swift` row | `.accessibilityHidden(true)` / `.accessibilityElement(children: .combine)` |
 
 **Verify:** build_sim + simulator screenshot spot-check; VoiceOver pass on the
 list + editor.
@@ -131,12 +130,13 @@ suites, `#expect`/`#require`, parameterized; never XCTest):
   shared image-extension set is now covered).
 - [ ] **`Keychain`** — round-trip + dev/prod service separation
   (`com.futo.notes.dev.sync` vs `com.futo.notes.sync`).
-- [ ] **`NoteVault`** — seeding / CRUD / relink through the Rust core
-  (integration).
+- [x] **`NoteVault`** — seeding / CRUD / relink through the Rust core
+  (`FlushDraftVerbTests` drives write/read/scan/flushDraft against a temp vault;
+  `SearchReadinessWaitTests` covers the readiness path).
 
 The target is wired into `project.yml` (`type: bundle.unit-test`) and runs via
 `just test-ios-native` — a concrete simulator, because `xcodebuild test` cannot
-use a generic destination. CI wiring is deferred (see the verification summary).
+use a generic destination — and in CI as `test:ios-native`.
 
 ---
 
@@ -157,18 +157,15 @@ automatic scroll-edge effect with **no code**.
   materials render.
 
 ### Track 2 — custom surfaces (explicit `glassEffect`, `#available`-gated + material fallback)
-- [ ] **Editor keyboard toolbar (centerpiece)** —
+- [~] **Editor keyboard toolbar (centerpiece)** —
   `Sources/Editor/Toolbar/EditorToolbar.swift` /
-  `EditorToolbarAccessory`. Today: opaque `Theme.surface` `inputAccessoryView`
-  with hand-drawn hairline separators. Convert: keep the
-  `UIHostingController`-in-`inputAccessoryView` hosting, wrap button groups in
-  `GlassEffectContainer`, buttons get `.glassEffect(.regular.interactive(), in:
-  .capsule)`, drop the opaque background + hairlines so it floats as glass over
-  the editor, monochrome icons (tint only to convey meaning). Fallback
-  `.ultraThinMaterial` for < iOS 26.
-- [ ] **SYNCED/LOCAL badge + account header**
-  (`Sources/Settings/SettingsView.swift`) →
-  capsule glass.
+  `EditorToolbarAccessory`. Shipped: the accessory is a keyboard-style
+  `UIInputView` and both capsules use `futoToolbarGlass()` (`glassEffect` on
+  iOS 26, `.regularMaterial` below). Remaining: `GlassEffectContainer` around
+  the button groups, per-button `.glassEffect(.regular.interactive())`, and
+  dropping the group separators.
+- [ ] **SYNCED/LOCAL badge** (`Sources/Settings/SettingsView.swift`) → capsule
+  glass. (There is no separate account header any more — settings.md.)
 - [ ] **Create / sync / settings affordances** → `.buttonStyle(.glass)`; add
   `.searchToolbarBehavior(.minimizable)` on the search field.
 - [ ] **Sheet entry** (new note, move) → `navigationTransitionSource` / zoom
@@ -183,9 +180,10 @@ rather than a boxed webview. The CodeMirror content itself can't be "glass" (web
 content); glass applies to the native frame around it.
 
 ### Deliverable
-- [ ] A reusable `glassEffectWithFallback(_:in:fallbackMaterial:)` `@ViewBuilder`
+- [~] A reusable `glassEffectWithFallback(_:in:fallbackMaterial:)` `@ViewBuilder`
   (per the liquid-glass skill reference), with all custom glass behind
-  `#available(iOS 26, *)`.
+  `#available(iOS 26, *)`. Shipped narrower as `futoToolbarGlass()` (fixed
+  capsule shape and fallback); generalize when a second surface needs it.
 
 **Verify:** build_sim on the iOS 18 floor (confirms it compiles + falls back),
 then screenshot on an **iOS 26 simulator** to confirm glass.

@@ -1430,10 +1430,9 @@ left open because closing it is a behavior change, not a refactor:
     (`imeShieldPlugin` / `imeShield.ts`) and the `just verify-ime-shield` guard
     is gone. The native Compose app never carried it and is fine without it.
     (The `FutoImeConnection` / `EditorImeShield` Kotlin classes only ever lived
-    in the gitignored generated Tauri-Android tree, which is no longer generated;
-    the only surviving artifact is the `WRY_RUSTWEBVIEW_CLASS_EXTENSION` override
-    in `apps/tauri/src-tauri/.cargo/config.toml`, still marked DO-NOT-REMOVE for
-    the Tauri-Android build path.)
+    in the gitignored generated Tauri-Android tree, which is no longer generated,
+    and the `WRY_RUSTWEBVIEW_CLASS_EXTENSION` override that injected them is gone
+    from `apps/tauri/src-tauri/.cargo/config.toml`.)
 - Typing must be free of IME/caret glitches on every WebView the editor runs in.
   _(Android)_
   > **Gap:** on some old Android System WebViews (the Chromium 80–98 tier that

@@ -179,10 +179,9 @@ test-ios-native: build-rust-ios
   echo "==> Simulator: $SIM"
   cd apps/ios
   xcodegen generate
-  # A concrete -destination "id=$SIM" resolves to ONE arm64 simulator, so the
-  # arm64-only FFI sim slice links without EXCLUDED_ARCHS (contrast the generic
-  # destination in build-ios-native). Ad-hoc sign so the app test host launches
-  # with its keychain entitlement (mirrors run.sh).
+  # A concrete -destination "id=$SIM" resolves to ONE simulator (build-rust-ios.sh
+  # lipos a universal sim slice, so either arch links). Ad-hoc sign so the app
+  # test host launches with its keychain entitlement (mirrors run.sh).
   xcodebuild test -project FutoNotesNative.xcodeproj \
     -scheme FutoNotesNative \
     -destination "id=$SIM" \
@@ -410,7 +409,7 @@ test-full:
 # fresh worktree. `pnpm exec vitest ...` from a worktree with no node_modules
 # fails with ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL / 'Command "vitest" not found',
 # which says nothing about the real cause (pc_cd6fa6e7aa76).
-#   just test-one src/features/notes/notes.test.ts
+#   just test-one src/features/notes/noteSession.test.ts
 #   just test-one -t 'renames a note'
 # Run ONE test file or -t pattern (installs deps if the worktree is fresh).
 test-one *args:
@@ -735,9 +734,6 @@ prepush: check test-rust-full
   pnpm run test:cross-platform
   bash scripts/run-ios-stories-if-available.sh
   echo "prepush green — check + rust workspace + full e2e + cross-platform sync + available iOS stories all passed"
-
-ci:
-  pnpm run ci
 
 # Build .deb from current repo state and install it
 deploy-deb:
