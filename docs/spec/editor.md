@@ -775,9 +775,13 @@ EditorWebView.swift, EditorWebView.kt
   softens the clipped icon (and the leading edge once scrolled). Verified on the
   iOS simulator (iPhone 17 Pro 402 pt + Pro Max 440 pt) and the Android emulator
   2026-06-30 — a different edge icon is clipped per width, always to ~half. iOS
-  derives the geometry from `onScrollGeometryChange`; Android from
+  measures the outer slot independently of scroll offset; Android from
   `onGloballyPositioned` (`positionInWindow`) + a measure-tick. → EditorToolbar.swift
   `computeSnap`, EditorToolbar.kt `computeToolbarSnapPx`
+- _(iOS)_ Scrolling or bouncing at either toolbar edge never changes its viewport
+  width; the peek inset follows only the outer slot, button layout, and display
+  scale. Edge fades animate independently, preserving native scroll bounce. →
+  EditorToolbar.swift, EditorToolbarLayoutTests.swift
 - Camera inserts a photo from the device camera or photo library; Image opens
   a file picker. Both save the image into the vault and insert `![](file)`.
   On the native shells the toolbar's Camera/Image buttons reach the host
