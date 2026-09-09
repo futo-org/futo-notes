@@ -69,8 +69,9 @@ impl Bm25Schema {
 pub struct TantivyIndices {
     pub bm25: Index,
     pub bm25_schema: Bm25Schema,
-    pub bm25_writer: IndexWriter,
+    bm25_writer: IndexWriter,
     pub bm25_reader: IndexReader,
+    has_pending_changes: bool,
 }
 
 impl TantivyIndices {
@@ -103,6 +104,7 @@ impl TantivyIndices {
             bm25_schema,
             bm25_writer,
             bm25_reader,
+            has_pending_changes: false,
         })
     }
 
@@ -115,6 +117,7 @@ impl TantivyIndices {
         folder: &str,
         mtime_ms: i64,
     ) {
+        self.has_pending_changes = true;
         let term = Term::from_field_text(self.bm25_schema.note_id, note_id);
         let _ = self.bm25_writer.delete_term(term);
         let mut doc = TantivyDocument::default();
@@ -128,55 +131,48 @@ impl TantivyIndices {
     }
 
     pub fn delete_note(&mut self, note_id: &str) {
+        self.has_pending_changes = true;
         let term = Term::from_field_text(self.bm25_schema.note_id, note_id);
         let _ = self.bm25_writer.delete_term(term);
     }
 
     #[cfg(test)]
     pub fn list_bm25_note_ids(&self) -> Result<Vec<String>, String> {
-        use tantivy::collector::DocSetCollector;
-        use tantivy::query::AllQuery;
-        let searcher = self.bm25_reader.searcher();
-        let doc_addrs = searcher
-            .search(&AllQuery, &DocSetCollector)
-            .map_err(|e| format!("list bm25 docs: {e}"))?;
-        let mut out = Vec::with_capacity(doc_addrs.len());
-        for addr in doc_addrs {
-            let doc: TantivyDocument = searcher
-                .doc(addr)
-                .map_err(|e| format!("bm25 doc fetch: {e}"))?;
-            if let Some(note_id) = read_stored_text(&doc, self.bm25_schema.note_id) {
-                out.push(note_id);
-            }
-        }
-        Ok(out)
+        self.bm25_note_mtimes()
+            .map(|mtimes| mtimes.into_keys().collect())
     }
 
     pub fn bm25_note_mtimes(&self) -> Result<HashMap<String, i64>, String> {
-        use tantivy::collector::DocSetCollector;
-        use tantivy::query::AllQuery;
         let searcher = self.bm25_reader.searcher();
-        let doc_addrs = searcher
-            .search(&AllQuery, &DocSetCollector)
-            .map_err(|e| format!("list bm25 docs: {e}"))?;
-        let mut out = HashMap::with_capacity(doc_addrs.len());
-        for addr in doc_addrs {
-            let doc: TantivyDocument = searcher
-                .doc(addr)
-                .map_err(|e| format!("bm25 doc fetch: {e}"))?;
-            if let Some(note_id) = read_stored_text(&doc, self.bm25_schema.note_id) {
-                let mtime = read_stored_i64(&doc, self.bm25_schema.mtime).unwrap_or(0);
-                out.insert(note_id, mtime);
+        let mut out = HashMap::with_capacity(searcher.num_docs() as usize);
+        for segment in searcher.segment_readers() {
+            // A full scan can decode each compressed block once, in order,
+            // without collecting random addresses or filling the query cache.
+            let store = segment
+                .get_store_reader(0)
+                .map_err(|e| format!("bm25 store reader: {e}"))?;
+            for doc in store.iter::<TantivyDocument>(segment.alive_bitset()) {
+                let doc = doc.map_err(|e| format!("bm25 doc fetch: {e}"))?;
+                if let Some(note_id) = read_stored_text(&doc, self.bm25_schema.note_id) {
+                    let mtime = read_stored_i64(&doc, self.bm25_schema.mtime).unwrap_or(0);
+                    out.insert(note_id, mtime);
+                }
             }
         }
         Ok(out)
     }
 
     pub fn commit_bm25(&mut self) -> Result<(), String> {
-        self.bm25_writer
-            .commit()
-            .map(|_| ())
-            .map_err(|e| format!("bm25 commit: {e}"))?;
+        // Even an empty Tantivy commit persists metadata and replaces its worker
+        // threads. Keep failed writes pending so the next batch can retry them.
+        if self.has_pending_changes {
+            self.bm25_writer
+                .commit()
+                .map_err(|e| format!("bm25 commit: {e}"))?;
+            self.has_pending_changes = false;
+        }
+        // Background merges may have completed even without new note changes.
+        // Reload also retries a previous reader failure after a successful commit.
         self.bm25_reader
             .reload()
             .map_err(|e| format!("bm25 reader reload: {e}"))
@@ -488,6 +484,83 @@ mod tests {
         idx.upsert_note_bm25("alpha", "Alpha", "body2", "", "", 5_000);
         idx.commit_bm25().unwrap();
         assert_eq!(idx.bm25_note_mtimes().unwrap().get("alpha"), Some(&5_000));
+    }
+
+    #[test]
+    fn note_mtimes_exclude_replaced_and_deleted_documents_across_segments() {
+        let (dir, mut idx) = open_indices_in_tempdir();
+        // Keep segment boundaries deterministic, including tombstoned documents.
+        idx.bm25_writer
+            .set_merge_policy(Box::new(tantivy::merge_policy::NoMergePolicy));
+        idx.upsert_note_bm25("旅行/日記", "日記", "old body", "", "旅行", 1_000);
+        idx.upsert_note_bm25("deleted", "Deleted", "old body", "", "", 2_000);
+        idx.upsert_note_bm25("unchanged", "Unchanged", "body", "", "", 0);
+        idx.commit_bm25().unwrap();
+
+        idx.upsert_note_bm25("旅行/日記", "日記", "new body", "", "旅行", 3_000);
+        idx.delete_note("deleted");
+        idx.upsert_note_bm25("new", "New", "new body", "", "", 4_000);
+        idx.commit_bm25().unwrap();
+        assert!(idx.bm25_reader.searcher().segment_readers().len() >= 2);
+
+        // A later uncommitted mutation must not leak into reconciliation metadata.
+        idx.upsert_note_bm25("pending", "Pending", "pending body", "", "", 5_000);
+        let expected = HashMap::from([
+            ("旅行/日記".to_owned(), 3_000),
+            ("unchanged".to_owned(), 0),
+            ("new".to_owned(), 4_000),
+        ]);
+        assert_eq!(idx.bm25_note_mtimes().unwrap(), expected);
+        drop(idx);
+        let reopened = TantivyIndices::open(dir.path()).unwrap();
+        assert_eq!(reopened.bm25_note_mtimes().unwrap(), expected);
+    }
+
+    #[test]
+    fn committing_without_changes_leaves_the_persisted_index_untouched() {
+        let (dir, mut idx) = open_indices_in_tempdir();
+        let metadata_path = dir.path().join("bm25/meta.json");
+        let empty_metadata = std::fs::read(&metadata_path).unwrap();
+        idx.commit_bm25().unwrap();
+        assert_eq!(std::fs::read(&metadata_path).unwrap(), empty_metadata);
+
+        idx.upsert_note_bm25("alpha", "Alpha", "body", "", "", 1_000);
+        idx.commit_bm25().unwrap();
+        let committed_metadata = std::fs::read(&metadata_path).unwrap();
+        assert_ne!(committed_metadata, empty_metadata);
+        assert_eq!(idx.bm25_note_mtimes().unwrap().get("alpha"), Some(&1_000));
+
+        idx.commit_bm25().unwrap();
+        assert_eq!(std::fs::read(&metadata_path).unwrap(), committed_metadata);
+
+        idx.delete_note("alpha");
+        idx.commit_bm25().unwrap();
+        assert!(idx.bm25_note_mtimes().unwrap().is_empty());
+        let deleted_metadata = std::fs::read(&metadata_path).unwrap();
+        idx.commit_bm25().unwrap();
+        assert_eq!(std::fs::read(&metadata_path).unwrap(), deleted_metadata);
+    }
+
+    #[test]
+    fn a_failed_commit_retries_pending_changes_without_another_upsert() {
+        let (dir, mut idx) = open_indices_in_tempdir();
+        idx.upsert_note_bm25("alpha", "Alpha", "body", "", "", 1_000);
+        let metadata_path = dir.path().join("bm25/meta.json");
+        let backup = dir.path().join("original-meta.json");
+        std::fs::rename(&metadata_path, &backup).unwrap();
+        std::fs::create_dir(&metadata_path).unwrap();
+        assert!(idx.commit_bm25().is_err(), "a directory blocks the commit");
+        std::fs::remove_dir(&metadata_path).unwrap();
+        std::fs::rename(&backup, &metadata_path).unwrap();
+
+        idx.commit_bm25().unwrap();
+        assert_eq!(idx.bm25_note_mtimes().unwrap().get("alpha"), Some(&1_000));
+        drop(idx);
+        let reopened = TantivyIndices::open(dir.path()).unwrap();
+        assert_eq!(
+            reopened.bm25_note_mtimes().unwrap().get("alpha"),
+            Some(&1_000)
+        );
     }
 
     fn now_ms() -> i64 {

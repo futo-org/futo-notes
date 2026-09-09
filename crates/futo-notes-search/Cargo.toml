@@ -24,3 +24,11 @@ tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"
 
 # Status structs.
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false }
+tempfile = "3"
+
+[[bench]]
+name = "search"
+harness = false
