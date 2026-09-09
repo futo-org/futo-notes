@@ -113,7 +113,10 @@ fallback is a public deletion-request page (see Privacy policy host).
 - 512×512 app icon + 1024×500 feature graphic + phone screenshots (console
   uploads, not in the repo).
 - Target API 35 ✓ (set in `build.gradle.kts`).
-- Upload an **AAB** (`./gradlew :app:bundleRelease`), not an APK.
+- Upload an **AAB** of the `play` flavor (`./gradlew :app:bundlePlayRelease`),
+  not an APK. The `direct` flavor is the sideload/F-Droid APK and never goes to
+  Play; both carry the same `applicationId` and signing key, so a user can move
+  between them (see `apps/android/AGENTS.md`, "Distribution flavors").
 
 ### CI/CD publishing (automated)
 
@@ -122,7 +125,7 @@ testing** track automatically, using FUTO's shared `publish_playstore.py`
 uploader (the same one grayjay uses — Android Publisher API v3 with a resumable
 chunked upload, transient-error retry, and staged-rollout support):
 
-- `build:android-native` builds a signed APK **and** AAB on tags.
+- `build:android-native` builds a signed `direct` APK **and** `play` AAB on tags.
 - `release:gate` blocks the release if any test job (or artifact) is missing.
 - `publish:android` (gated by `release:gate`) builds the
   `google-api-python-client` venv (`scripts/venv-playstore.sh`) and runs

@@ -124,8 +124,11 @@ build-rust-android:
 build-rust-ios:
   bash scripts/build-rust-ios.sh
 
+# Requires Android SDK + NDK + cargo-ndk + a device/emulator. Builds the
+# `direct` distribution flavor; `FUTO_ANDROID_FLAVOR=play just android-native`
+# installs the Google Play flavor instead (same applicationId, so it replaces
+# whichever is installed).
 # Build + run the native Android Compose app (Rust core + WebView editor).
-# Requires Android SDK + NDK + cargo-ndk + a device/emulator.
 android-native:
   apps/android/run.sh
 
@@ -153,13 +156,17 @@ build-ios-native: build-rust-ios
     -derivedDataPath .build \
     CODE_SIGNING_ALLOWED=NO build | tail -3
 
-# Compile-only sanity for the native Android app (assembleDebug, no install).
+# Assembles BOTH distribution flavors' debug variants (direct =
+# GitLab/Obtainium/F-Droid, play = Google Play) so a flavor-specific source set
+# or buildConfigField that only breaks one of them fails here rather than at
+# release time.
+# Compile-only sanity for the native Android app (both flavors, no install).
 build-android-native: build-rust-android
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/android
-  ./gradlew :app:assembleDebug
+  ./gradlew :app:assembleDirectDebug :app:assemblePlayDebug
 
 # ── Native unit tests ──
 
@@ -188,15 +195,20 @@ test-ios-native: build-rust-ios
     -derivedDataPath .build \
     CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
 
-# JVM unit tests for the native Android app (e.g. SyncManagerDefaultsTest).
 # Depends on build-rust-android so the UniFFI Kotlin bindings (gitignored)
-# exist — compiling the app module needs them.
+# exist — compiling the app module needs them. Runs under BOTH distribution
+# flavors: DistributionFlavorTest asserts a per-flavor constant, so one run
+# would only ever see half of it.
+# JVM unit tests for the native Android app, under both flavors.
 test-android-native: build-rust-android
-  cd apps/android && ./gradlew testDebugUnitTest
+  cd apps/android && ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
 
+# `direct` only: the flavors compile the same androidTest sources against the
+# same applicationId, so running both would install one over the other for no
+# extra signal.
 # Runs Compose instrumentation tests on $ANDROID_SERIAL.
 test-android-native-ui: build-rust-android
-  cd apps/android && ./gradlew connectedDebugAndroidTest
+  cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest
 
 # User-level storage-location stories against the REAL native Android app: the
 # first-run picker, both migration directions, and opening an already-populated
@@ -530,7 +542,7 @@ remote-sync *flags:
 
 # Device/instrumentation legs still need an emulator booted ON the box; KVM
 # there makes those far faster than the Mac's emulation once wired up.
-# Android Rust .so + Kotlin bindings + assembleDebug, then the JVM unit tests.
+# Android Rust .so + Kotlin bindings + both flavors' debug APKs + JVM unit tests.
 remote-android *flags:
   node scripts/remote-test.mjs {{flags}} build-android-native
   node scripts/remote-test.mjs {{flags}} test-android-native
@@ -846,10 +858,19 @@ deploy-rpm:
 # without it Gradle produces an UNSIGNED release APK that cannot be installed, so
 # this refuses up front and says what is missing rather than failing at adb.
 # Honors $ANDROID_SERIAL.
-# Build a RELEASE-signed Android build and install it (com.futo.notes).
-deploy-android:
+# Defaults to the `direct` flavor — what GitLab/Obtainium/F-Droid users get.
+# `just deploy-android play` installs the Google Play flavor's release build
+# instead, which is the only way to put the exact bytes Play will review on a
+# device (Play itself is fed the AAB from CI, and an AAB cannot be adb-installed).
+# Build a RELEASE-signed Android build of one flavor and install it (com.futo.notes).
+deploy-android flavor="direct":
   #!/usr/bin/env bash
   set -euo pipefail
+  case '{{flavor}}' in
+    direct) VARIANT=Direct ;;
+    play) VARIANT=Play ;;
+    *) echo "flavor must be 'direct' or 'play' (got '{{flavor}}')" >&2; exit 1 ;;
+  esac
   if [ ! -f apps/android/keystore.properties ]; then
     echo "No apps/android/keystore.properties — release builds cannot be signed." >&2
     echo "  A release APK without it is unsigned and will not install." >&2
@@ -858,8 +879,8 @@ deploy-android:
   fi
   just build-rust-android
   node_modules/.bin/vite build --config vite.editor.config.ts
-  cd apps/android && ./gradlew :app:assembleRelease
-  APK=$(ls -t app/build/outputs/apk/release/*.apk | head -1)
+  cd apps/android && ./gradlew ":app:assemble${VARIANT}Release"
+  APK=$(ls -t "app/build/outputs/apk/{{flavor}}/release"/*.apk | head -1)
   echo "Installing ${APK} (com.futo.notes)…"
   adb install -r "$APK"
   # Assert the PRODUCTION package is what landed — an unsigned or misconfigured

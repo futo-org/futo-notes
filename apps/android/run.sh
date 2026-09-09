@@ -12,6 +12,20 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
+# Distribution flavor (apps/android/app/build.gradle.kts). `direct` — what
+# GitLab/Obtainium/F-Droid users install — is the dev-loop default; `play`
+# builds the Google Play flavor from the same sources. Both carry the same
+# applicationId, so whichever is installed replaces the other in place.
+FLAVOR="${FUTO_ANDROID_FLAVOR:-direct}"
+case "$FLAVOR" in
+  direct) VARIANT=DirectDebug ;;
+  play) VARIANT=PlayDebug ;;
+  *)
+    echo "FUTO_ANDROID_FLAVOR must be 'direct' or 'play' (got '$FLAVOR')" >&2
+    exit 1
+    ;;
+esac
+
 echo "==> JS deps"
 [ -d node_modules ] || pnpm install
 
@@ -24,10 +38,10 @@ node_modules/.bin/vite build --config vite.editor.config.ts
 mkdir -p apps/android/app/src/main/assets
 cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
 
-echo "==> Building + installing the app"
+echo "==> Building + installing the app ($FLAVOR flavor)"
 cd apps/android
 if [ -x ./gradlew ]; then GRADLE=./gradlew; else GRADLE=gradle; fi
-"$GRADLE" :app:installDebug
+"$GRADLE" ":app:install${VARIANT}"
 
 echo "==> Launching"
 # `am start -n` rather than monkey: monkey exits 251 without launching on

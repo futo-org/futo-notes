@@ -1483,34 +1483,41 @@ build:android-native:
       elif [ -n "$CI_COMMIT_TAG" ]; then
         echo "WARNING: No KEYSTORE_BASE64 set — native Android release APK will be unsigned"
       fi
-    # On tags build BOTH: a release APK (GitLab release / sideload) and a
-    # release AAB (Google Play, uploaded by publish:android). Debug elsewhere
-    # for fast compile verification with the same native shell. The pure-logic
-    # JVM unit tests (:app:testDebugUnitTest) run whenever this job runs — MR/
-    # default pipelines via its changes gate, and ALWAYS on tag builds — so a
-    # release can't ship past a red unit test. This job is a release:gate
-    # dependency, so a failure here blocks publish (M14) without a separate
-    # test job.
+    # On tags build BOTH distribution flavors' shipping artifact: the DIRECT
+    # release APK (GitLab release / F-Droid / Obtainium sideload) and the PLAY
+    # release AAB (Google Play, uploaded by publish:android). Each flavor has
+    # exactly one consumer, so neither the play APK nor the direct AAB is built.
+    # Off tags, both flavors' DEBUG APKs are assembled — that is the only thing
+    # that compiles a play-only source set or buildConfigField before release
+    # day, and directDebug is also the APK test:cross-platform-sync:android
+    # installs. The pure-logic JVM unit tests run for BOTH flavors whenever this
+    # job runs — MR/default pipelines via its changes gate, and ALWAYS on tag
+    # builds — so a release can't ship past a red unit test, and
+    # DistributionFlavorTest's per-flavor assertions are evaluated on both
+    # sides. This job is a release:gate dependency, so a failure here blocks
+    # publish (M14) without a separate test job.
     - |
       if [ -n "$CI_COMMIT_TAG" ]; then
-        cd apps/android && ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease :app:testDebugUnitTest
+        cd apps/android && ./gradlew --no-daemon :app:assembleDirectRelease :app:bundlePlayRelease :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
       else
-        cd apps/android && ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest
+        cd apps/android && ./gradlew --no-daemon :app:assembleDirectDebug :app:assemblePlayDebug :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
       fi
     # M11 guard: a "0 tests executed" gradle run must fail red, not pass green.
     # Assert the JUnit result XML exists and holds at least one <testcase>.
     # $CI_PROJECT_DIR-anchored so it is independent of the cd above (M12).
     - |
-      RESULTS_DIR="$CI_PROJECT_DIR/apps/android/app/build/test-results/testDebugUnitTest"
-      if ! find "$RESULTS_DIR" -name 'TEST-*.xml' -type f 2>/dev/null | grep -q .; then
-        echo "ERROR: no JVM unit-test result XML under $RESULTS_DIR — testDebugUnitTest did not execute" >&2
-        exit 1
-      fi
-      if ! grep -rq '<testcase' "$RESULTS_DIR"; then
-        echo "ERROR: JVM unit-test results contain no <testcase> — 0 tests executed" >&2
-        exit 1
-      fi
-      echo "JVM unit-test results OK: $(grep -rho '<testcase' "$RESULTS_DIR" | wc -l) testcase(s)"
+      for UNIT_TASK in testDirectDebugUnitTest testPlayDebugUnitTest; do
+        RESULTS_DIR="$CI_PROJECT_DIR/apps/android/app/build/test-results/$UNIT_TASK"
+        if ! find "$RESULTS_DIR" -name 'TEST-*.xml' -type f 2>/dev/null | grep -q .; then
+          echo "ERROR: no JVM unit-test result XML under $RESULTS_DIR — $UNIT_TASK did not execute" >&2
+          exit 1
+        fi
+        if ! grep -rq '<testcase' "$RESULTS_DIR"; then
+          echo "ERROR: JVM unit-test results contain no <testcase> — $UNIT_TASK executed 0 tests" >&2
+          exit 1
+        fi
+        echo "JVM unit-test results OK ($UNIT_TASK): $(grep -rho '<testcase' "$RESULTS_DIR" | wc -l) testcase(s)"
+      done
     - bash "$CI_PROJECT_DIR/scripts/ci-android-instrumentation.sh"
   after_script:
     - find apps/android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || true
@@ -1526,8 +1533,12 @@ build:android-native:
       - apps/android/app/build/outputs/bundle/**/*.aab
     reports:
       junit:
-        - apps/android/app/build/test-results/testDebugUnitTest/**/TEST-*.xml
-        - apps/android/app/build/outputs/androidTest-results/connected/debug/TEST-*.xml
+        # Both flavors run the same test classes, so the report carries each
+        # case twice (once per flavor). That is the cost of proving the
+        # per-flavor constants on both sides; the duplicate is cosmetic.
+        - apps/android/app/build/test-results/testDirectDebugUnitTest/**/TEST-*.xml
+        - apps/android/app/build/test-results/testPlayDebugUnitTest/**/TEST-*.xml
+        - apps/android/app/build/outputs/androidTest-results/connected/**/TEST-*.xml
     expire_in: 4 weeks
   # A cold/partial .cache-cargo-native cache makes the Rust FFI compile across
   # 3 NDK ABIs swing wide (observed 8m warm → 27m near-cold → 45m timeout
@@ -2011,8 +2022,11 @@ release:gate:
       check "target/release/bundle/deb/*.deb"
       check "target/release/bundle/rpm/*.rpm"
       check "target/release/bundle/appimage/*.AppImage"
-      check_find "apps/android/app/build/outputs/apk/release" "*release*.apk"
-      check_find "apps/android/app/build/outputs/bundle/release" "*.aab"
+      # One artifact per distribution flavor: the direct APK is what the
+      # `release` job uploads and F-Droid indexes; the play AAB is what
+      # publish:android uploads. A missing one blocks the whole release.
+      check_find "apps/android/app/build/outputs/apk/direct/release" "*release*.apk"
+      check_find "apps/android/app/build/outputs/bundle/playRelease" "*.aab"
       check "buildFutoNotesIOSNative/binary/*.ipa"
       check "buildFutoNotesMacOS/binary/*.dmg"
 
@@ -2099,7 +2113,8 @@ publish:ios:main:
 # Upload the signed AAB to Google Play (internal testing track) using FUTO's
 # shared publish_playstore.py (Android Publisher API v3) — the SAME uploader
 # grayjay uses. Gated by release:gate so a failing test blocks the upload.
-# Consumes the AAB built in build:android-native (no rebuild of the Rust .so).
+# Consumes the PLAY-flavor AAB built in build:android-native (no rebuild of the
+# Rust .so). Play gets `play`; every other channel gets `direct`.
 # Requires:
 #   - PLAY_SERVICE_ACCOUNT_JSON  (CI var, base64 of the Play service-account JSON)
 #   - the app already created in Play Console + that service account granted
@@ -2123,8 +2138,9 @@ publish:android:
         exit 1
       fi
     - echo "$PLAY_SERVICE_ACCOUNT_JSON" | base64 -d > /tmp/play-sa.json
-    - AAB=$(find apps/android/app/build/outputs/bundle/release -name "*.aab" -type f | head -1)
-    - test -n "$AAB" || { echo "No release AAB found from build:android-native" >&2; exit 1; }
+    # PLAY flavor only — the direct flavor never reaches Google Play.
+    - AAB=$(find apps/android/app/build/outputs/bundle/playRelease -name "*.aab" -type f | head -1)
+    - test -n "$AAB" || { echo "No play-flavor release AAB found from build:android-native" >&2; exit 1; }
     # The CI android image ships python3 without the venv module / ensurepip;
     # install python3-venv (+pip) so scripts/venv-playstore.sh can build the
     # google-api-python-client venv.
@@ -2195,9 +2211,9 @@ release:
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
       done
-    # Android APK
+    # Android APK (direct flavor — the sideload/Obtainium/F-Droid download)
     - |
-      APK=$(find apps/android/app/build/outputs/apk/release -name "*release*.apk" -type f 2>/dev/null | head -1)
+      APK=$(find apps/android/app/build/outputs/apk/direct/release -name "*release*.apk" -type f 2>/dev/null | head -1)
       if [ -n "$APK" ]; then
         NAME="futo-notes-${VERSION}.apk"
         echo "Uploading $NAME"

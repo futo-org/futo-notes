@@ -83,4 +83,5 @@ required verification chain.
   plain `http://` server; note content is E2EE before upload, so cleartext carries only encrypted
   blobs + auth. HTTPS is still recommended.
 - **`applicationId`**: release `com.futo.notes`, debug appends `.dev`, so dev installs keep separate
-  app data.
+  app data. The `direct`/`play` distribution flavors deliberately add nothing to it — one install
+  replaces the other (see [AGENTS.md](AGENTS.md), "Distribution flavors").

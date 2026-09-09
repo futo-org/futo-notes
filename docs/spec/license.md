@@ -245,10 +245,13 @@ not the rules, is what this section records.
 > compatible way to add one.
 
 > **Gap:** No platform surfaces this spec yet (desktop, iOS, Android): no
-> `futonotes://` scheme registered, no License row, no ambient label, no Android
-> flavors. The rules themselves exist — `crates/futo-notes-license` owns them and
-> `tests/conformance/license.json` pins them — but nothing is projected through
-> Tauri or UniFFI and no shell reads them. The three platforms ship together.
+> `futonotes://` scheme registered, no License row, no ambient label. The rules
+> themselves exist — `crates/futo-notes-license` owns them and
+> `tests/conformance/license.json` pins them — and Android now carries the
+> `play`/`direct` product flavors, but nothing is projected through Tauri or
+> UniFFI, no shell reads the rules, and the two flavors are still behaviorally
+> identical (`BuildConfig.IS_PLAY_BUILD` exists and nothing reads it; no
+> `LICENSE_LINK_OUT` yet). The three platforms ship together.
 
 > **Gap:** The production and staging org public keys are placeholders. The real
 > FUTO Notes FUTOpay key pairs are created in lib-polar; until they land,

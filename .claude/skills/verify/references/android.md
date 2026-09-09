@@ -39,13 +39,13 @@ just emu-boot               # boots the first available AVD if nothing is
 ## 2. Build, install, launch
 
 ```bash
-just android-native         # full chain: Rust ffi (all ABIs) → editor bundle → gradle installDebug → launch
+just android-native         # full chain: Rust ffi (all ABIs) → editor bundle → gradle installDirectDebug → launch
 ```
 
 For app-only iteration (no Rust/editor changes), skip the Rust rebuild:
 
 ```bash
-cd apps/android && ./gradlew :app:installDebug
+cd apps/android && ./gradlew :app:installDirectDebug
 adb shell am force-stop com.futo.notes.dev
 adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity
 adb shell pidof com.futo.notes.dev    # confirm it's running

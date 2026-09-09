@@ -58,6 +58,42 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // ── Distribution flavors ────────────────────────────────────────────────
+    // Where the build is DISTRIBUTED, and nothing else:
+    //
+    //   direct — GitLab releases, Obtainium, F-Droid. Ships the universal APK
+    //            (`:app:assembleDirectRelease`). The dev-loop default, so a
+    //            bare `just android-native` builds what most users install.
+    //   play   — Google Play only. Ships the AAB (`:app:bundlePlayRelease`);
+    //            publish:android uploads that and nothing else.
+    //
+    // CRITICAL: neither flavor sets an applicationIdSuffix, and both use the
+    // same signingConfig. Both are `com.futo.notes` (`.dev` on debug), so a
+    // Play install and a direct APK are literally the same app — a user can
+    // replace one with the other and keep their notes and preferences. A
+    // flavor that added a suffix would strand them with a second, empty
+    // install; DistributionFlavorTest locks that against both flavors.
+    //
+    // BuildConfig.IS_PLAY_BUILD is the seam for Play-only behavior. NOTHING
+    // reads it yet — at this commit the two flavors are compiled from the same
+    // sources and behave identically; the constant is the only difference. Per-flavor constants belong HERE, as buildConfigField
+    // entries on the two flavors below (issue #154 adds LICENSE_LINK_OUT this
+    // way); a `if (BuildConfig.IS_PLAY_BUILD)` branch in shared Kotlin is the
+    // second choice, and a flavor-specific source set (app/src/play,
+    // app/src/direct) the third — each of those needs both flavors compiled,
+    // which CI and `just build-android-native` do.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("direct") {
+            dimension = "distribution"
+            buildConfigField("boolean", "IS_PLAY_BUILD", "false")
+        }
+        create("play") {
+            dimension = "distribution"
+            buildConfigField("boolean", "IS_PLAY_BUILD", "true")
+        }
+    }
+
     signingConfigs {
         if (hasReleaseKeystore) {
             create("release") {
@@ -111,7 +147,8 @@ android {
         }
     }
 
-    // Play distribution = Android App Bundle (`./gradlew :app:bundleRelease`).
+    // Play distribution = Android App Bundle of the `play` flavor
+    // (`./gradlew :app:bundlePlayRelease`).
     // Config splits are turned OFF: with splitting on, AGP marks the base APK
     // `isSplitRequired="true"`, and any device that launches without the full
     // split set gets the OS "missing splits" recovery dialog ("Something went
