@@ -244,7 +244,15 @@ not the rules, is what this section records.
 > An opportunistic re-check on explicit user action only would be the
 > compatible way to add one.
 
-> **Gap:** Nothing implements this spec yet on any platform (desktop, iOS,
-> Android): no `futo-notes-license` crate, no `futonotes://` scheme, no License
-> row, no ambient label, no Android flavors, no `tests/conformance/license.json`.
-> The three platforms ship together.
+> **Gap:** No platform surfaces this spec yet (desktop, iOS, Android): no
+> `futonotes://` scheme registered, no License row, no ambient label, no Android
+> flavors. The rules themselves exist — `crates/futo-notes-license` owns them and
+> `tests/conformance/license.json` pins them — but nothing is projected through
+> Tauri or UniFFI and no shell reads them. The three platforms ship together.
+
+> **Gap:** The production and staging org public keys are placeholders. The real
+> FUTO Notes FUTOpay key pairs are created in lib-polar; until they land,
+> `PRODUCTION_PUBLIC_KEY_BASE64` is a throwaway key whose private half was
+> discarded (a release build therefore reports every user Unlicensed, which is
+> fail-closed) and `STAGING_PUBLIC_KEY_BASE64` is the conformance fixture's
+> public key, so a dev build can be driven with a fixture license.

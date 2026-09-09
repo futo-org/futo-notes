@@ -37,6 +37,7 @@ Their nested manuals own build, device, release, and test variants. Missing
 - `packages/editor/`: hot-path TS rules, bridge contract, toolbar manifest.
 - `crates/`: `-model` (pure note rules, no fs) · `-core` (hashing, E2EE crypto, 3-way merge, path
   safety + atomic files) · `-store` (THE local note engine) · `-sync` (push-first `run_sync`, SSE) ·
+  `-license` (the paid-client-license rule: v2 FUTOpay activation, offline verification) ·
   `-search` (Tantivy BM25) · `-ffi` (UniFFI projection; bindings gitignored).
 - `apps/`: Tauri desktop plus native iOS and Android shells.
 - `docs/spec/`: behavioral truth; `tests/` and `markdown-spec/`: fixture/oracle systems.

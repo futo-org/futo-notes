@@ -460,6 +460,7 @@ test-desktop-smoke:
 
 test-rust:
   cargo test -p futo-notes-model --test conformance
+  cargo test -p futo-notes-license
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
 test-rust-full:
