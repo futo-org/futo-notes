@@ -53,6 +53,15 @@ This repo ships shared Claude Code config under `.claude/`:
 
 ### Third-party skills (optional)
 
+The general SwiftUI, Swift concurrency, and Swift Testing references are optional
+local packages. `just skills-swift` restores the exact formerly vendored copies from
+repository commit `3b1c43c139181b91b7384b478b5edec454b80190` into the gitignored `.agents/skills/`
+and links them for this worktree. It refuses to overwrite existing installations.
+A shallow clone must first fetch that commit with `git fetch origin 3b1c43c139181b91b7384b478b5edec454b80190`.
+The snapshot retains the original upstream attribution; future upgrades should be
+explicit, rather than silently replacing reference material during app builds.
+
+
 `skills-lock.json` records the generic engineering skills we borrow from
 `mattpocock/skills` (`/tdd`, `/research`, `/code-review`, `/wayfinder`, …). They
 are **not vendored here** — an external installer populates the gitignored

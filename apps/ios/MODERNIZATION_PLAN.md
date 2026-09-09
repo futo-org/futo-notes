@@ -4,7 +4,8 @@
 > UI-test target are complete; the Swift 6, Observation, and Liquid Glass items
 > below remain planned. Authored from a review of `apps/ios/Sources/`
 > + `project.yml` against the `swiftui-expert-skill`, `swift-concurrency-pro`,
-> and `swift-testing-pro` skills. Execute workstreams in order A → B → C → D → E
+> and `swift-testing-pro` skills (optional: `just skills-swift`; see
+> `CONTRIBUTING.md`). Execute workstreams in order A → B → C → D → E
 > (D runs in parallel). Verification is per-workstream below.
 
 ## Locked decisions

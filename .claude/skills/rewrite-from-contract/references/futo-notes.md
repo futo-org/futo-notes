@@ -75,7 +75,7 @@ before judging native shells (M9). Whole umbrella before merge: `just check`.
   that touches one copy touches all, and the registry must stay consistent.
 - **CRITICAL invariant sources for Phase 1**: `docs/spec/<area>.md` (behavior), AGENTS.md
   "Named mistakes" M1–M5 (data/render safety), and for sync specifically the invariant list in
-  `docs/learnings/sync-rewrite.md` §2 (push-first, cursor caps, collection identity,
+  `docs/learnings/sync-rewrite.md` (push-first, cursor caps, collection identity,
   ancestry demotion, tombstone safety, path triage, one cycle gate).
 - **Watcher suppression**: any rewritten code that mutates the note tree registers filenames
   in the suppression map before writing.
