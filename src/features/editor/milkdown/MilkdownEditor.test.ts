@@ -58,9 +58,20 @@ let changes: string[] = [];
 let target: HTMLElement;
 let handle: EditorHandle;
 
+/**
+ * Imported here, at module scope, NOT inside `mountEditor()`. Loading this
+ * component pulls in the whole Milkdown/ProseMirror graph, and the module
+ * cache means that cost is paid exactly once either way — but inside the
+ * `beforeEach` it is charged to that hook's timeout, and on a shared CI runner
+ * it does not fit: pipeline 36190 timed out 8 of 10 hooks at 10s, and 36192
+ * timed out the first 3 at 30s while every test after them ran in ~70ms. At
+ * module scope the same work is part of collection, which is not budgeted.
+ * `vi.mock` calls are hoisted above this, so the mocks still apply.
+ */
+const MilkdownEditor = (await import('./MilkdownEditor.svelte')).default;
+
 /** Mounts a fresh editor and waits for Milkdown's async `create()` to land. */
 async function mountEditor(): Promise<void> {
-  const MilkdownEditor = (await import('./MilkdownEditor.svelte')).default;
   changes = [];
   target = document.createElement('div');
   document.body.appendChild(target);
@@ -99,11 +110,6 @@ function clearDocument(): void {
   view.dispatch(view.state.tr.delete(0, view.state.doc.content.size));
 }
 
-// The 30s hook timeout (vitest defaults to 10s) is for the mount below: it
-// builds a whole Milkdown editor per test, ~0.7s locally and ~8-10s on a
-// shared CI runner. In pipeline 36190 one test squeezed in at 8153ms while
-// eight others tripped the 10s limit in the same run — the hook is slow, not
-// hung. Same runner `vitest.config.ts` already caps maxWorkers for (PKT-20).
 beforeEach(async () => {
   document.body.innerHTML = '';
   // @milkdown/plugin-block hit-tests the block under the pointer on every
@@ -113,7 +119,7 @@ beforeEach(async () => {
   return async () => {
     await unmount(handle as never);
   };
-}, 30_000);
+});
 
 describe('an editor holding no note', () => {
   it('reports nothing at all, not an empty note', () => {
