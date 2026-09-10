@@ -20,6 +20,7 @@
       "desktop": {
         "debugDisplayName": "FUTO Notes (dev)",
         "developmentBadge": "DEV",
+        "versionShort": "v{version}",
         "minimizeWindowAccessibilityLabel": "Minimize window",
         "maximizeWindowAccessibilityLabel": "Maximize window",
         "closeWindowAccessibilityLabel": "Close window",
@@ -763,6 +764,30 @@
           }
         }
       }
+    },
+    "license": {
+      "sectionTitle": "License",
+      "explanation": "FUTO Notes is free to use. Buying a license supports development and removes the Unlicensed label.",
+      "unlicensed": "Unlicensed",
+      "licensed": "Licensed · Supporter since {year} · Valid until {date}",
+      "licensedPerpetual": "Licensed · Supporter since {year}",
+      "expired": "License expired {date} · Supporter since {year}",
+      "supporterSince": "Supporter since {year}",
+      "buy": "Buy a license",
+      "renew": "Renew",
+      "enterKey": "Enter license key",
+      "lostKey": "Lost your key?",
+      "remove": "Remove license",
+      "keyLabel": "License key",
+      "keyPlaceholder": "Key, key/activation, or futonotes:// link",
+      "activate": "Activate",
+      "activating": "Activating…",
+      "cancelEntry": "Cancel",
+      "openLicenseSettings": "Open license settings",
+      "activated": "License activated",
+      "keyInvalid": "This license key isn't valid",
+      "linkInvalid": "This license link isn't valid",
+      "offline": "Connect to the internet to activate this key"
     },
     "feedback": {
       "placeholder": "What would you like us to hear?",

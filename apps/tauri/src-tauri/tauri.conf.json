@@ -53,6 +53,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["futonotes"]
+      }
+    },
     "fs": {
       "requireLiteralLeadingDot": false
     },

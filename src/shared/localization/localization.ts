@@ -12,6 +12,8 @@ export interface LocalizationModule {
   localizedText(path: string, values?: LocalizationArguments): string;
   localizedFileSize(bytes: number): string;
   localizedRelativeTime(timestamp: number): string;
+  localizedAbsoluteDate(timestamp: number): string;
+  localizedYear(timestamp: number): string;
 }
 
 export interface LocalizationModuleOptions {
@@ -431,6 +433,17 @@ export function createLocalizationModule(options: LocalizationModuleOptions): Lo
     options.regionalNumberingSystem,
   );
   const numberFormatter = new Intl.NumberFormat(formatLanguageTag, { maximumFractionDigits: 3 });
+  // Absolute dates. The platform owns the calendar, numbering system and field
+  // order (localization.md), so these go through Intl rather than any hand-rolled
+  // pattern. `dateStyle: 'medium'` names the month instead of numbering it, which
+  // is what keeps "Valid until 15 Jan 2029" unambiguous between the locales that
+  // read a numeric date day-first and those that read it month-first.
+  const absoluteDateFormatter = new Intl.DateTimeFormat(formatLanguageTag, {
+    dateStyle: 'medium',
+  });
+  // A year on its own is NOT a number: `Intl.NumberFormat` would group it as
+  // "2,026". It is a date field, so the date formatter answers for it too.
+  const yearFormatter = new Intl.DateTimeFormat(formatLanguageTag, { year: 'numeric' });
   const messageCatalogs = fallbackCatalogs(selectedCatalog, catalogs);
   const availableLanguages = catalogs
     .slice()
@@ -554,11 +567,24 @@ export function createLocalizationModule(options: LocalizationModuleOptions): Lo
       : localizedText('time.relative.future.minute', { count });
   }
 
+  /** An absolute calendar date — "Valid until {date}", "License expired {date}".
+   *  Distinct from `localizedRelativeTime`, which answers "how long ago". */
+  function localizedAbsoluteDate(timestamp: number): string {
+    return absoluteDateFormatter.format(new Date(timestamp));
+  }
+
+  /** The year alone, for "Supporter since {year}". */
+  function localizedYear(timestamp: number): string {
+    return yearFormatter.format(new Date(timestamp));
+  }
+
   return {
     effectiveLanguage,
     availableLanguages,
     localizedText,
     localizedFileSize,
     localizedRelativeTime,
+    localizedAbsoluteDate,
+    localizedYear,
   };
 }

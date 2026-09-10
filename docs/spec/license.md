@@ -7,8 +7,10 @@ and shows a **Supporter since {year}** badge. This is the Grayjay / FUTO Keyboar
 Polar underneath). The server product is a separate, later product with no
 shared semantics; see [Out of scope](#out-of-scope).
 
-Design decisions recorded 2026-09-09 (spec-first; no platform implements this
-yet — see the Gaps at the end).
+Design decisions recorded 2026-09-09 (spec-first). Desktop implements the whole
+surface as of 2026-09-09, driven on the dev build against a staging-signed
+fixture license (all three states, all three input shapes, the deep link, Buy,
+Remove and Full reset); the native shells do not yet — see the Gaps at the end.
 
 ## Principles
 
@@ -96,13 +98,17 @@ yet — see the Gaps at the end).
   `https://pay.futo.tech/futo-notes?platform=<desktop|ios|android>`. Both URLs
   in this spec are constants in the Rust crate so all three shells agree; the
   web side may redirect freely so the app never needs a release for a
-  storefront change. The `platform` value is attribution only.
+  storefront change. The `platform` value is attribution only. *(desktop)* The
+  URL is read from the crate through `license_links` and opened with the opener
+  plugin, never in a webview. → `license::license_links`,
+  `src/lib/platform/openExternalUrl.ts`, `LicenseSettingsSection.svelte`
 - After checkout, FUTOpay's activate-redirect page opens
   `futonotes://license/{key}/{activation}`; the app handles it per
   [Deep link](#deep-link). The page also shows the key and activation as text,
   so paste is always possible.
 - **Lost key**: the License row offers "Lost your key?" which opens
-  `mailto:support@futo.tech`. There is no in-app restore flow (see Gaps).
+  `mailto:support@futo.tech`. There is no in-app restore flow (see Gaps). →
+  *(desktop)* `license::license_links`, `LicenseSettingsSection.svelte`
 - No IAP, no Play Billing, no in-app price, no in-app checkout on any platform.
 
 ## Entering a key
@@ -128,13 +134,22 @@ yet — see the Gaps at the end).
 - On success the pair replaces any stored license, state flips to Licensed (or
   Expired, if the key is already past `expires_at` — still stored, with the
   Expired copy shown), and a toast confirms "License activated". Entry is
-  atomic: verify-then-store happens in Rust as one call (§4.6).
+  atomic: verify-then-store happens in Rust as one call (§4.6). *(desktop)* That
+  call is `license_enter_key`; the shell hands over the raw text and receives the
+  new state with its outcome, so it never sequences activate-then-verify and
+  never re-reads the status afterwards. →
+  `license::license_enter_key`, `src/lib/platform/license.ts`,
+  `src/features/license/license.svelte.ts`
 
 ## Deep link
 
 - The scheme is **`futonotes`** on all three platforms: iOS `CFBundleURLTypes`,
   Android an exported `VIEW`/`BROWSABLE` intent filter on the main activity,
-  desktop the Tauri deep-link plugin (the Tauri shell is desktop-only). Dev
+  desktop the Tauri deep-link plugin on Linux, macOS and Windows (the Tauri
+  shell is desktop-only). → *(desktop)* `tauri-plugin-deep-link` with
+  `plugins.deep-link.desktop.schemes` in `tauri.conf.json`, `license::install`;
+  a second launch carrying the link arrives through the single-instance plugin's
+  argv (`license::handle_single_instance_arguments`). Dev
   builds register the same scheme; whichever build the OS routes to will verify
   against its own key, so a production link opened by a dev build fails cleanly
   as Invalid.
@@ -145,7 +160,12 @@ yet — see the Gaps at the end).
   link isn't valid", and changes nothing. No dialog, no navigation; if Settings
   is open its License row updates in place.
 - A link arriving while the app is cold-starting is handled after the shell is
-  interactive (M1): the shell renders first, then applies the link.
+  interactive (M1): the shell renders first, then applies the link. *(desktop)*
+  Rust applies and *parks* the outcome — storing blocks no render — and the shell
+  drains it once it has painted, so the toast is delivered exactly once whether
+  the link arrived before or after the webview existed. →
+  `license::LicenseLinkInbox`, `license_take_pending_link`,
+  `license::tests::a_parked_link_outcome_is_delivered_exactly_once`
 
 ## States and copy
 
@@ -159,6 +179,10 @@ The License row has exactly three states. All strings are catalog entries
 | **Licensed** | "Licensed · Supporter since {year} · Valid until {date}" | **Remove license** |
 | **Expired** | "License expired {date} · Supporter since {year}" | **Renew** · **Enter license key** · Lost your key? |
 
+- A **perpetual** license (`expires_at` is `null`) is still the Licensed state;
+  the row simply drops the "Valid until" clause rather than inventing a date:
+  "Licensed · Supporter since {year}". → `license.licensedPerpetual`,
+  `licenseCopy.test.ts` "omits the expiry entirely for a perpetual license"
 - Under the row in every state: "FUTO Notes is free to use. Buying a license
   supports development and removes the Unlicensed label."
 - **Renew** is the Buy action; a new key simply replaces the old one.
@@ -172,7 +196,11 @@ The License row has exactly three states. All strings are catalog entries
   informational, never interrupts, never appears inside the editor, never on
   exported or shared content, and never on user data (M2).
   - *(desktop)* A footer line in the list/sidebar view, beside the app version.
-    Clicking it opens Settings at the License row.
+    Clicking it opens Settings at the License row. The License section sits
+    after Updates and before the Danger zone, which stays last. →
+    `src/features/license/SidebarLicenseFooter.svelte`,
+    `DrawerSidebar.svelte`, `SettingsScreen.svelte` (`initialSection`),
+    `licenseCopy.ts` + `licenseCopy.test.ts`
   - *(native shells)* Mobile has no ambient label outside Settings; the License
     row is the **first row at the top of Settings** and its status text is the
     label.
@@ -244,14 +272,14 @@ not the rules, is what this section records.
 > An opportunistic re-check on explicit user action only would be the
 > compatible way to add one.
 
-> **Gap:** No platform surfaces this spec yet (desktop, iOS, Android): no
-> `futonotes://` scheme registered, no License row, no ambient label. The rules
-> themselves exist — `crates/futo-notes-license` owns them and
-> `tests/conformance/license.json` pins them — and Android now carries the
-> `play`/`direct` product flavors, but nothing is projected through Tauri or
-> UniFFI, no shell reads the rules, and the two flavors are still behaviorally
+> **Gap:** The native shells do not surface this spec yet (iOS, Android): no
+> `futonotes://` scheme registered, no License row, no key field. Desktop is
+> done — the rules are projected through Tauri (`license_*`) and the whole
+> surface is live — but nothing is projected through UniFFI, so no native shell
+> reads the rules, and Android's `play`/`direct` flavors are still behaviorally
 > identical (`BuildConfig.IS_PLAY_BUILD` exists and nothing reads it; no
-> `LICENSE_LINK_OUT` yet). The three platforms ship together.
+> `LICENSE_LINK_OUT` yet). The spec's intent is that the three platforms ship
+> together, so this is the remaining half of that.
 
 > **Gap:** The production and staging org public keys are placeholders. The real
 > FUTO Notes FUTOpay key pairs are created in lib-polar; until they land,
@@ -259,3 +287,21 @@ not the rules, is what this section records.
 > discarded (a release build therefore reports every user Unlicensed, which is
 > fail-closed) and `STAGING_PUBLIC_KEY_BASE64` is the conformance fixture's
 > public key, so a dev build can be driven with a fixture license.
+
+> **Gap:** _(desktop)_ The spec names the key field but none of the controls
+> around it, so the shell supplies them: an **Activate** button (Enter also
+> submits), a **Cancel** that closes the field, and a placeholder naming the
+> three accepted shapes. A text field with no submit is not operable, so these
+> are additions rather than choices — but they are unspecified copy, and this is
+> the line to reconcile if the spec later names them.
+
+> **Gap:** _(desktop, macOS)_ The `futonotes` scheme is declared once in
+> `tauri.conf.json`, but only Linux and Windows re-register it at runtime
+> (`register_all`). macOS learns the scheme from the bundle's generated
+> `CFBundleURLTypes`, which an unbundled `cargo tauri dev` binary never gets, so
+> the OS → app hop is unverified there: QA drove the plugin's own
+> `deep-link://new-url` event, which exercises everything from `on_open_url`
+> inward but not LaunchServices. Proving it needs a signed bundle from
+> `just tauri-build`, and a production bundle verifies against the production
+> key — so a staging license cannot demo it end to end until the real key pair
+> lands (see the placeholder-keys gap above).

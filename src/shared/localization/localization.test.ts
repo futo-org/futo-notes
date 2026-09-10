@@ -258,4 +258,25 @@ describe('localized formatters', () => {
       expect(module.localizedRelativeTime(now + secondsFromNow * 1_000)).toBe(expected);
     },
   );
+
+  // A year is a date field, not a number. Through Intl.NumberFormat it would
+  // come out grouped — "2,026" in English, and worse in locales that group by
+  // other rules — so "Supporter since {year}" has its own formatter.
+  it('formats a year as a year, never as a grouped number', () => {
+    const midYear = Date.parse('2026-06-15T12:00:00Z');
+
+    expect(localization('en', undefined).localizedYear(midYear)).toBe('2026');
+    expect(localization('en', undefined).localizedYear(midYear)).not.toContain(',');
+  });
+
+  // An absolute date names its month rather than numbering it, so a date is not
+  // read day-first by one locale and month-first by another.
+  it('names the month in an absolute date', () => {
+    const date = Date.parse('2029-01-15T12:00:00Z');
+
+    const formatted = localization('en', undefined).localizedAbsoluteDate(date);
+
+    expect(formatted).toContain('2029');
+    expect(formatted).toMatch(/[A-Za-z]{3}/);
+  });
 });

@@ -104,6 +104,9 @@ export function createDesktopLocalization(
     localizedFileSize: (bytes: number) => localizationModule.localizedFileSize(bytes),
     localizedRelativeTime: (timestamp: number) =>
       localizationModule.localizedRelativeTime(timestamp),
+    localizedAbsoluteDate: (timestamp: number) =>
+      localizationModule.localizedAbsoluteDate(timestamp),
+    localizedYear: (timestamp: number) => localizationModule.localizedYear(timestamp),
     setSelectedLanguageTag,
     refreshSystemLanguage,
   };

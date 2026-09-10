@@ -43,6 +43,7 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_deep_link::init())
         .manage(AppState::default());
 
     #[cfg(debug_assertions)]
@@ -78,6 +79,7 @@ pub(crate) fn run() {
             crate::app_menu::install(handle)?;
             crate::window_reveal::install(handle)?;
             crate::instance_journal::install(handle);
+            crate::license::install(handle);
             crate::local_notes::init_on_startup(handle);
             Ok(())
         })
@@ -92,6 +94,11 @@ pub(crate) fn run() {
             crate::vault_location::vault_status,
             crate::vault_location::vault_display_path,
             crate::updater_commands::app_self_update_supported,
+            crate::license::license_status,
+            crate::license::license_enter_key,
+            crate::license::license_remove,
+            crate::license::license_links,
+            crate::license::license_take_pending_link,
             crate::sync::tauri_commands::e2ee_connect,
             crate::sync::tauri_commands::e2ee_resume,
             crate::sync::tauri_commands::e2ee_disconnect,

@@ -20,7 +20,11 @@
 - **License**: the License row (Unlicensed / Licensed / Expired, Buy, Enter
   license key, Remove) follows [license.md](license.md). On the native shells it
   is the first row at the top of Settings; on desktop the ambient label lives in
-  the list view and opens Settings here.
+  the list view and opens Settings here. *(desktop)* The License section sits
+  after Updates and before the Danger zone, and **Full reset** clears the stored
+  license along with every other preference. →
+  `src/features/license/LicenseSettingsSection.svelte`, SettingsScreen.svelte
+  (`initialSection`), `deleteAllNotes` in `src/features/notes/notes.svelte.ts`
 
 ## Native shells
 
