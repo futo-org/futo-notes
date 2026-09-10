@@ -22,9 +22,11 @@ consumption-only shape was driven too, by building `play` with
   add a licensed-only feature, theme, icon, or limit; a requested "cosmetic"
   feature that non-payers would want is a gate by another name.
 - **It is a purchase, never a donation.** Copy says "license", "buy", "renew".
-  The word "donate" never appears anywhere in the product, store listing, or
-  spec. (Stores treat donations differently and enforce against donation links;
-  FUTO is not a nonprofit, so the word would also be inaccurate.)
+  The word "donate" never appears in the product or the store listing. (Stores
+  treat donations differently and enforce against donation links; FUTO is not a
+  nonprofit, so the word would also be inaccurate.) The rule scopes to shipped
+  copy, not to this spec: naming the forbidden word in order to forbid it is
+  what makes the rule checkable.
 - **Price lives only in Polar and on the web.** The client never displays,
   fetches, or hardcodes a price. The Buy action opens the web checkout; the
   price is seen there.
