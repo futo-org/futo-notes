@@ -67,7 +67,10 @@ pub fn recognize_input(raw: &str) -> Option<LicenseInput> {
 pub fn parse_deep_link(raw: &str) -> Option<LicensePair> {
     let trimmed = raw.trim();
     let prefix = format!("{DEEP_LINK_SCHEME}://");
-    if trimmed.len() < prefix.len() || !trimmed[..prefix.len()].eq_ignore_ascii_case(&prefix) {
+    let Some(candidate_prefix) = trimmed.get(..prefix.len()) else {
+        return None;
+    };
+    if !candidate_prefix.eq_ignore_ascii_case(&prefix) {
         return None;
     }
     let rest = &trimmed[prefix.len()..];
@@ -105,5 +108,13 @@ mod tests {
         };
         assert_eq!(pair.key, "FN-AB12-CD34");
         assert_eq!(pair.activation, "v2.AbC.dEf");
+    }
+
+    #[test]
+    fn unicode_text_shorter_than_the_deep_link_prefix_is_rejected_without_panicking() {
+        assert_eq!(
+            recognize_input("a🍎🍎🍎"),
+            Some(LicenseInput::BareKey("A🍎🍎🍎".into()))
+        );
     }
 }

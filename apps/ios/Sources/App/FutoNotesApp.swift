@@ -57,6 +57,9 @@ struct FutoNotesApp: App {
                 // cold-launch auto-reconnect from the stored password so live
                 // sync resumes after a force-quit without re-entering it.
                 .task {
+                    // Preferences plus RSA verification stay off the main actor;
+                    // this child task fills the row without gating the shell.
+                    Task { await license.load() }
                     // Project exactly the ids a completed cycle changed, then
                     // hand the same lossless summary to the open editor.
                     sync.onLocalTreeChanged = { summary in

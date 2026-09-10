@@ -118,6 +118,11 @@ LaunchServices hop into an unbundled dev binary.
   `SettingsScreen.kt` (the Danger-zone confirm calls
   `LicenseModel.clearForFullReset`), `LicenseModelTest`
   "fullResetWipesTheStoredLicenseSilently"
+- *(native shells)* Full reset invalidates any activation already in flight. A
+  delayed success is discarded without restoring preference storage, changing
+  the Unlicensed state, or announcing activation. → iOS and Android
+  `LicenseModel` operation revisions; `fullResetInvalidatesPendingActivation`,
+  `fullResetInvalidatesAnActivationAlreadyInFlight`
 
 ## Getting a license
 
@@ -250,7 +255,10 @@ LaunchServices hop into an unbundled dev binary.
   `apps/ios/Sources/App/FutoNotesApp.swift`, `LicenseModel.handle`; a message
   produced before the app has wired up its banner is parked and flushed the
   moment it has one, so the toast survives even the earliest launch URL. →
-  `LicenseModelTests` "a cold-start link is announced once the banner exists"
+  `LicenseModelTests` "a cold-start link is announced once the banner exists".
+  The stored pair is read and RSA-verified away from the main actor after the
+  shell renders; a link or other newer action prevents that startup result from
+  replacing it. → `LicenseModel.load`, `stateRevision`
   *(android)* The launch intent's URL is parked in Compose state during
   `onCreate` and applied by a `LaunchedEffect` after the first composition, so
   the note list is painted before the link lands and the toast appears on it;
@@ -260,13 +268,15 @@ LaunchServices hop into an unbundled dev binary.
   *and verified* off the main thread (M1), and that answer is not allowed to
   overwrite a license the link applied while it was in flight. →
   `apps/android/app/src/main/java/com/futo/notes/MainActivity.kt`
-  (`pendingLicenseLink`), `LicenseModel.load`/`applyStored`, `LicenseModelTest`
+  (`pendingLicenseLink`), `LicenseModel.load`/`applyEvaluated`, `LicenseModelTest`
   "aLinkAppliedBeforeTheStoredPairLandsSurvivesIt"
   *(desktop)* Rust applies and *parks* the outcome — storing blocks no render — and the shell
   drains it once it has painted, so the toast is delivered exactly once whether
-  the link arrived before or after the webview existed. →
+  the link arrived before or after the webview existed. The asynchronous startup
+  snapshot is revision-guarded, so it cannot overwrite the drained outcome. →
   `license::LicenseLinkInbox`, `license_take_pending_link`,
-  `license::tests::a_parked_link_outcome_is_delivered_exactly_once`
+  `license::tests::a_parked_link_outcome_is_delivered_exactly_once`,
+  `license.svelte.test.ts` "does not let the startup snapshot overwrite a license"
 
 ## States and copy
 
@@ -426,17 +436,16 @@ not the rules, is what this section records.
 > fail-closed) and `STAGING_PUBLIC_KEY_BASE64` is the conformance fixture's
 > public key, so a dev build can be driven with a fixture license.
 
-> **Gap:** _(android)_ The row has a fourth, unspecified state: *not yet known*.
-> The spec gives it three, and iOS and desktop always have one of them, because
-> they evaluate the stored license synchronously as they build their state. On
-> Android both halves of that — a `SharedPreferences` read and a JNI call doing
-> an RSA verify — are work M1 keeps off the thread that paints the shell, so the
-> row shows its explanation and no status until the answer lands. The window is
-> one IO hop during startup and closes long before Settings can be opened, so no
-> user is expected to see it; it is recorded rather than blessed, and the line to
-> reconcile is whether the spec should name a loading state for all three
-> clients. → `LicenseModel.view` (nullable until `load()`),
-> `LicenseSettingsSection.kt`
+> **Gap:** _(ios, android)_ The row has a fourth, unspecified state: *not yet
+> known*. The spec gives it three, while desktop initializes to Unlicensed before
+> its asynchronous read lands. On both native shells a preference read and an RSA
+> verify are work M1 keeps off the thread that paints the shell, so the row shows
+> its explanation and no status until the answer lands. The window is one
+> background hop during startup and closes long before Settings can normally be
+> opened; it is recorded rather than blessed, and the line to reconcile is
+> whether the spec should name a loading state for all three clients. → iOS and
+> Android `LicenseModel.view` (nullable until `load()`),
+> `LicenseSettingsSection.swift`, `LicenseSettingsSection.kt`
 
 > **Gap:** _(desktop, ios, android)_ The spec names the key field but none of the
 > controls around it, so each shell supplies them: an **Activate** button (the

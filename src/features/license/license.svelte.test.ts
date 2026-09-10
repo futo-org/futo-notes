@@ -123,6 +123,29 @@ describe('starting up', () => {
     expect(license.view).toEqual(LICENSED);
     expect(currentToastMessage()).toBe('License activated');
   });
+
+  it('does not let the startup snapshot overwrite a license activated while it was loading', async () => {
+    let finishRead: (view: LicenseView) => void = () => {};
+    platform.readLicenseStatus.mockReturnValue(
+      new Promise<LicenseView>((resolve) => {
+        finishRead = resolve;
+      }),
+    );
+    platform.takePendingLicenseLink.mockResolvedValue({
+      outcome: 'activated',
+      view: LICENSED,
+    } satisfies LicenseActionResult);
+    const license = await freshModel();
+
+    license.start();
+    await settle();
+    expect(license.view).toEqual(LICENSED);
+
+    finishRead(UNLICENSED);
+    await settle();
+
+    expect(license.view).toEqual(LICENSED);
+  });
 });
 
 describe('a link arriving while the app runs', () => {

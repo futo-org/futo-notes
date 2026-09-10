@@ -3,6 +3,8 @@ package com.futo.notes.license
 import android.content.Context
 import androidx.test.platform.app.InstrumentationRegistry
 import com.futo.notes.localization.LocalizedMessage
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -10,6 +12,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.futo_notes_ffi.LicenseAcceptance
 import uniffi.futo_notes_ffi.LicensePair
 import uniffi.futo_notes_ffi.LicenseStatus
 import uniffi.futo_notes_ffi.licenseEvaluate
@@ -170,6 +173,39 @@ class LicenseModelTest {
 
         license.clearForFullReset()
 
+        assertEquals(LicenseStatus.UNLICENSED, license.view?.status)
+        assertNull(LicenseStorage(preferences).read())
+        assertTrue(messages.isEmpty())
+    }
+
+    @Test
+    fun fullResetInvalidatesAnActivationAlreadyInFlight() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val pair = LicensePair(key = LicenseFixture.KEY, activation = LicenseFixture.ACTIVATION)
+        val acceptance =
+            LicenseAcceptance(
+                pair = pair,
+                view = licenseEvaluate(pair, LicenseFixture.DEV_APPLICATION_ID),
+            )
+        val license =
+            LicenseModel(
+                storage = LicenseStorage(preferences),
+                bundleId = LicenseFixture.DEV_APPLICATION_ID,
+                enterLicenseKey = { _, _ ->
+                    started.complete(Unit)
+                    release.await()
+                    acceptance
+                },
+            )
+        val messages = messagesOf(license)
+
+        val activation = async { license.enterKey("pending") }
+        started.await()
+        license.clearForFullReset()
+        release.complete(Unit)
+
+        assertFalse(activation.await())
         assertEquals(LicenseStatus.UNLICENSED, license.view?.status)
         assertNull(LicenseStorage(preferences).read())
         assertTrue(messages.isEmpty())

@@ -42,6 +42,7 @@ class LicenseModel {
   busy = $state(false);
 
   #started = false;
+  #stateRevision = 0;
 
   /// Starts license state. Deliberately returns nothing to await: a license
   /// read must never delay the shell's first paint (M1).
@@ -49,7 +50,7 @@ class LicenseModel {
     if (this.#started) return () => {};
     this.#started = true;
 
-    void this.#refresh();
+    void this.#refresh(this.#stateRevision);
     void readLicenseLinks()
       .then((links) => {
         this.links = links;
@@ -83,12 +84,14 @@ class LicenseModel {
       // Restartable: a remount must re-read the license rather than silently
       // keep whatever this instance last saw.
       this.#started = false;
+      this.#stateRevision += 1;
     };
   }
 
-  async #refresh(): Promise<void> {
+  async #refresh(startingRevision: number): Promise<void> {
     try {
-      this.view = await readLicenseStatus();
+      const view = await readLicenseStatus();
+      if (startingRevision === this.#stateRevision) this.view = view;
     } catch (error) {
       console.warn('Failed to read the license status:', error);
     }
@@ -98,7 +101,7 @@ class LicenseModel {
     try {
       const result = await takePendingLicenseLink();
       if (!result) return;
-      this.view = result.view;
+      this.#replaceView(result.view);
       showGlobalToast({ path: LINK_TOASTS[result.outcome] });
     } catch (error) {
       console.warn('Failed to read a pending license link:', error);
@@ -112,7 +115,7 @@ class LicenseModel {
     this.busy = true;
     try {
       const result = await submitLicenseKey(input);
-      this.view = result.view;
+      this.#replaceView(result.view);
       showGlobalToast({ path: ENTRY_TOASTS[result.outcome] });
       return result.outcome === 'activated';
     } catch (error) {
@@ -126,7 +129,7 @@ class LicenseModel {
 
   async remove(): Promise<void> {
     try {
-      this.view = await clearLicense();
+      this.#replaceView(await clearLicense());
     } catch (error) {
       console.error('Failed to remove the license:', error);
     }
@@ -140,6 +143,11 @@ class LicenseModel {
 
   openSupport(): void {
     if (this.links.support) openExternalUrl(this.links.support);
+  }
+
+  #replaceView(view: LicenseView): void {
+    this.#stateRevision += 1;
+    this.view = view;
   }
 }
 

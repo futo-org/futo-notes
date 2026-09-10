@@ -30,16 +30,18 @@ struct LicenseSettingsSection: View {
 
     var body: some View {
         Section(localization.localizedText("license.sectionTitle")) {
-            Text(licenseRowText(license.view, localization))
-                .accessibilityIdentifier("license-status")
+            if let view = license.view {
+                Text(licenseRowText(view, localization))
+                    .accessibilityIdentifier("license-status")
 
-            if entering {
-                keyField
-            } else {
-                ForEach(
-                    licenseRowActions(status: license.view.status, linkOut: linkOut), id: \.self
-                ) { action in
-                    button(for: action)
+                if entering {
+                    keyField
+                } else {
+                    ForEach(
+                        licenseRowActions(status: view.status, linkOut: linkOut), id: \.self
+                    ) { action in
+                        button(for: action)
+                    }
                 }
             }
 

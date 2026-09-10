@@ -6,6 +6,26 @@ import Testing
 @MainActor
 @Suite("License model")
 struct LicenseModelTests {
+    @MainActor
+    final class Signal {
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var isSet = false
+
+        func set() {
+            isSet = true
+            let pending = waiters
+            waiters = []
+            for continuation in pending { continuation.resume() }
+        }
+
+        func wait() async {
+            if isSet { return }
+            await withCheckedContinuation { continuation in
+                if isSet { continuation.resume() } else { waiters.append(continuation) }
+            }
+        }
+    }
+
     private func model(bundleId: String = LicenseFixture.devBundleId) -> (
         LicenseModel, InMemoryLicenseDefaults
     ) {
@@ -15,11 +35,11 @@ struct LicenseModelTests {
         )
     }
 
-    /// The row must be right on the FIRST paint: reading and verifying a stored
-    /// license is pure CPU, so nothing is awaited and Settings never flashes
-    /// Unlicensed before correcting itself (M1).
-    @Test("a stored license is evaluated before anything renders")
-    func evaluatesStoredLicenseAtInit() {
+    /// Preferences and RSA verification must stay off the actor that paints the
+    /// shell. Construction happens on that actor, so it may retain the storage
+    /// handle but cannot read it (M1).
+    @Test("construction does not read the stored license on the main actor")
+    func constructionDoesNotReadStoredLicense() async {
         let defaults = InMemoryLicenseDefaults()
         LicenseStorage(defaults: defaults).write(
             LicensePair(key: LicenseFixture.key, activation: LicenseFixture.activation))
@@ -27,9 +47,14 @@ struct LicenseModelTests {
         let license = LicenseModel(
             storage: LicenseStorage(defaults: defaults), bundleId: LicenseFixture.devBundleId)
 
-        #expect(license.view.status == .licensed)
-        // 2026-01-15T10:30:00Z, the fixture license's purchase instant.
-        #expect(license.view.issuedAtMillis == 1_768_473_000_000)
+        #expect(license.view == nil)
+        #expect(!defaults.readOccurredOnMainThread)
+
+        await license.load()
+
+        #expect(license.view?.status == .licensed)
+        #expect(license.view?.issuedAtMillis == 1_768_473_000_000)
+        #expect(!defaults.readOccurredOnMainThread)
     }
 
     /// CRITICAL (M3). The same staging license verifies on the `.dev` build and
@@ -37,7 +62,7 @@ struct LicenseModelTests {
     /// never a compile profile: both dev apps ship the optimized `release-ffi`
     /// Rust.
     @Test("a staging license is invisible to a release build")
-    func stagingLicenseFailsClosedOnRelease() {
+    func stagingLicenseFailsClosedOnRelease() async {
         let defaults = InMemoryLicenseDefaults()
         LicenseStorage(defaults: defaults).write(
             LicensePair(key: LicenseFixture.key, activation: LicenseFixture.activation))
@@ -45,7 +70,9 @@ struct LicenseModelTests {
         let release = LicenseModel(
             storage: LicenseStorage(defaults: defaults), bundleId: LicenseFixture.releaseBundleId)
 
-        #expect(release.view.status == .unlicensed)
+        await release.load()
+
+        #expect(release.view?.status == .unlicensed)
     }
 
     /// A valid link replaces the stored license without confirmation and shows
@@ -59,7 +86,7 @@ struct LicenseModelTests {
 
         license.handle(URL(string: LicenseFixture.deepLink)!)
 
-        #expect(license.view.status == .licensed)
+        #expect(license.view?.status == .licensed)
         #expect(LicenseStorage(defaults: defaults).read()?.activation == LicenseFixture.activation)
         #expect(messages == ["license.activated"])
     }
@@ -75,7 +102,7 @@ struct LicenseModelTests {
         license.handle(URL(string: "futonotes://settings/open")!)
 
         #expect(messages.isEmpty)
-        #expect(license.view.status == .unlicensed)
+        #expect(license.view == nil)
         #expect(LicenseStorage(defaults: defaults).read() == nil)
     }
 
@@ -89,7 +116,7 @@ struct LicenseModelTests {
         var messages: [String] = []
 
         license.handle(URL(string: LicenseFixture.deepLink)!)
-        #expect(license.view.status == .licensed)
+        #expect(license.view?.status == .licensed)
 
         license.showMessage = { messages.append($0.path) }
         #expect(messages == ["license.activated"])
@@ -114,7 +141,7 @@ struct LicenseModelTests {
         license.handle(URL(string: "futonotes://license/\(LicenseFixture.key)/v2.bm90.bm90")!)
 
         #expect(messages == ["license.linkInvalid"])
-        #expect(license.view.status == .licensed)
+        #expect(license.view?.status == .licensed)
         #expect(LicenseStorage(defaults: defaults).read()?.activation == LicenseFixture.activation)
     }
 
@@ -125,7 +152,7 @@ struct LicenseModelTests {
 
         license.remove()
 
-        #expect(license.view.status == .unlicensed)
+        #expect(license.view?.status == .unlicensed)
         #expect(LicenseStorage(defaults: defaults).read() == nil)
     }
 
@@ -143,7 +170,40 @@ struct LicenseModelTests {
         await performFullReset(
             disconnectSync: {}, resetStore: {}, clearLicense: { license.clearForFullReset() })
 
-        #expect(license.view.status == .unlicensed)
+        #expect(license.view?.status == .unlicensed)
+        #expect(LicenseStorage(defaults: defaults).read() == nil)
+        #expect(messages.isEmpty)
+    }
+
+    @Test("full reset invalidates an activation already in flight")
+    func fullResetInvalidatesPendingActivation() async {
+        let defaults = InMemoryLicenseDefaults()
+        let started = Signal()
+        let release = Signal()
+        let pair = LicensePair(key: LicenseFixture.key, activation: LicenseFixture.activation)
+        let acceptance = LicenseAcceptance(
+            pair: pair,
+            view: licenseEvaluate(stored: pair, bundleId: LicenseFixture.devBundleId)
+        )
+        let license = LicenseModel(
+            storage: LicenseStorage(defaults: defaults),
+            bundleId: LicenseFixture.devBundleId,
+            enterLicenseKey: { _, _ in
+                started.set()
+                await release.wait()
+                return acceptance
+            }
+        )
+        var messages: [String] = []
+        license.showMessage = { messages.append($0.path) }
+
+        let activation = Task { await license.enterKey("pending") }
+        await started.wait()
+        license.clearForFullReset()
+        release.set()
+
+        #expect(await activation.value == false)
+        #expect(license.view?.status == .unlicensed)
         #expect(LicenseStorage(defaults: defaults).read() == nil)
         #expect(messages.isEmpty)
     }
@@ -158,7 +218,7 @@ struct LicenseModelTests {
             "\(LicenseFixture.key)/\(LicenseFixture.activation)")
 
         #expect(accepted)
-        #expect(license.view.status == .licensed)
+        #expect(license.view?.status == .licensed)
         #expect(LicenseStorage(defaults: defaults).read()?.key == LicenseFixture.key)
     }
 

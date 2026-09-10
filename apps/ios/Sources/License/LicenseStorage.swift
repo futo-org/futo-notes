@@ -54,7 +54,7 @@ struct LicenseStorage {
 /// are `UserDefaults`' own, so the conformance below is the whole binding —
 /// there is no adapter to get wrong, and the real persistence is exercised on
 /// device (docs/spec/license.md § Storage).
-protocol LicenseDefaults: AnyObject {
+protocol LicenseDefaults: AnyObject, Sendable {
     func string(forKey defaultName: String) -> String?
     func set(_ value: Any?, forKey defaultName: String)
     func removeObject(forKey defaultName: String)
