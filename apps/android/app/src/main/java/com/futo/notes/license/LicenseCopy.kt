@@ -17,37 +17,49 @@ internal const val LICENSE_LOG_TAG = "FutoLicense"
  * judged, so nothing here re-derives it (AGENTS.md M6). Mirrors iOS
  * `LicenseCopy.swift` and desktop `licenseCopy.ts`.
  */
-fun licenseRowText(view: LicenseView, localization: Localization): String {
-    val issuedAt = view.issuedAtMillis ?: return localization.localizedText("license.unlicensed")
-    val year = localization.localizedYear(issuedAt)
-
-    return when (view.status) {
-        LicenseStatus.LICENSED -> {
+fun licenseRowText(view: LicenseView, localization: Localization): String = when (view.status) {
+    LicenseStatus.LICENSED -> {
+        // A v1 activation carries no purchase time, and there is no yearless
+        // "Supporter since" to fall back to: the clause is dropped and the row
+        // is the single word "Licensed" (decision 2026-09-10, issue #161).
+        val issuedAt = view.issuedAtMillis
+        val expiresAt = view.expiresAtMillis
+        when {
+            issuedAt == null -> localization.localizedText("license.licensedUndated")
             // A perpetual product has no expiry, and the row must not invent one.
-            val expiresAt = view.expiresAtMillis
-                ?: return localization.localizedText(
-                    "license.licensedPerpetual",
-                    mapOf("year" to year),
-                )
-            localization.localizedText(
+            expiresAt == null -> localization.localizedText(
+                "license.licensedPerpetual",
+                mapOf("year" to localization.localizedYear(issuedAt)),
+            )
+            else -> localization.localizedText(
                 "license.licensed",
-                mapOf("year" to year, "date" to localization.localizedAbsoluteDate(expiresAt)),
+                mapOf(
+                    "year" to localization.localizedYear(issuedAt),
+                    "date" to localization.localizedAbsoluteDate(expiresAt),
+                ),
             )
         }
-        LicenseStatus.EXPIRED -> {
-            // Unreachable: `evaluate` only calls a license Expired once it has
-            // read an `expires_at` and found it passed. Kept, and kept identical
-            // to the iOS and desktop copy, so the three cannot drift over an
-            // impossible case.
-            val expiresAt = view.expiresAtMillis
-                ?: return localization.localizedText("license.unlicensed")
+    }
+    LicenseStatus.EXPIRED -> {
+        // Only a v2 activation whose `expires_at` has passed reaches Expired,
+        // so both dates are always there. The guard is kept, and kept identical
+        // to the iOS and desktop copy, so the three cannot drift over an
+        // impossible case.
+        val issuedAt = view.issuedAtMillis
+        val expiresAt = view.expiresAtMillis
+        if (issuedAt == null || expiresAt == null) {
+            localization.localizedText("license.unlicensed")
+        } else {
             localization.localizedText(
                 "license.expired",
-                mapOf("year" to year, "date" to localization.localizedAbsoluteDate(expiresAt)),
+                mapOf(
+                    "year" to localization.localizedYear(issuedAt),
+                    "date" to localization.localizedAbsoluteDate(expiresAt),
+                ),
             )
         }
-        LicenseStatus.UNLICENSED -> localization.localizedText("license.unlicensed")
     }
+    LicenseStatus.UNLICENSED -> localization.localizedText("license.unlicensed")
 }
 
 /**

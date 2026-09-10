@@ -1,12 +1,23 @@
-//! Parsing and verifying a v2 FUTOpay activation.
+//! Parsing and verifying a FUTOpay activation — v2 and v1.
 //!
-//! `v2.<payload>.<signature>`, where `<payload>` is base64url (no padding) of
-//! canonical JSON and `<signature>` is base64url (no padding) of an RSA-SHA256
-//! PKCS#1 v1.5 signature over the exact payload bytes.
+//! **v2** is `v2.<payload>.<signature>`, where `<payload>` is base64url (no
+//! padding) of canonical JSON and `<signature>` is base64url (no padding) of an
+//! RSA-SHA256 PKCS#1 v1.5 signature over the exact payload bytes.
 //!
-//! The signature is checked **before** the payload is parsed, and the payload
-//! bytes are never re-serialized: what the signature covers is what arrived, so
-//! there is no canonical-JSON rule on the client to get wrong.
+//! **v1** is the original FUTOpay activation, still what `pay2.futo.org` issues:
+//! a bare base64url RSA-SHA256 PKCS#1 v1.5 signature over the **license-key
+//! string alone**. There is no envelope, no product, no issue date and no
+//! expiry — the key is the signed message
+//! (`lib-polar/pylib/futopay_server/licensing/key.py`, `verify_key_pair`).
+//!
+//! Both are accepted (docs/spec/license.md § The license, decision 2026-09-10).
+//! Keeping v2 is what lets the server move to it later with no client release,
+//! which matters because a shipped mobile app cannot be hot-fixed.
+//!
+//! In both formats the signature is checked **before** anything signed is
+//! interpreted, and the payload bytes are never re-serialized: what the
+//! signature covers is what arrived, so there is no canonical-JSON rule on the
+//! client to get wrong.
 
 use base64::Engine as _;
 use ring::signature;
@@ -20,7 +31,7 @@ use crate::state::InvalidReason;
 const RSA_ENCRYPTION_OID: spki::ObjectIdentifier =
     spki::ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
 
-/// The signed contents of an activation.
+/// The signed contents of a **v2** activation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActivationPayload {
     pub key: String,
@@ -29,40 +40,84 @@ pub(crate) struct ActivationPayload {
     pub expires_at: Option<OffsetDateTime>,
 }
 
+/// What an activation turned out to be, once its signature verified.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum VerifiedActivation {
+    /// A v1 activation. It claims **nothing** beyond "this org signed this
+    /// license key": no product, no issue date, no expiry. There is no variant
+    /// body because there is nothing in it to carry, and inventing a field here
+    /// is exactly how an absent `issued_at` would become a made-up year.
+    V1,
+    V2(ActivationPayload),
+}
+
+/// Which envelope an activation string is in, before anything is decoded.
+enum Envelope<'a> {
+    V1 {
+        signature: &'a str,
+    },
+    V2 {
+        payload: &'a str,
+        signature: &'a str,
+    },
+}
+
 /// Verify an activation against an org public key and return what it claims.
+///
+/// `key` is the **normalized** license key the pair was stored under; it is the
+/// signed message for v1, and unused for v2 (where the key travels inside the
+/// signed payload and the caller compares it there).
 pub(crate) fn verify_activation(
     activation: &str,
+    key: &str,
     public_key_base64: &str,
-) -> Result<ActivationPayload, InvalidReason> {
-    let (payload_segment, signature_segment) = split_v2(activation)?;
-    let payload_bytes = decode_base64url(payload_segment)?;
-    let signature_bytes = decode_base64url(signature_segment)?;
+) -> Result<VerifiedActivation, InvalidReason> {
+    match split_envelope(activation)? {
+        Envelope::V1 { signature } => {
+            let signature_bytes = decode_base64url(signature)?;
+            verify(public_key_base64, key.as_bytes(), &signature_bytes)?;
+            Ok(VerifiedActivation::V1)
+        }
+        Envelope::V2 { payload, signature } => {
+            let payload_bytes = decode_base64url(payload)?;
+            let signature_bytes = decode_base64url(signature)?;
+            verify(public_key_base64, &payload_bytes, &signature_bytes)?;
+            Ok(VerifiedActivation::V2(parse_payload(&payload_bytes)?))
+        }
+    }
+}
 
+fn verify(
+    public_key_base64: &str,
+    signed: &[u8],
+    signature_bytes: &[u8],
+) -> Result<(), InvalidReason> {
     let public_key =
         rsa_public_key_der(public_key_base64).ok_or(InvalidReason::VerificationKeyUnusable)?;
     signature::UnparsedPublicKey::new(&signature::RSA_PKCS1_2048_8192_SHA256, &public_key)
-        .verify(&payload_bytes, &signature_bytes)
-        .map_err(|_| InvalidReason::SignatureMismatch)?;
-
-    parse_payload(&payload_bytes)
+        .verify(signed, signature_bytes)
+        .map_err(|_| InvalidReason::SignatureMismatch)
 }
 
-/// Split `v2.<payload>.<signature>`.
+/// Tell the two accepted envelopes apart.
 ///
-/// A dot-free activation is the **v1** FUTOpay format — a bare base64url
-/// signature over the key string, which Grayjay still issues and FUTO Notes
-/// deliberately does not accept — so it is reported as an unsupported version
-/// rather than as garbage.
-fn split_v2(activation: &str) -> Result<(&str, &str), InvalidReason> {
+/// A dot-free activation is **v1** — the bare signature FUTOpay has always
+/// issued. A dot-free token that reads as a version tag (`v1`, `v3`, …) is not:
+/// that is a truncated envelope, and calling it a signature would report a
+/// version we do not support as a signature mismatch.
+fn split_envelope(activation: &str) -> Result<Envelope<'_>, InvalidReason> {
     if activation.trim().is_empty() {
         return Err(InvalidReason::MalformedActivation);
     }
     let segments: Vec<&str> = activation.split('.').collect();
     match segments.as_slice() {
-        ["v2", payload, signature] => Ok((payload, signature)),
+        ["v2", payload, signature] => Ok(Envelope::V2 { payload, signature }),
         [only] if is_version_tag(only) => Err(InvalidReason::UnsupportedVersion),
+        [only] => Ok(Envelope::V1 { signature: only }),
+        // An explicit `v1.<a>.<b>` is not a v1 activation: v1 has no envelope
+        // at all. It is a version tag this build does not implement, exactly
+        // like `v3.<a>.<b>`.
         [version, _, _] if is_version_tag(version) => Err(InvalidReason::UnsupportedVersion),
-        [_only] => Err(InvalidReason::UnsupportedVersion),
         _ => Err(InvalidReason::MalformedActivation),
     }
 }
@@ -117,9 +172,11 @@ fn parse_payload(bytes: &[u8]) -> Result<ActivationPayload, InvalidReason> {
         OffsetDateTime::parse(raw, &Rfc3339).map_err(|_| InvalidReason::MalformedPayload)
     };
 
-    // `expires_at` must be PRESENT. `null` is how a perpetual product says so;
-    // an absent field is a payload we do not understand, and guessing
-    // "perpetual" would turn a server bug into a free forever-license.
+    // `expires_at` must be PRESENT in a v2 payload. `null` is how a perpetual
+    // product says so; an absent field is a payload we do not understand, and
+    // guessing "perpetual" would turn a server bug into a free forever-license.
+    // (A v1 activation never reaches here: it has no payload to be missing a
+    // field, and its perpetuity is the format, not a server's answer.)
     let expires_at = match object.get("expires_at") {
         None => return Err(InvalidReason::MalformedPayload),
         Some(serde_json::Value::Null) => None,
@@ -167,14 +224,41 @@ mod tests {
     }
 
     #[test]
-    fn version_tags_are_told_apart_from_malformed_envelopes() {
-        assert_eq!(split_v2("v1.a.b"), Err(InvalidReason::UnsupportedVersion));
-        assert_eq!(split_v2("v10.a.b"), Err(InvalidReason::UnsupportedVersion));
-        assert_eq!(
-            split_v2("v2.a.b.c"),
+    fn version_tags_are_told_apart_from_a_v1_signature() {
+        // A bare token is the v1 format — the signature IS the activation.
+        assert!(matches!(
+            split_envelope("c2lnbmF0dXJl"),
+            Ok(Envelope::V1 {
+                signature: "c2lnbmF0dXJl"
+            })
+        ));
+        // …but a bare version tag is a truncated envelope, not a signature.
+        assert!(matches!(
+            split_envelope("v1"),
+            Err(InvalidReason::UnsupportedVersion)
+        ));
+        assert!(matches!(
+            split_envelope("v1.a.b"),
+            Err(InvalidReason::UnsupportedVersion)
+        ));
+        assert!(matches!(
+            split_envelope("v10.a.b"),
+            Err(InvalidReason::UnsupportedVersion)
+        ));
+        assert!(matches!(
+            split_envelope("v2.a.b.c"),
             Err(InvalidReason::MalformedActivation)
-        );
-        assert_eq!(split_v2("v2.a"), Err(InvalidReason::MalformedActivation));
-        assert_eq!(split_v2("v2.a.b"), Ok(("a", "b")));
+        ));
+        assert!(matches!(
+            split_envelope("v2.a"),
+            Err(InvalidReason::MalformedActivation)
+        ));
+        assert!(matches!(
+            split_envelope("v2.a.b"),
+            Ok(Envelope::V2 {
+                payload: "a",
+                signature: "b"
+            })
+        ));
     }
 }

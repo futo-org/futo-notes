@@ -63,7 +63,9 @@ pub enum LicenseStatus {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct LicenseView {
     pub status: LicenseStatus,
-    /// `issued_at` — the source of "Supporter since {year}".
+    /// `issued_at` — the source of "Supporter since {year}". `None` for a v1
+    /// activation, which carries no purchase time at all: the row then drops
+    /// the "Supporter since" clause rather than showing a stand-in year.
     pub issued_at_millis: Option<i64>,
     /// `expires_at`, or `None` for a perpetual license. A shell must not
     /// invent a date when this is absent; the row drops the clause instead.
@@ -370,12 +372,12 @@ fn view_of(state: &LicenseState) -> LicenseView {
     match state {
         LicenseState::Licensed(details) => LicenseView {
             status: LicenseStatus::Licensed,
-            issued_at_millis: Some(epoch_millis(details.issued_at)),
+            issued_at_millis: details.issued_at.map(epoch_millis),
             expires_at_millis: details.expires_at.map(epoch_millis),
         },
         LicenseState::Expired(details) => LicenseView {
             status: LicenseStatus::Expired,
-            issued_at_millis: Some(epoch_millis(details.issued_at)),
+            issued_at_millis: details.issued_at.map(epoch_millis),
             expires_at_millis: details.expires_at.map(epoch_millis),
         },
         LicenseState::Invalid(_) => unlicensed(),
@@ -409,6 +411,14 @@ mod tests {
     const ACTIVATION: &str = "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.6Os6nS_93GOGFt5fd4k3XvtQsGMJ-x8Zct9RjZrZxdvHMAYtv6gvhvDcKf7sKzqk3eJZbtYuZDYwMykumVtESj-49_4HtolXbZRNyqJPzwZDmAWK7_9ZJuD50rxQokv1-p6oEdVX-eFANw9o0SI_kxEFQeVabto3ZwGEFqzNODlSObksC8SgmEbHfJFrtUgPXy8TbcRfFAsfNKSWFSvYEIRe2RFHcU9pG6XFd_h5kH0GGOjUmJM778C38rDyz6aedxVaMRkLjCfgJzaDqY7tB-c2ieYxjk_6AwPu3W2Sy4rDhJlFOdWghG96j0LOaQgc-wS_gyqQysPJBtw5G03fZg";
     /// The same staging key, `expires_at: null` — the perpetual vector.
     const PERPETUAL_ACTIVATION: &str = "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6bnVsbH0.PUDx1XyTRbde9afyBaTPpYbGN346wKTNZ0vfeXIMXSMdNbkTarm42T5BZKjrOmddYoT3usZMVVPsOn3ORWGzOyTFIPXs2ZFy51BeBogF59V6QY9MM7uPh8iY8r0tRlJJrm-0iN_2z9u9-PsPneenk6iUxXuWYjhZ5H_-yQQrssPEHyh2lgdYNcDLeA0qummpl71wJybMrQmOVOvCDQUyCgjTB4RcQrwqaxGA5WCVHZant9a2w-YG9vutL7Ltumee9ze6PjJPCHgGlZqzyKHMdGwkV_xWqepzJ1mXhBI5RHNRaT_Ff_z_msA8UVr2Kdd9aQzJEKNgKwD4DuUtlplCeg";
+
+    /// The same staging key in the **v1** format — a bare base64url signature
+    /// over the license key, with no envelope and no payload. This is what
+    /// `pay2.futo.org` issues today, so it is the activation a real staging
+    /// purchase would hand a `.dev` build. Accepted alongside v2 (decision
+    /// 2026-09-10, issue #161); it carries no product, no purchase time and no
+    /// expiry, and none of those may be invented on its behalf.
+    const V1_ACTIVATION: &str = "RFZu4WZF_gsjAPooQ-60gaa47IQs1-IwMCZ9zuBho_C8D5RmvTkNCgFqSEzaMPlN9DZiq8tZ1Mb2NssPDyYA906hEBOLMU3L4S_3UZfALogimhzjxPQMHg0zqU3WKtrP3kuSxz6n3KW9IELQez60g4W32i37eicx-pCIoqneM61f2R4N0xQ57f_Y-IAe-CyuvLXP5bmOjSeXhCBoZNkhzhHy_yqn-bRPHGPCudILHX5VtHJ4THfMdJ6Rwb-DVlEYbSsaiTFUxPG-UcTJej7e2ODsaIbZ63K2tOrg5IO9NU8FvrWCavPN1xt9Jhaf124Vpdob7Kgpem1hlDWaUb-4kw";
 
     /// A `.dev` bundle id — what both native dev builds run under (M3).
     const DEV_BUNDLE_ID: &str = "com.futo.notes.dev";
@@ -779,5 +789,81 @@ mod tests {
     #[test]
     fn the_registered_scheme_is_the_crates_scheme() {
         assert_eq!(license_deep_link_scheme(), "futonotes");
+    }
+
+    /// The reversal this projection exists to carry across the boundary: a v1
+    /// activation is Licensed, and BOTH timestamps arrive absent. A shell that
+    /// received `Some(now)` here would render a year nobody bought anything in.
+    #[test]
+    fn a_v1_license_is_licensed_with_no_dates_at_all() {
+        let view = evaluate_at(Some(pair(V1_ACTIVATION)), DEV_BUNDLE_ID, during_term());
+
+        assert_eq!(view.status, LicenseStatus::Licensed);
+        assert_eq!(view.issued_at_millis, None);
+        assert_eq!(view.expires_at_millis, None);
+    }
+
+    /// v1 cannot express an expiry, so no clock ever moves it out of Licensed.
+    /// Expired stays reachable only for a v2 activation carrying `expires_at`.
+    #[test]
+    fn a_v1_license_never_expires() {
+        let view = evaluate_at(Some(pair(V1_ACTIVATION)), DEV_BUNDLE_ID, after_term());
+
+        assert_eq!(view.status, LicenseStatus::Licensed);
+        assert_eq!(view.expires_at_millis, None);
+    }
+
+    /// CRITICAL (M3). v1 verifies against the same org key as v2, so the
+    /// dev/prod split has to hold for it too — a staging v1 activation must
+    /// fail closed on a release build.
+    #[test]
+    fn the_bundle_id_is_the_dev_prod_split_for_v1_too() {
+        let on_dev = evaluate_at(Some(pair(V1_ACTIVATION)), DEV_BUNDLE_ID, during_term());
+        let on_release = evaluate_at(Some(pair(V1_ACTIVATION)), RELEASE_BUNDLE_ID, during_term());
+
+        assert_eq!(on_dev.status, LicenseStatus::Licensed);
+        assert_eq!(on_release, unlicensed());
+    }
+
+    /// A v1 signature covers the key string alone, so pasting it against any
+    /// other key fails verification — the format's own stand-in for a key
+    /// mismatch.
+    #[test]
+    fn a_v1_activation_does_not_license_a_different_key() {
+        let mismatched = LicensePair {
+            key: "FN-ZZ99-YY88-XX77-WW66-VV55-UU44-TT33-SS22".to_string(),
+            activation: V1_ACTIVATION.to_string(),
+        };
+
+        let view = evaluate_at(Some(mismatched), DEV_BUNDLE_ID, during_term());
+
+        assert_eq!(view, unlicensed());
+    }
+
+    /// Both entry paths reach the same crate call, so both must accept both
+    /// formats: the deep link the checkout page opens, and the one bare-key
+    /// request whose response the deployed server returns in v1.
+    #[test]
+    fn a_v1_link_is_accepted_and_a_v1_activation_response_is_too() {
+        let outcome = handle_deep_link_with(
+            &format!("futonotes://license/{KEY}/{V1_ACTIVATION}"),
+            DEV_BUNDLE_ID,
+            during_term(),
+            &RecordingTransport::failing("no network in this test"),
+        );
+
+        let LicenseLinkOutcome::Accepted { acceptance } = outcome else {
+            panic!("expected the v1 link to be accepted, got {outcome:?}");
+        };
+        assert_eq!(acceptance.pair.activation, V1_ACTIVATION);
+        assert_eq!(acceptance.view.status, LicenseStatus::Licensed);
+        assert_eq!(acceptance.view.issued_at_millis, None);
+
+        let transport = RecordingTransport::answering(200, V1_ACTIVATION);
+        let entered = enter_key_with(KEY, DEV_BUNDLE_ID, during_term(), &transport).unwrap();
+
+        assert_eq!(entered.pair.activation, V1_ACTIVATION);
+        assert_eq!(entered.view.status, LicenseStatus::Licensed);
+        assert_eq!(entered.view.issued_at_millis, None);
     }
 }

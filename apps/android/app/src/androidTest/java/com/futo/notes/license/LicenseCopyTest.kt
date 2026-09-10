@@ -49,6 +49,22 @@ class LicenseCopyTest {
         assertEquals("Licensed · Supporter since 2026", text)
     }
 
+    /**
+     * The v1 reversal on this surface: still unmistakably the licensed state,
+     * with the "Supporter since" clause simply gone. No yearless variant, no
+     * placeholder year, and emphatically not the Unlicensed copy.
+     */
+    @Test
+    fun aLicenseWithNoPurchaseYearDropsTheSinceClause() {
+        val text = licenseRowText(LicenseView(LicenseStatus.LICENSED, null, null), localization)
+
+        assertEquals("Licensed", text)
+        assertFalse(text, text.contains("Supporter"))
+        assertFalse(text, text.contains("Valid until"))
+        // Nothing was substituted for the missing year — not this year, not any.
+        assertFalse(text, text.contains(localization.localizedYear(System.currentTimeMillis())))
+    }
+
     /** An expired license still says when it was bought — it is kept on the
      *  device and still earns "Supporter since". */
     @Test

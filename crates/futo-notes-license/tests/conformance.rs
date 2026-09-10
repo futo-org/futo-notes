@@ -2,8 +2,9 @@
 //!
 //! Reads the hand-reviewed `tests/conformance/license.json` — the same style
 //! `futo-notes-model` reads its goldens — and asserts this crate answers every
-//! vector exactly. The fixture carries a test-only RSA key pair, so the v2
-//! FUTOpay activation contract is provable here before lib-polar ships it and
+//! vector exactly. The fixture carries a test-only RSA key pair, so both
+//! FUTOpay activation contracts — the v1 bare signature pay2 issues today and
+//! the v2 envelope it can move to with no client release — are provable here,
 //! before any shell has a License row.
 //!
 //! Every assertion is at the crate's public API. Nothing here reaches into a
@@ -458,14 +459,31 @@ fn state_mismatch(actual: &LicenseState, expected: &Value) -> Option<String> {
         }
         (LicenseState::Licensed(details), "licensed")
         | (LicenseState::Expired(details), "expired") => {
-            let issued = instant(expected["issuedAt"].as_str().expect("expected.issuedAt"));
+            // Both fields must be WRITTEN OUT in the golden, `null` included: a
+            // v1 activation carries neither, and "the reviewer forgot to say"
+            // must not read as "the client may leave it absent".
+            let issued = expected
+                .get("issuedAt")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "a licensed/expired golden must state issuedAt (null for a v1 activation)"
+                    )
+                })
+                .as_str()
+                .map(instant);
             if details.issued_at != issued {
                 return Some(format!(
                     "issued_at is {:?}, expected {issued:?}",
                     details.issued_at
                 ));
             }
-            let expires = expected["expiresAt"].as_str().map(instant);
+            let expires = expected
+                .get("expiresAt")
+                .unwrap_or_else(|| {
+                    panic!("a licensed/expired golden must state expiresAt (null for a perpetual or v1 license)")
+                })
+                .as_str()
+                .map(instant);
             if details.expires_at != expires {
                 return Some(format!(
                     "expires_at is {:?}, expected {expires:?}",

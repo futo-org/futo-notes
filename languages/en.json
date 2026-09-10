@@ -771,6 +771,7 @@
       "unlicensed": "Unlicensed",
       "licensed": "Licensed · Supporter since {year} · Valid until {date}",
       "licensedPerpetual": "Licensed · Supporter since {year}",
+      "licensedUndated": "Licensed",
       "expired": "License expired {date} · Supporter since {year}",
       "supporterSince": "Supporter since {year}",
       "buy": "Buy a license",

@@ -2,21 +2,32 @@
 
 use time::OffsetDateTime;
 
-use crate::activation::verify_activation;
+use crate::activation::{verify_activation, VerifiedActivation};
 use crate::config::{LicenseConfig, PRODUCT_SLUG};
 use crate::input::LicensePair;
 use crate::key::{is_valid_license_key, normalize_license_key};
 
 /// What a stored pair claims, once verified.
+///
+/// Three of the four fields are optional because a **v1** activation carries
+/// only a signature over the license key: it names no product, no purchase
+/// time and no expiry. `None` here means "the activation did not say", and the
+/// shells render that by dropping the clause — never by substituting a default,
+/// today's date, or the moment the activation was fetched.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LicenseDetails {
     /// The normalized license key.
     pub key: String,
-    /// The FUTOpay product slug. Always [`PRODUCT_SLUG`] for a valid license.
-    pub product: String,
-    /// Purchase time — the source of "Supporter since {year}".
-    pub issued_at: OffsetDateTime,
-    /// `None` for a perpetual product.
+    /// The FUTOpay product slug a v2 payload names — always [`PRODUCT_SLUG`],
+    /// because any other value is Invalid. `None` for a v1 activation, whose
+    /// product binding is the org key pair rather than the payload.
+    pub product: Option<String>,
+    /// Purchase time — the source of "Supporter since {year}". `None` for a v1
+    /// activation, and then the badge has no year to show, so the whole clause
+    /// is dropped (docs/spec/license.md § States and copy).
+    pub issued_at: Option<OffsetDateTime>,
+    /// `None` for a perpetual product, and always `None` for v1, which cannot
+    /// express an expiry at all.
     pub expires_at: Option<OffsetDateTime>,
 }
 
@@ -28,7 +39,7 @@ pub struct LicenseDetails {
 /// |---|---|
 /// | nothing stored | **Unlicensed** |
 /// | `Invalid(_)` for a stored pair | **Unlicensed** |
-/// | `Licensed` | **Licensed** — "Supporter since {year} · Valid until {date}" |
+/// | `Licensed` | **Licensed** — "Supporter since {year} · Valid until {date}", each clause dropped when its field is `None` |
 /// | `Expired` | **Expired** — an expired license is kept and still says "Supporter since" |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LicenseState {
@@ -49,9 +60,11 @@ pub enum InvalidReason {
     UnrecognizedInput,
     /// The key is not eight groups of four from the FUTOpay alphabet.
     MalformedKey,
-    /// Not `v2.<payload>.<signature>`.
+    /// Neither `v2.<payload>.<signature>` nor a bare v1 signature.
     MalformedActivation,
-    /// A v1 (Grayjay-era) activation, or a version this build does not know.
+    /// A version tag this build does not implement (`v3.…`), or a bare `v1`
+    /// tag with no activation after it. A real v1 activation has no envelope,
+    /// so it never lands here.
     UnsupportedVersion,
     /// A segment is not base64url without padding.
     MalformedBase64,
@@ -83,9 +96,24 @@ pub fn evaluate(
     if !is_valid_license_key(&key) {
         return LicenseState::Invalid(InvalidReason::MalformedKey);
     }
-    let payload = match verify_activation(&pair.activation, config.public_key_base64) {
-        Ok(payload) => payload,
+    let verified = match verify_activation(&pair.activation, &key, config.public_key_base64) {
+        Ok(verified) => verified,
         Err(reason) => return LicenseState::Invalid(reason),
+    };
+    let payload = match verified {
+        // v1 signs the license key itself, so a verified signature has already
+        // proved the key matches — there is no payload to compare it against,
+        // and nothing else to check. It is perpetual because the format cannot
+        // say otherwise, not because a server told us so.
+        VerifiedActivation::V1 => {
+            return LicenseState::Licensed(LicenseDetails {
+                key,
+                product: None,
+                issued_at: None,
+                expires_at: None,
+            })
+        }
+        VerifiedActivation::V2(payload) => payload,
     };
     if !normalize_license_key(&payload.key).eq(&key) {
         return LicenseState::Invalid(InvalidReason::KeyMismatch);
@@ -96,8 +124,8 @@ pub fn evaluate(
     let expired = payload.expires_at.is_some_and(|expires| now >= expires);
     let details = LicenseDetails {
         key,
-        product: payload.product,
-        issued_at: payload.issued_at,
+        product: Some(payload.product),
+        issued_at: Some(payload.issued_at),
         expires_at: payload.expires_at,
     };
     if expired {

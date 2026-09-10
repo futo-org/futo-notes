@@ -239,6 +239,26 @@ class LicenseModelTest {
         assertEquals(LicenseStatus.LICENSED, license.view?.status)
     }
 
+    /** The v1 activation format, end to end on the real FFI: what
+     *  `staging-pay2.futo.org` issues today is accepted, stored, and reported
+     *  Licensed with NO timestamps for the row to render (issue #161). */
+    @Test
+    fun aV1ActivationActivatesOfflineAndCarriesNoDates() = runBlocking {
+        val license = model()
+        messagesOf(license)
+
+        val accepted = license.enterKey("${LicenseFixture.KEY}/${LicenseFixture.V1_ACTIVATION}")
+
+        assertTrue(accepted)
+        assertEquals(LicenseStatus.LICENSED, license.view?.status)
+        assertNull(license.view?.issuedAtMillis)
+        assertNull(license.view?.expiresAtMillis)
+        assertEquals(
+            LicenseFixture.V1_ACTIVATION,
+            LicenseStorage(preferences).read()?.activation,
+        )
+    }
+
     /** Nothing is stored on a failure, so a bad paste leaves whatever was there
      *  alone — and the user is told the key is not valid, never why. */
     @Test

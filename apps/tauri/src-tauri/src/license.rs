@@ -42,7 +42,9 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 pub struct LicenseView {
     /// `unlicensed` | `licensed` | `expired`.
     pub state: &'static str,
-    /// `issued_at` — the source of "Supporter since {year}".
+    /// `issued_at` — the source of "Supporter since {year}". `None` for a v1
+    /// activation, which carries no purchase time: the row and the ambient
+    /// label drop the clause rather than showing a stand-in year.
     pub issued_at: Option<String>,
     /// `expires_at`, or `null` for a perpetual license.
     pub expires_at: Option<String>,
@@ -204,12 +206,12 @@ fn view_of(state: &LicenseState) -> LicenseView {
     match state {
         LicenseState::Licensed(details) => LicenseView {
             state: STATE_LICENSED,
-            issued_at: rfc3339(details.issued_at),
+            issued_at: details.issued_at.and_then(rfc3339),
             expires_at: details.expires_at.and_then(rfc3339),
         },
         LicenseState::Expired(details) => LicenseView {
             state: STATE_EXPIRED,
-            issued_at: rfc3339(details.issued_at),
+            issued_at: details.issued_at.and_then(rfc3339),
             expires_at: details.expires_at.and_then(rfc3339),
         },
         LicenseState::Invalid(_) => unlicensed_view(),
@@ -409,8 +411,8 @@ mod tests {
     fn details() -> LicenseDetails {
         LicenseDetails {
             key: "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78".to_string(),
-            product: "futo-notes".to_string(),
-            issued_at: instant("2026-01-15T10:30:00Z"),
+            product: Some("futo-notes".to_string()),
+            issued_at: Some(instant("2026-01-15T10:30:00Z")),
             expires_at: Some(instant("2029-01-15T10:30:00Z")),
         }
     }
@@ -527,6 +529,26 @@ mod tests {
         let view = view_of(&LicenseState::Licensed(perpetual));
 
         assert_eq!(view.state, "licensed");
+        assert_eq!(view.expires_at, None);
+    }
+
+    /// A v1 activation carries no purchase time and no expiry, so the view the
+    /// frontend receives must have BOTH absent. Handing it a stand-in — `now`,
+    /// the fetch time, anything — is how a year nobody bought anything in ends
+    /// up in "Supporter since" (issue #161).
+    #[test]
+    fn a_v1_license_carries_no_dates_for_the_row_to_render() {
+        let undated = LicenseDetails {
+            key: "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78".to_string(),
+            product: None,
+            issued_at: None,
+            expires_at: None,
+        };
+
+        let view = view_of(&LicenseState::Licensed(undated));
+
+        assert_eq!(view.state, "licensed");
+        assert_eq!(view.issued_at, None);
         assert_eq!(view.expires_at, None);
     }
 

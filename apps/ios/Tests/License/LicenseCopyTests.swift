@@ -53,6 +53,23 @@ struct LicenseCopyTests {
         #expect(text.contains("2029"))
     }
 
+    /// The v1 reversal on this surface: still unmistakably the licensed state,
+    /// with the "Supporter since" clause simply gone. No yearless variant, no
+    /// placeholder year, and emphatically not the Unlicensed copy.
+    @Test("a license with no purchase year drops the since-clause and still reads as licensed")
+    func undatedLicensedRow() {
+        let text = licenseRowText(view(.licensed, issued: nil, expires: nil), localization)
+
+        #expect(text == localization.localizedText("license.licensedUndated"))
+        #expect(text != "license.licensedUndated")
+        #expect(text != licenseRowText(view(.unlicensed, issued: nil, expires: nil), localization))
+        #expect(!text.contains("Supporter"))
+        #expect(!text.contains("Valid until"))
+        // Nothing was substituted for the missing year — not this year, not any.
+        let thisYear = localization.localizedYear(Date().timeIntervalSince1970 * 1000)
+        #expect(!text.contains(thisYear))
+    }
+
     @Test("no stored license reads as Unlicensed")
     func unlicensedRow() {
         let text = licenseRowText(view(.unlicensed, issued: nil, expires: nil), localization)

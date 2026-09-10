@@ -60,6 +60,14 @@ LaunchServices hop into an unbundled dev binary.
     optionally preceded by an org prefix and a hyphen (e.g.
     `FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78`). Matching is case-insensitive
     and ignores surrounding whitespace.
+  - **Two activation formats are accepted, v1 and v2.** Which one arrives is
+    the server's choice; the client answers to both, so FUTOpay can move to v2
+    with **no client release**. → `futo_notes_license::activation`
+  - **Activation (v1)**: a bare base64url (no padding) RSA-SHA256 PKCS#1 v1.5
+    signature over the **license-key string alone** — no envelope, no product,
+    no dates. It is what `pay2.futo.org` issues today, and what Grayjay and the
+    other FUTO apps use. → lib-polar
+    `pylib/futopay_server/licensing/key.py` `verify_key_pair`
   - **Activation (v2)**: `v2.<payload>.<signature>` where `<payload>` is
     base64url (no padding) of canonical JSON and `<signature>` is base64url (no
     padding) of an RSA-SHA256 PKCS#1 v1.5 signature over the exact payload
@@ -70,20 +78,27 @@ LaunchServices hop into an unbundled dev binary.
     - `expires_at` — RFC 3339 UTC, or `null` for perpetual products. For
       `futo-notes` the server sets it to `issued_at` + 3 years. The client
       never knows or assumes a duration; it only compares `expires_at`.
-  - The v1 FUTOpay activation (a bare base64url RSA signature over the key
-    string, as Grayjay uses) carries no product or expiry and is **not** accepted
-    by FUTO Notes. Other FUTO apps keep accepting v1; the v2 format is shared so
-    they can adopt expiry. Server side: lib-polar (separate repo); the contract
-    is defined here and pinned by fixtures (below).
-- **Licensed** means all of: the activation parses as v2, the signature verifies
-  against the baked-in FUTOpay public key for this app's org, `payload.key`
-  equals the stored license key, `payload.product` is `futo-notes`, and the
-  current time is before `expires_at` (or `expires_at` is null). Nothing else.
-  Verification is fully offline.
-- **Expired** means everything above holds except the time check. An expired
-  license is kept on the device and still yields "Supporter since".
+  - Server side: lib-polar (separate repo); both contracts are defined here and
+    pinned by fixtures (below).
+- **Licensed (v1)** means: the activation is a single base64url segment whose
+  signature verifies, against the baked-in FUTOpay public key for this app's
+  org, over the normalized stored license key. Nothing else — the key *is* the
+  signed message, so there is no separate key comparison to make. It is
+  **perpetual**: `issued_at` and `expires_at` are absent, the row drops the
+  clauses that need them, and no clock ever moves it out of Licensed.
+- **Licensed (v2)** means all of: the activation parses as `v2.…`, the signature
+  verifies against that same org public key, `payload.key` equals the stored
+  license key, `payload.product` is `futo-notes`, and the current time is before
+  `expires_at` (or `expires_at` is null). Nothing else.
+  Verification is fully offline in both formats.
+- **Expired** means everything above holds for a **v2** activation except the
+  time check. An expired license is kept on the device and still yields
+  "Supporter since". A v1 license never reaches Expired — the format cannot
+  express an expiry — so Expired and its Renew action are reachable only for a
+  v2 activation carrying an `expires_at`.
 - **Invalid** is any other outcome. Invalid input is never stored.
-- **Keys and org**: FUTO Notes has its own FUTOpay org and RSA key pair. The
+- **Keys and org** (read the [one-product tripwire](#decision-2026-09-10--accept-v1-alongside-v2)
+  before adding a second product to this org): FUTO Notes has its own FUTOpay org and RSA key pair. The
   release build embeds the production public key and talks to
   `https://pay2.futo.org`; dev builds (the `.dev` bundle/package IDs, M3) embed
   the staging public key and talk to `https://staging-pay2.futo.org`. Selection
@@ -92,10 +107,14 @@ LaunchServices hop into an unbundled dev binary.
   allowed.
 - **Fixtures**: `tests/conformance/license.json` holds a **test-only** RSA key
   pair, plus golden vectors for: valid; expired; wrong product; tampered
-  payload; wrong key; v1 activation (rejected); malformed base64; each accepted
-  input shape from [Entering a key](#entering-a-key). The Rust crate's tests
-  read the goldens, so the verifier is provable before the server ships v2. The
-  fixture private key is never used outside tests.
+  payload; wrong key; malformed base64; each accepted input shape from
+  [Entering a key](#entering-a-key); and, for v1, a valid activation, one signed
+  by the wrong org key, one minted for a different license key, and one that is
+  not base64url at all. The Rust crate's tests read the goldens, so both
+  verifiers are provable before the server ships v2. The fixture private key is
+  never used outside tests. The staging-signed activations the native and FFI
+  fixtures carry (both formats, minted by
+  `scripts/gen-license-fixture.mjs --staging`) are a separate, real key pair.
 - **Clock**: the client trusts the device clock. A user who sets their clock
   back to appear licensed has spent effort to see a badge; no countermeasure.
 - **Revocation and refunds**: with no background network, a refunded or revoked
@@ -123,6 +142,45 @@ LaunchServices hop into an unbundled dev binary.
   the Unlicensed state, or announcing activation. → iOS and Android
   `LicenseModel` operation revisions; `fullResetInvalidatesPendingActivation`,
   `fullResetInvalidatesAnActivationAlreadyInFlight`
+
+### Decision 2026-09-10 — accept v1 alongside v2
+
+This **reverses specified intent**, recorded as a decision by @justin rather
+than as a closed Gap: until 2026-09-10 this spec said the v1 activation "is
+**not** accepted by FUTO Notes". It is now accepted, and v2 is kept. Issue #161.
+
+Why the original reasoning did not survive contact with the deployed product:
+
+- **Product binding never came from the payload.** FUTO Notes has its own
+  FUTOpay org RSA key pair, so a Grayjay or Immich activation cannot verify
+  against this app's public key whatever format it is in. `payload.product` is
+  belt-and-braces, not the binding.
+- **The deployed product is perpetual.** `GET
+  /checkout/polar/futo-notes/futo-notes-license/info` reports
+  `license_term: null` and `/price` reports a one-time, non-recurring price
+  (observed 2026-09-10), so `expires_at` would be `null` even under v2 — Expired
+  and Renew are unreachable either way until someone sets a term.
+- That left `issued_at`, the year in "Supporter since", as the only thing v2
+  buys today. `staging-pay2.futo.org` runs the pre-v2 code, so shipping against
+  v1 needs no lib-polar change at all.
+
+**v2 is not removed, and must not be.** Dual acceptance is what lets the server
+switch to v2 later with **zero client release** — the shipped mobile apps cannot
+be hot-fixed, so deleting the v2 path would turn that migration into two store
+submissions. v2 semantics are unchanged whenever a v2 activation arrives.
+
+> **TRIPWIRE — one product per org.** A v1 signature covers the license-key
+> string alone, so **any** v1 activation minted by the `futo-notes` FUTOpay org
+> verifies for this product. That is safe only while that org mints license keys
+> for exactly one product. A subscription product is coming under the same org;
+> it issues no license keys, so it does not trip this.
+> **If any second product in the `futo-notes` org ever mints a license key, v1
+> acceptance must be dropped and v2 becomes mandatory** — a `payload.product`
+> check is the only thing that separates two products under one key pair. That
+> is the second reason the v2 path stays: dropping v1 must remain a client change
+> that is already written, not one that has to be written under pressure.
+> Mirrored in `crates/futo-notes-license/AGENTS.md`, which is what a change to
+> the verifier makes someone read.
 
 ## Getting a license
 
@@ -307,6 +365,19 @@ The License row has exactly three states. All strings are catalog entries
   the row simply drops the "Valid until" clause rather than inventing a date:
   "Licensed · Supporter since {year}". → `license.licensedPerpetual`,
   `licenseCopy.test.ts` "omits the expiry entirely for a perpetual license"
+- **With no `issued_at` — a v1 activation — the "Supporter since {year}" line is
+  not rendered at all.** There is no yearless variant of it, no placeholder
+  year, and the activation-fetch time is never used as a stand-in. The row is
+  then the single word "Licensed" (`license.licensedUndated`), which still reads
+  as the licensed state; the ambient label has nothing to put in place of
+  "Unlicensed", so the desktop footer shows the app version alone — removing the
+  label is the whole visible reward, and it still happens. →
+  `licenseCopy.ts`/`licenseCopy.test.ts` "reads as licensed with no since-clause
+  when there is no purchase year" + "has nothing to show when a license carries
+  no purchase year", `SidebarLicenseFooter.svelte`; *(ios)* `LicenseCopy.swift`,
+  `LicenseCopyTests` "a license with no purchase year drops the since-clause and
+  still reads as licensed"; *(android)* `LicenseCopy.kt`, `LicenseCopyTest`
+  "aLicenseWithNoPurchaseYearDropsTheSinceClause"
 - Under the row in every state: "FUTO Notes is free to use. Buying a license
   supports development and removes the Unlicensed label."
 - **Renew** is the Buy action; a new key simply replaces the old one.

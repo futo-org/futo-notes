@@ -13,6 +13,12 @@
   }
 
   let { onopenlicense }: Props = $props();
+
+  // `null` is "there is nothing to say here": a license with no purchase year
+  // has no "Supporter since {year}" line and gets no yearless stand-in, so the
+  // footer is the version alone. An empty button would still be a click target
+  // and would still be announced, so the element goes rather than its text.
+  const label = $derived(licenseAmbientLabel(license.view));
 </script>
 
 <div class="sidebar-footer">
@@ -24,13 +30,15 @@
        exactly how the ambient label — the one word this whole feature exists to
        show or remove — stops being announced at all. The visible text is the
        name; the tooltip only explains what clicking does. -->
-  <button
-    class="sidebar-footer-license"
-    onclick={onopenlicense}
-    title={localizedText('license.openLicenseSettings')}
-  >
-    {licenseAmbientLabel(license.view)}
-  </button>
+  {#if label !== null}
+    <button
+      class="sidebar-footer-license"
+      onclick={onopenlicense}
+      title={localizedText('license.openLicenseSettings')}
+    >
+      {label}
+    </button>
+  {/if}
 </div>
 
 <style>

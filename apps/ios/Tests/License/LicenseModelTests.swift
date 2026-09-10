@@ -222,6 +222,23 @@ struct LicenseModelTests {
         #expect(LicenseStorage(defaults: defaults).read()?.key == LicenseFixture.key)
     }
 
+    /// The v1 activation format, end to end on the real FFI: what
+    /// `staging-pay2.futo.org` issues today is accepted, stored, and reported
+    /// Licensed with **no** timestamps for the row to render (issue #161).
+    @Test("a v1 activation activates offline and carries no dates")
+    func v1PairActivates() async {
+        let (license, defaults) = model()
+
+        let accepted = await license.enterKey(
+            "\(LicenseFixture.key)/\(LicenseFixture.v1Activation)")
+
+        #expect(accepted)
+        #expect(license.view?.status == .licensed)
+        #expect(license.view?.issuedAtMillis == nil)
+        #expect(license.view?.expiresAtMillis == nil)
+        #expect(LicenseStorage(defaults: defaults).read()?.activation == LicenseFixture.v1Activation)
+    }
+
     /// Nothing is stored on a failure, so a bad paste leaves whatever was there
     /// alone — and the user is told the key is not valid, never why.
     @Test("an unrecognisable paste stores nothing")

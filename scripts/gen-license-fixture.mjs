@@ -18,7 +18,8 @@
 //
 // mints the STAGING-signed activations the native and FFI fixtures carry — the
 // ones that must verify against `STAGING_PUBLIC_KEY_BASE64` on a real `.dev`
-// build, which the fixture pair above cannot do. It PRINTS them; a human pastes
+// build, which the fixture pair above cannot do. Both accepted formats are
+// minted, so every consumer can cover v1 and v2. It PRINTS them; a human pastes
 // them into the three consumers listed in its output. Nothing is written,
 // nothing reads the private key on a normal test run, and the private key never
 // enters the repo. The consumers' own tests are the staleness guard: an
@@ -27,7 +28,7 @@
 //
 // A case opts in by carrying a `sign` object:
 //   { "with": "org" | "otherOrg",         which fixture key pair signs it
-//     "format": "v2" | "v1",              v1 = the Grayjay-era bare signature
+//     "format": "v2" | "v1",              v1 = the bare signature over `key`
 //     "payload": { … },                   the JSON that gets signed (v2)
 //     "payloadRaw": "…",                  or: sign these exact bytes, so a
 //                                         validly-signed non-JSON payload can
@@ -69,8 +70,9 @@ function signV2(privateKey, sign) {
   return `v2.${base64url(shipped)}.${base64url(signature)}`;
 }
 
-/** v1 (Grayjay): a bare base64url signature over the license-key string. FUTO
- *  Notes rejects these; the fixture carries one so that rejection is pinned. */
+/** v1: a bare base64url signature over the license-key string — no envelope,
+ *  no product, no dates. This is what `pay2.futo.org` issues today, and FUTO
+ *  Notes accepts it alongside v2 (decision 2026-09-10, issue #161). */
 function signV1(privateKey, sign) {
   const signature = crypto.sign('sha256', Buffer.from(sign.key, 'utf8'), {
     key: privateKey,
@@ -96,9 +98,10 @@ function* signedCases(node) {
   }
 }
 
-/** The staging-signed pair every consumer outside this fixture carries: one
- *  term-limited license and its perpetual (`expires_at: null`) sibling, over
- *  the same license key. The key does not exist server-side and does not need
+/** The staging-signed activations every consumer outside this fixture carries,
+ *  over one license key: a term-limited v2 license, its perpetual
+ *  (`expires_at: null`) v2 sibling, and the v1 bare signature the deployed
+ *  server actually issues. The key does not exist server-side and does not need
  *  to — these are verified offline, against the baked-in staging public key. */
 const STAGING_FIXTURE_KEY = 'FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78';
 const STAGING_PAYLOADS = {
@@ -116,10 +119,15 @@ const STAGING_PAYLOADS = {
   },
 };
 
+/** The v1 activation is signed over the license KEY, not over a payload, so it
+ *  is minted from the same key string rather than from a STAGING_PAYLOADS
+ *  entry. */
+const STAGING_V1 = { format: 'v1', key: STAGING_FIXTURE_KEY };
+
 const STAGING_CONSUMERS = [
-  'crates/futo-notes-ffi/src/license/contract.rs (both constants)',
-  'apps/ios/Tests/License/LicenseFixture.swift (ACTIVATION only)',
-  'apps/android/app/src/androidTest/java/com/futo/notes/license/LicenseFixture.kt (ACTIVATION only)',
+  'crates/futo-notes-ffi/src/license/contract.rs (all three constants)',
+  'apps/ios/Tests/License/LicenseFixture.swift (ACTIVATION + V1_ACTIVATION)',
+  'apps/android/app/src/androidTest/java/com/futo/notes/license/LicenseFixture.kt (ACTIVATION + V1_ACTIVATION)',
 ];
 
 /** The staging public key exactly as the app bakes it in. Read out of the Rust
@@ -171,6 +179,9 @@ function mintStagingActivations() {
     console.log(`  ${name} =`);
     console.log(`    ${signV2(privateKey, { format: 'v2', payload })}`);
   }
+  console.log('');
+  console.log('  V1_ACTIVATION =');
+  console.log(`    ${signV1(privateKey, STAGING_V1)}`);
 }
 
 if (process.argv.includes('--staging')) {

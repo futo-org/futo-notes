@@ -15,7 +15,7 @@ want is a gate by another name.
 | `config.rs` | The baked-in constants: org and product slugs, deep-link scheme, key alphabet, support mailto, the two org public keys and the two pay2 hosts, and the `Environment` dev/prod split. `buy_url` and `activation_url` are both built from the selected environment, so neither is a single cross-environment constant. |
 | `key.rs` | The FUTOpay license-key grammar and normalization. |
 | `input.rs` | Recognising the three accepted input shapes, and deep-link parsing. |
-| `activation.rs` | v2 activation parsing and RSA-SHA256 PKCS#1 v1.5 verification. |
+| `activation.rs` | v1 and v2 activation parsing and RSA-SHA256 PKCS#1 v1.5 verification. |
 | `state.rs` | `evaluate` — the Licensed / Expired / Invalid predicate, with the clock injected. |
 | `enter.rs` | The atomic enter-a-key workflow and the one `ActivationTransport` call. |
 
@@ -27,14 +27,29 @@ plain strings; where they live is the shell's business.
 - **Zero network** outside `enter_license_key`, and only on the bare-key path: exactly one `GET`,
   no retry, no launch check, no polling, no background re-attempt. `enterKey` goldens whose
   transport is `"unavailable"` panic on any request, so a new network call fails loudly.
-- **v1 activations are rejected.** The Grayjay-era bare signature carries no product and no
-  expiry. Other FUTO apps keep accepting v1; this one does not.
+- **Both activation formats are accepted, and v2 is never removed** (decision 2026-09-10, issue
+  #161). v1 is the bare base64url signature over the license-key string that `pay2.futo.org` issues
+  today; v2 is the signed envelope. Accepting both is what lets the server move to v2 with **zero
+  client release** — a shipped mobile app cannot be hot-fixed, so deleting the v2 path would make
+  that migration a store submission. v2 semantics stay exactly as they were when a v2 activation
+  arrives.
+- **A v1 activation claims nothing beyond "this org signed this key".** No product, no
+  `issued_at`, no `expires_at`; it is Licensed, perpetually. Never invent those fields — not
+  `now`, not the activation-fetch time, not a default. `LicenseDetails` makes them `Option` so
+  there is no place to put an invented value.
+- **TRIPWIRE — v1 acceptance depends on the `futo-notes` org minting keys for exactly one
+  product.** A v1 signature covers only the key string, so *any* v1 activation this org mints
+  verifies here. A subscription product is coming under the same org and issues no license keys, so
+  it does not trip this. **If any second product in the `futo-notes` org ever mints a license key,
+  v1 acceptance must be dropped from `split_envelope`/`evaluate` and v2 becomes mandatory** — which
+  is the other reason the v2 path stays. Same tripwire in docs/spec/license.md.
 - **The signature is verified before the payload is parsed**, and the payload bytes are never
   re-serialized — what was signed is what arrived, so there is no canonical-JSON rule to get wrong
   on the client.
-- **`expires_at` must be present.** `null` is how a perpetual product says so; an absent field is a
-  payload we do not understand, and reading it as perpetual would turn a server bug into a free
-  forever-license.
+- **`expires_at` must be present in a v2 payload.** `null` is how a perpetual product says so; an
+  absent field is a payload we do not understand, and reading it as perpetual would turn a server
+  bug into a free forever-license. v1 is exempt because it has no payload at all — its perpetuity
+  is the format, not a server's answer.
 - **No dev/prod crossover** (AGENTS.md M3). Release builds verify against the production key and
   talk to `pay2.futo.org`; dev builds use the staging key and `staging-pay2.futo.org`. Never fetch
   a public key at runtime. **The Buy destination is part of that split**, not an exception: it was
@@ -71,8 +86,9 @@ is deliberately not in `just test-rust`, because a guard CI never runs is not a 
 second one that only restates a red test is weight without a job.
 
 Red-proof anything you add: perturb the implementation (flip `>=` to `>` on the expiry compare,
-drop the product check, accept `v1`) and the run must fail naming the vector. A golden that cannot
-go red is not a golden (M11).
+drop the product check, reject `v1` again, verify a v1 signature over something other than the
+normalized key) and the run must fail naming the vector. A golden that cannot go red is not a
+golden (M11).
 
 ## Verification (required)
 

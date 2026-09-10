@@ -7,11 +7,12 @@
 //!
 //! # What this crate owns
 //!
-//! Input-shape recognition, v2 FUTOpay activation parsing and RSA verification,
-//! the Licensed/Expired/Invalid predicate, deep-link parsing, the Buy and
-//! support URLs, and the single activation request. Shells own only UI, URL
-//! scheme registration, and preference storage — no license rule is written
-//! again in Swift, Kotlin, or TypeScript (AGENTS.md M6).
+//! Input-shape recognition, FUTOpay activation parsing and RSA verification —
+//! both the v1 bare signature and the v2 envelope — the Licensed/Expired/Invalid
+//! predicate, deep-link parsing, the Buy and support URLs, and the single
+//! activation request. Shells own only UI, URL scheme registration, and
+//! preference storage — no license rule is written again in Swift, Kotlin, or
+//! TypeScript (AGENTS.md M6).
 //!
 //! # What it deliberately does not own
 //!
@@ -41,8 +42,13 @@
 //! let now = OffsetDateTime::now_utc();
 //!
 //! // Render the License row from whatever is stored.
+//! // `issued_at` is absent for a v1 activation, and the clause is then dropped
+//! // rather than filled in with a stand-in date.
 //! let row = match stored.as_ref().map(|pair| evaluate(pair, config, now)) {
-//!     Some(LicenseState::Licensed(details)) => format!("Licensed since {}", details.issued_at),
+//!     Some(LicenseState::Licensed(details)) => match details.issued_at {
+//!         Some(issued_at) => format!("Licensed since {issued_at}"),
+//!         None => "Licensed".to_string(),
+//!     },
 //!     Some(LicenseState::Expired(details)) => format!("Expired {:?}", details.expires_at),
 //!     Some(LicenseState::Invalid(_)) | None => "Unlicensed".to_string(),
 //! };

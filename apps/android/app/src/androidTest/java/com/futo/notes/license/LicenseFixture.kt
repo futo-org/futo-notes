@@ -1,9 +1,9 @@
 package com.futo.notes.license
 
 /**
- * A real, verifiable staging license.
+ * A real, verifiable staging license, in both accepted activation formats.
  *
- * These two strings are signed by the FUTO Notes staging org key — the one
+ * These strings are signed by the FUTO Notes staging org key — the one
  * `STAGING_PUBLIC_KEY_BASE64` bakes in — so they verify on any `.dev` build
  * exactly as a purchased staging license would: product futo-notes, issued
  * 2026-01-15, expiring 2029-01-15. The license key itself does not exist
@@ -12,7 +12,7 @@ package com.futo.notes.license
  * They are deliberately not the conformance fixture's pair, whose key is
  * test-only and never baked into a build. Re-mint them with
  * `FUTO_NOTES_STAGING_KEY=… node scripts/gen-license-fixture.mjs --staging`
- * (the staging private key is never in this repo). Same two strings as iOS
+ * (the staging private key is never in this repo). Same strings as iOS
  * `LicenseFixture.swift`. If the staging key is rotated without re-minting,
  * these tests go red — the correct red.
  */
@@ -27,8 +27,23 @@ object LicenseFixture {
             "G6XFd_h5kH0GGOjUmJM778C38rDyz6aedxVaMRkLjCfgJzaDqY7tB-c2ieYxjk_6AwPu3W2Sy4rDhJlFOdWg" +
             "hG96j0LOaQgc-wS_gyqQysPJBtw5G03fZg"
 
+    /**
+     * The same license key in the **v1** format — a bare base64url signature
+     * over the key, with no envelope and no payload. It is what
+     * `staging-pay2.futo.org` issues today, and it is Licensed with no purchase
+     * time and no expiry to show (issue #161).
+     */
+    const val V1_ACTIVATION =
+        "RFZu4WZF_gsjAPooQ-60gaa47IQs1-IwMCZ9zuBho_C8D5RmvTkNCgFqSEzaMPlN9DZiq8tZ1Mb2NssPDyYA906h" +
+            "EBOLMU3L4S_3UZfALogimhzjxPQMHg0zqU3WKtrP3kuSxz6n3KW9IELQez60g4W32i37eicx-pCIoqneM61f2R4N" +
+            "0xQ57f_Y-IAe-CyuvLXP5bmOjSeXhCBoZNkhzhHy_yqn-bRPHGPCudILHX5VtHJ4THfMdJ6Rwb-DVlEYbSsaiTFU" +
+            "xPG-UcTJej7e2ODsaIbZ63K2tOrg5IO9NU8FvrWCavPN1xt9Jhaf124Vpdob7Kgpem1hlDWaUb-4kw"
+
     /** What the FUTOpay activate-redirect page opens. */
     val deepLink: String get() = "futonotes://license/$KEY/$ACTIVATION"
+
+    /** The same link carrying the v1 activation. */
+    val v1DeepLink: String get() = "futonotes://license/$KEY/$V1_ACTIVATION"
 
     /** 2026-01-15T10:30:00Z, the fixture license's purchase instant. */
     const val ISSUED_AT_MILLIS = 1_768_473_000_000L
