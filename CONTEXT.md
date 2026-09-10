@@ -98,3 +98,42 @@ A rename reported as such by the sync engine at the moment it relocates a note �
 collision placements. Shells follow reported renames; they never infer a rename from id
 patterns.
 _Avoid_: collision-inferred rename, rename detection
+
+### License and buying
+
+**License**:
+What a user buys. It unlocks nothing functional — every feature works identically with or
+without one. It removes the ambient *Unlicensed* label and shows a *Supporter* badge.
+_Avoid_: subscription, membership, donation, pro/premium, upgrade
+
+**License key**:
+The short human-readable string a buyer receives and can read aloud, retype, or paste. It
+identifies the purchase; on its own it proves nothing.
+_Avoid_: serial, licence code, product key
+
+**Activation**:
+The signed blob that proves a key was issued for this product, carrying the product and the
+validity window. Stored beside the key and checked with no network. Always the blob — never
+an event, never something that is "used up".
+_Avoid_: signature (too generic), token, entitlement, seat
+
+**License pair**:
+A key and its activation together — the storable, pasteable, deep-linkable unit, and the only
+form that licenses a device.
+_Avoid_: credentials, license file
+
+**Activation fetch**:
+Exchanging a bare key for its activation. The one network call the license ever makes, on the
+one path where a user typed a key alone. Distinct from an *activation*, which is the thing it
+returns; a fetch is never counted or limited.
+_Avoid_: activating (as a verb for the blob), redemption, registration
+
+**Supporter**:
+How a licensed user is named in the product. Not a tier, not a role — there is nothing to be a
+member of and nothing it grants.
+_Avoid_: subscriber, backer, patron, pro user
+
+**Link out**:
+Sending a buyer to the storefront in the system browser rather than transacting inside the
+app. The buy destination on every platform.
+_Avoid_: in-app purchase, checkout flow, paywall
