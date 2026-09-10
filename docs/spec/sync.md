@@ -92,7 +92,8 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
 - **An untrusted certificate is reported as such**, not as a generic connection
   failure: the shells surface _"This server's certificate isn't trusted by this
   device. Install its certificate authority in the device settings, then try
-  again."_ → SyncManager.kt / SyncManager.swift `failureMessage`
+  again."_ → SyncManager.kt / SyncManager.swift / createSyncSettings.svelte.ts
+  `failureMessage`
 - When no server is connected yet, the Sync screen points the user at how to
   get one: a **bordered link row** — a leading external-link icon (iOS
   `arrow.up.forward.square` / Android `OpenInNew`) followed by the

@@ -43,7 +43,7 @@ vi.mock('$features/sync/syncServiceE2ee', () => ({
   },
 }));
 
-import { createSyncSettings } from './createSyncSettings.svelte';
+import { createSyncSettings, failureMessage } from './createSyncSettings.svelte';
 
 beforeEach(() => {
   appStateMock.e2eeServerUrl = '';
@@ -208,5 +208,17 @@ describe('createSyncSettings', () => {
     expect(sync.password).toBe('');
     expect(sync.passwordSaved).toBe(true);
     expect(sync.connected).toBe(true);
+  });
+
+  it('names an untrusted certificate instead of blaming the URL or password', () => {
+    expect(
+      failureMessage(
+        new Error('error sending request: invalid peer certificate: UnknownIssuer'),
+        'sync.errors.connectFailed',
+      ),
+    ).toEqual({ path: 'sync.errors.certificateNotTrusted' });
+    expect(failureMessage(new Error('connection refused'), 'sync.errors.connectFailed')).toEqual({
+      path: 'sync.errors.connectFailed',
+    });
   });
 });
