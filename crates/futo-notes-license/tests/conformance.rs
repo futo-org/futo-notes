@@ -18,7 +18,7 @@ use futo_notes_license::{
     normalize_license_key, parse_deep_link, recognize_input, AcceptedLicense, ActivationTransport,
     EnterKeyError, Environment, HttpResponse, InvalidReason, LicenseConfig, LicenseInput,
     LicensePair, LicenseState, OffsetDateTime, Platform, TransportError, DEEP_LINK_SCHEME,
-    KEY_ALPHABET, PRODUCT_SLUG, SUPPORT_MAILTO,
+    KEY_ALPHABET, ORG_SLUG, PRODUCT_SLUG, SUPPORT_MAILTO,
 };
 use serde_json::Value;
 
@@ -133,10 +133,33 @@ fn constants_match_the_fixture() {
     assert_eq!(KEY_ALPHABET, text(constants, "keyAlphabet"));
     assert_eq!(SUPPORT_MAILTO, text(constants, "supportMailto"));
 
+    assert_eq!(ORG_SLUG, text(constants, "orgSlug"));
+
+    // The Buy destination is environment-split like the key and the activation
+    // host (M3): a `.dev` build must reach staging checkout, never production.
     let buy = &constants["buyUrls"];
-    assert_eq!(buy_url(Platform::Desktop), text(buy, "desktop"));
-    assert_eq!(buy_url(Platform::Ios), text(buy, "ios"));
-    assert_eq!(buy_url(Platform::Android), text(buy, "android"));
+    for (name, environment) in [
+        ("production", Environment::Production),
+        ("staging", Environment::Staging),
+    ] {
+        let expected = &buy[name];
+        let config = environment.config();
+        assert_eq!(
+            buy_url(config, Platform::Desktop),
+            text(expected, "desktop"),
+            "{name} desktop buy URL"
+        );
+        assert_eq!(
+            buy_url(config, Platform::Ios),
+            text(expected, "ios"),
+            "{name} iOS buy URL"
+        );
+        assert_eq!(
+            buy_url(config, Platform::Android),
+            text(expected, "android"),
+            "{name} Android buy URL"
+        );
+    }
 
     let environments = &constants["environments"];
     // The dev/prod split is data here, not a compile flag, so a shell cannot

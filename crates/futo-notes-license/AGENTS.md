@@ -12,7 +12,7 @@ want is a gate by another name.
 
 | Module | Owns |
 |---|---|
-| `config.rs` | The baked-in constants: product slug, deep-link scheme, key alphabet, buy URL, support mailto, the two org public keys and the two pay2 hosts, and the `Environment` dev/prod split. |
+| `config.rs` | The baked-in constants: org and product slugs, deep-link scheme, key alphabet, support mailto, the two org public keys and the two pay2 hosts, and the `Environment` dev/prod split. `buy_url` and `activation_url` are both built from the selected environment, so neither is a single cross-environment constant. |
 | `key.rs` | The FUTOpay license-key grammar and normalization. |
 | `input.rs` | Recognising the three accepted input shapes, and deep-link parsing. |
 | `activation.rs` | v2 activation parsing and RSA-SHA256 PKCS#1 v1.5 verification. |
@@ -37,7 +37,9 @@ plain strings; where they live is the shell's business.
   forever-license.
 - **No dev/prod crossover** (AGENTS.md M3). Release builds verify against the production key and
   talk to `pay2.futo.org`; dev builds use the staging key and `staging-pay2.futo.org`. Never fetch
-  a public key at runtime.
+  a public key at runtime. **The Buy destination is part of that split**, not an exception: it was
+  one constant pointing at a landing page, which meant a `.dev` build could only ever open
+  production checkout. Anything that leaves the app for money takes a `LicenseConfig`.
 - **`Environment::for_bundle_id` is the only selector**, and the `.dev` suffix is the split. Do not
   reintroduce a `cfg!(debug_assertions)` version: the native shells compile the FFI with
   `release-ffi` for their dev apps too, so a compile-profile test silently puts a `.dev` phone build

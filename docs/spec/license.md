@@ -3,8 +3,8 @@
 FUTO Notes is free to use. A user may **buy a license** for the client. The
 license unlocks nothing functional: it removes the ambient **Unlicensed** label
 and shows a **Supporter since {year}** badge. This is the Grayjay / FUTO Keyboard
-/ Immich model ("unregistered HyperCam 2"), sold through FUTOpay (pay.futo.tech,
-Polar underneath). The server product is a separate, later product with no
+/ Immich model ("unregistered HyperCam 2"), sold through FUTOpay (Polar
+underneath). The server product is a separate, later product with no
 shared semantics; see [Out of scope](#out-of-scope).
 
 Design decisions recorded 2026-09-09 (spec-first). All three clients implement
@@ -121,19 +121,42 @@ LaunchServices hop into an unbundled dev binary.
 
 ## Getting a license
 
-- **Buy** opens the **system browser** (never an in-app WebView) at
-  `https://pay.futo.tech/futo-notes?platform=<desktop|ios|android>`. Both URLs
-  in this spec are constants in the Rust crate so all three shells agree; the
-  web side may redirect freely so the app never needs a release for a
-  storefront change. The `platform` value is attribution only. *(desktop)* The
-  URL is read from the crate through `license_links` and opened with the opener
-  plugin, never in a webview. → `license::license_links`,
+- **Buy** opens the **system browser** (never an in-app WebView) at this
+  build's **generated checkout**:
+  `{pay2}/checkout/polar/futo-notes/futo-notes/checkout-ready?platform=<desktop|ios|android>&success=`.
+  There is no product landing page — no `pay.futo.tech/futo-notes` — and there
+  will not be one (decision 2026-09-10); the app names the checkout FUTOpay's
+  own landing route would have redirected to. → `futo_notes_license::buy_url`
+- **Every surface links out; no client renders checkout itself.** Desktop, iOS
+  and Android — both flavors, wherever `LICENSE_LINK_OUT` permits a link at all
+  — hand that same generated checkout to the OS browser, and the buyer comes
+  back through the `futonotes://license/{key}/{activation}` deep link. There is
+  no in-app purchase sheet on any platform and none is planned (decision
+  2026-09-10): a WKWebView checkout is an App Store rejection, because Apple
+  requires an external purchase link to open in the default browser, and a
+  bespoke Android-only sheet was declined rather than let the platforms
+  diverge. This is what keeps "price lives only in Polar" literally true — no
+  client ever has a price to display.
+- The Buy destination is **per environment**, like the verification key and the
+  activation host (AGENTS.md M3): `{pay2}` is `https://pay2.futo.org` for
+  `com.futo.notes` and `https://staging-pay2.futo.org` for `com.futo.notes.dev`,
+  so a dev build buys in the same org it verifies against and can never open
+  production checkout. It was a single constant, which meant the opposite. →
+  `Environment::for_bundle_id`, `tests/conformance/license.json` `buyUrls`,
+  `a_dev_build_buys_on_staging`
+- `platform` is attribution only: it never changes price, product, or
+  entitlement, and FUTOpay drops a value it does not recognise. `success` is the
+  buyer's return URL and is sent empty, because a purchase started from the app
+  has none to hand back. Both URLs in this spec are built by the Rust crate from
+  the selected environment, so no shell hardcodes one and all three agree.
+  *(desktop)* The URL is read from the crate through `license_links` and opened
+  with the opener plugin, never in a webview. → `license::license_links`,
   `src/lib/platform/openExternalUrl.ts`, `LicenseSettingsSection.svelte`
   *(ios)* The URL comes from the same crate constants through
-  `licenseLinks(platform: .ios)` and opens with SwiftUI's `openURL`, which hands
+  `licenseLinks(platform: .ios, bundleId:)` and opens with SwiftUI's `openURL`, which hands
   an `https` URL to the system browser. →
   `apps/ios/Sources/License/LicenseSettingsSection.swift`, `LicenseSurfaceTests`
-  *(android)* The same crate constants through `licenseLinks(LicensePlatform.ANDROID)`,
+  *(android)* The same crate call, `licenseLinks(LicensePlatform.ANDROID, bundleId)`,
   opened with an `ACTION_VIEW` intent, which the OS routes to the browser — never
   a WebView. →
   `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
@@ -145,7 +168,7 @@ LaunchServices hop into an unbundled dev binary.
 - **Lost key**: the License row offers "Lost your key?" which opens
   `mailto:support@futo.tech`. There is no in-app restore flow (see Gaps). →
   *(desktop)* `license::license_links`, `LicenseSettingsSection.svelte`;
-  *(ios)* `licenseLinks(platform:).support`, opened with `openURL`;
+  *(ios)* `licenseLinks(platform:bundleId:).support`, opened with `openURL`;
   *(android)* the same `support` constant, opened with the same `ACTION_VIEW`
   intent as Buy — the OS hands a `mailto:` to the mail client
 - No IAP, no Play Billing, no in-app price, no in-app checkout on any platform.
@@ -352,7 +375,14 @@ not the rules, is what this section records.
 > not designed; it touches the sync payload (AGENTS.md §11.6) and must be its own
 > change.
 
-> **Gap:** No in-Play purchase path — Play users must reach pay.futo.tech via
+> **Gap:** The `platform` attribution the Buy URL carries is not yet recorded by
+> the server. The client sends it and FUTOpay's newer branch puts it on the
+> checkout, but the deployed `staging-pay2.futo.org` predates that: its
+> `checkout-ready` page renders no `platform` field for `?platform=desktop`
+> (observed 2026-09-10). Nothing about the purchase depends on it, so this
+> closes when lib-polar deploys, with no client change.
+
+> **Gap:** No in-Play purchase path — Play users must reach FUTOpay checkout via
 > the Buy link or on their own. A Play Billing SKU or companion app (the FUTO
 > Keyboard pattern) is deliberately not built.
 

@@ -362,10 +362,18 @@ pub async fn license_remove(app: AppHandle) -> Result<LicenseView, String> {
     .await
 }
 
+/// Where Buy / Renew and "Lost your key?" go for this build.
+///
+/// Takes the app handle for the same reason the verdict commands do: the Buy
+/// destination is the generated checkout on this environment's pay2 host, and
+/// the bundle identifier is the dev/prod split (M3). A dev desktop build
+/// therefore opens staging checkout — the environment whose key it verifies
+/// against — instead of the production storefront.
 #[tauri::command]
-pub async fn license_links() -> LicenseLinks {
+pub async fn license_links(app: AppHandle) -> LicenseLinks {
+    let config = Environment::for_bundle_id(&app.config().identifier).config();
     LicenseLinks {
-        buy: buy_url(Platform::Desktop),
+        buy: buy_url(config, Platform::Desktop),
         support: SUPPORT_MAILTO.to_string(),
     }
 }

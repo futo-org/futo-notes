@@ -47,7 +47,18 @@ struct LicenseSurfaceTests {
     /// system browser can open — never an in-app WebView target.
     @Test("the buy link is this platform's")
     func buyLinkIsIos() {
-        #expect(licenseLinks(platform: .ios).buy.contains("platform=ios"))
-        #expect(licenseLinks(platform: .ios).support == "mailto:support@futo.tech")
+        let links = licenseLinks(platform: .ios, bundleId: "com.futo.notes")
+        #expect(links.buy.contains("platform=ios"))
+        #expect(links.support == "mailto:support@futo.tech")
+    }
+
+    /// The Buy destination follows the dev/prod split (M3), so the dev build
+    /// that verifies against the staging key also buys on staging.
+    @Test("the buy link follows the environment")
+    func buyLinkFollowsEnvironment() {
+        let staging = licenseLinks(platform: .ios, bundleId: "com.futo.notes.dev").buy
+        let production = licenseLinks(platform: .ios, bundleId: "com.futo.notes").buy
+        #expect(staging.hasPrefix("https://staging-pay2.futo.org/"))
+        #expect(production.hasPrefix("https://pay2.futo.org/"))
     }
 }

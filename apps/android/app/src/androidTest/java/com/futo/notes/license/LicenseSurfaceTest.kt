@@ -93,9 +93,19 @@ class LicenseSurfaceTest {
      *  system browser can open — never an in-app WebView target. */
     @Test
     fun theBuyLinkIsThisPlatforms() {
-        val links = licenseLinks(LicensePlatform.ANDROID)
+        val links = licenseLinks(LicensePlatform.ANDROID, "com.futo.notes")
         assertTrue(links.buy, links.buy.contains("platform=android"))
         assertTrue(links.buy, links.buy.startsWith("https://"))
         assertEquals("mailto:support@futo.tech", links.support)
+    }
+
+    /** The Buy destination follows the dev/prod split (M3), so the debug build
+     *  that verifies against the staging key also buys on staging. */
+    @Test
+    fun theBuyLinkFollowsTheEnvironment() {
+        val staging = licenseLinks(LicensePlatform.ANDROID, "com.futo.notes.dev").buy
+        val production = licenseLinks(LicensePlatform.ANDROID, "com.futo.notes").buy
+        assertTrue(staging, staging.startsWith("https://staging-pay2.futo.org/"))
+        assertTrue(production, production.startsWith("https://pay2.futo.org/"))
     }
 }

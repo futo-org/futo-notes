@@ -11,7 +11,9 @@ import SwiftUI
 /// `src/features/license/license.svelte.ts`.
 @MainActor
 final class LicenseModel: ObservableObject {
-    @Published private(set) var view: LicenseView
+    /// `nil` until [load] has read and evaluated the stored pair off the main
+    /// actor. The shell renders immediately and fills this reactively (M1).
+    @Published private(set) var view: LicenseView?
     /// The Buy / Renew and "Lost your key?" destinations, from Rust, so no
     /// shell hardcodes a URL and all three platforms agree.
     let links: LicenseLinks
@@ -39,19 +41,38 @@ final class LicenseModel: ObservableObject {
 
     private let storage: LicenseStorage
     private let bundleId: String
+    private let enterLicenseKey: (String, String) async throws -> LicenseAcceptance
+    private var stateRevision = 0
 
     init(
         storage: LicenseStorage = LicenseStorage(),
-        bundleId: String = Bundle.main.bundleIdentifier ?? ""
+        bundleId: String = Bundle.main.bundleIdentifier ?? "",
+        enterLicenseKey: @escaping (String, String) async throws -> LicenseAcceptance = {
+            input, bundleId in
+            try await licenseEnterKey(input: input, bundleId: bundleId)
+        }
     ) {
         self.storage = storage
         self.bundleId = bundleId
-        // Evaluating a stored license is pure CPU against an already-mapped
-        // preferences store — no file scan, no network — so the first paint can
-        // show the right row instead of flashing Unlicensed and correcting
-        // itself. Nothing here awaits anything (M1).
-        self.view = licenseEvaluate(stored: storage.read(), bundleId: bundleId)
-        self.links = licenseLinks(platform: .ios)
+        self.enterLicenseKey = enterLicenseKey
+        self.view = nil
+        self.links = licenseLinks(platform: .ios, bundleId: bundleId)
+    }
+
+    /// Reads preferences and performs RSA verification away from the actor that
+    /// paints the shell. A newer action wins if it lands while this is running.
+    func load() async {
+        let startingRevision = stateRevision
+        let storage = storage
+        let bundleId = bundleId
+        let evaluated = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(
+                    returning: licenseEvaluate(stored: storage.read(), bundleId: bundleId))
+            }
+        }
+        guard startingRevision == stateRevision else { return }
+        view = evaluated
     }
 
     /// Recognise the input, activate it if it was a bare key, verify, and store
@@ -61,8 +82,11 @@ final class LicenseModel: ObservableObject {
         guard !busy else { return false }
         busy = true
         defer { busy = false }
+        let startingRevision = stateRevision
         do {
-            apply(try await licenseEnterKey(input: input, bundleId: bundleId))
+            let acceptance = try await enterLicenseKey(input, bundleId)
+            guard startingRevision == stateRevision else { return false }
+            apply(acceptance)
             return true
         } catch let error as LicenseError {
             // One outcome, one message. A key the endpoint does not know and a
@@ -106,6 +130,7 @@ final class LicenseModel: ObservableObject {
     /// re-entering the key — and idempotent.
     func remove() {
         storage.clear()
+        stateRevision += 1
         view = licenseEvaluate(stored: nil, bundleId: bundleId)
     }
 
@@ -129,6 +154,7 @@ final class LicenseModel: ObservableObject {
         // accepted is persisted verbatim, and the state it returned is what the
         // row renders — no re-read, no second verdict.
         storage.write(acceptance.pair)
+        stateRevision += 1
         view = acceptance.view
         announce(LocalizedMessage("license.activated"))
     }

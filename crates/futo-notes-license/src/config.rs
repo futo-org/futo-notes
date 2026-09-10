@@ -14,10 +14,10 @@ pub const DEEP_LINK_HOST: &str = "license";
 /// aloud and typed back.
 pub const KEY_ALPHABET: &str = "ABCDEFGHJKMNPQRSTUVWXYZ123456789";
 
-/// The web checkout, opened in the **system browser** and never in an in-app
-/// WebView. The web side may redirect freely, so a storefront change never
-/// needs a client release. Use [`buy_url`] to attach the platform.
-pub const BUY_URL: &str = "https://pay.futo.tech/futo-notes";
+/// The FUTOpay organization that sells this product. Distinct from
+/// [`PRODUCT_SLUG`] even though the two read the same today — one is the Polar
+/// org, the other the product inside it, and the checkout path names both.
+pub const ORG_SLUG: &str = "futo-notes";
 
 /// Where "Lost your key?" goes. There is no in-app restore flow.
 pub const SUPPORT_MAILTO: &str = "mailto:support@futo.tech";
@@ -130,9 +130,35 @@ impl Platform {
     }
 }
 
-/// The Buy / Renew destination. Open it in the system browser.
-pub fn buy_url(platform: Platform) -> String {
-    format!("{BUY_URL}?platform={}", platform.slug())
+/// The Buy / Renew destination: this environment's **generated checkout**,
+/// opened in the **system browser** and never in an in-app WebView.
+///
+/// There is no `pay.futo.tech/futo-notes` landing page and there will not be
+/// one (product decision 2026-09-10). The one-segment product URL exists only
+/// on an undeployed lib-polar branch, and all it ever did was redirect to
+/// `checkout-ready` — so this crate names that destination directly, which is
+/// both what is deployed today and what the landing page would have resolved
+/// to. The sibling `/price` and `/info` routes on the same path are JSON APIs
+/// for the in-app sheets (#158, #159), not browser destinations.
+///
+/// It is built from [`LicenseConfig::pay2_base_url`] rather than a single
+/// constant so that it is environment-split like the verification key and the
+/// activation host (AGENTS.md M3): a `.dev` build reaches staging checkout and
+/// a release build reaches production. A single constant meant a dev build's
+/// Buy button could only ever open production.
+///
+/// `success` is sent, empty. It is the buyer's return URL, and an
+/// app-initiated purchase has none to hand back; the deployed FUTOpay requires
+/// the parameter to be present (it 422s without it) while the newer branch
+/// defaults it to exactly this empty value, so sending it empty is correct
+/// against both. `platform` is attribution only and never changes price,
+/// product, or entitlement.
+pub fn buy_url(config: LicenseConfig<'_>, platform: Platform) -> String {
+    format!(
+        "{}/checkout/polar/{ORG_SLUG}/{PRODUCT_SLUG}/checkout-ready?platform={}&success=",
+        config.pay2_base_url.trim_end_matches('/'),
+        platform.slug()
+    )
 }
 
 /// The one endpoint this crate ever calls, and only from
@@ -197,9 +223,33 @@ mod tests {
     #[test]
     fn buy_urls_carry_the_platform() {
         assert_eq!(
-            buy_url(Platform::Ios),
-            "https://pay.futo.tech/futo-notes?platform=ios"
+            buy_url(Environment::Staging.config(), Platform::Ios),
+            "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes\
+             /checkout-ready?platform=ios&success="
         );
+    }
+
+    #[test]
+    fn a_dev_build_can_never_open_production_checkout() {
+        let staging = buy_url(Environment::Staging.config(), Platform::Desktop);
+        let production = buy_url(Environment::Production.config(), Platform::Desktop);
+        assert!(staging.starts_with(STAGING_PAY2_BASE_URL), "{staging}");
+        assert!(
+            production.starts_with(PRODUCTION_PAY2_BASE_URL),
+            "{production}"
+        );
+        assert!(!staging.contains("//pay2.futo.org"), "{staging}");
+    }
+
+    #[test]
+    fn the_buy_url_asks_for_a_page_a_browser_can_render() {
+        // `/price` and `/info` on the same path are JSON APIs for the in-app
+        // sheets; handing either to the system browser would show a buyer a
+        // blob of JSON instead of a checkout.
+        let url = buy_url(Environment::Production.config(), Platform::Android);
+        assert!(url.contains("/checkout-ready?"), "{url}");
+        // `success` must be present or the deployed FUTOpay answers 422.
+        assert!(url.contains("success="), "{url}");
     }
 
     #[test]

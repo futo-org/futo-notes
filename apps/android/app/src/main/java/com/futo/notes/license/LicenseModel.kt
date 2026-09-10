@@ -41,6 +41,9 @@ class LicenseModel(
      * tests without a build flip.
      */
     private val linkOut: Boolean = BuildConfig.LICENSE_LINK_OUT,
+    private val enterLicenseKey: suspend (String, String) -> LicenseAcceptance = { input, id ->
+        licenseEnterKey(input, id)
+    },
 ) {
     /**
      * `null` until [load] has read the stored pair and Rust has judged it.
@@ -66,7 +69,7 @@ class LicenseModel(
      * it during `onCreate`, and the first native call would load the shared
      * library on the main thread there (M1). Settings is where these are read.
      */
-    val links: LicenseLinks by lazy { licenseLinks(LicensePlatform.ANDROID) }
+    val links: LicenseLinks by lazy { licenseLinks(LicensePlatform.ANDROID, bundleId) }
 
     /**
      * How a message reaches the user. Assigned by the activity so the license
@@ -87,6 +90,7 @@ class LicenseModel(
      * not then overwrite the license the user just activated.
      */
     private var settled = false
+    private var stateRevision = 0
 
     /**
      * Reads the stored license and evaluates it. Call it un-awaited from the
@@ -124,8 +128,11 @@ class LicenseModel(
     suspend fun enterKey(input: String): Boolean {
         if (busy) return false
         busy = true
+        val startingRevision = stateRevision
         try {
-            apply(licenseEnterKey(input, bundleId))
+            val acceptance = enterLicenseKey(input, bundleId)
+            if (startingRevision != stateRevision) return false
+            apply(acceptance)
             return true
         } catch (error: LicenseException) {
             // One outcome, one message. A key the endpoint does not know and a
@@ -177,6 +184,7 @@ class LicenseModel(
     fun remove() {
         storage.clear()
         settled = true
+        stateRevision += 1
         view = licenseEvaluate(null, bundleId)
     }
 
@@ -205,6 +213,7 @@ class LicenseModel(
         // row renders — no re-read, no second verdict.
         storage.write(acceptance.pair)
         settled = true
+        stateRevision += 1
         view = acceptance.view
         announce(LocalizedMessage("license.activated"))
         if (BuildConfig.DEBUG) Log.i(LICENSE_LOG_TAG, "license applied: ${acceptance.view.status}")

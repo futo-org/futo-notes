@@ -199,10 +199,19 @@ pub fn license_deep_link_scheme() -> String {
     DEEP_LINK_SCHEME.to_string()
 }
 
+/// Where Buy / Renew and "Lost your key?" go for this build.
+///
+/// `bundle_id` is the dev/prod split (M3), exactly as it is for
+/// [`license_evaluate`]: the Buy destination is the generated checkout on this
+/// environment's pay2 host, so a `.dev` build sends a buyer to staging
+/// checkout and can never open the production storefront.
 #[uniffi::export]
-pub fn license_links(platform: LicensePlatform) -> LicenseLinks {
+pub fn license_links(platform: LicensePlatform, bundle_id: String) -> LicenseLinks {
     LicenseLinks {
-        buy: buy_url(platform.into()),
+        buy: buy_url(
+            Environment::for_bundle_id(&bundle_id).config(),
+            platform.into(),
+        ),
         support: SUPPORT_MAILTO.to_string(),
     }
 }
@@ -731,16 +740,30 @@ mod tests {
     #[test]
     fn the_buy_url_carries_the_platform() {
         assert_eq!(
-            license_links(LicensePlatform::Ios).buy,
-            "https://pay.futo.tech/futo-notes?platform=ios"
+            license_links(LicensePlatform::Ios, "com.futo.notes".into()).buy,
+            "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes\
+             /checkout-ready?platform=ios&success="
         );
         assert_eq!(
-            license_links(LicensePlatform::Android).buy,
-            "https://pay.futo.tech/futo-notes?platform=android"
+            license_links(LicensePlatform::Android, "com.futo.notes".into()).buy,
+            "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes\
+             /checkout-ready?platform=android&success="
         );
         assert_eq!(
-            license_links(LicensePlatform::Ios).support,
+            license_links(LicensePlatform::Ios, "com.futo.notes".into()).support,
             "mailto:support@futo.tech"
+        );
+    }
+
+    /// The defect this split fixed: a `.dev` build's Buy button opened the
+    /// production storefront, so staging checkout was unreachable from the app
+    /// that verifies against the staging key (M3).
+    #[test]
+    fn a_dev_build_buys_on_staging() {
+        assert_eq!(
+            license_links(LicensePlatform::Android, "com.futo.notes.dev".into()).buy,
+            "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes\
+             /checkout-ready?platform=android&success="
         );
     }
 

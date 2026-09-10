@@ -53,6 +53,22 @@ export function slotOf(root) {
   return parseInt(hex, 16) % SLOTS;
 }
 
+/**
+ * The bundle identifier `just tauri-dev` gives this worktree's instance.
+ *
+ * The `.dev` suffix has to stay LAST. It IS the dev/prod split the license
+ * crate reads off the bundle id (AGENTS.md M3, `Environment::for_bundle_id`),
+ * and an id that merely CONTAINS `.dev` resolves to PRODUCTION — the
+ * fail-closed direction there, but the wrong answer for a dev build. This was
+ * `com.futo.notes.dev.wt<slot>`, so every worktree dev build verified against
+ * the production key, and once the buy destination became environment-split it
+ * would have sent a developer to production checkout. The slot is here for
+ * uniqueness (D-Bus single-instance), so it goes in the middle.
+ */
+export function devBundleId(root) {
+  return `com.futo.notes.wt${slotOf(root)}.dev`;
+}
+
 /** The port band tests/cross-platform-sync.mjs may allocate from. */
 export function xplatSyncBand(root) {
   const slot = slotOf(root ?? worktreeRoot());
