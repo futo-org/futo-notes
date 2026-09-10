@@ -1812,11 +1812,13 @@ dependencies = [
 name = "futo-notes-ffi"
 version = "0.1.0"
 dependencies = [
+ "futo-notes-license",
  "futo-notes-model",
  "futo-notes-store",
  "futo-notes-sync",
  "icu_locale",
  "icu_plurals",
+ "reqwest 0.12.28",
  "thiserror 1.0.69",
  "tokio",
  "uniffi",

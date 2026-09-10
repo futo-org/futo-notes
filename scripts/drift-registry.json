@@ -159,9 +159,13 @@
         {
           "path": "apps/ios/Tests/Localization/LocalizationTests.swift",
           "kind": "test"
+        },
+        {
+          "path": "src/shared/localization/localization.test.ts",
+          "kind": "test"
         }
       ],
-      "note": "Partial, not locked: tests/localization/cases.json is a happy-path fixture. It does NOT cover missing messages, missing or invalid plural arguments, =N exact selectors, {{ }} escaping, unmatched braces, alias matching, or the generic-catalog fallback hop, so the three interpreters can diverge on any of those without the fixture noticing. A real divergence already existed on this axis: localization.ts falls back regionalLanguageTag ?? requestedLanguageTag when no regional tag is supplied, while both shells pass the regional tag straight through — every fixture message case supplies regionalLanguageTag, so the fixture is structurally unable to see it. Extend cases.json to those error paths before claiming locked."
+      "note": "Partial, not locked: tests/localization/cases.json is a happy-path fixture. It does NOT cover missing messages, missing or invalid plural arguments, =N exact selectors, {{ }} escaping, unmatched braces, alias matching, or the generic-catalog fallback hop, so the three interpreters can diverge on any of those without the fixture noticing. A real divergence already existed on this axis: localization.ts falls back regionalLanguageTag ?? requestedLanguageTag when no regional tag is supplied, while both shells pass the regional tag straight through — every fixture message case supplies regionalLanguageTag, so the fixture is structurally unable to see it. Extend cases.json to those error paths before claiming locked. localizedAbsoluteDate/localizedYear (the License row's dates, localization.md) are NOT in cases.json either — the platforms' date formatters differ in separators — so each adapter locks them with the same two assertions of its own: src/shared/localization/localization.test.ts and apps/ios/Tests/Localization/LocalizationTests.swift. Android has no copy of that pair yet; it gets one with its caller (the License row, issue #154)."
     },
     {
       "concept": "notes-root-triplet",
@@ -482,6 +486,59 @@
         "extensions": [".ts", ".swift", ".kt"],
         "pattern": "(PRODUCTION_BASE_URL|productionBaseUrl)\\b"
       }
+    },
+    {
+      "concept": "license-row-copy",
+      "description": "How a license state reads on the License row: which of the four `license.*` catalog entries a state selects, and formatting issued_at as a year and expires_at as an absolute date. The license RULES are Rust's alone (futo-notes-license, projected through Tauri and UniFFI) and are NOT duplicated; this is the per-shell view-model on top of the already-judged state, which each shell must write in its own UI language.",
+      "lockStatus": "partial",
+      "note": "Partial: both copies select among the same four `license.*` catalog entries for the same four states, and each has its own test doing so, but there is no shared fixture pinning them to identical OUTPUT — the platforms' date formatters legitimately differ in spacing and separators, and each renders the year and date with its own locale engine. A third copy (Android, issue #154) must be added here.",
+      "copies": [
+        {
+          "location": "src/features/license/licenseCopy.ts",
+          "pattern": "export function licenseRowText"
+        },
+        {
+          "location": "apps/ios/Sources/License/LicenseCopy.swift",
+          "pattern": "func licenseRowText"
+        }
+      ],
+      "locks": [
+        {
+          "path": "src/features/license/licenseCopy.test.ts",
+          "kind": "test"
+        },
+        {
+          "path": "apps/ios/Tests/License/LicenseCopyTests.swift",
+          "kind": "test"
+        }
+      ],
+      "scan": {
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
+        "pattern": "(function licenseRowText|func licenseRowText|fun licenseRowText)\\b"
+      }
+    },
+    {
+      "concept": "license-row-actions",
+      "description": "Which controls the License row offers in each state (docs/spec/license.md § States and copy). The native shells do NOT decide this: they render `license_row_actions`, which also owns what LICENSE_LINK_OUT hides. Desktop, which landed first and has no LICENSE_LINK_OUT, still derives its two buttons inline in Svelte.",
+      "lockStatus": "partial",
+      "note": "Partial: the Rust side is a golden (`the_row_actions_are_the_specified_table`, `link_out_false_hides_every_way_out_of_the_app_and_nothing_else`) and both native shells read it, so they cannot drift from each other. The desktop Svelte copy is covered only by the spec table it was written from. Android must read the Rust answer too rather than add a third copy.",
+      "copies": [
+        {
+          "location": "crates/futo-notes-ffi/src/license/contract.rs",
+          "pattern": "pub fn license_row_actions"
+        },
+        {
+          "location": "src/features/license/LicenseSettingsSection.svelte",
+          "pattern": "license\\.renew"
+        }
+      ],
+      "locks": [
+        {
+          "path": "crates/futo-notes-ffi/src/license/contract.rs",
+          "kind": "test"
+        }
+      ]
     }
   ]
 }

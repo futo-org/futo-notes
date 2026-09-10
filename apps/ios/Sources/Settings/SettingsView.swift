@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 /// App settings sheet (gear button in the note list). Mirrors the desktop
-/// Settings surface (settings.md): a single "Self-hosted sync" row, appearance,
+/// Settings surface (settings.md): the License row, a single "Self-hosted sync" row, appearance,
 /// storage readout, issue reporting, about, and the danger-zone full reset.
 /// Sync details/actions stay in SyncView — the Sync row just opens it.
 struct SettingsView: View {
@@ -10,6 +10,7 @@ struct SettingsView: View {
 
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
+    @EnvironmentObject private var license: LicenseModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.localization) private var localization
 
@@ -33,6 +34,12 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // The License row is the FIRST row of Settings on mobile:
+                // there is no ambient label anywhere else on this platform, so
+                // this row's status text IS the label (docs/spec/license.md
+                // § States and copy).
+                LicenseSettingsSection(license: license)
+
                 // The whole Sync surface is one "Self-hosted sync" row: cloud
                 // icon, connected-vs-local status, SYNCED/LOCAL badge. No
                 // separate account header, no separate "Server" row
@@ -222,11 +229,14 @@ struct SettingsView: View {
 
     /// Danger-zone full reset: disconnect and clear the stored credential before
     /// wiping the vault root, so an in-flight sync cannot restore deleted data.
+    /// The stored license goes with it — it is a preference like any other
+    /// (settings.md, Danger zone).
     private func runFullReset() async {
         resetting = true
         await performFullReset(
             disconnectSync: { await sync.disconnect() },
-            resetStore: { await store.fullReset() }
+            resetStore: { await store.fullReset() },
+            clearLicense: { license.clearForFullReset() }
         )
         resetting = false
     }

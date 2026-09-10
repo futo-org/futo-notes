@@ -7,10 +7,11 @@ and shows a **Supporter since {year}** badge. This is the Grayjay / FUTO Keyboar
 Polar underneath). The server product is a separate, later product with no
 shared semantics; see [Out of scope](#out-of-scope).
 
-Design decisions recorded 2026-09-09 (spec-first). Desktop implements the whole
-surface as of 2026-09-09, driven on the dev build against a staging-signed
-fixture license (all three states, all three input shapes, the deep link, Buy,
-Remove and Full reset); the native shells do not yet — see the Gaps at the end.
+Design decisions recorded 2026-09-09 (spec-first). Desktop and iOS implement the
+whole surface as of 2026-09-09, each driven on its own dev build against a
+staging-signed fixture license: all three states, all three input shapes (the
+bare key only as far as its 404 — see the Gaps), the deep link, Buy, Remove and
+Full reset. Android does not yet.
 
 ## Principles
 
@@ -90,7 +91,10 @@ Remove and Full reset); the native shells do not yet — see the Gaps at the end
   the desktop app data dir), never in the vault, never in the OS keyring, and
   inside the dev/prod-split data location (M3). They survive app updates and
   are wiped by **Full reset** like every other preference (see settings.md,
-  Danger zone).
+  Danger zone). *(ios)* `UserDefaults.standard` is scoped to the bundle id, so
+  the dev/prod split is the app sandbox itself. →
+  `apps/ios/Sources/License/LicenseStorage.swift` (`futo.license.key`,
+  `futo.license.activation`), `FullReset.swift`, `LicenseModel.clearForFullReset`
 
 ## Getting a license
 
@@ -102,13 +106,18 @@ Remove and Full reset); the native shells do not yet — see the Gaps at the end
   URL is read from the crate through `license_links` and opened with the opener
   plugin, never in a webview. → `license::license_links`,
   `src/lib/platform/openExternalUrl.ts`, `LicenseSettingsSection.svelte`
+  *(ios)* The URL comes from the same crate constants through
+  `licenseLinks(platform: .ios)` and opens with SwiftUI's `openURL`, which hands
+  an `https` URL to the system browser. →
+  `apps/ios/Sources/License/LicenseSettingsSection.swift`, `LicenseSurfaceTests`
 - After checkout, FUTOpay's activate-redirect page opens
   `futonotes://license/{key}/{activation}`; the app handles it per
   [Deep link](#deep-link). The page also shows the key and activation as text,
   so paste is always possible.
 - **Lost key**: the License row offers "Lost your key?" which opens
   `mailto:support@futo.tech`. There is no in-app restore flow (see Gaps). →
-  *(desktop)* `license::license_links`, `LicenseSettingsSection.svelte`
+  *(desktop)* `license::license_links`, `LicenseSettingsSection.svelte`;
+  *(ios)* `licenseLinks(platform:).support`, opened with `openURL`
 - No IAP, no Play Billing, no in-app price, no in-app checkout on any platform.
 
 ## Entering a key
@@ -140,6 +149,11 @@ Remove and Full reset); the native shells do not yet — see the Gaps at the end
   never re-reads the status afterwards. →
   `license::license_enter_key`, `src/lib/platform/license.ts`,
   `src/features/license/license.svelte.ts`
+  *(ios)* The same one call is `licenseEnterKey(input:bundleId:)`, async because
+  the bare-key path makes the one request; the shell persists the returned pair
+  and renders the returned state, and never asks again. →
+  `crates/futo-notes-ffi/src/license/contract.rs`,
+  `apps/ios/Sources/License/LicenseModel.swift`
 
 ## Deep link
 
@@ -149,19 +163,33 @@ Remove and Full reset); the native shells do not yet — see the Gaps at the end
   shell is desktop-only). → *(desktop)* `tauri-plugin-deep-link` with
   `plugins.deep-link.desktop.schemes` in `tauri.conf.json`, `license::install`;
   a second launch carrying the link arrives through the single-instance plugin's
-  argv (`license::handle_single_instance_arguments`). Dev
+  argv (`license::handle_single_instance_arguments`). *(ios)* `CFBundleURLTypes`
+  in `apps/ios/Info.plist`, delivered by `.onOpenURL` on the root view. →
+  `LicenseSurfaceTests` "the app registers the crate's URL scheme" (asserts the
+  shipped plist against the crate's `licenseDeepLinkScheme()`),
+  `LicenseModel.handle`. Dev
   builds register the same scheme; whichever build the OS routes to will verify
   against its own key, so a production link opened by a dev build fails cleanly
   as Invalid.
 - Only the path `license/{key}/{activation}` is defined. Any other host or path
-  is ignored silently.
+  is ignored silently. That verdict is the crate's on every platform, never a
+  shell's. → `license::parse_deep_link`, *(ios)* the `Ignored` arm of
+  `licenseHandleDeepLink`, `LicenseModelTests` "an undefined link is ignored
+  silently"
 - A valid link **replaces** an existing license without confirmation and shows
   the "License activated" toast. An invalid link shows one toast, "This license
   link isn't valid", and changes nothing. No dialog, no navigation; if Settings
   is open its License row updates in place.
 - A link arriving while the app is cold-starting is handled after the shell is
-  interactive (M1): the shell renders first, then applies the link. *(desktop)*
-  Rust applies and *parks* the outcome — storing blocks no render — and the shell
+  interactive (M1): the shell renders first, then applies the link. *(ios)*
+  SwiftUI hands a launch URL to `.onOpenURL` only once the root view exists, and
+  the toast rides the transient banner the note list already mounts, so a
+  cold-start link is applied and announced on a painted screen. →
+  `apps/ios/Sources/App/FutoNotesApp.swift`, `LicenseModel.handle`; a message
+  produced before the app has wired up its banner is parked and flushed the
+  moment it has one, so the toast survives even the earliest launch URL. →
+  `LicenseModelTests` "a cold-start link is announced once the banner exists"
+  *(desktop)* Rust applies and *parks* the outcome — storing blocks no render — and the shell
   drains it once it has painted, so the toast is delivered exactly once whether
   the link arrived before or after the webview existed. →
   `license::LicenseLinkInbox`, `license_take_pending_link`,
@@ -203,7 +231,8 @@ The License row has exactly three states. All strings are catalog entries
     `licenseCopy.ts` + `licenseCopy.test.ts`
   - *(native shells)* Mobile has no ambient label outside Settings; the License
     row is the **first row at the top of Settings** and its status text is the
-    label.
+    label. → *(ios)* `LicenseSettingsSection` as the first `Section` of
+    `SettingsView`, `LicenseCopyTests`
 
 ## Store posture (deliberate, recorded 2026-09-09)
 
@@ -230,7 +259,14 @@ not the rules, is what this section records.
   redesign:
   - one build-time constant, `LICENSE_LINK_OUT`, exists on iOS and Android and
     is `true` at launch. `false` hides Buy, Renew and Lost-your-key and keeps
-    the key field and deep link (the consumption-only shape). The iOS fallback
+    the key field and deep link (the consumption-only shape). Which controls
+    each value produces is decided once in Rust, so the two shells cannot drift
+    on what the flag means. → `license_row_actions`,
+    `crates/futo-notes-ffi/src/license/contract.rs` "link_out false hides every
+    way out of the app and nothing else"; *(ios)*
+    `apps/ios/Sources/License/LicenseLinkOut.swift`, flipped by the
+    `LICENSE_LINK_OUT_DISABLED` compile condition (`apps/ios/project.yml` names
+    it where the build is configured). The iOS fallback
     beyond that is a non-renewing-subscription IAP twin at the same price to
     fit 3.1.3(b); a 3-year expiring license cannot be a non-consumable IAP.
   - *(Android)* the app gains **`play` and `direct` product flavors now**, same
@@ -267,19 +303,31 @@ not the rules, is what this section records.
 > **Gap:** No in-app restore by e-mail — lost keys go to support@futo.tech; the
 > newer futopay Android library's restore page is not adopted.
 
+> **Gap:** The bare-key path's **success** answer has never been seen from a
+> real server. `staging-pay2.futo.org` is up and answers the endpoint — QA on
+> iOS 2026-09-09 entered the fixture key on a dev build and got a genuine 404
+> (`{"detail":"Not a valid License Key - No product found."}`), rendered as
+> "This license key isn't valid" with nothing stored, which is the specified
+> behavior. But no key exists in that org yet (issue #155), so the 200 branch —
+> activation text returned, then verified against the staging key — is pinned
+> only by the conformance goldens and
+> `a_bare_key_makes_exactly_one_staging_request`. The offline
+> ("Connect to the internet") branch is likewise fixture-only at runtime.
+
 > **Gap:** No revocation check — refunded or revoked keys stay valid on
 > activated devices because the license module makes no background requests.
 > An opportunistic re-check on explicit user action only would be the
 > compatible way to add one.
 
-> **Gap:** The native shells do not surface this spec yet (iOS, Android): no
-> `futonotes://` scheme registered, no License row, no key field. Desktop is
-> done — the rules are projected through Tauri (`license_*`) and the whole
-> surface is live — but nothing is projected through UniFFI, so no native shell
-> reads the rules, and Android's `play`/`direct` flavors are still behaviorally
-> identical (`BuildConfig.IS_PLAY_BUILD` exists and nothing reads it; no
-> `LICENSE_LINK_OUT` yet). The spec's intent is that the three platforms ship
-> together, so this is the remaining half of that.
+> **Gap:** Android does not surface this spec yet: no `futonotes://` intent
+> filter, no License row, no key field, and its `play`/`direct` flavors are
+> still behaviorally identical (`BuildConfig.IS_PLAY_BUILD` exists and nothing
+> reads it; no `LICENSE_LINK_OUT`). Desktop and iOS are done, and the UniFFI
+> projection Android needs is already here and platform-neutral —
+> `licenseEvaluate`, `licenseEnterKey`, `licenseHandleDeepLink`,
+> `licenseRowActions`, `licenseLinks`, `licenseDeepLinkScheme`, in
+> `crates/futo-notes-ffi/src/license/` — so what is left is the Kotlin shell:
+> two `SharedPreferences` strings, the intent filter, the row, and the flag.
 
 > **Gap:** The production and staging org public keys are placeholders. The real
 > FUTO Notes FUTOpay key pairs are created in lib-polar; until they land,
@@ -288,12 +336,14 @@ not the rules, is what this section records.
 > fail-closed) and `STAGING_PUBLIC_KEY_BASE64` is the conformance fixture's
 > public key, so a dev build can be driven with a fixture license.
 
-> **Gap:** _(desktop)_ The spec names the key field but none of the controls
-> around it, so the shell supplies them: an **Activate** button (Enter also
+> **Gap:** _(desktop, ios)_ The spec names the key field but none of the controls
+> around it, so each shell supplies them: an **Activate** button (Return also
 > submits), a **Cancel** that closes the field, and a placeholder naming the
 > three accepted shapes. A text field with no submit is not operable, so these
 > are additions rather than choices — but they are unspecified copy, and this is
-> the line to reconcile if the spec later names them.
+> the line to reconcile if the spec later names them. Both shells use the same
+> four catalog entries (`license.keyLabel`, `keyPlaceholder`, `activate`,
+> `cancelEntry`), so the addition is at least identical on both.
 
 > **Gap:** _(desktop, macOS)_ The `futonotes` scheme is declared once in
 > `tauri.conf.json`, but only Linux and Windows re-register it at runtime

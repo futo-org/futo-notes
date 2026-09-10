@@ -112,6 +112,10 @@ targets:
           # DEBUG already defined by Xcode's default Swift flags; FUTO_DEBUG_BUILD
           # is our own compile-time marker so the dev/prod split is explicit and
           # testable independent of the DEBUG macro.
+          # Append LICENSE_LINK_OUT_DISABLED here (and to the Release config)
+          # for a build that must not link out to the storefront —
+          # docs/spec/license.md § Store posture. It hides Buy, Renew and
+          # Lost-your-key and keeps the key field and the deep link.
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG FUTO_DEBUG_BUILD"
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes

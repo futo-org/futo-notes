@@ -12,6 +12,8 @@ enum Route: Hashable {
 struct NoteListView: View {
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
+    /// Only to hand on to the Settings sheet, which owns the License row.
+    @EnvironmentObject private var license: LicenseModel
     @Environment(\.localization) private var localization
     @State private var search = ""
     @State private var navPath: [Route] = []
@@ -86,6 +88,7 @@ struct NoteListView: View {
                 SettingsView()
                     .environmentObject(sync)
                     .environmentObject(store)
+                    .environmentObject(license)
             }
             // Centered fullScreenCover, not a .confirmationDialog — see
             // DestructiveConfirmDialog for why (arrow-popover misanchoring).
