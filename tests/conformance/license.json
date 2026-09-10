@@ -15,21 +15,22 @@
   "constants": {
     "$comment": "The baked-in constants every shell must agree on. Selection between environments follows the existing dev/prod split (M3).",
     "productSlug": "futo-notes",
+    "checkoutProductSlug": "futo-notes-license",
     "orgSlug": "futo-notes",
     "deepLinkScheme": "futonotes",
     "keyAlphabet": "ABCDEFGHJKMNPQRSTUVWXYZ123456789",
     "supportMailto": "mailto:support@futo.tech",
     "buyUrls": {
-      "$comment": "The Buy / Renew destination, opened in the system browser. It is the generated checkout on the environment's own pay2 host \u2014 there is no pay.futo.tech landing page and there will not be one (product decision 2026-09-10). Environment-split like the verification key and the activation host (M3), so a .dev build reaches staging checkout. `platform` is attribution only; `success` is the buyer's return URL and is empty because an app-initiated purchase has none to hand back.",
+      "$comment": "The Buy / Renew destination, opened in the system browser. It is the generated checkout on the environment's own pay2 host \u2014 there is no pay.futo.tech landing page and there will not be one (product decision 2026-09-10). Environment-split like the verification key and the activation host (M3), so a .dev build reaches staging checkout. The product segment is the STOREFRONT slug, `futo-notes-license` \u2014 not `futo-notes`, which is the product field inside an activation payload and names nothing in the storefront (its /price answers \"Product not found: futo-notes\", observed 2026-09-10). `platform` is attribution only; `success` is the buyer's return URL and is empty because an app-initiated purchase has none to hand back \u2014 the storefront's own links pass `success=redirect-to-organization-page` instead, a difference we do not adopt.",
       "production": {
-        "desktop": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes/checkout-ready?platform=desktop&success=",
-        "ios": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes/checkout-ready?platform=ios&success=",
-        "android": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes/checkout-ready?platform=android&success="
+        "desktop": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&success=",
+        "ios": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=ios&success=",
+        "android": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=android&success="
       },
       "staging": {
-        "desktop": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes/checkout-ready?platform=desktop&success=",
-        "ios": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes/checkout-ready?platform=ios&success=",
-        "android": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes/checkout-ready?platform=android&success="
+        "desktop": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&success=",
+        "ios": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=ios&success=",
+        "android": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=android&success="
       }
     },
     "environments": {
@@ -277,7 +278,7 @@
     },
     {
       "name": "an https URL pasted into the field",
-      "input": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes/checkout-ready?platform=desktop&success=",
+      "input": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&success=",
       "expected": null
     },
     {
@@ -986,7 +987,7 @@
     },
     {
       "name": "an unrecognised input never reaches the network",
-      "input": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes/checkout-ready?platform=desktop&success=",
+      "input": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&success=",
       "now": "2026-09-09T12:00:00Z",
       "transport": {
         "kind": "unavailable"

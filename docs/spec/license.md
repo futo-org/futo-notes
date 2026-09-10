@@ -128,10 +128,20 @@ LaunchServices hop into an unbundled dev binary.
 
 - **Buy** opens the **system browser** (never an in-app WebView) at this
   build's **generated checkout**:
-  `{pay2}/checkout/polar/futo-notes/futo-notes/checkout-ready?platform=<desktop|ios|android>&success=`.
+  `{pay2}/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=<desktop|ios|android>&success=`.
   There is no product landing page — no `pay.futo.tech/futo-notes` — and there
   will not be one (decision 2026-09-10); the app names the checkout FUTOpay's
   own landing route would have redirected to. → `futo_notes_license::buy_url`
+- **The checkout's product segment is `futo-notes-license`, which is not the
+  product name inside an activation.** The storefront sells `futo-notes-license`
+  ("FUTO Notes License", non-recurring, verified on `staging-pay2.futo.org`
+  2026-09-10; the price stays Polar's and is written nowhere here), while a v2
+  activation's `payload.product` is matched against `futo-notes`. The two are
+  separate constants and must stay separate: the URL segment briefly reused the
+  payload's value, and that checkout served a page with no product in it (its
+  `/price` answered `Product not found: futo-notes`), so Buy led nowhere on
+  every client. → `CHECKOUT_PRODUCT_SLUG` and `PRODUCT_SLUG`,
+  `the_checkout_slug_is_not_the_activation_payloads_product`
 - **Every surface links out; no client renders checkout itself.** Desktop, iOS
   and Android — both flavors, wherever `LICENSE_LINK_OUT` permits a link at all
   — hand that same generated checkout to the OS browser, and the buyer comes
@@ -152,7 +162,10 @@ LaunchServices hop into an unbundled dev binary.
 - `platform` is attribution only: it never changes price, product, or
   entitlement, and FUTOpay drops a value it does not recognise. `success` is the
   buyer's return URL and is sent empty, because a purchase started from the app
-  has none to hand back. Both URLs in this spec are built by the Rust crate from
+  has none to hand back; the storefront's own links pass
+  `success=redirect-to-organization-page` (observed 2026-09-10), which the app
+  deliberately does not adopt — an in-app buyer has no reason to land on the org
+  page. Both URLs in this spec are built by the Rust crate from
   the selected environment, so no shell hardcodes one and all three agree.
   *(desktop)* The URL is read from the crate through `license_links` and opened
   with the opener plugin, never in a webview. → `license::license_links`,
@@ -408,7 +421,10 @@ not the rules, is what this section records.
 > iOS 2026-09-09 entered the fixture key on a dev build and got a genuine 404
 > (`{"detail":"Not a valid License Key - No product found."}`), rendered as
 > "This license key isn't valid" with nothing stored, which is the specified
-> behavior. But no key exists in that org yet (issue #155), so the 200 branch —
+> behavior. As of 2026-09-10 the staging org key pair exists and the storefront
+> sells the product (`checkout/polar/futo-notes/futo-notes-license/price`), but
+> no key has been minted, and the endpoint still answers that same 404 for any
+> key offered to it, so the 200 branch —
 > activation text returned, then verified against the staging key — is pinned
 > only by the conformance goldens and
 > `a_bare_key_makes_exactly_one_staging_request`. Android and desktop QA reached
@@ -429,12 +445,17 @@ not the rules, is what this section records.
 > An opportunistic re-check on explicit user action only would be the
 > compatible way to add one.
 
-> **Gap:** The production and staging org public keys are placeholders. The real
-> FUTO Notes FUTOpay key pairs are created in lib-polar; until they land,
-> `PRODUCTION_PUBLIC_KEY_BASE64` is a throwaway key whose private half was
-> discarded (a release build therefore reports every user Unlicensed, which is
-> fail-closed) and `STAGING_PUBLIC_KEY_BASE64` is the conformance fixture's
-> public key, so a dev build can be driven with a fixture license.
+> **Gap:** The **production** org public key is a placeholder. There is no
+> production FUTOpay org for this product yet (product decision 2026-09-10:
+> staging first), so `PRODUCTION_PUBLIC_KEY_BASE64` is a throwaway key whose
+> private half was discarded — a release build therefore reports every user
+> Unlicensed, which is fail-closed, and no license can be minted for it by
+> anyone. Dropping the real key in is a one-line change to that constant.
+> `STAGING_PUBLIC_KEY_BASE64` is **no longer** a placeholder: since 2026-09-10 it
+> is the real FUTO Notes staging org key (DER SPKI SHA-256
+> `ca4a8698…31514`, pinned by `the_staging_key_is_the_real_staging_org_key`), and
+> the fixture license every dev build is driven with is signed by it rather than
+> by the conformance pair. → `crates/futo-notes-license/src/config.rs`
 
 > **Gap:** _(ios, android)_ The row has a fourth, unspecified state: *not yet
 > known*. The spec gives it three, while desktop initializes to Unlicensed before
@@ -465,5 +486,5 @@ not the rules, is what this section records.
 > `deep-link://new-url` event, which exercises everything from `on_open_url`
 > inward but not LaunchServices. Proving it needs a signed bundle from
 > `just tauri-build`, and a production bundle verifies against the production
-> key — so a staging license cannot demo it end to end until the real key pair
-> lands (see the placeholder-keys gap above).
+> key — so a staging license cannot demo it end to end until the **production**
+> key lands (see the production-key gap above).

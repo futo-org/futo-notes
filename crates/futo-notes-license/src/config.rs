@@ -1,8 +1,30 @@
 //! Baked-in constants and the dev/prod split that selects between them.
 
-/// The FUTOpay product slug for this app. A license minted for any other
-/// product — a Grayjay license, say — is Invalid here.
+/// The product name inside a v2 activation payload. A license minted for any
+/// other product — a Grayjay license, say — is Invalid here.
+///
+/// **This is not the checkout slug.** [`CHECKOUT_PRODUCT_SLUG`] is a different
+/// string for a different job, and the two are deliberately not unified: this
+/// one is compared against `payload.product` on bytes a server already signed,
+/// so changing it invalidates real licenses, while the other is only a URL path
+/// segment. Never "tidy" one into the other.
 pub const PRODUCT_SLUG: &str = "futo-notes";
+
+/// The product's slug in the FUTOpay storefront, i.e. the second path segment
+/// of every `/checkout/polar/{org}/{product}/…` URL.
+///
+/// It is `futo-notes-license` — the storefront's own links say so, and
+/// `/checkout/polar/futo-notes/futo-notes-license/price` answers with the real
+/// product, "FUTO Notes License", non-recurring (observed on
+/// `staging-pay2.futo.org` 2026-09-10; the amount is Polar's business and is
+/// deliberately not written down here). The `futo-notes` slug this crate first
+/// shipped names no product there: its `/price` answers
+/// `{"detail":"Product not found: futo-notes"}` and `checkout-ready` serves the
+/// checkout shell with nothing in it, so a buyer reached a page that could
+/// never take their money. That is why it is a constant of its own rather than
+/// [`PRODUCT_SLUG`] reused: the payload field and the URL segment happened to
+/// read the same and are not the same thing.
+pub const CHECKOUT_PRODUCT_SLUG: &str = "futo-notes-license";
 
 /// The URL scheme all three shells register.
 pub const DEEP_LINK_SCHEME: &str = "futonotes";
@@ -15,8 +37,10 @@ pub const DEEP_LINK_HOST: &str = "license";
 pub const KEY_ALPHABET: &str = "ABCDEFGHJKMNPQRSTUVWXYZ123456789";
 
 /// The FUTOpay organization that sells this product. Distinct from
-/// [`PRODUCT_SLUG`] even though the two read the same today — one is the Polar
-/// org, the other the product inside it, and the checkout path names both.
+/// [`PRODUCT_SLUG`] even though the two read the same — one is the Polar org,
+/// the other the product field inside an activation — and distinct again from
+/// [`CHECKOUT_PRODUCT_SLUG`], which is what the checkout path names alongside
+/// this org.
 pub const ORG_SLUG: &str = "futo-notes";
 
 /// Where "Lost your key?" goes. There is no in-app restore flow.
@@ -30,25 +54,30 @@ const STAGING_PAY2_BASE_URL: &str = "https://staging-pay2.futo.org";
 
 /// PLACEHOLDER — **not** the real FUTO Notes production key.
 ///
-/// The production and staging key pairs are created in the lib-polar repo by
-/// issue #155; until that lands this is a throwaway 2048-bit RSA public key
-/// generated 2026-09-09 whose private half was never written down, so a release
-/// build fails closed: nothing verifies, every user is Unlicensed, and no
-/// license can be minted for it by anyone. Dropping the real key in is a
-/// one-line change to this constant.
+/// There is no production FUTOpay org for this product yet (product decision
+/// 2026-09-10: staging first), so this stays a throwaway 2048-bit RSA public
+/// key generated 2026-09-09 whose private half was never written down. A
+/// release build therefore fails closed: nothing verifies, every user is
+/// Unlicensed, and no license can be minted for it by anyone — including us.
+/// Dropping the real key in is a one-line change to this constant, the same
+/// one [`STAGING_PUBLIC_KEY_BASE64`] has already had.
 pub const PRODUCTION_PUBLIC_KEY_BASE64: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3tL0DeuTWvGfzvamMzbJf6BbdjhiWMh8Dvi7ufKpSP8RRnhgRbNWUsrCCBdnF2mQk1Yw9vtUH4OemiU+Gik2io0KKK+4aj0qiP5h9cdEpCVDzFQPeagBftAu7RM7LF1/M+I5BjnugdOoi91R7l8HFmIIoYNTqPEV09VGBayEoTuMfmQJtcZumn8fmzZUtwJFdMzvubuCBIsSeq2U5s+Dz+umZHNhZ+0174P0KBjTCmOEZyyz88BTFysTeXOY/ZTgA4GtLGSntbCeEhtD7bRBrGL8n0UH8eISjlK/lEDvIzWRDRNyiIvfjTvnMtyj2A9ngJGP+dyRB8AS4DetI46eqQIDAQAB";
 
-/// PLACEHOLDER — the **conformance fixture's** public key, not the real staging
-/// key (issue #155 creates that too).
+/// The real FUTO Notes **staging** org public key (SHA-256 of this DER
+/// SubjectPublicKeyInfo is `ca4a8698…31514`, pinned by
+/// `the_staging_key_is_the_real_staging_org_key` below).
 ///
-/// It is deliberately the fixture pair rather than a second throwaway: the spec
-/// anticipates exactly this ("the fixture pair is the staging pair or the tests
-/// point the dev build at it", docs/spec/license.md § The license), and it lets
-/// #153-#155 drive a real License row on a dev build with a fixture license
-/// before any server exists. The fixture private key is committed, so a staging
-/// license is trivially mintable — which is fine for `.dev` builds and is the
-/// reason this must never be the production constant.
-pub const STAGING_PUBLIC_KEY_BASE64: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5ZARcpH7Gj6Lr3kDHIJF6ddjYhgVMsWD6n2/YvPMMbcdTrhWTUBMLHd0OrjuppvAJJ85p6MieIv/YsEjdiqjb/f1JNzelXzcmMIy502SSbV8uxnSoZ8xKa4Vv46+AR+iLV3jgYmFMbFJ16oIZKnLHihLLujLtmuGaYJPccIGDxzyGdQ+gPY9wMuROOPd24RkfVfkGpG6XRgod901AdJiYyae7lpM+UjIweOyfGRny9cbwC4xUDGDSF+G//rUGiWJ4gjeQOvjw+uMWVc3Rdd+NLw4/hnBecbLaTziWl4aLE6gL+ZUPF3Bom+PZczy3cFUnJhTJaIlSNf8ysZI+Tt0EwIDAQAB";
+/// Its private half lives in the FUTOpay staging deployment and in 1Password —
+/// never in this repo — so a staging license can only be minted by staging or by
+/// someone holding that key. It was a placeholder until 2026-09-10, and for a
+/// while that placeholder was the conformance fixture's own public key so a
+/// `.dev` build could be driven with a committed fixture license. It is not any
+/// more: `tests/conformance/license.json` keeps its self-contained test-only
+/// pair (the conformance suite reads the key out of the fixture, never from
+/// here), and everything that has to verify on a real `.dev` build — the native
+/// `LicenseFixture` pair and the FFI contract tests — is signed by this key
+/// instead. Re-mint those with `node scripts/gen-license-fixture.mjs --staging`.
+pub const STAGING_PUBLIC_KEY_BASE64: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6YnYVcEdpBkzOuffdse/2q18Pi/uq7rHdyhIDCKxzqh2LeJDmURFSi97SbhsgVNmIdezKhGSsc18WNeVCehiXIvTfh7JI1RCAvJ1o1FP/HR9BYorNCcKe+nXMyBIfmMv04+A3BmqhECdoMUvokSKwyjNwVYSJImcdy648ZQtLLmAiuJgIrKMbHgIEinQdHmA51kpZkjyhZvzMIhNPU6m3JW80uvXF5WE3VK2xNb+3IHWzcy3tWNoY9NWDItn9wE57ucyyZpMNcT6lWn8X9dQD4G3o0h/V5aHe3Mpli4NbBhKoEea2H1KuLxa1enC3Bmudc4wjWKkgGpRmWBRpgLNkwIDAQAB";
 
 /// Which FUTOpay org this build talks to and verifies against.
 ///
@@ -151,11 +180,14 @@ impl Platform {
 /// app-initiated purchase has none to hand back; the deployed FUTOpay requires
 /// the parameter to be present (it 422s without it) while the newer branch
 /// defaults it to exactly this empty value, so sending it empty is correct
-/// against both. `platform` is attribution only and never changes price,
-/// product, or entitlement.
+/// against both. The storefront's own links instead pass
+/// `success=redirect-to-organization-page` (observed 2026-09-10) — noted as a
+/// difference, not adopted: that value sends the buyer to a web page we have no
+/// reason to show someone who bought from inside the app. `platform` is
+/// attribution only and never changes price, product, or entitlement.
 pub fn buy_url(config: LicenseConfig<'_>, platform: Platform) -> String {
     format!(
-        "{}/checkout/polar/{ORG_SLUG}/{PRODUCT_SLUG}/checkout-ready?platform={}&success=",
+        "{}/checkout/polar/{ORG_SLUG}/{CHECKOUT_PRODUCT_SLUG}/checkout-ready?platform={}&success=",
         config.pay2_base_url.trim_end_matches('/'),
         platform.slug()
     )
@@ -199,6 +231,35 @@ fn percent_encode_path_segment(segment: &str) -> String {
 mod tests {
     use super::*;
 
+    /// CRITICAL. The staging constant is the real FUTO Notes staging org key,
+    /// and this is its identity: SHA-256 over the DER SubjectPublicKeyInfo.
+    ///
+    /// Every staging-signed artifact in the repo — the iOS and Android
+    /// `LicenseFixture` pair, the FFI contract tests' activations — was minted
+    /// against exactly this key and verifies against nothing else. Swapping the
+    /// constant for another valid key would leave every one of those tests
+    /// failing with a signature mismatch and no explanation; this fails first,
+    /// naming what actually changed. The fingerprint is recorded independently
+    /// in 1Password and in issue #157.
+    #[test]
+    fn the_staging_key_is_the_real_staging_org_key() {
+        use base64::Engine as _;
+
+        let der = base64::engine::general_purpose::STANDARD
+            .decode(STAGING_PUBLIC_KEY_BASE64)
+            .expect("the staging constant is standard base64");
+        let digest = ring::digest::digest(&ring::digest::SHA256, &der);
+        let fingerprint: String = digest.as_ref().iter().map(|b| format!("{b:02x}")).collect();
+
+        assert_eq!(
+            fingerprint, "ca4a8698f9784a77318d47115c53757bd89a52ca5f23f012f66b356056431514",
+            "STAGING_PUBLIC_KEY_BASE64 is not the FUTO Notes staging org key — \
+             if this was deliberate, re-mint every staging-signed fixture with \
+             `node scripts/gen-license-fixture.mjs --staging` and update this \
+             fingerprint in the same commit"
+        );
+    }
+
     #[test]
     fn a_dev_bundle_id_never_lands_on_the_production_key() {
         assert_eq!(
@@ -220,13 +281,31 @@ mod tests {
         );
     }
 
+    /// The literal URL, written out rather than assembled from the constants
+    /// this function already uses — a test that rebuilds the format string
+    /// agrees with any typo in it. This exact path was fetched from
+    /// `staging-pay2.futo.org` on 2026-09-10 and served the real product;
+    /// swapping `futo-notes-license` for `futo-notes` served a checkout with no
+    /// product in it, which is the bug this pins.
     #[test]
-    fn buy_urls_carry_the_platform() {
+    fn buy_urls_name_the_storefront_product_and_carry_the_platform() {
         assert_eq!(
             buy_url(Environment::Staging.config(), Platform::Ios),
-            "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes\
+            "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
              /checkout-ready?platform=ios&success="
         );
+    }
+
+    /// The activation payload's product field and the checkout URL's product
+    /// segment are different strings for different jobs. Unifying them breaks
+    /// one of the two: `PRODUCT_SLUG` is matched against bytes the server
+    /// already signed, `CHECKOUT_PRODUCT_SLUG` is a path segment on the
+    /// storefront.
+    #[test]
+    fn the_checkout_slug_is_not_the_activation_payloads_product() {
+        assert_ne!(PRODUCT_SLUG, CHECKOUT_PRODUCT_SLUG);
+        assert!(buy_url(Environment::Staging.config(), Platform::Desktop)
+            .contains("/futo-notes/futo-notes-license/"));
     }
 
     #[test]

@@ -11,6 +11,20 @@
 //   node scripts/gen-license-fixture.mjs          # fill every missing/stale signature
 //   node scripts/gen-license-fixture.mjs --check  # fail if any is stale (no writes)
 //
+// It has one other job, which shares the same signer and nothing else:
+//
+//   FUTO_NOTES_STAGING_KEY=/path/to/staging-priv.pem \
+//     node scripts/gen-license-fixture.mjs --staging
+//
+// mints the STAGING-signed activations the native and FFI fixtures carry — the
+// ones that must verify against `STAGING_PUBLIC_KEY_BASE64` on a real `.dev`
+// build, which the fixture pair above cannot do. It PRINTS them; a human pastes
+// them into the three consumers listed in its output. Nothing is written,
+// nothing reads the private key on a normal test run, and the private key never
+// enters the repo. The consumers' own tests are the staleness guard: an
+// activation that stops verifying fails `test-ios-native`,
+// `test-android-native` and `cargo test -p futo-notes-ffi` by itself.
+//
 // A case opts in by carrying a `sign` object:
 //   { "with": "org" | "otherOrg",         which fixture key pair signs it
 //     "format": "v2" | "v1",              v1 = the Grayjay-era bare signature
@@ -80,6 +94,88 @@ function* signedCases(node) {
     if (node.sign) yield node;
     for (const child of Object.values(node)) yield* signedCases(child);
   }
+}
+
+/** The staging-signed pair every consumer outside this fixture carries: one
+ *  term-limited license and its perpetual (`expires_at: null`) sibling, over
+ *  the same license key. The key does not exist server-side and does not need
+ *  to — these are verified offline, against the baked-in staging public key. */
+const STAGING_FIXTURE_KEY = 'FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78';
+const STAGING_PAYLOADS = {
+  ACTIVATION: {
+    key: STAGING_FIXTURE_KEY,
+    product: 'futo-notes',
+    issued_at: '2026-01-15T10:30:00Z',
+    expires_at: '2029-01-15T10:30:00Z',
+  },
+  PERPETUAL_ACTIVATION: {
+    key: STAGING_FIXTURE_KEY,
+    product: 'futo-notes',
+    issued_at: '2026-01-15T10:30:00Z',
+    expires_at: null,
+  },
+};
+
+const STAGING_CONSUMERS = [
+  'crates/futo-notes-ffi/src/license/contract.rs (both constants)',
+  'apps/ios/Tests/License/LicenseFixture.swift (ACTIVATION only)',
+  'apps/android/app/src/androidTest/java/com/futo/notes/license/LicenseFixture.kt (ACTIVATION only)',
+];
+
+/** The staging public key exactly as the app bakes it in. Read out of the Rust
+ *  constant rather than re-derived, so minting against the wrong private key —
+ *  a rotated one, production, a stray test key — is refused here instead of
+ *  discovered later as an unexplained signature mismatch in three suites. */
+function bakedStagingPublicKey() {
+  const source = fs.readFileSync(
+    path.join(ROOT, 'crates/futo-notes-license/src/config.rs'),
+    'utf8',
+  );
+  const match = source.match(/pub const STAGING_PUBLIC_KEY_BASE64: &str = "([^"]+)"/);
+  if (!match) throw new Error('config.rs no longer declares STAGING_PUBLIC_KEY_BASE64');
+  return crypto.createPublicKey({
+    key: Buffer.from(match[1], 'base64'),
+    format: 'der',
+    type: 'spki',
+  });
+}
+
+function mintStagingActivations() {
+  const keyPath = process.env.FUTO_NOTES_STAGING_KEY;
+  if (!keyPath) {
+    console.error(
+      '--staging needs the staging private key:\n' +
+        '  FUTO_NOTES_STAGING_KEY=/path/to/staging-priv.pem node scripts/gen-license-fixture.mjs --staging\n' +
+        'It lives in 1Password and in the FUTOpay staging deployment. Never copy it into this repo.',
+    );
+    process.exit(1);
+  }
+  const privateKey = crypto.createPrivateKey(fs.readFileSync(keyPath));
+  const derived = crypto.createPublicKey(privateKey).export({ type: 'spki', format: 'der' });
+  const baked = bakedStagingPublicKey().export({ type: 'spki', format: 'der' });
+  if (!derived.equals(baked)) {
+    console.error(
+      `${keyPath} is not the staging org key baked into config.rs — refusing to mint.\n` +
+        `  its public half:  ${crypto.createHash('sha256').update(derived).digest('hex')}\n` +
+        `  config.rs expects ${crypto.createHash('sha256').update(baked).digest('hex')}`,
+    );
+    process.exit(1);
+  }
+
+  console.log('Staging-signed activations (paste into each consumer, then run its suite):');
+  for (const consumer of STAGING_CONSUMERS) console.log(`  - ${consumer}`);
+  console.log('');
+  console.log(`  KEY = ${STAGING_FIXTURE_KEY}`);
+  for (const [name, payload] of Object.entries(STAGING_PAYLOADS)) {
+    console.log('');
+    console.log(`  ${name} =`);
+    console.log(`    ${signV2(privateKey, { format: 'v2', payload })}`);
+  }
+}
+
+if (process.argv.includes('--staging')) {
+  mintStagingActivations();
+  process.exit(0);
 }
 
 const fixture = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));

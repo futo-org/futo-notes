@@ -17,8 +17,8 @@ use futo_notes_license::{
     activation_url, buy_url, enter_license_key, evaluate, is_valid_license_key,
     normalize_license_key, parse_deep_link, recognize_input, AcceptedLicense, ActivationTransport,
     EnterKeyError, Environment, HttpResponse, InvalidReason, LicenseConfig, LicenseInput,
-    LicensePair, LicenseState, OffsetDateTime, Platform, TransportError, DEEP_LINK_SCHEME,
-    KEY_ALPHABET, ORG_SLUG, PRODUCT_SLUG, SUPPORT_MAILTO,
+    LicensePair, LicenseState, OffsetDateTime, Platform, TransportError, CHECKOUT_PRODUCT_SLUG,
+    DEEP_LINK_SCHEME, KEY_ALPHABET, ORG_SLUG, PRODUCT_SLUG, SUPPORT_MAILTO,
 };
 use serde_json::Value;
 
@@ -129,6 +129,14 @@ fn constants_match_the_fixture() {
     let constants = &fixture["constants"];
 
     assert_eq!(PRODUCT_SLUG, text(constants, "productSlug"));
+    // A separate constant on purpose: what an activation payload calls the
+    // product and what the storefront calls it are different strings, and the
+    // fixture carries both so neither can be tidied into the other.
+    assert_eq!(
+        CHECKOUT_PRODUCT_SLUG,
+        text(constants, "checkoutProductSlug")
+    );
+    assert_ne!(PRODUCT_SLUG, CHECKOUT_PRODUCT_SLUG);
     assert_eq!(DEEP_LINK_SCHEME, text(constants, "deepLinkScheme"));
     assert_eq!(KEY_ALPHABET, text(constants, "keyAlphabet"));
     assert_eq!(SUPPORT_MAILTO, text(constants, "supportMailto"));

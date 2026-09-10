@@ -390,18 +390,25 @@ mod tests {
 
     use super::*;
 
-    /// The staging environment IS the conformance fixture's key pair
-    /// (`STAGING_PUBLIC_KEY_BASE64`, and the placeholder-keys Gap in
-    /// docs/spec/license.md), so these two strings are a real, verifiable
-    /// staging license: `tests/conformance/license.json`, `licenseKey[0]` and
-    /// `namedActivations.valid` — futo-notes, issued 2026-01-15, expiring
-    /// 2029-01-15. If the fixture pair is ever regenerated the signature stops
-    /// verifying and every test below that expects Licensed goes red, which is
-    /// the correct red.
+    /// A real, verifiable staging license: signed by the FUTO Notes staging org
+    /// key that `STAGING_PUBLIC_KEY_BASE64` bakes in, so it is Licensed on any
+    /// `.dev` build and Unlicensed on a release one — which is what
+    /// `the_bundle_id_is_the_dev_prod_split` below exists to prove. Product
+    /// futo-notes, issued 2026-01-15, expiring 2029-01-15.
+    ///
+    /// It is deliberately NOT the conformance fixture's pair. That fixture's
+    /// key is test-only and lives in `tests/conformance/license.json`, where the
+    /// conformance suite reads it; nothing that has to behave like a real
+    /// staging license can be signed by it. Re-mint these (and the identical
+    /// pair in the two native `LicenseFixture` files) with
+    /// `FUTO_NOTES_STAGING_KEY=… node scripts/gen-license-fixture.mjs --staging`;
+    /// the staging private key is never in this repo. If the staging key is
+    /// rotated without re-minting, every test below that expects Licensed goes
+    /// red — which is the correct red.
     const KEY: &str = "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78";
-    const ACTIVATION: &str = "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg";
-    /// The same fixture key pair, `expires_at: null` — the perpetual vector.
-    const PERPETUAL_ACTIVATION: &str = "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6bnVsbH0.tMktpuATNFfLqE3PcGrcvok4Ip0hX2MYroK163xnqBFFsRhNDNt4GRPnYLAk3-IFB18PW8dPm74PgdvVoeUr9xQQvcBW4Bma_5K_MMrudCqUsYfFc-pbP47gbpjAdhj-0JZYmRrqB78TRgL7Md0CI5qVVmwhEE7jw0f2jBFy0npii_qlicH85AgQxQjyyfFDfOpHnHfe7H6dldW7XCSaGRDRvDxO36iN3OvMxKC5nAnVEirtlj5TPZWifp7dUF_3NwwyOLfRbBBs-o1yKle2BRIWaB4yyqjNC3FYAsv1ahjkIEnNINls4An71Ouo61j70byTDOeBgXvA4ggAc2h_CQ";
+    const ACTIVATION: &str = "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.6Os6nS_93GOGFt5fd4k3XvtQsGMJ-x8Zct9RjZrZxdvHMAYtv6gvhvDcKf7sKzqk3eJZbtYuZDYwMykumVtESj-49_4HtolXbZRNyqJPzwZDmAWK7_9ZJuD50rxQokv1-p6oEdVX-eFANw9o0SI_kxEFQeVabto3ZwGEFqzNODlSObksC8SgmEbHfJFrtUgPXy8TbcRfFAsfNKSWFSvYEIRe2RFHcU9pG6XFd_h5kH0GGOjUmJM778C38rDyz6aedxVaMRkLjCfgJzaDqY7tB-c2ieYxjk_6AwPu3W2Sy4rDhJlFOdWghG96j0LOaQgc-wS_gyqQysPJBtw5G03fZg";
+    /// The same staging key, `expires_at: null` — the perpetual vector.
+    const PERPETUAL_ACTIVATION: &str = "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6bnVsbH0.PUDx1XyTRbde9afyBaTPpYbGN346wKTNZ0vfeXIMXSMdNbkTarm42T5BZKjrOmddYoT3usZMVVPsOn3ORWGzOyTFIPXs2ZFy51BeBogF59V6QY9MM7uPh8iY8r0tRlJJrm-0iN_2z9u9-PsPneenk6iUxXuWYjhZ5H_-yQQrssPEHyh2lgdYNcDLeA0qummpl71wJybMrQmOVOvCDQUyCgjTB4RcQrwqaxGA5WCVHZant9a2w-YG9vutL7Ltumee9ze6PjJPCHgGlZqzyKHMdGwkV_xWqepzJ1mXhBI5RHNRaT_Ff_z_msA8UVr2Kdd9aQzJEKNgKwD4DuUtlplCeg";
 
     /// A `.dev` bundle id — what both native dev builds run under (M3).
     const DEV_BUNDLE_ID: &str = "com.futo.notes.dev";
@@ -741,12 +748,12 @@ mod tests {
     fn the_buy_url_carries_the_platform() {
         assert_eq!(
             license_links(LicensePlatform::Ios, "com.futo.notes".into()).buy,
-            "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes\
+            "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
              /checkout-ready?platform=ios&success="
         );
         assert_eq!(
             license_links(LicensePlatform::Android, "com.futo.notes".into()).buy,
-            "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes\
+            "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
              /checkout-ready?platform=android&success="
         );
         assert_eq!(
@@ -762,7 +769,7 @@ mod tests {
     fn a_dev_build_buys_on_staging() {
         assert_eq!(
             license_links(LicensePlatform::Android, "com.futo.notes.dev".into()).buy,
-            "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes\
+            "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
              /checkout-ready?platform=android&success="
         );
     }
