@@ -217,6 +217,14 @@ describe('createSyncSettings', () => {
         'sync.errors.connectFailed',
       ),
     ).toEqual({ path: 'sync.errors.certificateNotTrusted' });
+    expect(
+      failureMessage(
+        new Error(
+          'error sending request: invalid peer certificate: Other(OtherError("\u201cprivate ca\u201d certificate is not trusted: -67843"))',
+        ),
+        'sync.errors.connectFailed',
+      ),
+    ).toEqual({ path: 'sync.errors.certificateNotTrusted' });
     expect(failureMessage(new Error('connection refused'), 'sync.errors.connectFailed')).toEqual({
       path: 'sync.errors.connectFailed',
     });

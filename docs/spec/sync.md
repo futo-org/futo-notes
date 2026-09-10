@@ -89,10 +89,16 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
   → crates/futo-notes-ffi `SyncClient::new`
 - *(iOS)* A root installed from a configuration profile also needs full trust
   enabled under Settings → General → About → Certificate Trust Settings.
-- **An untrusted certificate is reported as such**, not as a generic connection
+- **A rejected certificate is reported as such**, not as a generic connection
   failure: the shells surface _"This server's certificate isn't trusted by this
-  device. Install its certificate authority in the device settings, then try
-  again."_ → SyncManager.kt / SyncManager.swift / createSyncSettings.svelte.ts
+  device. If the server uses a private certificate authority, install it in the
+  device settings, then try again."_ Every certificate rejection qualifies, which
+  the shells detect by rustls' `invalid peer certificate` prefix rather than by a
+  named variant: a missing anchor reports `UnknownIssuer`, while the Apple and
+  Windows verifiers wrap a platform trust refusal in `Other(OtherError(..))`
+  carrying the OS message, so matching one variant would leave real trust
+  failures blaming the URL and password.
+  → SyncManager.kt / SyncManager.swift / createSyncSettings.svelte.ts
   `failureMessage`
 - When no server is connected yet, the Sync screen points the user at how to
   get one: a **bordered link row** — a leading external-link icon (iOS

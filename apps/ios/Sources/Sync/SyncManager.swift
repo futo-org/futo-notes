@@ -662,7 +662,7 @@ final class SyncManager: ObservableObject {
     }
 
     func failureMessage(_ error: Error, fallback: String) -> LocalizedMessage {
-        describe(error).contains("UnknownIssuer")
+        describe(error).contains("invalid peer certificate")
             ? LocalizedMessage("sync.errors.certificateNotTrusted")
             : LocalizedMessage(fallback)
     }

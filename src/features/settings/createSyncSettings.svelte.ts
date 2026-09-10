@@ -29,7 +29,7 @@ function syncProgressMessage(progress: SyncProgress): LocalizedMessage {
 
 export function failureMessage(error: unknown, fallbackPath: string): LocalizedMessage {
   const text = error instanceof Error ? error.message : String(error);
-  return text.includes('UnknownIssuer')
+  return text.includes('invalid peer certificate')
     ? { path: 'sync.errors.certificateNotTrusted' }
     : { path: fallbackPath };
 }

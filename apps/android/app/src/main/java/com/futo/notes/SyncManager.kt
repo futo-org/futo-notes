@@ -376,7 +376,7 @@ class SyncManager(
         e is SyncException.Auth || e is SyncException.CollectionGone
 
     internal fun failureMessage(e: Exception, fallbackPath: String): LocalizedMessage =
-        if (describe(e).contains("UnknownIssuer")) {
+        if (describe(e).contains("invalid peer certificate")) {
             LocalizedMessage("sync.errors.certificateNotTrusted")
         } else {
             LocalizedMessage(fallbackPath)

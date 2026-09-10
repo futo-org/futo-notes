@@ -130,6 +130,14 @@ class SyncManagerOutcomeTest {
             "sync.errors.certificateNotTrusted",
             mgr.failureMessage(untrusted, "sync.errors.connectFailed").path,
         )
+        val platformRejected = SyncException.Http(
+            "error sending request: invalid peer certificate: " +
+                "Other(OtherError(\"private ca certificate is not trusted: -67843\"))",
+        )
+        assertEquals(
+            "sync.errors.certificateNotTrusted",
+            mgr.failureMessage(platformRejected, "sync.errors.connectFailed").path,
+        )
         assertEquals(
             "sync.errors.connectFailed",
             mgr.failureMessage(SyncException.Http("connection refused"), "sync.errors.connectFailed").path,
