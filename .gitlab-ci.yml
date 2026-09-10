@@ -1528,8 +1528,15 @@ build:android-native:
     # so failed runs still populate the MR test-report widget; `when: always`
     # would only additionally retain release APK/AAB binaries from failed
     # tag builds.
+    # Only the artifacts a later job actually reads. `play` is built to prove it
+    # COMPILES and to run its unit tests, but nothing downstream consumes a play
+    # APK: the sync leg takes apk/direct/debug, release + F-Droid take
+    # apk/direct/release, and Play takes the AAB from bundle/playRelease. A bare
+    # apk/**/*.apk also uploaded app-play-debug.apk — a second ~135 MB copy of a
+    # file with no reader — on every Android MR and tag pipeline.
     paths:
-      - apps/android/app/build/outputs/apk/**/*.apk
+      - apps/android/app/build/outputs/apk/direct/**/*.apk
+      - apps/android/app/build/outputs/apk/androidTest/**/*.apk
       - apps/android/app/build/outputs/bundle/**/*.aab
     reports:
       junit:
