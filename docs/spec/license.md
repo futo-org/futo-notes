@@ -15,6 +15,17 @@ Full reset. *(android)* Both distribution flavors were driven, and the
 consumption-only shape was driven too, by building `play` with
 `LICENSE_LINK_OUT=false`.
 
+Re-verified end to end by the #156 release gate on 2026-09-09, all three clients
+driven again on one commit rather than one per landing: desktop through the dev
+build's webview bridge, iOS on a pooled simulator, Android on a pooled emulator
+across both flavors. Every row state, every input shape, the OS deep link and its
+two rejection paths, Remove, Renew and persistence were observed on screen and
+checked against `languages/en.json` verbatim; storage claims were confirmed in
+UserDefaults / `futo_prefs` / the desktop app data dir rather than from the UI
+alone. Two things stayed unproven and are recorded in the Gaps below, not here:
+the bare key's 200 branch (no key minted yet — #155) and, on macOS only, the
+LaunchServices hop into an unbundled dev binary.
+
 ## Principles
 
 - **Nothing is gated.** Every feature works identically licensed or not. The
@@ -360,10 +371,18 @@ not the rules, is what this section records.
 > behavior. But no key exists in that org yet (issue #155), so the 200 branch —
 > activation text returned, then verified against the staging key — is pinned
 > only by the conformance goldens and
-> `a_bare_key_makes_exactly_one_staging_request`. Android QA on
-> 2026-09-09 reached the same 404 from the emulator, so two clients have now
-> exercised the request and neither has seen a 200. The offline
-> ("Connect to the internet") branch is likewise fixture-only at runtime.
+> `a_bare_key_makes_exactly_one_staging_request`. Android and desktop QA reached
+> the same 404 on 2026-09-09, so **all three** clients have now exercised the
+> request against the real staging host and none has seen a 200. Only the 200
+> branch is still unproven at runtime; it unblocks when #155 mints a key.
+>
+> The offline ("Connect to the internet to activate this key") branch is **no
+> longer** fixture-only: the #156 release gate drove it on all three clients by
+> pointing only the app's own process at a dead proxy — `SIMCTL_CHILD_HTTPS_PROXY`
+> / `HTTP_PROXY=http://127.0.0.1:1` — which starves that one process of network
+> without touching the host, and each client showed the specified toast and
+> stored nothing. The same technique proved shapes 2 and 3 activate with the
+> network genuinely gone, rather than by reading the crate.
 
 > **Gap:** No revocation check — refunded or revoked keys stay valid on
 > activated devices because the license module makes no background requests.
