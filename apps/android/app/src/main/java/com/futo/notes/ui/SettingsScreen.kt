@@ -60,6 +60,7 @@ import com.futo.notes.NotesStore
 import com.futo.notes.Prefs
 import com.futo.notes.storage.StorageMode
 import com.futo.notes.SyncManager
+import com.futo.notes.license.LicenseModel
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.ui.components.ConfirmDialog
@@ -87,6 +88,7 @@ private fun storageModeLabel(mode: StorageMode, localization: Localization): Str
 fun SettingsScreen(
     store: NotesStore,
     sync: SyncManager,
+    license: LicenseModel,
     themeMode: ThemeMode,
     onThemeMode: (ThemeMode) -> Unit,
     selectedLanguageTag: String?,
@@ -137,6 +139,11 @@ fun SettingsScreen(
             modifier = Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         ) {
             Spacer(Modifier.height(8.dp))
+
+            // FIRST, at the top: mobile has no ambient "Unlicensed" label
+            // outside Settings, so this row's status text IS the label
+            // (docs/spec/license.md § States and copy).
+            LicenseSettingsSection(license)
 
             // The whole Sync surface is one "Self-hosted sync" row: cloud icon,
             // connected-vs-local status, SYNCED/LOCAL badge. No separate account
@@ -315,6 +322,12 @@ fun SettingsScreen(
                         withContext(NonCancellable) {
                             store.deleteAll()
                             sync.disconnect()
+                            // The license is a preference, and Full reset wipes
+                            // preferences (docs/spec/license.md § Storage).
+                            // Last, because it touches nothing the two above
+                            // need — and silently, since the user is already
+                            // looking at the result of a reset.
+                            license.clearForFullReset()
                         }
                     } finally {
                         store.suppressAutoPush = false
@@ -415,8 +428,11 @@ private fun SyncBadge(connected: Boolean) {
     }
 }
 
+/** The label + bordered card every Settings section is built from. Internal
+ *  rather than private so the License row (`LicenseSettingsSection.kt`) is the
+ *  same physical row as the ones below it. */
 @Composable
-private fun SettingsGroup(label: String, content: @Composable () -> Unit) {
+internal fun SettingsGroup(label: String, content: @Composable () -> Unit) {
     val c = FutoTheme.colors
     MicroLabel(label, Modifier.padding(start = 4.dp, top = 12.dp, bottom = 8.dp))
     Surface(
@@ -430,7 +446,7 @@ private fun SettingsGroup(label: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun SettingsRow(
+internal fun SettingsRow(
     title: String,
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
@@ -462,7 +478,7 @@ private fun SettingsRow(
 }
 
 @Composable
-private fun Divider() {
+internal fun Divider() {
     HorizontalDivider(color = FutoTheme.colors.border, modifier = Modifier.padding(horizontal = 16.dp))
 }
 

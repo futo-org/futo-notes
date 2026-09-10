@@ -375,7 +375,7 @@ emu-screenshot name="emu":
 # `adb logcat -c` first for a clean slate; crashes land under AndroidRuntime.
 # Tag-scoped logcat for the native Android app's stable log tags.
 emu-logs:
-  adb logcat -s FutoStartup FutoSearch NotesStore FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
+  adb logcat -s FutoStartup FutoSearch NotesStore FutoLicense FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
 
 # Debug builds only; re-run after every app restart (the WebView pid changes).
 # adb forward host ports are machine-global, so the port is per-worktree

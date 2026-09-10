@@ -25,6 +25,10 @@
   license along with every other preference. →
   `src/features/license/LicenseSettingsSection.svelte`, SettingsScreen.svelte
   (`initialSection`), `deleteAllNotes` in `src/features/notes/notes.svelte.ts`
+  *(android)* The License group is the first group of `SettingsScreen`, and the
+  Danger-zone confirm clears the stored license with the vault. →
+  `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
+  `SettingsScreen.kt`, `license/LicenseModel.clearForFullReset`
 
 ## Native shells
 

@@ -7,11 +7,13 @@ and shows a **Supporter since {year}** badge. This is the Grayjay / FUTO Keyboar
 Polar underneath). The server product is a separate, later product with no
 shared semantics; see [Out of scope](#out-of-scope).
 
-Design decisions recorded 2026-09-09 (spec-first). Desktop and iOS implement the
-whole surface as of 2026-09-09, each driven on its own dev build against a
+Design decisions recorded 2026-09-09 (spec-first). All three clients implement
+the whole surface as of 2026-09-09, each driven on its own dev build against a
 staging-signed fixture license: all three states, all three input shapes (the
 bare key only as far as its 404 — see the Gaps), the deep link, Buy, Remove and
-Full reset. Android does not yet.
+Full reset. *(android)* Both distribution flavors were driven, and the
+consumption-only shape was driven too, by building `play` with
+`LICENSE_LINK_OUT=false`.
 
 ## Principles
 
@@ -95,6 +97,14 @@ Full reset. Android does not yet.
   the dev/prod split is the app sandbox itself. →
   `apps/ios/Sources/License/LicenseStorage.swift` (`futo.license.key`,
   `futo.license.activation`), `FullReset.swift`, `LicenseModel.clearForFullReset`
+  *(android)* `SharedPreferences` in the app-private `futo_prefs` file, whose
+  package is `.dev`-suffixed on debug builds, so the split is the Android
+  sandbox itself. Full reset removes both keys with the vault. →
+  `apps/android/app/src/main/java/com/futo/notes/license/LicenseStorage.kt`
+  (`Prefs.LICENSE_KEY`, `Prefs.LICENSE_ACTIVATION`),
+  `SettingsScreen.kt` (the Danger-zone confirm calls
+  `LicenseModel.clearForFullReset`), `LicenseModelTest`
+  "fullResetWipesTheStoredLicenseSilently"
 
 ## Getting a license
 
@@ -110,6 +120,11 @@ Full reset. Android does not yet.
   `licenseLinks(platform: .ios)` and opens with SwiftUI's `openURL`, which hands
   an `https` URL to the system browser. →
   `apps/ios/Sources/License/LicenseSettingsSection.swift`, `LicenseSurfaceTests`
+  *(android)* The same crate constants through `licenseLinks(LicensePlatform.ANDROID)`,
+  opened with an `ACTION_VIEW` intent, which the OS routes to the browser — never
+  a WebView. →
+  `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
+  `LicenseSurfaceTest` "theBuyLinkIsThisPlatforms"
 - After checkout, FUTOpay's activate-redirect page opens
   `futonotes://license/{key}/{activation}`; the app handles it per
   [Deep link](#deep-link). The page also shows the key and activation as text,
@@ -117,7 +132,9 @@ Full reset. Android does not yet.
 - **Lost key**: the License row offers "Lost your key?" which opens
   `mailto:support@futo.tech`. There is no in-app restore flow (see Gaps). →
   *(desktop)* `license::license_links`, `LicenseSettingsSection.svelte`;
-  *(ios)* `licenseLinks(platform:).support`, opened with `openURL`
+  *(ios)* `licenseLinks(platform:).support`, opened with `openURL`;
+  *(android)* the same `support` constant, opened with the same `ACTION_VIEW`
+  intent as Buy — the OS hands a `mailto:` to the mail client
 - No IAP, no Play Billing, no in-app price, no in-app checkout on any platform.
 
 ## Entering a key
@@ -154,6 +171,12 @@ Full reset. Android does not yet.
   and renders the returned state, and never asks again. →
   `crates/futo-notes-ffi/src/license/contract.rs`,
   `apps/ios/Sources/License/LicenseModel.swift`
+  *(android)* The same one call is `licenseEnterKey(input, bundleId)`, from a
+  coroutine so the bare-key request never touches the main thread; the shell
+  persists the returned pair and renders the returned state. →
+  `apps/android/app/src/main/java/com/futo/notes/license/LicenseModel.kt`,
+  `LicenseModelTest` "aPastedPairActivatesOffline", "aPastedLinkActivatesOffline",
+  "anUnrecognisablePasteStoresNothing"
 
 ## Deep link
 
@@ -175,7 +198,10 @@ Full reset. Android does not yet.
   is ignored silently. That verdict is the crate's on every platform, never a
   shell's. → `license::parse_deep_link`, *(ios)* the `Ignored` arm of
   `licenseHandleDeepLink`, `LicenseModelTests` "an undefined link is ignored
-  silently"
+  silently"; *(android)* the same `Ignored` arm in `LicenseModel.handle`,
+  `LicenseModelTest` "anUndefinedLinkIsIgnoredSilently" — driven on the emulator
+  as `am start -d futonotes://settings/open`, which left the screen
+  byte-identical
 - A valid link **replaces** an existing license without confirmation and shows
   the "License activated" toast. An invalid link shows one toast, "This license
   link isn't valid", and changes nothing. No dialog, no navigation; if Settings
@@ -189,6 +215,17 @@ Full reset. Android does not yet.
   produced before the app has wired up its banner is parked and flushed the
   moment it has one, so the toast survives even the earliest launch URL. →
   `LicenseModelTests` "a cold-start link is announced once the banner exists"
+  *(android)* The launch intent's URL is parked in Compose state during
+  `onCreate` and applied by a `LaunchedEffect` after the first composition, so
+  the note list is painted before the link lands and the toast appears on it;
+  the same state carries a link from `onNewIntent`, so both deliveries take one
+  path, and a launch intent is consumed once — a recreation that re-delivers it
+  does not re-announce a license the user already has. The stored pair is read
+  *and verified* off the main thread (M1), and that answer is not allowed to
+  overwrite a license the link applied while it was in flight. →
+  `apps/android/app/src/main/java/com/futo/notes/MainActivity.kt`
+  (`pendingLicenseLink`), `LicenseModel.load`/`applyStored`, `LicenseModelTest`
+  "aLinkAppliedBeforeTheStoredPairLandsSurvivesIt"
   *(desktop)* Rust applies and *parks* the outcome — storing blocks no render — and the shell
   drains it once it has painted, so the toast is delivered exactly once whether
   the link arrived before or after the webview existed. →
@@ -232,7 +269,10 @@ The License row has exactly three states. All strings are catalog entries
   - *(native shells)* Mobile has no ambient label outside Settings; the License
     row is the **first row at the top of Settings** and its status text is the
     label. → *(ios)* `LicenseSettingsSection` as the first `Section` of
-    `SettingsView`, `LicenseCopyTests`
+    `SettingsView`, `LicenseCopyTests`; *(android)* `LicenseSettingsSection` as
+    the first `SettingsGroup` of `SettingsScreen`,
+    `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
+    `LicenseCopyTest`
 
 ## Store posture (deliberate, recorded 2026-09-09)
 
@@ -266,14 +306,21 @@ not the rules, is what this section records.
     way out of the app and nothing else"; *(ios)*
     `apps/ios/Sources/License/LicenseLinkOut.swift`, flipped by the
     `LICENSE_LINK_OUT_DISABLED` compile condition (`apps/ios/project.yml` names
-    it where the build is configured). The iOS fallback
+    it where the build is configured); *(android)* a `buildConfigField` on each
+    product flavor in `apps/android/app/build.gradle.kts`, read once as
+    `BuildConfig.LICENSE_LINK_OUT` and passed to `licenseRowActions`, so `play`
+    alone can be flipped. `LicenseLinkOutTest` runs under both flavors and
+    fails the one whose constant is false — the lock that makes "true at
+    launch" a fact rather than an intention. Building `play` with `false` was
+    driven on the emulator: Buy, Renew and Lost-your-key disappeared while the
+    key field and the deep link kept working. The iOS fallback
     beyond that is a non-renewing-subscription IAP twin at the same price to
     fit 3.1.3(b); a 3-year expiring license cannot be a non-consumable IAP.
   - *(Android)* the app gains **`play` and `direct` product flavors now**, same
     `applicationId` (`com.futo.notes`, `.dev` suffix unchanged) and same signing,
     so a user can move between Play and a direct APK. At launch the flavors
-    differ in nothing license-related; `LICENSE_LINK_OUT` can be flipped for
-    `play` alone. Other Play-only behavior (e.g. in-app review prompts) also
+    differ in nothing license-related — `LICENSE_LINK_OUT` is `true` on both —
+    and it can be flipped for `play` alone. Other Play-only behavior (e.g. in-app review prompts) also
     belongs in the `play` flavor. F-Droid builds `direct`.
   - *(Android, F-Droid)* offline verification adds no anti-feature; the single
     activation request to pay2 may earn a Tethered/NonFreeNet label. Accepted.
@@ -311,23 +358,15 @@ not the rules, is what this section records.
 > behavior. But no key exists in that org yet (issue #155), so the 200 branch —
 > activation text returned, then verified against the staging key — is pinned
 > only by the conformance goldens and
-> `a_bare_key_makes_exactly_one_staging_request`. The offline
+> `a_bare_key_makes_exactly_one_staging_request`. Android QA on
+> 2026-09-09 reached the same 404 from the emulator, so two clients have now
+> exercised the request and neither has seen a 200. The offline
 > ("Connect to the internet") branch is likewise fixture-only at runtime.
 
 > **Gap:** No revocation check — refunded or revoked keys stay valid on
 > activated devices because the license module makes no background requests.
 > An opportunistic re-check on explicit user action only would be the
 > compatible way to add one.
-
-> **Gap:** Android does not surface this spec yet: no `futonotes://` intent
-> filter, no License row, no key field, and its `play`/`direct` flavors are
-> still behaviorally identical (`BuildConfig.IS_PLAY_BUILD` exists and nothing
-> reads it; no `LICENSE_LINK_OUT`). Desktop and iOS are done, and the UniFFI
-> projection Android needs is already here and platform-neutral —
-> `licenseEvaluate`, `licenseEnterKey`, `licenseHandleDeepLink`,
-> `licenseRowActions`, `licenseLinks`, `licenseDeepLinkScheme`, in
-> `crates/futo-notes-ffi/src/license/` — so what is left is the Kotlin shell:
-> two `SharedPreferences` strings, the intent filter, the row, and the flag.
 
 > **Gap:** The production and staging org public keys are placeholders. The real
 > FUTO Notes FUTOpay key pairs are created in lib-polar; until they land,
@@ -336,14 +375,27 @@ not the rules, is what this section records.
 > fail-closed) and `STAGING_PUBLIC_KEY_BASE64` is the conformance fixture's
 > public key, so a dev build can be driven with a fixture license.
 
-> **Gap:** _(desktop, ios)_ The spec names the key field but none of the controls
-> around it, so each shell supplies them: an **Activate** button (Return also
-> submits), a **Cancel** that closes the field, and a placeholder naming the
-> three accepted shapes. A text field with no submit is not operable, so these
-> are additions rather than choices — but they are unspecified copy, and this is
-> the line to reconcile if the spec later names them. Both shells use the same
-> four catalog entries (`license.keyLabel`, `keyPlaceholder`, `activate`,
-> `cancelEntry`), so the addition is at least identical on both.
+> **Gap:** _(android)_ The row has a fourth, unspecified state: *not yet known*.
+> The spec gives it three, and iOS and desktop always have one of them, because
+> they evaluate the stored license synchronously as they build their state. On
+> Android both halves of that — a `SharedPreferences` read and a JNI call doing
+> an RSA verify — are work M1 keeps off the thread that paints the shell, so the
+> row shows its explanation and no status until the answer lands. The window is
+> one IO hop during startup and closes long before Settings can be opened, so no
+> user is expected to see it; it is recorded rather than blessed, and the line to
+> reconcile is whether the spec should name a loading state for all three
+> clients. → `LicenseModel.view` (nullable until `load()`),
+> `LicenseSettingsSection.kt`
+
+> **Gap:** _(desktop, ios, android)_ The spec names the key field but none of the
+> controls around it, so each shell supplies them: an **Activate** button (the
+> keyboard's Done/Return also submits), a **Cancel** that closes the field, and a
+> placeholder naming the three accepted shapes. A text field with no submit is
+> not operable, so these are additions rather than choices — but they are
+> unspecified copy, and this is the line to reconcile if the spec later names
+> them. All three shells use the same four catalog entries
+> (`license.keyLabel`, `keyPlaceholder`, `activate`, `cancelEntry`), so the
+> addition is at least identical on all of them.
 
 > **Gap:** _(desktop, macOS)_ The `futonotes` scheme is declared once in
 > `tauri.conf.json`, but only Linux and Windows re-register it at runtime

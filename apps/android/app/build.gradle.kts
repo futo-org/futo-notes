@@ -74,23 +74,35 @@ android {
     // flavor that added a suffix would strand them with a second, empty
     // install; DistributionFlavorTest locks that against both flavors.
     //
-    // BuildConfig.IS_PLAY_BUILD is the seam for Play-only behavior. NOTHING
-    // reads it yet — at this commit the two flavors are compiled from the same
-    // sources and behave identically; the constant is the only difference. Per-flavor constants belong HERE, as buildConfigField
-    // entries on the two flavors below (issue #154 adds LICENSE_LINK_OUT this
-    // way); a `if (BuildConfig.IS_PLAY_BUILD)` branch in shared Kotlin is the
+    // BuildConfig.IS_PLAY_BUILD is the seam for Play-only behavior; nothing
+    // reads it yet. Per-flavor constants belong HERE, as buildConfigField
+    // entries on the two flavors below (LICENSE_LINK_OUT is the first one); a
+    // `if (BuildConfig.IS_PLAY_BUILD)` branch in shared Kotlin is the
     // second choice, and a flavor-specific source set (app/src/play,
     // app/src/direct) the third — each of those needs both flavors compiled,
     // which CI and `just build-android-native` do.
+    //
+    // LICENSE_LINK_OUT is the store-posture flag (docs/spec/license.md § Store
+    // posture), `true` on BOTH flavors at launch: the app ships the full
+    // surface worldwide — key field, deep link, and the Buy link out to the
+    // system browser. If Google ever objects, the answer is flipping the `play`
+    // line to false, not a redesign: that hides Buy, Renew and Lost-your-key
+    // and keeps the key field and the deep link (the consumption-only shape
+    // Play explicitly permits). WHICH controls each value produces is decided
+    // once in Rust (`licenseRowActions`), so this flag cannot come to mean
+    // something different here than it does on iOS. It is a build-time
+    // constant, never a preference — a user must not be able to flip it.
     flavorDimensions += "distribution"
     productFlavors {
         create("direct") {
             dimension = "distribution"
             buildConfigField("boolean", "IS_PLAY_BUILD", "false")
+            buildConfigField("boolean", "LICENSE_LINK_OUT", "true")
         }
         create("play") {
             dimension = "distribution"
             buildConfigField("boolean", "IS_PLAY_BUILD", "true")
+            buildConfigField("boolean", "LICENSE_LINK_OUT", "true")
         }
     }
 

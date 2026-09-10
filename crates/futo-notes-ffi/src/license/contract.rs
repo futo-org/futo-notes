@@ -92,9 +92,14 @@ pub enum LicenseError {
     #[error("this license key is not valid")]
     Invalid,
     /// Render `license.offline` — "Connect to the internet to activate this
-    /// key". The message is for logs; it is never shown.
-    #[error("the activation request did not complete: {message}")]
-    Offline { message: String },
+    /// key". The reason is for logs; it is never shown.
+    ///
+    /// The field is `reason`, not `message`: UniFFI projects an error variant's
+    /// fields as properties of a Kotlin `Exception`, where `message` is already
+    /// `Throwable`'s — the generated bindings then declare it twice and the
+    /// Android app does not compile. Nothing but the name changed.
+    #[error("the activation request did not complete: {reason}")]
+    Offline { reason: String },
 }
 
 /// What a delivered `futonotes://` URL turned out to mean.
@@ -258,7 +263,7 @@ pub async fn license_enter_key(
         // rather than masquerade silently as "offline" (M11).
         eprintln!("[license] the activation worker stopped before it answered");
         Err(LicenseError::Offline {
-            message: "the activation worker stopped before it answered".to_string(),
+            reason: "the activation worker stopped before it answered".to_string(),
         })
     })
 }
@@ -331,7 +336,7 @@ impl From<EnterKeyError> for LicenseError {
         match error {
             EnterKeyError::Invalid(_) | EnterKeyError::NotFound => LicenseError::Invalid,
             EnterKeyError::Transport(transport) => LicenseError::Offline {
-                message: transport.message().to_string(),
+                reason: transport.message().to_string(),
             },
         }
     }

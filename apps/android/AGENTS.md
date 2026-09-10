@@ -67,14 +67,14 @@ their notes when they switch. Never give a flavor its own id or suffix;
 
 `BuildConfig.IS_PLAY_BUILD` is the seam. Reach for it only for behavior that
 Google Play's policies require and other channels do not — nothing else is a
-flavor difference, and today **nothing reads it**: the two flavors are
-behaviorally identical.
+flavor difference. Today nothing reads it, and the flavors still behave
+identically: the one per-flavor constant, `LICENSE_LINK_OUT`, is `true` on both.
 
 In order of preference:
 
-1. A `buildConfigField` on each flavor in `app/build.gradle.kts` (issue #154
-   adds `LICENSE_LINK_OUT` this way — a constant, one line per flavor, visible
-   to `DistributionFlavorTest`).
+1. A `buildConfigField` on each flavor in `app/build.gradle.kts` —
+   `LICENSE_LINK_OUT` is the worked example (a constant, one line per flavor,
+   locked on both by `LicenseLinkOutTest`).
 2. `if (BuildConfig.IS_PLAY_BUILD)` in shared `main` Kotlin.
 3. A flavor source set (`app/src/play`, `app/src/direct`) — last resort, and it
    needs the same no-op-sibling discipline the Source sets section below
