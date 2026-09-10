@@ -21,9 +21,16 @@ environment's generated FUTOpay checkout in the system browser and return via
   first say which of the two platform rules above has changed.
 - **The client never displays a price**, because it never hosts a checkout. This is what keeps
   "the price lives only in Polar" literally true rather than approximately true.
-- **On iOS the buy affordance is gated on the runtime App Store storefront** — Apple's
-  commission-free link-out is US-only, and one binary ships worldwide, so a compile-time flag
-  cannot express it. `LICENSE_LINK_OUT` remains a manual global kill switch on top.
+- **On iOS the buy affordance is NOT gated on the runtime App Store storefront** — this is a
+  known gap, not a decision. Apple's commission-free link-out is US-only and one binary ships
+  worldwide, so a compile-time flag cannot express a per-storefront rule; a StoreKit
+  `Storefront`-based gate is the intended fallback if Apple objects. As shipped, the only input
+  besides status is `link_out`, a build-time constant (`LICENSE_LINK_OUT`), so Buy shows
+  worldwide. Verified on the simulator 2026-09-10: the installed binary links no StoreKit
+  framework at all, and Buy appears in the Unlicensed row with no App Store account signed in.
+  Until then `LICENSE_LINK_OUT` is the only lever, and it is all-or-nothing per build. →
+  `crates/futo-notes-ffi/src/license/contract.rs` `license_row_actions`,
+  `docs/spec/license.md` (the region-gating Gap, which is the authority)
 - **The commission position is a snapshot, not a settled rule.** It rests on the *Epic v.
   Apple* injunction: the Ninth Circuit affirmed Apple's contempt in December 2025 but held a
   total commission ban overbroad, the Supreme Court denied Apple's stay in May 2026 and took

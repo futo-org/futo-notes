@@ -92,7 +92,7 @@ signing in.
 
 FUTO Notes is free and fully functional with no account and no purchase. Every
 feature behaves identically whether or not a license is bought. A user may
-optionally buy a LICENSE on the web at pay.futo.tech; it unlocks NO
+optionally buy a LICENSE on the web at pay2.futo.org; it unlocks NO
 functionality, removing only an "Unlicensed" label and showing a "Supporter
 since <year>" badge. There is no paywall, no trial, and no feature, theme, or
 capacity behind it. Settings shows a link that opens the system browser to that
@@ -146,7 +146,7 @@ request is ever made.
 
 A `play` build that merely accepts a pasted key is explicitly permitted
 (consumption-only, 0%, no enrollment). This build ships more than that: it also
-shows a **Buy link out to pay.futo.tech**, which needs the External Content
+shows a **Buy link out to pay2.futo.org**, which needs the External Content
 Links / billing-choice programs, and Google enforces **after** publication.
 `LICENSE_LINK_OUT` is a `buildConfigField` on the `play` flavor
 (apps/android/app/build.gradle.kts); flipping it to `false` for `play` alone

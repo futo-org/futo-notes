@@ -26,6 +26,23 @@ alone. Two things stayed unproven and are recorded in the Gaps below, not here:
 the bare key's 200 branch (no key minted yet — #155) and, on macOS only, the
 LaunchServices hop into an unbundled dev binary.
 
+Re-run again by the #160 release gate on 2026-09-10, on the commit that merges
+`origin/main` into the license branch — so the merged full-reset path (main's
+writer-admission + throwing-reset rewrite) was exercised for real on every
+client rather than reasoned about. Desktop through the dev build's webview
+bridge, iOS on a pooled simulator, Android on a pooled emulator across **both**
+flavors plus a fourth build made by flipping `LICENSE_LINK_OUT=false`, which
+confirmed the Play-compliant consumption-only shape is one gradle line away and
+still fully usable by key field and deep link. New this round: the v1 activation
+end to end on all three clients (row reads the single word "Licensed", desktop's
+ambient label removes its element rather than blanking it), Expired driven for
+real on Android by moving the device clock against the v2 fixture, and the
+cold-start deep link measured frame by frame instead of screenshotted. Two
+purchases were carried through the real staging checkout; both succeeded at
+Polar and neither produced a key — see the bare-key Gap, which now records the
+cause. Still unproven, and recorded in the Gaps rather than here: the bare key's
+200 branch, and the macOS LaunchServices hop.
+
 ## Principles
 
 - **Nothing is gated.** Every feature works identically licensed or not. The
@@ -159,7 +176,16 @@ Why the original reasoning did not survive contact with the deployed product:
   /checkout/polar/futo-notes/futo-notes-license/info` reports
   `license_term: null` and `/price` reports a one-time, non-recurring price
   (observed 2026-09-10), so `expires_at` would be `null` even under v2 — Expired
-  and Renew are unreachable either way until someone sets a term.
+  and Renew are unreachable *from anything the server mints today*, either way,
+  until someone sets a term. That is a **product** condition, not a missing code
+  path: the client's Expired branch works and was driven on the emulator
+  2026-09-10 (#160) by holding the v2 fixture (which carries
+  `expires_at` 2029-01-15) and moving the device clock to 2030. The row read
+  "License expired Jan 15, 2029 · Supporter since 2026" and offered Renew /
+  Enter license key / Lost your key?, with Renew opening the same generated
+  checkout as Buy. The same run confirmed the complement: a v1 license held
+  under the same future clock stayed simply "Licensed", since no clock can move
+  a v1 activation out of Licensed.
 - That left `issued_at`, the year in "Supporter since", as the only thing v2
   buys today. `staging-pay2.futo.org` runs the pre-v2 code, so shipping against
   v1 needs no lib-polar change at all.
@@ -269,6 +295,14 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   - 200 but the pair fails verification → "This license key isn't valid".
   The request carries no identifiers beyond the key; there is no retry loop and
   no background re-attempt.
+- The key field is reachable only from the **Unlicensed** and **Expired** rows:
+  the Licensed row's only action is **Remove license**
+  (`license_row_actions`), so there is no "Enter license key" while a license is
+  stored. Replacing a license therefore happens through the **deep link**, which
+  replaces without confirmation, or by removing the old one first — not by
+  re-entering into the field. Verified on all three clients 2026-09-10 (#160);
+  recorded because the absent field is easy to misread as a missing affordance.
+  → `crates/futo-notes-ffi/src/license/contract.rs` `license_row_actions`
 - On success the pair replaces any stored license, state flips to Licensed (or
   Expired, if the key is already past `expires_at` — still stored, with the
   Expired copy shown), and a toast confirms "License activated". Entry is
@@ -332,7 +366,14 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   replacing it. → `LicenseModel.load`, `stateRevision`
   *(android)* The launch intent's URL is parked in Compose state during
   `onCreate` and applied by a `LaunchedEffect` after the first composition, so
-  the note list is painted before the link lands and the toast appears on it;
+  the note list *shell* is painted before the link lands and the toast appears on
+  it. Measured frame by frame on the emulator 2026-09-10 (#160, 20 fps
+  screenrecord): splash to 3.90s, the shell — top bar, icons, FAB — paints at
+  3.95s, the toast begins fading in at 4.05s **after** it, and the note **rows**
+  arrive at 4.95s, so the toast rides an empty list for ~0.9s while the vault
+  scan finishes. That is M1's intended shape (a scan may delay content, never the
+  shell) and is the same empty window a plain launch shows; the toast never lands
+  on the splash or a blank window;
   the same state carries a link from `onNewIntent`, so both deliveries take one
   path, and a launch intent is consumed once — a recreation that re-delivers it
   does not re-announce a license the user already has. The stored pair is read
@@ -482,7 +523,17 @@ not the rules, is what this section records.
 
 > **Gap:** No region gating — the Buy link shows worldwide on iOS and Android
 > regardless of storefront country; StoreKit `Storefront`-based gating is the
-> fallback if Apple objects, alongside the `LICENSE_LINK_OUT` flag.
+> fallback if Apple objects, alongside the `LICENSE_LINK_OUT` flag. Confirmed at
+> runtime on the simulator 2026-09-10 (#160): the installed iOS binary links no
+> StoreKit framework at all, and Buy appears in the Unlicensed row with no App
+> Store account signed in. The only input to the row's actions besides status is
+> `link_out`, which is a **build-time** constant on both native shells
+> (`LicenseLinkOut.swift`'s `#if LICENSE_LINK_OUT_DISABLED`, Android's
+> `BuildConfig.LICENSE_LINK_OUT` per flavor) — so a single worldwide binary
+> cannot show Buy in the US and hide it elsewhere; the flag is all-or-nothing.
+> ADR-0003 listed storefront gating as a shipped consequence until 2026-09-10;
+> it was never implemented, and the ADR now points here instead. →
+> `crates/futo-notes-ffi/src/license/contract.rs` `license_row_actions`
 
 > **Gap:** No in-app restore by e-mail — lost keys go to support@futo.tech; the
 > newer futopay Android library's restore page is not adopted.
@@ -501,7 +552,47 @@ not the rules, is what this section records.
 > `a_bare_key_makes_exactly_one_staging_request`. Android and desktop QA reached
 > the same 404 on 2026-09-09, so **all three** clients have now exercised the
 > request against the real staging host and none has seen a 200. Only the 200
-> branch is still unproven at runtime; it unblocks when #155 mints a key.
+> branch is still unproven at runtime.
+>
+> **It no longer unblocks by minting a key, because minting is what is broken.**
+> The #160 release gate carried two *real* staging purchases through the deployed
+> checkout on 2026-09-10 — the FUTOpay `checkout-ready` page, then Polar's hosted
+> checkout in the sandbox (Stripe test mode, `pk_test_…`), $14.99 each. Polar
+> reports both as `status: "succeeded"` (checkouts
+> `4835cde5-01d4-4976-bb12-5882341ef2d5` and
+> `e9e277a7-0404-4766-b76f-9c27a407f071`, customer
+> `144d264e-9bcc-4afe-b0e3-31ccb56c682c`). **No license key was produced by
+> either.** `GET /payment-complete?app_session_id={id}` 307s to
+> `GET /api/v1/../api/checkout-status/{id}?client_secret=…`, which blocks for
+> ~66s and then answers HTTP 400
+> `{"status":"error","message":"Too many benefit grant check attempts","error":"Purchase not confirmed by Polar yet"}`
+> — deterministically, on the first call as well as later ones, for a checkout
+> Polar itself already reports as succeeded. So the purchase half of the round
+> trip works and the **delivery** half does not: the paid-for key is never
+> minted, never shown, and (as far as this gate could observe) never sent.
+> `GET /api/v1/activate/{key}` still answers 404
+> `{"detail":"Not a valid License Key - No product found."}` for every key,
+> including the fixture key, because there is still no key to find.
+>
+> **Root cause, from Polar's own view of the product:** the checkout object's
+> `product.benefits` is `[]` — the staging Polar product has **no benefit
+> attached**. FUTOpay's post-payment step polls Polar for a *benefit grant*
+> before it mints and signs the key, so with no benefit on the product there is
+> nothing to grant, the poll can never succeed, and it exhausts its attempts and
+> reports "not confirmed by Polar yet". The fix is therefore a **product
+> configuration** change in the Polar sandbox org (attach the benefit FUTOpay
+> expects), not a code change in this repo — which is why no client work can
+> close this gap.
+>
+> This is a **server-side** defect in FUTOpay/staging-pay2, not a client one: the
+> client's job begins once a user holds a key, and all three clients render the
+> 404 branch correctly. It is nonetheless what keeps the 200 branch unproven, and
+> it means **no user could complete a purchase end to end today even if the app
+> shipped**. Closing this needs a FUTOpay fix (or a key minted by hand), after
+> which one bare-key entry on any client closes both halves at once. Whether the
+> key is e-mailed on success is also unverified — the checkout page promises
+> "We'll use this email to send you your license key", and no e-mail could be
+> observed from here.
 >
 > The offline ("Connect to the internet to activate this key") branch is **no
 > longer** fixture-only: the #156 release gate drove it on all three clients by
@@ -527,6 +618,21 @@ not the rules, is what this section records.
 > `ca4a8698…31514`, pinned by `the_staging_key_is_the_real_staging_org_key`), and
 > the fixture license every dev build is driven with is signed by it rather than
 > by the conformance pair. → `crates/futo-notes-license/src/config.rs`
+>
+> **The production Buy destination does not exist either, and that is the wider
+> half of the same gap.** Verified 2026-09-10 (#160):
+> `GET pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/info` answers
+> 404 `{"detail":"Organization not found"}` and `/price` answers
+> `Organization not found: futo-notes` — there is no `futo-notes` org in
+> production, so no product and no price. The URL a release build would open,
+> `.../futo-notes-license/checkout-ready?platform=…`, nonetheless returns
+> **HTTP 200** and renders a checkout shell with no product in it — the same
+> silent, un-buyable page that #157b fixed for staging by correcting the product
+> slug. A 200 on that URL therefore proves nothing, and no later check of it
+> should be read as the product existing; ask `/info` or `/price`. So a
+> production release today would report every user Unlicensed **and** point Buy
+> at a checkout that cannot take money. Both halves — the org/product and the
+> key — must land before any production release carries this surface.
 
 > **Gap:** _(ios, android)_ The row has a fourth, unspecified state: *not yet
 > known*. The spec gives it three, while desktop initializes to Unlicensed before
@@ -555,7 +661,15 @@ not the rules, is what this section records.
 > `CFBundleURLTypes`, which an unbundled `cargo tauri dev` binary never gets, so
 > the OS → app hop is unverified there: QA drove the plugin's own
 > `deep-link://new-url` event, which exercises everything from `on_open_url`
-> inward but not LaunchServices. Proving it needs a signed bundle from
+> inward but not LaunchServices. The #160 gate added the second half of the
+> reason, read from the dependency rather than inferred: the single-instance
+> argv route cannot cover macOS either, because
+> `tauri-plugin-deep-link`'s `handle_cli_arguments` wraps its whole body in
+> `if cfg!(windows) || cfg!(target_os = "linux")` — it is a **no-op** on macOS,
+> so `license::handle_single_instance_arguments` can never fire there. Two
+> second-launch attempts with the link as argv exited 0 through the
+> single-instance socket and changed nothing, which is the specified outcome of
+> a no-op and not a bug in this repo's code. Proving it needs a signed bundle from
 > `just tauri-build`, and a production bundle verifies against the production
 > key — so a staging license cannot demo it end to end until the **production**
 > key lands (see the production-key gap above).
