@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::test_support::TestRoot;
+use futo_notes_core::files::set_file_mtime_ms;
 
 #[derive(Default)]
 struct RecordingObserver(Mutex<Vec<Vec<FileChange>>>);
@@ -1687,5 +1688,100 @@ fn empty_vault_migration_refuses_an_unrelated_nonempty_destination() {
     assert_eq!(
         fs::read_to_string(destination.0.join("unrelated.md")).unwrap(),
         "keep me"
+    );
+}
+
+#[test]
+fn editor_rename_preserves_peer_changes_and_parks_the_draft() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("Original", "peer edit", None).unwrap();
+    let mutation = store
+        .save_draft_as("Original", "Renamed", "base", "my draft")
+        .unwrap();
+    assert_eq!(store.read("Original"), "peer edit");
+    let final_id = mutation.final_id.unwrap();
+    assert!(final_id.starts_with("Renamed (conflict "));
+    assert_eq!(store.read(&final_id), "my draft");
+    assert!(mutation.renamed.is_empty());
+}
+
+#[test]
+fn editor_move_saves_and_relinks_in_one_workflow() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("Original", "base", None).unwrap();
+    store.write("Link", "[[Original]]", None).unwrap();
+    let mutation = store
+        .save_draft_as("Original", "Folder/Original", "base", "my draft")
+        .unwrap();
+    assert_eq!(mutation.final_id.as_deref(), Some("Folder/Original"));
+    assert!(!store.exists("Original"));
+    assert_eq!(store.read("Folder/Original"), "my draft");
+    assert_eq!(store.read("Link"), "[[Folder/Original]]");
+}
+
+#[cfg(unix)]
+#[test]
+fn note_workflows_reject_symlinked_parents_and_leaves() {
+    use std::os::unix::fs::symlink;
+    let root = TestRoot::new();
+    let outside = TestRoot::new();
+    fs::write(outside.0.join("secret.md"), "outside").unwrap();
+    symlink(&outside.0, root.0.join("linked")).unwrap();
+    symlink(outside.0.join("secret.md"), root.0.join("leaf.md")).unwrap();
+    let store = store(&root);
+    for id in ["linked/secret", "leaf"] {
+        assert!(store.read_existing(id).is_err(), "read escaped via {id}");
+        assert!(
+            store.write(id, "replacement", None).is_err(),
+            "write escaped via {id}"
+        );
+        assert!(store.flush_draft(id, "outside", "draft").is_err());
+        assert!(store.rename(id, "Moved").is_err());
+        assert!(store.delete(id).is_err());
+    }
+    assert!(store.create("linked", "new", "new").is_err());
+    assert!(store.create_folder("linked/nested").is_err());
+    assert_eq!(
+        fs::read_to_string(outside.0.join("secret.md")).unwrap(),
+        "outside"
+    );
+    assert_eq!(fs::read_dir(&outside.0).unwrap().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_parent_swapped_after_validation_cannot_redirect_a_write() {
+    struct SwapParent {
+        root: PathBuf,
+        outside: PathBuf,
+    }
+    impl BeforeWrite for SwapParent {
+        fn before_write(&self, _: &[FileChange]) {
+            fs::rename(self.root.join("folder"), self.root.join("original-folder")).unwrap();
+            std::os::unix::fs::symlink(&self.outside, self.root.join("folder")).unwrap();
+        }
+    }
+    let root = TestRoot::new();
+    let outside = TestRoot::new();
+    fs::create_dir(root.0.join("folder")).unwrap();
+    fs::write(root.0.join("folder/note.md"), "base").unwrap();
+    fs::write(outside.0.join("note.md"), "outside").unwrap();
+    let store = LocalNoteStore::with_before_write(
+        root.0.clone(),
+        Arc::new(SwapParent {
+            root: root.0.clone(),
+            outside: outside.0.clone(),
+        }),
+    );
+    assert!(store.write("folder/note", "draft", None).is_err());
+    assert_eq!(
+        fs::read_to_string(outside.0.join("note.md")).unwrap(),
+        "outside"
+    );
+    assert_eq!(
+        fs::read_to_string(root.0.join("original-folder/note.md")).unwrap(),
+        "base"
     );
 }

@@ -103,6 +103,7 @@ export interface LocalNoteStore {
     wantedId: string,
     content: string,
     modifiedMs?: number,
+    base?: string,
   ): Promise<LocalNoteMutation>;
   /** THE draft-saving verb (persist-or-park, ADR-0001 / issue #37): persist
    * `content` for the note at `id` against `base` (the content the editor

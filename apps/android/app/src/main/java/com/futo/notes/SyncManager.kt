@@ -346,6 +346,16 @@ class SyncManager(
         }
     }
 
+    suspend fun disconnectForReset() {
+        storageMigrationGate.beginMigration()
+        storageMigrationGate.runMigration {
+            client?.stopLiveAndWait()
+            disconnect()
+        }
+    }
+
+    fun finishReset() { storageMigrationGate.resume() }
+
     suspend fun disconnect() {
         try { client?.disconnect() } catch (_: Exception) {} // also stops live in Rust
         client = null

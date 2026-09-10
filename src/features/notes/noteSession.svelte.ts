@@ -110,6 +110,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   let savedTitle = $state('');
   let loading = $state(false);
   let savedContent = '';
+  let pendingNewFolder: string | null = null;
 
   let suppressSaveOnChange = false;
 
@@ -140,20 +141,23 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     },
     hasDuplicateTitle,
     scheduleSave: () => debouncedSave(),
-    flushSave: () => void saveQueue.flush(),
+    flushSave: () => void saveQueue.flush().catch(() => {}),
     focusEditor: deps.focusEditor,
     getTextarea: deps.getTitleTextarea,
   });
   const saveNote = createNotePersistence({
     getEditorContent: deps.getEditorContent,
     getNoteId: deps.getNoteId,
-    getPendingFolder: () => deps.getPendingFolder?.() ?? null,
-    clearPendingFolder: () => deps.clearPendingFolder?.(),
+    getPendingFolder: () => pendingNewFolder ?? deps.getPendingFolder?.() ?? null,
+    clearPendingFolder: () => {
+      pendingNewFolder = null;
+      deps.clearPendingFolder?.();
+    },
     getState: () => ({ title, originalId, savedTitle, savedContent }),
     hasDuplicateTitle,
     showTitleWarning: (message) => titleController.showWarning(message, null),
     reconcileOpenNote: deps.reconcileOpenNote,
-    onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId }) => {
+    onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId, requestedTitle }) => {
       // A first save has no original id, so the route must still identify the
       // new-note session; existing-note saves remain bound by original id.
       const isCurrentSave =
@@ -165,6 +169,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       if (deps.getEditorContent() === newContent) content = newContent;
       savedContent = newContent;
       savedTitle = newTitle;
+      if (title === requestedTitle) title = newTitle;
       if (savedOriginalId !== id) deps.onNoteRenamed(savedOriginalId, id);
     },
   });
@@ -188,7 +193,11 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     flushSave: saveQueue.flush,
     getNotes: deps.getNotes,
     getEditorContent: deps.getEditorContent,
-    openNote: (noteId, value) => deps.openEditorNote(noteId, value),
+    openNote: (noteId, value) => {
+      if (noteId === null && deps.getNoteId() === 'new')
+        pendingNewFolder = deps.getPendingFolder?.() ?? null;
+      deps.openEditorNote(noteId, value);
+    },
     getNoteBody: deps.getNoteBody,
     focusEditor: deps.focusEditor,
     autoResizeTitle: titleController.autoResizeTextarea,
@@ -210,7 +219,8 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   }
 
   function hasUnseenEditorChanges(): boolean {
-    if (loading || !hasFileSystem || deps.getNoteId() === null) return false;
+    if (loading || !hasFileSystem) return false;
+    if (deps.getNoteId() === null && originalId === null && !title) return false;
     return editorHasUnseenChanges({
       editorContent: deps.getEditorContent(),
       savedContent,

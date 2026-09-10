@@ -20,3 +20,5 @@ pub use paths::{
 };
 pub use timestamps::{file_mtime_ms, mtime_or_now, now_ms, set_file_mtime_ms};
 pub use vault_lock::vault_mutation_guard;
+
+pub mod vault_fs;

@@ -35,6 +35,22 @@ final class SyncManager: ObservableObject {
     /// Whether the SSE live stream is currently connected.
     @Published private(set) var live = false
 
+    private var resetting = false
+    private var liveStartsInFlight = 0
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private func finishCycle() {
+        busy = false
+        signalIdle()
+    }
+
+    private func signalIdle() {
+        guard !busy, liveStartsInFlight == 0 else { return }
+        let waiters = idleWaiters
+        idleWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
     /// The Rust client (holds token + vault key + object map in memory).
     private var client: SyncClient?
 
@@ -118,12 +134,13 @@ final class SyncManager: ObservableObject {
 
     /// Connect (login + unwrap vault key) then run an initial sync.
     func connectAndSync(notesRoot: String, password: String) async {
+        guard !resetting, !busy else { return }
         busy = true
         lastErrorMessage = nil
         liveErrorMessage = nil
         statusMessage = LocalizedMessage("sync.status.connecting")
         self.notesRoot = notesRoot
-        defer { busy = false }
+        defer { finishCycle() }
         // Reject a schemeless URL up front with an actionable message instead
         // of letting the client fail with an opaque transport error. → sync.md
         if SyncManager.validateServerURL(serverURL) != nil {
@@ -179,11 +196,12 @@ final class SyncManager: ObservableObject {
 
     /// Run a sync against an already-connected client.
     func syncNow() async {
+        guard !resetting, !busy else { return }
         guard let c = client else { return }
         busy = true
         lastErrorMessage = nil
         statusMessage = LocalizedMessage("sync.status.syncing")
-        defer { busy = false }
+        defer { finishCycle() }
         do {
             let summary = try await c.syncNow()
             applyOutcome(summary)
@@ -213,6 +231,7 @@ final class SyncManager: ObservableObject {
     /// Re-login with the stored password to recover an expired session or
     /// collapsed vault without deleting state. Guarded against re-entry. → sync.md
     private func healSession() {
+        guard !resetting else { return }
         guard !healing else { return }
         guard let root = notesRoot, let password = Keychain.syncPassword else {
             statusMessage = LocalizedMessage("sync.status.error")
@@ -234,6 +253,12 @@ final class SyncManager: ObservableObject {
     /// `live`. A live-start failure only surfaces as the sync error line — it must not
     /// look like the whole connection failed.
     private func startLive() async {
+        guard !resetting else { return }
+        liveStartsInFlight += 1
+        defer {
+            liveStartsInFlight -= 1
+            signalIdle()
+        }
         guard let c = client else { return }
         let listener = LiveListener(manager: self)
         liveListener = listener
@@ -257,6 +282,7 @@ final class SyncManager: ObservableObject {
     /// Pause the stream (app backgrounded). Keeps the session; a fresh `ready` on
     /// resume drives a catch-up pull.
     func pauseLive() {
+        guard !resetting else { return }
         client?.stopLive()
         live = false
     }
@@ -271,6 +297,10 @@ final class SyncManager: ObservableObject {
     }
 
     // ── Live-listener callbacks (invoked on the main actor by LiveListener) ──
+
+    fileprivate func accepts(_ listener: LiveListener) -> Bool {
+        !resetting && liveListener === listener
+    }
 
     func applyLiveSummary(_ s: SyncSummary) {
         applyOutcome(s)
@@ -304,6 +334,17 @@ final class SyncManager: ObservableObject {
             lastErrorMessage = LocalizedMessage("sync.errors.syncFailed")
         }
     }
+
+    func disconnectForReset() async {
+        resetting = true
+        if busy || liveStartsInFlight > 0 {
+            await withCheckedContinuation { idleWaiters.append($0) }
+        }
+        await client?.stopLiveAndWait()
+        await disconnect()
+    }
+
+    func finishReset() { resetting = false }
 
     func disconnect() async {
         if let c = client { try? await c.disconnect() }  // Rust stops live internally too
@@ -345,9 +386,27 @@ final class LiveListener: SyncEventListener {
     init(manager: SyncManager) { self.manager = manager }
 
     func onSynced(summary: SyncSummary) {
-        Task { @MainActor in manager?.applyLiveSummary(summary) }
+        Task { @MainActor in
+            guard let manager, manager.accepts(self) else { return }
+            manager.applyLiveSummary(summary)
+        }
     }
-    func onConnected() { Task { @MainActor in manager?.setLive(true) } }
-    func onError(message: String) { Task { @MainActor in manager?.setLastError(message) } }
-    func onStopped() { Task { @MainActor in manager?.setLive(false) } }
+    func onConnected() {
+        Task { @MainActor in
+            guard let manager, manager.accepts(self) else { return }
+            manager.setLive(true)
+        }
+    }
+    func onError(message: String) {
+        Task { @MainActor in
+            guard let manager, manager.accepts(self) else { return }
+            manager.setLastError(message)
+        }
+    }
+    func onStopped() {
+        Task { @MainActor in
+            guard let manager, manager.accepts(self) else { return }
+            manager.setLive(false)
+        }
+    }
 }

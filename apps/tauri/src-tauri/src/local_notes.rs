@@ -218,9 +218,14 @@ pub async fn local_notes_save(
     wanted_id: String,
     content: String,
     modified_ms: Option<i64>,
+    base: Option<String>,
 ) -> Result<MutationResult, String> {
     let store = store(&app, &state)?;
-    blocking(move || store.save(original_id.as_deref(), &wanted_id, &content, modified_ms)).await
+    blocking(move || match (original_id.as_deref(), base.as_deref()) {
+        (Some(id), Some(base)) => store.save_draft_as(id, &wanted_id, base, &content),
+        _ => store.save(original_id.as_deref(), &wanted_id, &content, modified_ms),
+    })
+    .await
 }
 
 #[tauri::command]

@@ -233,11 +233,19 @@ struct SettingsView: View {
     /// (settings.md, Danger zone).
     private func runFullReset() async {
         resetting = true
-        await performFullReset(
-            disconnectSync: { await sync.disconnect() },
-            resetStore: { await store.fullReset() },
-            clearLicense: { license.clearForFullReset() }
-        )
-        resetting = false
+        defer {
+            sync.finishReset()
+            resetting = false
+        }
+        do {
+            try await performFullReset(
+                beginStoreReset: { store.beginFullReset() },
+                disconnectSync: { await sync.disconnectForReset() },
+                resetStore: { try await store.fullReset() },
+                clearLicense: { license.clearForFullReset() }
+            )
+        } catch {
+            store.showTransient(LocalizedMessage("settings.danger.failed"))
+        }
     }
 }

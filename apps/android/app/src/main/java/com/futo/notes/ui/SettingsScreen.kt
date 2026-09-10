@@ -312,24 +312,28 @@ fun SettingsScreen(
                 confirmReset = false
                 resetting = true
                 scope.launch {
-                    // Pause live sync + auto-push so the wipe can't race a
-                    // push, wipe the vault, then drop the session (also clears
-                    // the stored password). Parity model: desktop
-                    // resetAllNotes (src/app/resetAllNotes.ts).
-                    sync.pauseLive()
+                    // Close writer admission, join sync and discard its stored
+                    // credential, then drain old work before wiping the vault.
                     store.suppressAutoPush = true
                     try {
                         withContext(NonCancellable) {
-                            store.deleteAll()
-                            sync.disconnect()
+                            store.deleteAll { sync.disconnectForReset() }
                             // The license is a preference, and Full reset wipes
                             // preferences (docs/spec/license.md § Storage).
-                            // Last, because it touches nothing the two above
-                            // need — and silently, since the user is already
-                            // looking at the result of a reset.
+                            // Last, because it touches nothing the step above
+                            // needs — and silently, since the user is already
+                            // looking at the result of a reset. A throwing
+                            // deleteAll skips it: nothing was wiped.
                             license.clearForFullReset()
                         }
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(
+                            context,
+                            localization.localizedText("settings.danger.failed"),
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
                     } finally {
+                        sync.finishReset()
                         store.suppressAutoPush = false
                         resetting = false
                     }

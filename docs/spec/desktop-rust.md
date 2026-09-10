@@ -57,7 +57,9 @@ The current frontend contract is:
 
 These commands expose workflow-shaped results. `local_notes_save` commits the
 body, optional rename, collision resolution, and every resolvable backlink
-rewrite under one store lock. Note and folder workflows also return the
+rewrite under one store lock. Editor saves include their last saved baseline;
+peer divergence parks the local draft without overwriting the peer.
+Note and folder workflows also return the
 post-commit folder projection. TypeScript applies that result without a
 follow-up vault scan and never predicts it.
 
@@ -67,6 +69,13 @@ compatibility requirements and must not be reintroduced.
 ## Watcher and atomicity
 
 - Every store mutation is serialized.
+- Note reads, writes, creates, and moves use the core's shared vault-relative
+  filesystem boundary. Symlinked parent components and note leaves are refused.
+  Unix operations pin no-follow directory handles through the final syscall;
+  path-based OS trash and the Windows fallback preflight every component.
+  Local operations preserve best-effort directory fsync; sync's journal-facing
+  operations require directory durability before acknowledging progress.
+  → `futo-notes-core::files::vault_fs`, `futo-notes-store::paths`
 - Before the first filesystem syscall, the store reports the complete planned
   `FileChange` set through `BeforeWrite`; desktop registers those paths in the
   one-shot watcher suppressor.

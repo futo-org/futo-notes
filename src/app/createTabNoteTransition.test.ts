@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const tabs = vi.hoisted(() => ({
   activeTabId: 'first',
   setTabState: vi.fn(),
+  restoreAfterFailedNavigation: vi.fn(),
 }));
 
 vi.mock('$features/tabs/tabsStore.svelte', () => ({
@@ -11,6 +12,7 @@ vi.mock('$features/tabs/tabsStore.svelte', () => ({
       return tabs.activeTabId;
     },
     setTabState: tabs.setTabState,
+    restoreAfterFailedNavigation: tabs.restoreAfterFailedNavigation,
   },
 }));
 
@@ -31,6 +33,16 @@ describe('createTabNoteTransition', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('restores the outgoing tab when its draft cannot be saved', async () => {
+    const loadNote = vi.fn(async () => undefined);
+    const transition = createTabNoteTransition({ loadNote, getNoteBody: () => undefined });
+    await transition.transition('first', 'One', 0);
+    tabs.activeTabId = 'second';
+    loadNote.mockRejectedValueOnce(new Error('disk full'));
+    await transition.transition('second', 'Two', 0);
+    expect(tabs.restoreAfterFailedNavigation).toHaveBeenCalledWith('first', 'One');
   });
 
   it('saves outgoing scroll and restores incoming scroll after two layout frames', async () => {

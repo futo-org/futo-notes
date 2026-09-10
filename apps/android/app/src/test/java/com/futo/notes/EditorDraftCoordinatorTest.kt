@@ -8,6 +8,18 @@ import org.junit.Test
 
 class EditorDraftCoordinatorTest {
     @Test
+    fun `reset invalidates queued work even after admission resumes`() {
+        val coordinator = EditorDraftCoordinator()
+        val old = coordinator.admit("note")!!
+        coordinator.beginReset()
+        assertNull(coordinator.admit("new"))
+        assertFalse(coordinator.permits(old))
+        coordinator.endReset()
+        assertFalse(coordinator.permits(old))
+        assertNotNull(coordinator.admit("note"))
+    }
+
+    @Test
     fun `queued draft is stale once identity mutation begins`() {
         val coordinator = EditorDraftCoordinator()
         val draft = coordinator.admit("note")!!

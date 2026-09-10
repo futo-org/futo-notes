@@ -160,14 +160,14 @@ struct LicenseModelTests {
     /// Danger zone) — and does it without a toast, since the user is already
     /// looking at the result of a reset.
     @Test("full reset wipes the stored license")
-    func fullResetClearsTheLicense() async {
+    func fullResetClearsTheLicense() async throws {
         let (license, defaults) = model()
         var messages: [String] = []
         license.showMessage = { messages.append($0.path) }
         license.handle(URL(string: LicenseFixture.deepLink)!)
         messages.removeAll()
 
-        await performFullReset(
+        try await performFullReset(
             disconnectSync: {}, resetStore: {}, clearLicense: { license.clearForFullReset() })
 
         #expect(license.view?.status == .unlicensed)

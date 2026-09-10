@@ -1138,6 +1138,17 @@ unchanged by it.
 
 ## Saving & rename
 
+- A failed desktop disk save blocks switching notes, going Home, and closing the
+  outgoing tab. The outgoing draft stays open and dirty, its tab is restored,
+  and a visible save-failure message permits retry. A converged or durably
+  parked draft permits navigation. _(desktop)_ → `noteSaveQueue.ts`,
+  `createNotePersistence.ts`, `createTabNoteTransition.ts`
+- Editor rename and move send the body, saved baseline, and destination through
+  one Rust workflow. A peer-changed source remains untouched; the local draft
+  becomes a conflict copy at the requested destination, and the editor follows
+  the engine's final id and title. Collision handling and backlink changes stay
+  under the same vault guard. → `LocalNoteStore::save_draft_as`, `move_draft`
+
 - Body edits autosave on a debounce (~400 ms). The save re-reads the current
   note id at fire time, so a save landing **after** a rename writes to the
   renamed note, not a stale id. → NoteEditorScreen.kt / NoteEditorView.swift
@@ -1167,11 +1178,11 @@ unchanged by it.
   committed. _(iOS, Android)_ → `NotesStore.write`,
   NoteEditorScreen.kt / NoteEditorView.swift,
   NativeMutationOutcomeTest / NativeMutationOutcomeTests
-- Title edits debounce (~500 ms) into a rename (iOS commits via the rename
-  dialog instead). Before the file moves, any pending body save is flushed to
-  the _current_ id and the in-flight save is cancelled — otherwise a stale save
-  recreates a ghost note at the old id (data loss). → NoteEditorScreen.kt /
-  NoteEditorView.swift `commitRename`
+- Android title edits debounce into a rename; iOS commits via the rename dialog.
+  Both use the baseline-aware save-and-rename workflow after pending saves are
+  cancelled/drained. Only an actual durable result advances the saved body
+  snapshot; a no-op title never marks a dirty body saved.
+  → NoteEditorScreen.kt / NoteEditorView.swift
 - Leaving the editor flushes a pending save only if the content changed. The
   engine then decides whether the note is written, recreated, or parked.
 - A confirmed local delete is the final editor mutation for that note. Android

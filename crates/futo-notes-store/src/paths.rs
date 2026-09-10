@@ -1,9 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use futo_notes_core::files::{collision_key, ensure_safe_note_id};
-
-pub(crate) use futo_notes_core::files::safe_note_path as note_path;
+use futo_notes_core::files::{collision_key, ensure_safe_note_id, safe_note_path};
 
 pub(crate) fn unique_note_id(
     root: &Path,
@@ -81,5 +79,12 @@ pub(crate) fn folder_path(root: &Path, folder: &str) -> Result<PathBuf, String> 
     for component in components {
         path.push(component);
     }
+    futo_notes_core::files::vault_fs::validate_path(root, folder)?;
+    Ok(path)
+}
+
+pub(crate) fn note_path(root: &Path, id: &str) -> Result<PathBuf, String> {
+    let path = safe_note_path(root, id)?;
+    futo_notes_core::files::vault_fs::validate_path(root, &format!("{id}.md"))?;
     Ok(path)
 }
