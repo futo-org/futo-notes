@@ -6,11 +6,13 @@
  * renderer and the command implementations each read one list instead of
  * restating it. `exec.ts` implements every id here; `index.ts` renders them.
  *
- * The set is the one the CodeMirror editor's block-command menu offered. Every
- * item but Image is a block format the editor already implements; Image opens
- * the host's file picker and writes into the vault, through the same
- * `PlatformFS` pair (`pickImage` + `saveImage`) the CodeMirror toolbar button
- * used before the engine swap deleted it.
+ * The set is mostly the one the CodeMirror editor's block-command menu
+ * offered. Every item but Link and Image is a block format the editor already
+ * implements; Image opens the host's file picker and writes into the vault,
+ * through the same `PlatformFS` pair (`pickImage` + `saveImage`) the
+ * CodeMirror toolbar button used before the engine swap deleted it. Link
+ * (QA-019, Orhan's suggestion) is new: it opens the same URL prompt the
+ * desktop selection toolbar's Link button does (`../linkPrompt/`).
  *
  * Image is offered on every host the menu itself is offered on — the menu is
  * desktop-only (`resolveSlashMenu`), and desktop is exactly where the picker
@@ -71,6 +73,14 @@ export const SLASH_ITEMS: SlashItem[] = [
     keywords: ['hr', 'horizontal', 'rule', 'separator', 'line'],
   },
   { id: 'table', label: 'Table', hint: 'Markdown table', keywords: ['grid', 'cells', 'rows'] },
+  {
+    id: 'link',
+    label: 'Link',
+    hint: 'Insert a link',
+    // Not `href`: it starts with "hr" and would collide with Divider's own
+    // `hr` keyword (items.test.ts pins `/hr` to Divider alone).
+    keywords: ['url', 'hyperlink'],
+  },
   {
     id: 'image',
     label: 'Image',

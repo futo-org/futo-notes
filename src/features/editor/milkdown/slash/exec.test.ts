@@ -44,7 +44,7 @@ describe('the Image item', () => {
     });
 
     const action = vi.fn();
-    createSlashExec(() => ({ action }) as never).image();
+    createSlashExec(() => ({ action }) as never).image(0, 0);
 
     await vi.waitFor(() => expect(action).toHaveBeenCalled());
     expect(pickImage).toHaveBeenCalled();
@@ -55,7 +55,7 @@ describe('the Image item', () => {
     getFS.mockReturnValue({ saveImage: vi.fn(), getImageUrl: vi.fn() });
 
     const action = vi.fn();
-    expect(() => createSlashExec(() => ({ action }) as never).image()).not.toThrow();
+    expect(() => createSlashExec(() => ({ action }) as never).image(0, 0)).not.toThrow();
 
     await Promise.resolve();
     expect(action).not.toHaveBeenCalled();
@@ -79,8 +79,17 @@ describe('the Image item', () => {
       getImageUrl: vi.fn(),
     });
 
-    exec.image();
+    exec.image(0, 0);
 
     await vi.waitFor(() => expect(pickImage).toHaveBeenCalled());
+  });
+});
+
+describe('the Link item', () => {
+  it('does not throw with no live editor, and offers nothing to delete on a no-op editor', () => {
+    // `openLinkPrompt` reads the current selection through the editor's ctx;
+    // a null editor (view not built yet) must be a no-op, the same contract
+    // every other item's exec function has.
+    expect(() => createSlashExec(() => null).link(0, 0)).not.toThrow();
   });
 });

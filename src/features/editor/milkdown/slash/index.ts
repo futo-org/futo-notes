@@ -128,32 +128,39 @@ export function createSlashMenuPlugin(getEditor: () => Editor | null): SlashMenu
   let dismissedFrom: number | null = null;
 
   /**
-   * Run the picked command, THEN delete the `/query` the user typed to get here.
+   * Delete the `/query` the user typed to get here, then run the picked
+   * command — handing `exec[item.id]` the run's own `[from, to)` so it can
+   * fold both into ONE transaction (`commandRunner.ts`'s
+   * `runAfterDelete`/`runKeyAfterDelete`) rather than dispatching twice.
    *
-   * That order is load-bearing, and the obvious one is wrong. Deleting first
-   * leaves the block momentarily EMPTY; ProseMirror re-renders an empty
-   * textblock with a trailing `<br>`, its DOM observer reads that mutation back
-   * as a document change, and the resulting transaction lands after the command
-   * and drags the caret out of the block that was just made. Measured on
-   * `/task`: a correct `- [ ] ` item with the next typed word in the paragraph
-   * AFTER the list — every time by mouse, one run in five by keyboard. Running
-   * the command first means the block is never empty with work still pending,
-   * and the delete has the last word on where the caret sits: 10 runs out of 10
-   * on both paths.
+   * The obvious order — run the command against the state that still has the
+   * typed text, delete it after — is wrong for an item that RESTRUCTURES the
+   * block: `createCodeBlockCommand` is a `setBlockType`, which keeps the
+   * block's existing text as the new node's content, so `/code` + Enter opened
+   * a fence whose content was the literal string `/code` (QA-010). `/divider`
+   * and `/table` restructure the block too (a split, a grid), so by the time a
+   * POST-command read looked for the run to delete, it was either inside a
+   * `code` block (which this menu refuses to look inside at all) or sitting in
+   * a document shape the run's remembered position no longer described — the
+   * delete silently no-opped and the typed text survived next to the new node
+   * (QA-013, a symptom of the same bug: the divider landed two lines below the
+   * cursor because the stray `/divider` text was still there, pushing it down).
    *
-   * The typed run is re-read rather than remembered because the command moves
-   * it — wrapping a paragraph in a list shifts every position after it.
-   *
-   * Both dispatches are synchronous and adjacent, so prosemirror-history keeps
-   * them in one undo event: one Ctrl-Z takes back the whole pick rather than
-   * leaving a heading with `/heading` typed back into it.
+   * Deleting first does not reintroduce the OTHER failure mode a naive
+   * "two separate dispatches, delete then command" would: leaving the block
+   * momentarily empty so ProseMirror paints a trailing `<br>` that its own
+   * mutation observer reads back as a document change, dragging the caret out
+   * of the block the command just built (measured on `/task`, one run in five
+   * by keyboard) — because the delete and the command land in the SAME
+   * transaction here, there is no intermediate paint to misobserve, and
+   * `prosemirror-history` sees one undo step rather than two adjacent ones.
    */
   function commit(view: ProseView, item: SlashItem): void {
+    const from = open?.from ?? view.state.selection.head;
+    const to = view.state.selection.head;
     open = null;
     dismissedFrom = null;
-    exec[item.id]?.();
-    const typed = readOpenRun(view.state);
-    if (typed) view.dispatch(view.state.tr.delete(typed.from, view.state.selection.head));
+    exec[item.id]?.(from, to);
   }
 
   /** Re-render on a state change that is not a document change (arrow, Escape). */

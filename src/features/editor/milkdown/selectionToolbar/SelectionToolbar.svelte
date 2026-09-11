@@ -12,6 +12,8 @@
   import type { Component } from 'svelte';
   import { TOOLBAR_GROUPS, TOOLBAR_ITEMS } from '@futo-notes/editor';
 
+  import LinkUrlField from '../linkPrompt/LinkUrlField.svelte';
+
   interface Props {
     onexec: (command: string) => void;
     /** Apply `href` to the selection; `null` removes the link. */
@@ -44,8 +46,7 @@
   /** The href of the link the selection sits in, or null. */
   let linkHref = $state<string | null>(null);
   let editingLink = $state(false);
-  let draft = $state('');
-  let urlField: HTMLInputElement | undefined = $state();
+  let urlField: ReturnType<typeof LinkUrlField> | undefined = $state();
 
   /** Called by `index.ts` on every selection the toolbar is shown for. */
   export function setState(nextActive: string[], nextLinkHref: string | null): void {
@@ -57,7 +58,6 @@
   export function reset(): void {
     if (editingLink) onlinkediting(false);
     editingLink = false;
-    draft = '';
   }
 
   function preventFocus(event: MouseEvent): void {
@@ -65,7 +65,6 @@
   }
 
   function openLinkField(): void {
-    draft = linkHref ?? '';
     editingLink = true;
     onlinkediting(true);
     // After the field renders. `tick` would do too; a frame is what the
@@ -73,46 +72,30 @@
     requestAnimationFrame(() => urlField?.focus());
   }
 
-  function commitLink(): void {
-    const href = draft.trim();
+  function commitLink(href: string): void {
     editingLink = false;
     onlinkediting(false);
     onlink(href === '' ? null : href);
   }
 
-  function handleFieldKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      commitLink();
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      editingLink = false;
-      onlinkediting(false);
-      // `null` with nothing typed is "leave the link as it is"; the plugin only
-      // touches the document when the href actually changed.
-      onlink(linkHref);
-    }
+  function cancelLinkField(): void {
+    editingLink = false;
+    onlinkediting(false);
+    // `linkHref` with nothing typed is "leave the link as it is"; the plugin
+    // only touches the document when the href actually changed.
+    onlink(linkHref);
   }
 </script>
 
 <div class="futo-selection-toolbar-body" role="toolbar" aria-label="Text formatting">
   {#if editingLink}
-    <input
-      class="futo-selection-toolbar-url"
-      type="url"
-      placeholder="Paste or type a link"
-      aria-label="Link URL"
+    <LinkUrlField
       bind:this={urlField}
-      bind:value={draft}
-      onkeydown={handleFieldKeydown}
+      initialUrl={linkHref ?? ''}
+      applyLabel={linkHref === null ? 'Add' : 'Update'}
+      onsubmit={commitLink}
+      oncancel={cancelLinkField}
     />
-    <button
-      class="futo-selection-toolbar-apply"
-      type="button"
-      aria-label={linkHref === null ? 'Add link' : 'Update link'}
-      onmousedown={preventFocus}
-      onclick={commitLink}>{linkHref === null ? 'Add' : 'Update'}</button
-    >
   {:else}
     {#each BLOCK_BUTTONS as item (item.id)}
       {#if item.when !== 'inContainer' || active.some( (id) => ['quote', 'bullet-list', 'ordered-list', 'task-list'].includes(id) )}
