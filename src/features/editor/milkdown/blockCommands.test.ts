@@ -11,6 +11,7 @@ import {
   type BlockCommandId,
 } from './blockCommands';
 import { testSchema } from './__fixtures__/schema';
+import { syncListOrderPluginFixture } from './__fixtures__/syncListOrderPlugin';
 
 const s = testSchema;
 
@@ -196,6 +197,92 @@ describe('blockCommand — converting between kinds', () => {
       { bullet_list: [{ list_item: ['paragraph:x'] }] },
     ]);
     expect(shapes(run(doc(bullets(item('x'))), 'heading-1'))).toEqual(['h1:x']);
+  });
+});
+
+describe('blockCommand — retargetList survives syncListOrderPlugin (QA #002)', () => {
+  /**
+   * `stateAtText`, but with the preset's own self-healing plugin installed —
+   * exactly the gap the reference diagnosis called out: every other test in
+   * this file runs against a plugin-free `EditorState`, which never fires
+   * `appendTransaction` and so can't see a plugin revert the toggle.
+   */
+  function stateWithPlugin(root: ProseNode, text: string): EditorState {
+    let found = -1;
+    root.descendants((node, pos) => {
+      if (found === -1 && node.isTextblock && node.textContent === text) found = pos + 1;
+      return found === -1;
+    });
+    if (found === -1) throw new Error(`no textblock reading '${text}'`);
+    const state = EditorState.create({ doc: root, plugins: [syncListOrderPluginFixture()] });
+    return state.apply(state.tr.setSelection(TextSelection.create(root, found)));
+  }
+
+  /** Run one command and let the plugin's `appendTransaction` fold in, same as the real editor. */
+  function applyWithPlugin(state: EditorState, command: BlockCommandId): EditorState {
+    let after = state;
+    blockCommand(command)(state, (tr) => {
+      after = state.apply(tr);
+    });
+    return after;
+  }
+
+  // Reported repro: 3 bullet lines, caret on the LAST line. Numbered List
+  // converts all three (this direction "worked" only because the plugin's
+  // self-heal papered over the old bug). Bullet List, pressed again with the
+  // caret still on the last line, used to do nothing at all.
+  it('toggles a 3-item list from ordered back to bullet, not just the touched item', () => {
+    const bulletList = doc(bullets(item('a'), item('b'), item('c')));
+    let state = stateWithPlugin(bulletList, 'c');
+
+    state = applyWithPlugin(state, 'ordered');
+    expect(shapes(state.doc)).toEqual([
+      {
+        ordered_list: [
+          { list_item: ['paragraph:a'] },
+          { list_item: ['paragraph:b'] },
+          { list_item: ['paragraph:c'] },
+        ],
+      },
+    ]);
+
+    state = applyWithPlugin(state, 'bullet');
+    expect(shapes(state.doc)).toEqual([
+      {
+        bullet_list: [
+          { list_item: ['paragraph:a'] },
+          { list_item: ['paragraph:b'] },
+          { list_item: ['paragraph:c'] },
+        ],
+      },
+    ]);
+  });
+
+  it('toggles a 3-item list from bullet to task and back to bullet, every item', () => {
+    const bulletList = doc(bullets(item('a'), item('b'), item('c')));
+    let state = stateWithPlugin(bulletList, 'a');
+
+    state = applyWithPlugin(state, 'task');
+    expect(shapes(state.doc)).toEqual([
+      {
+        bullet_list: [
+          { 'list_item[ ]': ['paragraph:a'] },
+          { 'list_item[ ]': ['paragraph:b'] },
+          { 'list_item[ ]': ['paragraph:c'] },
+        ],
+      },
+    ]);
+
+    state = applyWithPlugin(state, 'bullet');
+    expect(shapes(state.doc)).toEqual([
+      {
+        bullet_list: [
+          { list_item: ['paragraph:a'] },
+          { list_item: ['paragraph:b'] },
+          { list_item: ['paragraph:c'] },
+        ],
+      },
+    ]);
   });
 });
 
