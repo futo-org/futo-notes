@@ -5,14 +5,17 @@ import type { FileDropEvent } from '../types';
 /**
  * OS file drops, as the Tauri window reports them.
  *
- * This exists because on LINUX the webview never sees the drop. wry's WebKitGTK
- * drag-drop handler claims a file-URI drop and turns it into this event, so an
- * HTML5 `drop` listener inside the page fires with an empty `files` list. macOS
- * and Windows are the other way round — both build configs set
- * `dragDropEnabled: false`, which is exactly the flag that stops wry installing
- * a native drop target there, so those two deliver a real HTML5 drop and this
- * event never fires. See `../dragDropConfig.test.ts` for why the flag differs
- * per platform; the editor listens to both paths and takes whichever arrives.
+ * This used to be the ONLY way Linux ever saw a drop: wry's WebKitGTK
+ * drag-drop handler claimed a file-URI drop and turned it into this event,
+ * while an HTML5 `drop` listener inside the page fired with an empty `files`
+ * list. That handler is now off on every desktop platform — macOS, Windows,
+ * and (since QA #017, 2026-09-11) Linux too all set `dragDropEnabled: false`,
+ * because on a native-Wayland compositor wry's GTK relay never fired a real
+ * drop at all. So this event is not expected to fire on any platform anymore;
+ * it stays wired as a defensive fallback in case some distro/compositor
+ * combination still runs wry's native layer. See `../dragDropConfig.test.ts`
+ * for the config gate; the editor listens to both this and the HTML5 `drop`
+ * path and takes whichever arrives.
  *
  * `position` is PHYSICAL (device pixels). Everything that resolves a point back
  * to a document position — `posAtCoords` — speaks CSS pixels, so the conversion
