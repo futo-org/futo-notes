@@ -17,6 +17,7 @@ alias pp := prepush
 alias dd := deploy-deb
 alias dr := deploy-rpm
 alias di := deploy-ios
+alias wt := worktree
 
 install:
   pnpm install
@@ -254,6 +255,40 @@ qa-release *flags:
 # Reap pool devices/servers owned by worktrees that no longer exist.
 qa-gc:
   @node scripts/qa.mjs gc
+
+# Create or switch to a git worktree for <name>.
+# If the branch exists, reuse its worktree. If not, create branch + worktree from HEAD.
+# Usage: cd "$(just worktree <name>)"
+worktree name:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+  BRANCH="{{name}}"
+  WORKTREE_PATH="${REPO_ROOT}/../${BRANCH}"
+
+  # Check if branch already exists
+  if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+    echo "Branch '${BRANCH}' exists." >&2
+    # Check if a worktree already points to this branch
+    EXISTING_PATH=$(git worktree list --porcelain | awk -v b="${BRANCH}" '
+      /^worktree / { path=substr($0, 10) }
+      /^branch /   { if ($2 == "refs/heads/" b) print path }
+    ' | head -1)
+    if [ -n "${EXISTING_PATH}" ]; then
+      echo "Worktree already exists at: ${EXISTING_PATH}" >&2
+      echo "$(cd "${EXISTING_PATH}" && pwd)"
+      exit 0
+    fi
+    echo "Creating worktree for existing branch at: ${WORKTREE_PATH}" >&2
+    git worktree add "${WORKTREE_PATH}" "${BRANCH}"
+  else
+    echo "Branch '${BRANCH}' does not exist. Creating from HEAD..." >&2
+    git branch "${BRANCH}"
+    echo "Creating worktree at: ${WORKTREE_PATH}" >&2
+    git worktree add "${WORKTREE_PATH}" "${BRANCH}"
+  fi
+
+  echo "$(cd "${WORKTREE_PATH}" && pwd)"
 
 # APFS-clone (copy-on-write) this checkout's target/ into a worktree: a 31GB
 # target/ clones in seconds and shares blocks until builds diverge, killing
