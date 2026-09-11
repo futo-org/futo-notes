@@ -597,7 +597,7 @@ class MainActivity : ComponentActivity() {
         // the scan below offers them for upload.
         CrashReporter.install(root, BuildConfig.VERSION_NAME)
 
-        val s = NotesStore(root, File(filesDir, "search"))
+        val s = NotesStore(root, File(filesDir, "search"), NoteSortPreference.read(prefs))
         sync = SyncManager(secure, prefs)
         // Sync writes bypass local mutations, so project the engine-reported
         // affected rows and deliver the same summary to an open editor.

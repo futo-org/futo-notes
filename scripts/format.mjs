@@ -19,6 +19,7 @@
 // honouring .gitignore. .prettierignore is applied by prettier itself, which
 // respects it for explicitly-passed paths too.
 import { execFileSync, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,7 +35,8 @@ const tracked = execFileSync(
 )
   .split('\0')
   .filter(Boolean)
-  .filter((f) => EXTENSIONS.some((ext) => f.endsWith(ext)));
+  .filter((f) => EXTENSIONS.some((ext) => f.endsWith(ext)))
+  .filter((f) => fs.existsSync(path.join(ROOT, f)));
 
 if (tracked.length === 0) {
   console.error('No files to format — is this a git checkout?');

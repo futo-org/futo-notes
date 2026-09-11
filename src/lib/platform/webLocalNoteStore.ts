@@ -1,6 +1,8 @@
 import { makePreview } from '@futo-notes/editor';
 import { noteTags } from '$features/notes/notesIndex';
+import { DEFAULT_NOTE_SORT_ORDER } from '../localNoteStore';
 import type {
+  NoteSortOrder,
   LocalFlushDraftResult,
   LocalNoteBootstrap,
   LocalNoteInventoryItem,
@@ -15,6 +17,38 @@ import type {
 
 type HarnessNote = { content: string; modifiedMs: number };
 
+function titleOf(id: string): string {
+  return id.slice(id.lastIndexOf('/') + 1);
+}
+
+/** Code-point order, matching the engine's UTF-8 byte order; plain `<` compares
+ * UTF-16 units and flips the surrogate range. */
+function compareCodePoints(left: string, right: string): number {
+  const leftPoints = Array.from(left, (character) => character.codePointAt(0)!);
+  const rightPoints = Array.from(right, (character) => character.codePointAt(0)!);
+  const shared = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < shared; index += 1) {
+    if (leftPoints[index] !== rightPoints[index]) return leftPoints[index] - rightPoints[index];
+  }
+  return leftPoints.length - rightPoints.length;
+}
+
+function compareNotes(
+  order: NoteSortOrder,
+  [leftId, left]: [string, HarnessNote],
+  [rightId, right]: [string, HarnessNote],
+): number {
+  const primary =
+    order.key === 'name'
+      ? compareCodePoints(
+          titleOf(leftId).normalize('NFC').toLowerCase(),
+          titleOf(rightId).normalize('NFC').toLowerCase(),
+        )
+      : left.modifiedMs - right.modifiedMs;
+  const directed = order.direction === 'ascending' ? primary : -primary;
+  return directed || compareCodePoints(leftId, rightId);
+}
+
 /**
  * Mutable backing for the unshipped web preview and Chromium UI tests.
  * It supports only collision-free happy paths; Rust remains the sole owner of
@@ -23,8 +57,10 @@ type HarnessNote = { content: string; modifiedMs: number };
 class WebLocalNoteStore implements LocalNoteStore {
   private notes = new Map<string, HarnessNote>();
   private folders = new Set<string>();
+  private sortOrder: NoteSortOrder | null = null;
 
-  async startupListing(): Promise<LocalNoteListingSnapshot> {
+  async startupListing(order: NoteSortOrder): Promise<LocalNoteListingSnapshot> {
+    this.sortOrder = order;
     return {
       notes: this.metadata().map(({ id, title, folder, modifiedMs }) => [
         id,
@@ -34,6 +70,19 @@ class WebLocalNoteStore implements LocalNoteStore {
       ]),
       folders: this.folderPaths(),
     };
+  }
+
+  async setSortOrder(order: NoteSortOrder): Promise<LocalNoteSnapshot> {
+    this.sortOrder = order;
+    return this.snapshot();
+  }
+
+  async recentNoteIds(limit: number): Promise<string[]> {
+    if (limit <= 0) return [];
+    return [...this.notes.entries()]
+      .sort((left, right) => compareNotes(DEFAULT_NOTE_SORT_ORDER, left, right))
+      .slice(0, limit)
+      .map(([id]) => id);
   }
 
   async bootstrap(): Promise<LocalNoteBootstrap> {
@@ -200,7 +249,9 @@ class WebLocalNoteStore implements LocalNoteStore {
   }
 
   private entries(): Array<[string, HarnessNote]> {
-    return [...this.notes.entries()].reverse();
+    // Read at call time: this module and localNoteStore import each other.
+    const order = this.sortOrder ?? DEFAULT_NOTE_SORT_ORDER;
+    return [...this.notes.entries()].sort((left, right) => compareNotes(order, left, right));
   }
 
   private metadata(): LocalNoteMetadata[] {
@@ -209,7 +260,7 @@ class WebLocalNoteStore implements LocalNoteStore {
       const preview = makePreview(note.content);
       return {
         id,
-        title: slash === -1 ? id : id.slice(slash + 1),
+        title: titleOf(id),
         folder: slash === -1 ? '' : id.slice(0, slash),
         modifiedMs: note.modifiedMs,
         preview,

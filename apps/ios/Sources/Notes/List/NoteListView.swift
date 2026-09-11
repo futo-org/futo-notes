@@ -50,6 +50,7 @@ struct NoteListView: View {
             .task(id: search) {
                 await runSearch()
             }
+            .toolbar { sortToolbar }
             .toolbar {
                 // Distinct ToolbarItem `id:`s so the two leading controls expose
                 // as SEPARATE accessibility elements instead of collapsing into
@@ -128,6 +129,17 @@ struct NoteListView: View {
             }
         }
         .transientMessageBanner(store)
+    }
+
+    @ToolbarContentBuilder
+    private var sortToolbar: some ToolbarContent {
+        if #available(iOS 26, *) {
+            ToolbarItem(placement: .bottomBar) { NoteSortMenu() }
+            ToolbarSpacer(.fixed, placement: .bottomBar)
+            DefaultToolbarItem(kind: .search, placement: .bottomBar)
+        } else {
+            ToolbarItem(placement: .topBarTrailing) { NoteSortMenu() }
+        }
     }
 
     private func runSearch() async {
@@ -225,7 +237,7 @@ struct FolderContentsView: View {
     /// sibling folder. Rust `create_folder` is `create_dir_all` (idempotent), so
     /// without this guard creating "Specs" when "specs" exists would silently
     /// MERGE into the existing folder. Same lastPathComponent comparison Android
-    /// uses (NewFolderDialog.kt). [list.md:152]
+    /// uses (NewFolderDialog.kt). [list.md]
     private var newFolderIsDuplicate: Bool {
         !newFolderClean.isEmpty
             && subfolders.contains { child in
@@ -351,9 +363,18 @@ struct FolderContentsView: View {
                 .accessibilityLabel(localization.localizedText("notes.newNote"))
                 .accessibilityIdentifier("nav-create")
             }
+            // The root gets its sort item from NoteListView's own toolbar, which
+            // also hosts the bottom-bar search field; only pushed folders add it here.
+            if !folder.isEmpty {
+                if #available(iOS 26, *) {
+                    ToolbarItem(id: "sort", placement: .bottomBar) { NoteSortMenu() }
+                } else {
+                    ToolbarItem(id: "sort", placement: .topBarTrailing) { NoteSortMenu() }
+                }
+            }
         }
         // NOT a .alert: an alert snapshots its message: closure at presentation,
-        // so the duplicate warning required by list.md:182 never appeared while
+        // so the duplicate warning required by list.md never appeared while
         // typing (the Create button's .disabled kept re-evaluating; the message
         // didn't). A transparent fullScreenCover hosts real view content, which
         // re-renders live — the message flips to the warning as the user types.
@@ -601,7 +622,7 @@ struct FolderContentsView: View {
         // Hard guard behind the disabled Create button: never call through to
         // the idempotent Rust create_dir_all on an empty name or a
         // case-insensitive sibling collision — that would silently MERGE into
-        // the existing folder. [list.md:152]
+        // the existing folder. [list.md]
         guard canCreateNewFolder else { return }
         let clean = newFolderClean
         store.createFolder(folder.isEmpty ? clean : folder + "/" + clean)
@@ -652,7 +673,7 @@ struct FolderContentsView: View {
 
 /// Alert-look-alike card for creating a folder, hosted in a transparent
 /// `fullScreenCover`. Exists because `.alert` snapshots its `message:` closure
-/// when presented — the case-insensitive duplicate warning (list.md:182) must
+/// when presented — the case-insensitive duplicate warning (list.md) must
 /// update live while the user types, which only real view content does.
 /// Mirrors Android's NewFolderDialog.kt: inline duplicate error, Create
 /// disabled on empty/duplicate names.
@@ -1007,7 +1028,7 @@ struct NoteRow: View {
     /// the markdown parser auto-attaches to URL-shaped text are stripped —
     /// preview text sits inside a row wrapped in a NavigationLink, and an
     /// active `.link` run intercepts the tap, opening the URL instead of the
-    /// note (list.md: preview text must never be actionable).
+    /// note (list.md preview text must never be actionable).
     private var richPreview: AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace,

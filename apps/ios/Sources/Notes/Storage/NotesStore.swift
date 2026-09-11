@@ -18,8 +18,12 @@ actor NoteVault {
         core = NoteStore(notesRoot: notesRoot)
     }
 
-    func bootstrap(indexDir: String) throws -> NoteBootstrap {
-        return try core.bootstrap(indexDir: indexDir)
+    func bootstrap(indexDir: String, order: NoteSortOrder) throws -> NoteBootstrap {
+        try core.bootstrap(indexDir: indexDir, order: order)
+    }
+
+    func setSortOrder(_ order: NoteSortOrder) throws -> NoteSnapshot {
+        try core.setSortOrder(order: order)
     }
 
     func scan() -> NoteSnapshot { core.scan() }
@@ -250,6 +254,7 @@ final class NotesStore: ObservableObject {
     @Published private(set) var notes: [NoteItem] = []
     @Published private(set) var folders: [String] = []
     @Published private(set) var hasBootstrapped = false
+    @Published private(set) var sortOrder = NoteSortPreference.stored()
     @Published private(set) var localTreeChange: SyncSummary?
 
     /// A short-lived status message shown as a bottom banner over the whole
@@ -463,10 +468,28 @@ final class NotesStore: ObservableObject {
         )
     }
 
+    func setSortOrder(_ order: NoteSortOrder) {
+        guard order != sortOrder else { return }
+        let epoch = resetEpoch
+        Task {
+            do {
+                let snapshot = try await vault.setSortOrder(order)
+                sortOrder = order
+                NoteSortPreference.store(order)
+                applySnapshot(snapshot, expectedEpoch: epoch)
+            } catch {
+                print("local-note sort order change failed: \(error)")
+            }
+        }
+    }
+
     private func bootstrap() async {
         let epoch = resetEpoch
         do {
-            let result = try await vault.bootstrap(indexDir: Self.resolveSearchIndex().path)
+            let result = try await vault.bootstrap(
+                indexDir: Self.resolveSearchIndex().path,
+                order: sortOrder
+            )
             applySnapshot(result.snapshot, expectedEpoch: epoch)
             for warning in result.warnings {
                 print("local-note bootstrap: \(warning)")

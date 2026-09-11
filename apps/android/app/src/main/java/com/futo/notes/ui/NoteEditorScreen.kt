@@ -91,6 +91,7 @@ import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
+import com.futo.notes.ui.components.FutoMenu
 import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.theme.FutoTheme
@@ -885,8 +886,8 @@ fun NoteEditorScreen(
                             tint = c.textSecondary,
                         )
                     }
-                    // Overflow parity with the list rows [list.md:62].
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    // Overflow parity with the list rows [list.md].
+                    FutoMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
                             text = { Text(localization.localizedText("editor.find.open")) },
                             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = c.textSecondary) },

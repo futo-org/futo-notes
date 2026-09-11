@@ -22,6 +22,7 @@ import com.futo.notes.storage.StorageDestination
 import com.futo.notes.storage.StorageMigrationGate
 import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.NoteMutation
+import uniffi.futo_notes_ffi.NoteSortOrder
 import uniffi.futo_notes_ffi.NoteStore
 import uniffi.futo_notes_ffi.NoteMetadata
 import uniffi.futo_notes_ffi.SearchHit
@@ -277,12 +278,18 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
  * rules, scan/preview, CRUD, folder ops) lives in `futo-notes-model` and is
  * reached through `core`; this class only holds Compose state and seeds.
  */
-class NotesStore(notesRoot: File, searchIndex: File) {
+class NotesStore(
+    notesRoot: File,
+    searchIndex: File,
+    initialSortOrder: NoteSortOrder = NoteSortPreference.DEFAULT,
+) {
     var notes by mutableStateOf<List<NoteItem>>(emptyList())
         private set
     var folders by mutableStateOf<List<String>>(emptyList())
         private set
     var hasBootstrapped by mutableStateOf(false)
+        private set
+    var sortOrder by mutableStateOf(initialSortOrder)
         private set
 
     val rootPath: String = notesRoot.absolutePath
@@ -343,7 +350,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         scope.launch {
             val epoch = vaultEpoch
             val bootstrap = withCore {
-                core.bootstrap(searchIndex.absolutePath)
+                core.bootstrap(searchIndex.absolutePath, initialSortOrder)
             }
             applySnapshot(bootstrap.snapshot.notes, bootstrap.snapshot.folders, epoch)
             hasBootstrapped = true
@@ -354,6 +361,14 @@ class NotesStore(notesRoot: File, searchIndex: File) {
                 android.util.Log.i("FutoStartup", "initial scan complete: ${notes.size} notes")
             }
         }
+    }
+
+    suspend fun setSortOrder(order: NoteSortOrder) {
+        if (order == sortOrder) return
+        val epoch = vaultEpoch
+        val snapshot = withCore { core.setSortOrder(order) }
+        sortOrder = order
+        applySnapshot(snapshot.notes, snapshot.folders, epoch)
     }
 
     suspend fun read(id: String): String = withCore { core.read(id) }
@@ -762,7 +777,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
             null
         }
 
-    /** MOVE-UP folder delete (Tauri parity, [list.md:121]): notes under
+    /** MOVE-UP folder delete (Tauri parity, [list.md]): notes under
      *  [path] move to the parent (Rust bails atomically — if ANY move fails
      *  nothing is deleted), wikilinks are relinked, then the folder tree goes.
      *  Returns the moved-note count, or null when the FFI rejected the delete

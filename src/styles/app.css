@@ -10,6 +10,7 @@
 @import './sidebar.css' layer(components);
 @import './editor-shell.css' layer(components);
 @import './feedback.css' layer(components);
+@import './dropdown-menu.css' layer(components);
 @import './desktop-shell.css' layer(components);
 @import './note-tags.css' layer(components);
 @import './sidebar-views.css' layer(components);

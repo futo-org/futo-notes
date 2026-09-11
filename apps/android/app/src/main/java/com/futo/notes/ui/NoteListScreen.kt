@@ -1,5 +1,6 @@
 package com.futo.notes.ui
 
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -34,7 +35,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -65,12 +65,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.futo.notes.NoteMutationOutcome
+import com.futo.notes.NoteSortPreference
 import com.futo.notes.NotesStore
+import com.futo.notes.Prefs
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.shouldCompleteNoteAction
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
+import com.futo.notes.ui.components.FutoMenu
+import com.futo.notes.ui.components.NoteSortMenu
 import com.futo.notes.ui.components.NewFolderDialog
 import com.futo.notes.ui.components.NoteCard
 import com.futo.notes.ui.components.TopBar
@@ -104,6 +108,7 @@ internal fun NoteListScreen(
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
     val listState = state.scrollStateFor(folder)
     val isRoot = folder.isEmpty()
@@ -154,6 +159,12 @@ internal fun NoteListScreen(
                             contentDescription = localization.localizedText("folders.newFolder"),
                             tint = c.textSecondary,
                         )
+                    }
+                    NoteSortMenu(sortOrder = store.sortOrder) { order ->
+                        scope.launch {
+                            store.setSortOrder(order)
+                            NoteSortPreference.write(prefs, order)
+                        }
                     }
                     IconButton(onClick = onOpenSearch) {
                         Icon(
@@ -269,7 +280,7 @@ internal fun NoteListScreen(
                             onClick = { onOpenFolder(child) },
                             onLongClick = { menu = true },
                         )
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        FutoMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(
                                 text = { Text(localization.localizedText("common.actions.rename")) },
                                 leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null, tint = c.textSecondary) },
@@ -302,7 +313,7 @@ internal fun NoteListScreen(
                             onClick = { onOpenNote(note.id) },
                             onLongClick = { menu = true },
                         )
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        FutoMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(
                                 text = { Text(localization.localizedText("notes.actions.moveToFolderEllipsis")) },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },

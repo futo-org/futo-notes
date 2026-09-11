@@ -5,8 +5,11 @@ import {
   type LocalNoteMetadata,
   type LocalNoteMutation,
   type LocalNoteSnapshot,
+  type LocalNoteStore,
+  type NoteSortOrder,
 } from '$lib/localNoteStore';
 import { clearLicense } from '$lib/platform/license';
+import { persistNoteSortOrder, readPersistedNoteSortOrder } from './noteSortOrder';
 import { pauseSync, resumeSync, waitForSyncIdle } from '$features/sync/autoSync';
 import { disconnectE2ee, stopLiveSync } from '$features/sync/syncServiceE2ee';
 import { setFolderSnapshot } from '$features/folders/emptyFolders.svelte';
@@ -18,6 +21,7 @@ import { buildWikilinkIndex, type WikilinkIndex } from '$shared/note/wikilinks';
 export type NotesReadiness = 'ready' | 'failed';
 
 let notesCache = $state.raw<NotePreview[]>([]);
+let noteSortOrder = $state.raw<NoteSortOrder>(readPersistedNoteSortOrder());
 let initialized = false;
 let notesReadyResolve: ((readiness: NotesReadiness) => void) | null = null;
 const notesReadyPromise = new Promise<NotesReadiness>((resolve) => {
@@ -66,6 +70,19 @@ function replaceFromListing(snapshot: LocalNoteListingSnapshot): void {
 }
 
 let lastSaveIdentityChange: { from: string | null; to: string } | null = null;
+
+async function snapshotNewerThanProjection(
+  store: LocalNoteStore,
+  first: () => Promise<LocalNoteSnapshot>,
+): Promise<LocalNoteSnapshot> {
+  let observedRevision = projectionRevision;
+  let snapshot = await first();
+  while (observedRevision !== projectionRevision) {
+    observedRevision = projectionRevision;
+    snapshot = await store.snapshot();
+  }
+  return snapshot;
+}
 
 /** The id a save gave the note it wrote: the mint of a first save, or the move a
  * title edit performed. `noteActionTarget` follows a picked note across it. */
@@ -119,25 +136,21 @@ export async function initNotes(onStep?: (label: string) => void): Promise<void>
     onStep?.('initNotes: local store');
     const store = getLocalNoteStoreSync();
     onStep?.('initNotes: bootstrap');
-    const listing = await store.startupListing();
+    const listing = await store.startupListing(noteSortOrder);
     onStep?.('initNotes: listing received');
     replaceFromListing(listing);
     onStep?.('initNotes: listing projected');
     setFolderSnapshot(listing.folders, notesCache);
 
     // Content-derived previews/tags and BM25 reconciliation hydrate after the
-    // ordered title list is usable. If a mutation lands while the snapshot is
-    // in flight, retry the read rather than replacing that newer projection.
+    // ordered title list is usable.
     searchReady = (async () => {
-      let observedRevision = projectionRevision;
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      const bootstrap = await store.bootstrap();
-      for (const warning of bootstrap.warnings) console.warn(`[local-notes] ${warning}`);
-      let snapshot = bootstrap.snapshot;
-      while (observedRevision !== projectionRevision) {
-        observedRevision = projectionRevision;
-        snapshot = await store.snapshot();
-      }
+      const snapshot = await snapshotNewerThanProjection(store, async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        const bootstrap = await store.bootstrap();
+        for (const warning of bootstrap.warnings) console.warn(`[local-notes] ${warning}`);
+        return bootstrap.snapshot;
+      });
       replaceFromSnapshot(snapshot);
       settleNotesReadiness('ready');
       await store.waitUntilSearchReady(searchReadyTimeoutMs);
@@ -163,16 +176,35 @@ export function setNotesUniverse(previews: NotePreview[]): void {
 }
 
 export function _injectTestNote(id: string, title: string): void {
-  // Newest-first: the cache holds engine order and Date.now() is the newest.
+  // Tests run under the default order, where a Date.now() note is the newest.
   notesCache = [{ id, title, preview: '', modificationTime: Date.now(), tags: [] }, ...notesCache];
   projectionRevision += 1;
 }
 
-/** The note list in engine order (modified desc, id asc). The order is
- * maintained purely by applying snapshots and mutation splices — the
- * projection holds no comparator (ADR-0001). */
+/** The note list in the engine's active sort order. The order is maintained
+ * purely by applying snapshots and mutation splices — the projection holds no
+ * comparator (ADR-0001). */
 export function getAllNotes(): NotePreview[] {
   return notesCache;
+}
+
+export function getNoteSortOrder(): NoteSortOrder {
+  return noteSortOrder;
+}
+
+// Two quick picks must reach the engine in the order they were made.
+let sortOrderQueue: Promise<void> = Promise.resolve();
+
+export function setNoteSortOrder(order: NoteSortOrder): Promise<void> {
+  const change = sortOrderQueue.then(async () => {
+    const store = getLocalNoteStoreSync();
+    const snapshot = await snapshotNewerThanProjection(store, () => store.setSortOrder(order));
+    noteSortOrder = order;
+    persistNoteSortOrder(order);
+    replaceFromSnapshot(snapshot);
+  });
+  sortOrderQueue = change.catch(() => {});
+  return change;
 }
 
 let cachedWikilinkIndex: { notes: NotePreview[]; size: number; index: WikilinkIndex } | null = null;
@@ -201,6 +233,10 @@ export function getNoteById(id: string): NotePreview | undefined {
 
 export async function readNote(id: string): Promise<string> {
   return getLocalNoteStoreSync().read(id);
+}
+
+export async function readRecentNoteIds(limit: number): Promise<string[]> {
+  return getLocalNoteStoreSync().recentNoteIds(limit);
 }
 
 export async function noteExists(id: string): Promise<boolean> {
@@ -305,8 +341,8 @@ export async function deleteNote(id: string): Promise<void> {
 }
 
 export async function refreshNotesFromStorage(): Promise<void> {
-  const snapshot = await getLocalNoteStoreSync().snapshot();
-  replaceFromSnapshot(snapshot);
+  const store = getLocalNoteStoreSync();
+  replaceFromSnapshot(await snapshotNewerThanProjection(store, () => store.snapshot()));
 }
 
 export async function refreshNotesAfterSync(
@@ -321,7 +357,7 @@ export async function refreshNotesAfterSync(
     console.warn('Scoped sync projection failed; rebuilding snapshot:', error);
     const [searchRecovery, snapshotRecovery] = await Promise.allSettled([
       store.rescan(),
-      store.snapshot(),
+      snapshotNewerThanProjection(store, () => store.snapshot()),
     ]);
     if (snapshotRecovery.status === 'fulfilled') replaceFromSnapshot(snapshotRecovery.value);
     const recoveryErrors = [searchRecovery, snapshotRecovery]

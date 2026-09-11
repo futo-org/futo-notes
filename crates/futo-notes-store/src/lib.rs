@@ -10,11 +10,12 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use futo_notes_core::conflict_names::{conflict_filename, current_conflict_date};
 use futo_notes_core::files::{
-    collides_but_differs, safe_appdata_path, vault_fs, vault_mutation_guard, write_atomic_text,
+    collides_but_differs, file_mtime_ms, now_ms, safe_appdata_path, vault_fs, vault_mutation_guard,
+    write_atomic_text,
 };
 use futo_notes_model::{make_id, rewrite_wikilinks, sanitize_folder_path, split_id};
 use futo_notes_search::StatusObserver;
@@ -28,6 +29,29 @@ pub use vault_migration::{
     VaultDestinationInspection, VaultDestinationState, VaultMigrationFinalization,
     VaultMigrationOutcome, VaultMigrationStatus,
 };
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NoteSortKey {
+    #[default]
+    LastModified,
+    Name,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SortDirection {
+    Ascending,
+    #[default]
+    Descending,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteSortOrder {
+    pub key: NoteSortKey,
+    pub direction: SortDirection,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -172,6 +196,7 @@ pub struct LocalNoteStore {
     root: PathBuf,
     before_write: Arc<dyn BeforeWrite>,
     gate: Mutex<()>,
+    sort_order: Mutex<NoteSortOrder>,
     search: StoreSearch,
     /// Fault injection fired between id allocation and no-replace installation
     /// to simulate a concurrent writer landing at the chosen id.
@@ -194,6 +219,7 @@ impl LocalNoteStore {
             root,
             before_write,
             gate: Mutex::new(()),
+            sort_order: Mutex::new(NoteSortOrder::default()),
             #[cfg(test)]
             install_window_hook: Mutex::new(None),
             #[cfg(test)]
@@ -203,6 +229,49 @@ impl LocalNoteStore {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub fn sort_order(&self) -> NoteSortOrder {
+        *self
+            .sort_order
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn install_sort_order(&self, order: NoteSortOrder) {
+        *self
+            .sort_order
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = order;
+    }
+
+    pub fn set_sort_order(&self, order: NoteSortOrder) -> Result<Snapshot, String> {
+        let _gate = self.lock_gate()?;
+        self.install_sort_order(order);
+        Ok(vault::snapshot(&self.root, order))
+    }
+
+    /// Independent of the active sort order; stat-only, never reads a body.
+    pub fn recent_note_ids(&self, limit: usize) -> Vec<String> {
+        let mut ids = vault::note_order_and_folders(&self.root, NoteSortOrder::default()).0;
+        ids.truncate(limit);
+        ids
+    }
+
+    pub fn startup_listing_in_order(
+        &self,
+        order: NoteSortOrder,
+        cached: Option<ListingSnapshot>,
+    ) -> Result<ListingSnapshot, String> {
+        let _gate = self.lock_gate()?;
+        self.install_sort_order(order);
+        Ok(match cached {
+            Some(mut listing) => {
+                vault::sort_listing(order, &mut listing.notes);
+                listing
+            }
+            None => vault::listing(&self.root, order),
+        })
     }
 
     /// Starts reconciliation in the search engine's background runtime. The
@@ -238,10 +307,10 @@ impl LocalNoteStore {
     pub fn bootstrap(&self) -> Result<BootstrapResult, String> {
         let _gate = self.lock_gate()?;
         let (migrated, mut warnings) = self.prepare_bootstrap()?;
-        let mut snapshot = vault::snapshot(&self.root);
+        let mut snapshot = vault::snapshot(&self.root, self.sort_order());
         let seeded = self.seed_empty_vault(snapshot.notes.is_empty(), &mut warnings);
         if seeded == 1 {
-            snapshot = vault::snapshot(&self.root);
+            snapshot = vault::snapshot(&self.root, self.sort_order());
         }
         Ok(BootstrapResult {
             snapshot,
@@ -255,7 +324,7 @@ impl LocalNoteStore {
     /// The authoritative bootstrap immediately follows it and still owns crash
     /// recovery, migration, empty-vault seeding, and content-derived metadata.
     pub fn startup_listing(&self) -> ListingSnapshot {
-        vault::listing(&self.root)
+        vault::listing(&self.root, self.sort_order())
     }
 
     /// Recover crash leftovers before migration/scan/seed so a stranded real
@@ -306,8 +375,18 @@ impl LocalNoteStore {
         Ok(result)
     }
 
+    pub fn bootstrap_with_search_in_order(
+        &self,
+        order: NoteSortOrder,
+        index_dir: PathBuf,
+        on_status: StatusObserver,
+    ) -> Result<BootstrapResult, String> {
+        self.install_sort_order(order);
+        self.bootstrap_with_search(index_dir, on_status)
+    }
+
     pub fn snapshot(&self) -> Snapshot {
-        vault::snapshot(&self.root)
+        vault::snapshot(&self.root, self.sort_order())
     }
 
     pub fn inventory(&self) -> Vec<VaultFile> {
@@ -771,8 +850,7 @@ impl LocalNoteStore {
             return Err("target folder already exists".to_owned());
         }
 
-        let (_, folders) = vault::note_order_and_folders(&self.root);
-        for folder in folders
+        for folder in vault::folders(&self.root)
             .into_iter()
             .filter(|folder| folder == from || folder.starts_with(&format!("{from}/")))
         {
@@ -962,6 +1040,10 @@ impl LocalNoteStore {
         );
         self.before_write.before_write(&changes);
         move_files_with_rollback(&self.root, &mappings)?;
+        // Folder moves also arrive here; only a title change counts as an edit.
+        if split_id(old_id).1 != split_id(&final_id).1 {
+            self.stamp_note(&final_id, None)?;
+        }
         Ok(self.finish_mappings(mappings, relinks, Some(final_id)))
     }
 
@@ -975,7 +1057,18 @@ impl LocalNoteStore {
         let mut touched = HashSet::new();
         for (id, content) in relinks {
             match paths::note_path(&self.root, &id).and_then(|_| {
-                vault_fs::write_atomic_local(&self.root, &note_filename(&id), content.as_bytes())
+                // Best effort: a failed restore must not drop a note whose bytes
+                // already changed from the mutation every shell renders from.
+                let relative = note_filename(&id);
+                let preserved = fs::metadata(self.root.join(&relative))
+                    .ok()
+                    .as_ref()
+                    .map(file_mtime_ms);
+                vault_fs::write_atomic_local(&self.root, &relative, content.as_bytes())?;
+                if let Some(previous) = preserved {
+                    let _ = vault_fs::set_mtime_ms(&self.root, &relative, previous);
+                }
+                Ok(())
             }) {
                 Ok(()) => {
                     touched.insert(id.clone());
@@ -1030,7 +1123,7 @@ impl LocalNoteStore {
         notes: Vec<NoteMetadata>,
         mut mutation: MutationResult,
     ) -> MutationResult {
-        let (order, folders) = vault::note_order_and_folders(&self.root);
+        let (order, folders) = vault::note_order_and_folders(&self.root, self.sort_order());
         let index: HashMap<&str, u32> = order
             .iter()
             .enumerate()
@@ -1092,9 +1185,7 @@ impl LocalNoteStore {
                 // and retry — no suppression to unwind.
                 continue;
             }
-            if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
-                vault_fs::set_mtime_ms(&self.root, &note_filename(&id), modified_ms)?;
-            }
+            self.stamp_note(&id, modified_ms)?;
             let metadata = vault::metadata(&self.root, &id)
                 .ok_or_else(|| "note metadata unavailable after create".to_owned())?;
             self.search.notify(&FileChange::Changed(note_filename(&id)));
@@ -1201,6 +1292,21 @@ impl LocalNoteStore {
             .find(|existing| collides_but_differs(existing, id))
     }
 
+    /// Every overwrite stamps the mtime itself: some filesystems (Samsung f2fs/FUSE)
+    /// leave the old time in place after the atomic install's rename. An explicit
+    /// time is a sync peer's promise, so failing it is the caller's to see; `now`
+    /// is best effort because the bytes have already landed.
+    fn stamp_note(&self, id: &str, modified_ms: Option<i64>) -> Result<(), String> {
+        let relative = note_filename(id);
+        match modified_ms.filter(|value| *value >= 0) {
+            Some(explicit) => vault_fs::set_mtime_ms(&self.root, &relative, explicit),
+            None => {
+                let _ = vault_fs::set_mtime_ms(&self.root, &relative, now_ms());
+                Ok(())
+            }
+        }
+    }
+
     fn write_raw(
         &self,
         id: &str,
@@ -1217,9 +1323,7 @@ impl LocalNoteStore {
         self.before_write
             .before_write(std::slice::from_ref(&change));
         vault_fs::write_atomic_local(&self.root, &note_filename(id), content.as_bytes())?;
-        if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
-            vault_fs::set_mtime_ms(&self.root, &note_filename(&id), modified_ms)?;
-        }
+        self.stamp_note(id, modified_ms)?;
         let metadata = vault::metadata(&self.root, id)
             .ok_or_else(|| "note metadata unavailable after write".to_owned())?;
         self.search.notify(&change);
