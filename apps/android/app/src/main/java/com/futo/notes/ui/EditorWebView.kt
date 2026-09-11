@@ -83,6 +83,7 @@ internal fun EditorWebView(
     onOpenNote: (String) -> Unit = {},
     onPickImage: (String) -> Unit = {},
     onSaveImageData: (String, String) -> Unit = { _, _ -> },
+    onPasteClipboardImage: () -> Unit = {},
     onReady: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -112,6 +113,7 @@ internal fun EditorWebView(
             onOpenNote,
             onPickImage,
             onSaveImageData,
+            onPasteClipboardImage,
         )
         attachment = token
         host.setTheme(theme)
@@ -168,6 +170,7 @@ class EditorHost private constructor(appContext: Context) {
     private var onOpenNote: (String) -> Unit = {}
     private var onPickImage: (String) -> Unit = {}
     private var onSaveImageData: (String, String) -> Unit = { _, _ -> }
+    private var onPasteClipboardImage: () -> Unit = {}
     private var autoFocus = false
 
     // Reactive inputs for the NATIVE Compose toolbar (EditorToolbar.kt), fed by
@@ -489,6 +492,14 @@ class EditorHost private constructor(appContext: Context) {
                 val ext = msg.optString("ext")
                 if (data.isNotEmpty() && ext.isNotEmpty()) onSaveImageData(data, ext)
             }
+            // The embed classified the paste as an image it cannot read bytes
+            // for itself (QA #006): Android's Chromium WebView exposes a
+            // clipboard image copied from Photos/Files/Gallery/Drive as a
+            // content:// URI riding on text/plain, not as a File, so
+            // saveImageData never fires. Read the OS clipboard natively
+            // instead — the same `pasteClipboardImage` round trip iOS's
+            // hidden-pasteboard paste already uses.
+            "pasteClipboardImage" -> onPasteClipboardImage()
             // Block-drag haptics. Both native shells mount the SAME
             // long-press block drag (blockDragMode.ts), so the three moments
             // and their feel are shared (bridge.ts HapticMessage).
@@ -626,12 +637,14 @@ class EditorHost private constructor(appContext: Context) {
         onOpenNote: (String) -> Unit = {},
         onPickImage: (String) -> Unit = {},
         onSaveImageData: (String, String) -> Unit = { _, _ -> },
+        onPasteClipboardImage: () -> Unit = {},
     ): EditorAttachmentToken {
         this.onChange = onChange
         this.onReady = onReady
         this.onOpenNote = onOpenNote
         this.onPickImage = onPickImage
         this.onSaveImageData = onSaveImageData
+        this.onPasteClipboardImage = onPasteClipboardImage
         this.autoFocus = autoFocus
         val token = attachments.attach()
         if (isReady) {
@@ -650,6 +663,7 @@ class EditorHost private constructor(appContext: Context) {
         onOpenNote = {}
         onPickImage = {}
         onSaveImageData = { _, _ -> }
+        onPasteClipboardImage = {}
         autoFocus = false
         // Leaving the editor screen detaches the WebView without a blur event;
         // clear the flag so a reopened note doesn't flash a stale toolbar.

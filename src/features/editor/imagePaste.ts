@@ -93,6 +93,30 @@ function looksLikeImagePaste(
 }
 
 /**
+ * Whether `clipboardData`'s plain-text payload is itself a `content://` URI —
+ * how Android's Chromium WebView clipboard carries "copy image" out of
+ * Photos/Files/Gallery/Drive (QA #006). Android's `ClipData` grants read
+ * permission on that URI to the process that holds it, not to arbitrary web
+ * content, so the WebView cannot turn it into a `File` the way it can a raw
+ * bitmap: it falls back to exposing the URI as `text/plain`, the SAME MIME
+ * `looksLikeImagePaste` above treats as "definitely real prose, leave it
+ * alone". Matching the `content:` scheme is the only image-vs-text signal
+ * available at that point — nobody types or copies a `content://…` string as
+ * prose — so this narrows that guard's blind spot instead of lifting it. A
+ * true content-URI paste is classified as a hidden bitmap: the bytes still
+ * are not reachable from here (no `fetch`/`Image` can load a `content://` URL
+ * either), so the native host has to resolve it, over the SAME
+ * `pasteClipboardImage` round trip an iOS hidden-pasteboard paste already
+ * uses.
+ */
+function looksLikeContentUriImage(
+  clipboardData: Pick<DataTransfer, 'types' | 'items' | 'getData'>,
+): boolean {
+  if (!Array.from(clipboardData.types).includes('text/plain')) return false;
+  return /^content:\/\//i.test(clipboardData.getData('text/plain').trim());
+}
+
+/**
  * What a clipboard paste carries, image-wise. Both editor engines classify a
  * paste through this one function so the two paste handlers cannot drift on
  * WHICH pastes count as an image (`installNativeImagePaste.ts` for CodeMirror,
@@ -106,6 +130,7 @@ export function classifyImagePaste(
 ): ImagePasteAction {
   const file = getImageFile(clipboardData as DataTransfer);
   if (file) return { kind: 'file', file };
+  if (looksLikeContentUriImage(clipboardData)) return { kind: 'hiddenBitmap' };
   if (looksLikeImagePaste(clipboardData)) return { kind: 'hiddenBitmap' };
   return { kind: 'none' };
 }

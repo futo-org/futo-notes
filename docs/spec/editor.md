@@ -1227,10 +1227,20 @@ EditorWebView.swift, EditorWebView.kt
   end-to-end on the Android emulator 2026-06-22. When the WebView hides the
   bitmap from the JS paste event (no File — WKWebView/WebKitGTK), the embed
   instead posts the payload-less `pasteClipboardImage` message (bridge contract
-  v5) and the host reads the image off the native clipboard. →
+  v5) and the host reads the image off the native clipboard. Android ALSO takes
+  this fallback for a THIRD clipboard shape (QA #006, 2026-09-11): copying an
+  image out of Photos/Files/Gallery/Drive (or a browser's "Copy image") puts a
+  `content://` URI on Android's clipboard as `text/plain`, not a `File` —
+  `classifyImagePaste` recognizes that scheme and claims it as a hidden bitmap,
+  and `EditorWebView.kt` reads the URI off the real `ClipboardManager` and
+  copies it into the vault through the SAME `saveImageIntoVault` the picker
+  uses. Verified end-to-end on a real Android emulator (API 36, 2026-09-11):
+  copied a PNG via Chrome's "Copy image", pasted into a note, and the vault
+  gained a byte-identical `image-…png` with `![](…)` inserted at the caret. →
   src/features/editor/imagePasteSink.ts, bridge.ts `SaveImageDataMessage` /
   `PasteClipboardImageMessage` (contract v5), EditorWebView.kt + ImagePicker.kt
-  `saveImageDataIntoVault` (Android), EditorWebView.swift `saveImageData` +
+  `saveImageDataIntoVault` / `clipboardImageUri` / `saveImageIntoVault`
+  (Android), EditorWebView.swift `saveImageData` +
   `clipboardImageData` + EditorImages.swift `VaultImages.save` (iOS),
   fs_paste_clipboard_image (Tauri), tests/editor-embed-milkdown.spec.ts
 - A vault image is a ProseMirror node whose rendered
