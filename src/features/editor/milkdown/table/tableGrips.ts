@@ -353,7 +353,10 @@ class TableGripsView {
     const anchorRect = kind === 'col' ? this.current!.colRect : this.current!.rowRect;
 
     const menu = this.ensureMenu();
-    menu.replaceChildren();
+    // Not `replaceChildren()` (Chromium 86) — the editor's floor is Chromium 80
+    // (tests/editor-embed-webview-floor.spec.ts). `textContent = ''` clears the
+    // same way and predates the floor by a decade.
+    menu.textContent = '';
     for (const action of actions) {
       const item = this.doc.createElement('button');
       item.type = 'button';
