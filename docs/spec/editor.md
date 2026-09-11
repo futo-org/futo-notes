@@ -893,17 +893,48 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   src/features/editor/milkdown/MilkdownEditor.svelte `li[data-checked]`,
   tests/editor-embed-milkdown-parity.spec.ts
 - Table cells are individually editable in place; Tab/Shift+Tab move between
-  cells (Tab in the last cell appends a row); Enter inserts a new row below the
-  current one. → src/features/editor/milkdown/keyboardParity.ts
+  cells (Tab in the last cell appends a row); Enter moves the caret down to
+  the same column of the row below, selecting that cell's whole content
+  (matching Tab's own "typing replaces" convention) — only on the LAST row,
+  where there is no row below, does Enter append a new one and move into it.
+  Mod+Enter exits the table into a new paragraph after it (the gfm preset's
+  own `exitTable` binding). → src/features/editor/milkdown/keyboardParity.ts
   `insertTableRowBelow` / `appendTableRowFromLastCell`,
   tests/editor-embed-milkdown-interactive.spec.ts
 
-  > **Gap:** there is no way to add or remove a COLUMN, delete a row, delete a
-  > table, or set a column's alignment. The CodeMirror editor had a desktop
-  > right-click cell context menu for all of it; nothing replaced it, and no
-  > caller exists for the table commands Milkdown ships
-  > (`@milkdown/components`' table block is installed but never imported).
-  > → src/features/editor/milkdown/keyboardParity.ts
+  > **Gap:** Shift+Enter inside a table cell silently DROPS the line break —
+  > `r1a`, Shift+Enter, typing `second` saves as `r1asecond`, not `r1a<br>second`
+  > — fusing the two halves with no separator at all. This is a pre-existing
+  > bug, not something QA lane 7 touched (`handleParityKeyDown` only claims
+  > bare Enter; Shift+Enter falls through to the preset's own hardbreak
+  > input), found while checking it did not corrupt during this pass. Left
+  > unfixed per scope; someone should pick it up as its own bug. →
+  > src/features/editor/milkdown/keyboardParity.ts
+
+- Hovering a column shows a small grip above it; hovering a row shows one at
+  its left edge. Clicking a grip selects that row/column (visibly, as a cell
+  selection) and opens a 3-item menu: Insert before, Insert after, Delete.
+  Deleting the header row, or deleting a table's last remaining row or
+  column, is DISABLED in the menu (with a reason) rather than a silent no-op
+  or a whole-table delete — the table can never become malformed and never
+  disappears out from under the user. Every insert/delete keeps column
+  alignment correct for the columns that survive. Tapping a grip on touch
+  does the same as clicking it. → src/features/editor/milkdown/table/tableGrips.ts,
+  src/features/editor/milkdown/table/tableCommands.ts,
+  src/features/editor/milkdown/table/tableCommands.test.ts,
+  src/features/editor/milkdown/table/tableCommands.roundtrip.test.ts
+
+  > **Gap:** the grips are a fixed ~18px square, well under a comfortable
+  > touch target — usable but small for fingers; not redesigned for mobile in
+  > this pass. → src/features/editor/milkdown/table/tableGrips.ts
+
+  > **Gap:** there is no column-alignment picker (left/center/right) and no
+  > "delete the whole table" affordance — deleting a table today means
+  > deleting every row down to the guard above, or selecting it as a block and
+  > deleting that. Full Obsidian Advanced Tables parity (reordering rows/
+  > columns, cell merge, CSV import/export, formulas) is a deliberate product
+  > scoping decision (Justin, 2026-09), not an oversight, and is not planned
+  > as a direct follow-on to this gap. → src/features/editor/milkdown/table/tableCommands.ts
 
 - Pressing Enter in a list item continues the list (inherits nesting, auto
   numbers ordered items, renumbers on edit); Tab/Shift+Tab nest and un-nest an
