@@ -155,8 +155,9 @@ test('splitting an unchecked task item stays a task', async ({ page }) => {
 
 // ============================================================
 // Tables — in-place editing keys (spec: "Table cells are individually
-// editable in place; Tab/Shift+Tab move between cells; Enter inserts a new
-// row below the current one (so on the last row it appends)")
+// editable in place; Tab/Shift+Tab move between cells; Enter moves the
+// caret down to the same column of the row below, only appending a new row
+// from the last one")
 // ============================================================
 
 const TABLE = '| a | b |\n| --- | --- |\n| r1a | r1b |\n| r2a | r2b |';
@@ -200,17 +201,24 @@ test('Tab and Shift+Tab move between cells', async ({ page }) => {
   ]);
 });
 
-test('Enter in a body cell inserts a row below, caret in the same column', async ({ page }) => {
+// QA lane 7, 2026-09 (Zvonimir): Enter used to insert a row below EVERY cell,
+// no matter which row the caret was in — "I don't like how tables behave...
+// Enter will create new row" no matter where you pressed it. It now only
+// ever creates a row from the last one; everywhere else it just moves the
+// caret down, same column, inserting nothing.
+test('Enter in a body cell (not the last row) moves down, inserting no row', async ({ page }) => {
   await open(page, TABLE);
   await caretAtEndOf(page, 'r1b');
   await page.keyboard.press('Enter');
-  await page.keyboard.type('new');
+  await page.keyboard.type('X');
   await settled(page);
   expect(tableRows(await getContent(page))).toEqual([
     ['a', 'b'],
     ['r1a', 'r1b'],
-    ['', 'new'],
-    ['r2a', 'r2b'],
+    // The cell below (r2b) is SELECTED whole, matching Tab's own convention
+    // — the same reason "Tab and Shift+Tab move between cells" types with a
+    // replacing keystroke rather than an appending one.
+    ['r2a', 'X'],
   ]);
 });
 
@@ -228,7 +236,9 @@ test('Enter on the last row appends a row', async ({ page }) => {
   ]);
 });
 
-test('Enter in the header row inserts the first body row', async ({ page }) => {
+test('Enter in the header row moves down into the first body row, inserting nothing', async ({
+  page,
+}) => {
   await open(page, TABLE);
   await caretAtEndOf(page, 'b');
   await page.keyboard.press('Enter');
@@ -236,10 +246,29 @@ test('Enter in the header row inserts the first body row', async ({ page }) => {
   await settled(page);
   expect(tableRows(await getContent(page))).toEqual([
     ['a', 'b'],
-    ['', 'top'],
+    ['r1a', 'top'], // r1b's cell, selected whole and replaced
+    ['r2a', 'r2b'],
+  ]);
+});
+
+// The one remaining way to leave a table from the keyboard — bare Enter no
+// longer does (see above). Pinned because it is now SPECIFIED behavior
+// rather than an accident of the gfm preset's own keymap: a future preset
+// upgrade that dropped or rebound `exitTable` would otherwise silently take
+// this away.
+test('Mod+Enter exits the table into a new paragraph after it', async ({ page }) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r2b');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await page.keyboard.type('after the table');
+  await settled(page);
+  const content = await getContent(page);
+  expect(tableRows(content)).toEqual([
+    ['a', 'b'],
     ['r1a', 'r1b'],
     ['r2a', 'r2b'],
   ]);
+  expect(content.trim().endsWith('after the table')).toBe(true);
 });
 
 test('Enter in a table never drops a stray paragraph after it', async ({ page }) => {

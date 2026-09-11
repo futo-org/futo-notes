@@ -89,15 +89,19 @@ function caretCell(state: EditorState): { row: number; col: number } {
   throw new Error('caret is not inside a table');
 }
 
+// QA lane 7, 2026-09: Enter used to insert a row below EVERY cell, no matter
+// which row the caret was in ("Enter will create new row" — the reported
+// bug). It now only ever creates a row from the last one; everywhere else it
+// just moves the caret down.
 describe('insertTableRowBelow', () => {
-  it('inserts an empty row below the current one, caret in the same column', () => {
+  it('moves the caret down to the same column, inserting nothing, from a non-last body row', () => {
     const start = stateWithCaretIn(doc(twoRowTable()), 'r1b');
     const { handled, state } = apply(start, insertTableRowBelow);
     expect(handled).toBe(true);
+    // Unchanged: no new row, no new cell content anywhere.
     expect(tableShape(state.doc)).toEqual([
       ['table_header_row', ['a', 'b']],
       ['table_row', ['r1a', 'r1b']],
-      ['table_row', ['', '']],
       ['table_row', ['r2a', 'r2b']],
     ]);
     expect(caretCell(state)).toEqual({ row: 2, col: 1 });
@@ -115,16 +119,33 @@ describe('insertTableRowBelow', () => {
     expect(caretCell(state)).toEqual({ row: 3, col: 0 });
   });
 
-  it('inserts the first body row when the caret is in the header row', () => {
+  it('moves the caret into the first body row, inserting nothing, from the header row', () => {
     const start = stateWithCaretIn(doc(twoRowTable()), 'b');
-    const { state } = apply(start, insertTableRowBelow);
+    const { handled, state } = apply(start, insertTableRowBelow);
+    expect(handled).toBe(true);
     expect(tableShape(state.doc)).toEqual([
       ['table_header_row', ['a', 'b']],
-      ['table_row', ['', '']],
       ['table_row', ['r1a', 'r1b']],
       ['table_row', ['r2a', 'r2b']],
     ]);
     expect(caretCell(state)).toEqual({ row: 1, col: 1 });
+  });
+
+  it('appends from the header row when the table has exactly one row total', () => {
+    // A degenerate-but-schema-valid table: header + exactly one body row, so
+    // the header (row 0) and the sole body row (row 1, the last row) are
+    // adjacent with nothing past the body row — Enter from the header still
+    // just moves down (covered above); this is Enter from that ONE body row,
+    // which is simultaneously "not the header" and "the last row".
+    const oneRow = table(headerRow(th('a')), row(td('r1a')));
+    const start = stateWithCaretIn(doc(oneRow), 'r1a');
+    const { state } = apply(start, insertTableRowBelow);
+    expect(tableShape(state.doc)).toEqual([
+      ['table_header_row', ['a']],
+      ['table_row', ['r1a']],
+      ['table_row', ['']],
+    ]);
+    expect(caretCell(state)).toEqual({ row: 2, col: 0 });
   });
 
   it('does nothing outside a table', () => {
@@ -205,10 +226,16 @@ describe('handleParityKeyDown', () => {
       ...mods,
     }) as KeyboardEvent;
 
-  it('claims Enter inside a table and inserts the row', () => {
-    const { view, current } = fakeView(stateWithCaretIn(doc(twoRowTable()), 'r1a'));
+  it('claims Enter inside a table and inserts a row from the last one', () => {
+    const { view, current } = fakeView(stateWithCaretIn(doc(twoRowTable()), 'r2a'));
     expect(handleParityKeyDown(view as never, key('Enter'))).toBe(true);
     expect(tableShape(current().doc)).toHaveLength(4);
+  });
+
+  it('claims Enter inside a table and just moves the caret from a non-last row', () => {
+    const { view, current } = fakeView(stateWithCaretIn(doc(twoRowTable()), 'r1a'));
+    expect(handleParityKeyDown(view as never, key('Enter'))).toBe(true);
+    expect(tableShape(current().doc)).toHaveLength(3); // unchanged — no row inserted
   });
 
   it('claims Tab only at the last cell', () => {

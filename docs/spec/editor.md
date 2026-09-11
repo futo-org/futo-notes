@@ -893,10 +893,23 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   src/features/editor/milkdown/MilkdownEditor.svelte `li[data-checked]`,
   tests/editor-embed-milkdown-parity.spec.ts
 - Table cells are individually editable in place; Tab/Shift+Tab move between
-  cells (Tab in the last cell appends a row); Enter inserts a new row below the
-  current one. → src/features/editor/milkdown/keyboardParity.ts
+  cells (Tab in the last cell appends a row); Enter moves the caret down to
+  the same column of the row below, selecting that cell's whole content
+  (matching Tab's own "typing replaces" convention) — only on the LAST row,
+  where there is no row below, does Enter append a new one and move into it.
+  Mod+Enter exits the table into a new paragraph after it (the gfm preset's
+  own `exitTable` binding). → src/features/editor/milkdown/keyboardParity.ts
   `insertTableRowBelow` / `appendTableRowFromLastCell`,
   tests/editor-embed-milkdown-interactive.spec.ts
+
+  > **Gap:** Shift+Enter inside a table cell silently DROPS the line break —
+  > `r1a`, Shift+Enter, typing `second` saves as `r1asecond`, not `r1a<br>second`
+  > — fusing the two halves with no separator at all. This is a pre-existing
+  > bug, not something QA lane 7 touched (`handleParityKeyDown` only claims
+  > bare Enter; Shift+Enter falls through to the preset's own hardbreak
+  > input), found while checking it did not corrupt during this pass. Left
+  > unfixed per scope; someone should pick it up as its own bug. →
+  > src/features/editor/milkdown/keyboardParity.ts
 
   > **Gap:** there is no way to add or remove a COLUMN, delete a row, delete a
   > table, or set a column's alignment. The CodeMirror editor had a desktop
