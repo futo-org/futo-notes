@@ -120,6 +120,15 @@ export function createSelectionToolbarPlugin(
             root: document.body,
             floatingUIOptions: { strategy: 'fixed', placement: 'top' },
             offset: 8,
+            // #015: floating-ui's `shift` middleware defaults its collision
+            // boundary to the viewport, so with nothing else telling it where
+            // the editor's own column ends, it happily shifted the bar over the
+            // sidebar (and the sidebar's create-note/new-folder buttons) when a
+            // selection sat near the editor's left edge. Bound `shift` to the
+            // editable DOM instead — it spans exactly the editor's own column,
+            // which starts right where the sidebar ends — so the bar can never
+            // be placed over the sidebar at any window width.
+            shift: { boundary: view.dom, padding: 8 },
             debounce: 0,
             /* Shown for a formattable selection while the editor — or the
              * toolbar's own URL field — has focus. `view.composing` covers an
