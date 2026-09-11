@@ -294,12 +294,13 @@
    * below — two paths for one gesture, because the two backends deliver it
    * differently and neither is a choice this component gets to make:
    *
-   *   - macOS/Windows disable wry's native drop target (`dragDropEnabled:
-   *     false`), so the drop arrives as an ordinary HTML5 `drop` with the bytes
-   *     already read — ProseMirror's `handleDrop` prop.
-   *   - Linux leaves it on, so wry claims the file-URI drop and the page's own
-   *     `drop` fires with no files at all; the paths arrive on the WINDOW,
-   *     through `PlatformFS`'s `onFileDrop`.
+   *   - Every desktop platform now disables wry's native drop target
+   *     (`dragDropEnabled: false` — Linux joined macOS/Windows in QA #017,
+   *     2026-09-11), so the drop arrives as an ordinary HTML5 `drop` with the
+   *     bytes already read — ProseMirror's `handleDrop` prop.
+   *   - The WINDOW path (`PlatformFS`'s `onFileDrop`) stays wired as a
+   *     fallback: it was Linux's ONLY path while wry's GTK relay was on, and
+   *     that relay never fired at all on a native-Wayland compositor.
    *
    * Both end in `imageInsert.ts`, which is also what the `/image` picker uses.
    * Off Tauri `onFileDrop` is a no-op subscription, so nothing here branches on
