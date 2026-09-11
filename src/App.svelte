@@ -31,8 +31,10 @@
   const toastMessage = $derived(currentToastMessage());
 
   // The desktop window is created hidden so the launch never shows WKWebView's
-  // opaque white (apps/tauri/src-tauri/src/window_reveal.rs). Reveal it as soon
-  // as the shell is in the DOM.
+  // opaque white (apps/tauri/src-tauri/src/window_reveal.rs). Reveal it once
+  // the shell is in the DOM and the stored theme is applied: before that the
+  // page wears the default `auto`, which on a dark Linux desktop is light until
+  // the portal answers. Rust's timeout still reveals a window whose read hangs.
   //
   // Deliberately NOT `requestAnimationFrame`: WebKit suspends rendering for an
   // off-screen window, so while the window is hidden `visibilityState` is
@@ -41,7 +43,7 @@
   // window. Waiting for a paint that cannot happen is a deadlock; a committed
   // DOM is the last signal available before the window goes on screen.
   $effect(() => {
-    revealAppWindow();
+    if (bootstrap.themeApplied) revealAppWindow();
   });
 
   $effect(() => {

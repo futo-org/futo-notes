@@ -217,23 +217,53 @@ export function setNativeWindowAppearance(theme: 'dark' | 'light' | null): void 
     .catch((error) => console.warn('Failed to set the native window appearance:', error));
 }
 
-// The desktop environment's own light/dark preference, for the `auto` theme.
+// Reports system light/dark changes. On Tauri the OS (or, on Linux, the desktop
+// portal) names the new theme; off Tauri the page's own media query fires and
+// the caller re-resolves `auto` itself.
+export function watchSystemTheme(onChange: (theme?: 'dark' | 'light') => void): () => void {
+  if (platformName !== 'tauri') {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {};
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => onChange();
+    media.addEventListener('change', handler);
+    return () => media.removeEventListener('change', handler);
+  }
+  let disposed = false;
+  let unsubscribe = () => {};
+  void import('./tauri/windowAppearance')
+    .then(({ subscribeToNativeThemeChanges }) => subscribeToNativeThemeChanges(onChange))
+    .then((stop) => {
+      if (disposed) stop();
+      else unsubscribe = stop;
+    })
+    .catch((error) => console.warn('Failed to watch the system theme:', error));
+  return () => {
+    disposed = true;
+    unsubscribe();
+  };
+}
+
+// The OS's own light/dark answer, for the `auto` theme.
 //
-// Distinct from `prefers-color-scheme`: on Linux that media query is derived
-// from `gtk-application-prefer-dark-theme`, which is the same property setting
-// the window's appearance writes — so once the app pins an appearance the page
-// only reads back its own choice. The desktop portal answers for the desktop.
+// Distinct from `prefers-color-scheme`, which follows the WINDOW's appearance:
+// once the app pins an appearance the page only reads back its own choice. On
+// Linux the pin lands in `gtk-application-prefer-dark-theme` and the desktop
+// portal answers for the desktop; on macOS and Windows the window is handed
+// back to the OS and its effective theme read.
 //
-// `null` means "no answer here" — off Tauri, on macOS and Windows (whose `auto`
-// hands the window back to the OS and so never poisons the media query), and on
-// a Linux desktop with no portal. Callers fall back to the media query.
-export async function readDesktopColorScheme(): Promise<'dark' | 'light' | null> {
+// `null` means "no answer here" — off Tauri, and on a Linux desktop with no
+// portal. Callers fall back to the media query.
+export async function readSystemTheme(): Promise<'dark' | 'light' | null> {
   if (platformName !== 'tauri') return null;
   try {
-    const { readDesktopColorScheme: read } = await import('./tauri/desktopColorScheme');
-    return await read();
+    if (isLinux) {
+      const { readDesktopColorScheme } = await import('./tauri/desktopColorScheme');
+      return await readDesktopColorScheme();
+    }
+    const { releaseNativeWindowAppearance } = await import('./tauri/windowAppearance');
+    return await releaseNativeWindowAppearance();
   } catch (error) {
-    console.warn('Failed to read the desktop color scheme:', error);
+    console.warn('Failed to read the system theme:', error);
     return null;
   }
 }
