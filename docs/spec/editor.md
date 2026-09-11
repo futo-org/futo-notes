@@ -995,6 +995,38 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   edges), and emptying the field unlinks it — the selection and the bar stay
   put, so an unlink can follow a URL change. → selectionToolbar/index.ts
   `applyLink`, selectionToolbar/target.ts `linkRunAt`
+- _(desktop)_ Typing `/` as the first character of a block opens a filterable
+  menu: Text, Heading 1-3, Bullet list, Numbered list, Task list, Quote, Code
+  block, Divider, Table, Link, Image. Typing narrows it (label prefix beats a
+  keyword match); an unmatched query hides the menu rather than showing it
+  empty; arrow keys move the highlight and Enter/Tab or a click picks the
+  highlighted row; Escape closes it and leaves the typed text alone for as
+  long as that same `/` run is being typed. A `/` that is not the first
+  character on the line, or one inside a fenced code block, is just a
+  character. → milkdown/slash/
+- _(desktop)_ Picking any `/` menu item deletes the typed `/query` and applies
+  the item as ONE step: no picked item — a plain format (Heading, Quote, a
+  list) or one that restructures the block (Code block, Divider, Table) alike
+  — ever leaves the typed characters inside or beside the block it built, and
+  one Undo takes the whole pick back. → milkdown/commandRunner.ts
+  `combineDeleteAndCommand`, milkdown/slash/index.ts `commit`
+- Inserting a divider — the `/` menu's Divider item, or typing
+  `---`/`___ `/`*** ` on its own line — always ends the SAME way: the rule,
+  followed immediately by one empty paragraph, with the caret in it, ready to
+  keep typing. No leading or trailing blank line beyond that one paragraph,
+  and no NodeSelection left sitting on the rule itself — a NodeSelection on a
+  block atom is what a browser's native "scroll selection into view" reacts
+  to, and it used to visibly nudge the viewport for `---` typed mid-note. Both
+  entry points are normalized by the same plugin, not two code paths. →
+  milkdown/dividerCaret.ts
+- _(desktop)_ The `/` menu's Link item opens the SAME URL prompt the
+  selection toolbar's Link button does (`linkPrompt/`). It always fires on a
+  plain caret (the typed `/link` run is gone before the prompt opens), so
+  submitting a URL inserts it as a new run of text using the URL itself as the
+  label, and leaves that text SELECTED so a real label can be typed straight
+  over it. An empty URL, Escape, or a click outside the prompt cancels it and
+  leaves the document exactly as the `/link` deletion left it. →
+  milkdown/linkPrompt/, milkdown/slash/exec.ts
 
 ## Markdown toolbar _(native shells / editor-embed fallback)_
 

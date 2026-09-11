@@ -37,7 +37,7 @@ test.describe('slash menu', () => {
   test('typing / at the start of a block opens the menu with every item', async ({ page }) => {
     await typeSlash(page, '/');
     await expectMenuOpen(page);
-    await expect(page.locator(ROW)).toHaveCount(12);
+    await expect(page.locator(ROW)).toHaveCount(13);
   });
 
   test('the menu offers Image', async ({ page }) => {
@@ -147,7 +147,9 @@ test.describe('slash menu', () => {
     await expectMenuClosed(page);
   });
 
-  test('picking Divider inserts a horizontal rule', async ({ page }) => {
+  test('picking Divider inserts a horizontal rule with no leftover "/divider" text (QA-010/013)', async ({
+    page,
+  }) => {
     await typeSlash(page, '/divider');
     await expectMenuOpen(page);
     await page.keyboard.press('Enter');
@@ -160,6 +162,13 @@ test.describe('slash menu', () => {
     // measured against the corpus first (`just milkdown-census --diff`,
     // packages/editor/AGENTS.md), so this asserts what the editor does today.
     await expect.poll(async () => await editorMarkdown(page)).toContain('***');
+    // QA-013: the typed `/divider` run used to survive as literal text right
+    // after the rule (the run's remembered position no longer described the
+    // post-command document, so the delete silently no-opped).
+    expect(await editorMarkdown(page)).not.toContain('divider');
+    // The caret is ready to type in an empty paragraph right after the rule.
+    await page.keyboard.type('after', { delay: TYPE_DELAY_MS });
+    expect(await editorMarkdown(page)).toMatch(/\*\*\*\s*\n\s*after/);
   });
 
   test('picking Table inserts a header row plus two body rows', async ({ page }) => {
@@ -170,11 +179,19 @@ test.describe('slash menu', () => {
     await expect(page.locator(`${EDITOR} table tr`)).toHaveCount(3);
   });
 
-  test('picking Code block gives a fence', async ({ page }) => {
+  test('picking Code block gives a fence with no leftover "/code" text (QA-010)', async ({
+    page,
+  }) => {
     await typeSlash(page, '/code');
     await expectMenuOpen(page);
     await page.keyboard.press('Enter');
     await expect(page.locator(`${EDITOR} pre`)).toHaveCount(1);
+    // The literal bug: the typed run used to survive AS the fence's content,
+    // because the old commit() ran the command before deleting it, and a
+    // code block's content is literal text a post-command read can't see
+    // into. Assert the fence is genuinely empty, not just present.
+    await expect(page.locator(`${EDITOR} pre`)).toHaveText('');
+    expect(await editorMarkdown(page)).not.toContain('/code');
   });
 
   test('a / inside a code block does not open the menu', async ({ page }) => {
@@ -183,5 +200,60 @@ test.describe('slash menu', () => {
     await expect(page.locator(`${EDITOR} pre`)).toHaveCount(1);
     await page.keyboard.type('/head', { delay: TYPE_DELAY_MS });
     await expectMenuClosed(page);
+  });
+
+  /*
+   * QA-019 — Link, added to the `/` menu. It opens the SAME URL prompt the
+   * desktop selection toolbar's Link button does (`linkPrompt/`); the deeper
+   * "existing link" / "prefilled field" behavior is `selection-toolbar.spec.ts`'s
+   * to prove, since the `/` menu's Link only ever fires on a plain caret.
+   */
+  test('the menu offers Link', async ({ page }) => {
+    await typeSlash(page, '/');
+    await expectMenuOpen(page);
+    await expect(page.locator(`${ROW}[data-slash-id="link"]`)).toContainText('Link');
+  });
+
+  test('picking Link opens the URL prompt; Enter inserts the URL as a selected label', async ({
+    page,
+  }) => {
+    await typeSlash(page, '/link');
+    await expectMenuOpen(page);
+    await page.keyboard.press('Enter');
+    await expectMenuClosed(page);
+
+    const url = page.locator('input[aria-label="Link URL"]');
+    await expect(url).toBeVisible();
+    await expect(url).toBeFocused();
+    await url.fill('https://example.test/docs');
+    await url.press('Enter');
+
+    // Inserted with the URL as its own label — asserted on the DOM, not the
+    // markdown: remark-stringify shortens a link whose text equals its href
+    // to the autolink form (`<https://…>`), which is a serializer choice, not
+    // what this asserts. Typing right away replaces the label — proof the
+    // label text was left SELECTED, not just inserted after it.
+    const link = page.locator(`${EDITOR} a[href="https://example.test/docs"]`);
+    await expect(link).toHaveText('https://example.test/docs');
+    await page.keyboard.type('the docs', { delay: TYPE_DELAY_MS });
+    expect(await editorMarkdown(page)).toContain('[the docs](https://example.test/docs)');
+    // The typed `/link` run is gone — never restored alongside the link.
+    expect(await editorMarkdown(page)).not.toContain('/link');
+  });
+
+  test('cancelling the Link prompt with Escape leaves the note untouched', async ({ page }) => {
+    await typeSlash(page, '/link');
+    await expectMenuOpen(page);
+    await page.keyboard.press('Enter');
+    await expectMenuClosed(page);
+
+    const url = page.locator('input[aria-label="Link URL"]');
+    await expect(url).toBeVisible();
+    await url.press('Escape');
+
+    // The typed `/link` run is gone (deleted before the prompt ever opened),
+    // and nothing was inserted in its place.
+    expect(await editorMarkdown(page)).not.toContain('/link');
+    expect(await editorMarkdown(page)).not.toContain('[');
   });
 });
