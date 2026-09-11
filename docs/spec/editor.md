@@ -1126,6 +1126,16 @@ EditorWebView.swift, EditorWebView.kt
   appear only on list lines; pickers open natively; chevron blurs, dropping
   keyboard + toolbar). → EditorToolbar.kt, NoteEditorScreen.kt,
   EditorWebView.kt `EditorHost`
+  > **Gap:** _(iOS/Android)_ Indent/Outdent showing only on list lines means a
+  > blockquote cannot be indented from either native toolbar at all — desktop's
+  > selection toolbar already nests/un-nests a quote (`changeBlockIndent` in
+  > `src/features/editor/milkdown/blockCommands.ts`), but the native
+  > `cursorContext` bridge message that drives visibility only reports "in a
+  > list", so the button never appears for a caret inside a quote. Needs a
+  > bridge message change (`packages/editor/src/bridge.ts`), which is a
+  > cross-shell change outside this fix's scope. →
+  > src/features/editor/milkdown/MilkdownEditor.svelte `cursorContext`,
+  > EditorToolbar.swift, EditorToolbar.kt
 - Android native: dismissing the soft keyboard by the system back
   gesture/button (not just the chevron) also blurs the editor — the caret
   and selection handle must not linger on screen with no keyboard (#24).

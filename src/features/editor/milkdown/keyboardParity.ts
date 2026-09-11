@@ -11,9 +11,30 @@
  *   `tableCellNavigation` wrap-around) instead of falling through to the
  *   browser's default Tab, which moved focus out of the editor and silently
  *   swallowed whatever was typed next.
+ * - Tab/Shift-Tab inside a CODE BLOCK insert/remove two spaces of indentation
+ *   (QA #011) instead of falling through to the browser — the preset binds
+ *   Tab only inside lists (`sinkListItemCommand`) and tables, so a fence got
+ *   nothing and Tab moved focus out of the editor (to the block's own ⋮ menu),
+ *   silently swallowing whatever was typed next. Escape THEN Tab is the
+ *   documented way out of that trap for a keyboard-only user: Escape arms a
+ *   one-shot flag that makes the very next Tab fall through to the browser
+ *   instead of inserting spaces, exactly as if this module were not here;
+ *   typing any other key disarms it. Blockquotes and tables are a deliberate
+ *   NON-claim — Tab stays ordinary focus navigation there (only a code fence
+ *   traps it today), so this is the only new Tab claimant.
  * - Splitting a checked task item starts the new item UNCHECKED, the same as
  *   the CodeMirror `listContinuation` rule — ProseMirror's `splitListItem`
  *   otherwise clones the `checked: true` attr onto the new item.
+ *
+ * QA #004 (Backspace at the start of a nested list item keeps its
+ * indentation rather than merging everything into the top-level item) needed
+ * NO new code here: the preset's own `liftFirstListItemCommand`
+ * (`joinBackward`) already produces exactly that — `list_item` is
+ * `defining: true` in the schema, so `joinBackward`'s generic lift keeps a
+ * nested item's content inside its enclosing item instead of merging past it.
+ * Verified end-to-end against the real bundle for the plain case, a second
+ * Backspace, a top-level item, and both a following- and a preceding-sibling
+ * nested item; pinned in `tests/editor-embed-milkdown-interactive.spec.ts`.
  *
  * Wired as the ProseMirror `handleKeyDown` DIRECT view prop (via
  * `editorViewOptionsCtx` in MilkdownEditor.svelte) rather than a keymap
@@ -21,8 +42,9 @@
  * before every plugin keymap, so this wins deterministically over the preset's
  * own Enter/Tab bindings without depending on plugin registration order.
  * Everything it does not explicitly claim falls through untouched —
- * Shift-Enter hard breaks, Mod-Enter's `exitTable`, Tab/Shift-Tab cell
- * navigation, and the list-split Enter for plain and unchecked items.
+ * Shift-Enter hard breaks, Mod-Enter's `exitTable`, Tab/Shift-Tab cell and
+ * list navigation, Backspace everywhere, and the list-split Enter for plain
+ * and unchecked items.
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
@@ -42,6 +64,7 @@ import {
 } from '@milkdown/kit/prose/tables';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
+import { blockFormatAtPos } from './blockCommands';
 import { enclosingListItem } from './caretContext';
 
 /**
@@ -110,19 +133,129 @@ export const splitCheckedTaskItem: Command = (state, dispatch) => {
 };
 
 /**
+ * QA #011 — Tab/Shift-Tab inside a fenced code block.
+ *
+ * A COLLAPSED caret INDENTS relative to ITSELF (two spaces right at the
+ * caret, wherever it sits) but OUTDENTS relative to its LINE (up to two
+ * spaces stripped from the line's own start, the same as a real code
+ * editor's Shift-Tab) — see the `empty` branch below for why those can't
+ * share one rule. A non-collapsed selection indents/outdents every LINE it
+ * touches at that line's own start (a same-line selection gets the identical
+ * per-line treatment as a multi-line one).
+ *
+ * Requires BOTH ends of the selection to resolve into the SAME code block —
+ * a selection reaching past the fence is left alone, same as every other
+ * block command's fence rule.
+ */
+function tabInCodeBlock(
+  state: EditorState,
+  dispatch: ((tr: Transaction) => void) | undefined,
+  outdent: boolean,
+): boolean {
+  const { $from, $to, empty } = state.selection;
+  if (blockFormatAtPos($from).kind !== 'code' || blockFormatAtPos($to).kind !== 'code') {
+    return false;
+  }
+  const start = $from.start($from.depth);
+  if ($to.start($to.depth) !== start) return false;
+  const codeNode = $from.node($from.depth);
+  const text = codeNode.textContent;
+  const tr = state.tr;
+
+  // A collapsed caret INDENTING inserts two spaces right AT the caret,
+  // wherever it sits in the line — a literal Tab character, not "indent this
+  // line". A collapsed caret OUTDENTING falls through to the per-line
+  // handling below instead: Shift-Tab dedents the CURRENT line from its own
+  // start (same as every other code editor), regardless of the caret's
+  // column — the line's leading whitespace is not necessarily "immediately
+  // before the caret" (Home puts the caret BEFORE it, at true column 0).
+  if (empty && !outdent) {
+    tr.insertText('  ', $from.pos);
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  }
+
+  // Every line the selection overlaps, in doc order, computed once against
+  // the ORIGINAL text — the edits below are applied last-line-first so an
+  // earlier (smaller) line's start position is never invalidated by an edit
+  // made at a later (larger) one.
+  const lines: { start: number; end: number }[] = [];
+  let offset = start;
+  for (const line of text.split('\n')) {
+    lines.push({ start: offset, end: offset + line.length });
+    offset += line.length + 1;
+  }
+  const touched = lines.filter((line) => line.start <= $to.pos && line.end >= $from.pos);
+  if (touched.length === 0) return false;
+
+  let changed = false;
+  for (const line of [...touched].reverse()) {
+    if (outdent) {
+      const rel = line.start - start;
+      const ahead = text.slice(rel, rel + 2);
+      const strip = ahead.startsWith('  ') ? 2 : ahead.startsWith(' ') ? 1 : 0;
+      if (strip > 0) {
+        tr.delete(line.start, line.start + strip);
+        changed = true;
+      }
+    } else {
+      tr.insertText('  ', line.start);
+      changed = true;
+    }
+  }
+  if (!changed) return false;
+  dispatch?.(tr.scrollIntoView());
+  return true;
+}
+
+/** Command wrappers for direct unit-testing and the `handleKeyDown` wiring below. */
+export const indentCodeBlockOnTab: Command = (state, dispatch) =>
+  tabInCodeBlock(state, dispatch, false);
+export const outdentCodeBlockOnShiftTab: Command = (state, dispatch) =>
+  tabInCodeBlock(state, dispatch, true);
+
+/**
+ * One-shot "let the next Tab escape the editor" flag, per view — the
+ * accessibility hatch QA #011 requires: claiming Tab inside a fence traps a
+ * keyboard-only user who has no other way to leave the editor, so Escape
+ * arms this, and the very next Tab (whether or not it would otherwise have
+ * been claimed) is let through to the browser's default focus-move instead.
+ * Any other key disarms it, so the arm only ever survives exactly one
+ * intervening Escape-then-Tab pair. A `WeakMap` keyed by view rather than one
+ * module-level boolean, because more than one Milkdown editor can be mounted
+ * at once (e.g. a preview pane) and Escape in one must not arm Tab in another.
+ */
+const tabEscapeArmed = new WeakMap<ProseView, boolean>();
+
+/**
  * The `handleKeyDown` direct view prop. Returns true only when one of the
  * parity commands above actually handled the key.
  */
 export function handleParityKeyDown(view: ProseView, event: KeyboardEvent): boolean {
   if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return false;
+
+  if (event.key === 'Escape') {
+    tabEscapeArmed.set(view, true);
+    return false;
+  }
+  const armed = tabEscapeArmed.get(view) === true;
+  if (event.key !== 'Tab') tabEscapeArmed.delete(view);
+
   if (event.key === 'Enter' && !event.shiftKey) {
     return (
       insertTableRowBelow(view.state, view.dispatch) ||
       splitCheckedTaskItem(view.state, view.dispatch)
     );
   }
-  if (event.key === 'Tab' && !event.shiftKey) {
-    return appendTableRowFromLastCell(view.state, view.dispatch);
+  if (event.key === 'Tab') {
+    tabEscapeArmed.delete(view);
+    // The escape hatch overrides the code-fence claim below — it exists
+    // precisely so a keyboard-only user can never be trapped in one.
+    if (armed) return false;
+    if (!event.shiftKey && appendTableRowFromLastCell(view.state, view.dispatch)) return true;
+    return event.shiftKey
+      ? outdentCodeBlockOnShiftTab(view.state, view.dispatch)
+      : indentCodeBlockOnTab(view.state, view.dispatch);
   }
   return false;
 }
