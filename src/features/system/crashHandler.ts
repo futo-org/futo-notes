@@ -49,6 +49,19 @@ function buildReport(
   };
 }
 
+// Browser-noise messages that are never worth a crash report: they describe
+// the browser skipping a ResizeObserver notification for a frame, not an app
+// error. #007 — reported through the in-app crash reporter on first open of
+// the Linux AppImage.
+const IGNORED_ERROR_MESSAGES = [
+  'ResizeObserver loop completed with undelivered notifications',
+  'ResizeObserver loop limit exceeded',
+];
+
+function isIgnoredError(errorStr: string): boolean {
+  return IGNORED_ERROR_MESSAGES.some((ignored) => errorStr.includes(ignored));
+}
+
 function queueToLocalStorage(report: CrashReport): void {
   try {
     const existing = window.localStorage.getItem(LS_QUEUE_KEY);
@@ -64,14 +77,16 @@ export function installGlobalHandlers(): void {
   const existingErrorHandler = window.onerror;
   window.onerror = (message, source, lineno, colno, error) => {
     const errorStr = error?.message || String(message);
-    const stack = error?.stack || `${source}:${lineno}:${colno}`;
-    const report = buildReport(errorStr, stack, 'js_error');
-    queueToLocalStorage(report);
-    if (hasFileSystem) {
-      try {
-        writeCrashReport(report).catch(() => {});
-      } catch {
-        /* FS not ready */
+    if (!isIgnoredError(errorStr)) {
+      const stack = error?.stack || `${source}:${lineno}:${colno}`;
+      const report = buildReport(errorStr, stack, 'js_error');
+      queueToLocalStorage(report);
+      if (hasFileSystem) {
+        try {
+          writeCrashReport(report).catch(() => {});
+        } catch {
+          /* FS not ready */
+        }
       }
     }
     if (existingErrorHandler) {
@@ -83,14 +98,16 @@ export function installGlobalHandlers(): void {
   window.onunhandledrejection = (event: PromiseRejectionEvent) => {
     const reason = event.reason;
     const errorStr = reason instanceof Error ? reason.message : String(reason);
-    const stack = reason instanceof Error ? reason.stack : undefined;
-    const report = buildReport(errorStr, stack, 'unhandled_rejection');
-    queueToLocalStorage(report);
-    if (hasFileSystem) {
-      try {
-        writeCrashReport(report).catch(() => {});
-      } catch {
-        /* FS not ready */
+    if (!isIgnoredError(errorStr)) {
+      const stack = reason instanceof Error ? reason.stack : undefined;
+      const report = buildReport(errorStr, stack, 'unhandled_rejection');
+      queueToLocalStorage(report);
+      if (hasFileSystem) {
+        try {
+          writeCrashReport(report).catch(() => {});
+        } catch {
+          /* FS not ready */
+        }
       }
     }
     if (existingRejectionHandler) {
