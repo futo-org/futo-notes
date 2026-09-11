@@ -1,39 +1,60 @@
 /*
- * The shared Link URL prompt — QA-019 ("add Link to the `/` menu").
+ * The shared Link URL prompt — QA-019 ("add Link to the `/` menu") and
+ * QA-005 ("how should Link be used on Android?" — the mobile/embed toolbar's
+ * Link button).
  *
  * `LinkUrlField.svelte` is the desktop selection toolbar's own URL field
- * (added in d70bf007), extracted so the `/` menu's Link item opens the exact
- * same prompt rather than a second one. This module supplies the other half
- * the toolbar already had built in: WHERE the field floats when there is no
- * selection-toolbar target to hand it to, and WHAT submitting or cancelling
- * it does for a plain caret.
+ * (added in d70bf007), extracted so every caller that needs a Link URL prompt
+ * opens the exact same one rather than a fork each. This module supplies the
+ * other half the toolbar already had built in: WHERE the field floats when
+ * there is no selection-toolbar target to hand it to, and WHAT submitting or
+ * cancelling it does.
  *
  * POSITIONING reuses `SlashProvider` (@milkdown/kit/plugin/slash) — the same
  * floating-ui `computePosition` + `flip` the `/` menu itself and the
  * selection toolbar already run through, so this is not a second positioning
- * system. It is called with the CURRENT (collapsed) selection already in
- * place and never again: nothing about the document changes while this
- * prompt is open (the user is typing into the prompt's own `<input>`, not the
- * editor), so one position computed up front is all there ever is to do.
+ * system. It is called with the CURRENT selection already in place and never
+ * again: nothing about the document changes while this prompt is open (the
+ * user is typing into the prompt's own `<input>`, not the editor), so one
+ * position computed up front is all there ever is to do.
  *
- * THE ONE CASE: the `/` menu's Link item only ever fires on a collapsed
- * caret — `slash/exec.ts` deletes the typed `/link` run before opening this
- * — so there is never an existing selection, and never an existing link
- * mark to edit. Submitting always INSERTS new text, using the URL itself as
- * its visible label (the same fallback most link-insert UIs use when there
- * is nothing selected to label the link with), and leaves that text
- * SELECTED so the user can type a real label straight over it. An empty URL,
- * Escape, or a click/tap outside the prompt all cancel and leave the
- * document exactly as the delete above left it — the typed `/link` run gone,
- * nothing inserted in its place.
+ * THREE CASES, one entry point (`openLinkPrompt`), checked in this order:
+ *
+ *   - The selection HEAD sits inside an existing link's run — whether or not
+ *     the selection is empty. A bare CARET glued to a link is reachable on
+ *     mobile in a way it never is from the `/` menu or the desktop selection
+ *     toolbar: a selection-handle drag that resolves back to a collapsed
+ *     caret at the link's edge (measured on Android — the toolbar's Link
+ *     button is already lit from `formatState` at exactly that position).
+ *     The WHOLE run is prefilled and updated in place (never split at the
+ *     selection's edges, mirroring `selectionToolbar/index.ts` `applyLink`),
+ *     and emptying the field unlinks it.
+ *   - A collapsed CARET with no adjacent link — the only case the `/` menu's
+ *     Link item can reach (`slash/exec.ts` deletes the typed `/link` run
+ *     first, so there is never a selection or an existing link mark) and the
+ *     mobile toolbar's ordinary case too. Submitting INSERTS new text, using
+ *     the URL itself as its visible label (the same fallback most link-insert
+ *     UIs use when there is nothing selected to label the link with), and
+ *     leaves that text SELECTED so a real label can be typed straight over it.
+ *   - A non-empty SELECTION with no existing link — only the mobile
+ *     toolbar's Link button reaches this (the desktop selection toolbar has
+ *     its own inline field for it). Submitting wraps the selection in a new
+ *     link.
+ *
+ * Every case: an empty URL on a plain caret with no existing link, Escape, or
+ * a click/tap outside the prompt all cancel and leave the document untouched
+ * (the `/` menu case leaves it exactly as its own `/link` deletion left it).
  */
 import type { Editor } from '@milkdown/kit/core';
 import { SlashProvider } from '@milkdown/kit/plugin/slash';
+import { callCommand } from '@milkdown/kit/utils';
+import { toggleLinkCommand } from '@milkdown/kit/preset/commonmark';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { mount, unmount } from 'svelte';
 
 import { editorView } from '../caretContext';
+import { linkRunAt, type LinkRun } from '../selectionToolbar/target';
 import LinkUrlField from './LinkUrlField.svelte';
 
 interface LinkUrlFieldHandle {
@@ -55,19 +76,49 @@ function insertLinkAtCaret(view: ProseView, pos: number, href: string): void {
 }
 
 /**
- * Opens the Link URL prompt at the editor's current (collapsed) caret. See
- * this module's header comment for what submitting or cancelling it does.
+ * Applies `href` to `run` — the link the SELECTION was already sitting in —
+ * or, when there is no such run, wraps the current selection in a fresh link.
+ * The same editing rule as the desktop selection toolbar's `applyLink`
+ * (`selectionToolbar/index.ts`), so a selection edited from either surface
+ * behaves identically (root AGENTS.md M10): an existing link is edited over
+ * its WHOLE run, never split at the selection's edges, and an empty href
+ * unlinks it; with no existing link, an empty href is a no-op.
  */
-export function openLinkPrompt(editor: Editor): void {
-  const liveView = editorView(editor);
-  if (!liveView) return;
-  // Rebound so its non-null type survives inside the closures below — a
-  // nested function declaration does not inherit the `if (!liveView) return`
-  // narrowing above, even though `liveView` itself is never reassigned.
-  const view: ProseView = liveView;
+function applyLinkToSelection(
+  editor: Editor,
+  view: ProseView,
+  run: LinkRun | null,
+  href: string,
+): void {
+  if (run) {
+    const linkType = run.mark.type;
+    if (href === '') {
+      view.dispatch(view.state.tr.removeMark(run.from, run.to, linkType));
+    } else if (href !== run.mark.attrs.href) {
+      view.dispatch(
+        view.state.tr
+          .removeMark(run.from, run.to, linkType)
+          .addMark(run.from, run.to, linkType.create({ ...run.mark.attrs, href })),
+      );
+    }
+  } else if (href !== '') {
+    editor.action(callCommand(toggleLinkCommand.key, { href }));
+  }
+  view.focus();
+}
 
-  const pos = view.state.selection.from;
+interface LinkFieldOptions {
+  initialUrl: string;
+  applyLabel: 'Add' | 'Update';
+  onSubmit: (href: string) => void;
+}
 
+/**
+ * Floats `LinkUrlField` at the view's current selection and wires submit/
+ * cancel. Shared by both cases `openLinkPrompt` handles below — only what a
+ * submit DOES differs between them.
+ */
+function openLinkFieldAt(view: ProseView, options: LinkFieldOptions): void {
   const content = document.createElement('div');
   content.className = 'futo-selection-toolbar';
   const body = document.createElement('div');
@@ -108,11 +159,11 @@ export function openLinkPrompt(editor: Editor): void {
   const ui = mount(LinkUrlField, {
     target: body,
     props: {
-      initialUrl: '',
-      applyLabel: 'Add',
+      initialUrl: options.initialUrl,
+      applyLabel: options.applyLabel,
       onsubmit: (href: string) => {
         finish();
-        if (href) insertLinkAtCaret(view, pos, href);
+        options.onSubmit(href);
       },
       oncancel: finish,
     },
@@ -128,4 +179,57 @@ export function openLinkPrompt(editor: Editor): void {
   provider.onShow = () => ui.focus();
   document.addEventListener('pointerdown', onPointerDown, true);
   provider.update(view);
+}
+
+/**
+ * Opens the Link URL prompt for the editor's current selection — a plain
+ * caret, or a range. See this module's header comment for what submitting or
+ * cancelling it does in each case.
+ */
+export function openLinkPrompt(editor: Editor): void {
+  const liveView = editorView(editor);
+  if (!liveView) return;
+  // Rebound so its non-null type survives inside the closures below — a
+  // nested function declaration does not inherit the `if (!liveView) return`
+  // narrowing above, even though `liveView` itself is never reassigned.
+  const view: ProseView = liveView;
+  const { selection } = view.state;
+
+  // Checked BEFORE branching on empty/non-empty: a bare caret can sit right
+  // inside — or glued to the edge of — an existing link with no selection at
+  // all (measured on Android: a drag-handle move that lands the caret at the
+  // end of a link, with the toolbar's Link button already lit from
+  // `formatState`). The `/` menu never hits this (its caret is always a
+  // freshly-deleted `/link` run, never adjacent to a real link), but the
+  // mobile toolbar's Link button is reachable from exactly this state, and
+  // without this check it would insert a SECOND, unrelated link glued to the
+  // first rather than editing the one the user is looking at.
+  const run = linkRunAt(view.state.doc, selection.head);
+  if (run) {
+    const initialUrl = typeof run.mark.attrs.href === 'string' ? run.mark.attrs.href : '';
+    openLinkFieldAt(view, {
+      initialUrl,
+      applyLabel: 'Update',
+      onSubmit: (href) => applyLinkToSelection(editor, view, run, href),
+    });
+    return;
+  }
+
+  if (selection.empty) {
+    const pos = selection.from;
+    openLinkFieldAt(view, {
+      initialUrl: '',
+      applyLabel: 'Add',
+      onSubmit: (href) => {
+        if (href) insertLinkAtCaret(view, pos, href);
+      },
+    });
+    return;
+  }
+
+  openLinkFieldAt(view, {
+    initialUrl: '',
+    applyLabel: 'Add',
+    onSubmit: (href) => applyLinkToSelection(editor, view, null, href),
+  });
 }

@@ -1069,26 +1069,48 @@ toolbar chrome instead. → src/editor-embed/EmbedToolbar.svelte,
 EditorWebView.swift, EditorWebView.kt
 
 - When the editor body is focused, a formatting toolbar docks above the soft
-  keyboard: Bold, Italic, Strikethrough, Link, Text/H1/H2/H3, Quote, Bullet/Ordered/Task
-  list, Indent/Outdent (shown inside a list or quote), Camera,
-  Image — horizontally scrollable, with a collapse chevron that blurs the
-  editor (dropping both the keyboard and the toolbar). Verified emulator +
-  simulator 2026-07-08 for the original controls (Link sits after Strikethrough;
-  no dialog appears —
-  `window.prompt` is a no-op in the native WebViews). → EmbedToolbar.svelte,
-  packages/editor/src/toolbar.ts, tests/editor-embed-milkdown-toolbar.spec.ts
-- Link toggles the link over the selection — tapping it on an existing link
-  unwraps it, keeping the text — and with NO selection it arms the link for the
-  text typed next, which is what an editor showing no Markdown source has
-  instead of a `[]()` scaffold with a caret in its URL slot. →
-  src/features/editor/milkdown/toolbarExec.ts,
+  keyboard: Undo/Redo, Bold, Italic, Strikethrough, Link, Text/H1/H2/H3, Quote,
+  Code block, Bullet/Ordered/Task list, Indent/Outdent (shown inside a list or
+  quote), Camera, Image — horizontally scrollable, with a collapse chevron
+  that blurs the editor (dropping both the keyboard and the toolbar). Verified
+  emulator + simulator 2026-07-08 for the original controls (Link sat after
+  Strikethrough; no dialog appears — `window.prompt` is a no-op in the native
+  WebViews). → EmbedToolbar.svelte, packages/editor/src/toolbar.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts
-  > **Gap:** _(native shells)_ there is no way to ENTER a link's URL on iOS or
-  > Android, so a link the native toolbar makes has an empty href (`[text]()`).
-  > Desktop has the selection toolbar's URL field (see "Interactive elements");
-  > the phones need an affordance of their own, which has to coexist with the
-  > link-tap → `openUrl` behavior the native shells rely on. →
-  > src/features/editor/milkdown/toolbarExec.ts, selectionToolbar/index.ts
+- Undo and Redo are the FIRST two items, ahead of every formatting control,
+  and run prosemirror-history's own commands — never a hand-rolled stack.
+  Each greys out and stops accepting taps exactly when its stack is empty (no
+  visual-only disable): the editor reports this in `formatState`'s `disabled`
+  field, on the same triggers and with the same dedupe as the active-format
+  set, and all three toolbar surfaces (iOS, Android, the embed fallback) grey
+  the button AND refuse the tap. Verified emulator 2026-09-11 (`enabled=false`
+  on the platform semantics node, not just a dimmed icon). →
+  packages/editor/src/bridge.ts `FormatStateMessage.disabled`,
+  src/features/editor/milkdown/formatState.ts `computeDisabledFormats`,
+  EditorToolbar.swift, EditorToolbar.kt, EmbedToolbar.svelte,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Code block converts the current paragraph(s) into a fenced code block —
+  the same command the `/` menu's Code block item runs. One-way (there is no
+  toolbar command back OUT of a code block; the block-conversion model
+  already refuses both a `code` source and a `code` target for every other
+  button, docs/spec/editor.md "A block-format command never touches a CODE
+  BLOCK" below). Was missing from the manifest entirely — every mobile shell,
+  not only Android — until QA-009. Verified emulator 2026-09-11. →
+  packages/editor/src/toolbar.ts, src/features/editor/milkdown/toolbarExec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Link opens the SAME shared URL prompt the desktop selection toolbar and the
+  `/` menu's Link item do (`linkPrompt/`), floated over the caret/selection
+  inside the WebView — never a native SwiftUI/Compose dialog. With a
+  selection (or a bare caret already sitting inside an existing link — reachable
+  on mobile via a selection-handle drag that resolves back to a collapsed
+  caret) the field is prefilled with that link's href and updates it in place;
+  emptying the field unlinks it. With a plain caret and no adjacent link,
+  submitting inserts the URL as its own label and leaves it SELECTED, ready to
+  be typed over — the WYSIWYG equivalent of CodeMirror's `[]()` scaffold. An
+  empty URL on a plain caret, Escape, or a tap outside the prompt cancels and
+  leaves the note untouched. Verified emulator 2026-09-11. →
+  src/features/editor/milkdown/linkPrompt/, toolbarExec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
 - Indent nests a list item under its PRECEDING SIBLING item, so it has no
   effect on the first item of a list — there is nothing to nest under, and the
   note's bytes are left untouched. →

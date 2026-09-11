@@ -114,9 +114,9 @@ const editor = mount(MilkdownEditor, {
     // Same split as `oncursorcontext`: the web toolbar is driven directly, and
     // the message goes out for the native toolbars whether or not this build
     // renders one.
-    onformatstate: (active: string[]) => {
-      if (!nativeToolbar) toolbar?.setActiveFormats(active);
-      post({ type: 'formatState', active });
+    onformatstate: (active: string[], disabled: string[]) => {
+      if (!nativeToolbar) toolbar?.setActiveFormats(active, disabled);
+      post({ type: 'formatState', active, disabled });
     },
     // The long-press block-drag path BOTH native shells mount (see
     // MilkdownEditor.svelte / mobileBlockDnd.ts); the browser build never calls

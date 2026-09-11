@@ -17,7 +17,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatIndentDecrease
 import androidx.compose.material.icons.automirrored.filled.FormatIndentIncrease
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListNumbered
@@ -45,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -93,6 +97,8 @@ fun EditorToolbar(
     perform: (ToolbarItemSpec) -> Unit,
     modifier: Modifier = Modifier,
     activeFormats: Set<String> = emptySet(),
+    /** Bridge `formatState.disabled` — dims the button and blocks the tap. */
+    disabledFormats: Set<String> = emptySet(),
 ) {
     val c = FutoTheme.colors
     val density = LocalDensity.current
@@ -173,6 +179,7 @@ fun EditorToolbar(
                                     item,
                                     tint = c.textPrimary,
                                     active = item.id in activeFormats,
+                                    enabled = item.id !in disabledFormats,
                                     perform = perform,
                                     modifier = Modifier.onGloballyPositioned {
                                         buttonLefts[item.id] = it.positionInWindow().x - boxWindowX
@@ -255,6 +262,11 @@ private fun computeToolbarSnapPx(
  * accent fill, accent icon). Only `.Exec` items can be active — their id is a
  * manifest command id, and `formatState` only ever names those — so the
  * dismiss and picker buttons are unaffected by construction.
+ *
+ * [enabled] is bridge `formatState.disabled` (Undo/Redo with an empty
+ * prosemirror-history stack): dims the icon/text AND passes through to
+ * [IconButton]'s own `enabled`, so the tap is blocked outright, matching
+ * iOS's `.disabled(isDisabled)` treatment (EditorToolbar.swift).
  */
 @Composable
 private fun ToolbarButton(
@@ -263,14 +275,21 @@ private fun ToolbarButton(
     perform: (ToolbarItemSpec) -> Unit,
     modifier: Modifier = Modifier,
     active: Boolean = false,
+    enabled: Boolean = true,
 ) {
     val accent = FutoTheme.colors.accent
-    IconButton(onClick = { perform(item) }, modifier = modifier.size(BUTTON_SIZE)) {
+    val dim = if (enabled) 1f else 0.35f
+    IconButton(
+        onClick = { perform(item) },
+        enabled = enabled,
+        modifier = modifier.size(BUTTON_SIZE),
+    ) {
         Box(
             modifier = Modifier
                 .size(36.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (active) accent.copy(alpha = 0.15f) else Color.Transparent),
+                .background(if (active) accent.copy(alpha = 0.15f) else Color.Transparent)
+                .alpha(dim),
             contentAlignment = Alignment.Center,
         ) {
             if (item.text != null) {
@@ -312,5 +331,8 @@ private fun materialIcon(name: String): ImageVector = when (name) {
     "photo_camera" -> Icons.Filled.PhotoCamera
     "image" -> Icons.Filled.Image
     "keyboard_hide" -> Icons.Filled.KeyboardHide
+    "undo" -> Icons.AutoMirrored.Filled.Undo
+    "redo" -> Icons.AutoMirrored.Filled.Redo
+    "code" -> Icons.Filled.Code
     else -> Icons.Filled.Title
 }

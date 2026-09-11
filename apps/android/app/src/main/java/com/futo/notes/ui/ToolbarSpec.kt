@@ -35,6 +35,24 @@ object ToolbarSpec {
     val groups: List<List<ToolbarItemSpec>> = listOf(
         listOf(
             ToolbarItemSpec(
+                id = "undo",
+                label = "Undo",
+                text = null,
+                material = "undo",
+                onlyInContainer = false,
+                action = ToolbarItemAction.Exec,
+            ),
+            ToolbarItemSpec(
+                id = "redo",
+                label = "Redo",
+                text = null,
+                material = "redo",
+                onlyInContainer = false,
+                action = ToolbarItemAction.Exec,
+            ),
+        ),
+        listOf(
+            ToolbarItemSpec(
                 id = "bold",
                 label = "Bold",
                 text = null,
@@ -105,6 +123,14 @@ object ToolbarSpec {
                 label = "Block quote",
                 text = null,
                 material = "format_quote",
+                onlyInContainer = false,
+                action = ToolbarItemAction.Exec,
+            ),
+            ToolbarItemSpec(
+                id = "code-block",
+                label = "Code block",
+                text = null,
+                material = "code",
                 onlyInContainer = false,
                 action = ToolbarItemAction.Exec,
             ),

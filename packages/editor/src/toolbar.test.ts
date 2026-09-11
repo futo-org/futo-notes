@@ -23,8 +23,9 @@ describe('toolbar manifest', () => {
     expect(
       TOOLBAR_GROUPS.map((g) => g.map((i) => (i.when === 'inContainer' ? `${i.id}?` : i.id))),
     ).toEqual([
+      ['undo', 'redo'],
       ['bold', 'italic', 'strikethrough', 'link'],
-      ['paragraph', 'heading-1', 'heading-2', 'heading-3', 'quote'],
+      ['paragraph', 'heading-1', 'heading-2', 'heading-3', 'quote', 'code-block'],
       ['bullet-list', 'ordered-list', 'task-list', 'outdent?', 'indent?'],
       ['camera', 'image'],
     ]);
@@ -34,6 +35,8 @@ describe('toolbar manifest', () => {
 
   it('exec ids cover exactly the exec items', () => {
     expect(TOOLBAR_EXEC_IDS).toEqual([
+      'undo',
+      'redo',
       'bold',
       'italic',
       'strikethrough',
@@ -43,6 +46,7 @@ describe('toolbar manifest', () => {
       'heading-2',
       'heading-3',
       'quote',
+      'code-block',
       'bullet-list',
       'ordered-list',
       'task-list',

@@ -30,6 +30,24 @@ enum ToolbarSpec {
     static let groups: [[ToolbarItemSpec]] = [
         [
             ToolbarItemSpec(
+                id: "undo",
+                label: "Undo",
+                text: nil,
+                sfSymbol: "arrow.uturn.backward",
+                onlyInContainer: false,
+                action: .exec
+            ),
+            ToolbarItemSpec(
+                id: "redo",
+                label: "Redo",
+                text: nil,
+                sfSymbol: "arrow.uturn.forward",
+                onlyInContainer: false,
+                action: .exec
+            ),
+        ],
+        [
+            ToolbarItemSpec(
                 id: "bold",
                 label: "Bold",
                 text: nil,
@@ -100,6 +118,14 @@ enum ToolbarSpec {
                 label: "Block quote",
                 text: nil,
                 sfSymbol: "text.quote",
+                onlyInContainer: false,
+                action: .exec
+            ),
+            ToolbarItemSpec(
+                id: "code-block",
+                label: "Code block",
+                text: nil,
+                sfSymbol: "chevron.left.forwardslash.chevron.right",
                 onlyInContainer: false,
                 action: .exec
             ),

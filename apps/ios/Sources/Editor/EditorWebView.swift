@@ -185,8 +185,9 @@ final class EditorCompletionQueue {
 ///   { type: 'cursorContext', onListLine: <bool> }
 ///   { type: 'saveImageData', data: <base64>, ext: <string> }   (v4)
 ///   { type: 'pasteClipboardImage' }                            (v5)
-///   { type: 'formatState', active: [<toolbar id>] }   (Milkdown editor, unversioned —
-///     see bridge.ts's BRIDGE_VERSION doc comment; drives toolbar highlighting below)
+///   { type: 'formatState', active: [<toolbar id>], disabled: [<toolbar id>] }
+///     (Milkdown editor, unversioned — see bridge.ts's BRIDGE_VERSION doc
+///     comment; drives toolbar highlighting AND the Undo/Redo grey-out below)
 ///   { type: 'haptic', kind: 'lift' | 'move' | 'drop' } (Milkdown editor, unversioned —
 ///     the long-press block-drag path both native shells mount; drives the
 ///     impact and selection feedback generators below)
@@ -894,6 +895,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // editor never sends it, so this stays inert until the Milkdown
             // transition lands. Android does the same in EditorWebView.kt.
             toolbarState.activeFormats = Set(body["active"] as? [String] ?? [])
+            // QA-003: Undo/Redo greyed out with an empty prosemirror-history
+            // stack. Same message, same dedupe, additive field (bridge.ts).
+            toolbarState.disabledFormats = Set(body["disabled"] as? [String] ?? [])
         case .haptic:
             // Milkdown editor — the long-press block-drag path posts this on
             // lift and on a COMMITTED drop (never on a
