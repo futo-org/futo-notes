@@ -6,7 +6,9 @@ import { EditorState, TextSelection, type Transaction } from '@milkdown/kit/pros
 import {
   appendTableRowFromLastCell,
   handleParityKeyDown,
+  indentCodeBlockOnTab,
   insertTableRowBelow,
+  outdentCodeBlockOnShiftTab,
   splitCheckedTaskItem,
 } from './keyboardParity';
 import { testSchema } from './__fixtures__/schema';
@@ -25,6 +27,7 @@ const item = (text: string, checked: boolean | null = null): ProseNode =>
   s.nodes.list_item.create({ checked }, p(text));
 const bullets = (...items: ProseNode[]): ProseNode => s.nodes.bullet_list.create(null, items);
 const doc = (...blocks: ProseNode[]): ProseNode => s.nodes.doc.create(null, blocks);
+const code = (text: string): ProseNode => s.nodes.code_block.create(null, s.text(text));
 
 /** A 2-column table: header [a b], body rows [r1a r1b], [r2a r2b]. */
 const twoRowTable = (): ProseNode =>
@@ -195,6 +198,138 @@ describe('splitCheckedTaskItem', () => {
   it('declines a plain bullet item', () => {
     const start = stateWithCaretIn(doc(bullets(item('note', null))), 'note');
     expect(apply(start, splitCheckedTaskItem).handled).toBe(false);
+  });
+});
+
+/** A doc with one code block reading `text`, caret collapsed at `offset` within it. */
+function stateInCode(text: string, offset: number): EditorState {
+  const root = doc(code(text));
+  const state = EditorState.create({ doc: root });
+  return state.apply(state.tr.setSelection(TextSelection.create(root, 1 + offset)));
+}
+
+/** Same, but with a range selection `[from, to)` (both offsets within the code text). */
+function stateInCodeRange(text: string, from: number, to: number): EditorState {
+  const root = doc(code(text));
+  const state = EditorState.create({ doc: root });
+  return state.apply(state.tr.setSelection(TextSelection.create(root, 1 + from, 1 + to)));
+}
+
+describe('indentCodeBlockOnTab / outdentCodeBlockOnShiftTab (QA #011)', () => {
+  it('inserts two spaces at a collapsed caret', () => {
+    const start = stateInCode('const x = 1;', 0);
+    const { handled, state } = apply(start, indentCodeBlockOnTab);
+    expect(handled).toBe(true);
+    expect(state.doc.child(0).textContent).toBe('  const x = 1;');
+  });
+
+  it("inserts at the caret's own column, not the line start", () => {
+    const start = stateInCode('const x = 1;', 5);
+    const { state } = apply(start, indentCodeBlockOnTab);
+    expect(state.doc.child(0).textContent).toBe('const   x = 1;');
+  });
+
+  it('outdents from a collapsed caret at true line start, not "before the caret"', () => {
+    // The caret sits BEFORE the two leading spaces (column 0) — there is
+    // nothing "immediately before" it to strip, so outdent has to look at the
+    // LINE's own leading whitespace instead.
+    const start = stateInCode('  const x = 1;', 0);
+    const { handled, state } = apply(start, outdentCodeBlockOnShiftTab);
+    expect(handled).toBe(true);
+    expect(state.doc.child(0).textContent).toBe('const x = 1;');
+  });
+
+  it('outdents a single leading space when there is only one', () => {
+    const start = stateInCode(' x', 0);
+    const { state } = apply(start, outdentCodeBlockOnShiftTab);
+    expect(state.doc.child(0).textContent).toBe('x');
+  });
+
+  it('declines an outdent when the line has no leading whitespace', () => {
+    const start = stateInCode('x', 0);
+    expect(apply(start, outdentCodeBlockOnShiftTab).handled).toBe(false);
+  });
+
+  it("indents every line a multi-line selection touches, from each line's own start", () => {
+    const start = stateInCodeRange('one\ntwo\nthree', 0, 7); // "one\ntwo" fully
+    const { handled, state } = apply(start, indentCodeBlockOnTab);
+    expect(handled).toBe(true);
+    expect(state.doc.child(0).textContent).toBe('  one\n  two\nthree');
+  });
+
+  it('outdents every touched line by up to two spaces', () => {
+    const start = stateInCodeRange('  one\n  two\n  three', 0, 11); // "  one\n  two" fully
+    const { state } = apply(start, outdentCodeBlockOnShiftTab);
+    expect(state.doc.child(0).textContent).toBe('one\ntwo\n  three');
+  });
+
+  it('declines outside a code block', () => {
+    const start = stateWithCaretIn(doc(p('plain')), 'plain');
+    expect(apply(start, indentCodeBlockOnTab).handled).toBe(false);
+    expect(apply(start, outdentCodeBlockOnShiftTab).handled).toBe(false);
+  });
+});
+
+describe('handleParityKeyDown — Tab in a code block, and the Escape hatch (QA #011)', () => {
+  function fakeView(state: EditorState): {
+    view: { state: EditorState; dispatch(tr: Transaction): void };
+    current(): EditorState;
+  } {
+    let current = state;
+    const view = {
+      get state() {
+        return current;
+      },
+      dispatch(tr: Transaction) {
+        current = current.apply(tr);
+      },
+    };
+    return { view, current: () => current };
+  }
+  const key = (key: string, mods: Partial<KeyboardEvent> = {}): KeyboardEvent =>
+    ({
+      key,
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      isComposing: false,
+      ...mods,
+    }) as KeyboardEvent;
+
+  it('claims Tab inside a code fence and inserts two spaces', () => {
+    const { view, current } = fakeView(stateInCode('code', 0));
+    expect(handleParityKeyDown(view as never, key('Tab'))).toBe(true);
+    expect(current().doc.child(0).textContent).toBe('  code');
+  });
+
+  it('claims Shift-Tab inside a code fence and removes leading spaces', () => {
+    const { view, current } = fakeView(stateInCode('  code', 0));
+    expect(handleParityKeyDown(view as never, key('Tab', { shiftKey: true }))).toBe(true);
+    expect(current().doc.child(0).textContent).toBe('code');
+  });
+
+  it('Escape arms a one-shot release: the very next Tab falls through unclaimed', () => {
+    const { view, current } = fakeView(stateInCode('code', 0));
+    expect(handleParityKeyDown(view as never, key('Escape'))).toBe(false);
+    expect(handleParityKeyDown(view as never, key('Tab'))).toBe(false);
+    expect(current().doc.child(0).textContent).toBe('code'); // untouched
+  });
+
+  it('a released Tab claim is one-shot: the Tab after it is claimed again', () => {
+    const { view, current } = fakeView(stateInCode('code', 0));
+    handleParityKeyDown(view as never, key('Escape'));
+    handleParityKeyDown(view as never, key('Tab')); // released, unclaimed
+    expect(handleParityKeyDown(view as never, key('Tab'))).toBe(true);
+    expect(current().doc.child(0).textContent).toBe('  code');
+  });
+
+  it('typing any other key disarms the Escape release', () => {
+    const { view, current } = fakeView(stateInCode('code', 0));
+    handleParityKeyDown(view as never, key('Escape'));
+    handleParityKeyDown(view as never, key('x')); // not handled by this module, but disarms
+    expect(handleParityKeyDown(view as never, key('Tab'))).toBe(true);
+    expect(current().doc.child(0).textContent).toBe('  code');
   });
 });
 

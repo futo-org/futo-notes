@@ -72,6 +72,18 @@ async function settled(page: Page): Promise<void> {
   await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
 }
 
+/**
+ * Click at the START of the first text run equal to `text` (see
+ * `caretAtEndOf`). `Home` moves the caret through the browser's own native
+ * contenteditable handling too, so it needs the same `selectionchange` wait
+ * the click does — without it, the Backspace that follows sees the
+ * PRE-`Home` caret and misreads the item as one whose text is not at offset 0.
+ */
+async function caretAtStartOf(page: Page, text: string): Promise<void> {
+  await withCaretObserved(page, () => page.getByText(text, { exact: true }).first().click());
+  await withCaretObserved(page, () => page.keyboard.press('Home'));
+}
+
 /** The serialized table as trimmed cell texts per row, delimiter row dropped. */
 function tableRows(markdown: string): string[][] {
   return markdown
@@ -318,4 +330,131 @@ test('clicking blank space past a link places the caret instead of opening it', 
   await link.click();
   await flushFrames(page);
   expect(await messagesOfType(page, 'openUrl')).toHaveLength(1);
+});
+
+// ============================================================
+// Lists — Backspace at a nested item's own start keeps the indentation
+// (QA #004; docs/spec/editor.md "Markdown toolbar" family / keyboardParity.ts)
+//
+// These pin EXISTING behavior — `@milkdown/preset-commonmark`'s own
+// `liftFirstListItemCommand` (Backspace -> `joinBackward`) already does this
+// correctly, because `list_item` is `defining: true` in the schema, so no new
+// code was needed in keyboardParity.ts. Kept here as a regression guard: a
+// future preset upgrade that changed this default would be exactly the kind
+// of silent behavior drift these specs exist to catch.
+// ============================================================
+
+test('Backspace at the start of a nested item keeps its indentation', async ({ page }) => {
+  await open(page, '- a\n  - b');
+  await caretAtStartOf(page, 'b');
+  await page.keyboard.press('Backspace');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- a\n\n  b');
+});
+
+test('a second Backspace on that continuation paragraph joins it with the previous block', async ({
+  page,
+}) => {
+  await open(page, '- a\n  - b');
+  await caretAtStartOf(page, 'b');
+  await page.keyboard.press('Backspace');
+  await settled(page);
+  await page.keyboard.press('Backspace');
+  await settled(page);
+  // "b" is no longer its own continuation paragraph — it joined whatever
+  // precedes it in item "a" (the ordinary Backspace-join `joinBackward`
+  // already gives anywhere else), and there is only one list item left.
+  expect((await getContent(page)).trimEnd()).toBe('- ab');
+});
+
+test('Backspace at the start of a TOP-LEVEL item is unaffected (removes the marker only)', async ({
+  page,
+}) => {
+  await open(page, '- a\n- b');
+  await caretAtStartOf(page, 'b');
+  await page.keyboard.press('Backspace');
+  await settled(page);
+  const content = (await getContent(page)).trimEnd();
+  // Still one list item ("a"), and "b" is no longer a bullet of its own.
+  expect(content).not.toMatch(/^- b/m);
+  expect(content).toContain('a');
+  expect(content).toContain('b');
+});
+
+test('Backspace on a nested item with a following sibling leaves the sibling nested', async ({
+  page,
+}) => {
+  await open(page, '- a\n  - b\n  - c');
+  await caretAtStartOf(page, 'b');
+  await page.keyboard.press('Backspace');
+  await settled(page);
+  const content = (await getContent(page)).trimEnd();
+  expect(content).toBe('- a\n\n  b\n  - c');
+});
+
+test('Backspace on a nested item with a PRECEDING sibling joins the sibling instead of "a"', async ({
+  page,
+}) => {
+  // "b" joins "x" (whatever immediately precedes it), not "a" two levels up —
+  // the ordinary Backspace-join semantic, same as everywhere else in the doc.
+  await open(page, '- a\n  - x\n  - b');
+  await caretAtStartOf(page, 'b');
+  await page.keyboard.press('Backspace');
+  await settled(page);
+  const content = (await getContent(page)).trimEnd();
+  expect(content).toBe('- a\n  - x\n\n    b');
+});
+
+// ============================================================
+// Code blocks — Tab indentation (QA #011; keyboardParity.ts)
+// ============================================================
+
+test('Tab inside a code block inserts two spaces instead of moving focus out', async ({ page }) => {
+  await open(page, '```\nconst x = 1;\n```');
+  await caretAtStartOf(page, 'const x = 1;');
+  await page.keyboard.press('Tab');
+  await settled(page);
+  expect(await getContent(page)).toContain('```\n  const x = 1;\n```');
+});
+
+test('Shift+Tab inside a code block removes up to two leading spaces', async ({ page }) => {
+  await open(page, '```\n  const x = 1;\n```');
+  await caretAtStartOf(page, '  const x = 1;');
+  await page.keyboard.press('Shift+Tab');
+  await settled(page);
+  expect(await getContent(page)).toContain('```\nconst x = 1;\n```');
+});
+
+test('Tab over a multi-line selection in a code block indents every touched line', async ({
+  page,
+}) => {
+  await open(page, '```\none\ntwo\nthree\n```');
+  // `caretAtStartOf` matches a text node EXACTLY, which a multi-line code
+  // block's single text node ("one\ntwo\nthree") never does — a plain,
+  // non-exact match is unambiguous here instead.
+  await withCaretObserved(page, () => page.getByText('one').first().click());
+  await withCaretObserved(page, () => page.keyboard.press('Home'));
+  await withCaretObserved(page, () => page.keyboard.press('Shift+ArrowDown')); // start of "two"
+  await withCaretObserved(page, () => page.keyboard.press('Shift+End')); // end of "two"
+  await page.keyboard.press('Tab');
+  await settled(page);
+  expect(await getContent(page)).toContain('```\n  one\n  two\nthree\n```');
+});
+
+test('Escape then Tab releases the code-block claim for the next Tab only', async ({ page }) => {
+  await open(page, '```\ncode\n```');
+  await caretAtStartOf(page, 'code');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Tab');
+  // The released Tab moved focus off the editor onto the block's own chrome
+  // (the ⋮ menu) rather than the fence — the editor no longer has the caret,
+  // so nothing typed next reaches the code block.
+  await expect(page.locator('.ProseMirror')).not.toBeFocused();
+  await page.locator('.ProseMirror').click();
+  await caretAtStartOf(page, 'code');
+  await page.keyboard.type('x'); // re-arms the claim
+  await withCaretObserved(page, () => page.keyboard.press('Home'));
+  await page.keyboard.press('Tab');
+  await settled(page);
+  expect(await getContent(page)).toContain('  xcode');
 });

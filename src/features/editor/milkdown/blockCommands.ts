@@ -206,30 +206,32 @@ function liftUntilOut(stillInside: (state: EditorState) => boolean, liftOnce: Co
   };
 }
 
-/** The innermost `list_item` wrapping each textblock in `[from, to]`. */
-function listItemsInRange(
-  doc: ProseNode,
-  from: number,
-  to: number,
-): { itemPos: number; listPos: number }[] {
-  const seen = new Set<number>();
-  const found: { itemPos: number; listPos: number }[] = [];
+/** The position of every LIST (bullet_list/ordered_list) with a textblock in `[from, to]`. */
+function listsTouchedByRange(doc: ProseNode, from: number, to: number): Set<number> {
+  const listPositions = new Set<number>();
 
   doc.nodesBetween(from, to, (node, pos) => {
     if (!node.isTextblock) return true;
     const at = doc.resolve(pos);
     const depth = ancestorDepth(at, 'list_item');
-    if (depth > 1) {
-      const itemPos = at.before(depth);
-      if (!seen.has(itemPos)) {
-        seen.add(itemPos);
-        found.push({ itemPos, listPos: at.before(depth - 1) });
-      }
-    }
+    if (depth > 1) listPositions.add(at.before(depth - 1));
     return false;
   });
 
-  return found;
+  return listPositions;
+}
+
+/** The position of every `list_item` directly inside the list at `listPos`. */
+function itemsOfList(doc: ProseNode, listPos: number): number[] {
+  const list = doc.nodeAt(listPos);
+  if (!list) return [];
+  const positions: number[] = [];
+  let offset = listPos + 1; // just inside the list, before its first child
+  list.forEach((item) => {
+    positions.push(offset);
+    offset += item.nodeSize;
+  });
+  return positions;
 }
 
 /**
@@ -238,16 +240,27 @@ function listItemsInRange(
  * a nested item the user never asked to outdent.
  *
  * The list NODE's type is per-list (markdown has no mixed bullet/ordered list),
- * so the whole enclosing list converts; `checked` is per-item, so only the
- * items the selection touches become (or stop being) tasks. `listType` has to
- * move with the node type or the preset's `syncListOrderPlugin` converts it
- * straight back.
+ * so the whole enclosing list converts, and every ITEM in that list has to
+ * convert too — not only the ones the selection/caret touches.
+ *
+ * QA #002: converting only the touched items' `listType` attr left untouched
+ * siblings holding the OLD kind's attrs even though the shared container node
+ * now read as the new kind. That went unnoticed for bullet -> ordered, because
+ * the preset's `syncListOrderPlugin` (`@milkdown/preset-commonmark`)
+ * self-heals it: it forces every `list_item` under an `ordered_list` to
+ * `listType: "ordered"`, so the desync got silently patched up for free. But
+ * that plugin has no rule the other way — converting ordered -> bullet with
+ * the caret on one line only flips that item and the container, and the
+ * plugin then finds the CONTAINER's first child still marked
+ * `listType: "ordered"` and promotes it straight back to `ordered_list`,
+ * silently undoing the toggle the user just pressed. Writing every item's
+ * attrs, not only the touched ones, closes both directions.
  */
 function retargetList(target: BlockFormat): Command {
   return (state, dispatch) => {
     const { from, to } = state.selection;
-    const items = listItemsInRange(state.doc, from, to);
-    if (items.length === 0) return false;
+    const listPositions = listsTouchedByRange(state.doc, from, to);
+    if (listPositions.size === 0) return false;
 
     const wantOrdered = target.kind === 'ordered';
     const listType = nodeType(state.schema, wantOrdered ? 'ordered_list' : 'bullet_list');
@@ -256,18 +269,20 @@ function retargetList(target: BlockFormat): Command {
     const tr = state.tr;
     // Every edit below is a `setNodeMarkup`, which never changes a node's size,
     // so the positions collected against the starting doc stay valid.
-    for (const { itemPos } of items) {
-      const item = state.doc.nodeAt(itemPos);
-      if (!item) continue;
-      tr.setNodeMarkup(itemPos, undefined, {
-        ...item.attrs,
-        checked: target.kind === 'task' ? (item.attrs.checked ?? false) : null,
-        listType: wantOrdered ? 'ordered' : 'bullet',
-        ...(wantOrdered ? {} : { label: '•' }),
-      });
+    for (const listPos of listPositions) {
+      for (const itemPos of itemsOfList(state.doc, listPos)) {
+        const item = state.doc.nodeAt(itemPos);
+        if (!item) continue;
+        tr.setNodeMarkup(itemPos, undefined, {
+          ...item.attrs,
+          checked: target.kind === 'task' ? (item.attrs.checked ?? false) : null,
+          listType: wantOrdered ? 'ordered' : 'bullet',
+          ...(wantOrdered ? {} : { label: '•' }),
+        });
+      }
     }
 
-    for (const listPos of new Set(items.map((i) => i.listPos))) {
+    for (const listPos of listPositions) {
       const list = state.doc.nodeAt(listPos);
       if (!list || list.type === listType) continue;
       tr.setNodeMarkup(listPos, listType, {
