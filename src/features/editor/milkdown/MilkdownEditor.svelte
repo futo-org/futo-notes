@@ -1879,10 +1879,14 @@
     color: var(--color-muted, #737373);
   }
 
+  /* #016: `--color-surface` (used by `pre` below) sits only a few L* units
+     off `--color-bg` in dark mode, so an inline code span read as barely
+     distinguishable from the page. `--color-code-bg` is tuned for a clearly
+     visible step in both themes (theme.css). */
   :global(.futo-milkdown .ProseMirror code) {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.9em;
-    background: var(--color-surface, #f2f2f2);
+    background: var(--color-code-bg, #e2e2e2);
     border-radius: 4px;
     padding: 0.1em 0.3em;
   }
