@@ -71,6 +71,7 @@
   import { blockDropIndicator } from './blockDropIndicator';
   import { retargetListDragToItem } from './listItemHandleDrag';
   import { editorView, enclosingListItem } from './caretContext';
+  import { dividerCaretFix } from './dividerCaret';
   import { computeActiveFormats } from './formatState';
   import { handleParityKeyDown } from './keyboardParity';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
@@ -573,6 +574,8 @@
         .use(clipboard)
         .use(gapCursorPlugin)
         .use(trailing)
+        // AFTER trailing (dividerCaret.ts's header comment says why).
+        .use(dividerCaretFix)
         .use(tagDecorations)
         .use(taskCheckbox)
         .use(codeHighlight);
