@@ -408,9 +408,9 @@ mod tests {
     /// rotated without re-minting, every test below that expects Licensed goes
     /// red — which is the correct red.
     const KEY: &str = "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78";
-    const ACTIVATION: &str = "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.6Os6nS_93GOGFt5fd4k3XvtQsGMJ-x8Zct9RjZrZxdvHMAYtv6gvhvDcKf7sKzqk3eJZbtYuZDYwMykumVtESj-49_4HtolXbZRNyqJPzwZDmAWK7_9ZJuD50rxQokv1-p6oEdVX-eFANw9o0SI_kxEFQeVabto3ZwGEFqzNODlSObksC8SgmEbHfJFrtUgPXy8TbcRfFAsfNKSWFSvYEIRe2RFHcU9pG6XFd_h5kH0GGOjUmJM778C38rDyz6aedxVaMRkLjCfgJzaDqY7tB-c2ieYxjk_6AwPu3W2Sy4rDhJlFOdWghG96j0LOaQgc-wS_gyqQysPJBtw5G03fZg";
+    const ACTIVATION: &str = "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.FGk9lAe8Bh-RumaXsq5guBjWK_CnwZK1UI2qwyiA7_P1j5T-XnX9FJmPZGgaxbALE5vAJO4wqLbJwPduYQMJwQekUfHnh_wo5i4leOzaspS2NlUltCc7kDmB0--BVuWuxU5TWqHfmBop49MFfIZ4zysQ9WSvh8DQ77cJeOv8QI5Sg1y1ThMEeColOxM8QSITNMr3Zo1vAhZxYv4chJw1YQYjop_EAD18L-_oqrlk48v_9EeS-OoQar46Q0hoGR-TKP03TgZs18dVZIeJOZ_k9eQTHaE2vkNXvG59lTDvKyZSKouOJ2rgiyoZV0a65BujEN-rNOyatiauydFjCb2FSw";
     /// The same staging key, `expires_at: null` — the perpetual vector.
-    const PERPETUAL_ACTIVATION: &str = "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6bnVsbH0.PUDx1XyTRbde9afyBaTPpYbGN346wKTNZ0vfeXIMXSMdNbkTarm42T5BZKjrOmddYoT3usZMVVPsOn3ORWGzOyTFIPXs2ZFy51BeBogF59V6QY9MM7uPh8iY8r0tRlJJrm-0iN_2z9u9-PsPneenk6iUxXuWYjhZ5H_-yQQrssPEHyh2lgdYNcDLeA0qummpl71wJybMrQmOVOvCDQUyCgjTB4RcQrwqaxGA5WCVHZant9a2w-YG9vutL7Ltumee9ze6PjJPCHgGlZqzyKHMdGwkV_xWqepzJ1mXhBI5RHNRaT_Ff_z_msA8UVr2Kdd9aQzJEKNgKwD4DuUtlplCeg";
+    const PERPETUAL_ACTIVATION: &str = "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6bnVsbH0.bHkw2cpKuILrZGtqVJwe9-wZmQ6z8seiQQZDvzqoJWyw3AU0WWpnH6JTxrfIUZbG8Pwf7sQ7ztT6nckFcLLz1cTTFLQnYeksSLEKdeCuDRKQN-a9x3zNGODXo2Y4fx2iuYl7PJZeclwJYqVuiGfVbYeUrWUv34HQ7hsuhXJZslfRVF-iY-2h1F1dzH5gvhNxe6T-DuW-ccbHqFX3pPbqUN95MFimMK_gnw2ViMkiGmPVjSSh6Ey2J-BC9vVqW2Sjw05TRQqztLhjjsUdjcTvo9JPBpvyxeVoYiiCwkNqih0NEIEY2McI2oFHvAKMeep2jTMsLeRrwDcT2NSr_QOSEg";
 
     /// The same staging key in the **v1** format — a bare base64url signature
     /// over the license key, with no envelope and no payload. This is what
@@ -418,7 +418,7 @@ mod tests {
     /// purchase would hand a `.dev` build. Accepted alongside v2 (decision
     /// 2026-09-10, issue #161); it carries no product, no purchase time and no
     /// expiry, and none of those may be invented on its behalf.
-    const V1_ACTIVATION: &str = "RFZu4WZF_gsjAPooQ-60gaa47IQs1-IwMCZ9zuBho_C8D5RmvTkNCgFqSEzaMPlN9DZiq8tZ1Mb2NssPDyYA906hEBOLMU3L4S_3UZfALogimhzjxPQMHg0zqU3WKtrP3kuSxz6n3KW9IELQez60g4W32i37eicx-pCIoqneM61f2R4N0xQ57f_Y-IAe-CyuvLXP5bmOjSeXhCBoZNkhzhHy_yqn-bRPHGPCudILHX5VtHJ4THfMdJ6Rwb-DVlEYbSsaiTFUxPG-UcTJej7e2ODsaIbZ63K2tOrg5IO9NU8FvrWCavPN1xt9Jhaf124Vpdob7Kgpem1hlDWaUb-4kw";
+    const V1_ACTIVATION: &str = "bCGCpEu8pHvonpu0PS70awp-0mrKwow7FPDy583H8nAeqLc5_t7VjzyQzpKumfOX5sYQf9l2qjaGw5_LBdrBVjTYGi3sQhzHcIY2_s8SNZ5yGsFmWlDZjLrrp7yBY3l8GtV-kIoEpp9qfn3M5BNRcLtXzifP4Vqhn39H4czjimEpV_8yAeTVSOKoZC7icSTsucZ_0JdQuTCNVHJ6rkKd8UDnKsJiPreAymEFcXTSjKtGpLpMIf1TZELV_GkjRlg7cJF9uoneudD9rgPQM5j09kYmKSDnE8TarePm5JyCIM5HCXrBwOJGNh3qOhuediQb8yYu6u3cr06q6ZTqqeAIvw";
 
     /// A `.dev` bundle id — what both native dev builds run under (M3).
     const DEV_BUNDLE_ID: &str = "com.futo.notes.dev";

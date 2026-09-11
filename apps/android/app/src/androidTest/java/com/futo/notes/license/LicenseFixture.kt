@@ -19,13 +19,13 @@ package com.futo.notes.license
 object LicenseFixture {
     const val KEY = "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
     const val ACTIVATION =
-        "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0Ijoi" +
-            "ZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIw" +
-            "MjktMDEtMTVUMTA6MzA6MDBaIn0.6Os6nS_93GOGFt5fd4k3XvtQsGMJ-x8Zct9RjZrZxdvHMAYtv6gvhvDc" +
-            "Kf7sKzqk3eJZbtYuZDYwMykumVtESj-49_4HtolXbZRNyqJPzwZDmAWK7_9ZJuD50rxQokv1-p6oEdVX-eFA" +
-            "Nw9o0SI_kxEFQeVabto3ZwGEFqzNODlSObksC8SgmEbHfJFrtUgPXy8TbcRfFAsfNKSWFSvYEIRe2RFHcU9p" +
-            "G6XFd_h5kH0GGOjUmJM778C38rDyz6aedxVaMRkLjCfgJzaDqY7tB-c2ieYxjk_6AwPu3W2Sy4rDhJlFOdWg" +
-            "hG96j0LOaQgc-wS_gyqQysPJBtw5G03fZg"
+        "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZ" +
+            "nV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktM" +
+            "DEtMTVUMTA6MzA6MDBaIn0.FGk9lAe8Bh-RumaXsq5guBjWK_CnwZK1UI2qwyiA7_P1j5T-XnX9FJmPZGgaxbALE" +
+            "5vAJO4wqLbJwPduYQMJwQekUfHnh_wo5i4leOzaspS2NlUltCc7kDmB0--BVuWuxU5TWqHfmBop49MFfIZ4zysQ9" +
+            "WSvh8DQ77cJeOv8QI5Sg1y1ThMEeColOxM8QSITNMr3Zo1vAhZxYv4chJw1YQYjop_EAD18L-_oqrlk48v_9EeS-" +
+            "OoQar46Q0hoGR-TKP03TgZs18dVZIeJOZ_k9eQTHaE2vkNXvG59lTDvKyZSKouOJ2rgiyoZV0a65BujEN-rNOyat" +
+            "iauydFjCb2FSw"
 
     /**
      * The same license key in the **v1** format — a bare base64url signature
@@ -34,10 +34,10 @@ object LicenseFixture {
      * time and no expiry to show (issue #161).
      */
     const val V1_ACTIVATION =
-        "RFZu4WZF_gsjAPooQ-60gaa47IQs1-IwMCZ9zuBho_C8D5RmvTkNCgFqSEzaMPlN9DZiq8tZ1Mb2NssPDyYA906h" +
-            "EBOLMU3L4S_3UZfALogimhzjxPQMHg0zqU3WKtrP3kuSxz6n3KW9IELQez60g4W32i37eicx-pCIoqneM61f2R4N" +
-            "0xQ57f_Y-IAe-CyuvLXP5bmOjSeXhCBoZNkhzhHy_yqn-bRPHGPCudILHX5VtHJ4THfMdJ6Rwb-DVlEYbSsaiTFU" +
-            "xPG-UcTJej7e2ODsaIbZ63K2tOrg5IO9NU8FvrWCavPN1xt9Jhaf124Vpdob7Kgpem1hlDWaUb-4kw"
+        "bCGCpEu8pHvonpu0PS70awp-0mrKwow7FPDy583H8nAeqLc5_t7VjzyQzpKumfOX5sYQf9l2qjaGw5_LBdrBVjTYGi3s" +
+            "QhzHcIY2_s8SNZ5yGsFmWlDZjLrrp7yBY3l8GtV-kIoEpp9qfn3M5BNRcLtXzifP4Vqhn39H4czjimEpV_8yAeTVSOKo" +
+            "ZC7icSTsucZ_0JdQuTCNVHJ6rkKd8UDnKsJiPreAymEFcXTSjKtGpLpMIf1TZELV_GkjRlg7cJF9uoneudD9rgPQM5j0" +
+            "9kYmKSDnE8TarePm5JyCIM5HCXrBwOJGNh3qOhuediQb8yYu6u3cr06q6ZTqqeAIvw"
 
     /** What the FUTOpay activate-redirect page opens. */
     val deepLink: String get() = "futonotes://license/$KEY/$ACTIVATION"

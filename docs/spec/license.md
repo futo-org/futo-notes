@@ -43,6 +43,19 @@ Polar and neither produced a key — see the bare-key Gap, which now records the
 cause. Still unproven, and recorded in the Gaps rather than here: the bare key's
 200 branch, and the macOS LaunchServices hop.
 
+2026-09-11 closed the bare key's 200 branch and re-pointed the staging key. The
+baked `STAGING_PUBLIC_KEY_BASE64` had been the 1Password pair, which **no
+deployment has ever held** — FUTOpay generates an org's key itself at org
+creation and never reads the `POLAR__ORGS__*__PRIVATE_KEY` the manifest injects
+(lib-polar issue #1) — so every license staging could mint would have verified
+as Invalid. The constant is now the key staging actually signs with, proven by
+re-signing a server-minted license key with the deployed private half and
+reproducing the server's activation byte for byte, and every staging-signed
+fixture was re-minted against it. A real staging-minted license was then driven
+on iOS through both entry paths: the bare key over the network (200, "Licensed")
+and the OS deep link, plus Remove back to Unlicensed. What still does not work is
+**buying** one — see the purchase-delivery Gap.
+
 ## Principles
 
 - **Nothing is gated.** Every feature works identically licensed or not. The
@@ -295,6 +308,17 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   - 200 but the pair fails verification → "This license key isn't valid".
   The request carries no identifiers beyond the key; there is no retry loop and
   no background re-attempt.
+  The 200 branch was first seen from the real server on 2026-09-11, once a key
+  existed to ask about (minted without a purchase through
+  `/admin/createkey/futo-notes/futo-notes-license` — buying one still does not
+  deliver a key, see the Gaps). *(ios)* On a dev build, key field → the bare key
+  alone → **Activate**: one `GET /api/v1/activate/{key}`, **200**, a **v1**
+  activation, and the row flipped to the single word "Licensed" with **Remove
+  license** as its only action; the stored activation is byte-for-byte the 342
+  chars the endpoint returned, and Remove put the device back to Unlicensed with
+  both preference keys gone. A server-minted key carries **no org prefix** — the
+  `futo-notes` org's `prefix` column is empty — and is eight groups of four from
+  the restricted alphabet, so the shipped grammar takes it unchanged.
 - The key field is reachable only from the **Unlicensed** and **Expired** rows:
   the Licensed row's only action is **Remove license**
   (`license_row_actions`), so there is no "Enter license key" while a license is
@@ -538,69 +562,35 @@ not the rules, is what this section records.
 > **Gap:** No in-app restore by e-mail — lost keys go to support@futo.tech; the
 > newer futopay Android library's restore page is not adopted.
 
-> **Gap:** The bare-key path's **success** answer has never been seen from a
-> real server. `staging-pay2.futo.org` is up and answers the endpoint — QA on
-> iOS 2026-09-09 entered the fixture key on a dev build and got a genuine 404
-> (`{"detail":"Not a valid License Key - No product found."}`), rendered as
-> "This license key isn't valid" with nothing stored, which is the specified
-> behavior. As of 2026-09-10 the staging org key pair exists and the storefront
-> sells the product (`checkout/polar/futo-notes/futo-notes-license/price`), but
-> no key has been minted, and the endpoint still answers that same 404 for any
-> key offered to it, so the 200 branch —
-> activation text returned, then verified against the staging key — is pinned
-> only by the conformance goldens and
-> `a_bare_key_makes_exactly_one_staging_request`. Android and desktop QA reached
-> the same 404 on 2026-09-09, so **all three** clients have now exercised the
-> request against the real staging host and none has seen a 200. Only the 200
-> branch is still unproven at runtime.
+> **Gap:** A **purchase** does not deliver a license key. Two server-side faults,
+> both observed 2026-09-10/11 against `staging-pay2.futo.org` and the Polar
+> sandbox, neither of them client bugs:
 >
-> **It no longer unblocks by minting a key, because minting is what is broken.**
-> The #160 release gate carried two *real* staging purchases through the deployed
-> checkout on 2026-09-10 — the FUTOpay `checkout-ready` page, then Polar's hosted
-> checkout in the sandbox (Stripe test mode, `pk_test_…`), $14.99 each. Polar
-> reports both as `status: "succeeded"` (checkouts
-> `4835cde5-01d4-4976-bb12-5882341ef2d5` and
-> `e9e277a7-0404-4766-b76f-9c27a407f071`, customer
-> `144d264e-9bcc-4afe-b0e3-31ccb56c682c`). **No license key was produced by
-> either.** `GET /payment-complete?app_session_id={id}` 307s to
-> `GET /api/v1/../api/checkout-status/{id}?client_secret=…`, which blocks for
-> ~66s and then answers HTTP 400
-> `{"status":"error","message":"Too many benefit grant check attempts","error":"Purchase not confirmed by Polar yet"}`
-> — deterministically, on the first call as well as later ones, for a checkout
-> Polar itself already reports as succeeded. So the purchase half of the round
-> trip works and the **delivery** half does not: the paid-for key is never
-> minted, never shown, and (as far as this gate could observe) never sent.
-> `GET /api/v1/activate/{key}` still answers 404
-> `{"detail":"Not a valid License Key - No product found."}` for every key,
-> including the fixture key, because there is still no key to find.
+> 1. *No benefit was attached to the Polar product.* FUTOpay mints its own key but
+>    gates on Polar's benefit grant as proof of purchase — `_confirm_polar_checkout`
+>    requires the checkout's product to carry **exactly one** benefit and the buyer
+>    to hold a grant for it before `create_key_func` runs. `futo-notes-license`
+>    carried none, so every purchase died at `{"detail":"No benefits found for
+>    checkout session"}`. A custom benefit ("FUTO Notes License", mirroring
+>    futo-music's) was attached 2026-09-10; this half is fixed.
+> 2. *Polar's sandbox stopped creating benefit grants.* With the benefit attached,
+>    three further real sandbox purchases (orders `f585da59`, `42c1af67`, and one
+>    more; Stripe test mode, $14.99) were `paid` at Polar and produced **zero**
+>    grants, so FUTOpay answers HTTP 400
+>    `{"status":"error","message":"Too many benefit grant check attempts","error":"Purchase not confirmed by Polar yet"}`
+>    — which is also what a buyer sees, as raw JSON, instead of a key page. The
+>    control rules out our configuration: a purchase on **futo-music**, whose 24
+>    orders of 2026-09-08 each produced a grant within ~1s with config untouched
+>    since, also produced none (order `c64da902`). No `benefit_grant.created`
+>    appears in Polar's delivery log for any of them. Polar-side; unresolved.
 >
-> **Root cause, from Polar's own view of the product:** the checkout object's
-> `product.benefits` is `[]` — the staging Polar product has **no benefit
-> attached**. FUTOpay's post-payment step polls Polar for a *benefit grant*
-> before it mints and signs the key, so with no benefit on the product there is
-> nothing to grant, the poll can never succeed, and it exhausts its attempts and
-> reports "not confirmed by Polar yet". The fix is therefore a **product
-> configuration** change in the Polar sandbox org (attach the benefit FUTOpay
-> expects), not a code change in this repo — which is why no client work can
-> close this gap.
->
-> This is a **server-side** defect in FUTOpay/staging-pay2, not a client one: the
-> client's job begins once a user holds a key, and all three clients render the
-> 404 branch correctly. It is nonetheless what keeps the 200 branch unproven, and
-> it means **no user could complete a purchase end to end today even if the app
-> shipped**. Closing this needs a FUTOpay fix (or a key minted by hand), after
-> which one bare-key entry on any client closes both halves at once. Whether the
-> key is e-mailed on success is also unverified — the checkout page promises
-> "We'll use this email to send you your license key", and no e-mail could be
-> observed from here.
->
-> The offline ("Connect to the internet to activate this key") branch is **no
-> longer** fixture-only: the #156 release gate drove it on all three clients by
-> pointing only the app's own process at a dead proxy — `SIMCTL_CHILD_HTTPS_PROXY`
-> / `HTTP_PROXY=http://127.0.0.1:1` — which starves that one process of network
-> without touching the host, and each client showed the specified toast and
-> stored nothing. The same technique proved shapes 2 and 3 activate with the
-> network genuinely gone, rather than by reading the crate.
+> *Compounding it:* every Polar webhook to staging FUTOpay is rejected **403
+> `Invalid webhook signature`** (519 consecutive attempts; Polar auto-disabled the
+> endpoint 2026-09-10T23:26Z), so the webhook fulfilment path is dead too. The
+> secret matches on both sides — the derivations do not:
+> `polar_sdk._webhooks.validate_event` base64-**encodes** the whole secret string,
+> so FUTOpay HMACs the literal `whsec_…`, while a Standard-Webhooks signature
+> (strip prefix, base64-decode, HMAC those bytes) is refused.
 
 > **Gap:** No revocation check — refunded or revoked keys stay valid on
 > activated devices because the license module makes no background requests.
@@ -613,11 +603,25 @@ not the rules, is what this section records.
 > private half was discarded — a release build therefore reports every user
 > Unlicensed, which is fail-closed, and no license can be minted for it by
 > anyone. Dropping the real key in is a one-line change to that constant.
-> `STAGING_PUBLIC_KEY_BASE64` is **no longer** a placeholder: since 2026-09-10 it
-> is the real FUTO Notes staging org key (DER SPKI SHA-256
-> `ca4a8698…31514`, pinned by `the_staging_key_is_the_real_staging_org_key`), and
+> `STAGING_PUBLIC_KEY_BASE64` is **no longer** a placeholder: since 2026-09-11 it
+> is the key the staging deployment actually signs with (DER SPKI SHA-256
+> `fca4b6a4…29a23`, pinned by `the_staging_key_is_the_real_staging_org_key`), and
 > the fixture license every dev build is driven with is signed by it rather than
 > by the conformance pair. → `crates/futo-notes-license/src/config.rs`
+>
+> From 2026-09-10 to 2026-09-11 it was a *different* real key (`ca4a8698…31514`,
+> the 1Password `staging-polar-orgs-futo-notes-privk` pair), which **no
+> deployment has ever held** — so every license staging minted verified as
+> Invalid. FUTOpay generates an org's pair itself in `initialize_organizations`
+> when the org row is first inserted and never replaces it
+> (`auto_upsert_organization` omits both key columns from its `ON CONFLICT`), and
+> although `manifest-inventory` injects
+> `POLAR__ORGS__FUTO_NOTES__PRIVATE_KEY` from 1Password, no branch of lib-polar
+> reads that variable outside its test suite (lib-polar issue #1). **The
+> authority for either environment's key is therefore the live endpoint**, `GET
+> {pay2}/checkout/polar/futo-notes/activation/public-key` — which is what FUTO
+> Music bakes for both of its environments too. Re-mint the staging-signed
+> fixtures whenever it moves.
 >
 > **The production Buy destination does not exist either, and that is the wider
 > half of the same gap.** Verified 2026-09-10 (#160):

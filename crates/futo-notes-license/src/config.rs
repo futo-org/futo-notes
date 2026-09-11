@@ -64,20 +64,33 @@ const STAGING_PAY2_BASE_URL: &str = "https://staging-pay2.futo.org";
 pub const PRODUCTION_PUBLIC_KEY_BASE64: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3tL0DeuTWvGfzvamMzbJf6BbdjhiWMh8Dvi7ufKpSP8RRnhgRbNWUsrCCBdnF2mQk1Yw9vtUH4OemiU+Gik2io0KKK+4aj0qiP5h9cdEpCVDzFQPeagBftAu7RM7LF1/M+I5BjnugdOoi91R7l8HFmIIoYNTqPEV09VGBayEoTuMfmQJtcZumn8fmzZUtwJFdMzvubuCBIsSeq2U5s+Dz+umZHNhZ+0174P0KBjTCmOEZyyz88BTFysTeXOY/ZTgA4GtLGSntbCeEhtD7bRBrGL8n0UH8eISjlK/lEDvIzWRDRNyiIvfjTvnMtyj2A9ngJGP+dyRB8AS4DetI46eqQIDAQAB";
 
 /// The real FUTO Notes **staging** org public key (SHA-256 of this DER
-/// SubjectPublicKeyInfo is `ca4a8698…31514`, pinned by
+/// SubjectPublicKeyInfo is `fca4b6a4…29a23`, pinned by
 /// `the_staging_key_is_the_real_staging_org_key` below).
 ///
-/// Its private half lives in the FUTOpay staging deployment and in 1Password —
-/// never in this repo — so a staging license can only be minted by staging or by
-/// someone holding that key. It was a placeholder until 2026-09-10, and for a
-/// while that placeholder was the conformance fixture's own public key so a
-/// `.dev` build could be driven with a committed fixture license. It is not any
-/// more: `tests/conformance/license.json` keeps its self-contained test-only
-/// pair (the conformance suite reads the key out of the fixture, never from
-/// here), and everything that has to verify on a real `.dev` build — the native
-/// `LicenseFixture` pair and the FFI contract tests — is signed by this key
-/// instead. Re-mint those with `node scripts/gen-license-fixture.mjs --staging`.
-pub const STAGING_PUBLIC_KEY_BASE64: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6YnYVcEdpBkzOuffdse/2q18Pi/uq7rHdyhIDCKxzqh2LeJDmURFSi97SbhsgVNmIdezKhGSsc18WNeVCehiXIvTfh7JI1RCAvJ1o1FP/HR9BYorNCcKe+nXMyBIfmMv04+A3BmqhECdoMUvokSKwyjNwVYSJImcdy648ZQtLLmAiuJgIrKMbHgIEinQdHmA51kpZkjyhZvzMIhNPU6m3JW80uvXF5WE3VK2xNb+3IHWzcy3tWNoY9NWDItn9wE57ucyyZpMNcT6lWn8X9dQD4G3o0h/V5aHe3Mpli4NbBhKoEea2H1KuLxa1enC3Bmudc4wjWKkgGpRmWBRpgLNkwIDAQAB";
+/// **The deployment generates this pair; nothing installs one into it.** FUTOpay
+/// mints an org's RSA pair in `initialize_organizations` the moment the org row
+/// is first inserted, and `auto_upsert_organization` never overwrites the two
+/// key columns afterwards, so the key is fixed at org creation and no redeploy
+/// moves it. `manifest-inventory` does inject
+/// `POLAR__ORGS__FUTO_NOTES__PRIVATE_KEY` from 1Password, but no branch of
+/// lib-polar reads that variable outside its test suite — which is why this
+/// constant held an uninstalled 1Password pair (`ca4a8698…`) until 2026-09-11
+/// and every real staging license verified as Invalid. The authority is
+/// `GET {pay2}/checkout/polar/futo-notes/activation/public-key`; FUTO Music
+/// bakes both of its keys straight from the same endpoints. If lib-polar is
+/// ever fixed to honor the manifest, this constant moves back — one line here
+/// plus re-minted fixtures.
+///
+/// Its private half lives only in the FUTOpay staging deployment (and belongs in
+/// 1Password, whose `staging-polar-orgs-futo-notes-privk` field is a different,
+/// never-deployed key) — never in this repo, so a staging license can only be
+/// minted by staging or by someone holding that key. `tests/conformance/
+/// license.json` keeps its self-contained test-only pair (the conformance suite
+/// reads the key out of the fixture, never from here), and everything that has
+/// to verify on a real `.dev` build — the native `LicenseFixture` pair and the
+/// FFI contract tests — is signed by this key instead. Re-mint those with
+/// `node scripts/gen-license-fixture.mjs --staging`.
+pub const STAGING_PUBLIC_KEY_BASE64: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1ojmpH9aYrzxzMqzkxHhTzxT4ZKmZTCy6kamwvDRGWKD6mRhbrAfD0d4HoiKPMDif5U2s4kKmJcbBk5PkqhbIdT7gIo/EUwCQpcd0waE8aRE0jS9+U+AWn0GaKQb/86/lrVBpSWHspSeJURxMP0PDDw86NUOPhJmgAxg93P+N/zIUoZ6flJFarIDM57FVgraS9OyH6zu9V3uDpKwKysDnTYZoLHevF9vCuQffoGYOh0s95XPyzQxzcLqkD1lrfAZcp0yInzPnmLAtJ/l6/CFkcb11tWcUZ7zBOUa6GdpBfccbF2PF79gjr4lvaQMZH4ObrAqycwqrfcLyrQYOQaDwQIDAQAB";
 
 /// Which FUTOpay org this build talks to and verifies against.
 ///
@@ -252,7 +265,7 @@ mod tests {
         let fingerprint: String = digest.as_ref().iter().map(|b| format!("{b:02x}")).collect();
 
         assert_eq!(
-            fingerprint, "ca4a8698f9784a77318d47115c53757bd89a52ca5f23f012f66b356056431514",
+            fingerprint, "fca4b6a4c48cf730aa5b7cbf7c59145eda30dee9e96414eb9c378dd202e29a23",
             "STAGING_PUBLIC_KEY_BASE64 is not the FUTO Notes staging org key — \
              if this was deliberate, re-mint every staging-signed fixture with \
              `node scripts/gen-license-fixture.mjs --staging` and update this \
