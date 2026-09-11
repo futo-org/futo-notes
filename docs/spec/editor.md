@@ -1259,10 +1259,20 @@ EditorWebView.swift, EditorWebView.kt
   end-to-end on the Android emulator 2026-06-22. When the WebView hides the
   bitmap from the JS paste event (no File — WKWebView/WebKitGTK), the embed
   instead posts the payload-less `pasteClipboardImage` message (bridge contract
-  v5) and the host reads the image off the native clipboard. →
+  v5) and the host reads the image off the native clipboard. Android ALSO takes
+  this fallback for a THIRD clipboard shape (QA #006, 2026-09-11): copying an
+  image out of Photos/Files/Gallery/Drive (or a browser's "Copy image") puts a
+  `content://` URI on Android's clipboard as `text/plain`, not a `File` —
+  `classifyImagePaste` recognizes that scheme and claims it as a hidden bitmap,
+  and `EditorWebView.kt` reads the URI off the real `ClipboardManager` and
+  copies it into the vault through the SAME `saveImageIntoVault` the picker
+  uses. Verified end-to-end on a real Android emulator (API 36, 2026-09-11):
+  copied a PNG via Chrome's "Copy image", pasted into a note, and the vault
+  gained a byte-identical `image-…png` with `![](…)` inserted at the caret. →
   src/features/editor/imagePasteSink.ts, bridge.ts `SaveImageDataMessage` /
   `PasteClipboardImageMessage` (contract v5), EditorWebView.kt + ImagePicker.kt
-  `saveImageDataIntoVault` (Android), EditorWebView.swift `saveImageData` +
+  `saveImageDataIntoVault` / `clipboardImageUri` / `saveImageIntoVault`
+  (Android), EditorWebView.swift `saveImageData` +
   `clipboardImageData` + EditorImages.swift `VaultImages.save` (iOS),
   fs_paste_clipboard_image (Tauri), tests/editor-embed-milkdown.spec.ts
 - A vault image is a ProseMirror node whose rendered
@@ -1306,17 +1316,25 @@ EditorWebView.swift, EditorWebView.kt
   → src/features/editor/imageInsert.ts, milkdown/slash/items.ts + exec.ts,
   src/lib/platform/tauri/images.ts `pickImage`, tests/image-drop.spec.ts,
   tests/slash-menu.spec.ts
-- **A file drop reaches the app by a different route on each OS, so the editor
-  listens to both and takes whichever arrives.** macOS and Windows build configs
-  set `dragDropEnabled: false`, which stops wry installing a native drop target,
-  so the drop arrives in the page as an ordinary HTML5 `drop` with the bytes
-  already read (ProseMirror's `handleDrop` prop). Linux leaves the flag at its
-  default because the same native layer is what the sidebar's internal drags
-  need left alone; wry's WebKitGTK handler therefore claims a file-URI drop and
-  the page's own `drop` fires with an empty file list, so the paths arrive on the
-  WINDOW instead and are read through `PlatformFS.onFileDrop`. The window event
-  fires for the whole window, so the editor acts only on a drop whose point
-  lands inside it. _(desktop)_ → src/lib/platform/tauri/fileDrop.ts,
+- **A file drop reaches the app as an ordinary HTML5 `drop`, with the bytes
+  already read.** All three desktop build configs (macOS, Windows, and Linux
+  since QA #017, 2026-09-11) set `dragDropEnabled: false`, which stops wry
+  installing a native drop target, so the drop arrives in the page and
+  ProseMirror's `handleDrop` prop reads it directly. Linux used to leave the
+  flag at its default, reasoning that the same native layer was needed to
+  leave the sidebar's internal drags alone; that GTK relay's own external
+  file-URI handling turned out to never fire the `drag-drop` signal at all on
+  a native-Wayland compositor (confirmed Hyprland/wlroots — matches upstream
+  tauri-apps/tauri#11282, tauri-apps/wry#1256), so a file dragged in from a
+  file manager silently did nothing in a packaged build — invisible from
+  `just tauri-dev`, which has always forced the flag off. Internal sidebar/tab
+  dragging is untouched either way (pure in-page HTML5 DnD that wry's signal
+  handlers never intercepted). Tauri's own drag-drop event
+  (`PlatformFS.onFileDrop`, paths only, no bytes) stays wired as a defensive
+  fallback for a distro/compositor combination that still runs wry's native
+  layer, but nothing is currently expected to deliver that shape.
+  _(desktop)_ → apps/tauri/src-tauri/tauri.linux.conf.json,
+  src/lib/platform/tauri/fileDrop.ts,
   src/lib/platform/dragDropConfig.test.ts,
   milkdown/MilkdownEditor.svelte `dropHandler`
 - **A drop carrying files is always claimed, image or not.** The browser's

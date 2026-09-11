@@ -58,6 +58,7 @@ import com.futo.notes.ImagePicker
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
 import com.futo.notes.PendingDraft
+import com.futo.notes.clipboardImageUri
 import com.futo.notes.confirmedSavedContent
 import com.futo.notes.derivePendingDraft
 import com.futo.notes.saveImageDataIntoVault
@@ -647,6 +648,25 @@ fun NoteEditorScreen(
         }
     }
 
+    // Fallback clipboard image paste (QA #006): the embed classified the
+    // paste as an image it could not read bytes for itself — Android's
+    // Chromium WebView exposes a clipboard image copied from
+    // Photos/Files/Gallery/Drive as a `content://` URI riding on `text/plain`,
+    // not as a `File`, so `saveImageData` above never fires for it. Read the
+    // URI off the OS clipboard directly (the WebView's own JS paste event
+    // cannot resolve it — that's the whole reason this fallback exists) and
+    // copy it into the vault through the SAME path the picker uses.
+    val pasteClipboardImage: () -> Unit = {
+        val attachment = host.currentAttachment()
+        if (attachment != null) {
+            saveImageForAttachment(attachment, "Couldn't paste image") { root ->
+                clipboardImageUri(context)?.let { uri ->
+                    saveImageIntoVault(context.contentResolver, root, uri)
+                }
+            }
+        }
+    }
+
     // Select the whole title when the field gains focus AND is still a
     // placeholder ("Untitled"/"Untitled-N"), so a keystroke replaces it; a real
     // title keeps the tapped caret. Keyed on the focus transition so it fires
@@ -806,6 +826,7 @@ fun NoteEditorScreen(
                         },
                         onPickImage = pickImage,
                         onSaveImageData = saveImageData,
+                        onPasteClipboardImage = pasteClipboardImage,
                         onChange = { newContent ->
                             // Data-loss guard: ignore editor change events until the
                             // off-main initial read has landed (`loaded`). The WebView

@@ -9,18 +9,27 @@
  * into the vault, register the URL, insert the reference — and both entry
  * points share it rather than each carrying a copy.
  *
- * Two shapes arrive, one per host mechanism, and the difference is not a
- * platform branch — it is what the OS handed us:
+ * Two shapes can arrive, and the difference is not a platform branch — it is
+ * what the OS handed us:
  *
  *   - FILES (`insertFiles`): an HTML5 `drop`, where the webview already read
- *     the bytes. This is what macOS and Windows deliver, because both build
- *     configs set `dragDropEnabled: false` and wry therefore installs no native
- *     drop target (src/lib/platform/dragDropConfig.test.ts).
+ *     the bytes. This is what macOS, Windows AND Linux now all deliver: every
+ *     desktop build config sets `dragDropEnabled: false`
+ *     (`tauri.macos/windows/linux.conf.json`), so wry installs no native drop
+ *     target on any of the three and each webview's own DOM drop handles it.
+ *     Linux used to be the exception — no `tauri.linux.conf.json` existed, so
+ *     the flag sat at wry's default (`true`) and Linux relied on the PATHS
+ *     shape below — until QA #017 (2026-09-11): on a native-Wayland compositor
+ *     wry's own GTK-signal relay never fires a real drop at all, so a file
+ *     dragged in from a file manager silently did nothing in a PACKAGED
+ *     build (dev already forced the flag off everywhere, which is why the bug
+ *     never showed up there).
  *   - PATHS (`insertPaths`): Tauri's own drag-drop event, which reports file
- *     paths and no bytes. This is what LINUX delivers: the base config leaves
- *     `dragDropEnabled` at its default, and wry's WebKitGTK handler claims a
- *     file-URI drop, so the webview never sees an HTML5 drop with files.
- *     It is also the picker's shape — `pickImage` returns a path.
+ *     paths and no bytes. Nothing currently delivers this shape for a drop —
+ *     it is kept wired as a defensive fallback in case some distro/compositor
+ *     combination still runs wry's native layer, exactly as inert on Linux now
+ *     as it always was on macOS/Windows. It remains the picker's shape either
+ *     way — `pickImage` returns a path.
  *
  * WHICH files count as images is `isImageFilename` from the shared media rules,
  * never a second list: the vault's accepted extensions are conformance-locked
