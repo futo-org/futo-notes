@@ -72,21 +72,52 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
   so a certificate authority the user installed — self-hosted or corporate — is
   trusted, and one the platform distrusts is not.
   → crates/futo-notes-sync/src/tls/mod.rs (`tls::tests`)
-- *(desktop, iOS)* The platform's verifier decides, through
-  `rustls-platform-verifier`: SecTrust on Apple, schannel on Windows, the native
-  bundle on Linux. No certificates are added to what the OS already trusts.
-  → crates/futo-notes-sync/src/tls/mod.rs `trusted_roots`
-- *(Android)* The shell reads `AndroidCAStore` (system plus user-installed CAs,
-  minus any the user disabled) and hands the anchors to Rust, because
-  `rustls-platform-verifier`'s Android backend needs a Kotlin AAR and JNI
-  initialization that UniFFI's JNA loading never delivers. rustls validates
-  against those anchors **plus the bundled Mozilla roots**, so a device whose
-  system store is frozen (Android 9–13) keeps working — at the cost that a
-  public root the user disabled on the device stays trusted here.
-  → SyncManager.kt `operatingSystemTrustAnchors`
-- **Trust anchors are captured when a sync client is created**, so installing or
-  removing a CA takes effect on the next connect, not on the current session.
-  → crates/futo-notes-ffi `SyncClient::new`
+- *(all platforms)* The platform's own verifier decides on every handshake,
+  through `rustls-platform-verifier`: SecTrust on Apple, CryptoAPI on Windows,
+  the system `TrustManager` on Android, the native bundle on Linux. No
+  certificates are added to what the OS already trusts, so a device whose
+  system store lacks a root fails here exactly as its browser does.
+  → crates/futo-notes-sync/src/tls/mod.rs `os_verifier`
+- *(Android)* The verifier's Android backend calls into the JVM, which needs a
+  one-time binding that UniFFI's JNA loading never performs: the shell loads the
+  same library through JNI and hands Rust its application context before any
+  sync client exists. The Kotlin half that backend expects is vendored verbatim
+  from the crate release `Cargo.lock` pins.
+  → FutoNotesApplication.kt · PlatformTrust.kt · crates/futo-notes-ffi
+  `platform_trust` · apps/android/app/src/main/java/org/rustls/platformverifier/
+- **Installing or removing a CA takes effect on the next sync**, with no
+  reconnect. An already-open connection keeps its handshake until it closes.
+  Apple and Windows are asked afresh at every handshake; Linux has no trust
+  service, only files, so its verifier is rebuilt when the paths
+  `rustls-native-certs` would load from — `$SSL_CERT_FILE` and `$SSL_CERT_DIR`
+  when either is set, the probed system locations otherwise — change modification
+  time or size, stat-checked before each verification callback and never on a
+  timer, and kept as-is when they are unreadable mid-rewrite. The stat-and-rebuild
+  mechanism is unit-tested; that `update-ca-certificates` moves the probed paths
+  is asserted only by an `#[ignore]`d test that has not yet run anywhere.
+  → crates/futo-notes-sync/src/tls/reloading.rs (`tls::tests`)
+  > **Gap:** *(Android)* a CA installed or removed while the app runs goes
+  > unnoticed until the app restarts, and a revoked CA keeps working for the life
+  > of the process; neither a reconnect nor a new sync client refreshes it. The
+  > verifier's Kotlin half hands `TrustManagerFactory.init()` a non-null
+  > `AndroidCAStore` behind a private `Lazy`, so the anchors are resolved once per
+  > process. (Its `systemTrustAnchorCache` is *not* the cause — that one only
+  > classifies a root as system-vs-user for revocation policy.) Closing this needs
+  > a public invalidation hook in `rustls-platform-verifier`; patching the
+  > vendored copy would fork a file that must stay verbatim to be re-vendored on
+  > every crate bump. Measured on an emulator, tracked as futo-notes#171.
+  > → apps/android/app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt
+  > **Gap:** *(Android)* the same vendored file's `isKnownRoot` never advances
+  > its index on its two `continue` branches. It runs for every handshake without
+  > a stapled OCSP response, and spins only when the chain's root shares a subject
+  > hash with a system anchor whose file still exists but whose keystore entry is
+  > gone — disabled by the user, or dropped by a Conscrypt update — or is not an
+  > X509 certificate. A private CA exits on the first iteration. When it does
+  > spin, the verifying thread is lost for good; the client sees the 10s connect
+  > timeout (5s on the initial `auth_mode` probe), so it reads as slow sync, and
+  > each retry burns another worker. Same fix path, same tracker.
+  > → apps/android/app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt
+  > → crates/futo-notes-sync/src/server/mod.rs `CONNECT_TIMEOUT` `PROBE_TIMEOUT`
 - *(iOS)* A root installed from a configuration profile also needs full trust
   enabled under Settings → General → About → Certificate Trust Settings.
 - **A rejected certificate is reported as such**, not as a generic connection
@@ -98,6 +129,11 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
   Windows verifiers wrap a platform trust refusal in `Other(OtherError(..))`
   carrying the OS message, so matching one variant would leave real trust
   failures blaming the URL and password.
+  > **Gap:** a verifier that fails *to run* rather than to trust — Windows when
+  > `CertGetCertificateChain` itself errors, Apple on its equivalent path —
+  > surfaces `rustls::Error::General`, which carries no `invalid peer
+  > certificate` prefix and so still reads as "check the server URL and
+  > password". Unverified either way: Windows has never been exercised.
   → SyncManager.kt / SyncManager.swift / createSyncSettings.svelte.ts
   `failureMessage`
 - When no server is connected yet, the Sync screen points the user at how to

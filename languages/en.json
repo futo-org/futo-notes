@@ -605,6 +605,7 @@
         "addServerScheme": "Add http:// or https:// to the start of the server URL.",
         "connectFailed": "Couldn't connect or sync. Check the server URL and password.",
         "certificateNotTrusted": "This server's certificate isn't trusted by this device. If the server uses a private certificate authority, install it in the device settings, then try again.",
+        "secureConnectionUnavailable": "This device couldn't start a secure connection. Restart FUTO Notes and try again.",
         "syncFailed": "Sync failed. Try again.",
         "previousFailure": "The last sync failed. Try again.",
         "completedWithErrors": "Sync completed with errors. Some changes could not reach the server.",

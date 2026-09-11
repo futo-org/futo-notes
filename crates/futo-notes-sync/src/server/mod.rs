@@ -235,7 +235,13 @@ impl HttpClients {
             Some(tls) => (Some(tls), None),
             None => match crate::tls::shared_client_config() {
                 Ok(tls) => (Some(tls), None),
-                Err(message) => (None, Some(HttpError { status: None, message })),
+                Err(message) => (
+                    None,
+                    Some(HttpError {
+                        status: None,
+                        message,
+                    }),
+                ),
             },
         };
         let builder = || {
@@ -267,7 +273,7 @@ impl Http {
     }
 
     #[cfg(test)]
-    pub(crate) fn with_trust_roots(
+    pub(crate) fn with_tls(
         base: &str,
         tls: Option<Arc<rustls::ClientConfig>>,
     ) -> Result<Self, HttpError> {

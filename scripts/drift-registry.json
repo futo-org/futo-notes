@@ -816,6 +816,50 @@
           "kind": "gate"
         }
       ]
+    },
+    {
+      "concept": "certificate-rejection-message",
+      "description": "Each shell decides a sync failure was a TLS certificate rejection by matching rustls' 'invalid peer certificate' Display prefix, then shows sync.errors.certificateNotTrusted. The marker is a third-party string: a rustls reword reverts all three shells to the generic URL/password message. Two tests catch a reword against a real handshake — tls::tests (a_privately_signed_server_is_rejected_without_its_root) and the Android instrumentation PlatformTrustTest; the TypeScript, Swift and JVM unit tests feed in hand-written copies and cannot. Belongs in Rust as a typed SyncError variant (AGENTS.md 'Where logic lives' 1) — see the Gap in docs/spec/sync.md.",
+      "lockStatus": "unlocked",
+      "copies": [
+        {
+          "location": "src/features/settings/createSyncSettings.svelte.ts",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "apps/ios/Sources/Sync/SyncManager.swift",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/SyncManager.kt",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "src/features/settings/createSyncSettings.test.ts",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "apps/android/app/src/test/java/com/futo/notes/SyncManagerOutcomeTest.kt",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "apps/android/app/src/androidTest/java/com/futo/notes/PlatformTrustTest.kt",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "apps/ios/Tests/Sync/CertificateFailureMessageTests.swift",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "crates/futo-notes-sync/src/tls/tests.rs",
+          "pattern": "invalid peer certificate"
+        }
+      ],
+      "scan": {
+        "dirs": ["src", "apps/ios", "apps/android/app/src", "crates"],
+        "extensions": [".ts", ".swift", ".kt", ".rs"],
+        "pattern": "invalid peer certificate"
+      }
     }
   ]
 }

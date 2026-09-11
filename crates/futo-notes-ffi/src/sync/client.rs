@@ -28,12 +28,7 @@ impl SyncClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl SyncClient {
     #[uniffi::constructor]
-    pub fn new(
-        notes_root: String,
-        server_url: String,
-        extra_root_certificates: Vec<Vec<u8>>,
-    ) -> Arc<Self> {
-        futo_notes_sync::install_process_root_certificates(extra_root_certificates);
+    pub fn new(notes_root: String, server_url: String) -> Arc<Self> {
         Arc::new(Self {
             notes_root: PathBuf::from(notes_root),
             server_url,

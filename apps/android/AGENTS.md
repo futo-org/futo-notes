@@ -136,6 +136,22 @@ Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
   `app/src/main/java/com/futo/notes/ui/EditorWebView.kt` **and** its iOS
   counterpart — `packages/editor/src/bridge.ts` is the source of truth (M10).
 
+- **`app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt` is vendored**
+  byte-for-byte from upstream tag v/0.6.2, matching the `rustls-platform-verifier` version
+  `Cargo.lock` pins. It is the JVM half of the TLS verifier the Rust core calls into by class name:
+  never edit it, and re-copy it whenever that pin moves. Its sibling `BuildConfig.kt`
+  (`TEST = false`) stands in for the field upstream's own Gradle module generates, which gates
+  test-only mock-root hooks; it is ours, not vendored. `FutoNotesApplication` binds the verifier at
+  startup, and `PlatformTrust.isBound` reports whether that worked — a binding failure must leave
+  the app usable offline and only refuse to sync, never crash at launch.
+  Android's trust decision is a **per-process snapshot** that no reconnect refreshes; the stale
+  state is on the JVM side, so never try to fix it by rebuilding the Rust verifier.
+  `docs/spec/sync.md` states the behavior and carries the Gap; futo-notes#171 tracks the fix.
+  Two upstream defects live in that vendored file — know them before debugging it: `isKnownRoot`'s
+  `while (true)` skips `i += 1` on its two `continue` branches, so a deleted or non-X509 system
+  anchor spins a handshake thread forever; and `systemTrustAnchorCache` is a bare `HashSet`
+  mutated from concurrent handshakes (the sync and SSE clients are separate reqwest clients).
+
 ## Testable logic goes down, not sideways
 
 CI **does** run instrumented tests: `build:android-native` executes

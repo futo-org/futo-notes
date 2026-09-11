@@ -1,7 +1,6 @@
 package com.futo.notes
 
 import android.content.SharedPreferences
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -10,7 +9,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.security.KeyStore
 import com.futo.notes.storage.StorageMigrationGate
 import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.localization.Localization
@@ -163,14 +161,18 @@ class SyncManager(
             }
             return
         }
+        if (needsPlatformTrust(url) && !PlatformTrust.isBound) {
+            statusMessage = LocalizedMessage("sync.status.error")
+            errorMessage = LocalizedMessage("sync.errors.secureConnectionUnavailable")
+            return
+        }
         busy = true
         lastErrorDiagnostic = null
         errorMessage = null
         statusMessage = LocalizedMessage("sync.status.connecting")
         this.notesRoot = notesRoot
         try {
-            val anchors = withContext(Dispatchers.IO) { operatingSystemTrustAnchors() }
-            val c = SyncClient(notesRoot, url, anchors)
+            val c = SyncClient(notesRoot, url)
             val info = c.connect(password)
             // Persist the session so the next launch reconnects silently
             // [sync.md:91]. Keystore + prefs I/O — off the main thread.
@@ -603,16 +605,6 @@ class SyncManager(
         errorMessage = null
     }
 
-    internal fun operatingSystemTrustAnchors(): List<ByteArray> = runCatching {
-        val store = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
-        store.aliases().asSequence().mapNotNull { alias ->
-            runCatching { store.getCertificate(alias)?.encoded }.getOrNull()
-        }.toList()
-    }.getOrElse { error ->
-        Log.w("SyncManager", "could not read the Android CA store", error)
-        emptyList()
-    }
-
     internal fun describe(e: Exception): String = when (e) {
         is SyncException.Http -> "HTTP: ${e.v1}"
         is SyncException.Crypto -> "Crypto: ${e.v1}"
@@ -741,6 +733,9 @@ class SyncManager(
             }
             return null
         }
+
+        internal fun needsPlatformTrust(url: String): Boolean =
+            url.trim().lowercase().startsWith("https://")
 
         /** Live-loop auth errors and collection-gone are terminal for the old
          *  bearer session but recoverable with the securely stored password. */

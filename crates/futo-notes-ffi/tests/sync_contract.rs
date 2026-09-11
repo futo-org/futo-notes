@@ -245,11 +245,7 @@ async fn disconnected_sync_client_has_stable_lifecycle_semantics() {
     let notes_root = temp.path("vault");
     fs::create_dir_all(&notes_root).unwrap();
 
-    let client = SyncClient::new(
-        path_string(&notes_root),
-        "https://sync.example".to_owned(),
-        Vec::new(),
-    );
+    let client = SyncClient::new(path_string(&notes_root), "https://sync.example".to_owned());
     let SyncStatus {
         connected,
         server_url,

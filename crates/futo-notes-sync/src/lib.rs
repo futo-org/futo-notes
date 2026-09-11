@@ -33,7 +33,8 @@ pub use sync::{
     ConnectInfo, FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure,
     SyncProgress, SyncSummary, WriteRefusal,
 };
-pub use tls::install_process_root_certificates;
+#[cfg(target_os = "android")]
+pub use tls::install_android_trust;
 
 /// Logs in and resolves the collection to sync. The vault stays locked: a
 /// session on its own cannot read a note.
