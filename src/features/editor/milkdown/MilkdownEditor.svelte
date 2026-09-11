@@ -49,7 +49,12 @@
   import { block, BlockProvider } from '@milkdown/kit/plugin/block';
   import { insert, replaceAll } from '@milkdown/kit/utils';
   import { history as proseHistory, redoDepth, undoDepth } from '@milkdown/kit/prose/history';
-  import { EditorState, TextSelection, type PluginKey } from '@milkdown/kit/prose/state';
+  import {
+    EditorState,
+    NodeSelection,
+    TextSelection,
+    type PluginKey,
+  } from '@milkdown/kit/prose/state';
   import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
   import {
     Slice,
@@ -70,6 +75,7 @@
   import { resolveBlockDragMode } from './blockDragMode';
   import { blockDropIndicator } from './blockDropIndicator';
   import { retargetListDragToItem } from './listItemHandleDrag';
+  import { setDprCorrectedDragImage } from './blockDragGeometry';
   import { editorView, enclosingListItem } from './caretContext';
   import { dividerCaretFix } from './dividerCaret';
   import { computeActiveFormats } from './formatState';
@@ -703,7 +709,18 @@
         // (listItemHandleDrag.ts).
         handleEl.addEventListener('dragstart', (event) => {
           const view = created.ctx.get(editorViewCtx);
-          retargetListDragToItem(view, event);
+          const retargeted = retargetListDragToItem(view, event);
+          // `retargetListDragToItem` already set a DPR-corrected ghost
+          // (blockDragGeometry.ts, QA #012) for the list-item case; every
+          // OTHER block drag still carries the plugin's own uncorrected
+          // `setDragImage(activeEl, 0, 0)` from @milkdown/plugin-block, so it
+          // needs the same correction here, read off whatever node the
+          // plugin selected.
+          if (!retargeted) {
+            const selection = view.state.selection;
+            const dom = selection instanceof NodeSelection ? view.nodeDOM(selection.from) : null;
+            if (dom instanceof HTMLElement) setDprCorrectedDragImage(event, dom);
+          }
         });
         // On `document`, in the CAPTURE phase, because scroll events do not
         // bubble and WHICH element scrolls depends on the host: the editable

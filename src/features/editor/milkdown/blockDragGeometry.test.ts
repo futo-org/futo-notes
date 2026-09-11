@@ -28,7 +28,9 @@ import { EditorState } from '@milkdown/kit/prose/state';
 
 import {
   createDragAutoScroller,
+  dragImageScale,
   resolveDropTarget,
+  setDprCorrectedDragImage,
   type DragSource,
   type DropTarget,
 } from './blockDragGeometry';
@@ -591,5 +593,92 @@ describe('createDragAutoScroller', () => {
     clock.frame(5000);
     expect(dom.scrollTop).toBeLessThan(100);
     scroller.stop();
+  });
+});
+
+/*
+ * QA #012: the ⠿ handle's drag ghost rendered at ~200% on a 2x HiDPI Linux
+ * desktop. `dragImageScale` is the counter-ratio, asserted at 1x (no-op —
+ * where there is nothing to counter), 2x (the reporter's case) and a
+ * fractional ratio (1.5x), because a fix that only works at 2x is the "blind
+ * 0.5" the module doc explicitly rejects. `setDprCorrectedDragImage` is
+ * asserted against that same ratio at the DOM boundary: unchanged behaviour
+ * at 1x, and a scaled clone (never the live, still-mounted block) at any
+ * other ratio.
+ */
+describe('dragImageScale', () => {
+  it('is a no-op at 1x, where there is no scaling to counter', () => {
+    expect(dragImageScale(1)).toBe(1);
+  });
+
+  it('exactly cancels a 2x HiDPI ghost', () => {
+    expect(dragImageScale(2)).toBe(0.5);
+  });
+
+  it('is still proportionally correct at a fractional ratio', () => {
+    expect(dragImageScale(1.5)).toBeCloseTo(2 / 3, 10);
+  });
+
+  it('falls back to 1x for a nonsensical ratio rather than dividing by zero', () => {
+    expect(dragImageScale(0)).toBe(1);
+    expect(dragImageScale(-1)).toBe(1);
+  });
+});
+
+describe('setDprCorrectedDragImage', () => {
+  const originalDpr = window.devicePixelRatio;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'devicePixelRatio', {
+      value: originalDpr,
+      configurable: true,
+    });
+  });
+
+  function withDpr(value: number): void {
+    Object.defineProperty(window, 'devicePixelRatio', { value, configurable: true });
+  }
+
+  it('at 1x, sets the drag image straight to the live source — no clone', () => {
+    withDpr(1);
+    const source = document.createElement('div');
+    document.body.appendChild(source);
+    const setDragImage = vi.fn();
+    const event = { dataTransfer: { setDragImage } } as unknown as DragEvent;
+
+    setDprCorrectedDragImage(event, source);
+
+    expect(setDragImage).toHaveBeenCalledWith(source, 0, 0);
+    // Nothing extra was mounted for a ratio with nothing to correct.
+    expect(document.body.children).toHaveLength(1);
+    source.remove();
+  });
+
+  it('at 2x, drags a counter-scaled clone instead of the live block', () => {
+    withDpr(2);
+    const source = document.createElement('div');
+    source.getBoundingClientRect = () => ({ width: 200, height: 40 }) as DOMRect;
+    document.body.appendChild(source);
+    const setDragImage = vi.fn();
+    const event = { dataTransfer: { setDragImage } } as unknown as DragEvent;
+
+    setDprCorrectedDragImage(event, source);
+
+    expect(setDragImage).toHaveBeenCalledTimes(1);
+    const [ghost, x, y] = setDragImage.mock.calls[0];
+    expect(ghost).not.toBe(source);
+    expect(x).toBe(0);
+    expect(y).toBe(0);
+    expect((ghost as HTMLElement).style.transform).toBe('scale(0.5)');
+    // The live block is untouched — only a detached clone is scaled.
+    expect(source.style.transform).toBe('');
+    source.remove();
+  });
+
+  it('does nothing when the drag carries no dataTransfer', () => {
+    withDpr(2);
+    const source = document.createElement('div');
+    const event = { dataTransfer: null } as unknown as DragEvent;
+    expect(() => setDprCorrectedDragImage(event, source)).not.toThrow();
   });
 });

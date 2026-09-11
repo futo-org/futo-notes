@@ -222,6 +222,75 @@ const AUTO_SCROLL_MAX_SPEED_PX_S = 1400;
  */
 const AUTO_SCROLL_MAX_FRAME_S = 0.05;
 
+/* ---- drag-image DPR correction ------------------------------------------ *
+ * QA #012 (Zvonimir, Linux/Hyprland): the ⠿ handle's native HTML5 drag ghost
+ * rendered at roughly 200% size on his scaled desktop. This app's Linux
+ * webview is webkit2gtk (Cargo.lock), not Chromium, and GTK/Wayland's own
+ * scale-factor plumbing is a well-documented sore spot for exactly this class
+ * of mismatch — wry/Tauri carry several open reports of a webview's content
+ * disagreeing with the compositor's scale factor on Linux (e.g.
+ * tauri-apps/tauri#5600, #14590, #6224) — but no report pins the drag-image
+ * path specifically, and the mechanism below is NOT independently confirmed
+ * against a real scaled display: the two hard constraints on this pass (no
+ * OS-level input automation, and a synthetic DOM `dragstart` never opens a
+ * genuine native drag session) mean the fix is unit-tested and read-reviewed
+ * only. A human on a scaled Linux box still needs to eyeball it.
+ *
+ * The theory `dragImageScale`/`setDprCorrectedDragImage` correct for: a native
+ * drag-image snapshot taken at `devicePixelRatio` physical pixels per CSS
+ * pixel, then composited back onto the screen as if 1 physical pixel were 1
+ * CSS pixel — which reads as an oversized ghost in direct proportion to the
+ * scale factor, and is invisible at 1x (unscaled displays), which is why a
+ * single unscaled machine's testing could look right while a HiDPI one does
+ * not. The counter has to be the SAME ratio, read live, not a guessed
+ * constant: `1 / devicePixelRatio` is a no-op at 1x (nothing to undo), and is
+ * still proportionally right at a fractional ratio (1.5x, ...) a fixed 0.5
+ * would get wrong.
+ */
+
+/** Pure so the ratio math is unit-testable without a DOM or DragEvent. */
+export function dragImageScale(devicePixelRatio: number): number {
+  return 1 / (devicePixelRatio > 0 ? devicePixelRatio : 1);
+}
+
+/**
+ * Sets `event.dataTransfer`'s drag image to `source`, counter-scaled for the
+ * live `devicePixelRatio`. At 1x (`scale === 1`) this is exactly
+ * `setDragImage(source, 0, 0)` — no clone, no behaviour change from before
+ * this fix. At any other ratio, `source` itself is left alone (it is the
+ * live block, still mounted and about to be dragged) and a detached,
+ * transform-scaled CLONE is dragged instead; the browser/webview only reads
+ * a drag image once, synchronously, while `dragstart` is still on the stack,
+ * so the clone is removed on the next frame.
+ */
+export function setDprCorrectedDragImage(event: DragEvent, source: HTMLElement): void {
+  const dataTransfer = event.dataTransfer;
+  if (!dataTransfer) return;
+  const scale = dragImageScale(window.devicePixelRatio);
+  if (scale === 1) {
+    dataTransfer.setDragImage(source, 0, 0);
+    return;
+  }
+  const rect = source.getBoundingClientRect();
+  const clone = source.cloneNode(true) as HTMLElement;
+  // Sized and positioned in CSS pixels BEFORE the counter-scale so the
+  // transform (not layout) is what shrinks the oversized bitmap; parked off
+  // the visible page because only `dragstart`'s synchronous read of it
+  // matters, never a paint the user sees.
+  clone.style.position = 'fixed';
+  clone.style.top = '-10000px';
+  clone.style.left = '-10000px';
+  clone.style.margin = '0';
+  clone.style.width = `${rect.width}px`;
+  clone.style.height = `${rect.height}px`;
+  clone.style.transform = `scale(${scale})`;
+  clone.style.transformOrigin = 'top left';
+  clone.style.pointerEvents = 'none';
+  (source.ownerDocument.body ?? document.body).appendChild(clone);
+  dataTransfer.setDragImage(clone, 0, 0);
+  requestAnimationFrame(() => clone.remove());
+}
+
 /**
  * The drop boundary for `source` under a pointer at `clientY`, with the point
  * clamped inside the editor box so a finger dragged past either end still

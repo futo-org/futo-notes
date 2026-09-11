@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EditorState, NodeSelection, type Transaction } from '@milkdown/kit/prose/state';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
@@ -60,6 +60,11 @@ function dragEvent(clientY: number) {
 }
 
 describe('retargetListDragToItem', () => {
+  const originalDpr = window.devicePixelRatio;
+  afterEach(() => {
+    Object.defineProperty(window, 'devicePixelRatio', { value: originalDpr, configurable: true });
+  });
+
   it('re-selects the item beside the handle when the plugin selected the list', () => {
     const { view, dispatched, selectList, itemPos } = listView('a', 'b', 'c');
     selectList();
@@ -97,5 +102,26 @@ describe('retargetListDragToItem', () => {
     expect(retargetListDragToItem(view, dragEvent(105).event)).toBe(false);
     expect(dispatched).toHaveLength(before);
     expect(view.dragging).toBeNull();
+  });
+
+  // QA #012: this path's `setDragImage` call is DPR-corrected
+  // (blockDragGeometry.ts's setDprCorrectedDragImage) so the re-targeted
+  // item's ghost isn't oversized on a scaled Linux desktop either.
+  it('DPR-corrects the retargeted ghost on a scaled display', () => {
+    Object.defineProperty(window, 'devicePixelRatio', { value: 2, configurable: true });
+    const { view, selectList, itemPos } = listView('a', 'b', 'c');
+    selectList();
+    const item = view.nodeDOM(itemPos(0)) as HTMLElement;
+    item.getBoundingClientRect = () => ({ width: 200, height: 30 }) as DOMRect;
+    document.body.appendChild(item);
+    const { event, setDragImage } = dragEvent(100 + ITEM_HEIGHT / 2);
+
+    expect(retargetListDragToItem(view, event)).toBe(true);
+
+    expect(setDragImage).toHaveBeenCalledTimes(1);
+    const [ghost] = setDragImage.mock.calls[0];
+    expect(ghost).not.toBe(item);
+    expect((ghost as HTMLElement).style.transform).toBe('scale(0.5)');
+    item.remove();
   });
 });

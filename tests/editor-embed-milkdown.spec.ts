@@ -1806,6 +1806,36 @@ mobileDndTest('a block press that began focused leaves focus alone', async ({ pa
   expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
 });
 
+// QA #001 (Zvonimir): block drag made text unselectable on Android because
+// every long-press was read as "lift this block", focused or not. Focus now
+// arbitrates the whole gesture (mobileBlockDnd.ts's "FOCUS ARBITRATES DRAG VS.
+// SELECTION"): a press that begins focused must not arm a SINGLE lever of the
+// drag machinery, so a long, stationary hold produces no lift, no ghost, and
+// no press/drag suspension message — leaving the platform's own long-press
+// text selection completely alone.
+mobileDndTest(
+  'a block press that began focused never arms the drag — no lift, no ghost, no suspension',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await focusEditor(page);
+    await clearMessages(page);
+
+    const alpha = await blockCenter(page, 'alpha');
+    await touch(cdp, 'touchStart', alpha.x, alpha.y);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 150);
+    await touch(cdp, 'touchEnd', alpha.x, alpha.y);
+    await settleChangeDebounce(page);
+
+    expect(await messagesOfType(page, 'haptic')).toHaveLength(0);
+    expect(await messagesOfType(page, 'blockDrag')).toHaveLength(0);
+    expect(await messagesOfType(page, 'blockPress')).toHaveLength(0);
+    expect(
+      await page.evaluate(() => document.querySelector('.futo-mobile-dnd-ghost') !== null),
+    ).toBe(false);
+    expect(await getContent(page)).toBe('alpha\n\nbravo\n\ncharlie');
+  },
+);
+
 // A dropped block must land as a SIBLING at the top level, never be absorbed
 // into whatever container it was released over — the failure this path's
 // custom target resolution exists to prevent (a heading dropped onto a
