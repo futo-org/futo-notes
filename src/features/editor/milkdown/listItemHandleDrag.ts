@@ -21,6 +21,8 @@ import { NodeSelection } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 
+import { setDprCorrectedDragImage } from './blockDragGeometry';
+
 const LIST_NODES = new Set(['bullet_list', 'ordered_list']);
 
 /** Position of the child of the list at `listPos` whose rendered box spans `y`,
@@ -58,6 +60,8 @@ export function retargetListDragToItem(view: ProseView, event: DragEvent): boole
   // source; the public type omits it, the plugin sets it, so mirror the plugin.
   view.dragging = { slice: item.content(), move: true, node: item } as typeof view.dragging;
   const dom = view.nodeDOM(itemPos);
-  if (event.dataTransfer && dom instanceof Element) event.dataTransfer.setDragImage(dom, 0, 0);
+  // DPR-corrected (blockDragGeometry.ts, QA #012) rather than a raw
+  // `setDragImage`: at 1x (no scaling bug to counter) this is that same call.
+  if (dom instanceof HTMLElement) setDprCorrectedDragImage(event, dom);
   return true;
 }

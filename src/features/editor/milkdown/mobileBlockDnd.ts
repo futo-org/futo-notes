@@ -117,6 +117,25 @@
  *    block press (it still needs to stand the platform's own long-press
  *    gestures down), it just never starts the lift timer, so no ghost, no
  *    haptic, and no `blockDrag` message ever follow it.
+ *  - FOCUS ARBITRATES DRAG VS. SELECTION (product decision, 2026-09-11,
+ *    closing a QA report that a phone's block drag made text unselectable —
+ *    every long-press was read as "lift this block" instead of "select this
+ *    word"). Arbitrated ONCE, at touch-down, off `view.hasFocus()`: a press
+ *    that begins with the editor ALREADY focused (soft keyboard up) is text
+ *    selection and caret placement, full stop — `onPointerDown` returns
+ *    before arming anything, so none of the ARMED_CLASS suppression, the
+ *    `selectstart`/`contextmenu` cancellation, or the lift timer ever run,
+ *    and the platform's own selection gesture is left completely alone. A
+ *    press that begins UNFOCUSED (keyboard down) arms and may drag exactly as
+ *    before. This does not relax the point above it: the two rules guard
+ *    different moments. This one decides whether to arm AT ALL, from the
+ *    state at touch-down; that one protects an ALREADY-armed press — which,
+ *    because of this gate, is now always an unfocused-start press — from
+ *    Chromium's own long-press forcing focus onto it mid-gesture. `pressWasFocused`
+ *    is therefore always `false` by the time an armed press reaches
+ *    `onFocusCapture`/`finish()`; that is kept as an explicit, named invariant
+ *    (not deleted as dead code) so a future change to this gate has to
+ *    reckon with it rather than silently reopen the old race.
  *
  * Geometry and commit are both SHARED with the ⠿-handle drag path
  * (the desktop ⠿ handle): `blockDragGeometry.ts` resolves the target and
@@ -346,8 +365,13 @@ type PressedBlock = {
 
 /** Owns the whole long-press/lift/drag/drop state machine for one editor
  * instance. Constructed as this Plugin's `view()` (a ProseMirror PluginView),
- * so its lifetime matches the editor view's. */
-class MobileBlockDndView {
+ * so its lifetime matches the editor view's. Exported so the focus-arbitration
+ * gate (module doc's "focus arbitrates drag vs. selection") can be unit-tested
+ * directly against a fake `ProseView`, without standing up a real Milkdown
+ * editor — the physical long-press gesture itself still needs a device/
+ * Playwright's touch stream, which is what `tests/editor-embed-milkdown.spec.ts`
+ * covers. */
+export class MobileBlockDndView {
   private readonly view: ProseView;
   private readonly options: Required<MobileBlockDndOptions>;
   private readonly doc: Document;
@@ -559,12 +583,24 @@ class MobileBlockDndView {
   private onPointerDown = (event: PointerEvent): void => {
     if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
     if (this.pointerId !== null) return; // a second simultaneous touch
+    // FOCUS ARBITRATES DRAG VS. SELECTION (module doc): a press that starts
+    // with the editor already focused is text selection/caret placement and
+    // this plugin must not touch it AT ALL — arming here, even briefly, would
+    // suppress selection rendering (ARMED_CLASS) and race the lift timer
+    // against normal typing/selecting. Checked before anything else below is
+    // touched, so a focused press leaves pointerId null and every listener,
+    // decoration, and timer this view owns untouched.
+    if (this.view.hasFocus()) return;
     const block = topLevelBlockAt(this.view, event.clientX, event.clientY);
     if (!block) return;
     // An empty paragraph arms like any other block (below) but is never
     // liftable — see the module doc's "an empty paragraph cannot be lifted".
     const liftable = !(block.node.isTextblock && block.node.content.size === 0);
     this.pointerId = event.pointerId;
+    // Always false here — the gate above already refused a focused start.
+    // Kept (not inlined to `false`) as the named invariant the module doc's
+    // "focus arbitrates" point describes: `onFocusCapture`/`finish()` still
+    // read it, and this is what makes that reading trivially safe.
     this.pressWasFocused = this.view.hasFocus();
     // FIRST, before any of the page-side work below: this is a message to the
     // shell and it has a WebContent->UI hop to make, and everything it buys is

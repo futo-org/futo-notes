@@ -344,6 +344,18 @@ about.
   `resolveBlockDragMode`, src/features/editor/milkdown/mobileBlockDnd.ts,
   src/features/editor/milkdown/blockDragMode.test.ts
   _(native shells)_
+- Editor focus arbitrates block drag against text selection on both native
+  shells: a press that starts with the editor already focused (soft keyboard
+  up) is left completely alone — text selection and caret placement, exactly
+  as if this plugin did not exist — and a press that starts with the editor
+  unfocused (keyboard down) arms and may lift a block, as above. Before this,
+  every press suppressed selection rendering and armed the lift timer
+  regardless of focus, so a phone's long-press-to-select-a-word was always
+  read as "lift this block" instead — reported by QA on the 1.7.2-4 builds.
+  Checked once, at touch-down; a press already in flight does not re-arbitrate
+  mid-gesture. → src/features/editor/milkdown/mobileBlockDnd.ts
+  `onPointerDown`, src/features/editor/milkdown/mobileBlockDnd.test.ts,
+  tests/editor-embed-milkdown.spec.ts _(native shells)_
 - The lifted ghost shows the WHOLE block from its very first frame, sits over
   the block it was lifted from (padded by the card's own breathing room, so it
   reads against the drop-indicator line, which is drawn in viewport space), and
@@ -400,6 +412,22 @@ about.
   is in. → src/features/editor/milkdown/listItemHandleDrag.ts,
   src/features/editor/milkdown/listItemHandleDrag.test.ts,
   tests/editor-embed-milkdown.spec.ts _(desktop)_
+- The desktop ⠿ handle's native drag ghost is corrected for the display's
+  `devicePixelRatio`: at 1x it is the browser/webview's own drag image,
+  unchanged; at any other ratio a detached, counter-scaled clone is dragged
+  instead of the live block, so the ghost matches the block's CSS size
+  regardless of scale factor. QA on a scaled Linux/Hyprland desktop reported
+  the ghost at roughly 200% size.
+  > **Gap:** the counter-scaling is unit-tested and code-reviewed only, not
+  > confirmed against a real scaled display — reproducing a native HTML5 drag
+  > image needs a genuine OS-driven drag, which this pass's tooling (no
+  > desktop OS-level input automation, and a synthetic DOM `dragstart` opens
+  > no real drag session) could not safely exercise. Needs a human on a
+  > scaled Linux box. →
+  src/features/editor/milkdown/blockDragGeometry.ts `setDprCorrectedDragImage`
+  `dragImageScale`, src/features/editor/milkdown/listItemHandleDrag.ts,
+  MilkdownEditor.svelte, src/features/editor/milkdown/blockDragGeometry.test.ts
+  _(desktop)_
 - There is ONE drop slot per boundary, on both drag gestures — between
   top-level blocks, and between the items of a list for a list item. Below
   block A and above the block directly under it are the same
