@@ -210,6 +210,12 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   a text field, or on a live selection still opens the native menu — Cut/Copy/
   Paste, Look Up, Share and spellcheck suggestions. The app's own note and
   folder context menus are unaffected. → installDesktopContextMenuGuard.ts
+- _(macOS)_ Opening a context menu never also activates what is under it: a
+  control-click, which WebKit reports as a `click` (and a second one as a
+  `dblclick`) alongside the `contextmenu`, leaves the note unopened, the
+  folder's expansion unchanged, and no inline rename open. Off macOS the
+  secondary button produces no `click` at all and Ctrl+click stays the
+  open-in-background-tab modifier. → installDesktopContextMenuGuard.ts
 - Settings opens with ⌘, and the sidebar toggles with ⌘\ (Ctrl elsewhere). →
   registerNotesShellShortcuts.ts
 - The system "Reduce Motion" setting removes the shell's transitions and

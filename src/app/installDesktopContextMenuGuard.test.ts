@@ -1,6 +1,23 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
-import { shouldSuppressContextMenu } from './installDesktopContextMenuGuard';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import {
+  installDesktopContextMenuGuard,
+  shouldSuppressContextMenu,
+} from './installDesktopContextMenuGuard';
+
+const platformState = vi.hoisted(() => ({ isMac: true, isTauri: true }));
+vi.mock('$lib/platform', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('$lib/platform')>();
+  return {
+    ...mod,
+    get isMac() {
+      return platformState.isMac;
+    },
+    get isTauri() {
+      return platformState.isTauri;
+    },
+  };
+});
 
 function element(html: string): Element {
   const host = document.createElement('div');
@@ -40,5 +57,70 @@ describe('shouldSuppressContextMenu', () => {
 
   it('ignores non-element targets', () => {
     expect(shouldSuppressContextMenu(null, NO_SELECTION)).toBe(false);
+  });
+});
+
+describe('macOS control-click never reaches the app as a click', () => {
+  let stop: (() => void) | null = null;
+
+  afterEach(() => {
+    stop?.();
+    stop = null;
+    document.body.innerHTML = '';
+    platformState.isMac = true;
+  });
+
+  function row(): { el: HTMLElement; clicks: ReturnType<typeof vi.fn> } {
+    const el = document.createElement('button');
+    const clicks = vi.fn();
+    el.addEventListener('click', clicks);
+    el.addEventListener('dblclick', clicks);
+    document.body.appendChild(el);
+    return { el, clicks };
+  }
+
+  function dispatch(el: HTMLElement, type: 'click' | 'dblclick', ctrlKey: boolean): void {
+    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, ctrlKey }));
+  }
+
+  it('swallows the click a control-click produces', () => {
+    stop = installDesktopContextMenuGuard();
+    const { el, clicks } = row();
+
+    dispatch(el, 'click', true);
+    expect(clicks).not.toHaveBeenCalled();
+  });
+
+  it('swallows the dblclick two control-clicks produce, which opens inline rename', () => {
+    stop = installDesktopContextMenuGuard();
+    const { el, clicks } = row();
+
+    dispatch(el, 'dblclick', true);
+    expect(clicks).not.toHaveBeenCalled();
+  });
+
+  it('leaves a plain click alone', () => {
+    stop = installDesktopContextMenuGuard();
+    const { el, clicks } = row();
+
+    dispatch(el, 'click', false);
+    expect(clicks).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves Ctrl+click alone off macOS, where it opens a background tab', () => {
+    platformState.isMac = false;
+    stop = installDesktopContextMenuGuard();
+    const { el, clicks } = row();
+
+    dispatch(el, 'click', true);
+    expect(clicks).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops swallowing once uninstalled', () => {
+    installDesktopContextMenuGuard()();
+    const { el, clicks } = row();
+
+    dispatch(el, 'click', true);
+    expect(clicks).toHaveBeenCalledTimes(1);
   });
 });
