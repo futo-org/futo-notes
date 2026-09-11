@@ -61,6 +61,12 @@
  * behavior). Bumping BRIDGE_VERSION needs explicit sign-off (root AGENTS.md
  * §11) — the transition does not do it.
  *
+ * `formatState`'s `disabled` field (QA-003, Undo/Redo greyed out when their
+ * stacks are empty) shipped the SAME way, added to the message after it
+ * already existed: a host that reads `active` and ignores `disabled` just
+ * never greys anything out — exactly today's behavior for that host — so this
+ * is additive too and needed no version bump either.
+ *
  * `haptic` (Notion-style block-drag feedback — see {@link HapticMessage})
  * ships the SAME way: additive, no version bump, emitted only by the Milkdown
  * editor's long-press block-drag path (`mobileBlockDnd.ts`), which BOTH native
@@ -339,10 +345,17 @@ export interface OpenUrlMessage {
  * `EditorToolbarState` on iOS, `EditorHost.activeFormats` on Android, and the
  * embed fallback's own `EmbedToolbar`. See {@link BRIDGE_VERSION}'s doc comment
  * for why this ships without a version bump.
+ *
+ * `disabled` is the subset of manifest ids that are currently INERT — today
+ * only `'undo'`/`'redo'`, greyed and non-tappable while prosemirror-history's
+ * `undoDepth`/`redoDepth` reports nothing to undo/redo. Deduped and emitted on
+ * the exact same triggers as `active`, in the same message, so a host reads
+ * both off one event rather than reconciling two.
  */
 export interface FormatStateMessage {
   type: 'formatState';
   active: string[];
+  disabled: string[];
 }
 
 /**

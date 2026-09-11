@@ -191,6 +191,16 @@ class EditorHost private constructor(appContext: Context) {
     var activeFormats by mutableStateOf<Set<String>>(emptySet())
         private set
 
+    /**
+     * Toolbar-manifest ids that are currently INERT (bridge
+     * `formatState.disabled`) — today only `undo`/`redo` with an empty
+     * prosemirror-history stack. Same message, same dedupe as
+     * [activeFormats]; the counterpart is iOS's
+     * `EditorToolbarState.disabledFormats` (EditorToolbar.swift).
+     */
+    var disabledFormats by mutableStateOf<Set<String>>(emptySet())
+        private set
+
     /** The bundle has applied this shell's host config and the note is on
      *  screen (the `initialized` message) — not merely that the page loaded. */
     private var isReady = false
@@ -469,6 +479,14 @@ class EditorHost private constructor(appContext: Context) {
                 activeFormats = buildSet {
                     for (i in 0 until (ids?.length() ?: 0)) {
                         ids?.optString(i)?.takeIf { it.isNotEmpty() }?.let { add(it) }
+                    }
+                }
+                // QA-003: Undo/Redo greyed out with an empty prosemirror-history
+                // stack. Same message, additive field (bridge.ts).
+                val disabledIds = msg.optJSONArray("disabled")
+                disabledFormats = buildSet {
+                    for (i in 0 until (disabledIds?.length() ?: 0)) {
+                        disabledIds?.optString(i)?.takeIf { it.isNotEmpty() }?.let { add(it) }
                     }
                 }
             }

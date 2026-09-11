@@ -61,6 +61,33 @@ const EXEC: ToolbarAction = { kind: 'exec' };
  */
 export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   [
+    // QA-003: first items on the mobile toolbar, ahead of every formatting
+    // control. Editing behavior is prosemirror-history's own `undo`/`redo`
+    // commands (toolbarExec.ts), never a hand-rolled stack. Their enabled
+    // state is NOT selection-driven like every other button here — it rides
+    // the same bridge `formatState` message, in its `disabled` field
+    // (bridge.ts FormatStateMessage), computed from `undoDepth`/`redoDepth`
+    // (formatState.ts `computeDisabledFormats`).
+    {
+      id: 'undo',
+      label: 'Undo',
+      lucide: 'Undo2',
+      sfSymbol: 'arrow.uturn.backward',
+      material: 'undo',
+      when: 'always',
+      action: EXEC,
+    },
+    {
+      id: 'redo',
+      label: 'Redo',
+      lucide: 'Redo2',
+      sfSymbol: 'arrow.uturn.forward',
+      material: 'redo',
+      when: 'always',
+      action: EXEC,
+    },
+  ],
+  [
     {
       id: 'bold',
       label: 'Bold',
@@ -145,6 +172,22 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       lucide: 'TextQuote',
       sfSymbol: 'text.quote',
       material: 'format_quote',
+      when: 'always',
+      action: EXEC,
+    },
+    // QA-009: was missing on every mobile shell (there was no manifest item
+    // at all, not an Android-only gap) — Android and iOS both get it now.
+    // One-way (paragraph → code), matching the `/` menu's existing Code block
+    // item (slash/exec.ts `createCodeBlockCommand`) rather than inventing a
+    // toggle back OUT of code the block-conversion model doesn't support
+    // (blockCommands.ts `applyCommand`/`stripCommand` both already refuse a
+    // `code` target/source).
+    {
+      id: 'code-block',
+      label: 'Code block',
+      lucide: 'Code',
+      sfSymbol: 'chevron.left.forwardslash.chevron.right',
+      material: 'code',
       when: 'always',
       action: EXEC,
     },

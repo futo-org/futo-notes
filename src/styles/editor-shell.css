@@ -89,6 +89,18 @@
   color: var(--color-primary);
 }
 
+/* Undo/Redo with an empty stack (bridge `formatState.disabled`) — dimmed and
+   non-tappable, matching the two native toolbars' treatment. The `disabled`
+   attribute already blocks tap/click; this only has to make that visible. */
+.toolbar-btn.is-disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.toolbar-btn.is-disabled:active {
+  background: transparent;
+}
+
 .toolbar-separator {
   width: 1px;
   min-width: 1px;

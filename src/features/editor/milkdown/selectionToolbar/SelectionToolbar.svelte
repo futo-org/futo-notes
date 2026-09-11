@@ -24,8 +24,16 @@
 
   let { onexec, onlink, onlinkediting }: Props = $props();
 
+  // Found by content, not `TOOLBAR_GROUPS[1]` — the manifest's Undo/Redo group
+  // (QA-003) shifted every later group's index, and a position-based lookup
+  // would have silently started rendering the wrong group here. `code-block`
+  // (QA-009) is excluded: this bar has no icon registered for it and this
+  // surface already has the `/` menu's Code block item for that conversion —
+  // adding it here is a separate design decision, not implied by either QA fix.
+  const BLOCK_TYPE_GROUP =
+    TOOLBAR_GROUPS.find((group) => group.some((item) => item.id === 'quote')) ?? [];
   const BLOCK_BUTTONS = [
-    ...TOOLBAR_GROUPS[1],
+    ...BLOCK_TYPE_GROUP.filter((item) => item.id !== 'code-block'),
     ...TOOLBAR_ITEMS.filter((item) => item.when === 'inContainer'),
   ];
   const BLOCK_ICONS: Record<string, Component> = {

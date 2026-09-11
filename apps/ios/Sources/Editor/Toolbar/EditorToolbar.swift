@@ -44,6 +44,11 @@ final class EditorToolbarState: ObservableObject {
     /// button state below. Android's
     /// counterpart is `EditorHost.activeFormats` (EditorWebView.kt).
     @Published var activeFormats: Set<String> = []
+    /// Toolbar-manifest ids that are currently INERT (bridge
+    /// `formatState.disabled`, Milkdown editor) — today only `undo`/`redo`
+    /// with an empty prosemirror-history stack. Dims the button and blocks
+    /// the tap below. Android's counterpart is `EditorHost.disabledFormats`.
+    @Published var disabledFormats: Set<String> = []
 }
 
 /// Native SwiftUI rendering of the shared toolbar manifest
@@ -246,6 +251,7 @@ struct EditorToolbarView: View {
     /// appears in `activeFormats`, so it is unaffected by construction.
     private func button(for item: ToolbarItemSpec, foreground: Color = .primary) -> some View {
         let isActive = state.activeFormats.contains(item.id)
+        let isDisabled = state.disabledFormats.contains(item.id)
         return Button {
             perform(item)
         } label: {
@@ -261,7 +267,16 @@ struct EditorToolbarView: View {
                 // asset, so accentColor falls back to iOS system blue — and a
                 // view-root `.tint()` does not retarget an explicit
                 // Color.accentColor reference.
-                .foregroundStyle(isActive ? Theme.primary : foreground)
+                // The dimmed opacity is baked into the COLOR's own alpha
+                // (`.opacity()` on the Color, not a separate view `.opacity()`
+                // modifier) — measured on an iOS 26.5 simulator: a view-level
+                // `.opacity()` on this label renders at full strength once
+                // composited through the capsule's `.glassEffect()` (Liquid
+                // Glass), while the identical foreground-highlight `.background`
+                // wash right below renders correctly. Baking the alpha into the
+                // paint color sidesteps whatever the glass material's
+                // compositing does to a child view's own opacity layer.
+                .foregroundStyle((isActive ? Theme.primary : foreground).opacity(isDisabled ? 0.35 : 1))
                 .frame(width: ToolbarMetrics.buttonWidth, height: ToolbarMetrics.buttonHeight)
                 .background {
                     if isActive {
@@ -273,6 +288,10 @@ struct EditorToolbarView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Undo/Redo with an empty prosemirror-history stack (bridge
+        // `formatState.disabled`) — blocks the tap outright, matching the
+        // dimmed look above; never just a visual treatment.
+        .disabled(isDisabled)
         .accessibilityLabel(item.label)
     }
 }

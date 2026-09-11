@@ -11,6 +11,7 @@
     Heading3,
     Type,
     TextQuote,
+    Code,
     List,
     ListOrdered,
     ListChecks,
@@ -19,6 +20,8 @@
     ChevronDown,
     ListIndentDecrease,
     ListIndentIncrease,
+    Undo2,
+    Redo2,
   } from '@lucide/svelte';
 
   const ICONS: Record<string, Component> = {
@@ -31,6 +34,7 @@
     Heading3,
     Type,
     TextQuote,
+    Code,
     List,
     ListOrdered,
     ListChecks,
@@ -39,6 +43,8 @@
     ChevronDown,
     ListIndentDecrease,
     ListIndentIncrease,
+    Undo2,
+    Redo2,
   };
 
   interface Props {
@@ -59,6 +65,11 @@
   const DismissIcon = icon(TOOLBAR_DISMISS);
 
   function activate(item: ToolbarItem): void {
+    // Disabled (Undo/Redo with an empty stack — bridge `formatState.disabled`)
+    // is enforced here too, not just via the `disabled` DOM attribute below:
+    // this is the same guard `onclick` would be blocked by natively, kept
+    // explicit so the two can never drift apart.
+    if (disabledFormats.includes(item.id)) return;
     const action = item.action;
     if (action.kind === 'dismiss') {
       ondismiss();
@@ -71,9 +82,12 @@
 
   let editorFocused = $state(false);
   let cursorOnListLine = $state(false);
-  /* Manifest ids covering the caret — the bridge `formatState` set, fed by the
-   * embed host. */
+  /* Manifest ids covering the caret — the bridge `formatState.active` set,
+   * fed by the embed host. */
   let activeFormats = $state<string[]>([]);
+  /* Manifest ids INERT at the caret (Undo/Redo with an empty stack) — the
+   * bridge `formatState.disabled` set, same host, same message. */
+  let disabledFormats = $state<string[]>([]);
 
   export function setFocused(focused: boolean): void {
     editorFocused = focused;
@@ -83,8 +97,9 @@
     cursorOnListLine = onListLine;
   }
 
-  export function setActiveFormats(active: string[]): void {
+  export function setActiveFormats(active: string[], disabled: string[]): void {
     activeFormats = active;
+    disabledFormats = disabled;
   }
 
   let bottomOffset = $state(0);
@@ -147,9 +162,12 @@
         {#each group as item (item.id)}
           {#if item.when !== 'inContainer' || cursorOnListLine || activeFormats.includes('quote')}
             {@const Icon = icon(item)}
+            {@const isDisabled = disabledFormats.includes(item.id)}
             <button
               class="toolbar-btn"
               class:is-active={activeFormats.includes(item.id)}
+              class:is-disabled={isDisabled}
+              disabled={isDisabled}
               onmousedown={preventFocus}
               ontouchstart={preventFocus}
               onclick={() => activate(item)}

@@ -867,6 +867,7 @@ fun NoteEditorScreen(
                 EditorToolbar(
                     onListLine = host.onListLine,
                     activeFormats = host.activeFormats,
+                    disabledFormats = host.disabledFormats,
                     perform = { item ->
                         when (val action = item.action) {
                             ToolbarItemAction.Exec -> host.exec(item.id)

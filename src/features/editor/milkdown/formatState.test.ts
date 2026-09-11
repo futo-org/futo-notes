@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { EditorState, TextSelection } from '@milkdown/kit/prose/state';
+import { EditorState, TextSelection, type Transaction } from '@milkdown/kit/prose/state';
 import { Schema, type Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
+import { history, redo, undo } from '@milkdown/kit/prose/history';
 
-import { computeActiveFormats } from './formatState';
+import { computeActiveFormats, computeDisabledFormats } from './formatState';
 import { testSchema } from './__fixtures__/schema';
 
 const s = testSchema;
@@ -15,6 +16,21 @@ const s = testSchema;
  */
 function stubView(doc: ProseNode): ProseView {
   return { state: EditorState.create({ doc }) } as unknown as ProseView;
+}
+
+/**
+ * A minimal view stub whose `state` actually advances — `undo`/`redo` and
+ * `computeDisabledFormats` both need a live `EditorState` with the history
+ * plugin's own field on it, not just a doc snapshot.
+ */
+function historyView(doc: ProseNode): ProseView {
+  const stub = {
+    state: EditorState.create({ doc, plugins: [history()] }),
+    dispatch: (tr: Transaction) => {
+      stub.state = stub.state.apply(tr);
+    },
+  };
+  return stub as unknown as ProseView;
 }
 
 /** The caret at the first text position inside the `index`-th top-level child. */
@@ -165,5 +181,32 @@ describe('computeActiveFormats', () => {
         null,
       ),
     ).toEqual([]);
+  });
+});
+
+describe('computeDisabledFormats', () => {
+  it('reports both inert with no history plugin at all', () => {
+    // QA-003's fresh-state default: nothing tracked, nothing to undo or redo.
+    const doc = s.nodes.doc.create(null, s.nodes.paragraph.create(null, s.text('x')));
+    expect(computeDisabledFormats(stubView(doc)).sort()).toEqual(['redo', 'undo']);
+  });
+
+  it('reports both inert on a freshly mounted history plugin', () => {
+    const doc = s.nodes.doc.create(null, s.nodes.paragraph.create(null, s.text('x')));
+    expect(computeDisabledFormats(historyView(doc)).sort()).toEqual(['redo', 'undo']);
+  });
+
+  it('enables undo after an edit, and enables redo (only) once that edit is undone', () => {
+    const doc = s.nodes.doc.create(null, s.nodes.paragraph.create(null, s.text('x')));
+    const view = historyView(doc);
+
+    view.dispatch(view.state.tr.insertText('y'));
+    expect(computeDisabledFormats(view)).toEqual(['redo']);
+
+    undo(view.state, view.dispatch);
+    expect(computeDisabledFormats(view)).toEqual(['undo']);
+
+    redo(view.state, view.dispatch);
+    expect(computeDisabledFormats(view)).toEqual(['redo']);
   });
 });

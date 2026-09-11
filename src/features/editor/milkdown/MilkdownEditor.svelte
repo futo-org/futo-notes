@@ -78,7 +78,7 @@
   import { setDprCorrectedDragImage } from './blockDragGeometry';
   import { editorView, enclosingListItem } from './caretContext';
   import { dividerCaretFix } from './dividerCaret';
-  import { computeActiveFormats } from './formatState';
+  import { computeActiveFormats, computeDisabledFormats } from './formatState';
   import { handleParityKeyDown } from './keyboardParity';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
@@ -122,7 +122,7 @@
      * bridge.ts FormatStateMessage and issue #104 for the Android consumer).
      * Fires deduped whenever the set of active toolbar-manifest ids at the
      * cursor/selection changes. */
-    onformatstate?: (active: string[]) => void;
+    onformatstate?: (active: string[], disabled: string[]) => void;
     /* Notion-style block drag haptics, from the long-press path both native
      * shells mount (see bridge.ts HapticMessage / mobileBlockDnd.ts). */
     onhaptic?: (kind: MobileDndHapticKind) => void;
@@ -338,6 +338,15 @@
    * `selection.$from.marks()` alone is correct there, whereas `exec('bold')`
    * on a collapsed selection genuinely relies on the freshly toggled
    * `view.state.storedMarks` to report active immediately.
+   *
+   * Disabled ids (Undo/Redo) are computed from `view.state` directly — they
+   * are not selection-dependent, so `selectionOverride` says nothing about
+   * them — which means they can lag by the same one transaction the override
+   * exists to correct for `active`. That is fine here: it self-heals at the
+   * next debounced change notification (`reportDocumentChange`'s
+   * `emitFormatState()`, called with fresh `view.state`), and the case that
+   * actually matters — tapping Undo/Redo itself — runs through `exec()`,
+   * which is never inside the stale window.
    */
   function emitFormatState(selectionOverride?: ProseSelection): void {
     if (!onformatstate) return;
@@ -351,10 +360,11 @@
     const selection = selectionOverride ?? view.state.selection;
     const storedMarks = selectionOverride ? null : view.state.storedMarks;
     const active = computeActiveFormats(view, selection, storedMarks);
-    const key = [...active].sort().join(',');
+    const disabled = computeDisabledFormats(view);
+    const key = `${[...active].sort().join(',')}|${[...disabled].sort().join(',')}`;
     if (key === lastFormatStateKey) return;
     lastFormatStateKey = key;
-    onformatstate(active);
+    onformatstate(active, disabled);
   }
 
   /**

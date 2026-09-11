@@ -1,13 +1,16 @@
 /*
- * Which toolbar-manifest commands are ACTIVE at the caret.
+ * Which toolbar-manifest commands are ACTIVE at the caret, and which are
+ * DISABLED outright.
  *
- * Drives the Notion-style highlight on the native keyboard toolbar (bridge
- * `formatState` — see packages/editor/src/bridge.ts). Kept out of the editor
- * component because it is pure document logic: given a selection it answers
- * with toolbar ids, with no DOM and no editor lifecycle involved.
+ * Drives the Notion-style highlight (and the Undo/Redo grey-out) on the
+ * native keyboard toolbar (bridge `formatState` — see
+ * packages/editor/src/bridge.ts). Kept out of the editor component because it
+ * is pure document logic: given a view/selection it answers with toolbar ids,
+ * with no DOM and no editor lifecycle involved.
  */
 import type { Mark as ProseMark } from '@milkdown/kit/prose/model';
 import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
+import { redoDepth, undoDepth } from '@milkdown/kit/prose/history';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 import { isTaskItem } from './caretContext';
@@ -107,4 +110,21 @@ export function computeActiveFormats(
   else if (inBulletList) active.add('bullet-list');
 
   return Array.from(active);
+}
+
+/**
+ * The toolbar-manifest ids that are currently INERT — `'undo'`/`'redo'` when
+ * prosemirror-history's own depth counters say there is nothing to undo/redo.
+ * Not selection-dependent (unlike {@link computeActiveFormats}), so this only
+ * needs the view, and reads `view.state` directly: every caller emits this
+ * alongside `active` on the same triggers, and the one caller where
+ * `view.state` can be a transaction stale (`selectionUpdated`, mid-`apply`)
+ * self-corrects within one debounced change notification — the same
+ * tolerance `formatState` already accepts for that path.
+ */
+export function computeDisabledFormats(view: ProseView): string[] {
+  const disabled: string[] = [];
+  if (undoDepth(view.state) === 0) disabled.push('undo');
+  if (redoDepth(view.state) === 0) disabled.push('redo');
+  return disabled;
 }
