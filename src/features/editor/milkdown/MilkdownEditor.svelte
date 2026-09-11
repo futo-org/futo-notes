@@ -96,6 +96,7 @@
   import { createBlockSerializer, type BlockSerializer } from './blockSerializer';
   import { WHOLE as CENSUS_WHOLE } from './chunkCensusHook';
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
+  import { tableGrips } from './table/tableGrips';
   import { createToolbarExec } from './toolbarExec';
   import { vaultImageView } from './vaultImageView';
   import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
@@ -575,7 +576,8 @@
         .use(trailing)
         .use(tagDecorations)
         .use(taskCheckbox)
-        .use(codeHighlight);
+        .use(codeHighlight)
+        .use(tableGrips);
 
       // THE single native-shell gate (see useMobileBlockDnd above): the
       // Notion-style long-press-anywhere-on-the-block path REPLACES the ⠿
@@ -2122,6 +2124,83 @@
 
   :global(.futo-milkdown .ProseMirror ::selection) {
     background: var(--color-selection, #ffe4d1);
+  }
+
+  /* Table row/column grips (table/tableGrips.ts). `position: fixed` in
+   * viewport coordinates, same contract as `.milkdown-drop-indicator` —
+   * positioned in JS off the actual rendered table, appended OUTSIDE the
+   * contenteditable so WebKit's DOMObserver cannot fight them (M-drag
+   * handle's own comment, above). Hidden via the `hidden` attribute rather
+   * than `display`, per this repo's convention (toggle visibility with
+   * `el.hidden`). */
+  :global(.futo-table-grip) {
+    position: fixed;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--color-muted, #737373);
+    background: var(--color-surface, #f2f2f2);
+    border: 1px solid var(--color-border, #e5e5e5);
+    border-radius: 3px;
+    cursor: pointer;
+    z-index: 6;
+  }
+
+  :global(.futo-table-grip:hover) {
+    color: var(--color-text, #111827);
+    background: var(--color-selection, #ffe4d1);
+  }
+
+  /* `[hidden]` needs the attribute selector to out-specificity the plain
+   * class rule above — `display: flex` on `.futo-table-grip` would otherwise
+   * beat the UA stylesheet's own `[hidden] { display: none }`. */
+  :global(.futo-table-grip[hidden]),
+  :global(.futo-table-grip-menu[hidden]) {
+    display: none;
+  }
+
+  :global(.futo-table-grip-col)::before {
+    content: '⠿';
+  }
+
+  :global(.futo-table-grip-row)::before {
+    content: '⠿';
+  }
+
+  :global(.futo-table-grip-menu) {
+    position: fixed;
+    display: flex;
+    flex-direction: column;
+    min-width: 9em;
+    padding: 0.25em;
+    background: var(--color-surface, #ffffff);
+    border: 1px solid var(--color-border, #e5e5e5);
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 7;
+  }
+
+  :global(.futo-table-grip-menu-item) {
+    padding: 0.4em 0.6em;
+    font-size: 0.85rem;
+    text-align: left;
+    color: var(--color-text, #111827);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  :global(.futo-table-grip-menu-item:hover:not(:disabled)) {
+    background: var(--color-selection, #ffe4d1);
+  }
+
+  :global(.futo-table-grip-menu-item:disabled) {
+    color: var(--color-muted, #a3a3a3);
+    cursor: not-allowed;
   }
 
   /* Notion-style block drag handle. Positioned by Milkdown's
