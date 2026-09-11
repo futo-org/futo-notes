@@ -264,7 +264,23 @@ worktree name:
   set -euo pipefail
   REPO_ROOT="$(git rev-parse --show-toplevel)"
   BRANCH="{{name}}"
-  WORKTREE_PATH="${REPO_ROOT}/../${BRANCH}"
+  # Branch names like 'feat/license' nest under the branch, which makes the
+  # sibling worktree land in a 'feat/' directory; use only the final segment.
+  WT_NAME="${BRANCH##*/}"
+  WORKTREE_PATH="$(cd "${REPO_ROOT}/.." && pwd)/${WT_NAME}"
+
+  # A different branch may already own this path (e.g. 'feat/license' vs
+  # 'fix/license'); fail clearly instead of a cryptic git error.
+  if git worktree list --porcelain | grep -qx "worktree ${WORKTREE_PATH}"; then
+    OWNER=$(git worktree list --porcelain | awk -v p="${WORKTREE_PATH}" '
+      /^worktree / { path=substr($0, 10) }
+      /^branch /   { if (path == p) print $2 }
+    ' | head -1)
+    if [ -n "${OWNER}" ] && [ "${OWNER}" != "refs/heads/${BRANCH}" ]; then
+      echo "error: ${WORKTREE_PATH} is already a worktree for ${OWNER}" >&2
+      exit 1
+    fi
+  fi
 
   # Check if branch already exists
   if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
