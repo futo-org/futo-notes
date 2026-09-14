@@ -21,6 +21,38 @@ Infer the repo from `git remote -v` — `glab` does this automatically when run 
 Each of these produced an error message that named nothing useful, and each was
 reported more than once.
 
+- **A write that fails `Unauthenticated.` is a per-machine setup gap, and `glab mr
+  create` will not say so.** This project is public, so every *read* succeeds with no
+  credentials at all — the CLI looks authenticated right up to the first write. The
+  write then prints a generic "ensure you are authenticated / merge requests are
+  enabled / your role allows it" checklist plus a recovery file, hiding the API's
+  actual answer. Re-run the same call through `glab api` to read it:
+
+  ```bash
+  glab api --hostname gitlab.futo.org --method POST \
+    "projects/futo-notes%2Ffuto-notes/merge_requests" \
+    -f source_branch=<branch> -f target_branch=main -f title="..."
+  ```
+
+  glab authenticates from a `gitlab.futo.org` entry in its own config file
+  (`glab auth login --hostname gitlab.futo.org`, once per machine) or from
+  `GITLAB_TOKEN` in the environment. Exporting that token from an *interactive*
+  profile only is the usual trap: a non-interactive agent shell never sources
+  `~/.zshrc`, so the command works by hand and fails under an agent. Two routes
+  need neither — the REST API with the token passed explicitly:
+
+  ```bash
+  curl -sS --request POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+    --data source_branch=<branch> --data target_branch=main \
+    --data title="Draft: ..." \
+    "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/merge_requests"
+  ```
+
+  and git push options over SSH (`git push -u origin <branch>
+  -o merge_request.create -o merge_request.target=main -o merge_request.title=...`),
+  which ride your git credentials. Push options are only transmitted when the push
+  actually updates a ref, so an already-pushed branch needs a new commit first.
+
 - **Run it from inside the checkout, or set the host.** `glab api` fills the
   endpoint's repo placeholders from *the repository of the current directory*, so
   run outside one it silently targets `gitlab.com` and returns `401`. That reads
