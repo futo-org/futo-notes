@@ -51,7 +51,8 @@ contenteditable natively, and annotates screenshots. Run `agent-browser` with
 no args for the full command reference.
 
 ```bash
-pnpm run dev -- --port $WEB_VITE_PORT --strictPort &   # use Bash run_in_background
+pnpm run dev &                        # use Bash run_in_background; vite.config.ts
+                                      # already pins this worktree's $WEB_VITE_PORT
 sleep 4
 agent-browser open http://localhost:$WEB_VITE_PORT
 
