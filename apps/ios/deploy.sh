@@ -46,7 +46,12 @@ echo "==> Generating Xcode project (xcodegen)"
 ( cd "$APP_DIR" && xcodegen generate )
 
 echo "==> Building signed RELEASE app for device"
-xcodebuild -project "$APP_DIR/FutoNotesNative.xcodeproj" \
+# Full output goes to a log file: quiet (last 3 lines) on success, the whole
+# thing on failure — `build | tail -3` used to throw away the actual error
+# (e.g. a codesign failure) and leave only "** BUILD FAILED **" + a file path.
+BUILD_LOG="$(mktemp)"
+trap 'rm -f "$BUILD_LOG"' EXIT
+if xcodebuild -project "$APP_DIR/FutoNotesNative.xcodeproj" \
   -scheme FutoNotesNative -configuration Release \
   -destination 'generic/platform=iOS' \
   -derivedDataPath "$DERIVED" \
@@ -56,7 +61,13 @@ xcodebuild -project "$APP_DIR/FutoNotesNative.xcodeproj" \
   CODE_SIGNING_REQUIRED=YES \
   CODE_SIGN_IDENTITY="Apple Development" \
   -allowProvisioningUpdates \
-  build | tail -3
+  build > "$BUILD_LOG" 2>&1; then
+  tail -3 "$BUILD_LOG"
+else
+  echo "==> xcodebuild failed:" >&2
+  cat "$BUILD_LOG" >&2
+  exit 1
+fi
 
 APP=$(find "$DERIVED/Build/Products/Release-iphoneos" -maxdepth 1 -name "*.app" | head -1)
 if [ -z "$APP" ]; then echo "Build produced no .app" >&2; exit 1; fi

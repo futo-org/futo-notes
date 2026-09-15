@@ -146,11 +146,22 @@ build-ios-native: build-rust-ios
   xcodegen generate
   # The generic simulator destination links both arm64 and x86_64;
   # build-rust-ios.sh lipos a universal simulator slice so both resolve.
-  xcodebuild -project FutoNotesNative.xcodeproj \
+  # Full output goes to a log file: quiet (last 3 lines) on success, the whole
+  # thing on failure — `build | tail -3` used to throw away the actual error
+  # (e.g. a codesign failure) and leave only "** BUILD FAILED **" + a file path.
+  BUILD_LOG="$(mktemp)"
+  trap 'rm -f "$BUILD_LOG"' EXIT
+  if xcodebuild -project FutoNotesNative.xcodeproj \
     -scheme FutoNotesNative -configuration Debug \
     -destination 'generic/platform=iOS Simulator' \
     -derivedDataPath .build \
-    CODE_SIGNING_ALLOWED=NO build | tail -3
+    CODE_SIGNING_ALLOWED=NO build > "$BUILD_LOG" 2>&1; then
+    tail -3 "$BUILD_LOG"
+  else
+    echo "==> xcodebuild failed:" >&2
+    cat "$BUILD_LOG" >&2
+    exit 1
+  fi
 
 # Compile-only sanity for the native Android app (assembleDebug, no install).
 build-android-native: build-rust-android
