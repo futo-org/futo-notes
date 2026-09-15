@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -187,4 +188,190 @@ async fn a_rate_limited_mint_carries_the_servers_retry_after() {
 fn the_server_address_is_normalised() {
     let setup = HostedSetup::at("  https://notes-sync.futo.org/  ").unwrap();
     assert_eq!(setup.server_url(), "https://notes-sync.futo.org");
+}
+
+// ── The vault doors ────────────────────────────────────────────────────────
+
+/// One device's secret store, in memory.
+#[derive(Default)]
+struct TestSecrets {
+    vault_key: std::sync::Mutex<Option<[u8; 32]>>,
+    token: std::sync::Mutex<Option<String>>,
+}
+
+impl TestSecrets {
+    fn holding(token: &str, vault_key: [u8; 32]) -> Arc<Self> {
+        Arc::new(Self {
+            vault_key: std::sync::Mutex::new(Some(vault_key)),
+            token: std::sync::Mutex::new(Some(token.to_owned())),
+        })
+    }
+}
+
+impl VaultSecrets for TestSecrets {
+    fn vault_key(&self) -> Result<Option<[u8; 32]>, String> {
+        Ok(*self.vault_key.lock().unwrap())
+    }
+    fn set_vault_key(&self, key: &[u8; 32]) -> Result<(), String> {
+        *self.vault_key.lock().unwrap() = Some(*key);
+        Ok(())
+    }
+    fn delete_vault_key(&self) -> Result<(), String> {
+        *self.vault_key.lock().unwrap() = None;
+        Ok(())
+    }
+    fn session_token(&self) -> Result<Option<String>, String> {
+        Ok(self.token.lock().unwrap().clone())
+    }
+    fn set_session_token(&self, token: &str) -> Result<(), String> {
+        *self.token.lock().unwrap() = Some(token.to_owned());
+        Ok(())
+    }
+    fn delete_session_token(&self) -> Result<(), String> {
+        *self.token.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+/// A typo is caught by the check character before anything is sent. The proof
+/// is that this setup points at a port nothing listens on and holds no session
+/// at all: a recovery key that reached either would answer `Network` or
+/// `NotSignedIn` instead (parent spec user story 18).
+#[tokio::test]
+async fn a_mistyped_recovery_key_never_reaches_the_network() {
+    let setup = HostedSetup::at("http://127.0.0.1:9")
+        .unwrap()
+        .with_secrets(Arc::new(TestSecrets::default()) as Arc<dyn VaultSecrets>);
+
+    // A real recovery key with one data character changed and the check
+    // character left alone — exactly what a typo looks like.
+    let key = futo_notes_core::e2ee::RecoveryKey::from_bytes([0x11; 16]).to_string();
+    let mut typed: Vec<char> = key.chars().collect();
+    let first = typed.iter().position(char::is_ascii_alphanumeric).unwrap();
+    typed[first] = if typed[first] == '2' { '3' } else { '2' };
+    let typo: String = typed.into_iter().collect();
+
+    assert_eq!(
+        setup.unlock_with_recovery_key(&typo).await.unwrap_err(),
+        HostedError::RecoveryKeyTypo
+    );
+    assert_eq!(
+        setup
+            .unlock_with_recovery_key("not a recovery key")
+            .await
+            .unwrap_err(),
+        HostedError::RecoveryKeyFormat
+    );
+}
+
+/// A saved token the server no longer accepts sends the person back to the
+/// browser — and takes nothing else with it. The vault key stays exactly where
+/// it is, because an expired session is not a vault reset (ADR 0003).
+#[tokio::test]
+async fn an_expired_saved_token_is_dropped_and_the_vault_key_is_not() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/auth"))
+        .respond_with(ResponseTemplate::new(401).set_body_raw(
+            r#"{"code":"invalid_session","error":"session expired or invalid"}"#,
+            "application/json",
+        ))
+        .mount(&server)
+        .await;
+    let secrets = TestSecrets::holding("stale", [3u8; 32]);
+    let setup = HostedSetup::at(&server.uri())
+        .unwrap()
+        .with_secrets(Arc::clone(&secrets) as Arc<dyn VaultSecrets>);
+
+    assert_eq!(setup.current_step().await.unwrap(), SetupStep::SignIn);
+    assert_eq!(
+        secrets.session_token().unwrap(),
+        None,
+        "a token the server rejected is retried on every start"
+    );
+    assert_eq!(
+        secrets.vault_key().unwrap(),
+        Some([3u8; 32]),
+        "an expired session took the vault key with it"
+    );
+}
+
+/// Signing out demotes this vault's sync state by the same route disconnect
+/// does — the live checkpoint is gone and verified ancestry is left behind, so
+/// a later sign-in reconciles against what was actually pushed rather than
+/// re-uploading a whole vault.
+#[tokio::test]
+async fn signing_out_demotes_sync_state_exactly_as_disconnect_does() {
+    let signed_out = temp_root();
+    let disconnected = temp_root();
+    live_vault(&signed_out);
+    live_vault(&disconnected);
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/auth/logout"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    let secrets = TestSecrets::holding("live", [9u8; 32]);
+    let setup = HostedSetup::at(&server.uri())
+        .unwrap()
+        .with_secrets(Arc::clone(&secrets) as Arc<dyn VaultSecrets>);
+    signed_in(&setup);
+
+    setup
+        .sign_out(&crate::SyncSession::new(), &signed_out)
+        .await
+        .expect("sign out");
+    crate::SyncSession::new()
+        .disconnect(&disconnected)
+        .await
+        .expect("disconnect");
+
+    assert!(!checkpoint::state_path(&signed_out).exists());
+    assert_eq!(
+        std::fs::read_to_string(signed_out.join(".e2ee-ancestry.json")).ok(),
+        std::fs::read_to_string(disconnected.join(".e2ee-ancestry.json")).ok(),
+        "sign out and disconnect left different sync state behind"
+    );
+    assert_eq!(secrets.vault_key().unwrap(), None);
+    assert_eq!(secrets.session_token().unwrap(), None);
+
+    let _ = std::fs::remove_dir_all(&signed_out);
+    let _ = std::fs::remove_dir_all(&disconnected);
+}
+
+/// The server call is best-effort: a person who signs out on a plane is signed
+/// out of this device, and the session ages out on its own.
+#[tokio::test]
+async fn signing_out_with_no_server_still_forgets_this_device() {
+    let root = temp_root();
+    let secrets = TestSecrets::holding("live", [9u8; 32]);
+    let setup = HostedSetup::at("http://127.0.0.1:9")
+        .unwrap()
+        .with_secrets(Arc::clone(&secrets) as Arc<dyn VaultSecrets>);
+    signed_in(&setup);
+
+    setup
+        .sign_out(&crate::SyncSession::new(), &root)
+        .await
+        .expect("sign out with no server");
+
+    assert_eq!(secrets.vault_key().unwrap(), None);
+    assert_eq!(secrets.session_token().unwrap(), None);
+    assert!(setup.session().is_none());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A setup built only to probe or sign in has nowhere to put a vault key, and
+/// says so rather than appearing to succeed and forgetting on the next start.
+#[tokio::test]
+async fn a_setup_with_no_secret_store_will_not_pretend_to_keep_one() {
+    let setup = HostedSetup::at("https://notes-sync.futo.org").unwrap();
+    signed_in(&setup);
+
+    assert!(matches!(
+        setup.current_step().await.unwrap_err(),
+        HostedError::SecretStore(_)
+    ));
 }

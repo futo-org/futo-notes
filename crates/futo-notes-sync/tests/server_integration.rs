@@ -1623,4 +1623,12 @@ against_the_real_server! {
     a_spent_ticket_is_reported_as_expired,
     an_entitled_account_is_not_sent_to_pay_again,
     a_lapsed_subscription_is_readable_and_not_a_sign_out,
+    a_fresh_account_creates_a_vault,
+    the_recovery_key_cannot_be_asked_for_twice,
+    creating_a_vault_without_a_subscription_is_refused,
+    a_short_vault_password_is_refused_before_anything_is_written,
+    a_second_device_unlocks_with_the_vault_password,
+    a_second_device_unlocks_with_the_recovery_key,
+    quitting_mid_wizard_resumes_at_the_right_step,
+    signing_out_forgets_the_key_the_token_and_the_live_state,
 }

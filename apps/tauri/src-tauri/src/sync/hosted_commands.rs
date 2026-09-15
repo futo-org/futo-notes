@@ -8,12 +8,14 @@
 use std::sync::{Arc, Mutex};
 
 use futo_notes_sync::HostedSetup;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use super::frontend_contract::{
     BillingStatusOutput, CheckoutOutput, EntitlementOutcomeOutput, HostedErrorOutput,
-    HostedSessionOutput, SignInFlowOutput, SignInHandoffOutput, SignInOutcomeOutput,
+    HostedSessionOutput, SetupStepOutput, SignInFlowOutput, SignInHandoffOutput,
+    SignInOutcomeOutput,
 };
+use super::password_store::KeyringVaultSecrets;
 use crate::application_state::AppState;
 
 /// The hosted setup attempt in progress, if any.
@@ -34,6 +36,45 @@ impl HostedSetupState {
             .clone()
             .ok_or(HostedErrorOutput::NotSignedIn)
     }
+
+    /// The running attempt, or a fresh one over this vault's keyring entries.
+    ///
+    /// A cold start has no attempt and no session in memory, yet must be able
+    /// to answer which screen to show — so asking for the step builds the
+    /// attempt rather than refusing. The saved session token does the rest.
+    fn adopt_or_build(
+        &self,
+        app: &AppHandle,
+        server_url: Option<&str>,
+    ) -> Result<Arc<HostedSetup>, HostedErrorOutput> {
+        let mut slot = self.0.lock().expect("hosted setup lock");
+        if let Some(setup) = slot.clone() {
+            return Ok(setup);
+        }
+        let setup = Arc::new(build(app, server_url)?);
+        *slot = Some(Arc::clone(&setup));
+        Ok(setup)
+    }
+}
+
+/// Which vault this hosted setup is for. Everything the setup keeps is scoped
+/// to it, so a failure to resolve it is a failure to reach the secret store —
+/// there is nowhere for a key to go, and nothing was kept.
+fn vault_root(app: &AppHandle) -> Result<std::path::PathBuf, HostedErrorOutput> {
+    crate::vault_location::root(app).map_err(|reason| HostedErrorOutput::SecretStore {
+        reason: format!("this vault's location could not be resolved: {reason}"),
+    })
+}
+
+/// A setup over this vault's keyring entries, so what it keeps survives a
+/// restart and stays scoped to one notes root (M3).
+fn build(app: &AppHandle, server_url: Option<&str>) -> Result<HostedSetup, HostedErrorOutput> {
+    let root = vault_root(app)?;
+    let setup = match server_url {
+        Some(url) => HostedSetup::at(url)?,
+        None => HostedSetup::hosted()?,
+    };
+    Ok(setup.with_secrets(Arc::new(KeyringVaultSecrets::for_vault(root))))
 }
 
 /// Where hosted sync lives. Compiled in; a debug build can point elsewhere.
@@ -58,13 +99,11 @@ pub async fn e2ee_hosted_probe(server_url: String) -> Result<SignInFlowOutput, H
 /// pressing the button a second time means.
 #[tauri::command]
 pub async fn e2ee_hosted_begin_sign_in(
+    app: AppHandle,
     state: State<'_, AppState>,
     server_url: Option<String>,
 ) -> Result<SignInHandoffOutput, HostedErrorOutput> {
-    let setup = Arc::new(match server_url {
-        Some(url) => HostedSetup::at(&url)?,
-        None => HostedSetup::hosted()?,
-    });
+    let setup = Arc::new(build(&app, server_url.as_deref())?);
     state.hosted.replace(Arc::clone(&setup));
     let handoff = setup.begin_sign_in().await?;
     Ok(SignInHandoffOutput {
@@ -141,6 +180,90 @@ pub async fn e2ee_hosted_await_entitled(
         .await
         .map(Into::into)
         .map_err(Into::into)
+}
+
+/// Which screen the wizard is on. Safe as the very first call on a cold
+/// start: it adopts this vault's saved session token rather than needing a
+/// sign-in in this process, and nothing about where the person got to last
+/// time is read, because nothing is written.
+#[tauri::command]
+pub async fn e2ee_hosted_current_step(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    server_url: Option<String>,
+) -> Result<SetupStepOutput, HostedErrorOutput> {
+    let setup = state.hosted.adopt_or_build(&app, server_url.as_deref())?;
+    setup
+        .current_step()
+        .await
+        .map(Into::into)
+        .map_err(Into::into)
+}
+
+/// The shortest vault password the engine will create a vault with, so the
+/// strength meter and the Continue button agree with what Rust does.
+#[tauri::command]
+pub async fn e2ee_hosted_min_vault_password_length() -> Result<u32, HostedErrorOutput> {
+    Ok(futo_notes_sync::MIN_VAULT_PASSWORD_CHARS as u32)
+}
+
+/// Creates the vault and answers with its recovery key, formatted for the save
+/// screen. **This is the only time it exists** — nothing here keeps a copy,
+/// and a second call is refused.
+#[tauri::command]
+pub async fn e2ee_hosted_create_vault(
+    state: State<'_, AppState>,
+    vault_password: String,
+) -> Result<String, HostedErrorOutput> {
+    let setup = state.hosted.current()?;
+    setup
+        .create_vault(&vault_password)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn e2ee_hosted_unlock_with_vault_password(
+    state: State<'_, AppState>,
+    vault_password: String,
+) -> Result<(), HostedErrorOutput> {
+    let setup = state.hosted.current()?;
+    setup
+        .unlock_with_vault_password(&vault_password)
+        .await
+        .map_err(Into::into)
+}
+
+/// A mistyped character is reported as a typo without anything leaving the
+/// device.
+#[tauri::command]
+pub async fn e2ee_hosted_unlock_with_recovery_key(
+    state: State<'_, AppState>,
+    typed: String,
+) -> Result<(), HostedErrorOutput> {
+    let setup = state.hosted.current()?;
+    setup
+        .unlock_with_recovery_key(&typed)
+        .await
+        .map_err(Into::into)
+}
+
+/// One action: revoke the session, forget both secrets, and demote this
+/// vault's sync state exactly as `e2ee_disconnect` does. The notes stay.
+///
+/// Like the step, this builds an attempt when the process has none. Sign out
+/// is offered from the account card at any time, including as the first thing
+/// after a restart, and refusing it there would leave the key and the token on
+/// a device whose owner asked for them to be gone.
+#[tauri::command]
+pub async fn e2ee_hosted_sign_out(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    server_url: Option<String>,
+) -> Result<(), HostedErrorOutput> {
+    let root = vault_root(&app)?;
+    let setup = state.hosted.adopt_or_build(&app, server_url.as_deref())?;
+    setup.sign_out(&state.sync, &root).await.map_err(Into::into)
 }
 
 #[cfg(test)]

@@ -63,7 +63,22 @@ export type HostedErrorOutput =
 // The session is gone. Sign in again; sync state is untouched.
 { kind: "signInAgain" } | { kind: "notSignedIn" } | 
 // This server does not offer hosted sync.
-{ kind: "notHosted"; reason: string } | { kind: "rateLimited"; retryAfterSeconds: number } | { kind: "server"; reason: string } | { kind: "network"; reason: string };
+{ kind: "notHosted"; reason: string } | { kind: "rateLimited"; retryAfterSeconds: number } | { kind: "server"; reason: string } | { kind: "network"; reason: string } | 
+// Creating a vault is an entitlement-gated write: subscribe first.
+{ kind: "notEntitled" } | 
+// This account already has a vault. Unlock it rather than replacing it.
+{ kind: "vaultAlreadyExists" } | { kind: "noVault" } | { kind: "vaultPasswordTooShort"; minimum: number } | 
+// The one failure a person fixes by typing again.
+{ kind: "wrongVaultPassword" } | 
+// Not a recovery key at all; caught on the device.
+{ kind: "recoveryKeyFormat" } | 
+/**
+ *  A mistyped or transposed character, caught by the check character
+ *  before anything is sent.
+ */
+{ kind: "recoveryKeyTypo" } | { kind: "wrongRecoveryKey" } | { kind: "noRecoveryKey" } | 
+// The OS secret store refused; nothing was kept.
+{ kind: "secretStore"; reason: string } | { kind: "crypto"; reason: string };
 
 export type HostedSessionOutput = {
 	userId: string,
@@ -97,6 +112,12 @@ export type RenamePair = {
 	fromId: string,
 	toId: string,
 };
+
+/**
+ *  Which screen the hosted wizard is on, derived from server facts and this
+ *  device's secret store — never from a stored position.
+ */
+export type SetupStepOutput = { kind: "signIn" } | { kind: "subscribe" } | { kind: "createVault" } | { kind: "unlock" } | { kind: "ready" };
 
 // How the app should log in to a server, read from its capability document.
 export type SignInFlowOutput = { kind: "hosted"; 

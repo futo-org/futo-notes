@@ -2,8 +2,8 @@
 
 Root `AGENTS.md` and `docs/spec/sync.md` apply. This crate owns connection/session state,
 push/pull planning, conflicts, checkpoints, the SSE live loop, and the hosted setup sequence
-(`hosted/`: Log in with FUTO, billing, checkout). Shells project all of it; they never hold an
-ordering rule of their own.
+(`hosted/`: Log in with FUTO, billing, checkout, the three vault doors, and sign out). Shells
+project all of it; they never hold an ordering rule of their own.
 
 ## CRITICAL invariant
 

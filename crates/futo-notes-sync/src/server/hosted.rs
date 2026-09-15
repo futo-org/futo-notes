@@ -40,11 +40,11 @@ struct ErrorBody {
 }
 
 #[derive(Deserialize)]
-struct UserBody {
-    id: String,
-    email: String,
+pub(crate) struct UserBody {
+    pub(crate) id: String,
+    pub(crate) email: String,
     #[serde(default)]
-    name: String,
+    pub(crate) name: String,
 }
 
 #[derive(Deserialize)]
@@ -119,6 +119,9 @@ async fn refusal(response: reqwest::Response) -> HostedError {
         401 => HostedError::SignInAgain,
         // `invalid_session` on any other status would still be that.
         _ if code == Some("invalid_session") => HostedError::SignInAgain,
+        // Every write on the hosted service is entitlement-gated, and the one
+        // this client makes before a person has notes is the vault key.
+        402 => HostedError::NotEntitled,
         404 => HostedError::NotHosted(message),
         429 => HostedError::RateLimited {
             retry_after_seconds: retry_after.unwrap_or(0),
@@ -225,6 +228,58 @@ impl Http {
             ))
         })?;
         Ok(Checkout::AlreadyEntitled(billing.into()))
+    }
+}
+
+/// Turns the engine's own transport failure into the hosted vocabulary, for
+/// the routes the hosted flow shares with password mode: claiming the
+/// collection, and reading and writing the vault key material. Those are one
+/// implementation used by both modes — only what a refusal *means* differs,
+/// which is what this says.
+pub(crate) fn hosted_error(error: HttpError) -> HostedError {
+    match error.status {
+        Some(401) => HostedError::SignInAgain,
+        // Writing the vault key is entitlement-gated; this is the refusal a
+        // fresh account meets before it has subscribed.
+        Some(402) => HostedError::NotEntitled,
+        Some(404) => HostedError::NotHosted(error.message),
+        Some(status) => HostedError::Server(format!("HTTP {status}: {}", error.message)),
+        // No status at all is a transport failure: nothing reached the server.
+        None => HostedError::Network(error.message),
+    }
+}
+
+impl Http {
+    /// `GET /api/auth` — who this token belongs to. `Ok(None)` is a token the
+    /// server no longer accepts, which on a cold start is an ordinary fact
+    /// about a device that sat idle rather than a failure to report.
+    pub(crate) async fn current_user(&self) -> Result<Option<UserBody>, HostedError> {
+        #[derive(Deserialize)]
+        struct Body {
+            user: UserBody,
+        }
+        let response = send(self.request(Method::GET, "/api/auth")).await?;
+        if response.status().as_u16() == 401 {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(refusal(response).await);
+        }
+        let body: Body = response
+            .json()
+            .await
+            .map_err(|error| HostedError::Server(transport_error(error).message))?;
+        Ok(Some(body.user))
+    }
+
+    /// `POST /api/auth/logout` — destroys this session server-side. It answers
+    /// `204`, so there is no body to read.
+    pub(crate) async fn logout(&self) -> Result<(), HostedError> {
+        let response = send(self.request(Method::POST, "/api/auth/logout")).await?;
+        if response.status().is_success() {
+            return Ok(());
+        }
+        Err(refusal(response).await)
     }
 }
 

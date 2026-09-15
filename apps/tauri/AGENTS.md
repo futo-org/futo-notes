@@ -15,7 +15,7 @@ From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just taur
 The desktop adapter is split by responsibility:
 
 - **`local_notes.rs`**: the complete `local_notes_*` projection over one `LocalNoteStore`, including desktop trash policy.
-- **`sync/`**: `mod.rs` is only the module map. `tauri_commands.rs` owns the stable `e2ee_*` command surface, `hosted_commands.rs` the `e2ee_hosted_*` one (hosted setup — sign-in, billing, checkout; the engine's `HostedSetup` owns the sequence and this holds the attempt in progress), `cycle_runner.rs` wires manual/live push-first cycles, `frontend_contract.rs` owns serialization, `tauri_events.rs` translates callbacks, and `password_store.rs` keeps this device's E2EE sync secrets — vault password, vault key,
+- **`sync/`**: `mod.rs` is only the module map. `tauri_commands.rs` owns the stable `e2ee_*` command surface, `hosted_commands.rs` the `e2ee_hosted_*` one (hosted setup — sign-in, billing, checkout, create/unlock vault, sign out; the engine's `HostedSetup` owns the sequence and this holds the attempt in progress, building one over the keyring when a cold start has none), `cycle_runner.rs` wires manual/live push-first cycles, `frontend_contract.rs` owns serialization, `tauri_events.rs` translates callbacks, and `password_store.rs` keeps this device's E2EE sync secrets — vault password, vault key,
   session token — in the OS keyring (never on disk). The session itself is the `sync: SyncSession`
   field on `AppState` — there is no separate session-state bridge module.
 - **`vault_location.rs`**: the only authority for environment overrides, persisted custom roots, and the CRITICAL debug (`fake-notes`) / release (`futo-notes`) default split.

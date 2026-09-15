@@ -423,6 +423,56 @@ pub(crate) enum HostedErrorOutput {
     Network {
         reason: String,
     },
+    /// Creating a vault is an entitlement-gated write: subscribe first.
+    NotEntitled,
+    /// This account already has a vault. Unlock it rather than replacing it.
+    VaultAlreadyExists,
+    NoVault,
+    VaultPasswordTooShort {
+        minimum: u32,
+    },
+    /// The one failure a person fixes by typing again.
+    WrongVaultPassword,
+    /// Not a recovery key at all; caught on the device.
+    RecoveryKeyFormat,
+    /// A mistyped or transposed character, caught by the check character
+    /// before anything is sent.
+    RecoveryKeyTypo,
+    WrongRecoveryKey,
+    NoRecoveryKey,
+    /// The OS secret store refused; nothing was kept.
+    SecretStore {
+        reason: String,
+    },
+    Crypto {
+        reason: String,
+    },
+}
+
+/// Which screen the hosted wizard is on, derived from server facts and this
+/// device's secret store — never from a stored position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum SetupStepOutput {
+    SignIn,
+    Subscribe,
+    CreateVault,
+    Unlock,
+    Ready,
+}
+
+impl From<futo_notes_sync::SetupStep> for SetupStepOutput {
+    fn from(step: futo_notes_sync::SetupStep) -> Self {
+        use futo_notes_sync::SetupStep;
+        match step {
+            SetupStep::SignIn => Self::SignIn,
+            SetupStep::Subscribe => Self::Subscribe,
+            SetupStep::CreateVault => Self::CreateVault,
+            SetupStep::Unlock => Self::Unlock,
+            SetupStep::Ready => Self::Ready,
+        }
+    }
 }
 
 impl From<futo_notes_sync::HostedError> for HostedErrorOutput {
@@ -439,6 +489,19 @@ impl From<futo_notes_sync::HostedError> for HostedErrorOutput {
             },
             HostedError::Server(reason) => Self::Server { reason },
             HostedError::Network(reason) => Self::Network { reason },
+            HostedError::NotEntitled => Self::NotEntitled,
+            HostedError::VaultAlreadyExists => Self::VaultAlreadyExists,
+            HostedError::NoVault => Self::NoVault,
+            HostedError::VaultPasswordTooShort { minimum } => {
+                Self::VaultPasswordTooShort { minimum }
+            }
+            HostedError::WrongVaultPassword => Self::WrongVaultPassword,
+            HostedError::RecoveryKeyFormat => Self::RecoveryKeyFormat,
+            HostedError::RecoveryKeyTypo => Self::RecoveryKeyTypo,
+            HostedError::WrongRecoveryKey => Self::WrongRecoveryKey,
+            HostedError::NoRecoveryKey => Self::NoRecoveryKey,
+            HostedError::SecretStore(reason) => Self::SecretStore { reason },
+            HostedError::Crypto(reason) => Self::Crypto { reason },
         }
     }
 }
@@ -477,6 +540,7 @@ mod tests {
             .register::<BillingStatusOutput>()
             .register::<CheckoutOutput>()
             .register::<EntitlementOutcomeOutput>()
+            .register::<SetupStepOutput>()
             .register::<HostedErrorOutput>();
 
         Typescript::default()

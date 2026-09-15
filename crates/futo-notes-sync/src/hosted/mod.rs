@@ -13,8 +13,10 @@
 mod address;
 mod capability;
 mod poll;
+mod secrets;
 #[cfg(test)]
 mod tests;
+mod vault;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -26,6 +28,8 @@ use crate::server::{HandoffPoll, Http};
 pub use address::{hosted_server, HOSTED_SERVER};
 pub use capability::{probe_sign_in_flow, SignInFlow};
 pub use poll::PollSchedule;
+pub use secrets::VaultSecrets;
+pub use vault::{SetupStep, MIN_VAULT_PASSWORD_CHARS};
 
 /// What a hosted request can fail with.
 ///
@@ -60,6 +64,51 @@ pub enum HostedError {
     /// which, and no caller acts differently on the two.
     #[error("{0}")]
     Network(String),
+    /// Creating a vault is an entitlement-gated write, so an account that has
+    /// not subscribed is refused here rather than at the first note. This is
+    /// the `402` the server answers `PUT /api/collections/{id}/key` with.
+    #[error("a subscription is required before a vault can be created")]
+    NotEntitled,
+    /// This account already has key material. Writing a second vault key would
+    /// leave every note already stored encrypted under a key nothing holds, so
+    /// the answer is to unlock rather than to create.
+    #[error("this account already has a vault; unlock it instead")]
+    VaultAlreadyExists,
+    /// There is nothing to unlock: this account has no vault yet.
+    #[error("this account has no vault yet")]
+    NoVault,
+    /// A vault password shorter than [`MIN_VAULT_PASSWORD_CHARS`].
+    #[error("a vault password must be at least {minimum} characters")]
+    VaultPasswordTooShort { minimum: u32 },
+    /// The vault password did not open the vault. Distinct from every other
+    /// failure because it is the one a person fixes by typing again.
+    #[error("that is not this vault's password")]
+    WrongVaultPassword,
+    /// What was typed is not a recovery key at all — wrong length, or a
+    /// character outside the alphabet. Never reaches the network.
+    #[error("that does not look like a recovery key")]
+    RecoveryKeyFormat,
+    /// The check character disagrees with the rest: a mistyped or transposed
+    /// character, named as a typo rather than as a wrong key, and caught
+    /// before anything is sent (parent spec user story 18).
+    #[error("that recovery key has a typo")]
+    RecoveryKeyTypo,
+    /// A well-formed recovery key that this vault's recovery envelope does not
+    /// open — a real key, for some other vault.
+    #[error("that is not this vault's recovery key")]
+    WrongRecoveryKey,
+    /// This vault was created without a recovery envelope, so the recovery
+    /// door does not exist for it.
+    #[error("this vault has no recovery key")]
+    NoRecoveryKey,
+    /// The OS secret store refused. Nothing was kept, so this device would ask
+    /// again on its next start.
+    #[error("{0}")]
+    SecretStore(String),
+    /// Wrapping or unwrapping failed for a reason no secret a person could
+    /// type would change.
+    #[error("{0}")]
+    Crypto(String),
 }
 
 /// Who is signed in, and the token that proves it.
@@ -158,6 +207,13 @@ pub struct HostedSetup {
     /// pool instead of opening a socket per poll.
     http: Http,
     session: Mutex<Option<HostedSession>>,
+    /// This account's one collection, once resolved. Cached because every
+    /// vault step needs it and claiming it is idempotent, not because the
+    /// wizard remembers anything: it is re-resolved by a fresh setup.
+    collection_id: Mutex<Option<String>>,
+    /// Where this device keeps the vault key and the session token. Absent on
+    /// a setup built only to probe or sign in.
+    secrets: Option<std::sync::Arc<dyn VaultSecrets>>,
     sign_in_schedule: PollSchedule,
     entitlement_schedule: PollSchedule,
     cancelled: AtomicBool,
@@ -181,6 +237,8 @@ impl HostedSetup {
             server_url: server.trim().trim_end_matches('/').to_owned(),
             http,
             session: Mutex::new(None),
+            collection_id: Mutex::new(None),
+            secrets: None,
             sign_in_schedule: PollSchedule::SIGN_IN,
             entitlement_schedule: PollSchedule::ENTITLEMENT,
             cancelled: AtomicBool::new(false),
@@ -237,6 +295,9 @@ impl HostedSetup {
             .await?;
         Ok(match waited {
             Waited::Got(Some(session)) => {
+                // Kept before the caller sees it, so quitting the app on the
+                // very next screen still reopens signed in.
+                self.remember_token(&session.token).await;
                 *self.session.lock().expect("hosted session lock") = Some(session.clone());
                 SignInOutcome::SignedIn(session)
             }
@@ -250,14 +311,14 @@ impl HostedSetup {
 
     /// The account's entitlement, plan, and storage use.
     pub async fn billing_status(&self) -> Result<BillingStatus, HostedError> {
-        self.authenticated()?.billing().await
+        self.authorized().await?.billing().await
     }
 
     /// Starts a subscription. An account that may already write gets its
     /// billing status back instead of a URL — paying twice is not a thing a
     /// shell should be able to do by calling this at the wrong moment.
     pub async fn begin_checkout(&self) -> Result<Checkout, HostedError> {
-        self.authenticated()?.checkout().await
+        self.authorized().await?.checkout().await
     }
 
     /// Polls billing until the account may write, the app cancels, or the
@@ -265,7 +326,7 @@ impl HostedSetup {
     /// lands, which is why nothing about the checkout itself can be trusted
     /// to say whether payment succeeded.
     pub async fn await_entitled(&self) -> Result<EntitlementOutcome, HostedError> {
-        let http = self.authenticated()?;
+        let http = self.authorized().await?;
         let last = Mutex::new(None);
         let waited = self
             .wait(self.entitlement_schedule, || async {
@@ -287,10 +348,15 @@ impl HostedSetup {
         })
     }
 
-    /// The HTTP client carrying this setup's session token.
-    fn authenticated(&self) -> Result<Http, HostedError> {
+    /// The HTTP client carrying this setup's session token, adopting the one
+    /// this device saved when the attempt has none of its own. Every step
+    /// that needs a session goes through here, which is why a cold start
+    /// resumes without a prompt rather than only [`HostedSetup::current_step`]
+    /// knowing how to.
+    pub(crate) async fn authorized(&self) -> Result<Http, HostedError> {
         let token = self
-            .session()
+            .restored_session()
+            .await?
             .map(|session| session.token)
             .ok_or(HostedError::NotSignedIn)?;
         Ok(self.http.clone().token(token))

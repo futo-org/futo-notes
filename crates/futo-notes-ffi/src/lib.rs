@@ -10,10 +10,11 @@ pub use notes::{
     TitleIssue, UpsertedNote,
 };
 pub use sync::{
-    classify_open_note, hosted_server_url, probe_sign_in_flow, BillingStatus, Checkout,
-    ConnectInfo, EntitlementOutcome, HostedError, HostedSession, HostedSetupClient,
-    KeepDraftReason, OpenNoteDisposition, OpenNoteFacts, RenamePair, SignInFlow, SignInHandoff,
-    SignInOutcome, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus, SyncSummary,
+    classify_open_note, hosted_server_url, min_vault_password_length, probe_sign_in_flow,
+    BillingStatus, Checkout, ConnectInfo, EntitlementOutcome, HostedError, HostedSession,
+    HostedSetupClient, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts, RenamePair,
+    SecretStoreError, SetupStep, SignInFlow, SignInHandoff, SignInOutcome, SyncClient, SyncError,
+    SyncEventListener, SyncFailure, SyncStatus, SyncSummary, VaultSecretStore,
 };
 
 uniffi::setup_scaffolding!();

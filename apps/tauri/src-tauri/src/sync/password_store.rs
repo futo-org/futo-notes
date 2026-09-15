@@ -17,10 +17,10 @@
 //! The password's account is the bare path and stays that way, so entries
 //! written by earlier versions keep resolving; the key and the token prefix it.
 //!
-//! The vault key and session token have no caller yet. They exist because the
-//! hosted flow holds a vault key instead of a password (ADR 0003), and the
-//! shells that will read them — iOS `Keychain`, Android `SecureStore` — grew
-//! the same three operations in the same change.
+//! The vault key and session token are what the hosted flow keeps instead of a
+//! password (ADR 0003): [`KeyringVaultSecrets`] hands them to the engine's
+//! `VaultSecrets` port, so the hosted state machine reads and writes this
+//! device's secret store without knowing it is a keyring.
 //!
 //! A document-portal vault's path contains a document id. Re-picking the same
 //! folder returns the SAME id while its entry exists (`REUSE_EXISTING`), so an
@@ -111,7 +111,6 @@ fn session_token_account_for(root: &Path) -> String {
 // The keyring stores strings, so the key travels as lowercase hex. A stored
 // entry that is not 32 bytes of hex is an error rather than a silently short
 // key: a caller that encrypted notes with it would produce unreadable objects.
-#[allow(dead_code)] // Caller lands with the hosted sync flow; see the module header.
 fn vault_key_get_impl(
     store: &dyn SecretStore,
     root: &Path,
@@ -129,7 +128,6 @@ fn vault_key_get_impl(
     Ok(Some(key))
 }
 
-#[allow(dead_code)] // Caller lands with the hosted sync flow; see the module header.
 fn vault_key_set_impl(
     store: &dyn SecretStore,
     root: &Path,
@@ -138,24 +136,61 @@ fn vault_key_set_impl(
     store.set(&vault_key_account_for(root), &hex::encode(key))
 }
 
-#[allow(dead_code)] // Caller lands with the hosted sync flow; see the module header.
 fn vault_key_delete_impl(store: &dyn SecretStore, root: &Path) -> Result<(), String> {
     store.delete(&vault_key_account_for(root))
 }
 
-#[allow(dead_code)] // Caller lands with the hosted sync flow; see the module header.
 fn session_token_get_impl(store: &dyn SecretStore, root: &Path) -> Result<Option<String>, String> {
     store.get(&session_token_account_for(root))
 }
 
-#[allow(dead_code)] // Caller lands with the hosted sync flow; see the module header.
 fn session_token_set_impl(store: &dyn SecretStore, root: &Path, token: &str) -> Result<(), String> {
     store.set(&session_token_account_for(root), token)
 }
 
-#[allow(dead_code)] // Caller lands with the hosted sync flow; see the module header.
 fn session_token_delete_impl(store: &dyn SecretStore, root: &Path) -> Result<(), String> {
     store.delete(&session_token_account_for(root))
+}
+
+/// This vault's hosted secrets in the OS keyring, as the engine's port.
+///
+/// One instance is scoped to one notes root, which is what keeps the debug
+/// (`fake-notes`) and production (`futo-notes`) vaults — and every worktree's
+/// `FUTO_NOTES_DATA_DIR` — reading independent entries (M3).
+pub(crate) struct KeyringVaultSecrets {
+    root: std::path::PathBuf,
+}
+
+impl KeyringVaultSecrets {
+    pub(crate) fn for_vault(root: std::path::PathBuf) -> Self {
+        Self { root }
+    }
+}
+
+impl futo_notes_sync::VaultSecrets for KeyringVaultSecrets {
+    fn vault_key(&self) -> Result<Option<[u8; VAULT_KEY_BYTES]>, String> {
+        vault_key_get_impl(&KeyringStore, &self.root)
+    }
+
+    fn set_vault_key(&self, key: &[u8; VAULT_KEY_BYTES]) -> Result<(), String> {
+        vault_key_set_impl(&KeyringStore, &self.root, key)
+    }
+
+    fn delete_vault_key(&self) -> Result<(), String> {
+        vault_key_delete_impl(&KeyringStore, &self.root)
+    }
+
+    fn session_token(&self) -> Result<Option<String>, String> {
+        session_token_get_impl(&KeyringStore, &self.root)
+    }
+
+    fn set_session_token(&self, token: &str) -> Result<(), String> {
+        session_token_set_impl(&KeyringStore, &self.root, token)
+    }
+
+    fn delete_session_token(&self) -> Result<(), String> {
+        session_token_delete_impl(&KeyringStore, &self.root)
+    }
 }
 
 #[tauri::command]

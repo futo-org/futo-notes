@@ -10,8 +10,9 @@ pub use contract::{
 };
 pub use events::SyncEventListener;
 pub use hosted::{
-    hosted_server_url, probe_sign_in_flow, BillingStatus, Checkout, EntitlementOutcome,
-    HostedError, HostedSession, HostedSetupClient, SignInFlow, SignInHandoff, SignInOutcome,
+    hosted_server_url, min_vault_password_length, probe_sign_in_flow, BillingStatus, Checkout,
+    EntitlementOutcome, HostedError, HostedSession, HostedSetupClient, SecretStoreError, SetupStep,
+    SignInFlow, SignInHandoff, SignInOutcome, VaultSecretStore,
 };
 
 pub(crate) use events::session_listener;
