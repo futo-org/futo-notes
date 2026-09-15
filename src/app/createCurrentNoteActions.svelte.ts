@@ -17,8 +17,8 @@ export interface CurrentNoteActionsDeps {
   onDeleteConfirmed: () => void;
 }
 
-// Open-note overflow menu (list.md): Graph view (stub toast), Copy file path,
-// Move to folder, Delete note. Move and delete change the open note's identity,
+// Open-note overflow menu (list.md): Copy file path, Move to folder, Delete note.
+// Move and delete change the open note's identity,
 // so they route back through the shell's rename/close callbacks rather than
 // predicting the outcome here.
 export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
@@ -27,11 +27,6 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
 
   function closeMenu(): void {
     menuOpen = false;
-  }
-
-  function graphView(): void {
-    closeMenu();
-    deps.showToast({ path: 'notes.graphComingSoon' });
   }
 
   async function copyFilePath(): Promise<void> {
@@ -121,7 +116,6 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
       menuOpen = !menuOpen;
     },
     closeMenu,
-    graphView,
     copyFilePath,
     openMovePicker,
     closeMovePicker,
