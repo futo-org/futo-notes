@@ -16,7 +16,21 @@ diffy = "0.4"
 rand = "0.8"
 aes-gcm = "0.10"
 pbkdf2 = "0.12"
+# Argon2id wraps the hosted vault key (ADR 0003); PBKDF2 stays for v1 envelopes.
+# default-features = false drops the PHC-string/`rand` layers we never use — the
+# raw `hash_password_into` KDF is all the envelope needs.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
 hmac = "0.12"
+# HKDF-SHA256 derives the recovery-envelope wrap key and the sealed-box key.
+hkdf = "0.12"
+# X25519 for QR pairing: the unlocked device seals the vault key to the new
+# device's one-time public key. `static_secrets` exposes StaticSecret, which is
+# what lets the new device keep its secret between showing the code and polling.
+x25519-dalek = { version = "2", default-features = false, features = [
+  "static_secrets",
+  "precomputed-tables",
+  "zeroize",
+] }
 hex = "0.4"
 thiserror = "1"
 time = "0.3"
