@@ -153,7 +153,7 @@ export function createSelectionToolbarPlugin(
               if (inlineCode && live.state.doc.rangeHasMark(target.from, target.to, inlineCode)) {
                 active.push('code');
               }
-              ui.setState(active, target.linkHref, target.caretOnly === true);
+              ui.setState(active, target.linkHref);
             }
             provider.update(live, prevState);
           };
