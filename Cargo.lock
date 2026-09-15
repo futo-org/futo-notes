@@ -1901,6 +1901,7 @@ dependencies = [
  "futo-notes-store",
  "futo-notes-sync",
  "glib",
+ "hex",
  "keyring",
  "libc",
  "notify",

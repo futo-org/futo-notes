@@ -23,6 +23,15 @@ object Prefs {
     const val SYNC_PASSWORD_IV = "sync_password_iv"
     const val SYNC_PASSWORD_CT = "sync_password_ct"
 
+    // The vault key and session token the hosted sync flow will hold instead of
+    // a password (client ADR 0003). Same Keystore envelope as the password, but
+    // suffixed with the notes root by SecureStore.scopedKey, so one install can
+    // hold secrets for more than one vault.
+    const val VAULT_KEY_IV = "vault_key_iv"
+    const val VAULT_KEY_CT = "vault_key_ct"
+    const val SESSION_TOKEN_IV = "session_token_iv"
+    const val SESSION_TOKEN_CT = "session_token_ct"
+
     // Crash reporting [settings.md:43]. Enabled defaults ON; always-send OFF.
     const val CRASH_ENABLED = "crash_reporting_enabled"
     const val CRASH_ALWAYS_SEND = "crash_always_send"

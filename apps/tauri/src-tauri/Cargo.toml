@@ -34,6 +34,9 @@ time = { version = "0.3", features = ["formatting"] }
 notify = "8.2.0"
 png = "0.17"
 libc = "0.2"
+# The vault key is 32 raw bytes; the OS keyring stores strings, so it travels
+# as hex. Already a workspace dependency (futo-notes-core).
+hex = "0.4"
 tauri-plugin-mcp-bridge = "0.10.0"
 
 # OS secret store for the E2EE vault password (F6) lives in the per-OS target

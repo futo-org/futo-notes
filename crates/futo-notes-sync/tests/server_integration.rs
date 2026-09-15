@@ -130,6 +130,37 @@ async fn connect_bootstrap_and_shared_vault() {
     common::cleanup(&vb);
 }
 
+/// The authenticate/unlock seam: the two verbs, called in that order, reach the
+/// same vault key and the same session facts that `connect` reaches in one call.
+/// Password mode composes them, so if this ever diverges the composition inside
+/// `connect` has stopped matching its parts.
+#[tokio::test]
+#[ignore = "requires a running FUTO_TEST_SERVER"]
+async fn authenticate_then_unlock_matches_connect() {
+    if common::skip_if_no_server("authenticate_then_unlock_matches_connect") {
+        return;
+    }
+    let server = common::server_url().unwrap();
+    let vault = common::temp_vault();
+    let (connected, info) = futo_notes_sync::connect(&vault, &server, common::TEST_PASSWORD)
+        .await
+        .expect("connect");
+
+    let session = futo_notes_sync::authenticate(&server, common::TEST_PASSWORD)
+        .await
+        .expect("authenticate");
+    assert_eq!(session.user_id, info.user_id);
+    assert_eq!(session.collection_id, info.collection_id);
+    assert_eq!(session.auth_mode, info.auth_mode);
+    assert!(!session.token.is_empty());
+
+    let vault_key = futo_notes_sync::unlock_with_password(&session, common::TEST_PASSWORD)
+        .await
+        .expect("unlock");
+    assert_eq!(vault_key, connected.vault_key);
+    common::cleanup(&vault);
+}
+
 /// Regression for the canonical-vault invariant: two devices that set up sync
 /// against the SAME fresh server *concurrently* must converge on ONE vault, not
 /// fork into two. The server preserves plural collection rows for data safety,
