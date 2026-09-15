@@ -178,8 +178,21 @@ class EditorHost private constructor(appContext: Context) {
     /** Editor has focus (soft keyboard up) — the toolbar shows only then. */
     var editorFocused by mutableStateOf(false)
         private set
-    /** Cursor is on a list line — shows the Indent/Outdent items. */
+    /**
+     * Cursor is on a list line specifically. [inContainer] is what actually
+     * gates the Indent/Outdent items now; this stays only as the fallback for
+     * a bundle old enough to have never sent `inContainer` at all.
+     */
     var onListLine by mutableStateOf(false)
+        private set
+    /**
+     * Cursor is in a list item OR a blockquote (bridge `cursorContext.
+     * inContainer`) — shows the Indent/Outdent items. `null` means the
+     * message hasn't carried this field at all (an older bundle); the
+     * toolbar then falls back to [onListLine], exactly today's behavior for
+     * that bundle.
+     */
+    var inContainer by mutableStateOf<Boolean?>(null)
         private set
     /**
      * Toolbar-manifest ids active at the cursor/selection (bridge
@@ -468,9 +481,15 @@ class EditorHost private constructor(appContext: Context) {
             // Keyboard show/hide is handled natively by adjustResize; focus
             // gates the native toolbar's visibility (bridge v3).
             "focus" -> editorFocused = msg.optBoolean("focused")
-            // Cursor moved on/off a list line — drives Indent/Outdent
-            // visibility in the native toolbar (deduped editor-side).
-            "cursorContext" -> onListLine = msg.optBoolean("onListLine")
+            // Cursor moved on/off a list line (and, additively, a blockquote)
+            // — drives Indent/Outdent visibility in the native toolbar
+            // (deduped editor-side). `inContainer` may be absent from an
+            // older bundle, which `has()` distinguishes from an explicit
+            // `false` — `optBoolean` alone can't tell those apart.
+            "cursorContext" -> {
+                onListLine = msg.optBoolean("onListLine")
+                inContainer = if (msg.has("inContainer")) msg.optBoolean("inContainer") else null
+            }
             // Which toolbar-manifest commands cover the caret (deduped
             // editor-side) — the native toolbar tints those buttons. Milkdown
             // only; the CodeMirror engine never sends it.

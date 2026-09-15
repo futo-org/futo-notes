@@ -891,6 +891,19 @@ test('the embed toolbar shows Indent/Outdent inside a list or quote', async ({ p
   await expect(toolbarButton(page, 'Indent')).toHaveCount(0);
 });
 
+// A caret merely NAVIGATED into an already-existing quote (never created via
+// the toolbar in this session) — the reported bug: on mobile the button never
+// appeared for a caret inside a quote at all.
+test('the embed toolbar shows Indent/Outdent for a caret navigated into an existing quote', async ({
+  page,
+}) => {
+  await showEmbedToolbar(page, '> hello');
+  await page.evaluate(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus());
+  await page.keyboard.press('End');
+  await settle(page);
+  await expect(toolbarButton(page, 'Indent')).toBeVisible();
+});
+
 // ============================================================
 // cursorContext — Indent/Outdent visibility on the native toolbars
 // ============================================================
@@ -909,4 +922,33 @@ test('cursorContext follows a toolbar tap that creates or removes a list', async
   await clearMessages(page);
   await exec(page, 'bullet-list');
   expect((await waitForMessages(page, 'cursorContext')).at(-1)?.onListLine).toBe(false);
+});
+
+// `inContainer` (list item OR blockquote) is what the native toolbars key
+// Indent/Outdent visibility on now; `onListLine` (list only) stays as it was,
+// for hosts that never learn the newer field.
+test('cursorContext reports inContainer for a quote too, unlike onListLine', async ({ page }) => {
+  await hostSetContent(page, 'hello');
+  await focusEditor(page);
+  await clearMessages(page);
+
+  await exec(page, 'quote');
+  const quoted = (await waitForMessages(page, 'cursorContext')).at(-1);
+  expect(quoted?.onListLine).toBe(false);
+  expect(quoted?.inContainer).toBe(true);
+
+  // `quote` is a one-way, explicit choice — `paragraph` leaves an enclosing
+  // quote in place (blockCommands.ts `setBlockFormat`); `outdent` is what
+  // lifts a single-level quote back out.
+  await clearMessages(page);
+  await exec(page, 'outdent');
+  const unquoted = (await waitForMessages(page, 'cursorContext')).at(-1);
+  expect(unquoted?.onListLine).toBe(false);
+  expect(unquoted?.inContainer).toBe(false);
+
+  await clearMessages(page);
+  await exec(page, 'bullet-list');
+  const bulleted = (await waitForMessages(page, 'cursorContext')).at(-1);
+  expect(bulleted?.onListLine).toBe(true);
+  expect(bulleted?.inContainer).toBe(true);
 });

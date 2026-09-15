@@ -68,7 +68,7 @@ import {
 } from '@milkdown/kit/prose/tables';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
-import { blockFormatAtPos } from './blockCommands';
+import { blockFormatAtPos, changeBlockIndent } from './blockCommands';
 import { enclosingListItem } from './caretContext';
 
 /**
@@ -302,4 +302,37 @@ export function handleParityKeyDown(view: ProseView, event: KeyboardEvent): bool
       : indentCodeBlockOnTab(view.state, view.dispatch);
   }
   return false;
+}
+
+/*
+ * Desktop keyboard shortcuts for Indent/Outdent — the standard editor
+ * convention (Mod+] / Mod+[), and independent of the Tab decision above: Tab
+ * stays plain focus navigation everywhere but a code fence, this claims two
+ * keys Tab never touched. Wired from its own `handleKeyDown` slot in
+ * MilkdownEditor.svelte (composed ahead of `handleParityKeyDown`, which bails
+ * out on any modifier key and so never sees these), not from inside
+ * `handleParityKeyDown` above.
+ */
+
+/** Whether `event` is the Indent/Outdent chord — Cmd or Ctrl, no other modifier, `]`/`[`. */
+function isIndentShortcut(event: KeyboardEvent): 1 | -1 | null {
+  if (event.shiftKey || event.altKey) return null;
+  if (!event.metaKey && !event.ctrlKey) return null;
+  if (event.key === ']') return 1;
+  if (event.key === '[') return -1;
+  return null;
+}
+
+/**
+ * The `handleKeyDown` direct view prop for Mod+]/Mod+[. Declines (returns
+ * false) for any other key, or when the caret is not in a container
+ * `changeBlockIndent` can act on — same containers the `cursorContext` bridge
+ * message and the desktop selection toolbar report (blockCommands.ts
+ * `inIndentableContainer`).
+ */
+export function handleIndentShortcut(view: ProseView, event: KeyboardEvent): boolean {
+  if (event.isComposing) return false;
+  const direction = isIndentShortcut(event);
+  if (direction === null) return false;
+  return changeBlockIndent(direction)(view.state, view.dispatch);
 }

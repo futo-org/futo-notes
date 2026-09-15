@@ -37,8 +37,16 @@ extension View {
 /// EditorHost, which updates it from bridge messages (`cursorContext`).
 @MainActor
 final class EditorToolbarState: ObservableObject {
-    /// Cursor is on a list line — shows the Indent/Outdent items.
+    /// Cursor is on a list line specifically. `inContainer` is what actually
+    /// gates the Indent/Outdent items now; this stays only as the fallback
+    /// for a bundle old enough to have never sent `inContainer` at all.
     @Published var onListLine = false
+    /// Cursor is in a list item OR a blockquote (bridge `cursorContext.
+    /// inContainer`) — shows the Indent/Outdent items. `nil` means the
+    /// message hasn't carried this field at all (an older bundle); the
+    /// toolbar then falls back to `onListLine`, exactly today's behavior for
+    /// that bundle.
+    @Published var inContainer: Bool?
     /// Toolbar-manifest ids active at the cursor/selection (bridge
     /// `formatState`, Milkdown editor) — drives the Notion-style highlighted
     /// button state below. Android's
@@ -124,9 +132,7 @@ struct EditorToolbarView: View {
                         separator
                     }
                     ForEach(group) { item in
-                        if !item.onlyInContainer || state.onListLine
-                            || state.activeFormats.contains("quote")
-                        {
+                        if !item.onlyInContainer || (state.inContainer ?? state.onListLine) {
                             button(for: item).background(buttonEdgeReader)
                         }
                     }

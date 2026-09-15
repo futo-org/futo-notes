@@ -1037,8 +1037,8 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   selection — Text/H1/H2/H3, Quote, Bold, Italic, Strikethrough, Code, Link,
   plus Indent/Outdent inside lists and quotes — placed by the same
   floating-ui positioning the `/` menu and the ⠿ handle use. It shows for a
-  non-empty TEXT selection that holds something to format, and not for a caret,
-  a node selection (an image, a wikilink chip, a block picked up by the ⠿
+  non-empty TEXT selection that holds something to format, and not for a
+  node selection (an image, a wikilink chip, a block picked up by the ⠿
   handle), a whitespace-only selection, or any selection inside a fenced code
   block, where nothing is markup. A button keeps the selection and the bar, so a
   format can be toggled straight back off; the buttons light up for the formats
@@ -1046,6 +1046,15 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   the sidebar or the title) and during an IME composition. The formatting
   buttons run the same shared commands the native toolbars dispatch. →
   src/features/editor/milkdown/selectionToolbar/, milkdown/toolbarExec.ts,
+  tests/selection-toolbar.spec.ts
+- _(desktop)_ A bare CARET (no selection) sitting in a list item or a
+  blockquote also raises the bar, showing ONLY Indent/Outdent — nothing else
+  there has text to act on. Elsewhere a plain caret raises nothing, same as
+  before. `Mod+]`/`Mod+[` indent/outdent the enclosing list or quote by
+  keyboard from anywhere the caret sits in one, independent of the Tab
+  decision above (Tab is still not an indent key outside a code block). →
+  src/features/editor/milkdown/selectionToolbar/target.ts `caretOnly`,
+  milkdown/keyboardParity.ts `handleIndentShortcut`,
   tests/selection-toolbar.spec.ts
 - _(desktop)_ Link opens a URL field inside the bar. Enter (or Add) applies the
   link over the selection and returns focus to the note; Escape leaves the note
@@ -1216,8 +1225,8 @@ EditorWebView.swift, EditorWebView.kt
   ToolbarSpec.swift rendered by EditorToolbar.swift), replacing the stripped
   prev/next/Done bar — the system owns docking/animation with the keyboard.
   Original controls verified end-to-end on the iOS simulator 2026-06-10 (exec
-  commands mutate the doc and autosave; Indent/Outdent appear only on list
-  lines; pickers open natively; chevron blurs). → EditorToolbar.swift,
+  commands mutate the doc and autosave; Indent/Outdent appear inside a list or
+  quote; pickers open natively; chevron blurs). → EditorToolbar.swift,
   EditorWebView.swift `futo_overrideInputAccessoryView`
 - iOS native: the accessory takes its BACKDROP from the system, never from the
   app palette — the container is a `UIInputView` with `inputViewStyle`
@@ -1236,19 +1245,17 @@ EditorWebView.swift, EditorWebView.kt
   screen's `imePadding`, shown only while the editor is focused (bridge
   `focus` message). Original controls verified end-to-end on the emulator
   2026-06-10 (exec commands mutate the doc and autosave; Indent/Outdent
-  appear only on list lines; pickers open natively; chevron blurs, dropping
-  keyboard + toolbar). → EditorToolbar.kt, NoteEditorScreen.kt,
+  appear inside a list or quote; pickers open natively; chevron blurs,
+  dropping keyboard + toolbar). → EditorToolbar.kt, NoteEditorScreen.kt,
   EditorWebView.kt `EditorHost`
-  > **Gap:** _(iOS/Android)_ Indent/Outdent showing only on list lines means a
-  > blockquote cannot be indented from either native toolbar at all — desktop's
-  > selection toolbar already nests/un-nests a quote (`changeBlockIndent` in
-  > `src/features/editor/milkdown/blockCommands.ts`), but the native
-  > `cursorContext` bridge message that drives visibility only reports "in a
-  > list", so the button never appears for a caret inside a quote. Needs a
-  > bridge message change (`packages/editor/src/bridge.ts`), which is a
-  > cross-shell change outside this fix's scope. →
-  > src/features/editor/milkdown/MilkdownEditor.svelte `cursorContext`,
-  > EditorToolbar.swift, EditorToolbar.kt
+- Native shells: the `cursorContext` bridge message carries `inContainer` —
+  the caret is in a list item OR a blockquote — alongside the list-only
+  `onListLine`, so Indent/Outdent show on BOTH native toolbars for a caret
+  sitting in an existing blockquote, not only a list line. A host that has
+  never seen the field (an older bundle) falls back to `onListLine`, the
+  pre-fix behavior. → packages/editor/src/bridge.ts `CursorContextMessage`,
+  MilkdownEditor.svelte `emitCursorContext`, EditorToolbar.swift,
+  EditorToolbar.kt
 - Android native: dismissing the soft keyboard by the system back
   gesture/button (not just the chevron) also blurs the editor — the caret
   and selection handle must not linger on screen with no keyboard (#24).

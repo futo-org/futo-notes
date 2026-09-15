@@ -90,16 +90,22 @@ private val FADE_WIDTH = 10.dp
  * [activeFormats] is the bridge `formatState` set — the manifest ids that cover
  * the caret — and tints those buttons, the Android half of the Notion-style
  * active highlight iOS's EditorToolbarView draws.
+ *
+ * [inContainer] (bridge `cursorContext.inContainer`) gates the `onlyInContainer`
+ * items (Indent/Outdent) — a caret in a list item OR a blockquote. `null` means
+ * an older bundle never sent the field, so [onListLine] is the fallback.
  */
 @Composable
 fun EditorToolbar(
     onListLine: Boolean,
     perform: (ToolbarItemSpec) -> Unit,
     modifier: Modifier = Modifier,
+    inContainer: Boolean? = null,
     activeFormats: Set<String> = emptySet(),
     /** Bridge `formatState.disabled` — dims the button and blocks the tap. */
     disabledFormats: Set<String> = emptySet(),
 ) {
+    val containerVisible = inContainer ?: onListLine
     val c = FutoTheme.colors
     val density = LocalDensity.current
     val scrollState = rememberScrollState()
@@ -119,7 +125,7 @@ fun EditorToolbar(
     // Recompute the snap only while the bar is at rest (scroll == 0), where the
     // measured positions equal content positions. The snap is a fixed layout
     // inset, so it must not jitter as the user scrolls.
-    LaunchedEffect(slotPx, measureTick, onListLine, activeFormats, scrollState.value) {
+    LaunchedEffect(slotPx, measureTick, containerVisible, activeFormats, scrollState.value) {
         if (scrollState.value == 0 && slotPx > 0f && buttonLefts.size > 1) {
             val lefts = buttonLefts.values.sorted()
             val insetPx = computeToolbarSnapPx(
@@ -174,7 +180,7 @@ fun EditorToolbar(
                             )
                         }
                         group.forEach { item ->
-                            if (!item.onlyInContainer || onListLine || "quote" in activeFormats) {
+                            if (!item.onlyInContainer || containerVisible) {
                                 ToolbarButton(
                                     item,
                                     tint = c.textPrimary,

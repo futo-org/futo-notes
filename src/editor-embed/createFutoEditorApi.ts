@@ -26,7 +26,7 @@ export interface EmbeddedEditorHandle {
 }
 
 export interface EmbeddedToolbarHandle {
-  setCursorContext: (onListLine: boolean) => void;
+  setCursorContext: (inContainer: boolean) => void;
   setFocused: (focused: boolean) => void;
   setActiveFormats: (active: string[], disabled: string[]) => void;
 }

@@ -470,6 +470,20 @@ export function setBlockFormat(target: BlockFormat): Command {
   return transitionRuns((current) => (current.kind === 'code' ? current : target));
 }
 
+/**
+ * Whether `at` sits inside a list item or a blockquote — the two containers
+ * `changeBlockIndent` acts on. Used to decide Indent/Outdent visibility for a
+ * bare caret (the desktop selection toolbar, the `cursorContext` bridge
+ * message): `blockFormatAt` cannot serve this, because it reports only the
+ * INNERMOST block's own kind — a heading nested inside a quote reports
+ * `heading`, not `quote`, which would hide the buttons exactly where they
+ * should show.
+ */
+export function inIndentableContainer(at: ResolvedPos): boolean {
+  if (isCodeTextblock(at)) return false;
+  return ancestorDepth(at, 'list_item') > 0 || ancestorDepth(at, 'blockquote') > 0;
+}
+
 /** Change the nearest list or quote container by exactly one level. */
 export function changeBlockIndent(direction: 1 | -1): Command {
   return (state, dispatch) => {

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   BRIDGE_VERSION,
   postToHost,
+  type CursorContextMessage,
   type FutoEditorApi,
   type FutoEditorOutboundMessage,
 } from './bridge';
@@ -51,6 +52,20 @@ describe('futoBridge contract', () => {
       'saveImageData',
       'pasteClipboardImage',
     ]);
+  });
+
+  it('cursorContext.inContainer is additive — present or absent, both compile', () => {
+    // A newer bundle sends both fields.
+    const withContainer: CursorContextMessage = {
+      type: 'cursorContext',
+      onListLine: false,
+      inContainer: true,
+    };
+    expect(withContainer.inContainer).toBe(true);
+    // An older bundle (or a message built before this field existed) sends
+    // only `onListLine` — hosts fall back to it when `inContainer` is absent.
+    const withoutContainer: CursorContextMessage = { type: 'cursorContext', onListLine: true };
+    expect(withoutContainer.inContainer).toBeUndefined();
   });
 
   it('FutoEditorApi surface is the twelve host-callable methods', () => {

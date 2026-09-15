@@ -98,6 +98,20 @@
  * WebView's own long-press BUZZ, which lands 128-141ms after the editor's lift
  * (measured) — and gets it from the same message. Additive, no version bump, and
  * a host without a case for it keeps exactly the pre-`blockPress` behavior.
+ *
+ * `cursorContext`'s `inContainer` field ships the same way: additive, no
+ * version bump. `onListLine` already told a host whether the caret sat in a
+ * LIST item, which is what the native toolbars' `when: 'inContainer'`
+ * visibility rule (Indent/Outdent) keyed on — so a caret sitting in a
+ * blockquote instead never lit those buttons on either native shell, even
+ * though the desktop selection toolbar's `changeBlockIndent`
+ * (blockCommands.ts) already nests/un-nests a quote just fine (docs/spec/
+ * editor.md "Indent/Outdent showing only on list lines"). `inContainer`
+ * reports the manifest rule's actual condition — a list item OR a blockquote
+ * — and `onListLine` is unchanged, for anything that genuinely needs
+ * list-only semantics. A host that reads only `onListLine` keeps exactly
+ * today's behavior, and both native hosts fall back to `onListLine` when
+ * `inContainer` is absent — an older bundle meeting a newer host.
  */
 export const BRIDGE_VERSION = 7 as const;
 
@@ -274,14 +288,21 @@ export interface PickImageMessage {
 }
 
 /**
- * Emitted when the cursor's line context changes (deduped — only on actual
+ * Emitted when the cursor's context changes (deduped — only on actual
  * change). Drives the visibility of context-dependent NATIVE toolbar items
- * (Indent/Outdent show only on list lines). Hosts without a native toolbar
- * can ignore it.
+ * (Indent/Outdent). Hosts without a native toolbar can ignore it.
  */
 export interface CursorContextMessage {
   type: 'cursorContext';
+  /** The caret is in a LIST item specifically. Kept for hosts that only ever needed that. */
   onListLine: boolean;
+  /**
+   * The caret is in a list item OR a blockquote — the honest name for the
+   * toolbar manifest's `when: 'inContainer'` visibility rule (see the
+   * BRIDGE_VERSION doc comment above). Optional/additive: absent from an
+   * older bundle, in which case a host falls back to {@link onListLine}.
+   */
+  inContainer?: boolean;
 }
 
 /**

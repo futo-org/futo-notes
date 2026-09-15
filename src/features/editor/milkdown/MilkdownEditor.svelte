@@ -77,9 +77,10 @@
   import { retargetListDragToItem } from './listItemHandleDrag';
   import { setDprCorrectedDragImage } from './blockDragGeometry';
   import { editorView, enclosingListItem } from './caretContext';
+  import { inIndentableContainer } from './blockCommands';
   import { dividerCaretFix } from './dividerCaret';
   import { computeActiveFormats, computeDisabledFormats } from './formatState';
-  import { handleParityKeyDown } from './keyboardParity';
+  import { handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
   import { createSelectionToolbarPlugin, resolveSelectionToolbar } from './selectionToolbar';
@@ -114,7 +115,7 @@
     onchange?: (content: string) => void;
     onfocuschange?: (focused: boolean) => void;
     oncompositionend?: () => void;
-    oncursorcontext?: (ctx: { onListLine: boolean }) => void;
+    oncursorcontext?: (ctx: { onListLine: boolean; inContainer: boolean }) => void;
     nativeShell?: boolean;
     onopenlink?: (title: string, gesture: EditorLinkGesture) => void;
     onopenurl?: (url: string) => void;
@@ -217,6 +218,7 @@
   let liveMarkdown: string | null = null;
   let pendingContent: string | null = null;
   let onListLine: boolean | null = null;
+  let inContainer: boolean | null = null;
 
   /* The per-top-level-block serialization cache (blockSerializer.ts). One
    * instance per editor, built once `serializerCtx`/`schemaCtx` exist. */
@@ -370,15 +372,22 @@
   /**
    * Emits deduped `cursorContext` — Indent/Outdent visibility. Takes the same
    * `selectionOverride` as `emitFormatState`, and for the same reason.
+   *
+   * `inContainer` is the honest name for the native toolbars' `when:
+   * 'inContainer'` visibility rule (list item OR blockquote —
+   * `inIndentableContainer`, blockCommands.ts); `onListLine` stays exactly
+   * what it was for anything that genuinely needs list-only semantics.
    */
   function emitCursorContext(selectionOverride?: ProseSelection): void {
     const view = pmView();
     if (!view) return;
     const selection = selectionOverride ?? view.state.selection;
     const inList = enclosingListItem(selection) !== null;
-    if (inList === onListLine) return;
+    const inAnyContainer = inIndentableContainer(selection.$from);
+    if (inList === onListLine && inAnyContainer === inContainer) return;
     onListLine = inList;
-    oncursorcontext?.({ onListLine: inList });
+    inContainer = inAnyContainer;
+    oncursorcontext?.({ onListLine: inList, inContainer: inAnyContainer });
   }
 
   const EXEC = createToolbarExec(() => editor);
@@ -513,7 +522,8 @@
              * preset's own drop handling turns the file into text. An INTERNAL
              * block drag carries no files and is left entirely alone. */
             handleDrop: (_view, event) => dropHandler?.(event as DragEvent) ?? false,
-            handleKeyDown: (view, event) => handleParityKeyDown(view, event),
+            handleKeyDown: (view, event) =>
+              handleIndentShortcut(view, event) || handleParityKeyDown(view, event),
             /* A note whose parse threw is shown read-only rather than as an
              * empty editable page. Typing into a document that is not the note
              * is the one gesture that could make the failure destructive.

@@ -81,7 +81,10 @@
   }
 
   let editorFocused = $state(false);
-  let cursorOnListLine = $state(false);
+  /* Caret in a list item OR a blockquote (bridge `cursorContext.inContainer`)
+   * — the honest name for the `when: 'inContainer'` gate below. Superseded
+   * the earlier `activeFormats.includes('quote')` guess at the same thing. */
+  let cursorInContainer = $state(false);
   /* Manifest ids covering the caret — the bridge `formatState.active` set,
    * fed by the embed host. */
   let activeFormats = $state<string[]>([]);
@@ -93,8 +96,8 @@
     editorFocused = focused;
   }
 
-  export function setCursorContext(onListLine: boolean): void {
-    cursorOnListLine = onListLine;
+  export function setCursorContext(inContainer: boolean): void {
+    cursorInContainer = inContainer;
   }
 
   export function setActiveFormats(active: string[], disabled: string[]): void {
@@ -160,7 +163,7 @@
           <span class="toolbar-separator"></span>
         {/if}
         {#each group as item (item.id)}
-          {#if item.when !== 'inContainer' || cursorOnListLine || activeFormats.includes('quote')}
+          {#if item.when !== 'inContainer' || cursorInContainer}
             {@const Icon = icon(item)}
             {@const isDisabled = disabledFormats.includes(item.id)}
             <button
