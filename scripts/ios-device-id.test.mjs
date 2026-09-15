@@ -1,10 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import { selectPhysicalDevice } from './ios-device-id.mjs';
 
-// Fixtures mirror `xcrun devicectl list devices --json-output` on Xcode 27,
-// which gives every simulator a `connectionProperties.transportType` of
-// "sameMachine" — the field the old code used, alone, to decide "physical".
+// Hand-built fixtures mirror `xcrun devicectl list devices --json-output` on
+// Xcode 27, which gives every simulator a `connectionProperties.transportType`
+// of "sameMachine" — the field the old code used, alone, to decide "physical".
 
 function device({ name, id, transportType, tunnelState }) {
   return {
@@ -34,11 +37,20 @@ describe('selectPhysicalDevice', () => {
     expect(selectPhysicalDevice(undefined)).toEqual({ status: 'none' });
   });
 
-  it('fails with the device name when the only physical device is disconnected', () => {
+  // A live dump proved tunnelState "disconnected" does NOT mean unreachable
+  // for a localNetwork device: `devicectl device install`/`process launch`
+  // against exactly this phone worked while it reported disconnected — the
+  // tunnel comes up lazily, on demand. So the picker still returns it, just
+  // flagged as not-yet-connected; only "no physical device at all" is a
+  // hard failure.
+  it('returns the only physical device even when its tunnel is disconnected', () => {
     const devices = [physical('iPhone', 'phone-1', 'disconnected', 'localNetwork')];
     expect(selectPhysicalDevice(devices)).toEqual({
-      status: 'disconnected',
-      names: ['iPhone'],
+      status: 'ok',
+      id: 'phone-1',
+      name: 'iPhone',
+      connected: false,
+      transportType: 'localNetwork',
     });
   });
 
@@ -48,6 +60,8 @@ describe('selectPhysicalDevice', () => {
       status: 'ok',
       id: 'phone-1',
       name: 'iPhone',
+      connected: true,
+      transportType: 'wired',
     });
   });
 
@@ -62,26 +76,11 @@ describe('selectPhysicalDevice', () => {
       physical('iPhone', 'phone-1', 'disconnected', 'localNetwork'),
     ];
     expect(selectPhysicalDevice(devices)).toEqual({
-      status: 'disconnected',
-      names: ['iPhone'],
-    });
-  });
-
-  // Full real-world fixture from the affected Mac (`xcrun devicectl list
-  // devices --json-output`): six devices, only one of them physical, and that
-  // one disconnected while an unrelated simulator shows tunnelState connected.
-  it('reproduces the real-machine dump: one disconnected phone among five simulators', () => {
-    const devices = [
-      simulator('futo-qa-6', 'sim-a', 'disconnected'),
-      simulator('iPad Pro 13-inch(M5)', 'sim-b', 'disconnected'),
-      physical('iPhone', 'phone-real', 'disconnected', 'localNetwork'),
-      simulator('iPhone 17', 'sim-c', 'disconnected'),
-      simulator('iPhone 17 Pro', 'sim-d', 'connected'),
-      simulator('iPhone 17 Pro Max', 'sim-e', 'disconnected'),
-    ];
-    expect(selectPhysicalDevice(devices)).toEqual({
-      status: 'disconnected',
-      names: ['iPhone'],
+      status: 'ok',
+      id: 'phone-1',
+      name: 'iPhone',
+      connected: false,
+      transportType: 'localNetwork',
     });
   });
 
@@ -94,6 +93,34 @@ describe('selectPhysicalDevice', () => {
       status: 'ok',
       id: 'phone-live',
       name: 'iPhone',
+      connected: true,
+      transportType: 'localNetwork',
+    });
+  });
+
+  // The one fixture that is known-true field-for-field: a real
+  // `xcrun devicectl list devices --json-output` dump (14 devices: 13
+  // simulators plus one real, disconnected iPhone, with an unrelated
+  // simulator showing tunnelState "connected" right next to it) — exactly
+  // the trap that broke the original picker.
+  describe('against a real devicectl dump', () => {
+    const fixturePath = fileURLToPath(
+      new URL('./__fixtures__/ios-devicectl-list-devices.json', import.meta.url),
+    );
+    const realDevices = JSON.parse(readFileSync(fixturePath, 'utf8')).result.devices;
+
+    it('has the expected shape (guards against a stale fixture)', () => {
+      expect(realDevices.length).toBe(14);
+    });
+
+    it('selects the real iPhone, not the connected simulator beside it', () => {
+      expect(selectPhysicalDevice(realDevices)).toEqual({
+        status: 'ok',
+        id: '2BB42BEE-9208-57F6-9423-35E4C1F97F46',
+        name: 'iPhone',
+        connected: false,
+        transportType: 'localNetwork',
+      });
     });
   });
 });
