@@ -12,24 +12,26 @@
  * Two shapes can arrive, and the difference is not a platform branch — it is
  * what the OS handed us:
  *
- *   - FILES (`insertFiles`): an HTML5 `drop`, where the webview already read
- *     the bytes. This is what macOS, Windows AND Linux now all deliver: every
- *     desktop build config sets `dragDropEnabled: false`
+ *   - FILES (`insertFiles`): an HTML5 `drop` where the webview already read
+ *     the bytes into `dataTransfer.files`. This is what macOS and Windows
+ *     deliver: every desktop build config sets `dragDropEnabled: false`
  *     (`tauri.macos/windows/linux.conf.json`), so wry installs no native drop
- *     target on any of the three and each webview's own DOM drop handles it.
- *     Linux used to be the exception — no `tauri.linux.conf.json` existed, so
- *     the flag sat at wry's default (`true`) and Linux relied on the PATHS
- *     shape below — until QA #017 (2026-09-11): on a native-Wayland compositor
- *     wry's own GTK-signal relay never fires a real drop at all, so a file
- *     dragged in from a file manager silently did nothing in a PACKAGED
- *     build (dev already forced the flag off everywhere, which is why the bug
- *     never showed up there).
- *   - PATHS (`insertPaths`): Tauri's own drag-drop event, which reports file
- *     paths and no bytes. Nothing currently delivers this shape for a drop —
- *     it is kept wired as a defensive fallback in case some distro/compositor
- *     combination still runs wry's native layer, exactly as inert on Linux now
- *     as it always was on macOS/Windows. It remains the picker's shape either
- *     way — `pickImage` returns a path.
+ *     target on any of the three and each webview's own DOM drop handles it —
+ *     Linux joined them in QA #017 (2026-09-11), because on a native-Wayland
+ *     compositor wry's own GTK-signal relay never fires a real drop at all.
+ *   - PATHS (`insertPaths`): a file path list with no bytes read yet. Two
+ *     different sources feed this same shape:
+ *       - Tauri's own drag-drop event (kept wired as a defensive fallback for
+ *         a distro/compositor combination that still runs wry's native
+ *         layer; as inert today as it always was on macOS/Windows).
+ *       - WebKitGTK's HTML5 drop on Linux (QA #017's fix): unlike Chromium,
+ *         WebKitGTK does NOT populate `dataTransfer.files` for a dropped OS
+ *         file — it hands over `text/uri-list` (RFC 2483), a newline-
+ *         separated list of `file://` URIs, sometimes mirrored onto
+ *         `text/plain` too. `filePathsFromDrop` below turns that into the
+ *         same path list the picker produces, so it goes through
+ *         `insertPaths` exactly like Tauri's own event would.
+ *     It remains the picker's shape either way — `pickImage` returns a path.
  *
  * WHICH files count as images is `isImageFilename` from the shared media rules,
  * never a second list: the vault's accepted extensions are conformance-locked
@@ -91,6 +93,73 @@ export function imagePathsIn(paths: readonly string[]): string[] {
  */
 export function dropCarriesFiles(transfer: DataTransfer | null | undefined): boolean {
   return Boolean(transfer && transfer.files.length > 0);
+}
+
+/**
+ * `text/uri-list` per RFC 2483 §5: CRLF-separated, blank lines ignored, and a
+ * line starting with `#` is a comment. Browsers/toolkits vary on the exact
+ * line ending they send, so a bare LF or CR is accepted too.
+ */
+export function parseUriList(text: string): string[] {
+  return text
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'));
+}
+
+/**
+ * `uri` decoded to a filesystem path, or null for anything but a local
+ * `file://` URI — a non-local host (a URI naming a different machine) is not
+ * something this process can read as a path, so it is rejected the same way
+ * as any other scheme.
+ */
+export function filePathFromUri(uri: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'file:') return null;
+  if (parsed.hostname !== '' && parsed.hostname !== 'localhost') return null;
+  try {
+    // `.pathname` keeps its percent-encoding (e.g. `%20`) — decode it before
+    // treating it as a real path, so `my photo.png` round-trips.
+    return decodeURIComponent(parsed.pathname);
+  } catch {
+    return null;
+  }
+}
+
+/** The `file://` paths among the lines of a `text/uri-list` blob. */
+function fileUrisIn(uriList: string): string[] {
+  return parseUriList(uriList)
+    .map(filePathFromUri)
+    .filter((path): path is string => path !== null);
+}
+
+/**
+ * The filesystem paths a drop's `text/uri-list` carries — WebKitGTK's shape
+ * for an OS file drop, since it never populates `dataTransfer.files` (see the
+ * module header).
+ *
+ * Falls back to `text/plain` only when there is no `text/uri-list` at all,
+ * and even then only if that text itself parses into one or more `file://`
+ * URIs — arbitrary dropped text is never treated as a path. The `text/html`
+ * check guards the OTHER source of a same-shaped `text/plain`: the editor's
+ * own block drag (`@milkdown/plugin-block`) always sets `text/html` +
+ * `text/plain` together for a drag it started (its only exception is a
+ * "broken clipboard API" browser — old IE / old iOS WebKit — which no
+ * desktop WebKitGTK/Tauri build is), so a `text/html` sibling means this
+ * transfer is that internal drag, not an OS file drop, even if the dragged
+ * block's own visible text happens to look like a `file://` URL.
+ */
+export function filePathsFromDrop(transfer: DataTransfer | null | undefined): string[] {
+  if (!transfer) return [];
+  const uriList = transfer.getData('text/uri-list');
+  if (uriList) return fileUrisIn(uriList);
+  if (transfer.types.includes('text/html')) return [];
+  return fileUrisIn(transfer.getData('text/plain'));
 }
 
 export interface ImageInserter {

@@ -69,7 +69,13 @@
     uninstallVaultImageUrlResolver,
   } from '$features/images/vaultImageUrlResolver';
   import { onFileDrop } from '$lib/platform';
-  import { dropCarriesFiles, imageFilesIn, resolveImageInserter } from '../imageInsert';
+  import {
+    dropCarriesFiles,
+    filePathsFromDrop,
+    imageFilesIn,
+    imagePathsIn,
+    resolveImageInserter,
+  } from '../imageInsert';
   import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
   import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockDragMode } from './blockDragMode';
@@ -305,8 +311,14 @@
    *
    *   - Every desktop platform now disables wry's native drop target
    *     (`dragDropEnabled: false` — Linux joined macOS/Windows in QA #017,
-   *     2026-09-11), so the drop arrives as an ordinary HTML5 `drop` with the
-   *     bytes already read — ProseMirror's `handleDrop` prop.
+   *     2026-09-11), so the drop arrives as an ordinary HTML5 `drop` —
+   *     ProseMirror's `handleDrop` prop. Chromium (macOS/Windows) populates
+   *     `dataTransfer.files` with the bytes already read; WebKitGTK (Linux)
+   *     does NOT — it hands over `text/uri-list` `file://` URIs instead
+   *     (QA #017 follow-up, 2026-09-15: a dropped file was inserted as
+   *     literal `file:///…` TEXT because only the `files` shape was
+   *     claimed). `filePathsFromDrop` turns that into the same path list
+   *     `insertPaths` takes below.
    *   - The WINDOW path (`PlatformFS`'s `onFileDrop`) stays wired as a
    *     fallback: it was Linux's ONLY path while wry's GTK relay was on, and
    *     that relay never fired at all on a native-Wayland compositor.
@@ -681,20 +693,37 @@
         insertMarkdown(imageReferenceMarkdown(filename)),
       );
 
-      /* The HTML5 half (macOS/Windows). A drop carrying files is ALWAYS
-       * claimed, images or not: the browser's default for an unclaimed file
-       * drop is to navigate the webview to that file, which would tear the app
-       * down mid-edit. A non-image file is therefore swallowed and ignored
-       * rather than inserted. */
+      /* The HTML5 half (macOS/Windows/Linux). A drop carrying files, OR a
+       * `text/uri-list` of `file://` paths (WebKitGTK's shape — see the
+       * `dropHandler` declaration above), is ALWAYS claimed, images or not:
+       * the browser's default for an unclaimed file drop is to navigate the
+       * webview to that file, which would tear the app down mid-edit. A
+       * non-image file is therefore swallowed and ignored rather than
+       * inserted. The editor's OWN block drag matches neither shape — no
+       * `files`, no `file://` URI — so it is never claimed here and falls
+       * through to ProseMirror's own drop handling. */
       dropHandler = (event) => {
-        if (!dropCarriesFiles(event.dataTransfer)) return false;
-        event.preventDefault();
-        const images = imageFilesIn(event.dataTransfer);
-        if (images.length > 0) {
-          placeCaretAtCoords(event.clientX, event.clientY);
-          void imageInserter.insertFiles(images);
+        const transfer = event.dataTransfer;
+        if (dropCarriesFiles(transfer)) {
+          event.preventDefault();
+          const images = imageFilesIn(transfer);
+          if (images.length > 0) {
+            placeCaretAtCoords(event.clientX, event.clientY);
+            void imageInserter.insertFiles(images);
+          }
+          return true;
         }
-        return true;
+        const paths = filePathsFromDrop(transfer);
+        if (paths.length > 0) {
+          event.preventDefault();
+          const images = imagePathsIn(paths);
+          if (images.length > 0) {
+            placeCaretAtCoords(event.clientX, event.clientY);
+            void imageInserter.insertPaths(images);
+          }
+          return true;
+        }
+        return false;
       };
 
       /* The window half (Linux). It fires for a drop anywhere on the window, so

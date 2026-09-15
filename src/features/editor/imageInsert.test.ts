@@ -9,9 +9,12 @@ import { clearVaultImageUrlCache, resolveVaultImageSrc } from '$features/images/
 import {
   createImageInserter,
   dropCarriesFiles,
+  filePathFromUri,
+  filePathsFromDrop,
   imageExtensionFor,
   imageFilesIn,
   imagePathsIn,
+  parseUriList,
   resolveImageInserter,
 } from './imageInsert';
 
@@ -26,6 +29,25 @@ function pngFile(name = 'photo.png', type = 'image/png'): File {
  */
 function transferWith(...files: File[]): DataTransfer {
   return { files } as unknown as DataTransfer;
+}
+
+/**
+ * A stand-in for a `DataTransfer` carrying text data — `getData`/`types`,
+ * the shape WebKitGTK's file drop (and the editor's own block drag) uses.
+ * `files` defaults to empty, matching WebKitGTK, which never populates it.
+ */
+function transferWithData(
+  data: Partial<Record<'text/uri-list' | 'text/plain' | 'text/html', string>>,
+) {
+  const entries = Object.entries(data).filter(([, value]) => value !== undefined) as [
+    string,
+    string,
+  ][];
+  return {
+    files: [],
+    types: entries.map(([type]) => type),
+    getData: (type: string) => entries.find(([t]) => t === type)?.[1] ?? '',
+  } as unknown as DataTransfer;
 }
 
 /** A vault FS that records what it was asked to write. */
@@ -109,6 +131,134 @@ describe('dropCarriesFiles', () => {
 
   it('is false for no transfer', () => {
     expect(dropCarriesFiles(null)).toBe(false);
+  });
+});
+
+describe('parseUriList', () => {
+  it('splits a CRLF-joined list, the RFC 2483 line ending', () => {
+    expect(parseUriList('file:///a/one.png\r\nfile:///a/two.png\r\n')).toEqual([
+      'file:///a/one.png',
+      'file:///a/two.png',
+    ]);
+  });
+
+  it('accepts a bare-LF list too, since not every sender uses CRLF', () => {
+    expect(parseUriList('file:///a/one.png\nfile:///a/two.png')).toEqual([
+      'file:///a/one.png',
+      'file:///a/two.png',
+    ]);
+  });
+
+  it('drops comment lines and blank lines', () => {
+    expect(parseUriList('# a comment\n\nfile:///a/one.png\n# another\n')).toEqual([
+      'file:///a/one.png',
+    ]);
+  });
+});
+
+describe('filePathFromUri', () => {
+  it('decodes a plain file:// URI to a path', () => {
+    expect(filePathFromUri('file:///home/justin/Downloads/photo.png')).toBe(
+      '/home/justin/Downloads/photo.png',
+    );
+  });
+
+  it('percent-decodes the path, so a space in the file name survives', () => {
+    expect(filePathFromUri('file:///home/justin/Downloads/my%20photo.png')).toBe(
+      '/home/justin/Downloads/my photo.png',
+    );
+  });
+
+  it('accepts an explicit localhost authority', () => {
+    expect(filePathFromUri('file://localhost/home/justin/photo.png')).toBe(
+      '/home/justin/photo.png',
+    );
+  });
+
+  it('rejects a non-file scheme', () => {
+    expect(filePathFromUri('http://example.com/photo.png')).toBeNull();
+  });
+
+  it('rejects a file:// URI naming a different host', () => {
+    expect(filePathFromUri('file://otherhost/home/justin/photo.png')).toBeNull();
+  });
+
+  it('rejects unparsable text rather than throwing', () => {
+    expect(filePathFromUri('not a uri at all')).toBeNull();
+  });
+});
+
+describe('filePathsFromDrop', () => {
+  it('reads file:// paths out of text/uri-list', () => {
+    expect(
+      filePathsFromDrop(
+        transferWithData({ 'text/uri-list': 'file:///home/justin/Downloads/photo.webp' }),
+      ),
+    ).toEqual(['/home/justin/Downloads/photo.webp']);
+  });
+
+  it('reads multiple paths, skipping comment lines, CRLF-joined', () => {
+    expect(
+      filePathsFromDrop(
+        transferWithData({
+          'text/uri-list': '# a comment\r\nfile:///a/one.png\r\nfile:///a/two.jpg\r\n',
+        }),
+      ),
+    ).toEqual(['/a/one.png', '/a/two.jpg']);
+  });
+
+  it('percent-decodes a file name with a space in it', () => {
+    expect(
+      filePathsFromDrop(transferWithData({ 'text/uri-list': 'file:///a/my%20photo.png' })),
+    ).toEqual(['/a/my photo.png']);
+  });
+
+  it('drops a non-file URI mixed into the list', () => {
+    expect(
+      filePathsFromDrop(
+        transferWithData({
+          'text/uri-list': 'http://example.com/photo.png\nfile:///a/one.png',
+        }),
+      ),
+    ).toEqual(['/a/one.png']);
+  });
+
+  it('falls back to text/plain when there is no text/uri-list at all', () => {
+    expect(filePathsFromDrop(transferWithData({ 'text/plain': 'file:///a/one.png' }))).toEqual([
+      '/a/one.png',
+    ]);
+  });
+
+  it('never treats arbitrary dropped text as a path', () => {
+    expect(filePathsFromDrop(transferWithData({ 'text/plain': 'just some words' }))).toEqual([]);
+  });
+
+  it("does not claim the editor's own block drag — text/html + text/plain, no file:// URI", () => {
+    // @milkdown/plugin-block's own drag always sets both together; the block's
+    // visible text could itself read like a path, so the presence of
+    // text/html (never sent by an external file drop) is what rules it out.
+    expect(
+      filePathsFromDrop(transferWithData({ 'text/html': '<p>hey</p>', 'text/plain': 'hey' })),
+    ).toEqual([]);
+  });
+
+  it('does not claim a block drag even if its text happens to look like a file:// URL', () => {
+    expect(
+      filePathsFromDrop(
+        transferWithData({
+          'text/html': '<p>file:///home/justin/notes.png</p>',
+          'text/plain': 'file:///home/justin/notes.png',
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('is empty for no transfer at all', () => {
+    expect(filePathsFromDrop(null)).toEqual([]);
+  });
+
+  it('is empty for a transfer with neither files nor path text', () => {
+    expect(filePathsFromDrop(transferWithData({}))).toEqual([]);
   });
 });
 

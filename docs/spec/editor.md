@@ -1422,44 +1422,55 @@ EditorWebView.swift, EditorWebView.kt
   → src/features/editor/imageInsert.ts, milkdown/slash/items.ts + exec.ts,
   src/lib/platform/tauri/images.ts `pickImage`, tests/image-drop.spec.ts,
   tests/slash-menu.spec.ts
-- **A file drop reaches the app as an ordinary HTML5 `drop`, with the bytes
-  already read.** All three desktop build configs (macOS, Windows, and Linux
-  since QA #017, 2026-09-11) set `dragDropEnabled: false`, which stops wry
-  installing a native drop target, so the drop arrives in the page and
-  ProseMirror's `handleDrop` prop reads it directly. Linux used to leave the
-  flag at its default, reasoning that the same native layer was needed to
-  leave the sidebar's internal drags alone; that GTK relay's own external
-  file-URI handling turned out to never fire the `drag-drop` signal at all on
-  a native-Wayland compositor (confirmed Hyprland/wlroots — matches upstream
-  tauri-apps/tauri#11282, tauri-apps/wry#1256), so a file dragged in from a
-  file manager silently did nothing in a packaged build — invisible from
-  `just tauri-dev`, which has always forced the flag off. Internal sidebar/tab
+- **A file drop reaches the app as an ordinary HTML5 `drop`, but the SHAPE it
+  carries is engine-dependent.** All three desktop build configs (macOS,
+  Windows, and Linux since QA #017, 2026-09-11) set `dragDropEnabled: false`,
+  which stops wry installing a native drop target, so the drop arrives in the
+  page and ProseMirror's `handleDrop` prop reads it directly. Linux used to
+  leave the flag at its default, reasoning that the same native layer was
+  needed to leave the sidebar's internal drags alone; that GTK relay's own
+  external file-URI handling turned out to never fire the `drag-drop` signal
+  at all on a native-Wayland compositor (confirmed Hyprland/wlroots — matches
+  upstream tauri-apps/tauri#11282, tauri-apps/wry#1256), so a file dragged in
+  from a file manager silently did nothing in a packaged build — invisible
+  from `just tauri-dev`, which has always forced the flag off. Chromium
+  (macOS/Windows) populates `dataTransfer.files` with the bytes already read;
+  WebKitGTK (Linux) does NOT populate `files` for an OS file drop at all — it
+  hands over `text/uri-list` (RFC 2483), a newline-separated list of `file://`
+  URIs, sometimes mirrored onto `text/plain` too. Internal sidebar/tab
   dragging is untouched either way (pure in-page HTML5 DnD that wry's signal
-  handlers never intercepted). Tauri's own drag-drop event
-  (`PlatformFS.onFileDrop`, paths only, no bytes) stays wired as a defensive
-  fallback for a distro/compositor combination that still runs wry's native
-  layer, but nothing is currently expected to deliver that shape.
+  handlers never intercepted, and carries neither `files` nor a `file://` URI).
+  Tauri's own drag-drop event (`PlatformFS.onFileDrop`, paths only, no bytes)
+  stays wired as a defensive fallback for a distro/compositor combination that
+  still runs wry's native layer, but nothing is currently expected to deliver
+  that shape.
   _(desktop)_ → apps/tauri/src-tauri/tauri.linux.conf.json,
   src/lib/platform/tauri/fileDrop.ts,
   src/lib/platform/dragDropConfig.test.ts,
+  src/features/editor/imageInsert.ts `filePathsFromDrop`,
   milkdown/MilkdownEditor.svelte `dropHandler`
 
-  > **Gap:** the Linux half of this is reasoned and config-gated, not
-  > confirmed by a real drag. No human or tool has dragged a file from a file
-  > manager onto a packaged build since the flag changed — this pass's tooling
+  > **Gap:** a real user drag on a packaged Linux/Wayland build (Fedora,
+  > Hyprland, 2026-09-15) confirmed the HTML5 drop DOES reach the page — that
+  > half of the earlier reasoning holds — but also surfaced the WebKitGTK
+  > `text/uri-list` shape above: the drop was claimed as `dropCarriesFiles`
+  > only, which WebKitGTK never satisfies, so it fell through to ProseMirror's
+  > default handling and the dropped `file:///…` URI was inserted as literal
+  > text. Fixed by claiming a `text/uri-list` drop the same way (this pass),
+  > but the fix itself is unverified by a real drag — this pass's tooling
   > forbids synthesizing OS-level pointer input, and the packaged binary is
-  > outside the debug-build QA target gate. X11 is the sharper risk of the
-  > two: it is the session type the native relay DID serve, so it moved from a
-  > working path to an untested one, while Wayland moved from broken to
-  > untested. → apps/tauri/src-tauri/tauri.linux.conf.json
-- **A drop carrying files is always claimed, image or not.** The browser's
-  default for an unclaimed file drop is to navigate the webview to that file,
-  which would tear the running app down mid-edit — so a dropped `.md`, PDF or
-  archive is swallowed and ignored rather than inserted, and never becomes an
-  `![](…)`. A drop carrying no files is left entirely alone, which is what the
-  editor's own block drag rides on. _(desktop)_
-  → src/features/editor/imageInsert.ts `dropCarriesFiles` / `imageFilesIn`,
-  tests/image-drop.spec.ts
+  > outside the debug-build QA target gate. X11 remains untested either way.
+  > → apps/tauri/src-tauri/tauri.linux.conf.json,
+  > src/features/editor/imageInsert.ts `filePathsFromDrop`
+- **A drop carrying files, or a `text/uri-list` of `file://` paths, is always
+  claimed, image or not.** The browser's default for an unclaimed file drop is
+  to navigate the webview to that file, which would tear the running app down
+  mid-edit — so a dropped `.md`, PDF or archive is swallowed and ignored
+  rather than inserted, and never becomes an `![](…)`. A drop carrying neither
+  shape is left entirely alone, which is what the editor's own block drag
+  rides on. _(desktop)_
+  → src/features/editor/imageInsert.ts `dropCarriesFiles` / `imageFilesIn` /
+  `filePathsFromDrop` / `imagePathsIn`, tests/image-drop.spec.ts
 - Which dropped or picked files count as images is `isImageFilename` — the same
   `IMAGE_EXTENSIONS` list paste uses, conformance-locked to the canonical Rust
   vault rule, never a second list. A file's own extension decides the name it is
