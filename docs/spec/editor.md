@@ -1045,23 +1045,22 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   selection — Text/H1/H2/H3, Quote, Bold, Italic, Strikethrough, Code, Link,
   plus Indent/Outdent inside lists and quotes — placed by the same
   floating-ui positioning the `/` menu and the ⠿ handle use. It shows for a
-  non-empty TEXT selection that holds something to format, and not for a
-  node selection (an image, a wikilink chip, a block picked up by the ⠿
+  non-empty TEXT selection that holds something to format, and not for a caret,
+  a node selection (an image, a wikilink chip, a block picked up by the ⠿
   handle), a whitespace-only selection, or any selection inside a fenced code
   block, where nothing is markup. A button keeps the selection and the bar, so a
   format can be toggled straight back off; the buttons light up for the formats
   active on the selection. The bar hides when the note loses focus (a click into
   the sidebar or the title) and during an IME composition. The formatting
-  buttons run the same shared commands the native toolbars dispatch. →
+  buttons run the same shared commands the native toolbars dispatch. Indent/
+  Outdent are no exception: a bare caret (no selection) raises no bar even
+  inside a list item or blockquote — a caret-only popup showing just those two
+  buttons was tried and pulled (user, 2026-09-15: it was intrusive, popping up
+  next to the caret while typing — a deliberate product decision, not a gap to
+  reopen). `Mod+]`/`Mod+[` indent/outdent the enclosing list or quote by
+  keyboard from a bare caret instead, independent of the Tab decision above
+  (Tab is still not an indent key outside a code block). →
   src/features/editor/milkdown/selectionToolbar/, milkdown/toolbarExec.ts,
-  tests/selection-toolbar.spec.ts
-- _(desktop)_ A bare CARET (no selection) sitting in a list item or a
-  blockquote also raises the bar, showing ONLY Indent/Outdent — nothing else
-  there has text to act on. Elsewhere a plain caret raises nothing, same as
-  before. `Mod+]`/`Mod+[` indent/outdent the enclosing list or quote by
-  keyboard from anywhere the caret sits in one, independent of the Tab
-  decision above (Tab is still not an indent key outside a code block). →
-  src/features/editor/milkdown/selectionToolbar/target.ts `caretOnly`,
   milkdown/keyboardParity.ts `handleIndentShortcut`,
   tests/selection-toolbar.spec.ts
 - _(desktop)_ Link opens a URL field inside the bar. Enter (or Add) applies the

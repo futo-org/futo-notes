@@ -9,7 +9,7 @@
 import type { Mark as ProseMark, Node as ProseNode } from '@milkdown/kit/prose/model';
 import { TextSelection, type EditorState } from '@milkdown/kit/prose/state';
 
-import { blockFormatAtPos, inIndentableContainer } from '../blockCommands';
+import { blockFormatAtPos } from '../blockCommands';
 
 /**
  * Whether this editor instance mounts the selection toolbar.
@@ -36,13 +36,6 @@ export interface SelectionToolbarTarget {
    * way `formatState` lights the Link button for it.
    */
   linkHref: string | null;
-  /**
-   * A bare caret sitting in an indentable container (a list item or a
-   * blockquote) rather than a real text selection — Indent/Outdent are the
-   * only buttons that act on a caret, everything else here needs text to
-   * format, so `SelectionToolbar.svelte` shows only those two for this case.
-   */
-  caretOnly?: boolean;
 }
 
 /**
@@ -54,21 +47,11 @@ export interface SelectionToolbarTarget {
  * is the reader dragging across a gap, and inside a fenced code block nothing
  * is markup (docs/spec/editor.md "Code / fence isolation") — the toolbar there
  * would offer commands the editor refuses to apply.
- *
- * Also shown, `caretOnly`, for a bare caret sitting in a list item or a
- * blockquote — the reach Indent/Outdent otherwise had none of outside a
- * selection (docs/spec/editor.md "Indent/Outdent showing only on list
- * lines"): a caret alone has nothing to bold or link, but `changeBlockIndent`
- * (blockCommands.ts) already nests/un-nests from a bare caret just fine.
  */
 export function selectionToolbarTarget(state: EditorState): SelectionToolbarTarget | null {
   const { selection, doc } = state;
-  if (!(selection instanceof TextSelection)) return null;
+  if (!(selection instanceof TextSelection) || selection.empty) return null;
   const { from, to } = selection;
-  if (selection.empty) {
-    if (!inIndentableContainer(selection.$from)) return null;
-    return { from, to, linkHref: null, caretOnly: true };
-  }
   if (blockFormatAtPos(selection.$from).kind === 'code') return null;
   if (blockFormatAtPos(selection.$to).kind === 'code') return null;
   if (doc.textBetween(from, to, ' ', ' ').trim() === '') return null;
