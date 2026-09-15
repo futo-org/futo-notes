@@ -941,6 +941,12 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   src/features/editor/milkdown/table/tableLineBreak.ts (markdown round trip),
   src/features/editor/milkdown/keyboardParity.test.ts
 
+  > **Gap:** a cell holding ONLY a manual break and no other text collapses to
+  > a genuinely empty cell on reload — that shape is indistinguishable on disk
+  > from the empty-paragraph filler an older build wrote, which
+  > `packages/editor`'s `emptyLine.ts` already owns turning into an empty
+  > cell. → src/features/editor/milkdown/table/tableLineBreak.ts
+
 - Hovering a column shows a small grip above it; hovering a row shows one at
   its left edge. Clicking a grip selects that row/column (visibly, as a cell
   selection) and opens a 3-item menu: Insert before, Insert after, Delete.
