@@ -1820,7 +1820,6 @@ dependencies = [
  "base64 0.22.1",
  "futo-notes-core",
  "reqwest 0.12.28",
- "rustix",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
