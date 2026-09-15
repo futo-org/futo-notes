@@ -32,6 +32,11 @@
  * `tableCommands.ts`'s commands take that position directly. See that file's
  * header for the one hazard this matters for (`addRow`'s ambiguous row
  * type at index 0).
+ *
+ * The exported `tableGrips` bundles this view with `tableLineBreak.ts`'s
+ * Shift+Enter round-trip fix (a different table bug, mounted through the
+ * same `.use(tableGrips)` call rather than a second one) — see that file for
+ * why Shift+Enter in a table cell needed its own fix at all.
  */
 import { $prose } from '@milkdown/kit/utils';
 import { Plugin, PluginKey, type Command } from '@milkdown/kit/prose/state';
@@ -60,6 +65,7 @@ import {
   rowGripRect,
   type Rect,
 } from './tableGripsGeometry';
+import { tableCellLineBreakRemark, tableCellLineBreakSerializer } from './tableLineBreak';
 
 export const tableGripsKey = new PluginKey('FUTO_TABLE_GRIPS');
 
@@ -444,10 +450,23 @@ export function isNearGrip(x: number, y: number, gripRect: Rect): boolean {
   return pointInRect(x, y, expandRect(gripRect, GRIP_HOVER_MARGIN));
 }
 
-export const tableGrips = $prose(
+const tableGripsView = $prose(
   () =>
     new Plugin({
       key: tableGripsKey,
       view: (view) => new TableGripsView(view),
     }),
 );
+
+/**
+ * Everything `MilkdownEditor.svelte`'s one `.use(tableGrips)` needs to mount
+ * for GFM tables: the grips view above, plus the Shift+Enter line-break
+ * round-trip fix (`tableLineBreak.ts` — a different bug in the same feature
+ * area, bundled here rather than adding a second `.use()` call), mirroring
+ * how `wikilink/index.ts` bundles its own feature's plugins under one name.
+ */
+export const tableGrips = [
+  tableGripsView,
+  tableCellLineBreakRemark,
+  tableCellLineBreakSerializer,
+].flat();

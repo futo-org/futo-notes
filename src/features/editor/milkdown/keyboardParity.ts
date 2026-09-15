@@ -46,9 +46,10 @@
  * before every plugin keymap, so this wins deterministically over the preset's
  * own Enter/Tab bindings without depending on plugin registration order.
  * Everything it does not explicitly claim falls through untouched —
- * Shift-Enter hard breaks, Mod-Enter's `exitTable`, Tab/Shift-Tab cell and
- * list navigation, Backspace everywhere, and the list-split Enter for plain
- * and unchecked items.
+ * Shift-Enter hard breaks outside a table (inside one, `insertLineBreakInTableCell`
+ * claims it — see that command's own doc), Mod-Enter's `exitTable`,
+ * Tab/Shift-Tab cell and list navigation, Backspace everywhere, and the
+ * list-split Enter for plain and unchecked items.
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
@@ -150,6 +151,33 @@ export const insertTableRowBelow: Command = (state, dispatch) => {
     return addRowWithCaret(state, dispatch, rect, rect.top + 1, rect.left);
   }
   return moveCaretToCell(state, dispatch, rect, rect.top + 1, rect.left);
+};
+
+/**
+ * Shift+Enter in a table cell: insert a real line break IN the cell, instead
+ * of falling through to the preset's own hardbreak handling — which the
+ * preset's `hardbreakFilterPlugin` REJECTS outright inside a table (ctx
+ * `hardbreakFilterNodes` defaults to `["table", "code_block"]`,
+ * `@milkdown/preset-commonmark`'s `hardbreak-filter-plugin.ts`), so the key
+ * silently did nothing at all and the very next keystroke landed right where
+ * the caret already was: `r1a`, Shift+Enter, `second` saved as `r1asecond`,
+ * fusing the two halves with no separator whatsoever. The filter only
+ * inspects transactions carrying the `hardbreak` meta the preset's own
+ * `insertHardbreakCommand` sets before dispatch, so building the transaction
+ * directly here — and never setting that meta — sails past it undetected.
+ * `table/tableLineBreak.ts` owns the two markdown round-trip halves this
+ * needs on top (a GFM table cell is one line and cannot hold a literal
+ * newline, so the break has to serialize as `<br>` and parse back the same
+ * way).
+ */
+export const insertLineBreakInTableCell: Command = (state, dispatch) => {
+  const rect = cursorCellRect(state);
+  if (!rect) return false;
+  const hardbreak = state.schema.nodes.hardbreak;
+  if (!hardbreak) return false;
+  if (!dispatch) return true;
+  dispatch(state.tr.replaceSelectionWith(hardbreak.create()).scrollIntoView());
+  return true;
 };
 
 /**
@@ -290,6 +318,9 @@ export function handleParityKeyDown(view: ProseView, event: KeyboardEvent): bool
       insertTableRowBelow(view.state, view.dispatch) ||
       splitCheckedTaskItem(view.state, view.dispatch)
     );
+  }
+  if (event.key === 'Enter' && event.shiftKey) {
+    return insertLineBreakInTableCell(view.state, view.dispatch);
   }
   if (event.key === 'Tab') {
     tabEscapeArmed.delete(view);

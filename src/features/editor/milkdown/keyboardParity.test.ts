@@ -7,6 +7,7 @@ import {
   appendTableRowFromLastCell,
   handleParityKeyDown,
   indentCodeBlockOnTab,
+  insertLineBreakInTableCell,
   insertTableRowBelow,
   outdentCodeBlockOnShiftTab,
   splitCheckedTaskItem,
@@ -154,6 +155,78 @@ describe('insertTableRowBelow', () => {
   it('does nothing outside a table', () => {
     const start = stateWithCaretIn(doc(p('plain')), 'plain');
     expect(apply(start, insertTableRowBelow).handled).toBe(false);
+  });
+});
+
+/** The child type names of the paragraph inside the cell at (row, col). */
+function cellParaKinds(root: ProseNode, row: number, col: number): string[] {
+  const kinds: string[] = [];
+  root
+    .child(0)
+    .child(row)
+    .child(col)
+    .child(0)
+    .forEach((n) => kinds.push(n.type.name));
+  return kinds;
+}
+
+// Shift+Enter in a table cell used to be a silent no-op: the preset's own
+// hardbreak command sets a "hardbreak" transaction meta, and the preset's
+// own hardbreakFilterPlugin rejects any transaction carrying that meta inside
+// a table — so the keystroke vanished with NO document change at all, and the
+// very next character landed right where the caret already was ("r1a",
+// Shift+Enter, "second" saved as "r1asecond", fusing the two halves with no
+// separator whatsoever). See this command's own doc in keyboardParity.ts.
+describe('insertLineBreakInTableCell (Shift+Enter in a table cell)', () => {
+  it('inserts a real hardbreak node after the caret, not a no-op', () => {
+    const start = stateWithCaretIn(doc(twoRowTable()), 'r1a');
+    const { handled, state } = apply(start, insertLineBreakInTableCell);
+    expect(handled).toBe(true);
+    expect(cellParaKinds(state.doc, 1, 0)).toEqual(['text', 'hardbreak']);
+    // The caret sits right after the break, so the very next keystroke lands
+    // AFTER it rather than fusing into "r1a" the way the bug did.
+    expect(state.selection.empty).toBe(true);
+    expect(state.selection.$from.nodeBefore?.type.name).toBe('hardbreak');
+  });
+
+  it('does nothing outside a table — an ordinary paragraph keeps its own hardbreak handling', () => {
+    const start = stateWithCaretIn(doc(p('plain')), 'plain');
+    expect(apply(start, insertLineBreakInTableCell).handled).toBe(false);
+  });
+
+  it('handleParityKeyDown routes Shift+Enter to it inside a table, and leaves it alone outside one', () => {
+    const key = (mods: Partial<KeyboardEvent> = {}): KeyboardEvent =>
+      ({
+        key: 'Enter',
+        shiftKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        isComposing: false,
+        ...mods,
+      }) as KeyboardEvent;
+    function fakeView(state: EditorState): {
+      view: { state: EditorState; dispatch(tr: Transaction): void };
+      current(): EditorState;
+    } {
+      let current = state;
+      const view = {
+        get state() {
+          return current;
+        },
+        dispatch(tr: Transaction) {
+          current = current.apply(tr);
+        },
+      };
+      return { view, current: () => current };
+    }
+
+    const inTable = fakeView(stateWithCaretIn(doc(twoRowTable()), 'r1a'));
+    expect(handleParityKeyDown(inTable.view as never, key())).toBe(true);
+    expect(cellParaKinds(inTable.current().doc, 1, 0)).toEqual(['text', 'hardbreak']);
+
+    const inParagraph = fakeView(stateWithCaretIn(doc(p('plain')), 'plain'));
+    expect(handleParityKeyDown(inParagraph.view as never, key())).toBe(false);
   });
 });
 
@@ -388,7 +461,8 @@ describe('handleParityKeyDown', () => {
 
   it('leaves modified, composing, and unrelated keys to the editor', () => {
     const { view } = fakeView(stateWithCaretIn(doc(twoRowTable()), 'r1a'));
-    expect(handleParityKeyDown(view as never, key('Enter', { shiftKey: true }))).toBe(false);
+    // Shift+Enter in a table cell is claimed now — see the
+    // "insertLineBreakInTableCell" describe block below.
     expect(handleParityKeyDown(view as never, key('Enter', { metaKey: true }))).toBe(false);
     expect(handleParityKeyDown(view as never, key('Enter', { ctrlKey: true }))).toBe(false);
     expect(handleParityKeyDown(view as never, key('Enter', { altKey: true }))).toBe(false);

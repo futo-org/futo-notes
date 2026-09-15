@@ -929,15 +929,17 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   own `exitTable` binding). → src/features/editor/milkdown/keyboardParity.ts
   `insertTableRowBelow` / `appendTableRowFromLastCell`,
   tests/editor-embed-milkdown-interactive.spec.ts
-
-  > **Gap:** Shift+Enter inside a table cell silently DROPS the line break —
-  > `r1a`, Shift+Enter, typing `second` saves as `r1asecond`, not `r1a<br>second`
-  > — fusing the two halves with no separator at all. This is a pre-existing
-  > bug, not something QA lane 7 touched (`handleParityKeyDown` only claims
-  > bare Enter; Shift+Enter falls through to the preset's own hardbreak
-  > input), found while checking it did not corrupt during this pass. Left
-  > unfixed per scope; someone should pick it up as its own bug. →
-  > src/features/editor/milkdown/keyboardParity.ts
+- Shift+Enter with the caret in a table cell inserts a line break in that
+  cell, rather than a no-op — the preset's own hardbreak handling silently
+  rejects any break inside a table, which used to fuse whatever was typed next
+  straight onto the preceding text with no separator at all (`r1a`,
+  Shift+Enter, `second` saved as `r1asecond`). The break saves as a literal
+  `<br>` inside the cell (GFM's own way to write a multi-line cell — a real
+  newline would corrupt the row) and parses back into the same break on
+  reopen. → src/features/editor/milkdown/keyboardParity.ts
+  `insertLineBreakInTableCell`,
+  src/features/editor/milkdown/table/tableLineBreak.ts (markdown round trip),
+  src/features/editor/milkdown/keyboardParity.test.ts
 
 - Hovering a column shows a small grip above it; hovering a row shows one at
   its left edge. Clicking a grip selects that row/column (visibly, as a cell
