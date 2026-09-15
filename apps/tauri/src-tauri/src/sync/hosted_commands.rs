@@ -169,6 +169,18 @@ pub async fn e2ee_hosted_begin_checkout(
         .map_err(Into::into)
 }
 
+/// A URL for the payment provider's customer portal — what "Manage
+/// subscription" and the "Vault is full" banner's button open. Minted per
+/// press, so it is asked for at the moment the button is pressed rather than
+/// carried alongside the billing status.
+#[tauri::command]
+pub async fn e2ee_hosted_billing_portal(
+    state: State<'_, AppState>,
+) -> Result<String, HostedErrorOutput> {
+    let setup = state.hosted.current()?;
+    setup.billing_portal().await.map_err(Into::into)
+}
+
 /// Waits for the checkout to make the account entitled.
 #[tauri::command]
 pub async fn e2ee_hosted_await_entitled(

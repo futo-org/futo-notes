@@ -613,6 +613,96 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   `SyncSession::stop_live_and_wait`, `SyncManager.quiesceForStorageMigration`,
   `NotesStore.migrateVault`, Android `storage/StorageMigrationGateTest`
 
+## Hosted sync — Log in with FUTO
+
+Behind a build-time flag: on for debug builds and for any build made with
+`VITE_HOSTED_SYNC=true` _(desktop)_; off for store releases until launch, where
+the sync screen is exactly the self-hosted screen described above and nothing
+in this section exists. → `hostedSyncEnabled.ts`, ADR 0003 decision 13
+
+- **The sync screen leads with "Log in with FUTO"; "Use my own server"
+  discloses today's URL and password fields, unchanged.** The disclosed panel is
+  literally the same `SyncSettingsSection` the flag-off build renders, not a
+  second copy of it, so self-hosting cannot drift from it. The offer disappears
+  once hosted sync is set up. _(desktop)_ → HostedSyncSettingsSection.svelte
+- **Which step the wizard is on is computed from server facts, never
+  remembered.** Rust's `current_step` reads whether there is a session, whether
+  the vault has key material, whether this device holds the vault key, and — only
+  when there is no vault — whether the account may write. Quitting halfway and
+  reopening therefore lands on the right screen by construction; no shell keeps
+  a wizard position, and none may start. → `hosted/vault.rs` `current_step`,
+  `createHostedSyncSettings.svelte.ts`; guarded by "the wizard position is
+  Rust's, not the shell's" in `createHostedSyncSettings.svelte.test.ts`
+- **Two shapes.** No vault yet: sign in → subscribe → choose a vault password →
+  save the recovery key → sync. Vault exists: sign in → unlock → sync. Subscribe
+  cannot be skipped in the first shape because writing the vault key is
+  entitlement-gated.
+- **Sign-in, checkout, and the customer portal open in the system browser
+  through the app's existing opener** _(desktop)_, and the app polls the server
+  for the outcome. There is no URL scheme, universal link, or return deep link
+  anywhere in the flow. Abandoning the browser window leaves no error and no half
+  state — the screen is exactly where it was. → `openExternalUrl.ts`,
+  `HostedSetup::await_sign_in`
+- **A vault password is at least 12 characters, with a strength estimate and no
+  composition rules.** The minimum is read from Rust
+  (`e2ee_hosted_min_vault_password_length`) so the button and the engine cannot
+  disagree. The screen says the password is separate from the FUTO password and
+  is never sent anywhere. The estimate is a local length-and-variety measure that
+  refuses to call a long repeated character anything but weak; no password
+  dictionary ships. → `vaultPasswordStrength.ts`
+- **The recovery key is shown exactly once and cannot be shown again.** Rust
+  returns it from `create_vault` and keeps no copy; a second create is refused
+  with `vaultAlreadyExists`. The shell holds it in the wizard object alone —
+  never persisted, never re-fetchable — so continuing past the screen ends it.
+  The screen offers Copy and Save file, says plainly that FUTO cannot recover the
+  vault without it, and gates Continue on an "I've saved my recovery key"
+  checkbox. There is no type-back. The saved file contains the key and nothing
+  else, so it pastes straight back into the unlock field. → `hosted/vault.rs`
+  `create_vault`, RecoveryKeyStep.svelte
+- **The unlock screen offers three doors on one screen**: vault password, scan
+  from another device, and recovery key. A mistyped recovery key is reported as a
+  typo — caught by its check character on the device, with nothing sent — and is
+  a different message from a well-formed key that belongs to another vault.
+  → `hosted/vault.rs` `unlock_with_recovery_key`, UnlockStep.svelte
+  > **Gap:** the scan door is a placeholder on every shell: it names itself and
+  > says pairing is not available yet rather than doing nothing. Pairing lands in
+  > futo-notes#180 (Rust) and #181/#182/#183 (the shells).
+- **The account card reads one billing endpoint** and shows the email, the
+  subscription state in words ("Active", "Payment failed. In 4 days, sync
+  pauses.", "Expired"), storage used against the quota, "Manage subscription",
+  and Sign out. The app writes no billing state: cancellation, invoices, and
+  cards live behind the portal link, which is a fresh one-shot URL minted per
+  press. → `subscriptionState.ts`, HostedAccountCard.svelte
+- **A refused write is a banner, not an error.** An account that may no longer
+  write shows **Sync paused** with a Subscribe button and says that notes from
+  other devices still arrive; a full vault shows **Vault is full** with the
+  portal button. Sync paused wins when both are true, because a lapsed
+  subscription refuses the write whatever the quota says. Reads are never gated.
+- **Sign out is one action**: it revokes the session on the server (best
+  effort), deletes the vault key and the session token from the OS secret store,
+  and demotes this vault's sync state exactly as disconnect does. It asks for
+  confirmation first. The notes on disk are untouched. There is no
+  locked-but-signed-in halfway state. → `hosted/vault.rs` `sign_out`
+- **An expired hosted session is a trip to the browser, never a vault reset.**
+  `invalid_session` surfaces as "log in again"; the vault key, the object map,
+  the pull cursor, and every note stay exactly where they are. → `hosted/mod.rs`
+  `HostedError::SignInAgain`, `hostedSyncErrors.ts`
+- **The device keeps the 32-byte vault key and the session token in the OS
+  secret store, keyed per notes root; the vault password is never stored.** A
+  device set up by password and one set up by recovery key are indistinguishable
+  afterwards, and neither is asked for a password again.
+- **An address that does not offer hosted sign-in says so** rather than opening a
+  browser onto a route that is not there. The capability document is probed
+  before the first hand-off is minted. → `e2ee_hosted_probe`
+
+> **Gap:** reaching the end of the wizard does not start a sync cycle yet.
+> `current_step` answers `ready` once the device holds the vault key and the
+> session token, but nothing connects `SyncSession` with those two — it still
+> only has the password-mode `connect`/`resume` pair. The hosted connect path
+> and `window.__testSync.connectHosted()` are futo-notes#186's; until then the
+> hosted wizard sets a vault up and the first sync does not run.
+
+
 ## Live sync (SSE)
 
 - After connecting, the client opens the server's SSE stream
@@ -771,7 +861,12 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   → Keychain.swift _(iOS)_, SecureStore.kt _(Android)_,
   sync/password_store.rs + syncServiceE2ee.ts _(desktop)_
 - **An expired server bearer session reauthenticates transparently from the
-  securely saved password without resetting sync state.** Server bearer tokens
+  securely saved password without resetting sync state — in password mode.**
+  This whole paragraph is about password mode, where the login password is also
+  the vault secret and is on the device, so a 401 can be recovered from without
+  asking anyone anything. Hosted sync stores no password and cannot do this: its
+  expired session surfaces as "log in again" with every byte of sync state left
+  alone (see "Hosted sync" above). Server bearer tokens
   have a fixed seven-day lifetime that authenticated activity does not extend;
   a 401 therefore does NOT mean the password changed. Desktop catches
   401 during cold `resume` and an active sync, stops the dead live loop, calls

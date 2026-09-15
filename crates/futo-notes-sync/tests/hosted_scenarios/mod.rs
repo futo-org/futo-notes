@@ -384,6 +384,23 @@ pub async fn an_entitled_account_is_not_sent_to_pay_again(base: &str) {
     }
 }
 
+/// "Manage subscription" hands out a URL to open and nothing else: this app
+/// writes no billing state, so cancelling, invoices, and cards all live behind
+/// this one link (ADR 0003, decision 8). It is also what the "Vault is full"
+/// banner's button opens, which is why an entitled account must get one too.
+pub async fn the_account_card_can_open_the_billing_portal(base: &str) {
+    let setup = signed_in(base).await;
+    unentitled(&setup).await;
+    subscribe(&setup).await;
+
+    let portal = setup.billing_portal().await.expect("a portal URL");
+
+    assert!(
+        portal.starts_with("http"),
+        "a portal URL a browser can open, got {portal}"
+    );
+}
+
 /// A lapsed subscription is a fact the account card reads, not a failure. The
 /// session still works and reads are never gated, so a lapsed card never
 /// strands a device.

@@ -109,6 +109,7 @@ pub(crate) fn run() {
             crate::sync::hosted_commands::e2ee_hosted_session,
             crate::sync::hosted_commands::e2ee_hosted_billing_status,
             crate::sync::hosted_commands::e2ee_hosted_begin_checkout,
+            crate::sync::hosted_commands::e2ee_hosted_billing_portal,
             crate::sync::hosted_commands::e2ee_hosted_await_entitled,
             crate::sync::hosted_commands::e2ee_hosted_current_step,
             crate::sync::hosted_commands::e2ee_hosted_min_vault_password_length,

@@ -69,7 +69,7 @@
         "dangerZone": "危险操作"
       },
       "sync": {
-        "selfHosted": "自托管同步",
+        "label": "同步",
         "localDescription": "连接同步之前，笔记只保存在此设备上。",
         "syncedBadge": "已同步",
         "localBadge": "本地"

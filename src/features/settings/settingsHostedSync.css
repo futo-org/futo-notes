@@ -1,0 +1,171 @@
+/* Hosted sync wizard, account card, and the two refused-write banners.
+   Built from the same tokens as the rest of Settings; no colour transitions,
+   so a theme swap repaints this at the same pace as the window around it
+   (`just check-theme-single-pace`). */
+
+.hosted-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.hosted-body {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
+.hosted-error {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-danger);
+}
+
+/* The one sentence a person must not skim past on the recovery-key screen. */
+.hosted-warning {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-danger);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text);
+}
+
+.hosted-recovery-key {
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.hosted-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.hosted-doors {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg);
+}
+
+.hosted-door {
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 9px 12px;
+  text-align: start;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hosted-door.active {
+  background: var(--color-primary);
+  color: var(--color-bg);
+}
+
+.hosted-door:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.hosted-strength {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 10px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.hosted-strength-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.hosted-strength-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-muted);
+}
+
+.hosted-strength-fill.tooShort,
+.hosted-strength-fill.weak {
+  width: 25%;
+  background: var(--color-danger);
+}
+
+.hosted-strength-fill.fair {
+  width: 60%;
+}
+
+.hosted-strength-fill.strong {
+  width: 100%;
+  background: var(--color-primary);
+}
+
+.hosted-account-email {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+/* Its own line rather than a right-hand column: the past-due wording carries a
+   date and would otherwise decide the card's width. */
+.hosted-account-state {
+  margin: 0 0 2px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.hosted-banner {
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg);
+}
+
+.hosted-banner-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.hosted-banner-body {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-muted);
+}

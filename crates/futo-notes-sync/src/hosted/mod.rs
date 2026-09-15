@@ -7,8 +7,8 @@
 //! redirect anywhere in it (ADR 0003, decisions 1 and 11).
 //!
 //! The wire this drives is the sync server's hosted contract: `POST
-//! /api/auth/handoff` and its poll, `GET /api/billing`, and
-//! `POST /api/billing/checkout`.
+//! /api/auth/handoff` and its poll, `GET /api/billing`,
+//! `POST /api/billing/checkout`, and `GET /api/billing/portal`.
 
 mod address;
 mod capability;
@@ -319,6 +319,17 @@ impl HostedSetup {
     /// shell should be able to do by calling this at the wrong moment.
     pub async fn begin_checkout(&self) -> Result<Checkout, HostedError> {
         self.authorized().await?.checkout().await
+    }
+
+    /// The payment provider's customer portal, as a URL to open in a browser.
+    ///
+    /// Read-only from this app's side: invoices, cancellation, and card
+    /// changes all happen there, and nothing about the answer is kept (ADR
+    /// 0003, decision 8). Each call mints a fresh one-shot URL, so it is
+    /// asked for at the moment a person presses the button rather than held
+    /// alongside the billing status.
+    pub async fn billing_portal(&self) -> Result<String, HostedError> {
+        self.authorized().await?.billing_portal().await
     }
 
     /// Polls billing until the account may write, the app cancels, or the

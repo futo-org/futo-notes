@@ -430,6 +430,15 @@ impl Respond for Router {
                 ResponseTemplate::new(200).set_body_string("Thanks — you can go back to the app.")
             }
 
+            // The payment provider's customer portal, minted per press.
+            ("GET", "/api/billing/portal") if authorised(&state) => {
+                let portal = state.id("portal-");
+                json_response(
+                    200,
+                    json!({ "url": format!("{}/standin/portal/{portal}", state.base) }),
+                )
+            }
+
             ("POST", "/standin/lapse") if authorised(&state) => {
                 state.entitled = false;
                 state.subscription_state = "canceled".to_owned();
@@ -448,6 +457,7 @@ impl Respond for Router {
             | ("POST", "/api/collections")
             | ("GET", "/api/billing")
             | ("POST", "/api/billing/checkout")
+            | ("GET", "/api/billing/portal")
             | ("POST", "/standin/lapse")
             | ("POST", "/standin/quota") => invalid_session(),
             (_, path) if path.starts_with("/api/collections/") => invalid_session(),

@@ -397,6 +397,13 @@ impl HostedSetupClient {
         Ok(self.setup.billing_status().await?.into())
     }
 
+    /// A URL for the payment provider's customer portal, opened in the
+    /// platform's auth sheet from the account card. Minted per press, so it is
+    /// asked for when the button is pressed rather than held.
+    pub async fn billing_portal(&self) -> Result<String, HostedError> {
+        Ok(self.setup.billing_portal().await?)
+    }
+
     pub async fn begin_checkout(&self) -> Result<Checkout, HostedError> {
         Ok(match self.setup.begin_checkout().await? {
             sync::Checkout::Open { url } => Checkout::Open { url },

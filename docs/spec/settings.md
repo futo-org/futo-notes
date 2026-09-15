@@ -25,13 +25,15 @@ gear → Settings; iOS: nav-bar gear → Settings sheet — the cloud button sti
 opens the Sync sheet directly). Verified on emulator + simulator 2026-06-09. →
 SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 
-- **Sync** group: a single **"Self-hosted sync"** entry — a cloud icon, the
+- **Sync** group: a single **"Sync"** entry — a cloud icon, the
   connected-vs-local status, and a SYNCED / LOCAL badge — routes to the Sync
   screen. This one entry is the whole Sync surface: there is no separate
   account header above the group, and no separate "Server" row. Tapping it
   opens the Sync screen; when no server is connected yet, that screen points
-  the user at the FUTO Notes server repo (see sync.md). →
-  SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
+  the user at the FUTO Notes server repo (see sync.md). The row said
+  "Self-hosted sync" until hosted sync existed; it is now just "Sync", because
+  self-hosting is one of the two things behind it. →
+  `settings.sync.label`, SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 - **Appearance**: the Theme Light/Dark/Auto control from "All platforms"
   applies immediately, including to the open Settings sheet the user changed it
   from, in both directions (iOS: the scene's windows get an
@@ -199,6 +201,15 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   (keyring unavailable or forgotten), a "Vault password — required after
   restart" field appears for on-demand re-entry (see sync.md). →
   SyncSettingsSection.svelte, createSyncSettings.svelte.ts
+- **Sync, with hosted sync built in**: a debug build (or one made with
+  `VITE_HOSTED_SYNC=true`) replaces that section with the hosted wizard —
+  "Log in with FUTO", the subscribe / vault-password / recovery-key / unlock
+  steps, the account card, and the two refused-write banners — and discloses the
+  self-hosted section above behind **"Use my own server"**. The disclosed panel
+  is that same component, so what a self-hoster sees is identical either way.
+  With the flag off nothing about this section changes. Behaviour is specified
+  once, in [sync.md](sync.md) "Hosted sync". → HostedSyncSettingsSection.svelte,
+  createHostedSyncSettings.svelte.ts, `hostedSyncEnabled.ts`
 - **Language**: a System-first dropdown applies the language immediately and
   persists it locally. System is resolved at launch and foreground entry; save
   failure and removed-language behavior follow

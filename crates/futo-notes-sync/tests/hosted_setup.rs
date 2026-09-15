@@ -30,6 +30,7 @@ against_the_stub! {
     a_dismissed_sheet_cancels_the_wait,
     a_spent_ticket_is_reported_as_expired,
     an_entitled_account_is_not_sent_to_pay_again,
+    the_account_card_can_open_the_billing_portal,
     a_lapsed_subscription_is_readable_and_not_a_sign_out,
     a_fresh_account_creates_a_vault,
     the_recovery_key_cannot_be_asked_for_twice,

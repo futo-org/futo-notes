@@ -69,7 +69,7 @@
         "dangerZone": "Danger zone"
       },
       "sync": {
-        "selfHosted": "Self-hosted sync",
+        "label": "Sync",
         "localDescription": "Notes stay on this device until you connect sync.",
         "syncedBadge": "SYNCED",
         "localBadge": "LOCAL"
@@ -573,6 +573,127 @@
         "forgetPasswordFailed": "Couldn't remove the saved sync password.",
         "dismissWithMessageAccessibilityLabel": "Sync error: {message}. Click to dismiss.",
         "dismissTitle": "{message} — click to dismiss"
+      },
+      "hosted": {
+        "loading": "Checking your account…",
+        "unavailable": "This address doesn't offer FUTO accounts. Use your own server below.",
+        "useMyOwnServer": "Use my own server",
+        "cancel": "Cancel",
+        "signIn": {
+          "title": "Sync with FUTO",
+          "body": "Sign in with your FUTO account to sync your notes between devices. Your notes are encrypted on this device before they are uploaded.",
+          "button": "Log in with FUTO",
+          "serverLine": "You will sign in at {server}.",
+          "waiting": "Finish signing in in your browser."
+        },
+        "subscribe": {
+          "title": "Subscribe to FUTO sync",
+          "body": "Sync needs a subscription. Checkout opens in your browser and the app picks up the result on its own.",
+          "button": "Subscribe",
+          "waiting": "Finish checkout in your browser."
+        },
+        "createVault": {
+          "title": "Choose a vault password",
+          "body": "This password encrypts your notes. It is separate from your FUTO password and is never sent anywhere, so FUTO can store your notes without being able to read them.",
+          "label": "Vault password",
+          "placeholder": "At least {minimum} characters",
+          "repeatLabel": "Repeat vault password",
+          "repeatPlaceholder": "Type it again",
+          "mismatch": "Those two passwords are different.",
+          "button": "Create vault",
+          "strengthAccessibilityLabel": "Vault password strength: {strength}",
+          "strength": {
+            "tooShort": "At least {minimum} characters",
+            "weak": "Weak",
+            "fair": "Fair",
+            "strong": "Strong"
+          }
+        },
+        "recoveryKey": {
+          "title": "Save your recovery key",
+          "body": "This key is the way back into your notes if you lose every device and forget your vault password.",
+          "warning": "FUTO cannot recover your vault without it. Nobody at FUTO has a copy.",
+          "shownOnce": "You will not be shown this key again.",
+          "accessibilityLabel": "Your recovery key",
+          "copy": "Copy",
+          "saveFile": "Save file",
+          "copied": "Recovery key copied.",
+          "saved": "Recovery key saved.",
+          "fileFilterName": "Text file",
+          "confirmSaved": "I've saved my recovery key",
+          "continue": "Continue"
+        },
+        "unlock": {
+          "title": "Unlock your vault",
+          "body": "Your notes are already encrypted. Unlock them on this device.",
+          "doorsAccessibilityLabel": "How to unlock this vault",
+          "doors": {
+            "vaultPassword": "Vault password",
+            "scan": "Scan from another device",
+            "recoveryKey": "Recovery key"
+          },
+          "vaultPasswordLabel": "Vault password",
+          "vaultPasswordPlaceholder": "Your vault password",
+          "recoveryKeyLabel": "Recovery key",
+          "recoveryKeyPlaceholder": "ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345",
+          "recoveryKeyHint": "Dashes and capitals do not matter.",
+          "button": "Unlock",
+          "scanNotReady": "Pairing with another device is not available yet. Use your vault password or your recovery key."
+        },
+        "account": {
+          "heading": "FUTO account",
+          "storage": "{used} of {quota} used",
+          "manageSubscription": "Manage subscription",
+          "signOut": "Sign out",
+          "state": {
+            "active": "Active",
+            "trialing": "Trial",
+            "pastDue": "Payment failed. {when}, sync pauses.",
+            "pastDueNoDate": "Payment failed. Sync will pause.",
+            "expired": "Expired",
+            "none": "No subscription",
+            "paused": "Paused",
+            "incomplete": "Payment not finished"
+          }
+        },
+        "banner": {
+          "syncPaused": {
+            "title": "Sync paused",
+            "body": "Your subscription has lapsed, so changes made here are not uploaded. Notes from your other devices still arrive.",
+            "action": "Subscribe"
+          },
+          "vaultFull": {
+            "title": "Vault is full",
+            "body": "You have used all of your storage, so changes made here are not uploaded.",
+            "action": "Manage subscription"
+          }
+        },
+        "signOut": {
+          "confirmationTitle": "Sign out",
+          "confirmationBody": "Sign out of FUTO sync on this device? Your notes stay on this computer, and syncing stops until you sign in again."
+        },
+        "errors": {
+          "signInAgain": "Your session has expired. Log in with FUTO again — your notes and sync state are untouched.",
+          "signInExpired": "That sign-in took too long. Try again.",
+          "notSignedIn": "You are not signed in.",
+          "notHosted": "This address does not offer FUTO accounts.",
+          "rateLimited": "Too many sign-in attempts. Try again in {seconds} seconds.",
+          "server": "The server could not answer. Try again.",
+          "network": "Couldn't reach the server. Check your connection.",
+          "notEntitled": "A subscription is needed before a vault can be created.",
+          "vaultAlreadyExists": "This account already has a vault. Unlock it instead.",
+          "noVault": "This account has no vault yet.",
+          "vaultPasswordTooShort": "A vault password must be at least {minimum} characters.",
+          "wrongVaultPassword": "That is not this vault's password.",
+          "recoveryKeyFormat": "That does not look like a recovery key.",
+          "recoveryKeyTypo": "That recovery key has a typo. Check it character by character.",
+          "wrongRecoveryKey": "That is not this vault's recovery key.",
+          "noRecoveryKey": "This vault has no recovery key.",
+          "secretStore": "This device's secret store refused. Nothing was saved.",
+          "crypto": "The vault's key material could not be read.",
+          "checkoutGaveUp": "Checkout hasn't come through yet. Try again in a moment.",
+          "unexpected": "Something went wrong. Try again."
+        }
       }
     },
     "storage": {

@@ -138,12 +138,12 @@ fun SettingsScreen(
         ) {
             Spacer(Modifier.height(8.dp))
 
-            // The whole Sync surface is one "Self-hosted sync" row: cloud icon,
+            // The whole Sync surface is one "Sync" row: cloud icon,
             // connected-vs-local status, SYNCED/LOCAL badge. No separate account
             // header, no separate "Server" row (settings.md). Routes to SyncScreen.
             SettingsGroup(localization.localizedText("settings.sections.sync")) {
                 SettingsRow(
-                    title = localization.localizedText("settings.sync.selfHosted"),
+                    title = localization.localizedText("settings.sync.label"),
                     subtitle = sync.localizedStatus(localization),
                     onClick = onOpenSync,
                     leading = { Icon(Icons.Filled.Cloud, contentDescription = null, tint = c.textAccent) },
@@ -397,7 +397,7 @@ private fun LanguageMenu(
     }
 }
 
-/// SYNCED / LOCAL pill shown on the single "Self-hosted sync" row.
+/// SYNCED / LOCAL pill shown on the single "Sync" row.
 @Composable
 private fun SyncBadge(connected: Boolean) {
     val c = FutoTheme.colors

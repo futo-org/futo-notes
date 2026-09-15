@@ -229,6 +229,21 @@ impl Http {
         })?;
         Ok(Checkout::AlreadyEntitled(billing.into()))
     }
+
+    /// `GET /api/billing/portal`. The payment provider's own customer portal,
+    /// as a one-shot URL to open in a browser. Invoices, cancellation, and
+    /// cards live there and nowhere in this app (ADR 0003, decision 8).
+    pub(crate) async fn billing_portal(&self) -> Result<String, HostedError> {
+        #[derive(Deserialize)]
+        struct Body {
+            url: String,
+        }
+        Ok(
+            json::<Body>(self.request(Method::GET, "/api/billing/portal"))
+                .await?
+                .url,
+        )
+    }
 }
 
 /// Turns the engine's own transport failure into the hosted vocabulary, for
