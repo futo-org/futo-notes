@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import {
   EDITOR,
+  focusEditor,
   openNewNote,
   setEditorMarkdown,
   typeInEditor,
@@ -51,6 +52,39 @@ test.describe('selection toolbar', () => {
     await expect(page.locator(button('Strikethrough'))).toBeVisible();
     await expect(page.locator(button('Code'))).toBeVisible();
     await expect(page.locator(button('Link'))).toBeVisible();
+  });
+
+  // A bare caret has nothing to bold or link — the bar shows for one only
+  // inside a container `changeBlockIndent` can act on, and only Indent/Outdent
+  // (issue: quote indent unreachable without first selecting text).
+  test('a bare caret in a blockquote shows Indent/Outdent only, and Mod+]/Mod+[ work from the keyboard', async ({
+    page,
+  }) => {
+    await setEditorMarkdown(page, '> hello');
+    await focusEditor(page);
+    await page.keyboard.press('End'); // caret at the end of "hello" — no selection
+    await expectBarOpen(page);
+    await expect(page.locator(button('Indent'))).toBeVisible();
+    await expect(page.locator(button('Outdent'))).toBeVisible();
+    await expect(page.locator(button('Bold'))).toHaveCount(0);
+    await expect(page.locator(button('Block quote'))).toHaveCount(0);
+
+    await page.locator(button('Indent')).click();
+    await waitForMarkdown(page, '> > hello');
+    await page.locator(button('Outdent')).click();
+    await waitForMarkdown(page, '> hello');
+
+    await page.keyboard.press('ControlOrMeta+]');
+    await waitForMarkdown(page, '> > hello');
+    await page.keyboard.press('ControlOrMeta+[');
+    await waitForMarkdown(page, '> hello');
+  });
+
+  test('a bare caret in ordinary prose still shows no toolbar', async ({ page }) => {
+    await setEditorMarkdown(page, 'hello');
+    await focusEditor(page);
+    await page.keyboard.press('End');
+    await expectBarClosed(page);
   });
 
   test('heading choices and quote indentation use explicit controls', async ({ page }) => {

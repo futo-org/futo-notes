@@ -7,6 +7,7 @@ import {
   blockCommand,
   blockFormatAt,
   changeBlockIndent,
+  inIndentableContainer,
   setBlockFormat,
   type BlockCommandId,
 } from './blockCommands';
@@ -585,5 +586,34 @@ describe('explicit formatting and quote indentation', () => {
       expect(changeBlockIndent(1)(state)).toBe(false);
       expect(changeBlockIndent(-1)(state)).toBe(false);
     }
+  });
+});
+
+describe('inIndentableContainer', () => {
+  it('is true for a bare caret in a list item or a blockquote', () => {
+    expect(inIndentableContainer(stateAtFirstText(doc(bullets(item('a')))).selection.$from)).toBe(
+      true,
+    );
+    expect(inIndentableContainer(stateAtFirstText(doc(ordered(item('a')))).selection.$from)).toBe(
+      true,
+    );
+    expect(inIndentableContainer(stateAtFirstText(doc(quote(p('a')))).selection.$from)).toBe(true);
+  });
+
+  it('is true for a heading or a code fence nested inside a quote — unlike blockFormatAt, which reports the innermost kind', () => {
+    const heading = stateAtFirstText(doc(quote(h(2, 'x'))));
+    expect(blockFormatAt(heading).kind).toBe('heading');
+    expect(inIndentableContainer(heading.selection.$from)).toBe(true);
+  });
+
+  it('is false for ordinary prose', () => {
+    expect(inIndentableContainer(stateAtFirstText(doc(p('x'))).selection.$from)).toBe(false);
+  });
+
+  it('is false inside a code fence, even one nested in a quote — changeBlockIndent refuses it too', () => {
+    expect(inIndentableContainer(stateAtFirstText(doc(code('x'))).selection.$from)).toBe(false);
+    expect(inIndentableContainer(stateAtFirstText(doc(quote(code('x')))).selection.$from)).toBe(
+      false,
+    );
   });
 });

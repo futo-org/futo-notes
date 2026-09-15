@@ -182,7 +182,7 @@ final class EditorCompletionQueue {
 ///   { type: 'openNote', id: <resolved note id> }
 ///   { type: 'openUrl', url: <external url> }                    (v6)
 ///   { type: 'pickImage', source: 'camera' | 'library' }
-///   { type: 'cursorContext', onListLine: <bool> }
+///   { type: 'cursorContext', onListLine: <bool>, inContainer?: <bool> }
 ///   { type: 'saveImageData', data: <base64>, ext: <string> }   (v4)
 ///   { type: 'pasteClipboardImage' }                            (v5)
 ///   { type: 'formatState', active: [<toolbar id>], disabled: [<toolbar id>] }
@@ -887,8 +887,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             }
         case .cursorContext:
             // Deduped by the embed — drives Indent/Outdent visibility in the
-            // native toolbar.
+            // native toolbar. `inContainer` is additive: `as? Bool` yields
+            // nil both when the key is absent (an older bundle) and when
+            // JSON parsing hands back NSNull for it, either of which the
+            // toolbar reads as "fall back to onListLine".
             toolbarState.onListLine = (body["onListLine"] as? Bool) ?? false
+            toolbarState.inContainer = body["inContainer"] as? Bool
         case .formatState:
             // Milkdown editor — Notion-style active-state highlight on the
             // matching toolbar button(s). Deduped by the embed. The CodeMirror

@@ -69,6 +69,7 @@ let toolbar: EmbeddedToolbarHandle | null = null;
 let nativeToolbar = false;
 
 let lastPostedOnListLine: boolean | null = null;
+let lastPostedInContainer: boolean | null = null;
 
 const query = new URLSearchParams(window.location.search);
 
@@ -88,11 +89,12 @@ const editor = mount(MilkdownEditor, {
       if (!nativeToolbar) toolbar?.setFocused(focused);
       post({ type: 'focus', focused });
     },
-    oncursorcontext: (ctx: { onListLine: boolean }) => {
-      if (!nativeToolbar) toolbar?.setCursorContext(ctx.onListLine);
-      if (ctx.onListLine !== lastPostedOnListLine) {
+    oncursorcontext: (ctx: { onListLine: boolean; inContainer: boolean }) => {
+      if (!nativeToolbar) toolbar?.setCursorContext(ctx.inContainer);
+      if (ctx.onListLine !== lastPostedOnListLine || ctx.inContainer !== lastPostedInContainer) {
         lastPostedOnListLine = ctx.onListLine;
-        post({ type: 'cursorContext', onListLine: ctx.onListLine });
+        lastPostedInContainer = ctx.inContainer;
+        post({ type: 'cursorContext', onListLine: ctx.onListLine, inContainer: ctx.inContainer });
       }
     },
     onopenlink: (title: string, _gesture: EditorLinkGesture) => {

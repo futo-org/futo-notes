@@ -866,6 +866,7 @@ fun NoteEditorScreen(
             if (host.editorFocused && WindowInsets.isImeVisible) {
                 EditorToolbar(
                     onListLine = host.onListLine,
+                    inContainer = host.inContainer,
                     activeFormats = host.activeFormats,
                     disabledFormats = host.disabledFormats,
                     perform = { item ->

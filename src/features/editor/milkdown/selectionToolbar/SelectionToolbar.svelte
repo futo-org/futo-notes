@@ -36,6 +36,10 @@
     ...BLOCK_TYPE_GROUP.filter((item) => item.id !== 'code-block'),
     ...TOOLBAR_ITEMS.filter((item) => item.when === 'inContainer'),
   ];
+  // A bare caret (no selection) has nothing to bold or link — only these two
+  // apply, and `selectionToolbarTarget` only opens the bar for a caret at all
+  // when they do (target.ts `caretOnly`).
+  const INDENT_BUTTONS = TOOLBAR_ITEMS.filter((item) => item.when === 'inContainer');
   const BLOCK_ICONS: Record<string, Component> = {
     TextQuote,
     ListIndentIncrease,
@@ -53,13 +57,20 @@
   let active = $state<string[]>([]);
   /** The href of the link the selection sits in, or null. */
   let linkHref = $state<string | null>(null);
+  /** A bare caret in a container (target.ts `caretOnly`) — show only Indent/Outdent. */
+  let caretOnly = $state(false);
   let editingLink = $state(false);
   let urlField: ReturnType<typeof LinkUrlField> | undefined = $state();
 
   /** Called by `index.ts` on every selection the toolbar is shown for. */
-  export function setState(nextActive: string[], nextLinkHref: string | null): void {
+  export function setState(
+    nextActive: string[],
+    nextLinkHref: string | null,
+    nextCaretOnly = false,
+  ): void {
     active = nextActive;
     linkHref = nextLinkHref;
+    caretOnly = nextCaretOnly;
   }
 
   /** Back to the buttons — the toolbar is hiding, or the field was dismissed. */
@@ -104,6 +115,19 @@
       onsubmit={commitLink}
       oncancel={cancelLinkField}
     />
+  {:else if caretOnly}
+    {#each INDENT_BUTTONS as item (item.id)}
+      {@const Icon = BLOCK_ICONS[item.lucide]}
+      <button
+        class="futo-selection-toolbar-btn"
+        type="button"
+        aria-label={item.label}
+        onmousedown={preventFocus}
+        onclick={() => onexec(item.id)}
+      >
+        <Icon size={16} strokeWidth={2.25} />
+      </button>
+    {/each}
   {:else}
     {#each BLOCK_BUTTONS as item (item.id)}
       {#if item.when !== 'inContainer' || active.some( (id) => ['quote', 'bullet-list', 'ordered-list', 'task-list'].includes(id) )}

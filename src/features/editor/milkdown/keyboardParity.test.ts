@@ -5,6 +5,7 @@ import { EditorState, TextSelection, type Transaction } from '@milkdown/kit/pros
 
 import {
   appendTableRowFromLastCell,
+  handleIndentShortcut,
   handleParityKeyDown,
   indentCodeBlockOnTab,
   insertLineBreakInTableCell,
@@ -474,5 +475,62 @@ describe('handleParityKeyDown', () => {
   it('leaves Enter in a paragraph to the editor', () => {
     const { view } = fakeView(stateWithCaretIn(doc(p('plain')), 'plain'));
     expect(handleParityKeyDown(view as never, key('Enter'))).toBe(false);
+  });
+});
+
+describe('handleIndentShortcut — Mod+]/Mod+[ (desktop keyboard parity)', () => {
+  const quote = (...blocks: ProseNode[]): ProseNode => s.nodes.blockquote.create(null, blocks);
+
+  function fakeView(state: EditorState): {
+    view: { state: EditorState; dispatch(tr: Transaction): void };
+    current(): EditorState;
+  } {
+    let current = state;
+    const view = {
+      get state() {
+        return current;
+      },
+      dispatch(tr: Transaction) {
+        current = current.apply(tr);
+      },
+    };
+    return { view, current: () => current };
+  }
+
+  const key = (key: string, mods: Partial<KeyboardEvent> = {}): KeyboardEvent =>
+    ({
+      key,
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      isComposing: false,
+      ...mods,
+    }) as KeyboardEvent;
+
+  it('Mod+] indents a quote, Mod+[ outdents it', () => {
+    const { view, current } = fakeView(stateWithCaretIn(doc(quote(p('x'))), 'x'));
+    expect(handleIndentShortcut(view as never, key(']', { metaKey: true }))).toBe(true);
+    expect(current().doc.child(0).child(0).type.name).toBe('blockquote');
+    expect(handleIndentShortcut(view as never, key('[', { metaKey: true }))).toBe(true);
+    expect(current().doc.child(0).type.name).toBe('blockquote');
+    expect(current().doc.child(0).child(0).type.name).toBe('paragraph');
+  });
+
+  it('works with Ctrl too, for non-Mac keyboards', () => {
+    const { view } = fakeView(stateWithCaretIn(doc(quote(p('x'))), 'x'));
+    expect(handleIndentShortcut(view as never, key(']', { ctrlKey: true }))).toBe(true);
+  });
+
+  it('declines outside an indentable container — nothing for changeBlockIndent to do', () => {
+    const { view } = fakeView(stateWithCaretIn(doc(p('plain')), 'plain'));
+    expect(handleIndentShortcut(view as never, key(']', { metaKey: true }))).toBe(false);
+    expect(handleIndentShortcut(view as never, key('[', { metaKey: true }))).toBe(false);
+  });
+
+  it('declines without a Mod key, and for unrelated keys', () => {
+    const { view } = fakeView(stateWithCaretIn(doc(quote(p('x'))), 'x'));
+    expect(handleIndentShortcut(view as never, key(']'))).toBe(false);
+    expect(handleIndentShortcut(view as never, key('a', { metaKey: true }))).toBe(false);
   });
 });

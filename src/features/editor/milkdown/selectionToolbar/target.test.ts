@@ -25,9 +25,31 @@ describe('resolveSelectionToolbar', () => {
 });
 
 describe('selectionToolbarTarget', () => {
-  it('is null for a caret', () => {
+  it('is null for a caret in ordinary prose', () => {
     const root = doc(p(text('hello world')));
     expect(selectionToolbarTarget(selecting(root, 3, 3))).toBeNull();
+  });
+
+  it('offers Indent/Outdent for a bare caret in a blockquote', () => {
+    const root = doc(s.nodes.blockquote.create(null, p(text('hello'))));
+    // Caret inside "hello", inside the quote.
+    const target = selectionToolbarTarget(selecting(root, 3, 3));
+    expect(target).toEqual({ from: 3, to: 3, linkHref: null, caretOnly: true });
+  });
+
+  it('offers Indent/Outdent for a bare caret in a list item', () => {
+    const root = doc(
+      s.nodes.bullet_list.create(null, [s.nodes.list_item.create(null, p(text('a')))]),
+    );
+    const target = selectionToolbarTarget(selecting(root, 3, 3));
+    expect(target).toEqual({ from: 3, to: 3, linkHref: null, caretOnly: true });
+  });
+
+  it('is null for a bare caret in a blockquote around a code fence — changeBlockIndent refuses it', () => {
+    const root = doc(
+      s.nodes.blockquote.create(null, s.nodes.code_block.create(null, text('const x = 1'))),
+    );
+    expect(selectionToolbarTarget(selecting(root, 2, 2))).toBeNull();
   });
 
   it('is the selected range for a word', () => {
