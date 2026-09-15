@@ -2,6 +2,7 @@
 
 mod cycle_runner;
 mod frontend_contract;
+pub(crate) mod hosted_commands;
 pub(crate) mod password_store;
 pub(crate) mod tauri_commands;
 mod tauri_events;

@@ -6,6 +6,7 @@
 mod checkpoint;
 #[cfg(test)]
 mod fault_injection;
+mod hosted;
 mod journal;
 mod open_note;
 mod server;
@@ -15,6 +16,11 @@ mod sync;
 use std::path::Path;
 
 pub use checkpoint::{ConnectedState, ObjectState as E2eeObjectMapEntry};
+pub use hosted::{
+    hosted_server, probe_sign_in_flow, BillingStatus, Checkout, EntitlementOutcome, HostedError,
+    HostedSession, HostedSetup, PollSchedule, SignInFlow, SignInHandoff, SignInOutcome,
+    HOSTED_SERVER,
+};
 pub use journal::SyncTrigger;
 pub use open_note::{classify_open_note, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts};
 pub use session::connect::AuthenticatedSession;

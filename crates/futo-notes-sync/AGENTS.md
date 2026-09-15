@@ -1,7 +1,9 @@
 # AGENTS.md — Sync Engine
 
 Root `AGENTS.md` and `docs/spec/sync.md` apply. This crate owns connection/session state,
-push/pull planning, conflicts, checkpoints, and the SSE live loop.
+push/pull planning, conflicts, checkpoints, the SSE live loop, and the hosted setup sequence
+(`hosted/`: Log in with FUTO, billing, checkout). Shells project all of it; they never hold an
+ordering rule of their own.
 
 ## CRITICAL invariant
 
@@ -23,6 +25,18 @@ shells project it rather than reconstructing the protocol.
   ```
 
 - SSE changes also run the ignored `sse_live` test against that isolated server.
+- Hosted-flow change: `cargo test -p futo-notes-sync --test hosted_setup` (an in-test stub of the
+  hosted routes, which is what CI gets), then the same scenarios against a real server started in
+  stand-in test mode:
+
+  ```bash
+  STANDIN_MODE=true DATABASE_URL="sqlite:$SCRATCH/standin.db" PORT=3077 futo-notes-server
+  FUTO_TEST_SERVER=http://127.0.0.1:3077 cargo test -p futo-notes-sync \
+    --test server_integration -- --ignored --test-threads=1
+  ```
+
+  A scenario lives once, in `tests/hosted_scenarios/`, and both runners call it. The stub goes away
+  when the server pin bumps (#185).
 - Crypto, merge, conflict, or tombstone work uses `/sync-adversarial` and merits `/slow-review`.
 
 Update `docs/spec/sync.md` with behavior and name the guarding test/scenario.

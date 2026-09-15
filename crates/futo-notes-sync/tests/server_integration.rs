@@ -8,6 +8,7 @@
 //!     cargo test -p futo-notes-sync --test server_integration -- --ignored --test-threads=1
 
 mod common;
+mod hosted_scenarios;
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -1563,4 +1564,63 @@ async fn measure_first_sync_large_vault() {
 
     common::cleanup(&va);
     common::cleanup(&vb);
+}
+
+// ── Hosted setup (Log in with FUTO, billing, checkout) ────────────────────
+//
+// The same scenario bodies `hosted_setup.rs` runs against the in-test stub,
+// run here against a REAL server started in stand-in test mode:
+//
+//   STANDIN_MODE=true DATABASE_URL=sqlite:/tmp/standin.db PORT=3077 futo-notes-server
+//   FUTO_TEST_SERVER=http://127.0.0.1:3077 cargo test -p futo-notes-sync \
+//     --test server_integration -- --ignored --test-threads=1
+//
+// A server that is not in OIDC mode has none of these routes, so pointing
+// FUTO_TEST_SERVER at the password/dev-mode server the rest of this file wants
+// skips them with a line saying why rather than failing. Run single-threaded:
+// a stand-in server has ONE account, so two scenarios in flight would fight
+// over its entitlement.
+
+/// `true` + an eprintln when the configured server does not offer hosted
+/// sign-in.
+async fn skip_if_not_hosted(test: &str) -> bool {
+    let Some(server) = common::server_url() else {
+        eprintln!("[skip] {test}: set FUTO_TEST_SERVER to a stand-in-mode server to run");
+        return true;
+    };
+    match futo_notes_sync::probe_sign_in_flow(&server).await {
+        Ok(futo_notes_sync::SignInFlow::Hosted { .. }) => false,
+        Ok(other) => {
+            eprintln!("[skip] {test}: {server} offers {other:?}, not hosted sign-in");
+            true
+        }
+        Err(error) => {
+            eprintln!("[skip] {test}: could not probe {server}: {error}");
+            true
+        }
+    }
+}
+
+macro_rules! against_the_real_server {
+    ($($name:ident,)+) => {
+        $(
+            #[tokio::test]
+            #[ignore = "requires a stand-in-mode FUTO_TEST_SERVER"]
+            async fn $name() {
+                if skip_if_not_hosted(stringify!($name)).await {
+                    return;
+                }
+                hosted_scenarios::$name(&common::server_url().unwrap()).await;
+            }
+        )+
+    };
+}
+
+against_the_real_server! {
+    the_probe_offers_hosted_sign_in,
+    sign_in_then_subscribe,
+    a_dismissed_sheet_cancels_the_wait,
+    a_spent_ticket_is_reported_as_expired,
+    an_entitled_account_is_not_sent_to_pay_again,
+    a_lapsed_subscription_is_readable_and_not_a_sign_out,
 }

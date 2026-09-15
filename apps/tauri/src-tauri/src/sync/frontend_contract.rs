@@ -225,6 +225,224 @@ impl From<&futo_notes_sync::SyncSummary> for SyncSummary {
     }
 }
 
+// ── Hosted sync setup ─────────────────────────────────────────────────────
+//
+// The engine owns the sequence (`futo_notes_sync::HostedSetup`); these are its
+// wire shapes. Every outcome is a tagged union rather than a bare string, so
+// the frontend branches on a `kind` the same way it does for an open-note
+// disposition.
+
+/// How the app should log in to a server, read from its capability document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum SignInFlowOutput {
+    #[serde(rename_all = "camelCase")]
+    Hosted {
+        /// Whether this deployment sells subscriptions, and therefore whether
+        /// the wizard has a subscribe step.
+        sells_subscriptions: bool,
+    },
+    Password,
+    Dev,
+}
+
+impl From<futo_notes_sync::SignInFlow> for SignInFlowOutput {
+    fn from(flow: futo_notes_sync::SignInFlow) -> Self {
+        use futo_notes_sync::SignInFlow;
+        match flow {
+            SignInFlow::Hosted {
+                sells_subscriptions,
+            } => Self::Hosted {
+                sells_subscriptions,
+            },
+            SignInFlow::Password => Self::Password,
+            SignInFlow::Dev => Self::Dev,
+        }
+    }
+}
+
+/// A minted Login Hand-off. `url` goes to the system browser; `handoff` comes
+/// back to `e2ee_hosted_await_sign_in` unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SignInHandoffOutput {
+    pub(crate) url: String,
+    pub(crate) ticket: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HostedSessionOutput {
+    pub(crate) user_id: String,
+    pub(crate) email: String,
+    pub(crate) name: String,
+    pub(crate) token: String,
+}
+
+impl From<futo_notes_sync::HostedSession> for HostedSessionOutput {
+    fn from(session: futo_notes_sync::HostedSession) -> Self {
+        Self {
+            user_id: session.user_id,
+            email: session.email,
+            name: session.name,
+            token: session.token,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum SignInOutcomeOutput {
+    SignedIn {
+        session: HostedSessionOutput,
+    },
+    /// The browser window was abandoned. No error and no half state.
+    Cancelled,
+    /// Mint a new hand-off and open the URL again.
+    Expired,
+}
+
+impl From<futo_notes_sync::SignInOutcome> for SignInOutcomeOutput {
+    fn from(outcome: futo_notes_sync::SignInOutcome) -> Self {
+        use futo_notes_sync::SignInOutcome;
+        match outcome {
+            SignInOutcome::SignedIn(session) => Self::SignedIn {
+                session: session.into(),
+            },
+            SignInOutcome::Cancelled => Self::Cancelled,
+            SignInOutcome::Expired => Self::Expired,
+        }
+    }
+}
+
+/// What the account card reads. `entitled` is the only field to act on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BillingStatusOutput {
+    pub(crate) entitled: bool,
+    pub(crate) state: String,
+    pub(crate) grace_until: Option<String>,
+    pub(crate) storage_quota_bytes: u64,
+    pub(crate) blob_max_bytes: u64,
+    pub(crate) bytes_used: u64,
+}
+
+impl From<futo_notes_sync::BillingStatus> for BillingStatusOutput {
+    fn from(status: futo_notes_sync::BillingStatus) -> Self {
+        Self {
+            entitled: status.entitled,
+            state: status.state,
+            grace_until: status.grace_until,
+            storage_quota_bytes: status.storage_quota_bytes,
+            blob_max_bytes: status.blob_max_bytes,
+            bytes_used: status.bytes_used,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum CheckoutOutput {
+    /// Open this in the browser, then await entitlement.
+    Open { url: String },
+    /// Nothing to buy; this account may already write.
+    AlreadyEntitled { status: BillingStatusOutput },
+}
+
+impl From<futo_notes_sync::Checkout> for CheckoutOutput {
+    fn from(checkout: futo_notes_sync::Checkout) -> Self {
+        use futo_notes_sync::Checkout;
+        match checkout {
+            Checkout::Open { url } => Self::Open { url },
+            Checkout::AlreadyEntitled(status) => Self::AlreadyEntitled {
+                status: status.into(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum EntitlementOutcomeOutput {
+    Entitled {
+        status: BillingStatusOutput,
+    },
+    Cancelled,
+    /// The wait ran out; `status` is the last reading.
+    GaveUp {
+        status: BillingStatusOutput,
+    },
+}
+
+impl From<futo_notes_sync::EntitlementOutcome> for EntitlementOutcomeOutput {
+    fn from(outcome: futo_notes_sync::EntitlementOutcome) -> Self {
+        use futo_notes_sync::EntitlementOutcome;
+        match outcome {
+            EntitlementOutcome::Entitled(status) => Self::Entitled {
+                status: status.into(),
+            },
+            EntitlementOutcome::Cancelled => Self::Cancelled,
+            EntitlementOutcome::GaveUp(status) => Self::GaveUp {
+                status: status.into(),
+            },
+        }
+    }
+}
+
+/// Why a hosted step failed, as a variant rather than a sentence: each one is
+/// a different thing for a person to do about it, and `signInAgain` in
+/// particular must never be rendered as a broken vault. The sentence-carrying
+/// field is `reason`, matching the name the native contract is forced into (a
+/// `message` on a UniFFI error collides with `Throwable.message` in Kotlin), so
+/// all three shells read one vocabulary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum HostedErrorOutput {
+    /// The session is gone. Sign in again; sync state is untouched.
+    SignInAgain,
+    NotSignedIn,
+    /// This server does not offer hosted sync.
+    NotHosted {
+        reason: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    RateLimited {
+        retry_after_seconds: u32,
+    },
+    Server {
+        reason: String,
+    },
+    Network {
+        reason: String,
+    },
+}
+
+impl From<futo_notes_sync::HostedError> for HostedErrorOutput {
+    fn from(error: futo_notes_sync::HostedError) -> Self {
+        use futo_notes_sync::HostedError;
+        match error {
+            HostedError::SignInAgain => Self::SignInAgain,
+            HostedError::NotSignedIn => Self::NotSignedIn,
+            HostedError::NotHosted(reason) => Self::NotHosted { reason },
+            HostedError::RateLimited {
+                retry_after_seconds,
+            } => Self::RateLimited {
+                retry_after_seconds,
+            },
+            HostedError::Server(reason) => Self::Server { reason },
+            HostedError::Network(reason) => Self::Network { reason },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Tests for the frontend sync contract.
@@ -252,7 +470,14 @@ mod tests {
             .register::<E2eeStatusOutput>()
             .register::<SyncSummary>()
             .register::<OpenNoteRequestInput>()
-            .register::<OpenNoteDispositionOutput>();
+            .register::<OpenNoteDispositionOutput>()
+            .register::<SignInFlowOutput>()
+            .register::<SignInHandoffOutput>()
+            .register::<SignInOutcomeOutput>()
+            .register::<BillingStatusOutput>()
+            .register::<CheckoutOutput>()
+            .register::<EntitlementOutcomeOutput>()
+            .register::<HostedErrorOutput>();
 
         Typescript::default()
             // Tauri serializes u64/usize as JSON numbers; mirror that wire shape.

@@ -10,8 +10,10 @@ pub use notes::{
     TitleIssue, UpsertedNote,
 };
 pub use sync::{
-    classify_open_note, ConnectInfo, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts,
-    RenamePair, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus, SyncSummary,
+    classify_open_note, hosted_server_url, probe_sign_in_flow, BillingStatus, Checkout,
+    ConnectInfo, EntitlementOutcome, HostedError, HostedSession, HostedSetupClient,
+    KeepDraftReason, OpenNoteDisposition, OpenNoteFacts, RenamePair, SignInFlow, SignInHandoff,
+    SignInOutcome, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus, SyncSummary,
 };
 
 uniffi::setup_scaffolding!();

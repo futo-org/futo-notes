@@ -21,6 +21,11 @@ uuid = { version = "1", features = ["v7"] }
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
 wiremock = "0.6"
+# The hosted scenarios stand in for a platform auth sheet with a browser-shaped
+# client: the login chain hands back an `oidc_flow` cookie at the callback, so a
+# jar is the difference between signing in and `missing oidc flow cookie`.
+# Dev-only under resolver 2, so the shipped client keeps its current features.
+reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls", "cookies"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }
