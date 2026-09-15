@@ -314,11 +314,13 @@
    *     2026-09-11), so the drop arrives as an ordinary HTML5 `drop` —
    *     ProseMirror's `handleDrop` prop. Chromium (macOS/Windows) populates
    *     `dataTransfer.files` with the bytes already read; WebKitGTK (Linux)
-   *     does NOT — it hands over `text/uri-list` `file://` URIs instead
-   *     (QA #017 follow-up, 2026-09-15: a dropped file was inserted as
-   *     literal `file:///…` TEXT because only the `files` shape was
-   *     claimed). `filePathsFromDrop` turns that into the same path list
-   *     `insertPaths` takes below.
+   *     does NOT — first fix attempt claimed on `text/uri-list` CONTENT, but
+   *     a real capture (QA #017 follow-up, 2026-09-15) showed WebKitGTK
+   *     advertises `text/uri-list` in `.types` while `getData` on it returns
+   *     an empty string, and the dropped path lives only in the sibling
+   *     `text/html`'s `<a>` TEXT CONTENT (no `href`) — so the drop went
+   *     unclaimed and the `file:///…` text was inserted literally.
+   *     `filePathsFromDrop` reads that real shape now; see its own header.
    *   - The WINDOW path (`PlatformFS`'s `onFileDrop`) stays wired as a
    *     fallback: it was Linux's ONLY path while wry's GTK relay was on, and
    *     that relay never fired at all on a native-Wayland compositor.
@@ -693,15 +695,15 @@
         insertMarkdown(imageReferenceMarkdown(filename)),
       );
 
-      /* The HTML5 half (macOS/Windows/Linux). A drop carrying files, OR a
-       * `text/uri-list` of `file://` paths (WebKitGTK's shape — see the
+      /* The HTML5 half (macOS/Windows/Linux). A drop carrying files, OR one
+       * advertising `text/uri-list` with none (WebKitGTK's shape — see the
        * `dropHandler` declaration above), is ALWAYS claimed, images or not:
        * the browser's default for an unclaimed file drop is to navigate the
        * webview to that file, which would tear the app down mid-edit. A
        * non-image file is therefore swallowed and ignored rather than
-       * inserted. The editor's OWN block drag matches neither shape — no
-       * `files`, no `file://` URI — so it is never claimed here and falls
-       * through to ProseMirror's own drop handling. */
+       * inserted. The editor's OWN block drag matches neither shape — it
+       * never advertises `text/uri-list` — so it is never claimed here and
+       * falls through to ProseMirror's own drop handling. */
       dropHandler = (event) => {
         const transfer = event.dataTransfer;
         if (dropCarriesFiles(transfer)) {

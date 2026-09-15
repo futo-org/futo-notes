@@ -189,19 +189,56 @@ describe('filePathFromUri', () => {
 });
 
 describe('filePathsFromDrop', () => {
-  it('reads file:// paths out of text/uri-list', () => {
+  /**
+   * The exact shape captured off a real WebKitGTK drop (packaged Fedora/
+   * Hyprland build, 2026-09-15): `text/uri-list` is ADVERTISED in `.types`
+   * but `getData` on it returns an empty string regardless, and the dropped
+   * path lives only in `text/html`, as an `<a>` with NO `href` — its text
+   * content IS the `file://` URI.
+   */
+  it('reads the real WebKitGTK shape: text/uri-list advertised-but-empty, path in an href-less <a>', () => {
     expect(
       filePathsFromDrop(
-        transferWithData({ 'text/uri-list': 'file:///home/justin/Downloads/photo.webp' }),
+        transferWithData({
+          'text/uri-list': '',
+          'text/html':
+            '<html><body style="overflow-wrap: break-word;">' +
+            '<a style="color:#0968da;text-decoration-style: solid;">' +
+            'file:///home/justin/Downloads/Screen_Shot_2020-07-24_at_11.33.38_AM-1.webp</a>' +
+            '</body></html>',
+        }),
+      ),
+    ).toEqual(['/home/justin/Downloads/Screen_Shot_2020-07-24_at_11.33.38_AM-1.webp']);
+  });
+
+  it('reads a real text/uri-list BODY first, for an engine that actually populates it', () => {
+    expect(
+      filePathsFromDrop(
+        transferWithData({
+          'text/uri-list': 'file:///home/justin/Downloads/photo.webp',
+          'text/html': '<a href="file:///home/justin/Downloads/photo.webp">photo.webp</a>',
+        }),
       ),
     ).toEqual(['/home/justin/Downloads/photo.webp']);
   });
 
-  it('reads multiple paths, skipping comment lines, CRLF-joined', () => {
+  it('reads an href when the <a> has one (other engines), not just the text', () => {
     expect(
       filePathsFromDrop(
         transferWithData({
-          'text/uri-list': '# a comment\r\nfile:///a/one.png\r\nfile:///a/two.jpg\r\n',
+          'text/uri-list': '',
+          'text/html': '<a href="file:///home/me/photo.png">a photo</a>',
+        }),
+      ),
+    ).toEqual(['/home/me/photo.png']);
+  });
+
+  it('reads every <a> for a multi-file drop, in order', () => {
+    expect(
+      filePathsFromDrop(
+        transferWithData({
+          'text/uri-list': '',
+          'text/html': '<a href="file:///a/one.png">one.png</a><a>file:///a/two.jpg</a>',
         }),
       ),
     ).toEqual(['/a/one.png', '/a/two.jpg']);
@@ -209,34 +246,25 @@ describe('filePathsFromDrop', () => {
 
   it('percent-decodes a file name with a space in it', () => {
     expect(
-      filePathsFromDrop(transferWithData({ 'text/uri-list': 'file:///a/my%20photo.png' })),
+      filePathsFromDrop(
+        transferWithData({ 'text/uri-list': '', 'text/html': '<a>file:///a/my%20photo.png</a>' }),
+      ),
     ).toEqual(['/a/my photo.png']);
   });
 
-  it('drops a non-file URI mixed into the list', () => {
+  it('claims nothing when the <a> text is not a file:// URI', () => {
     expect(
       filePathsFromDrop(
-        transferWithData({
-          'text/uri-list': 'http://example.com/photo.png\nfile:///a/one.png',
-        }),
+        transferWithData({ 'text/uri-list': '', 'text/html': '<a>not a file url</a>' }),
       ),
-    ).toEqual(['/a/one.png']);
+    ).toEqual([]);
   });
 
-  it('falls back to text/plain when there is no text/uri-list at all', () => {
-    expect(filePathsFromDrop(transferWithData({ 'text/plain': 'file:///a/one.png' }))).toEqual([
-      '/a/one.png',
-    ]);
-  });
-
-  it('never treats arbitrary dropped text as a path', () => {
-    expect(filePathsFromDrop(transferWithData({ 'text/plain': 'just some words' }))).toEqual([]);
-  });
-
-  it("does not claim the editor's own block drag — text/html + text/plain, no file:// URI", () => {
-    // @milkdown/plugin-block's own drag always sets both together; the block's
-    // visible text could itself read like a path, so the presence of
-    // text/html (never sent by an external file drop) is what rules it out.
+  it("does not claim the editor's own block drag — it never advertises text/uri-list", () => {
+    // @milkdown/plugin-block's own drag sets text/html + text/plain together
+    // and never text/uri-list — confirmed against the plugin's source. That
+    // absence, not anything about the html content, is what rules it out:
+    // this drag's own html/text could otherwise read like a path.
     expect(
       filePathsFromDrop(transferWithData({ 'text/html': '<p>hey</p>', 'text/plain': 'hey' })),
     ).toEqual([]);

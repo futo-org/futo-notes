@@ -26,11 +26,16 @@
  *         layer; as inert today as it always was on macOS/Windows).
  *       - WebKitGTK's HTML5 drop on Linux (QA #017's fix): unlike Chromium,
  *         WebKitGTK does NOT populate `dataTransfer.files` for a dropped OS
- *         file — it hands over `text/uri-list` (RFC 2483), a newline-
- *         separated list of `file://` URIs, sometimes mirrored onto
- *         `text/plain` too. `filePathsFromDrop` below turns that into the
- *         same path list the picker produces, so it goes through
- *         `insertPaths` exactly like Tauri's own event would.
+ *         file. It DOES advertise `text/uri-list` in `dataTransfer.types` —
+ *         but a real capture off a packaged Fedora/Hyprland build
+ *         (2026-09-15) showed `getData('text/uri-list')` returns an empty
+ *         string regardless; the dropped path lives only in the sibling
+ *         `text/html` flavour, as an `<a>` element whose TEXT CONTENT is the
+ *         `file://` URI — no `href` at all. `filePathsFromDrop` below reads
+ *         that shape (falling back to a real `text/uri-list` body first, for
+ *         any engine that does populate it) into the same path list the
+ *         picker produces, so it goes through `insertPaths` exactly like
+ *         Tauri's own event would.
  *     It remains the picker's shape either way — `pickImage` returns a path.
  *
  * WHICH files count as images is `isImageFilename` from the shared media rules,
@@ -139,27 +144,61 @@ function fileUrisIn(uriList: string): string[] {
 }
 
 /**
+ * Whether `transfer` is WebKitGTK's shape for an OS file drop: `text/uri-list`
+ * ADVERTISED in `.types`, with no files read. This is an ADVERTISEMENT check
+ * (`.types.includes`), not a content check (`.getData`) — see
+ * `filePathsFromDrop`'s header for why that distinction is load-bearing.
+ *
+ * It is also the discriminator against the editor's OWN block drag
+ * (`@milkdown/plugin-block`): that drag always sets `text/html` + `text/plain`
+ * together and NEVER advertises `text/uri-list` (confirmed against the
+ * plugin's source), so it never satisfies this check — even though its
+ * `text/html` looks superficially like the real shape below.
+ */
+function dropCarriesUriList(transfer: DataTransfer): boolean {
+  return transfer.files.length === 0 && transfer.types.includes('text/uri-list');
+}
+
+/**
+ * The `file://` URIs living in a `text/html` blob's `<a>` elements: each one's
+ * `href` when it has one, otherwise its visible text content. WebKitGTK's
+ * Linux file drop (measured on a packaged Fedora/Hyprland build, 2026-09-15)
+ * writes the dropped path as an anchor's TEXT CONTENT with no `href`
+ * attribute at all; other engines that DO populate `href` are supported the
+ * same way, rather than assuming one engine's shape everywhere.
+ */
+function fileUrisFromHtml(html: string): string[] {
+  if (!html) return [];
+  const anchors = new DOMParser().parseFromString(html, 'text/html').querySelectorAll('a');
+  return Array.from(anchors)
+    .map((a) => (a.getAttribute('href') || a.textContent || '').trim())
+    .map(filePathFromUri)
+    .filter((path): path is string => path !== null);
+}
+
+/**
  * The filesystem paths a drop's `text/uri-list` carries — WebKitGTK's shape
  * for an OS file drop, since it never populates `dataTransfer.files` (see the
  * module header).
  *
- * Falls back to `text/plain` only when there is no `text/uri-list` at all,
- * and even then only if that text itself parses into one or more `file://`
- * URIs — arbitrary dropped text is never treated as a path. The `text/html`
- * check guards the OTHER source of a same-shaped `text/plain`: the editor's
- * own block drag (`@milkdown/plugin-block`) always sets `text/html` +
- * `text/plain` together for a drag it started (its only exception is a
- * "broken clipboard API" browser — old IE / old iOS WebKit — which no
- * desktop WebKitGTK/Tauri build is), so a `text/html` sibling means this
- * transfer is that internal drag, not an OS file drop, even if the dragged
- * block's own visible text happens to look like a `file://` URL.
+ * Empty unless `dropCarriesUriList` is true, so the editor's own block drag
+ * (same `text/html` + `text/plain` shape a real drop's `text/html` might
+ * otherwise be confused for) is never misread as a file import.
+ *
+ * A real `text/uri-list` BODY is tried first, for any engine that actually
+ * populates it per RFC 2483 — but WebKitGTK advertises the MIME type and then
+ * hands back an EMPTY string from `getData('text/uri-list')` regardless (the
+ * same measurement), so on Linux this always falls through to parsing the
+ * `<a>` elements out of `text/html` instead.
  */
 export function filePathsFromDrop(transfer: DataTransfer | null | undefined): string[] {
-  if (!transfer) return [];
+  if (!transfer || !dropCarriesUriList(transfer)) return [];
   const uriList = transfer.getData('text/uri-list');
-  if (uriList) return fileUrisIn(uriList);
-  if (transfer.types.includes('text/html')) return [];
-  return fileUrisIn(transfer.getData('text/plain'));
+  if (uriList) {
+    const paths = fileUrisIn(uriList);
+    if (paths.length > 0) return paths;
+  }
+  return fileUrisFromHtml(transfer.getData('text/html'));
 }
 
 export interface ImageInserter {

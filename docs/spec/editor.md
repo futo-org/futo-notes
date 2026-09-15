@@ -424,10 +424,10 @@ about.
   > desktop OS-level input automation, and a synthetic DOM `dragstart` opens
   > no real drag session) could not safely exercise. Needs a human on a
   > scaled Linux box. →
-  src/features/editor/milkdown/blockDragGeometry.ts `setDprCorrectedDragImage`
-  `dragImageScale`, src/features/editor/milkdown/listItemHandleDrag.ts,
-  MilkdownEditor.svelte, src/features/editor/milkdown/blockDragGeometry.test.ts
-  _(desktop)_
+  > src/features/editor/milkdown/blockDragGeometry.ts `setDprCorrectedDragImage`
+  > `dragImageScale`, src/features/editor/milkdown/listItemHandleDrag.ts,
+  > MilkdownEditor.svelte, src/features/editor/milkdown/blockDragGeometry.test.ts
+  > _(desktop)_
 - There is ONE drop slot per boundary, on both drag gestures — between
   top-level blocks, and between the items of a list for a list item. Below
   block A and above the block directly under it are the same
@@ -1418,9 +1418,9 @@ EditorWebView.swift, EditorWebView.kt
      inserts them at the drop point, or at the caret when the point resolves to
      no text position. Several images at once are inserted in the order dropped,
      and one that fails to save does not abort the rest.
-  → src/features/editor/imageInsert.ts, milkdown/slash/items.ts + exec.ts,
-  src/lib/platform/tauri/images.ts `pickImage`, tests/image-drop.spec.ts,
-  tests/slash-menu.spec.ts
+     → src/features/editor/imageInsert.ts, milkdown/slash/items.ts + exec.ts,
+     src/lib/platform/tauri/images.ts `pickImage`, tests/image-drop.spec.ts,
+     tests/slash-menu.spec.ts
 - **A file drop reaches the app as an ordinary HTML5 `drop`, but the SHAPE it
   carries is engine-dependent.** All three desktop build configs (macOS,
   Windows, and Linux since QA #017, 2026-09-11) set `dragDropEnabled: false`,
@@ -1433,14 +1433,18 @@ EditorWebView.swift, EditorWebView.kt
   upstream tauri-apps/tauri#11282, tauri-apps/wry#1256), so a file dragged in
   from a file manager silently did nothing in a packaged build — invisible
   from `just tauri-dev`, which has always forced the flag off. Chromium
-  (macOS/Windows) populates `dataTransfer.files` with the bytes already read;
-  WebKitGTK (Linux) does NOT populate `files` for an OS file drop at all — it
-  hands over `text/uri-list` (RFC 2483), a newline-separated list of `file://`
-  URIs, sometimes mirrored onto `text/plain` too. Internal sidebar/tab
+  (macOS/Windows) populates `dataTransfer.files` with the bytes already read.
+  WebKitGTK (Linux) does NOT populate `files` for an OS file drop at all, and
+  a real capture off a packaged Fedora/Hyprland build (2026-09-15) showed its
+  payload is NOT where RFC 2483 says it should be either: WebKitGTK
+  ADVERTISES `text/uri-list` in `dataTransfer.types`, but `getData` on it
+  always returns an empty string — the dropped path lives only in the
+  sibling `text/html` flavour, as an `<a>` element whose TEXT CONTENT is the
+  `file://` URI, with no `href` attribute at all. Internal sidebar/tab
   dragging is untouched either way (pure in-page HTML5 DnD that wry's signal
-  handlers never intercepted, and carries neither `files` nor a `file://` URI).
-  Tauri's own drag-drop event (`PlatformFS.onFileDrop`, paths only, no bytes)
-  stays wired as a defensive fallback for a distro/compositor combination that
+  handlers never intercepted, and never advertises `text/uri-list`). Tauri's
+  own drag-drop event (`PlatformFS.onFileDrop`, paths only, no bytes) stays
+  wired as a defensive fallback for a distro/compositor combination that
   still runs wry's native layer, but nothing is currently expected to deliver
   that shape.
   _(desktop)_ → apps/tauri/src-tauri/tauri.linux.conf.json,
@@ -1451,23 +1455,28 @@ EditorWebView.swift, EditorWebView.kt
 
   > **Gap:** a real user drag on a packaged Linux/Wayland build (Fedora,
   > Hyprland, 2026-09-15) confirmed the HTML5 drop DOES reach the page — that
-  > half of the earlier reasoning holds — but also surfaced the WebKitGTK
-  > `text/uri-list` shape above: the drop was claimed as `dropCarriesFiles`
-  > only, which WebKitGTK never satisfies, so it fell through to ProseMirror's
-  > default handling and the dropped `file:///…` URI was inserted as literal
-  > text. Fixed by claiming a `text/uri-list` drop the same way (this pass),
-  > but the fix itself is unverified by a real drag — this pass's tooling
+  > half of the earlier reasoning holds. It also surfaced two bugs in
+  > sequence: a first fix claimed on `text/uri-list` CONTENT, which
+  > WebKitGTK never actually populates (only advertises), so the drop still
+  > fell through to ProseMirror's default handling and the dropped
+  > `file:///…` URI was inserted as literal text; a follow-up capture with an
+  > instrumented listener measured the real payload above (advertised-but-
+  > empty `text/uri-list`, the path in an href-less `<a>` inside
+  > `text/html`) and this pass claims that shape instead. The new fix itself
+  > is still unverified end-to-end by a real drag — this pass's tooling
   > forbids synthesizing OS-level pointer input, and the packaged binary is
   > outside the debug-build QA target gate. X11 remains untested either way.
   > → apps/tauri/src-tauri/tauri.linux.conf.json,
   > src/features/editor/imageInsert.ts `filePathsFromDrop`
-- **A drop carrying files, or a `text/uri-list` of `file://` paths, is always
-  claimed, image or not.** The browser's default for an unclaimed file drop is
-  to navigate the webview to that file, which would tear the running app down
-  mid-edit — so a dropped `.md`, PDF or archive is swallowed and ignored
-  rather than inserted, and never becomes an `![](…)`. A drop carrying neither
-  shape is left entirely alone, which is what the editor's own block drag
-  rides on. _(desktop)_
+
+- **A drop carrying files, or one advertising `text/uri-list` with none, is
+  always claimed, image or not.** The browser's default for an unclaimed file
+  drop is to navigate the webview to that file, which would tear the running
+  app down mid-edit — so a dropped `.md`, PDF or archive is swallowed and
+  ignored rather than inserted, and never becomes an `![](…)`. A drop
+  carrying neither shape is left entirely alone, which is what the editor's
+  own block drag rides on: it sets `text/html` + `text/plain`, never
+  `text/uri-list`. _(desktop)_
   → src/features/editor/imageInsert.ts `dropCarriesFiles` / `imageFilesIn` /
   `filePathsFromDrop` / `imagePathsIn`, tests/image-drop.spec.ts
 - Which dropped or picked files count as images is `isImageFilename` — the same
@@ -1487,6 +1496,7 @@ EditorWebView.swift, EditorWebView.kt
   exercised by a genuine human OS drag on any platform, nor the native file
   chooser opening (`dialog:allow-open` is granted and the command reaches
   argument parsing, so the permission half is proven).
+
 - Clipboard image paste claims the paste through
   ProseMirror's `handlePaste` and captures it through the sink for the host it
   is running in: the `saveImageData` / `pasteClipboardImage` bridge messages on
