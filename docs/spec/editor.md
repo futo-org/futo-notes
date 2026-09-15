@@ -1428,6 +1428,15 @@ EditorWebView.swift, EditorWebView.kt
   src/lib/platform/tauri/fileDrop.ts,
   src/lib/platform/dragDropConfig.test.ts,
   milkdown/MilkdownEditor.svelte `dropHandler`
+
+  > **Gap:** the Linux half of this is reasoned and config-gated, not
+  > confirmed by a real drag. No human or tool has dragged a file from a file
+  > manager onto a packaged build since the flag changed — this pass's tooling
+  > forbids synthesizing OS-level pointer input, and the packaged binary is
+  > outside the debug-build QA target gate. X11 is the sharper risk of the
+  > two: it is the session type the native relay DID serve, so it moved from a
+  > working path to an untested one, while Wayland moved from broken to
+  > untested. → apps/tauri/src-tauri/tauri.linux.conf.json
 - **A drop carrying files is always claimed, image or not.** The browser's
   default for an unclaimed file drop is to navigate the webview to that file,
   which would tear the running app down mid-edit — so a dropped `.md`, PDF or
