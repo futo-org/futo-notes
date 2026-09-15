@@ -122,5 +122,23 @@ describe('selectPhysicalDevice', () => {
         transportType: 'localNetwork',
       });
     });
+
+    // The dump's own `_deprecationNotice` says hardwareProperties/
+    // deviceProperties/connectionProperties are going away in favor of
+    // `properties` — so the fallback to those deprecated fields needs its own
+    // proof, not just an assumption that it still works. Strip `properties`
+    // from every device (this fixture's deprecated trio is untouched, so this
+    // exercises exactly what an older devicectl/Xcode without the `properties`
+    // dict would hand us) and require the same selection.
+    it('selects the same real iPhone via the deprecated fields when `properties` is absent', () => {
+      const deprecatedOnly = realDevices.map(({ properties: _properties, ...rest }) => rest);
+      expect(selectPhysicalDevice(deprecatedOnly)).toEqual({
+        status: 'ok',
+        id: '2BB42BEE-9208-57F6-9423-35E4C1F97F46',
+        name: 'iPhone',
+        connected: false,
+        transportType: 'localNetwork',
+      });
+    });
   });
 });

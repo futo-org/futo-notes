@@ -7,25 +7,42 @@
 // an inline python3 block across several justfile recipes + apps/ios scripts.
 // Consumed by `just deploy-ios` and apps/ios/run-device.sh.
 //
-// devicectl's JSON has no `isSimulated` flag on the (deprecated) top-level
-// shape this script parses — it is null on both physical and simulated
-// entries there — so physical-vs-simulator is inferred from
+// Every device in a live `devicectl list devices --json-output` dump
+// (scripts/__fixtures__/ios-devicectl-list-devices.json) carries this once:
+//
+//   "_deprecationNotice": {
+//     "deprecatedFields": ["hardwareProperties", "deviceProperties", "connectionProperties"],
+//     "message": "The 'hardwareProperties', 'deviceProperties', 'connectionProperties' fields
+//                 are deprecated and will be removed in a future release. Use the
+//                 'properties' dictionary instead."
+//   }
+//
+// So this reads the newer `properties` dict FIRST and only falls back to the
+// deprecated trio when `properties` is absent (an older Xcode/devicectl) —
+// that fallback is deliberate, not redundant; do not delete it before the
+// deprecated fields are actually gone.
+//
+// `properties.hardware.reality` ("physical" | "simulated") is the direct
+// physical/simulator discriminator devicectl actually offers on this newer
+// path. The deprecated path has no such flag (it is null on both physical and
+// simulated entries there), so the fallback instead infers it from
 // `connectionProperties.transportType`: a simulator always reports
 // "sameMachine" (it runs on this Mac); a real device reports "wired" or
-// "localNetwork". This is a real discriminator, unlike merely checking that
-// transportType is present — Xcode 27 gives every simulator a transportType
-// too, which is what let a booted simulator get selected as the install
-// target. Confirmed against a live `devicectl list devices --json-output`
-// dump (scripts/__fixtures__/ios-devicectl-list-devices.json): every
-// simulator there is "sameMachine", the one real iPhone is "localNetwork".
+// "localNetwork" — this is a real discriminator, unlike merely checking that
+// transportType is present, which Xcode 27 gives every simulator too (that gap
+// is what let a booted simulator get selected as the install target).
+// Confirmed against the live dump: the one real iPhone there has
+// reality "physical" / transportType "localNetwork"; every simulator has
+// reality "simulated" / transportType "sameMachine" — including one showing
+// connection.state "connected" sitting right next to the disconnected phone.
 //
-// `connectionProperties.tunnelState` ("connected" | "disconnected") does NOT
-// mean "reachable" for a physical device: the same live dump's iPhone read
-// "disconnected" while `devicectl device install`/`process launch` against it
-// worked immediately — for a localNetwork device the tunnel comes up lazily,
-// on demand. So a disconnected physical device is still returned; `connected`
-// is only used to prefer one physical device over another when several are
-// present, and to decide whether to print a heads-up note.
+// Neither path's "connected" flag means "reachable" for a physical device:
+// that same live dump's iPhone read connection.state "disconnected" while
+// `devicectl device install`/`process launch` against it worked immediately —
+// for a localNetwork device the tunnel comes up lazily, on demand. So a
+// disconnected physical device is still returned; connectedness is only used
+// to prefer one physical device over another when several are present, and to
+// decide whether to print a heads-up note.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,16 +52,31 @@ import { pathToFileURL } from 'node:url';
 const SIMULATOR_TRANSPORT = 'sameMachine';
 
 function isPhysicalDevice(device) {
+  const reality = device?.properties?.hardware?.reality;
+  if (reality) return reality === 'physical';
+
   const transportType = device?.connectionProperties?.transportType;
   return Boolean(transportType) && transportType !== SIMULATOR_TRANSPORT;
 }
 
 function isConnected(device) {
+  const state = device?.properties?.connection?.state;
+  if (state) return state === 'connected';
+
   return device?.connectionProperties?.tunnelState === 'connected';
+}
+
+function transportTypeOf(device) {
+  return (
+    device?.properties?.connection?.transportType ??
+    device?.connectionProperties?.transportType ??
+    'unknown'
+  );
 }
 
 function deviceName(device) {
   return (
+    device?.properties?.state?.name ||
     device?.deviceProperties?.name ||
     device?.hardwareProperties?.udid ||
     device?.identifier ||
@@ -70,7 +102,7 @@ export function selectPhysicalDevice(devices) {
     id: chosen.identifier,
     name: deviceName(chosen),
     connected: isConnected(chosen),
-    transportType: chosen?.connectionProperties?.transportType ?? 'unknown',
+    transportType: transportTypeOf(chosen),
   };
 }
 
