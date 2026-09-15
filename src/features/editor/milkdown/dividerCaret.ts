@@ -58,6 +58,31 @@ import {
 import { Mapping } from '@milkdown/kit/prose/transform';
 import { $prose } from '@milkdown/kit/utils';
 
+/**
+ * Whether `tr` is the editor's own programmatic-load marker, not a user edit.
+ *
+ * `addToHistory: false` is the SAME convention documentChanges.ts's
+ * `isReportableDocumentChange` reads to decide whether the host hears about a
+ * change at all: every programmatic content write (a note open, the
+ * progressive/chunked loader, `setContent`, a sync adopt) sets it, to keep the
+ * load off the undo stack and out of the change notification. It is the
+ * honest signal here too — a divider that arrived without the user typing
+ * `---` or picking `/divider` must never have its caret moved or a paragraph
+ * inserted next to it — but it has to be checked the OTHER way round from
+ * `isReportableDocumentChange`'s `.some(...)`: `EditorState.applyTransaction`
+ * feeds each plugin's `appendTransaction` the ORIGINAL dispatch plus every
+ * follow-up transaction earlier plugins in the chain already appended in
+ * reaction to it, and `trailing` (registered before this plugin) reacts to a
+ * load exactly as often as a user edit and does not itself carry the marker.
+ * A batch is "the user did this" only if NONE of its transactions is a load
+ * marker — checking for the marker's PRESENCE, not for some transaction being
+ * independently reportable, is what stays correct once a load's own knock-on
+ * transactions are mixed into the same batch.
+ */
+function isLoadTransaction(tr: Transaction): boolean {
+  return tr.getMeta('addToHistory') === false;
+}
+
 /** Every `hr` node's position in `doc` (the position right before the node). */
 function hrPositions(doc: ProseNode): number[] {
   const positions: number[] = [];
@@ -71,6 +96,11 @@ function hrPositions(doc: ProseNode): number[] {
  * The one new `hr` position `transactions` introduced, or null if none — or
  * if more than one appeared, which a single keystroke or command never does,
  * so it is treated as "not this plugin's shape to fix" rather than guessed at.
+ *
+ * A future programmatic write path is inert here for free, exactly like the
+ * module comment above promises for a future user-facing divider path — as
+ * long as it marks its own transaction `addToHistory: false`, which every
+ * write path already must for its OWN undo/change-notification correctness.
  */
 function newlyCreatedDivider(
   transactions: readonly Transaction[],
@@ -78,6 +108,7 @@ function newlyCreatedDivider(
   newState: EditorState,
 ): number | null {
   if (!transactions.some((tr) => tr.docChanged)) return null;
+  if (transactions.some(isLoadTransaction)) return null;
 
   const mapping = new Mapping();
   for (const tr of transactions) mapping.appendMapping(tr.mapping);
