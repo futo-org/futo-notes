@@ -189,18 +189,23 @@ impl Platform {
 /// a release build reaches production. A single constant meant a dev build's
 /// Buy button could only ever open production.
 ///
-/// `success` is sent, empty. It is the buyer's return URL, and an
-/// app-initiated purchase has none to hand back; the deployed FUTOpay requires
-/// the parameter to be present (it 422s without it) while the newer branch
-/// defaults it to exactly this empty value, so sending it empty is correct
-/// against both. The storefront's own links instead pass
-/// `success=redirect-to-organization-page` (observed 2026-09-10) — noted as a
-/// difference, not adopted: that value sends the buyer to a web page we have no
-/// reason to show someone who bought from inside the app. `platform` is
-/// attribution only and never changes price, product, or entitlement.
+/// `success` is `redirect-to-organization-page`, the storefront's own marker
+/// (observed on `staging-pay2.futo.org` 2026-09-10). The buyer pays in the
+/// **system browser**, so the page FUTOpay sends them to after paying must be
+/// one a human can read: this marker makes the checkout-status route return its
+/// key-page template, and the buyer lands on the license key page — the key as
+/// HTML, plus an Activate button that fires this app's
+/// `futonotes://license/{key}/{activation}` deep link. An empty `success`
+/// instead marks the purchase client-driven, which is the JSON contract of the
+/// in-app-WebView clients this app never runs (every platform links out,
+/// ADR-0003) — observed on staging 2026-09-11, the buyer finished paying and
+/// their browser showed them the raw activation JSON. The parameter must also
+/// simply be present: the deployed FUTOpay 422s a `checkout-ready` without it.
+/// `platform` is attribution only and never changes price, product, or
+/// entitlement.
 pub fn buy_url(config: LicenseConfig<'_>, platform: Platform) -> String {
     format!(
-        "{}/checkout/polar/{ORG_SLUG}/{CHECKOUT_PRODUCT_SLUG}/checkout-ready?platform={}&success=",
+        "{}/checkout/polar/{ORG_SLUG}/{CHECKOUT_PRODUCT_SLUG}/checkout-ready?platform={}&success=redirect-to-organization-page",
         config.pay2_base_url.trim_end_matches('/'),
         platform.slug()
     )
@@ -305,7 +310,7 @@ mod tests {
         assert_eq!(
             buy_url(Environment::Staging.config(), Platform::Ios),
             "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=ios&success="
+             /checkout-ready?platform=ios&success=redirect-to-organization-page"
         );
     }
 
@@ -342,6 +347,22 @@ mod tests {
         assert!(url.contains("/checkout-ready?"), "{url}");
         // `success` must be present or the deployed FUTOpay answers 422.
         assert!(url.contains("success="), "{url}");
+    }
+
+    /// The buyer pays in the system browser, so what FUTOpay serves at the end
+    /// of the flow is a page a human reads. An empty `success` is the
+    /// client-driven marker — FUTOpay answers it with the raw activation JSON,
+    /// the contract of the in-app-WebView clients this app never runs — and a
+    /// buyer who just paid stared at JSON (observed on staging 2026-09-11).
+    /// The storefront's own marker instead lands them on the license key page,
+    /// which shows the key as HTML and carries the Activate deep link.
+    #[test]
+    fn the_buy_url_returns_the_buyer_to_the_license_key_page() {
+        let url = buy_url(Environment::Production.config(), Platform::Desktop);
+        assert!(
+            url.contains("success=redirect-to-organization-page"),
+            "{url}"
+        );
     }
 
     #[test]

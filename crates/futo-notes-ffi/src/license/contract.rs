@@ -759,12 +759,12 @@ mod tests {
         assert_eq!(
             license_links(LicensePlatform::Ios, "com.futo.notes".into()).buy,
             "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=ios&success="
+             /checkout-ready?platform=ios&success=redirect-to-organization-page"
         );
         assert_eq!(
             license_links(LicensePlatform::Android, "com.futo.notes".into()).buy,
             "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=android&success="
+             /checkout-ready?platform=android&success=redirect-to-organization-page"
         );
         assert_eq!(
             license_links(LicensePlatform::Ios, "com.futo.notes".into()).support,
@@ -780,7 +780,7 @@ mod tests {
         assert_eq!(
             license_links(LicensePlatform::Android, "com.futo.notes.dev".into()).buy,
             "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=android&success="
+             /checkout-ready?platform=android&success=redirect-to-organization-page"
         );
     }
 

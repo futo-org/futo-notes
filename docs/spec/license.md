@@ -225,7 +225,7 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
 
 - **Buy** opens the **system browser** (never an in-app WebView) at this
   build's **generated checkout**:
-  `{pay2}/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=<desktop|ios|android>&success=`.
+  `{pay2}/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=<desktop|ios|android>&success=redirect-to-organization-page`.
   There is no product landing page — no `pay.futo.tech/futo-notes` — and there
   will not be one (decision 2026-09-10); the app names the checkout FUTOpay's
   own landing route would have redirected to. → `futo_notes_license::buy_url`
@@ -257,12 +257,16 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   `Environment::for_bundle_id`, `tests/conformance/license.json` `buyUrls`,
   `a_dev_build_buys_on_staging`
 - `platform` is attribution only: it never changes price, product, or
-  entitlement, and FUTOpay drops a value it does not recognise. `success` is the
-  buyer's return URL and is sent empty, because a purchase started from the app
-  has none to hand back; the storefront's own links pass
-  `success=redirect-to-organization-page` (observed 2026-09-10), which the app
-  deliberately does not adopt — an in-app buyer has no reason to land on the org
-  page. Both URLs in this spec are built by the Rust crate from
+  entitlement, and FUTOpay drops a value it does not recognise. `success` is
+  `redirect-to-organization-page`, the storefront's own marker (observed
+  2026-09-10): the buyer pays in the system browser, and FUTOpay answers that
+  marker with the **license key page** — the key as HTML plus an Activate
+  button that fires the `futonotes://license/{key}/{activation}` deep link. An
+  empty `success` is the client-driven marker, which FUTOpay answers with the
+  raw activation JSON — the contract of the in-app-WebView clients this app
+  never runs — and a buyer who had just paid was shown that JSON on staging
+  (observed 2026-09-11), which is why the marker is sent. Both URLs in this
+  spec are built by the Rust crate from
   the selected environment, so no shell hardcodes one and all three agree.
   *(desktop)* The URL is read from the crate through `license_links` and opened
   with the opener plugin, never in a webview. → `license::license_links`,
@@ -562,35 +566,39 @@ not the rules, is what this section records.
 > **Gap:** No in-app restore by e-mail — lost keys go to support@futo.tech; the
 > newer futopay Android library's restore page is not adopted.
 
-> **Gap:** A **purchase** does not deliver a license key. Two server-side faults,
-> both observed 2026-09-10/11 against `staging-pay2.futo.org` and the Polar
-> sandbox, neither of them client bugs:
+A **real purchase delivers a license key end to end**, verified 2026-09-15 on
+the native Android app against `staging-pay2.futo.org`: system-browser checkout
+with a real email domain, Stripe test card `4242 4242 4242 4242`, payment
+succeeded, key delivered (`7QTY-X1FG-2CQ5-1KW1-5GWR-DVA7-976D-6UJV`), the
+`futonotes://license/{key}/{activation}` link activated the app, and
+`android-drive state` plus the Settings UI confirmed `LICENSED`. → screenshot
+ledger in `test-screenshots/`
+
+> This closes a Gap open since 2026-09-10/11, when two server-side faults —
+> neither a client bug — blocked every purchase: the Polar product initially
+> carried no benefit (`_confirm_polar_checkout` requires exactly one benefit
+> grant before `create_key_func` runs; a custom benefit was attached 2026-09-10),
+> and Polar's sandbox then stopped creating benefit grants at all for **any**
+> product (a control purchase on futo-music, previously reliable, also produced
+> none). Polar webhooks to staging FUTOpay were also rejected 403 `Invalid
+> webhook signature` the whole time (`polar_sdk._webhooks.validate_event`
+> base64-encodes the secret before HMAC; a Standard-Webhooks signature decodes it
+> first), so the webhook fulfilment path was dead too. None of that reproduced on
+> 2026-09-15's purchase — this is one verified success, not proof either fault is
+> permanently fixed on Polar's side; re-verify if purchases start failing again.
 >
-> 1. *No benefit was attached to the Polar product.* FUTOpay mints its own key but
->    gates on Polar's benefit grant as proof of purchase — `_confirm_polar_checkout`
->    requires the checkout's product to carry **exactly one** benefit and the buyer
->    to hold a grant for it before `create_key_func` runs. `futo-notes-license`
->    carried none, so every purchase died at `{"detail":"No benefits found for
->    checkout session"}`. A custom benefit ("FUTO Notes License", mirroring
->    futo-music's) was attached 2026-09-10; this half is fixed.
-> 2. *Polar's sandbox stopped creating benefit grants.* With the benefit attached,
->    three further real sandbox purchases (orders `f585da59`, `42c1af67`, and one
->    more; Stripe test mode, $14.99) were `paid` at Polar and produced **zero**
->    grants, so FUTOpay answers HTTP 400
->    `{"status":"error","message":"Too many benefit grant check attempts","error":"Purchase not confirmed by Polar yet"}`
->    — which is also what a buyer sees, as raw JSON, instead of a key page. The
->    control rules out our configuration: a purchase on **futo-music**, whose 24
->    orders of 2026-09-08 each produced a grant within ~1s with config untouched
->    since, also produced none (order `c64da902`). No `benefit_grant.created`
->    appears in Polar's delivery log for any of them. Polar-side; unresolved.
->
-> *Compounding it:* every Polar webhook to staging FUTOpay is rejected **403
-> `Invalid webhook signature`** (519 consecutive attempts; Polar auto-disabled the
-> endpoint 2026-09-10T23:26Z), so the webhook fulfilment path is dead too. The
-> secret matches on both sides — the derivations do not:
-> `polar_sdk._webhooks.validate_event` base64-**encodes** the whole secret string,
-> so FUTOpay HMACs the literal `whsec_…`, while a Standard-Webhooks signature
-> (strip prefix, base64-decode, HMAC those bytes) is refused.
+> *A separate, resolved trap for anyone testing this by hand or by agent:* Polar
+> validates `customer_email` for deliverability before it will create a checkout
+> at all, and rejects any `@example.com`/`@example.org`/`@test`/`@localhost`
+> address (null-MX by design) or a domain with no DNS record, with a 422 that
+> `create-checkout` flattens into the same 200-wrapped
+> `{"status_code":502,"detail":"Polar rejected the checkout request"}` above —
+> indistinguishable from the real server-side faults without checking the email.
+> Confirmed 2026-09-15: 22/22 `@example.com` attempts failed, 15/15 real-domain
+> attempts (`@gmail.com`, `@futo.org`, `@mailinator.com`) succeeded, interleaved
+> from one IP within seconds — ruling out headers, cookies, and rate limiting.
+> **Use `justin+<unique-id>@futo.tech` for test purchases**, never an
+> `@example.*` address.
 
 > **Gap:** No revocation check — refunded or revoked keys stay valid on
 > activated devices because the license module makes no background requests.
