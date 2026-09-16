@@ -767,7 +767,8 @@
     },
     "license": {
       "sectionTitle": "License",
-      "explanation": "FUTO Notes is free to use. Buying a license supports development and removes the Unlicensed label.",
+      "explanation": "FUTO's mission is for open-source software and non-malicious software business practices to become a sustainable income source for projects and their developers. That is why FUTO Notes asks you to pay for it, rather than serving you ads or selling your data.",
+      "explanationLicensed": "Thank you for paying for FUTO Notes. Your purchase will help continued development of FUTO Notes, and other FUTO projects.",
       "unlicensed": "Unlicensed",
       "licensed": "Licensed · Supporter since {year} · Valid until {date}",
       "licensedPerpetual": "Licensed · Supporter since {year}",
@@ -785,6 +786,7 @@
       "activating": "Activating…",
       "cancelEntry": "Cancel",
       "openLicenseSettings": "Open license settings",
+      "coinAccessibilityLabel": "FUTO supporter coin",
       "activated": "License activated",
       "keyInvalid": "This license key isn't valid",
       "linkInvalid": "This license link isn't valid",

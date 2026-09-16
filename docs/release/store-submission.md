@@ -250,8 +250,8 @@ screenshots you attach, and your app version, platform, OS version and device
 model are sent to notes-crashlog.futo.org. No account is required, your notes
 are never included, and we cannot reply to individual messages.
 
-License (optional): FUTO Notes is free to use. If you buy a license, you buy it
-on our website, not in the app. The app stores your license key on your device
+License (optional): FUTO Notes asks you to pay for it, and nothing in the app
+enforces that. If you buy a license, you buy it on our website, not in the app. The app stores your license key on your device
 and checks it offline. If you type in a license key on its own, the app makes a
 single request to pay2.futo.org containing only that key, so it can fetch the
 matching activation; it sends no name, email, device id, or other identifier,

@@ -45,9 +45,15 @@ struct LicenseSettingsSection: View {
                 }
             }
 
-            Text(localization.localizedText("license.explanation"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            // Never "free to use": Unlicensed asks, Licensed thanks
+            // (docs/spec/license.md § States and copy).
+            Text(
+                localization.localizedText(
+                    license.view?.status == .licensed
+                        ? "license.explanationLicensed" : "license.explanation")
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 

@@ -3,10 +3,12 @@
 The single owner of every paid-client-license rule. Behavioral truth:
 [`docs/spec/license.md`](../../docs/spec/license.md); the implementation spec is GitLab issue #149.
 
-FUTO Notes is free to use. A license unlocks **nothing functional** — it removes the ambient
-"Unlicensed" label and shows "Supporter since {year}". Never add a licensed-only feature, theme,
-icon, or limit to this crate or to anything that reads it; a "cosmetic" feature non-payers would
-want is a gate by another name.
+FUTO Notes asks you to pay for it, and nothing enforces that. A license unlocks **nothing
+functional** — it removes the ambient "Unlicensed" label and shows "Supporter since {year}" plus
+the supporter coin. Never add a licensed-only feature, theme, icon, or limit to this crate or to
+anything that reads it; a "cosmetic" feature non-payers would want is a gate by another name.
+Never describe the app as "free to use" either: the honest framing, and the one Grayjay and FUTO
+Keyboard use, is that FUTO wants you to pay and declines to force you.
 
 ## What lives here
 

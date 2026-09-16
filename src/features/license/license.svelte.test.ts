@@ -315,3 +315,70 @@ describe('the other row actions', () => {
     expect(opened).toEqual([]);
   });
 });
+
+// The supporter coin spins up on the moment of becoming licensed, so the
+// counter behind it has to mean exactly that — not "is licensed", and not
+// "the app started and found a license".
+describe('marking the moment of activation', () => {
+  it('counts a key that crosses into licensed', async () => {
+    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
+    const license = await freshModel();
+    license.start();
+    await settle();
+
+    expect(license.activations).toBe(0);
+    await license.enterKey('FN-AB12-…');
+
+    expect(license.activations).toBe(1);
+  });
+
+  it('counts a link that crosses into licensed', async () => {
+    const license = await freshModel();
+    license.start();
+    await settle();
+    platform.takePendingLicenseLink.mockResolvedValue({ outcome: 'activated', view: LICENSED });
+
+    platform.nudge?.();
+    await settle();
+
+    expect(license.activations).toBe(1);
+  });
+
+  // Launching an app that was already paid for is not a purchase. The startup
+  // read deliberately does not go through the same path.
+  it('does not count a license that was already there at startup', async () => {
+    platform.readLicenseStatus.mockResolvedValue(LICENSED);
+    const license = await freshModel();
+
+    license.start();
+    await settle();
+
+    expect(license.view).toEqual(LICENSED);
+    expect(license.activations).toBe(0);
+  });
+
+  it('does not count re-entering a key the device already holds', async () => {
+    platform.readLicenseStatus.mockResolvedValue(LICENSED);
+    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
+    const license = await freshModel();
+    license.start();
+    await settle();
+
+    await license.enterKey('FN-AB12-…');
+
+    expect(license.activations).toBe(0);
+  });
+
+  it('counts the next activation after a remove', async () => {
+    platform.readLicenseStatus.mockResolvedValue(LICENSED);
+    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
+    const license = await freshModel();
+    license.start();
+    await settle();
+
+    await license.remove();
+    await license.enterKey('FN-AB12-…');
+
+    expect(license.activations).toBe(1);
+  });
+});

@@ -40,6 +40,11 @@ class LicenseModel {
   links = $state<LicenseLinks>({ buy: '', support: '' });
   /// True only while the one activation request is in flight.
   busy = $state(false);
+  /// Counts the moments this device *became* licensed, so a surface showing
+  /// the supporter coin can mark the occasion. Deliberately driven from
+  /// `#replaceView` and not from the startup read: launching an app that was
+  /// already licensed is not an activation, and should not set anything off.
+  activations = $state(0);
 
   #started = false;
   #stateRevision = 0;
@@ -147,6 +152,9 @@ class LicenseModel {
 
   #replaceView(view: LicenseView): void {
     this.#stateRevision += 1;
+    // Only the crossing counts. Re-entering a key you already hold leaves the
+    // state at licensed and is not a second activation.
+    if (view.state === 'licensed' && this.view.state !== 'licensed') this.activations += 1;
     this.view = view;
   }
 }

@@ -35,6 +35,7 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 import kotlinx.coroutines.launch
 import uniffi.futo_notes_ffi.LicenseAction
+import uniffi.futo_notes_ffi.LicenseStatus
 
 /**
  * The License row — the FIRST row of Settings on mobile, and the only place the
@@ -115,8 +116,15 @@ fun LicenseSettingsSection(license: LicenseModel) {
         // The rule above it belongs to the row, so it is not drawn before the
         // row exists — a group that opened with a stray divider.
         if (license.view != null) Divider()
+        // Never "free to use": Unlicensed asks, Licensed thanks.
         Text(
-            localization.localizedText("license.explanation"),
+            localization.localizedText(
+                if (license.view?.status == LicenseStatus.LICENSED) {
+                    "license.explanationLicensed"
+                } else {
+                    "license.explanation"
+                }
+            ),
             style = FutoType.caption,
             color = FutoTheme.colors.textMuted,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),

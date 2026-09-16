@@ -1,10 +1,12 @@
 # License — Spec
 
-FUTO Notes is free to use. A user may **buy a license** for the client. The
-license unlocks nothing functional: it removes the ambient **Unlicensed** label
-and shows a **Supporter since {year}** badge. This is the Grayjay / FUTO Keyboard
-/ Immich model ("unregistered HyperCam 2"), sold through FUTOpay (Polar
-underneath). The server product is a separate, later product with no
+FUTO Notes asks the user to pay for it, and nothing in the app enforces that.
+A user may **buy a license** for the client. The license unlocks nothing
+functional: it removes the ambient **Unlicensed** label and shows a **Supporter
+since {year}** badge and the supporter coin. Unpaid is a fully working app, but
+the product never calls itself "free to use" — see § States and copy. This is
+the Grayjay / FUTO Keyboard / Immich model ("unregistered HyperCam 2"), sold
+through FUTOpay (Polar underneath). The server product is a separate, later product with no
 shared semantics; see [Out of scope](#out-of-scope).
 
 Design decisions recorded 2026-09-09 (spec-first). All three clients implement
@@ -426,9 +428,16 @@ The License row has exactly three states. All strings are catalog entries
 
 | State | Row text | Actions |
 |---|---|---|
-| **Unlicensed** | "Unlicensed" | **Buy a license** · **Enter license key** · Lost your key? |
-| **Licensed** | "Licensed · Supporter since {year} · Valid until {date}" | **Remove license** |
-| **Expired** | "License expired {date} · Supporter since {year}" | **Renew** · **Enter license key** · Lost your key? |
+| **Unlicensed** | "Unlicensed" | **Buy a license** · Enter license key · Lost your key? |
+| **Licensed** | "Licensed · Supporter since {year} · Valid until {date}" | Remove license |
+| **Expired** | "License expired {date} · Supporter since {year}" | **Renew** · Enter license key · Lost your key? |
+
+- Bold is the one action the row leads with, and *(desktop)* it is the only
+  filled button in the card: Buy/Renew. Enter license key, Lost your key? and
+  Remove license are text links there — two black slabs of equal weight read as
+  two equally likely choices, and they are not. Availability is unchanged; this
+  is emphasis, not gating. The native shells keep their own platform-idiomatic
+  controls.
 
 - A **perpetual** license (`expires_at` is `null`) is still the Licensed state;
   the row simply drops the "Valid until" clause rather than inventing a date:
@@ -439,16 +448,32 @@ The License row has exactly three states. All strings are catalog entries
   year, and the activation-fetch time is never used as a stand-in. The row is
   then the single word "Licensed" (`license.licensedUndated`), which still reads
   as the licensed state; the ambient label has nothing to put in place of
-  "Unlicensed", so the desktop footer shows the app version alone — removing the
-  label is the whole visible reward, and it still happens. →
+  "Unlicensed", so the desktop footer is empty — removing the label is the whole
+  visible reward there, and it still happens. The supporter coin in Settings is
+  not a claim about a date and renders for a v1 activation regardless. →
   `licenseCopy.ts`/`licenseCopy.test.ts` "reads as licensed with no since-clause
   when there is no purchase year" + "has nothing to show when a license carries
   no purchase year", `SidebarLicenseFooter.svelte`; *(ios)* `LicenseCopy.swift`,
   `LicenseCopyTests` "a license with no purchase year drops the since-clause and
   still reads as licensed"; *(android)* `LicenseCopy.kt`, `LicenseCopyTest`
   "aLicenseWithNoPurchaseYearDropsTheSinceClause"
-- Under the row in every state: "FUTO Notes is free to use. Buying a license
-  supports development and removes the Unlicensed label."
+- Under the row, in FUTO's house voice — the app **never** describes itself as
+  "free to use", because it is asking to be paid and only declines to force the
+  issue. The wording follows Grayjay's `buy_text` and FUTO Keyboard's
+  `payment_screen_sales_point_development_body`, which share the mission
+  sentence verbatim and neither of which calls its app free:
+  - Unlicensed and Expired (`license.explanation`): "FUTO's mission is for
+    open-source software and non-malicious software business practices to become
+    a sustainable income source for projects and their developers. That is why
+    FUTO Notes asks you to pay for it, rather than serving you ads or selling
+    your data."
+  - Licensed (`license.explanationLicensed`), after FUTO Keyboard's
+    `payment_screen_aftersales_paragraph_1`/`_2`: "Thank you for paying for FUTO
+    Notes. Your purchase will help continued development of FUTO Notes, and
+    other FUTO projects."
+  → all three shells select the key off the state: `LicenseSettingsSection`
+  in `src/features/license/`, `apps/ios/Sources/License/`, and
+  `apps/android/app/src/main/java/com/futo/notes/ui/`
 - **Renew** is the Buy action; a new key simply replaces the old one.
 - **Remove license** asks for no confirmation (it is reversible by re-entering
   the key) and returns the device to Unlicensed. It exists for testing and
@@ -459,12 +484,36 @@ The License row has exactly three states. All strings are catalog entries
   Unlicensed or Expired; "Supporter since {year}" when Licensed. It is
   informational, never interrupts, never appears inside the editor, never on
   exported or shared content, and never on user data (M2).
-  - *(desktop)* A footer line in the list/sidebar view, beside the app version.
-    Clicking it opens Settings at the License row. The License section sits
-    after Updates and before the Danger zone, which stays last. →
+  - *(desktop)* The bottom-left corner of the sidebar, and the only thing in
+    it — the app version used to share that line and no longer appears there
+    at all, because Settings → Updates already reads "Currently running
+    v{version}". Clicking it opens Settings at the License row. The License
+    section sits after Updates and before the Danger zone, which stays last. →
     `src/features/license/SidebarLicenseFooter.svelte`,
     `DrawerSidebar.svelte`, `SettingsScreen.svelte` (`initialSection`),
     `licenseCopy.ts` + `licenseCopy.test.ts`
+  - *(desktop)* **The supporter coin** is the one thing a purchase *adds*: a
+    gold FUTO coin, turning, filling its own column down the full height of the
+    License card in Settings while the state is Licensed. It is the storefront's
+    own coin — geometry and materials ported from lib-polar
+    `pylib/futopay_server/static/js/coin-bounce.js`, without that file's physics
+    world — rendered with three.js loaded on demand, so it costs a non-supporter
+    nothing at startup. It spins up once on the moment of activation and settles
+    again, holds still under `prefers-reduced-motion: reduce`, stops entirely
+    when scrolled out of view or the window is hidden (M5), and falls back to a
+    flat SVG coin where WebGL is unavailable.
+    **It is deliberately NOT in the sidebar footer**: that corner sits one
+    keystroke from the editor, and a permanent animation beside it is exactly
+    the background cost M5 exists to stop. Settings is a surface the user opened
+    on purpose and can leave. → `SupporterCoin.svelte`, `supporterCoin.ts`,
+    `license.svelte.ts` (`activations`) + `license.svelte.test.ts` "marking the
+    moment of activation"
+
+    > **Gap:** the coin is desktop-only. iOS and Android show the same Licensed
+    > row with no coin — a WebGL/three.js canvas is a web-shell affordance the
+    > native shells have no equivalent of, and re-authoring it per platform
+    > (SceneKit, a Compose GL surface) is a separate decision from adopting it
+    > on desktop. Open 2026-09-15.
   - *(native shells)* Mobile has no ambient label outside Settings; the License
     row is the **first row at the top of Settings** and its status text is the
     label. → *(ios)* `LicenseSettingsSection` as the first `Section` of
@@ -573,6 +622,22 @@ succeeded, key delivered (`7QTY-X1FG-2CQ5-1KW1-5GWR-DVA7-976D-6UJV`), the
 `futonotes://license/{key}/{activation}` link activated the app, and
 `android-drive state` plus the Settings UI confirmed `LICENSED`. → screenshot
 ledger in `test-screenshots/`
+
+The same real-purchase path was independently re-verified on the native iOS
+app 2026-09-15 against `staging-pay2.futo.org`, on commit `0e986457` (the
+`success=redirect-to-organization-page` fix): Buy opened
+`.../checkout-ready?platform=ios&success=redirect-to-organization-page`
+(confirmed from the Safari address bar) and a real Stripe test-card purchase
+(`justin+e2e-ios-<id>@futo.tech`) landed on
+`https://staging-pay2.futo.org/checkout-success?license_key=...&state=granted`
+— the HTML key page with an Activate button — not the raw
+`/api/checkout-status/...` JSON a pre-fix build on this same worktree had
+shown for the identical flow one run earlier. Tapping Activate fired the
+`futonotes://license/{key}/{activation}` deep link, Safari's "Open in FUTO
+Notes Dev?" prompt handed off to the app, and Settings showed a "License
+activated" toast with the row reading `Licensed`; force-quitting and
+relaunching confirmed the state persisted. → 49-shot ledger in
+`test-screenshots/ios-retest-*.png`
 
 > This closes a Gap open since 2026-09-10/11, when two server-side faults —
 > neither a client bug — blocked every purchase: the Polar product initially
