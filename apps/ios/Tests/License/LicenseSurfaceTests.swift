@@ -61,4 +61,42 @@ struct LicenseSurfaceTests {
         #expect(staging.hasPrefix("https://staging-pay2.futo.org/"))
         #expect(production.hasPrefix("https://pay2.futo.org/"))
     }
+
+    /// The card's Key row, at the seam the view renders from: masked by
+    /// default, the stored key once revealed, and nothing at all with no
+    /// license (decision D4). Asserted here rather than through a hosted
+    /// SwiftUI view, which would test SwiftUI and not the rule.
+    @Test("the card shows the masked key and reveals on tap")
+    func keyRowMasksAndReveals() {
+        let localization = Localization.system(
+            requestedLanguageTags: ["en"], regionalLanguageTag: "en-US")
+        let key = "AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV"
+        let licensed = licenseCardModel(
+            LicenseView(
+                status: .licensed, issuedAtMillis: nil, expiresAtMillis: nil, key: key),
+            localization)
+
+        let masked = licenseKeyRowText(licensed, key: key, revealed: false)
+        // Only the last group survives, and the key itself is never in the
+        // masked string.
+        #expect(masked == "···· ···· ···· ···· ···· ···· ···· 6UJV")
+        #expect(masked?.contains("AB12") == false)
+
+        // The tap swaps the same row to the stored key, verbatim — the card
+        // never re-cases or re-groups what Rust normalized.
+        #expect(licenseKeyRowText(licensed, key: key, revealed: true) == key)
+
+        // Revealing something that is not there is not a state the row can be
+        // put in: an unlicensed card has no key row at all.
+        let unlicensed = licenseCardModel(
+            LicenseView(
+                status: .unlicensed, issuedAtMillis: nil, expiresAtMillis: nil, key: nil),
+            localization)
+        #expect(licenseKeyRowText(unlicensed, key: nil, revealed: false) == nil)
+        #expect(licenseKeyRowText(unlicensed, key: nil, revealed: true) == nil)
+
+        // A licensed card whose key went missing stays masked rather than
+        // rendering an empty row where the key was.
+        #expect(licenseKeyRowText(licensed, key: nil, revealed: true) == masked)
+    }
 }

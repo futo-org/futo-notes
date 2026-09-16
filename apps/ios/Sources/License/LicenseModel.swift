@@ -141,7 +141,11 @@ final class LicenseModel: ObservableObject {
     }
 
     /// Deliver now, or park until there is somewhere to deliver to.
-    private func announce(_ message: LocalizedMessage) {
+    ///
+    /// Not private: the License card copies the key to the pasteboard and has
+    /// to confirm it, and that confirmation belongs on the same banner path as
+    /// every license outcome rather than on a second one of the view's own.
+    func announce(_ message: LocalizedMessage) {
         guard let destination = showMessage else {
             parkedMessage = message
             return
