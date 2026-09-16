@@ -598,6 +598,25 @@ remote-android *flags:
   node scripts/remote-test.mjs {{flags}} build-android-native
   node scripts/remote-test.mjs {{flags}} test-android-native
 
+# ── The FUTO supporter coin (Blender -> all three shells) ──
+# The coin is ONE object, modelled in assets/coin/build-coin.py and exported to
+# three files: futo-coin.glb (desktop three.js + Android Filament), futo-coin.usdz
+# (iOS RealityKit) and studio-env.hdr, the small studio every shell reflects off
+# it. Gold is a metal; a metal with nothing to reflect renders black, which is
+# why the environment is an asset and not a nicety.
+# Rebuild the coin from its Blender source (needs Blender 5.x on PATH).
+coin:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  command -v blender >/dev/null || { echo "blender is not on PATH - install it (dnf install blender) or see assets/coin/build-coin.py" >&2; exit 1; }
+  blender --background --factory-startup --python assets/coin/build-coin.py -- "$PWD/assets/coin"
+  node scripts/check-coin-assets.mjs
+
+# Fail if the exports no longer match build-coin.py, or were hand-edited (M8).
+# Needs no Blender, which is why it can run in CI and in `just check`.
+coin-check:
+  node scripts/check-coin-assets.mjs
+
 # Regenerate the native shells' toolbar specs
 # (apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift)
 # from the @futo-notes/editor toolbar manifest (packages/editor/src/toolbar.ts —
@@ -770,7 +789,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
+check: toolbar-spec-check title-spec-check coin-check arch-gate test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.

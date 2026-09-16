@@ -1,28 +1,30 @@
 // The FUTO coin, in three dimensions.
 //
-// Geometry and materials are the ones from the FUTOpay storefront's
-// `coin-bounce.js` (lib-polar, `pylib/futopay_server/static/js/coin-bounce.js`):
-// a disc with the FUTO diamond punched clean through it, extruded flat, gold
-// face over a darker rim. What is NOT carried over is that file's cannon-es
-// physics world — the storefront throws coins around the window, and this is
-// one coin on a spindle, so a rigid-body solver would be dead weight.
+// The coin itself is NOT built here. It is modelled once in Blender by
+// `assets/coin/build-coin.py` and exported to `futo-coin.glb`, which this file,
+// the native iOS shell and the native Android shell all render. That is the
+// whole point of the Blender step: there is one object, and the three shells
+// only frame it, light it and turn it.
+//
+// What lights it is `studio-env.hdr`, the small studio the same script writes.
+// Gold is a metal, and a metal with nothing to reflect renders black — the
+// version of this file that built its own geometry had to fake brightness with
+// an `emissive` term, which is why it read as a sticker rather than as metal.
+// With a real environment the material is honest and all three shells agree
+// about what the coin is made of.
 //
 // three.js is imported dynamically by the only caller (SupporterCoin.svelte).
 // Keeping the import here, behind a function, is what keeps it off the
 // cold-start path: Rollup gives an `import()`-only dependency its own chunk
-// (vite.config.ts `manualChunks` explains why naming it would undo that).
+// (vite.config.ts `manualChunks` explains why naming it would undo that). The
+// model and the environment are fetched on the same first visit, and until they
+// land the flat SVG in SupporterCoin.svelte is what the user sees.
 
-/// Straight from coin-bounce.js so the coin is recognisably the same object.
-const OUTER_RADIUS = 0.35;
-const DEPTH = OUTER_RADIUS / 6;
-const DIAMOND_HALF = OUTER_RADIUS * 0.45;
-const CORNER_RADIUS = Math.min(OUTER_RADIUS * 0.16, DIAMOND_HALF * 0.7);
-const CURVE_SEGMENTS = 96;
-
-const FACE_COLOR = 0xffbb00;
-const FACE_EMISSIVE = 0xffc800;
-const RIM_COLOR = 0xb8860b;
-const EDGE_COLOR = 0x8b7500;
+/// The Blender exports. `?url` keeps them out of the JS bundle: Vite emits them
+/// as hashed files and hands back the path, so the coin costs nothing until a
+/// licensed user opens Settings.
+import coinModelUrl from '@/assets/coin/futo-coin.glb?url';
+import coinEnvironmentUrl from '@/assets/coin/studio-env.hdr?url';
 
 /// Slow enough to read as an object rather than a spinner: one turn every ~5s.
 const BASE_SPIN = 1.25;
@@ -47,16 +49,24 @@ const FLICK_MIN_SPEED = 0.6;
 const FLICK_MAX_SPEED = 24;
 
 /// A fixed tilt, so the coin is read as a disc even at the instant its face is
-/// edge-on to the camera.
+/// edge-on to the camera. The native shells apply the same angle.
 const TILT_X = 0.24;
 
-/// Vertical field of view for a square box. `frameShortSide` widens it when the
-/// box is taller than it is wide.
+/// Vertical field of view for a square box, and how far back the camera sits.
+/// Together they frame the model's 0.7 diameter at about 84% of the shorter
+/// side, which leaves room for the corners as it turns. `frameShortSide`
+/// widens the angle when the box is taller than it is wide.
 const BASE_FOV = 30;
+const CAMERA_DISTANCE = 1.55;
 
 /// Frame-time clamp. A backgrounded tab hands back a huge delta on its first
 /// frame; without this the coin jumps a random fraction of a turn on return.
 const MAX_FRAME_SECONDS = 1 / 20;
+
+/// Khronos PBR Neutral, not ACES. ACES pushes a bright saturated highlight
+/// toward white, which on this coin turns the gold sheen into a grey smear
+/// exactly where it should be most golden. Neutral holds the hue.
+const TONE_MAPPING_EXPOSURE = 1.0;
 
 export interface CoinHandle {
   /// Sets whether the coin turns on its own. Stopped it still renders, and it
@@ -76,14 +86,18 @@ export interface CoinHandle {
 /// missing context — the caller has a flat coin to fall back to and the user
 /// should not notice.
 export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> {
-  const THREE = await import('three');
+  const [THREE, { GLTFLoader }, { RGBELoader }] = await Promise.all([
+    import('three'),
+    import('three/examples/jsm/loaders/GLTFLoader.js'),
+    import('three/examples/jsm/loaders/RGBELoader.js'),
+  ]);
 
   let renderer: import('three').WebGLRenderer;
   try {
     // `preserveDrawingBuffer` is what makes the coin survive a `toDataURL()`
     // read-back — without it every screenshot of this app captures the coin as
     // a transparent hole, including the QA bridge's (Linux has no native
-    // window capture, so it composites the DOM). coin-bounce.js sets it too.
+    // window capture, so it composites the DOM).
     renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
@@ -95,7 +109,39 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
 
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x000000, 0);
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
 
+  // Both files or neither. A coin with its model but no environment would be a
+  // black disc, which is worse than the flat SVG the caller already has up.
+  let model: import('three').Group;
+  let environment: import('three').Texture;
+  let environmentTarget: import('three').WebGLRenderTarget;
+  try {
+    const [gltf, equirect] = await Promise.all([
+      new GLTFLoader().loadAsync(coinModelUrl),
+      new RGBELoader().loadAsync(coinEnvironmentUrl),
+    ]);
+    model = gltf.scene;
+    equirect.mapping = THREE.EquirectangularReflectionMapping;
+    // Prefilter once into the roughness mip chain the standard material
+    // samples. Doing it here rather than per frame is the difference between a
+    // coin that costs nothing to turn and one that re-blurs its world 60x a
+    // second.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    environmentTarget = pmrem.fromEquirectangular(equirect);
+    environment = environmentTarget.texture;
+    equirect.dispose();
+    pmrem.dispose();
+  } catch (error) {
+    renderer.dispose();
+    renderer.forceContextLoss();
+    throw error;
+  }
+
+  // Only now is there something worth showing, so only now does the canvas go
+  // into the page. Appending it earlier would blank the flat SVG behind it for
+  // as long as the two files take to arrive.
   const canvas = renderer.domElement;
   canvas.style.width = '100%';
   canvas.style.height = '100%';
@@ -103,10 +149,14 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
   mount.appendChild(canvas);
 
   const scene = new THREE.Scene();
+  // The environment IS the lighting. No directional or ambient light is added:
+  // every highlight on the coin is a reflection of studio-env.hdr, which is what
+  // makes this render and the native ones the same object under the same lamps.
+  scene.environment = environment;
 
   // Framed so the coin fills the box without its corners clipping as it turns.
-  const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 10);
-  camera.position.set(0, 0, 1.55);
+  const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 10);
+  camera.position.set(0, 0, CAMERA_DISTANCE);
   camera.lookAt(0, 0, 0);
 
   // The element owns the size. A box that is not square keeps the coin round
@@ -130,13 +180,16 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
     draw();
   }
 
-  const key = new THREE.DirectionalLight(0xffffff, 1.1);
-  key.position.set(1.2, 1.4, 2);
-  scene.add(key);
-  scene.add(new THREE.AmbientLight(0x404040, 0.5));
+  // The model is spun through a PIVOT rather than directly. The exported node
+  // carries its own rotation (the coin is authored lying down and stood up on
+  // export), so the node's local Y is the coin's THICKNESS, not its spindle —
+  // turning the node itself would tumble the coin end over end.
+  const pivot = new THREE.Group();
+  pivot.add(model);
+  pivot.rotation.x = TILT_X;
+  scene.add(pivot);
 
-  const { coin, disposeCoin } = buildCoinObject(THREE);
-  scene.add(coin);
+  const disposeModel = (): void => disposeLoadedModel(model);
 
   let spin = BASE_SPIN;
   let spinning = false;
@@ -169,7 +222,7 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
       // Eases in from either side, so a backwards flick settles as gracefully
       // as a celebration spins down.
       spin = rest + (spin - rest) * Math.exp(-SPIN_DECAY * elapsed);
-      coin.rotation.y += spin * elapsed;
+      pivot.rotation.y += spin * elapsed;
     }
     draw();
   }
@@ -222,7 +275,7 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
       sync();
     },
     turnBy: (radians) => {
-      coin.rotation.y += radians;
+      pivot.rotation.y += radians;
       draw();
     },
     // `thrown` is null when the pointer was resting as it lifted: the coin was
@@ -264,58 +317,13 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
       resizeObserver?.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
       detachDrag();
-      disposeCoin();
+      disposeModel();
+      environmentTarget.dispose();
       renderer.dispose();
       // WebGL contexts are a small, fixed pool per document; dropping the
       // canvas alone does not give one back.
       renderer.forceContextLoss();
       canvas.remove();
-    },
-  };
-}
-
-/// The coin itself: geometry, its two gold materials and the edge overlay,
-/// grouped and tilted. Returns the group plus the one call that frees all of
-/// it — three.js does not track these for you, and a Settings sheet that is
-/// opened and closed all day would otherwise leak a mesh per visit.
-function buildCoinObject(THREE: typeof import('three')): {
-  coin: import('three').Group;
-  disposeCoin: () => void;
-} {
-  const { geometry, edges } = buildCoinGeometry(THREE);
-
-  // Two groups come out of ExtrudeGeometry — the faces, then the extruded
-  // wall — so the materials array is [face, rim] in that order.
-  const face = new THREE.MeshStandardMaterial({
-    color: FACE_COLOR,
-    metalness: 1,
-    roughness: 0.08,
-    emissive: FACE_EMISSIVE,
-    // Metal with no environment map reflects nothing, so the face would read
-    // black without this. The storefront coin solves it the same way.
-    emissiveIntensity: 0.88,
-    side: THREE.DoubleSide,
-  });
-  const rim = new THREE.MeshStandardMaterial({
-    color: RIM_COLOR,
-    metalness: 0.7,
-    roughness: 0.5,
-  });
-  const edgeMaterial = new THREE.LineBasicMaterial({ color: EDGE_COLOR });
-
-  const coin = new THREE.Group();
-  coin.add(new THREE.Mesh(geometry, [face, rim]));
-  coin.add(new THREE.LineSegments(edges, edgeMaterial));
-  coin.rotation.x = TILT_X;
-
-  return {
-    coin,
-    disposeCoin: () => {
-      geometry.dispose();
-      edges.dispose();
-      face.dispose();
-      rim.dispose();
-      edgeMaterial.dispose();
     },
   };
 }
@@ -406,53 +414,18 @@ function attachDragToTurn(mount: HTMLElement, target: TurnTarget): () => void {
   };
 }
 
-/// The disc-with-a-diamond-hole profile, extruded. Ported from
-/// `createSharedCoinResources()` in coin-bounce.js; the storefront then lays
-/// the coin flat for its physics world, which is the one step dropped here.
-function buildCoinGeometry(THREE: typeof import('three')): {
-  geometry: import('three').ExtrudeGeometry;
-  edges: import('three').EdgesGeometry;
-} {
-  const profile = new THREE.Shape();
-  profile.moveTo(OUTER_RADIUS, 0);
-  profile.absarc(0, 0, OUTER_RADIUS, 0, Math.PI * 2, false);
-
-  const top = new THREE.Vector2(0, DIAMOND_HALF);
-  const left = new THREE.Vector2(-DIAMOND_HALF, 0);
-  const bottom = new THREE.Vector2(0, -DIAMOND_HALF);
-  const right = new THREE.Vector2(DIAMOND_HALF, 0);
-
-  // Each corner is a quadratic through the diamond's point, started and ended
-  // CORNER_RADIUS back along the two edges that meet there.
-  const towards = (from: import('three').Vector2, to: import('three').Vector2) => {
-    const direction = new THREE.Vector2().subVectors(to, from).setLength(CORNER_RADIUS);
-    return new THREE.Vector2(from.x + direction.x, from.y + direction.y);
-  };
-
-  const hole = new THREE.Path();
-  const startAt = towards(top, left);
-  hole.moveTo(startAt.x, startAt.y);
-  for (const [corner, next] of [
-    [top, right],
-    [right, bottom],
-    [bottom, left],
-    [left, top],
-  ] as const) {
-    const after = towards(corner, next);
-    hole.quadraticCurveTo(corner.x, corner.y, after.x, after.y);
-    const before = towards(next, corner);
-    hole.lineTo(before.x, before.y);
-  }
-  hole.closePath();
-  profile.holes.push(hole);
-
-  const geometry = new THREE.ExtrudeGeometry(profile, {
-    depth: DEPTH,
-    bevelEnabled: false,
-    curveSegments: CURVE_SEGMENTS,
+/// Frees everything a loaded glTF allocated on the GPU.
+///
+/// three.js tracks none of it for you: dropping the scene graph leaves the
+/// buffers and textures resident, and a Settings sheet that is opened and closed
+/// all day would leak a coin per visit.
+function disposeLoadedModel(root: import('three').Object3D): void {
+  root.traverse((node) => {
+    const mesh = node as import('three').Mesh;
+    if (mesh.geometry === undefined) return;
+    mesh.geometry.dispose();
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      material?.dispose();
+    }
   });
-  // Centre it on Z so it turns about its own axis rather than orbiting one.
-  geometry.translate(0, 0, -DEPTH / 2);
-
-  return { geometry, edges: new THREE.EdgesGeometry(geometry) };
 }

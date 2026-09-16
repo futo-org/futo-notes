@@ -176,4 +176,78 @@ test.describe('License card', () => {
     await expect(page.getByRole('button', { name: 'Show key' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Copy key' })).toBeVisible();
   });
+
+  // The coin is a Blender model (assets/coin/futo-coin.glb) lit by an exported
+  // studio environment, loaded at runtime by three.js. Asserting the canvas
+  // exists would prove almost nothing — a failed fetch, a black material or a
+  // camera pointed at nothing all leave a canvas behind. So this reads the
+  // PIXELS back and insists they are gold.
+  //
+  // `preserveDrawingBuffer` on the renderer is what makes that read-back
+  // possible; without it the canvas samples as fully transparent.
+  test('licensed: the 3D coin loads its model and renders gold', async ({ page }) => {
+    await openLicenseSettings(page, LICENSED_V2);
+
+    // The stage only gets this class once buildCoin() has resolved a handle,
+    // which means both the .glb and the .hdr arrived and the first frame drew.
+    const stage = page.locator('.supporter-coin-stage-live');
+    await expect(stage).toBeAttached({ timeout: 15000 });
+    // The plate sits well down a scrolling Settings sheet. The coin stops its
+    // own render loop while off screen (it is one keystroke from the editor),
+    // so a test that never scrolls to it is reading a frame that happens to be
+    // left over rather than one the app is actually drawing.
+    await stage.scrollIntoViewIfNeeded();
+    await expect(stage.locator('canvas')).toBeVisible();
+
+    const sample = await page.evaluate(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>('.supporter-coin-stage canvas');
+      if (canvas === null) return null;
+      const scratch = document.createElement('canvas');
+      scratch.width = 64;
+      scratch.height = 64;
+      const context = scratch.getContext('2d');
+      if (context === null) return null;
+      context.drawImage(canvas, 0, 0, 64, 64);
+      const { data } = context.getImageData(0, 0, 64, 64);
+      let opaque = 0;
+      let golden = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const [r, g, b, a] = [data[i], data[i + 1], data[i + 2], data[i + 3]];
+        if (a < 128) continue;
+        opaque += 1;
+        // Gold is red >= green > blue by a clear margin. This rejects both a
+        // black coin (no environment) and a white one (blown-out tone mapping).
+        if (r > 70 && r >= g && g > b + 25) golden += 1;
+      }
+      return { opaque, golden };
+    });
+
+    expect(sample).not.toBeNull();
+    // The coin covers a good share of its box; a handful of stray pixels would
+    // mean the camera is framing empty space.
+    expect(sample!.opaque).toBeGreaterThan(400);
+    // Nearly every pixel the coin covers should be gold. The hole and the
+    // corners are transparent and already excluded by the alpha test.
+    expect(sample!.golden / sample!.opaque).toBeGreaterThan(0.8);
+  });
+
+  // Drag-to-turn is the whole reason the coin is a model and not a picture.
+  test('licensed: dragging across the coin turns it', async ({ page }) => {
+    await openLicenseSettings(page, LICENSED_V2);
+    await expect(page.locator('.supporter-coin-stage-live')).toBeAttached({ timeout: 15000 });
+
+    const stage = page.locator('.supporter-coin-stage');
+    await stage.scrollIntoViewIfNeeded();
+    const box = (await stage.boundingBox())!;
+    const midY = box.y + box.height / 2;
+
+    // `data-turning` is set by the pointer controller, so this proves the drag
+    // was actually claimed rather than falling through to the page.
+    await page.mouse.move(box.x + box.width * 0.2, midY);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.8, midY, { steps: 12 });
+    await expect(stage).toHaveAttribute('data-turning', 'true');
+    await page.mouse.up();
+    await expect(stage).toHaveAttribute('data-turning', 'false');
+  });
 });
