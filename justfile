@@ -170,12 +170,24 @@ build-ios-native: build-rust-ios
     exit 1
   fi
 
+# Refuse in ~2s — BEFORE the 10-25 minute Rust/FFI build — when this machine
+# cannot run Gradle: no JDK 21 discoverable for Gradle's daemon-JVM pin
+# (apps/android/gradle/gradle-daemon-jvm.properties — never fix this by
+# exporting JAVA_HOME, see apps/android/AGENTS.md) or no Android SDK ("SDK
+# location not found", the gitignored apps/android/local.properties is absent
+# in a fresh worktree). Also writes local.properties from ANDROID_HOME/detected
+# SDK. apps/android/run.sh sources the same script.
+android-env-check:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source scripts/android-env.sh
+
 # Assembles BOTH distribution flavors' debug variants (direct =
 # GitLab/Obtainium/F-Droid, play = Google Play) so a flavor-specific source set
 # or buildConfigField that only breaks one of them fails here rather than at
 # release time.
 # Compile-only sanity for the native Android app (both flavors, no install).
-build-android-native: build-rust-android
+build-android-native: android-env-check build-rust-android
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -214,14 +226,14 @@ test-ios-native: build-rust-ios
 # flavors: DistributionFlavorTest asserts a per-flavor constant, so one run
 # would only ever see half of it.
 # JVM unit tests for the native Android app, under both flavors.
-test-android-native: build-rust-android
+test-android-native: android-env-check build-rust-android
   cd apps/android && ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
 
 # `direct` only: the flavors compile the same androidTest sources against the
 # same applicationId, so running both would install one over the other for no
 # extra signal.
 # Runs Compose instrumentation tests on $ANDROID_SERIAL.
-test-android-native-ui: build-rust-android
+test-android-native-ui: android-env-check build-rust-android
   cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest
 
 # Editor performance stories against the REAL native Android app on an
@@ -1122,7 +1134,7 @@ deploy-rpm:
 # instead, which is the only way to put the exact bytes Play will review on a
 # device (Play itself is fed the AAB from CI, and an AAB cannot be adb-installed).
 # Build a RELEASE-signed Android build of one flavor and install it (com.futo.notes).
-deploy-android flavor="direct":
+deploy-android flavor="direct": android-env-check
   #!/usr/bin/env bash
   set -euo pipefail
   case '{{flavor}}' in
