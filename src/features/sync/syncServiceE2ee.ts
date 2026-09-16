@@ -255,6 +255,14 @@ export async function connectHostedE2ee(): Promise<void> {
   hostedConnected = true;
   hostedSavedVault = true;
   cachedPassword = null;
+  // Rust stops whatever live loop the previous session had before it swaps the
+  // session out (`SyncSession::connect_hosted` calls `stop_live` first), so
+  // this process's "the stream is already running" flag is now stale. Left
+  // set, a switch from a live self-hosted session makes `ensureLiveSync` a
+  // no-op and the hosted session gets no stream at all. Desktop needs no
+  // teardown of its own — unlike the native shells it holds ONE engine session
+  // and the engine replaces it — but it does have to stop believing this.
+  liveStarted = false;
 }
 
 /**

@@ -47,8 +47,13 @@ struct SyncManagerRestoreTests {
         Keychain.syncPassword = previous
     }
 
-    @Test("a device with both a password and a hosted vault restores the password session")
-    func theStoredPasswordWins() async {
+    /// D9, Justin's call of 2026-09-16. A device holding BOTH is one stranded
+    /// by a build from before a hosted connect cleared the password — neither
+    /// shell offers the self-hosted fields once hosted sync is set up, so a
+    /// person cannot create this state any more. It resumes hosted, and that
+    /// connect clears the password, so the ambiguity retires itself.
+    @Test("a device stranded with both a password and a hosted vault resumes hosted")
+    func aStrandedDeviceResumesHosted() async {
         let hosted = aSetUpHostedDevice()
         let manager = manager(hosted)
 
@@ -56,9 +61,29 @@ struct SyncManagerRestoreTests {
             await manager.restoreSession(notesRoot: root)
         }
 
+        #expect(hosted.calls.contains("hasSavedVault"))
         #expect(
-            hosted.calls.isEmpty,
-            "a self-hosted vault's restore asked the hosted wizard about itself: \(hosted.calls)")
+            hosted.calls.contains("connectSync"),
+            "a stranded device went back to its old server instead of resuming hosted: \(hosted.calls)")
+    }
+
+    /// The other half of the same rule, and the reason this is not simply
+    /// "prefer hosted": with no hosted vault the stored password still wins, so
+    /// a self-hosted device stays self-hosted.
+    @Test("a device with only a password still restores the self-hosted session")
+    func onlyAPasswordStaysSelfHosted() async {
+        let hosted = StandInSetup()  // never signed in, holds no key
+        let manager = manager(hosted)
+
+        await withStoredPassword("a stored sync password") {
+            await manager.restoreSession(notesRoot: root)
+        }
+
+        #expect(
+            !hosted.calls.contains("connectSync"),
+            "a self-hosted vault's restore connected the hosted wizard: \(hosted.calls)")
+        // Rejected by the empty-server-URL validation, which is the password
+        // branch having been taken.
         #expect(manager.statusMessage.path == "sync.status.error")
     }
 

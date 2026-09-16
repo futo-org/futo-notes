@@ -996,13 +996,23 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   The wizard fires its connect the first time it observes `ready` in a model's
   life and again after any door lands there, un-awaited, so the account card is
   not held behind a cycle; the account is re-read once that cycle ends, so the
-  storage figure is what the vault now weighs. At a cold start the shell restores
-  the password session first and, when there is no stored password, asks
-  `has_saved_vault` and connects hosted — so a force-quit and relaunch resumes
-  sync with Settings never opened. That order is safe only because a hosted
-  device has no stored password to prefer: see "Exactly one sync credential
-  exists at a time" below, which is what makes the absence of one mean "this is
-  a hosted vault" instead of "this device never used its own server". `NotSignedIn` and `VaultLocked` mean the wizard
+  storage figure is what the vault now weighs. At a cold start the shell asks
+  both local questions — is there a stored password, and does
+  `has_saved_vault` say this device holds a hosted vault — and connects the one
+  that answers; neither costs a request, so a launch with no network still
+  knows which kind of vault this is, and a force-quit and relaunch resumes sync
+  with Settings never opened. **A device that answers to both resumes hosted.**
+  That is the one ambiguous state and it is a one-time migration heal, not a
+  change of precedence: with no hosted vault the password still wins, which is
+  what keeps a self-hosted device self-hosted. Both shells stop offering the
+  self-hosted fields once hosted sync is set up, so no route a person can take
+  produces both secrets any more — a device holding both was stranded by a
+  build from before "Exactly one sync credential exists at a time" below, and
+  resuming hosted runs the clear that ends the ambiguity, so the branch retires
+  itself rather than needing a flag to switch it off. Justin's call, 2026-09-16;
+  it is deliberately not the rejected "invert the precedence", which changed the
+  rule for every case and broke the reverse direction identically. → `SyncManager.restoreBranch` _(iOS, Android;
+  shared cases in `tests/conformance/sync-session-mode.json`)_ `NotSignedIn` and `VaultLocked` mean the wizard
   is unfinished and read as not connected, never as a failure; a transport failure
   keeps both secrets and takes the muted live line, and the next foreground or
   session heal retries. → SyncManager.swift / SyncManager.kt `connectHosted` +
@@ -1050,21 +1060,27 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   KeystoreVaultSecretStore.kt _(Android)_, `sync/password_store.rs` +
   `syncServiceE2ee.ts` `connectHostedE2ee` _(desktop)_
 
-> **Gap:** _(iOS, Android)_ finishing hosted setup **while a self-hosted session
-> is live** starts no hosted session, so the rule above never fires and that
-> device still reconnects to its own server at every launch. `connectHosted`
-> returns early on `connected && client != nil && !healing` — a guard that
-> exists so the wizard's repeated connects cannot stack a second live loop — and
-> a live *password* session satisfies it just as a hosted one does. Verified on
-> the simulator, 2026-09-16 (`docs/qa/hosted-sync-ios.md`): with a password
-> session connected, the whole wizard ran to the account card and it read
-> **`0 B of 10 GB used`** with no cycle behind it; the same wizard with the
-> password session merely disconnected read `555 B` and resumed hosted across a
-> relaunch. The two shells share the guard (`SyncManager.swift` `connectHosted`,
-> `SyncManager.kt` `connectHostedLocked`); desktop does not, because
-> `ensureConnected` prefers hosted. Closing it means deciding whether completing
-> hosted setup should end a live self-hosted session — a change of specified
-> intent, not a gap to close unilaterally.
+- **Finishing hosted setup replaces a live self-hosted session.** The switch
+  action does what it says: the self-hosted session is torn down and the hosted
+  one started, rather than the connect being skipped because a session is
+  already running. The guard that skips a redundant connect is mode-aware —
+  it exists so the wizard's repeated connects (it fires one whenever it sees an
+  unlocked vault) cannot stack a second live loop for the **same** mode, and a
+  live *password* session is not that. Before it was mode-aware, completing the
+  wizard over a live password session ran to a normal-looking account card
+  reading **`0 B of 10 GB used`** with no cycle behind it, and the next launch
+  went back to the old server (iOS simulator, 2026-09-16). Justin's call the
+  same day. The teardown is the real one — Rust stops the live loop and demotes
+  the vault, exactly as an explicit disconnect does — because dropping the
+  client reference alone leaves an orphaned SSE loop pulling into a vault this
+  device no longer syncs that way; it deliberately does **not** clear the stored
+  password, which stays the business of the hosted connect below. _(desktop)_
+  needs no teardown of its own: it holds one engine session and
+  `SyncSession::connect_hosted` stops the previous live loop before swapping it,
+  but the shell must drop its "the stream is already running" flag or the hosted
+  session gets no stream at all. → `SyncManager.hostedConnectEntry` _(iOS,
+  Android; shared cases in `tests/conformance/sync-session-mode.json`)_,
+  `syncServiceE2ee.ts` `connectHostedE2ee` _(desktop)_
 
 
 

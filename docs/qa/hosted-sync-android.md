@@ -214,22 +214,52 @@ at the top of the note list within twenty seconds.
 
 - **Pairing and sign out** were not re-walked; the previous run above covers them.
 - **A physical phone's camera**, as ever.
-- **A device that has a self-hosted password stored — on Android.** `restoreSession`
-  still prefers the password branch, but a device is no longer left holding both
-  credentials: starting a hosted session clears the stored password
-  (`VaultSecrets::delete_sync_password`, reached from `KeystoreVaultSecretStore`), so
-  the branch that runs first is the one that matches this device's mode. The rule is
-  covered by the engine's own scenario
-  (`finishing_hosted_setup_clears_the_self_hosted_password`, run against both the stub
-  and a real stand-in server) and was driven end to end **on the iOS simulator**
-  (`docs/qa/hosted-sync-ios.md`, 2026-09-16); this emulator was cleared first, so no
-  Android run has walked it. The Android leg of that fix is compile-verified plus
-  `just test-android-native` only.
-- **Switching to hosted while a self-hosted session is live — on Android.** The iOS run
-  found that `connectHosted` returns early when a password session is already
-  connected, so the wizard finishes without starting a hosted session or clearing the
-  password. `SyncManager.kt` `connectHostedLocked` carries the same guard, so Android is
-  expected to behave identically, but that was not driven here. Recorded as a gap in
-  `docs/spec/sync.md`.
+- **A device that has a self-hosted password stored.** Now driven on this emulator — see
+  the run below.
 - **Offline at boot.** Covered only by the JVM tests; no run has pulled the network out
   from under a launching app.
+
+## Run — 2026-09-16, C12 + D8 + D9 on the emulator
+
+Emulator `futo-qa-3` (`emulator-5560`), debug app, `just qa-claim android` →
+`just qa-release`. Two servers: the stand-in hosted one on `127.0.0.1:3131` and a
+password-mode "my own server" on `10.0.2.2:3181`. The debug `.so` has to be the `dev` FFI
+profile or `--es futo_hosted_server` is compiled out; `FUTO_HOSTED_SERVER=… just
+android-native` selects it. Both of the stand-in's extra listeners were `adb reverse`d
+alongside `tcp:3131`, and the app pointed at `127.0.0.1:3131`, per the mechanics above.
+
+The oracle is the same one the iOS runs use — `lsof -nP -iTCP:<port> -sTCP:ESTABLISHED`
+on the host — reading which server the device actually holds a socket to. Emulator traffic
+is NATed, so the self-hosted side appears as `netsimd` and the `adb reverse`d hosted side as
+`adb`; ports are this worktree's slot ports and only the claimed emulator uses them. Drop
+stale reverse sockets (`adb reverse --remove-all`, then re-add) before a measurement, or
+a previous launch's connections read as the current one's.
+
+**D8 — finishing hosted setup replaces a live self-hosted session: PASS.** Connected to
+`:3181` first ("Sync complete", Disconnect offered), then **Log in with FUTO** → unlock,
+**without disconnecting**. The account card read `person@standin.test` · `Active` ·
+**`555 B of 10 GB used`** · `Sync complete`; `:3131` held the connections and `:3181` held
+**none**. `am force-stop` + relaunch, nothing tapped: `:3131` only.
+
+**D9 — a stranded device resumes hosted, and the password is gone: PASS.** A genuinely
+pre-fix build (the `connect_sync` clear and the Kotlin `restoreBranch` order both reverted)
+was installed on a `pm clear`ed app and walked to the both-credentials state; its relaunch
+dialled `:3181` and never `:3131`. `:app:installDebug` upgrades in place and keeps
+SharedPreferences, so the `SecureStore` entries and the stable vault path both survive —
+Android needs none of the iOS container pinning. The first launch on the fixed build
+connected `:3131` and never touched `:3181`; after **Sign out**, a further relaunch reached
+neither server, so the heal had cleared the password.
+
+### Not proven by this run
+
+- **A physical phone**, and its camera, as ever.
+- **Offline at boot**, still covered only by the JVM tests.
+
+### Mechanic worth keeping
+
+**The soft keyboard silently eats taps on controls the accessibility tree still reports.**
+`Connect & Sync` sits below the IME once a field is focused, and `android-drive tap` happily
+reported `tapped "Connect & Sync" at 201,1252` three times while hitting the keyboard —
+status stayed `Not connected` with nothing in logcat, which reads as a broken connect. Check
+`adb shell dumpsys input_method | grep mInputShown` and send `keyevent 4` until it is
+`false` before tapping anything low on the screen. AGENTS.md M21: suspect the tool first.

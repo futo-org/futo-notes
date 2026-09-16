@@ -994,6 +994,16 @@ const FIXTURES_OUTSIDE_THE_DIFFERENTIAL = {
   'constants.json':
     'Shared scalar constants, not ops. Locked by crates/futo-notes-model/tests/' +
     'conformance.rs, src/lib/constantsConformance.test.ts, and the Tauri watcher test.',
+  'sync-session-mode.json':
+    'hostedConnectEntry / restoreBranch have NO Rust implementation: they are ' +
+    "decisions about a SHELL's own live session state (does this manager hold a " +
+    'client, in which mode) that the engine cannot see, hand-written twice in Swift ' +
+    'and Kotlin (scripts/drift-registry.json concept ' +
+    '"sync-session-mode-precedence"). Each native shell asserts this fixture from ' +
+    'its own unit test, so the fixture IS the lock. Growing it also means bumping ' +
+    'the case counts asserted in apps/ios/Tests/Sync/SyncSessionModeConformanceTests' +
+    '.swift and apps/android/.../SyncSessionModeConformanceTest.kt, and re-running ' +
+    'both native suites.',
 };
 
 // Divergences the two languages KNOWN-ship today. Each entry names the exact op

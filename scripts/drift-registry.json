@@ -566,6 +566,41 @@
           "pattern": "val banner: HostedBanner"
         }
       ]
+    },
+    {
+      "concept": "sync-session-mode-precedence",
+      "description": "Which sync session wins, hand-written x2 (native shells only). `hostedConnectEntry` says what a hosted connect does about a session already in hand \u2014 skip the wizard's idempotent re-entry, replace a live self-hosted one, or proceed (D8). `restoreBranch` says which credential a cold launch reaches for, including the one stranded device that holds both (D9). Justin's calls of 2026-09-16, specified once in docs/spec/sync.md.",
+      "lockStatus": "locked",
+      "note": "LOCKED: both consumers read the full shared fixture \u2014 Swift's SyncSessionModeConformanceTests.swift and Kotlin's SyncSessionModeConformanceTest.kt each assert all 8 hostedConnectEntry and all 4 restoreBranch cases, and both assert the case counts first so a truncated fixture fails rather than passing vacuously. Desktop has NO copy on purpose: it holds ONE engine session and `SyncSession::connect_hosted` stops the previous live loop itself, so there is no teardown to sequence and `ensureConnected` already prefers hosted \u2014 a Swift/Kotlin-shaped copy there would be drift, not parity.",
+      "copies": [
+        {
+          "location": "apps/ios/Sources/Sync/SyncManager.swift",
+          "pattern": "static func hostedConnectEntry"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/SyncManager.kt",
+          "pattern": "fun hostedConnectEntry"
+        }
+      ],
+      "locks": [
+        {
+          "path": "tests/conformance/sync-session-mode.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "apps/ios/Tests/Sync/SyncSessionModeConformanceTests.swift",
+          "kind": "test"
+        },
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/SyncSessionModeConformanceTest.kt",
+          "kind": "test"
+        }
+      ],
+      "scan": {
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
+        "pattern": "(func hostedConnectEntry|fun hostedConnectEntry|func restoreBranch|fun restoreBranch)\\b"
+      }
     }
   ]
 }

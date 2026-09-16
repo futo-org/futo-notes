@@ -96,6 +96,12 @@ class SyncManager(
      *  can surface from both the manual sync path and the live loop at once. */
     private var healing = false
 
+    /** Which door opened the session in [client], so [connectHosted] can tell
+     *  the session it must not duplicate from the one it must replace. Set only
+     *  where a session is adopted, cleared only where one is dropped.
+     *  Mirrors iOS `SyncManager.sessionMode`. */
+    private var sessionMode: SessionMode? = null
+
     /** Drains connect/heal/manual/resume work before a vault migration starts
      * and rejects any new sync work until the old vault is resumed or the app
      * restarts on the migrated root. */
@@ -171,6 +177,7 @@ class SyncManager(
             }
             afterConnect(
                 c,
+                SessionMode.SELF_HOSTED,
                 LocalizedMessage(
                     "sync.status.connectedAndSyncing",
                     mapOf("authMode" to info.authMode),
@@ -193,8 +200,9 @@ class SyncManager(
      * same `syncNow` path every later trigger goes through, not a second one
      * written for hosted. Mirrors iOS `SyncManager.afterConnect`.
      */
-    private suspend fun afterConnect(c: SyncClient, status: LocalizedMessage) {
+    private suspend fun afterConnect(c: SyncClient, mode: SessionMode, status: LocalizedMessage) {
         client = c
+        sessionMode = mode
         connected = true
         statusMessage = status
         val initial = c.syncNow()
@@ -247,12 +255,18 @@ class SyncManager(
         notesRoot: String,
         setup: HostedSetupClientInterface,
     ) {
-        // Already syncing this vault, and not rebuilding a dead session: the
-        // wizard starts a connect whenever it sees an unlocked vault, which on
-        // a restart is after boot restore connected one — and a second client
-        // would leave the first one's live loop running.
-        if (connected && client != null && !healing) return
+        val entry = hostedConnectEntry(connected, client != null, healing, sessionMode)
+        if (entry == HostedConnectEntry.SKIP) return
         busy = true
+        // Finishing hosted setup REPLACES a live self-hosted session, rather
+        // than skipping the connect because one is running. The teardown is the
+        // real one — Rust stops the live loop and demotes this vault's sync
+        // state — because dropping the reference alone leaves an orphaned SSE
+        // loop pulling into a vault this device no longer syncs that way.
+        // Deliberately not [disconnect]: that also clears the stored password,
+        // and the single owner of that rule is Rust's `connect_sync` below,
+        // which clears it only once the hosted session is certain.
+        if (entry == HostedConnectEntry.REPLACE_SELF_HOSTED) tearDownSession()
         lastErrorDiagnostic = null
         errorMessage = null
         statusMessage = LocalizedMessage("sync.status.connecting")
@@ -260,7 +274,8 @@ class SyncManager(
         try {
             val c = SyncClient(notesRoot, setup.serverUrl())
             setup.connectSync(c)
-            afterConnect(c, LocalizedMessage("sync.status.hostedConnectedAndSyncing"))
+            afterConnect(
+                c, SessionMode.HOSTED, LocalizedMessage("sync.status.hostedConnectedAndSyncing"))
         } catch (e: HostedException) {
             lastErrorDiagnostic = describe(e)
             applyHostedConnectFailure(e)
@@ -505,15 +520,18 @@ class SyncManager(
     /** Silent reconnect with the persisted session at startup [sync.md:91].
      *  Fire-and-forget, off-main — never gates render (M1). Failures surface via
      *  [statusMessage]/[lastErrorDiagnostic] but do NOT wipe what is stored (the
-     *  server may simply be unreachable); only [disconnect] clears the password,
-     *  and only an explicit sign out clears the hosted secrets.
+     *  server may simply be unreachable); a hosted connect and an explicit
+     *  [disconnect] are what clear the password, and only an explicit sign out
+     *  clears the hosted secrets.
      *
-     *  The password path comes first, because a vault set up against someone's
-     *  own server is the one with a password to reconnect with. A hosted vault
-     *  has none — it is recognised by the two secrets Rust saved, read from the
-     *  Keystore with no request, so a launch with no network still knows which
-     *  kind of vault this is, and a restart resumes sync **without Settings
-     *  ever being opened**. → sync.md */
+     *  A self-hosted vault is the one with a password to reconnect with; a
+     *  hosted vault has none and is recognised instead by the two secrets Rust
+     *  saved. Both are local reads — no request of any kind — so a launch with
+     *  no network still knows which kind of vault this is, and a restart
+     *  resumes sync **without Settings ever being opened**.
+     *
+     *  [restoreBranch] owns the choice, including the one device that answers
+     *  to both; read its doc before changing the order here. → sync.md */
     fun restoreSession(notesRoot: String) {
         scope.launch {
             storageMigrationGate.runAccessIfAvailable {
@@ -521,13 +539,15 @@ class SyncManager(
                 val password = withContext(Dispatchers.IO) {
                     runCatching { secure?.loadPassword() }.getOrNull()
                 }
-                if (password != null) {
-                    connectAndSyncLocked(notesRoot, password)
-                    return@runAccessIfAvailable
+                val setup = makeHostedSetup(notesRoot)
+                val hasHostedVault = setup != null && hasSavedVault(setup)
+                when (restoreBranch(password != null, hasHostedVault)) {
+                    RestoreBranch.HOSTED ->
+                        connectHostedLocked(notesRoot, setup ?: return@runAccessIfAvailable)
+                    RestoreBranch.SELF_HOSTED ->
+                        connectAndSyncLocked(notesRoot, password ?: return@runAccessIfAvailable)
+                    RestoreBranch.NOTHING -> return@runAccessIfAvailable
                 }
-                val setup = makeHostedSetup(notesRoot) ?: return@runAccessIfAvailable
-                if (!hasSavedVault(setup)) return@runAccessIfAvailable
-                connectHostedLocked(notesRoot, setup)
             }
         }
     }
@@ -543,16 +563,28 @@ class SyncManager(
     fun finishReset() { storageMigrationGate.resume() }
 
     suspend fun disconnect() {
+        tearDownSession()
+        // An explicit disconnect is where the USER wipes the stored password;
+        // the other place it goes is Rust's `connect_sync` when a hosted
+        // session starts (docs/spec/sync.md, "Exactly one sync credential").
+        withContext(Dispatchers.IO) { runCatching { secure?.clearPassword() } }
+    }
+
+    /** Ends the session this manager is holding, for real: Rust stops the live
+     *  loop and demotes this vault's sync state, and nothing local is left
+     *  pointing at a client that is gone. Touches no stored secret — the
+     *  explicit [disconnect] adds the password clear, and the hosted switch
+     *  leaves it to Rust's `connect_sync`. Mirrors iOS `tearDownSession`. */
+    private suspend fun tearDownSession() {
         try { client?.disconnect() } catch (_: Exception) {} // also stops live in Rust
         forgetSession()
-        // Explicit disconnect is the ONLY place the stored password is wiped.
-        withContext(Dispatchers.IO) { runCatching { secure?.clearPassword() } }
     }
 
     /** Drops this manager's view of a session, without touching disk or any
      *  secret — what is left to do once Rust has revoked and demoted one. */
     private fun forgetSession() {
         client = null
+        sessionMode = null
         connected = false
         live = false
         healing = false  // clear any stalled heal so a future session can heal
@@ -574,8 +606,82 @@ class SyncManager(
     // Visible for testing: the boolean-driven seed selection is pure (no
     // BuildConfig), so the SyncManagerDefaultsTest unit test can pin both
     // branches. `defaultServer()` wires in the real BuildConfig.DEBUG.
+    /** Which door opened the session this manager is currently holding.
+     *  Mirrors iOS `SyncManager.SessionMode`. */
+    internal enum class SessionMode { SELF_HOSTED, HOSTED }
+
+    /** What a hosted connect does about the session already in hand. */
+    internal enum class HostedConnectEntry { SKIP, REPLACE_SELF_HOSTED, PROCEED }
+
+    /** Which credential a cold launch reaches for. */
+    internal enum class RestoreBranch { HOSTED, SELF_HOSTED, NOTHING }
+
     internal companion object {
         const val DEFAULT_SERVER = "http://10.0.2.2:3005" // emulator → host loopback (debug only)
+
+        // ── Which session wins ───────────────────────────────────────────
+        //
+        // Both decisions are pure, so they are pinned by the shared cross-shell
+        // case-set in tests/conformance/sync-session-mode.json rather than only
+        // by whatever a device happened to do. Swift carries the same pair.
+
+        /** What a hosted connect does about the session already in hand.
+         *
+         *  Mode-aware because it did not used to be: the guard skipped on *any*
+         *  live session, and a self-hosted one is not a reason to skip the
+         *  connect that is meant to replace it. Completing the wizard over a
+         *  live password session left a normal-looking account card reading
+         *  `0 B of 10 GB used` with no cycle behind it, and the next launch went
+         *  back to the old server (iOS simulator, 2026-09-16). Justin's call the
+         *  same day: finishing hosted setup replaces a self-hosted session.
+         *  Mirrors iOS `SyncManager.hostedConnectEntry`. → sync.md */
+        internal fun hostedConnectEntry(
+            connected: Boolean,
+            hasClient: Boolean,
+            healing: Boolean,
+            mode: SessionMode?,
+        ): HostedConnectEntry {
+            // A client that is gone cannot be holding a live loop, and a session
+            // being healed is being rebuilt — neither is a session to skip for.
+            if (connected && hasClient && !healing && mode == SessionMode.HOSTED) {
+                return HostedConnectEntry.SKIP
+            }
+            // `hasClient` and not `connected`: a cycle that failed still leaves
+            // the live loop running, and that loop is exactly what must not be
+            // orphaned.
+            if (hasClient && mode == SessionMode.SELF_HOSTED) {
+                return HostedConnectEntry.REPLACE_SELF_HOSTED
+            }
+            return HostedConnectEntry.PROCEED
+        }
+
+        /** Which credential a cold launch reaches for. Both inputs are local
+         *  secret-store reads, so this costs no network even on a launch with
+         *  none.
+         *
+         *  **Holding both is a one-time migration heal that retires itself, not
+         *  a change of precedence.** With no hosted vault the password still
+         *  wins — that is what keeps a self-hosted device self-hosted, and it is
+         *  the whole difference between this and the "just invert the
+         *  precedence" option that was rejected for breaking the reverse case
+         *  identically. Both shells stop offering the self-hosted fields once
+         *  hosted sync is set up (`HostedSyncSections`, `screen != ACCOUNT`), so
+         *  a device can no longer arrive at both secrets by any route a person
+         *  can take; the only devices that hold both are ones stranded by a
+         *  build from before a hosted connect cleared the password. Taking the
+         *  hosted branch there runs that clear, after which the state cannot
+         *  recur — so this branch stops being reachable on its own rather than
+         *  needing a flag to switch it off. Do not "simplify" it into
+         *  unconditional hosted-first. Justin's call, 2026-09-16.
+         *  Mirrors iOS `SyncManager.restoreBranch`. → sync.md */
+        internal fun restoreBranch(
+            hasStoredPassword: Boolean,
+            hasHostedVault: Boolean,
+        ): RestoreBranch = when {
+            hasHostedVault -> RestoreBranch.HOSTED
+            hasStoredPassword -> RestoreBranch.SELF_HOSTED
+            else -> RestoreBranch.NOTHING
+        }
 
         /** First-launch seed for [serverUrl]: the emulator dev server in debug,
          *  empty in release (a shipping build starts with no server until the

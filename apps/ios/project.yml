@@ -140,6 +140,9 @@ targets:
       # validateServerURL conformance test loads it from the bundle.
       - path: ../../tests/conformance/server-url.json
         buildPhase: resources
+      # Same arrangement for the two session-precedence decisions (D8/D9).
+      - path: ../../tests/conformance/sync-session-mode.json
+        buildPhase: resources
       - path: ../../tests/localization/cases.json
         buildPhase: resources
     dependencies:

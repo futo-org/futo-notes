@@ -264,6 +264,42 @@ That is the reported bug exactly.
   never reaches — so it self-heals only when the sync screen is opened once. Not walked.
 - **Switching while connected**, which is now a recorded gap — see the run note below.
 
+## Run 4 — 2026-09-16, D8 + D9: the switch, and the stranded device
+
+Same rig as run 3 (simulator `futo-qa-4`, stand-in hosted on `127.0.0.1:3131`, password-mode
+"my own server" on `127.0.0.1:3181`, the `lsof -nP -iTCP:<port> -sTCP:ESTABLISHED` oracle).
+
+**D8 — finishing hosted setup replaces a live self-hosted session: PASS.** The exact story
+that failed in run 3. Connected to `:3181` first ("Sync complete"), then walked the whole
+wizard — consent, subscribe, create vault, recovery key — **without disconnecting**. The
+account card came up reading `person@standin.test` · `Active` · **`555 B of 10 GB used`** ·
+`Sync complete`; `:3131` held two sockets and `:3181` held **none**, so the self-hosted
+session was genuinely torn down rather than orphaned. `simctl terminate` + relaunch with
+both servers up and nothing tapped: `:3131` only. Run 3's `0 B of 10 GB used` is what this
+looked like before.
+
+**D9 — a stranded device resumes hosted, and the password is gone: PASS.** Built the
+stranded state with a genuinely pre-fix binary (the `connect_sync` clear and the
+`restoreBranch` order both reverted, rebuilt, installed): connect self-hosted, complete the
+hosted wizard, and that build leaves **both** credentials. Its relaunch dialled `:3181` and
+never `:3131` — the reported bug, reproduced. Installing the fixed build over it and
+relaunching, with nothing tapped, connected `:3131` and never touched `:3181`. Then **Sign
+out** (which forgets the hosted secrets and nothing else) and relaunch: the app connected to
+**neither** server — so the heal had cleared the password. Had it survived, this is exactly
+the launch that would have dialled `:3181`, as the pre-fix build demonstrably did.
+
+### Mechanic this run cost an hour to find
+
+**`xcrun simctl install` over an existing app gives it a NEW data container**, so the notes
+root path changes — and every Keychain entry scoped by notes root (`vaultKey:<root>`,
+`sessionToken:<root>`) stops resolving, while the app-global `syncPassword` keeps resolving
+untouched. An "upgrade" story done by reinstalling therefore silently loses exactly the
+hosted half of the state it is meant to carry across, and the app then behaves *correctly*
+for the state it can actually see — which reads as the fix failing. Pin the vault with
+`SIMCTL_CHILD_FUTO_NOTES_DATA_DIR=<absolute path>` on **every** launch and install; a
+simulator app can write outside its container, the root is then stable, and the scoped
+entries survive. Without that pin no upgrade/migration story on the simulator means anything.
+
 ### What this run FOUND: switching to hosted while a self-hosted session is live
 
 Walked first, before the passing story above, and it does **not** work. With the
@@ -277,6 +313,7 @@ password is never cleared.
 
 `0 B` versus the `555 B` the same wizard produced once the password session was merely
 disconnected is the tell, and it is easy to miss — the card looks finished either way.
-Recorded as a gap in `docs/spec/sync.md`; closing it means deciding whether completing
-hosted setup should tear down a live self-hosted session, which is a change of specified
-intent rather than a gap to close in passing.
+Recorded as a gap in `docs/spec/sync.md` at the time; closing it meant deciding whether
+completing hosted setup should tear down a live self-hosted session, which was a change of
+specified intent rather than a gap to close in passing. **Justin took that decision the same
+day (D8) and run 4 above verifies it**, so the gap is closed and the rule is specified.

@@ -27,6 +27,8 @@ const kr = vi.hoisted(() => ({
   // Whether this device has hosted secrets Rust could resume — the local
   // secret-store read `e2ee_hosted_has_saved_vault` answers at boot.
   hostedVault: false,
+  // How many times the Rust SSE loop was actually asked to start.
+  liveStarts: 0,
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -45,6 +47,9 @@ vi.mock('@tauri-apps/api/core', () => ({
         if (kr.gate.delete) await kr.gate.delete;
         if (kr.fail.delete) throw new Error('keyring delete failed');
         kr.store.delete('pw');
+        return undefined;
+      case 'e2ee_start_live':
+        kr.liveStarts += 1;
         return undefined;
       case 'e2ee_hosted_has_saved_vault':
         return kr.hostedVault;
@@ -123,8 +128,14 @@ beforeEach(async () => {
   kr.gate.set = kr.gate.get = kr.gate.delete = null;
   kr.fail.set = kr.fail.get = kr.fail.delete = false;
   kr.hostedVault = false;
+  kr.liveStarts = 0;
   toastMock.messages = [];
 });
+
+/** How many times `e2ee_start_live` reached the (mocked) engine. */
+function liveStartCount(): number {
+  return kr.liveStarts;
+}
 
 describe('E2EE vault password migration to the OS keyring (F6)', () => {
   it('moves a plaintext e2eePassword into the keyring and scrubs the JSON file', async () => {
@@ -670,6 +681,24 @@ describe('one sync credential at a time (hosted vs self-hosted)', () => {
     expect(kr.store.get('pw')).toBeUndefined();
     expect(svc.hasStoredSyncPassword()).toBe(false);
     expect(svc.isE2eeConfigured()).toBe(true); // hosted, not password
+  });
+
+  it('switching to hosted leaves the live stream startable, not stuck "already running"', async () => {
+    // D8's desktop half. Rust stops the old session's live loop inside
+    // `connect_hosted`, so a shell that still believes its stream is running
+    // makes `ensureLiveSync` a no-op and the hosted session never gets one.
+    const { platform, svc } = await fresh();
+    await platform.testFS.writeAppData('.app-state.json', seedAppState({}));
+    kr.store.set('pw', 'the password for my own server');
+    await svc.initSyncPassword();
+
+    await svc.ensureLiveSync();
+    expect(liveStartCount()).toBe(1);
+
+    await svc.connectHostedE2ee();
+    await svc.ensureLiveSync();
+
+    expect(liveStartCount()).toBe(2);
   });
 
   it('the launch that resumes a hosted vault does not resurrect the password', async () => {
