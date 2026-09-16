@@ -314,6 +314,29 @@ impl HostedSetup {
         .map_err(|error| HostedError::Server(error.to_string()))
     }
 
+    /// Whether this device has a hosted vault it can resume: **both** secrets
+    /// in the secret store, read locally with no request of any kind.
+    ///
+    /// This is the cold-start question, and it is deliberately not
+    /// [`HostedSetup::current_step`] or [`HostedSetup::connect_sync`] — both of
+    /// those validate the saved token with `current_user` and resolve the
+    /// collection, so on a fresh process both reach the network before they can
+    /// answer anything. A shell restoring a session at launch has to know
+    /// whether this vault is hosted *before* it is willing to spend a round
+    /// trip, and offline it has to know without one at all.
+    ///
+    /// Both or neither: a token with no vault key cannot decrypt, and a vault
+    /// key with no token cannot authenticate, so either one alone is not a
+    /// session to resume. A setup with no secret store attached refuses rather
+    /// than answering `false`, which a shell would read as "not hosted".
+    pub async fn has_saved_vault(&self) -> Result<bool, HostedError> {
+        let secrets = self.secrets()?;
+        blocking_secrets(secrets, |store| {
+            Ok(store.vault_key()?.is_some() && store.session_token()?.is_some())
+        })
+        .await
+    }
+
     /// Signs out: revoke the session on the server, forget both secrets, and
     /// demote this vault's sync state exactly as disconnect does — one action,
     /// with no locked-but-signed-in halfway state left behind (ADR 0003,

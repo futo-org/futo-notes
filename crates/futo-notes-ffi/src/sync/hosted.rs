@@ -537,6 +537,30 @@ impl HostedSetupClient {
         Ok(self.setup.new_recovery_key().await?)
     }
 
+    /// Hands this device's hosted secrets to the sync engine, so cycles can
+    /// run. The step after `ready`, whichever door got there, and the mirror
+    /// image of `signOut`.
+    ///
+    /// Safe to call again: connecting an already-connected session rebuilds it
+    /// from the same facts, which is what lets a shell call it whenever it
+    /// notices an unlocked vault rather than only at the moment it became one.
+    /// A device with no vault key is `VaultLocked` and one with no session is
+    /// `NotSignedIn` — both mean the wizard is not finished, not that anything
+    /// broke.
+    pub async fn connect_sync(&self, sync: Arc<SyncClient>) -> Result<(), HostedError> {
+        let (session, root) = sync.parts();
+        Ok(self.setup.connect_sync(session, root).await?)
+    }
+
+    /// Whether this device has a hosted vault to resume, read from its secret
+    /// store with **no request of any kind**. What a shell asks at a cold start
+    /// before it is willing to spend a round trip — `currentStep` and
+    /// `connectSync` both validate the saved token and resolve the collection
+    /// over the network, so neither can answer this offline.
+    pub async fn has_saved_vault(&self) -> Result<bool, HostedError> {
+        Ok(self.setup.has_saved_vault().await?)
+    }
+
     /// One action: revoke the session, forget both secrets, and demote this
     /// vault's sync state exactly as disconnect does. The notes stay.
     pub async fn sign_out(&self, sync: Arc<SyncClient>) -> Result<(), HostedError> {

@@ -779,6 +779,50 @@ pub async fn a_set_up_vault_starts_syncing(base: &str) {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// The cold-start question, end to end: a device that finished the wizard says
+/// so from its secret store alone, and a device that signed out says no.
+///
+/// The read is proved local by asking it through a setup pointed at a port
+/// nothing listens on — a `current_step` or a `connect_sync` there would answer
+/// `Network`, which is exactly why a shell restoring a session at launch cannot
+/// use either.
+pub async fn a_finished_wizard_is_recognised_without_the_network(base: &str) {
+    let secrets = DeviceSecrets::new();
+    let offline = || {
+        HostedSetup::at("http://127.0.0.1:9")
+            .expect("hosted setup")
+            .with_secrets(Arc::clone(&secrets) as Arc<dyn VaultSecrets>)
+    };
+    assert!(
+        !offline().has_saved_vault().await.expect("read"),
+        "a device that has never been set up reported a saved vault"
+    );
+
+    let phone = device_signed_in(base, &secrets).await;
+    without_a_vault(&phone).await;
+    entitled(&phone).await;
+    phone
+        .create_vault(VAULT_PASSWORD)
+        .await
+        .expect("create the vault");
+
+    assert!(
+        offline().has_saved_vault().await.expect("read"),
+        "a finished wizard left nothing a cold start could recognise"
+    );
+
+    let root = fresh_vault();
+    phone
+        .sign_out(&SyncSession::new(), &root)
+        .await
+        .expect("sign out");
+    assert!(
+        !offline().has_saved_vault().await.expect("read"),
+        "a signed-out device would try to resume a session it no longer has"
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
 /// A device that has not unlocked has nothing to sync with, and says so rather
 /// than connecting a session with no key in it.
 pub async fn a_locked_device_cannot_start_syncing(base: &str) {
