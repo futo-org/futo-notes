@@ -8,6 +8,11 @@ import SwiftUI
 struct HostedAccountCardView<ScanDestination: View>: View {
     let email: String
     let billing: BillingStatus?
+    /// What this vault's sync session is doing, in words the sync screen
+    /// already uses. Shown here because the end of the wizard is a running
+    /// sync: a card that reported only the account would leave a person
+    /// watching `0 B of 10 GB used` with no sign anything had started.
+    let syncStatus: String
     let busy: Bool
     let onManage: () -> Void
     let onChangeVaultPassword: () -> Void
@@ -48,6 +53,11 @@ struct HostedAccountCardView<ScanDestination: View>: View {
             .foregroundStyle(.secondary)
             .accessibilityIdentifier("hosted-account-storage")
         }
+
+        Text(syncStatus)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("hosted-account-sync-status")
 
         Button(
             localization.localizedText("sync.hosted.account.manageSubscription"), action: onManage

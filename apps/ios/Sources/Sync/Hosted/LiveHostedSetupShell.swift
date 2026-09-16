@@ -40,21 +40,24 @@ final class LiveHostedSetupShell: HostedSetupShell {
 
 extension HostedSetupModel {
     /// The wizard as the app runs it: Rust's state machine over this vault's
-    /// Keychain entries, the iOS auth sheet, and a handle on the same vault for
-    /// sign out to demote through.
-    static func live(notesRoot: String, store: NotesStore) -> HostedSetupModel {
+    /// Keychain entries, the iOS auth sheet, and the app's one `SyncManager`
+    /// for the two things that are sessions rather than screens — starting one
+    /// when the wizard finishes, and revoking the live one on sign out.
+    static func live(notesRoot: String, store: NotesStore, sync: SyncManager) -> HostedSetupModel {
         HostedSetupModel(
             makeSetup: {
                 try HostedSetupClient.hosted(
                     secrets: KeychainVaultSecretStore(notesRoot: notesRoot))
             },
             shell: LiveHostedSetupShell(store: store),
-            // Hosted sync does not run a session yet (futo-notes#186), so there
-            // is no live hosted client to reuse; `signOut` only needs a handle
-            // on the vault to demote what is on disk, exactly as disconnect
-            // does.
-            makeSignOutTarget: {
-                SyncClient(notesRoot: notesRoot, serverUrl: hostedServerUrl())
+            // Through the manager, so Rust revokes the session that is actually
+            // running: handed a throwaway client, `stop_live` would leave the
+            // live loop alive after the session it belongs to was gone.
+            signOutEffect: { setup in
+                try await sync.signOutHosted(notesRoot: notesRoot, setup: setup)
+            },
+            connectEffect: { setup in
+                await sync.connectHosted(notesRoot: notesRoot, setup: setup)
             }
         )
     }

@@ -544,6 +544,7 @@
         "reconnecting": "Reconnecting…",
         "reconnectingAccessibilityLabel": "Reconnecting to sync server",
         "connectedAndSyncing": "Connected ({authMode}) · syncing…",
+        "hostedConnectedAndSyncing": "Connected to FUTO · syncing…",
         "syncing": "Syncing…",
         "complete": "Sync complete",
         "error": "Error",
@@ -570,6 +571,7 @@
         "previousFailure": "The last sync failed. Try again.",
         "completedWithErrors": "Sync completed with errors. Some changes could not reach the server.",
         "liveUnavailable": "Live sync is temporarily unavailable. FUTO Notes will keep retrying.",
+        "hostedOffline": "Can't reach FUTO right now. FUTO Notes will keep retrying.",
         "forgetPasswordFailed": "Couldn't remove the saved sync password.",
         "dismissWithMessageAccessibilityLabel": "Sync error: {message}. Click to dismiss.",
         "dismissTitle": "{message} — click to dismiss"
