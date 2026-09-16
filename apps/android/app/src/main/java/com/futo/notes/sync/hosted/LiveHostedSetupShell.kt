@@ -9,11 +9,10 @@ import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import com.futo.notes.SecureStore
+import com.futo.notes.SyncManager
 import com.futo.notes.localization.Localization
 import com.futo.notes.localization.LocalizedMessage
 import uniffi.futo_notes_ffi.HostedSetupClient
-import uniffi.futo_notes_ffi.SyncClient
-import uniffi.futo_notes_ffi.hostedServerUrl
 
 /**
  * The live wiring behind the hosted wizard: the Custom Tab, the clipboard, the
@@ -86,18 +85,21 @@ class LiveHostedSetupShell(
 
 /**
  * The wizard as the app runs it: Rust's state machine over this vault's
- * Keystore entries, a Custom Tab, and a handle on the same vault for sign out
- * to demote through.
+ * Keystore entries, a Custom Tab, and the app's one [SyncManager] for the two
+ * things that are sessions rather than screens — starting one when the wizard
+ * finishes, and revoking the live one on sign out.
  */
 fun liveHostedSetupModel(
     notesRoot: String,
     secure: SecureStore,
     shell: LiveHostedSetupShell,
+    sync: SyncManager,
 ): HostedSetupModel = HostedSetupModel(
     makeSetup = { HostedSetupClient.hosted(KeystoreVaultSecretStore(secure, notesRoot)) },
     shell = shell,
-    // Hosted sync does not run a session yet (futo-notes#186), so there is no
-    // live hosted client to reuse; `signOut` only needs a handle on the vault
-    // to demote what is on disk, exactly as disconnect does.
-    signOutEffect = { setup -> setup.signOut(SyncClient(notesRoot, hostedServerUrl())) },
+    // Through the manager, so Rust revokes the session that is actually
+    // running: handed a throwaway client, `stopLive` would leave the live loop
+    // alive after the session it belongs to was gone.
+    signOutEffect = { setup -> sync.signOutHosted(notesRoot, setup) },
+    connectEffect = { setup -> sync.connectHosted(notesRoot, setup) },
 )

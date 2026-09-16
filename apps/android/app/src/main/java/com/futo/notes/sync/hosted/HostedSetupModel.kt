@@ -5,6 +5,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.futo.notes.localization.LocalizedMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import uniffi.futo_notes_ffi.BillingStatus
 import uniffi.futo_notes_ffi.Checkout
 import uniffi.futo_notes_ffi.EntitlementOutcome
@@ -120,6 +124,23 @@ class HostedSetupModel(
      */
     private val signOutEffect: suspend (HostedSetupClientInterface) -> Unit,
     /**
+     * Started the moment this wizard reaches `READY`: the vault is unlocked, so
+     * a sync can run. Every door ends here — a vault password, a recovery key,
+     * or a paired device — because all three end with the same two secrets in
+     * the same place.
+     *
+     * Run outside the step, because it is a whole sync cycle and the account
+     * card must not wait behind one. Fired once per reached session (see
+     * `connectStarted`), and idempotent beyond that anyway: Rust rebuilds the
+     * same session from the same facts.
+     */
+    private val connectEffect: suspend (HostedSetupClientInterface) -> Unit,
+    /**
+     * Where the connect and the account re-read run. The screen's own scope in
+     * the app; a test hands it one it can drain.
+     */
+    private val effectScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    /**
      * Reads the server's capability document. A parameter only because it is
      * the one thing [load] does that talks to the network before there is a
      * state machine to talk through.
@@ -215,6 +236,13 @@ class HostedSetupModel(
     var selfHostedOpen by mutableStateOf(false)
 
     private var setup: HostedSetupClientInterface? = null
+
+    /**
+     * Whether the connect for the session this wizard is looking at has been
+     * started. Reset when it observes a signed-out device, so signing back in
+     * starts the next session's sync.
+     */
+    private var connectStarted = false
 
     /**
      * A banner is a fact about the account, read the same way the account card
@@ -513,7 +541,10 @@ class HostedSetupModel(
         when (setup.currentStep()) {
             SetupStep.SIGN_IN -> {
                 // Nothing below applies before there is a session, and asking
-                // for it would be a round trip that answers "not signed in".
+                // for it would be a round trip that answers "not signed in". A
+                // signed-out device also has no session to sync: the next one
+                // that reaches READY is a new one and starts its own.
+                connectStarted = false
                 email = ""
                 billing = null
                 screen = HostedScreen.SIGN_IN
@@ -526,6 +557,35 @@ class HostedSetupModel(
         }
         email = setup.session()?.email ?: ""
         billing = setup.billingStatus()
+        if (screen == HostedScreen.ACCOUNT) startConnect(setup)
+    }
+
+    /**
+     * The end of the wizard is a running sync, not a set-up vault that sits
+     * there. Started once per reached session — the first read that lands on
+     * `READY`, which is also the read every door ends with — and left to run on
+     * its own, because a sync cycle is not something the account card should
+     * wait behind.
+     */
+    private fun startConnect(setup: HostedSetupClientInterface) {
+        if (connectStarted) return
+        connectStarted = true
+        effectScope.launch {
+            runCatching { connectEffect(setup) }.onFailure { log("connect failed: $it") }
+            refreshBilling()
+        }
+    }
+
+    /**
+     * Re-reads the account after that first cycle, so the usage on the card is
+     * what this vault now weighs rather than what it weighed before anything
+     * had been uploaded. A read that fails leaves the card as it was: the figure
+     * on it is stale, not wrong, and blanking it would say less.
+     */
+    private suspend fun refreshBilling() {
+        val current = setup ?: return
+        if (screen != HostedScreen.ACCOUNT) return
+        runCatching { current.billingStatus() }.getOrNull()?.let { billing = it }
     }
 
     /**
