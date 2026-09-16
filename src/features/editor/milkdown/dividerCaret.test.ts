@@ -26,6 +26,7 @@ import { mount } from 'svelte';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
+import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 
 vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -68,14 +69,16 @@ async function mountEditorHandle(content = ''): Promise<LoadableEditorHandle> {
   // it doesn't throw — unrelated to what this suite is checking.
   (target.ownerDocument as unknown as { elementFromPoint: () => null }).elementFromPoint = () =>
     null;
-  const handle = mount(MilkdownEditor, {
-    target,
-    props: { content, onchange: () => {} },
-  }) as unknown as LoadableEditorHandle;
-  await vi.waitFor(() => expect(target.querySelector('.ProseMirror')).not.toBeNull(), {
-    timeout: 30_000,
+  return withoutLeakedCtxTimers(async () => {
+    const handle = mount(MilkdownEditor, {
+      target,
+      props: { content, onchange: () => {} },
+    }) as unknown as LoadableEditorHandle;
+    await vi.waitFor(() => expect(target.querySelector('.ProseMirror')).not.toBeNull(), {
+      timeout: 30_000,
+    });
+    return handle;
   });
-  return handle;
 }
 
 async function mountEditor(content = ''): Promise<EditorView> {

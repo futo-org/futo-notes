@@ -28,25 +28,28 @@ import { getMarkdown } from '@milkdown/kit/utils';
 import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
 import { handleParityKeyDown } from '../keyboardParity';
 import { tableGrips } from './tableGrips';
+import { withoutLeakedCtxTimers } from '../__fixtures__/noLeakedCtxTimers';
 
 const SOURCE = ['| a | b |', '| --- | --- |', '| r1a | r1b |'].join('\n') + '\n';
 
 async function editorFor(markdown: string) {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const editor = await Editor.make()
-    .config((ctx) => {
-      ctx.set(rootCtx, root);
-      ctx.set(defaultValueCtx, markdown);
-      ctx.update(editorViewOptionsCtx, (prev) => ({
-        ...prev,
-        handleKeyDown: (view, event) => handleParityKeyDown(view, event),
-      }));
-    })
-    .use(commonmarkWithCompat())
-    .use(gfmWithCompat())
-    .use(tableGrips)
-    .create();
+  const editor = await withoutLeakedCtxTimers(() =>
+    Editor.make()
+      .config((ctx) => {
+        ctx.set(rootCtx, root);
+        ctx.set(defaultValueCtx, markdown);
+        ctx.update(editorViewOptionsCtx, (prev) => ({
+          ...prev,
+          handleKeyDown: (view, event) => handleParityKeyDown(view, event),
+        }));
+      })
+      .use(commonmarkWithCompat())
+      .use(gfmWithCompat())
+      .use(tableGrips)
+      .create(),
+  );
   const view = editor.ctx.get(editorViewCtx);
   return {
     view,

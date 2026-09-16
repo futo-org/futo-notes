@@ -17,6 +17,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
+import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 
 vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -75,16 +76,18 @@ async function mountEditor(): Promise<void> {
   changes = [];
   target = document.createElement('div');
   document.body.appendChild(target);
-  handle = mount(MilkdownEditor, {
-    target,
-    props: {
-      content: '',
-      onchange: (content: string) => {
-        changes.push(content);
+  await withoutLeakedCtxTimers(async () => {
+    handle = mount(MilkdownEditor, {
+      target,
+      props: {
+        content: '',
+        onchange: (content: string) => {
+          changes.push(content);
+        },
       },
-    },
-  }) as unknown as EditorHandle;
-  await vi.waitFor(() => expect(target.querySelector('.ProseMirror')).not.toBeNull());
+    }) as unknown as EditorHandle;
+    await vi.waitFor(() => expect(target.querySelector('.ProseMirror')).not.toBeNull());
+  });
 }
 
 function editable(): HTMLElement {

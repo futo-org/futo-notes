@@ -16,6 +16,7 @@ import { mount } from 'svelte';
 import { undo } from '@milkdown/kit/prose/history';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorView } from '@milkdown/kit/prose/view';
+import { withoutLeakedCtxTimers } from '../__fixtures__/noLeakedCtxTimers';
 
 vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -42,12 +43,15 @@ async function mountEditor(): Promise<EditorView> {
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
-  const handle = mount(MilkdownEditor, {
-    target,
-    props: { content: '', onchange: () => {} },
-  }) as unknown as EditorHandle;
-  await vi.waitFor(() => expect(target.querySelector('.ProseMirror')).not.toBeNull(), {
-    timeout: 30_000,
+  const handle = await withoutLeakedCtxTimers(async () => {
+    const mounted = mount(MilkdownEditor, {
+      target,
+      props: { content: '', onchange: () => {} },
+    }) as unknown as EditorHandle;
+    await vi.waitFor(() => expect(target.querySelector('.ProseMirror')).not.toBeNull(), {
+      timeout: 30_000,
+    });
+    return mounted;
   });
   return handle.getProseMirrorView()!;
 }

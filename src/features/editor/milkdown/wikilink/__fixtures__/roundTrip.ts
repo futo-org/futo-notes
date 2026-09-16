@@ -14,6 +14,7 @@ import { getMarkdown } from '@milkdown/kit/utils';
 
 import { wikilink } from '..';
 import { WIKILINK_NODE } from '../node';
+import { withoutLeakedCtxTimers } from '../../__fixtures__/noLeakedCtxTimers';
 
 export interface RoundTrip {
   /** What `getMarkdown()` would save. */
@@ -25,15 +26,17 @@ export interface RoundTrip {
 export async function roundTrip(source: string): Promise<RoundTrip> {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const editor = await Editor.make()
-    .config((ctx) => {
-      ctx.set(rootCtx, root);
-      ctx.set(defaultValueCtx, source);
-    })
-    .use(commonmark)
-    .use(gfm)
-    .use(wikilink)
-    .create();
+  const editor = await withoutLeakedCtxTimers(() =>
+    Editor.make()
+      .config((ctx) => {
+        ctx.set(rootCtx, root);
+        ctx.set(defaultValueCtx, source);
+      })
+      .use(commonmark)
+      .use(gfm)
+      .use(wikilink)
+      .create(),
+  );
 
   const markdown = editor.action(getMarkdown());
   const targets: string[] = [];
