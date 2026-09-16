@@ -19,8 +19,8 @@
 
   let { onopenlicense }: Props = $props();
 
-  // `null` is "there is nothing to say here": a license with no purchase year
-  // has no "Supporter since {year}" line and gets no yearless stand-in. The
+  // `null` is "there is nothing to say here": a license with no purchase date
+  // has no "Licensed since {date}" line and gets no dateless stand-in. The
   // element goes rather than its text — an empty button would still be a click
   // target and would still be announced.
   const label = $derived(licenseAmbientLabel(license.view));
@@ -71,7 +71,7 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     /* Underlined only while the label is the affordance to go and pay. Once
-       it reads "Supporter since …" it is a statement, not a call to action. */
+       it reads "Licensed since …" it is a statement, not a call to action. */
     text-decoration: underline;
     text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
     text-underline-offset: 2px;
