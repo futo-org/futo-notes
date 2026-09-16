@@ -120,8 +120,16 @@
         }
       ],
       "scan": {
-        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
-        "extensions": [".ts", ".swift", ".kt"],
+        "dirs": [
+          "src",
+          "apps/ios/Sources",
+          "apps/android/app/src/main"
+        ],
+        "extensions": [
+          ".ts",
+          ".swift",
+          ".kt"
+        ],
         "pattern": "(function validateSyncServerUrl|fun validateServerUrl|func validateServerURL)\\b"
       }
     },
@@ -287,8 +295,18 @@
         }
       ],
       "scan": {
-        "dirs": ["packages/editor/src", "crates", "apps/ios/Sources", "apps/android/app/src/main"],
-        "extensions": [".ts", ".rs", ".swift", ".kt"],
+        "dirs": [
+          "packages/editor/src",
+          "crates",
+          "apps/ios/Sources",
+          "apps/android/app/src/main"
+        ],
+        "extensions": [
+          ".ts",
+          ".rs",
+          ".swift",
+          ".kt"
+        ],
         "pattern": "MAX_TITLE_LENGTH\\s*[:=]\\s*(usize\\s*=\\s*)?200|TITLE_MAX_LENGTH\\s*=\\s*200|titleMaxLength\\s*=\\s*200|maxLength\\s*=\\s*200"
       }
     },
@@ -321,8 +339,14 @@
         }
       ],
       "scan": {
-        "dirs": ["apps/ios/Sources", "apps/android/app/src/main"],
-        "extensions": [".swift", ".kt"],
+        "dirs": [
+          "apps/ios/Sources",
+          "apps/android/app/src/main"
+        ],
+        "extensions": [
+          ".swift",
+          ".kt"
+        ],
         "pattern": "enum (class )?EditorExit\\b"
       }
     },
@@ -368,8 +392,17 @@
         }
       ],
       "scan": {
-        "dirs": [".", ".claude"],
-        "extensions": [".mjs", ".ts", ".js", ".md", "justfile"],
+        "dirs": [
+          ".",
+          ".claude"
+        ],
+        "extensions": [
+          ".mjs",
+          ".ts",
+          ".js",
+          ".md",
+          "justfile"
+        ],
         "pattern": "md5[\\s\\S]{0,400}%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b|%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b[\\s\\S]{0,400}md5",
         "flags": "i"
       }
@@ -482,8 +515,16 @@
         }
       ],
       "scan": {
-        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
-        "extensions": [".ts", ".swift", ".kt"],
+        "dirs": [
+          "src",
+          "apps/ios/Sources",
+          "apps/android/app/src/main"
+        ],
+        "extensions": [
+          ".ts",
+          ".swift",
+          ".kt"
+        ],
         "pattern": "(PRODUCTION_BASE_URL|productionBaseUrl)\\b"
       }
     },
@@ -521,10 +562,38 @@
         }
       ],
       "scan": {
-        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
-        "extensions": [".ts", ".swift", ".kt"],
+        "dirs": [
+          "src",
+          "apps/ios/Sources",
+          "apps/android/app/src/main"
+        ],
+        "extensions": [
+          ".ts",
+          ".swift",
+          ".kt"
+        ],
         "pattern": "(function licenseCardModel|func licenseCardModel|fun licenseCardModel)\\b"
       }
+    },
+    {
+      "concept": "supporter-coin-glyph",
+      "description": "The FUTO supporter coin glyph: a gold-gradient disc with the diamond punched through it (evenOdd), viewBox 0 0 48 48, stops #ffd24d / #ffbb00 / #b8860b at 0 / 55% / 100%. One path, three renderings — desktop draws it as inline SVG (and turns a three.js coin on top of it), iOS carries it as a vector imageset, Android as a vector drawable. It is artwork, not logic: the shells cannot share a file because each platform needs the glyph in its own asset format.",
+      "lockStatus": "unlocked",
+      "note": "Unlocked: nothing but you keeps these three in sync. There is no gate that can compare an inline SVG path, an .svg in an .xcassets imageset and an Android <vector> pathData for visual equivalence, so if the coin art changes, change all three copies in the SAME commit and say so in the message. The desktop copy is the source: it is the one a human edits, and the other two are exported from it.",
+      "copies": [
+        {
+          "location": "src/features/license/SupporterCoin.svelte",
+          "pattern": "supporter-coin-face"
+        },
+        {
+          "location": "apps/ios/Assets.xcassets/SupporterCoin.imageset/supporter-coin.svg",
+          "pattern": "supporter-coin-face"
+        },
+        {
+          "location": "apps/android/app/src/main/res/drawable/ic_supporter_coin.xml",
+          "pattern": "ic_supporter_coin|FFFFD24D"
+        }
+      ]
     },
     {
       "concept": "license-row-actions",
