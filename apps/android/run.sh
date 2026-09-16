@@ -15,6 +15,16 @@ cd "$ROOT"
 echo "==> JS deps"
 [ -d node_modules ] || pnpm install
 
+# hosted_server() only honours FUTO_HOSTED_SERVER in a build with
+# debug_assertions on, and the default release-ffi profile inherits release,
+# where it is compiled out — so without this, setting FUTO_HOSTED_SERVER here
+# would silently do nothing and the app would still probe the real service.
+# Not unconditional: switching profiles slows the normal dev loop.
+if [ -n "${FUTO_HOSTED_SERVER:-}" ]; then
+  export FUTO_ANDROID_FFI_PROFILE="${FUTO_ANDROID_FFI_PROFILE:-dev}"
+  echo "==> FUTO_HOSTED_SERVER set -> using the '$FUTO_ANDROID_FFI_PROFILE' FFI profile so the override is honoured"
+fi
+
 echo "==> Building Rust core (UniFFI) -> jniLibs/<abi>/libfuto_notes_ffi.so + Kotlin bindings"
 bash scripts/build-rust-android.sh
 
@@ -31,6 +41,14 @@ if [ -x ./gradlew ]; then GRADLE=./gradlew; else GRADLE=gradle; fi
 
 echo "==> Launching"
 # `am start -n` rather than monkey: monkey exits 251 without launching on
-# some emulators (observed on API 36 images).
-adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity
+# some emulators (observed on API 36 images). The --es extra carries
+# FUTO_HOSTED_SERVER across the process boundary (an Android app inherits no
+# environment from the shell that launched it) — see DebugHostedServer.kt and
+# scripts/qa.mjs's "point a debug app at it" line.
+if [ -n "${FUTO_HOSTED_SERVER:-}" ]; then
+  adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity \
+    --es futo_hosted_server "$FUTO_HOSTED_SERVER"
+else
+  adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity
+fi
 echo "==> Done."

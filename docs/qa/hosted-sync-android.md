@@ -18,12 +18,15 @@ stand-in in `just test-android-native`, and the whole flow on desktop in
 
 ## Setup
 
-**The FFI profile is the step that is easy to get wrong.** `hosted_server()` honours
-`FUTO_HOSTED_SERVER` only in a build with `debug_assertions` on, and the default
-`release-ffi` profile inherits `release`, where it is off. A default build silently
-ignores the override and probes `https://notes-sync.futo.org`, which on a machine with
-no route to it reads as "Couldn't reach the server. Check your connection." — a message
-about the wrong server entirely.
+**The FFI profile is the step that used to be easy to get wrong.** `hosted_server()`
+honours `FUTO_HOSTED_SERVER` only in a build with `debug_assertions` on, and the default
+`release-ffi` profile inherits `release`, where it is off. `just android-native` now
+honours `FUTO_HOSTED_SERVER` itself: when it is set, `apps/android/run.sh` switches to
+the `dev` profile and launches the app already pointed at that address, so neither needs
+doing by hand any more. A build with `FUTO_HOSTED_SERVER` unset (or a release APK, which
+ignores it regardless) silently probes `https://notes-sync.futo.org`, which on a machine
+with no route to it reads as "Couldn't reach the server. Check your connection." — a
+message about the wrong server entirely.
 
 ```sh
 just qa-claim android                 # prints ANDROID_SERIAL; claim before anything
@@ -33,13 +36,14 @@ export ANDROID_SERIAL=<from above>
 # release predates that mode, so today it comes from a local checkout.
 FUTO_NOTES_E2EE_SERVER_REPO=<futo-notes-server checkout on hosted-server> \
 FUTO_NOTES_E2EE_SERVER_STANDIN=1 just qa-server --standin
-
-FUTO_ANDROID_FFI_PROFILE=dev just android-native
 ```
 
 The stand-in server binds loopback **and** starts two more loopback listeners on
 ephemeral ports — the stand-in identity provider and the stand-in payment provider. The
-Custom Tab is redirected to both, so all three need forwarding, not just the server's:
+Custom Tab is redirected to both, so all three need forwarding, not just the server's,
+and the app must be launched on `127.0.0.1`, not `10.0.2.2`: the redirect chain sends
+the tab to the other two on `127.0.0.1`, and mixing the two host names leaves the tab
+unable to reach them.
 
 ```sh
 # The server's port, then every other port that process is listening on.
@@ -47,21 +51,16 @@ adb reverse tcp:<sync port> tcp:<sync port>
 ss -ltnp | grep "pid=$(cat ~/.futo-notes-qa/server/s<slot>/server.pid)"
 adb reverse tcp:<issuer port> tcp:<issuer port>
 adb reverse tcp:<billing port> tcp:<billing port>
-```
 
-Then launch pointed at the server over that forward. Use `127.0.0.1`, not `10.0.2.2`:
-the redirect chain sends the tab to the other two on `127.0.0.1`, and mixing the two
-host names leaves the tab unable to reach them.
-
-```sh
-adb shell am force-stop com.futo.notes.dev
-adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity \
-  --es futo_hosted_server http://127.0.0.1:<sync port>
+FUTO_HOSTED_SERVER=http://127.0.0.1:<sync port> just android-native
 ```
 
 Confirm the override landed before touching the UI — `just android-drive logs` should
 carry `hosted sync pointed at http://127.0.0.1:<port> (debug override)`. Without that
-line the run is against the real service and proves nothing.
+line the run is against the real service and proves nothing. To relaunch pointed at a
+different address without a full rebuild, `adb shell am start -n
+com.futo.notes.dev/com.futo.notes.MainActivity --es futo_hosted_server <url>` still works
+directly — that's the mechanism `run.sh` is now driving for you.
 
 Two mechanics, from driving this:
 

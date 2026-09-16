@@ -126,7 +126,10 @@ build-rust-ios:
   bash scripts/build-rust-ios.sh
 
 # Build + run the native Android Compose app (Rust core + WebView editor).
-# Requires Android SDK + NDK + cargo-ndk + a device/emulator.
+# Requires Android SDK + NDK + cargo-ndk + a device/emulator. FUTO_HOSTED_SERVER,
+# if set, switches the FFI build to the `dev` profile (the only one that
+# honours the override) and launches already pointed at that address —
+# see docs/qa/hosted-sync-android.md.
 android-native:
   apps/android/run.sh
 
