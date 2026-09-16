@@ -2631,6 +2631,13 @@ async function hostedRestartSyncsAtLaunchWithoutOpeningSettings(a, b, server) {
   await a.syncNow();
 
   await waitForLaunchSync(b, noteId, body, lastSyncedAt);
+
+  // Nothing is asserted past here. `forgetHosted()` — how the suite drops a
+  // device's hosted secrets between scenarios — is a no-op until something has
+  // told the test hook which server this device is on, and the relaunched
+  // process has never been told. Say it now, so a restart cannot leak a
+  // signed-in vault into whatever runs next.
+  await hostedConnect(b, server);
 }
 
 // ── Scenario registry ───────────────────────────────────────────
