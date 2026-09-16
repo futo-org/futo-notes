@@ -1,7 +1,7 @@
 <script lang="ts">
   import { localizedText } from '$shared/localization';
 
-  import type { HostedSyncSettings } from './createHostedSyncSettings.svelte';
+  import type { HostedSyncSettings, UnlockDoor } from './createHostedSyncSettings.svelte';
   import type { SyncSettings } from './createSyncSettings.svelte';
   import SyncSettingsSection from './SyncSettingsSection.svelte';
   import CreateVaultStep from './hosted/CreateVaultStep.svelte';
@@ -19,6 +19,16 @@
   }
 
   let { hosted, sync, backgroundError, backgroundErrorMessage, reconnecting }: Props = $props();
+
+  /**
+   * Leaving the scan door stops waiting on the code it was showing. Without
+   * this, walking away to type a vault password would leave a poll running
+   * against a code nobody is looking at.
+   */
+  function chooseDoor(door: UnlockDoor): void {
+    if (door !== 'scan' && hosted.pairing !== 'idle') void hosted.cancelPairing();
+    hosted.unlockDoor = door;
+  }
 </script>
 
 <section class="settings-section">
@@ -112,9 +122,14 @@
       <UnlockStep
         door={hosted.unlockDoor}
         busy={hosted.busy}
-        ondoor={(door) => (hosted.unlockDoor = door)}
+        pairing={hosted.pairing}
+        pairingPayload={hosted.pairingPayload}
+        pairingExpiresAt={hosted.pairingExpiresAt}
+        ondoor={chooseDoor}
         onvaultpassword={(vaultPassword) => void hosted.unlockWithPassword(vaultPassword)}
         onrecoverykey={(typed) => void hosted.unlockWithRecoveryKey(typed)}
+        onshowpairingcode={() => void hosted.showPairingCode()}
+        oncancelpairing={() => void hosted.cancelPairing()}
       />
     {:else if hosted.screen === 'account'}
       <HostedAccountCard

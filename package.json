@@ -86,7 +86,8 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.9.0",
     "svelte": "^5.57.0",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "uqr": "^0.1.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

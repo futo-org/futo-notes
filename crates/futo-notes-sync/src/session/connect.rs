@@ -208,6 +208,27 @@ pub(crate) async fn connect(
     ))
 }
 
+/// Builds a session from secrets a hosted setup already holds.
+///
+/// Nothing is fetched and nothing is derived: the hosted wizard has already
+/// signed in, resolved the collection, and unwrapped the vault key by whichever
+/// door the person used, so the only thing left is to hand those facts to the
+/// sync engine. That is why this is the one connect with no password and no
+/// network — a hosted device set up by password, by recovery key, or by a
+/// paired device reaches here identically (ADR 0003, decision 4).
+pub(crate) fn hosted(
+    root: &Path,
+    server: &str,
+    token: String,
+    user_id: String,
+    collection_id: String,
+    vault_key: [u8; 32],
+) -> Result<ConnectedState, SyncErrorKind> {
+    let state = connected_state(root, server, token, user_id, collection_id, vault_key);
+    checkpoint::save(root, &state).map_err(SyncErrorKind::Io)?;
+    Ok(state)
+}
+
 pub(crate) async fn resume(
     root: &Path,
     server: &str,

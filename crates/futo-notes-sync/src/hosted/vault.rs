@@ -166,6 +166,44 @@ impl HostedSetup {
         self.keep(vault_key).await
     }
 
+    /// Hands this device's hosted secrets to the sync engine, so cycles can
+    /// run. The step after [`SetupStep::Ready`], and the mirror image of
+    /// [`HostedSetup::sign_out`].
+    ///
+    /// Every door out of the wizard ends here — a vault password, a recovery
+    /// key, or a paired device — because all three end with the same two
+    /// secrets in the same place. It is safe to call again: connecting an
+    /// already-connected session rebuilds it from the same facts, which is what
+    /// makes it callable whenever a shell notices the vault is unlocked rather
+    /// than only at the one moment it became so.
+    ///
+    /// Refuses rather than half-connecting: a device with no vault key is
+    /// [`HostedError::VaultLocked`], and one with no session is
+    /// [`HostedError::NotSignedIn`].
+    pub async fn connect_sync(&self, sync: &SyncSession, root: &Path) -> Result<(), HostedError> {
+        let session = self
+            .restored_session()
+            .await?
+            .ok_or(HostedError::NotSignedIn)?;
+        let vault_key = self
+            .stored_vault_key()
+            .await?
+            .ok_or(HostedError::VaultLocked)?;
+        let collection_id = self.collection().await?;
+        sync.connect_hosted(
+            root,
+            crate::HostedCredentials {
+                server_url: self.server_url().to_owned(),
+                token: session.token,
+                user_id: session.user_id,
+                collection_id,
+                vault_key,
+            },
+        )
+        .await
+        .map_err(|error| HostedError::Server(error.to_string()))
+    }
+
     /// Signs out: revoke the session on the server, forget both secrets, and
     /// demote this vault's sync state exactly as disconnect does — one action,
     /// with no locked-but-signed-in halfway state left behind (ADR 0003,

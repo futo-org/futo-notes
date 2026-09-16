@@ -1632,6 +1632,8 @@ against_the_real_server! {
     a_second_device_unlocks_with_the_recovery_key,
     quitting_mid_wizard_resumes_at_the_right_step,
     signing_out_forgets_the_key_the_token_and_the_live_state,
+    a_set_up_vault_starts_syncing,
+    a_locked_device_cannot_start_syncing,
     // QR pairing. Two of the stub's pairing scenarios are missing here on
     // purpose: `an_expired_pairing_code_is_its_own_error` needs a window
     // shorter than the relay's five minutes, and

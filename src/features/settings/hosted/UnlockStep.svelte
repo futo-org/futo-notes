@@ -1,26 +1,43 @@
 <script lang="ts">
-  import type { UnlockDoor } from '../createHostedSyncSettings.svelte';
+  import type { PairingState, UnlockDoor } from '../createHostedSyncSettings.svelte';
   import { localizedText } from '$shared/localization';
+
+  import ScanDoor from './ScanDoor.svelte';
 
   interface Props {
     /** Which of the three doors is open. Owned by the caller so the choice
         survives a re-render of this step. */
     door: UnlockDoor;
     busy: boolean;
+    /** What the scan door is doing, and what it has to draw. */
+    pairing: PairingState;
+    pairingPayload: string | null;
+    pairingExpiresAt: string | null;
     ondoor: (door: UnlockDoor) => void;
     onvaultpassword: (vaultPassword: string) => void;
     onrecoverykey: (typed: string) => void;
+    onshowpairingcode: () => void;
+    oncancelpairing: () => void;
   }
 
-  let { door, busy, ondoor, onvaultpassword, onrecoverykey }: Props = $props();
+  let {
+    door,
+    busy,
+    pairing,
+    pairingPayload,
+    pairingExpiresAt,
+    ondoor,
+    onvaultpassword,
+    onrecoverykey,
+    onshowpairingcode,
+    oncancelpairing,
+  }: Props = $props();
 
   let vaultPassword = $state('');
   let typedRecoveryKey = $state('');
 
-  // The scan door is here from the start, named and visible, because the three
-  // doors are one choice a person makes once (parent spec user story 19). It
-  // does nothing until the pairing ticket lands, and says so rather than
-  // pretending.
+  // All three doors are one choice a person makes once (parent spec user story
+  // 19), so they are all here from the start.
   const DOORS: UnlockDoor[] = ['vaultPassword', 'scan', 'recoveryKey'];
 
   function submit(): void {
@@ -76,7 +93,14 @@
     </button>
   </div>
 {:else if door === 'scan'}
-  <p class="settings-warning">{localizedText('sync.hosted.unlock.scanNotReady')}</p>
+  <ScanDoor
+    {pairing}
+    payload={pairingPayload}
+    expiresAt={pairingExpiresAt}
+    {busy}
+    onshow={onshowpairingcode}
+    oncancel={oncancelpairing}
+  />
 {:else}
   <label class="settings-input-label" for="hosted-unlock-recovery-key">
     {localizedText('sync.hosted.unlock.recoveryKeyLabel')}

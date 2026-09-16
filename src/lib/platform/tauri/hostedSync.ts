@@ -125,9 +125,15 @@ export function unlockWithRecoveryKey(typed: string): Promise<void> {
  * Called on the **new** device — the one with no vault key. Start
  * `awaitPairing()` as soon as the code is on screen. The one-time keypair's
  * private half never leaves Rust.
+ *
+ * `deviceName` is what the other device's confirmation sheet will say. Left
+ * out, Rust uses this computer's own name, which is the only thing the desktop
+ * frontend could ask for anyway.
  */
-export function beginPairing(deviceName: string): Promise<PairingCodeOutput> {
-  return invoke<PairingCodeOutput>('e2ee_hosted_begin_pairing', { deviceName });
+export function beginPairing(deviceName?: string): Promise<PairingCodeOutput> {
+  return invoke<PairingCodeOutput>('e2ee_hosted_begin_pairing', {
+    deviceName: deviceName ?? null,
+  });
 }
 
 /**
@@ -153,6 +159,15 @@ export function confirmPairing(): Promise<void> {
  */
 export function awaitPairing(): Promise<PairingOutcomeOutput> {
   return invoke<PairingOutcomeOutput>('e2ee_hosted_await_pairing');
+}
+
+/**
+ * Hands this vault's hosted secrets to the sync engine, so a cycle can run.
+ * The step after the wizard reaches `ready`, whichever door got it there.
+ * Safe to call again — it rebuilds the session from the same two secrets.
+ */
+export function connectHostedSync(serverUrl?: string): Promise<void> {
+  return invoke<void>('e2ee_hosted_connect', { serverUrl: serverUrl ?? null });
 }
 
 /** Revokes the session, forgets key and token, and demotes sync state. */

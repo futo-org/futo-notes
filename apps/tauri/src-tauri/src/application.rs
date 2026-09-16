@@ -120,6 +120,7 @@ pub(crate) fn run() {
             crate::sync::hosted_commands::e2ee_hosted_complete_pairing,
             crate::sync::hosted_commands::e2ee_hosted_confirm_pairing,
             crate::sync::hosted_commands::e2ee_hosted_await_pairing,
+            crate::sync::hosted_commands::e2ee_hosted_connect,
             crate::sync::hosted_commands::e2ee_hosted_sign_out,
             crate::sync::password_store::e2ee_password_get,
             crate::sync::password_store::e2ee_password_set,

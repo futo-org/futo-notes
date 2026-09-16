@@ -1,8 +1,10 @@
 import {
   awaitHostedEntitled,
   awaitHostedSignIn,
+  awaitPairing,
   beginHostedCheckout,
   beginHostedSignIn,
+  beginPairing,
   cancelHostedWait,
   createHostedVault,
   hostedBillingPortal,
@@ -21,7 +23,9 @@ import {
 } from '$lib/platform/tauri';
 import { getPlatformFS } from '$lib/platform';
 import { openExternalUrl } from '$lib/platform/openExternalUrl';
-import { hostedErrorMessage } from '$features/sync/hostedSyncErrors';
+import { requestSync } from '$features/sync/autoSync';
+import { hostedErrorMessage, hostedErrorVariant } from '$features/sync/hostedSyncErrors';
+import { connectHostedE2ee, forgetHostedE2ee } from '$features/sync/syncServiceE2ee';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import {
@@ -55,6 +59,18 @@ export type HostedBanner = 'none' | 'syncPaused' | 'vaultFull';
 
 /** The three doors on the unlock screen. */
 export type UnlockDoor = 'vaultPassword' | 'scan' | 'recoveryKey';
+
+/**
+ * What the scan door is doing. Desktop only ever **shows** a code; the phone
+ * does the scanning (ADR 0003, decision 5).
+ *
+ * `expired` is the one that needs reading carefully. The relay carries no
+ * "declined" signal — a person who says no on their phone sends nothing at all
+ * — so a decline and a walk-away reach this screen identically, as the code's
+ * five minutes running out. `refused` is narrower and rarer: the relay would
+ * not serve the pairing (already answered, or not this account's).
+ */
+export type PairingState = 'idle' | 'waiting' | 'received' | 'expired' | 'refused';
 
 /** What a browser window is currently open for. */
 export type HostedWait = 'signIn' | 'checkout' | null;
@@ -94,6 +110,13 @@ export interface HostedSyncSettings {
   recoveryKeySaved: boolean;
   unlockDoor: UnlockDoor;
   selfHostedOpen: boolean;
+  /** What the scan door is doing right now. */
+  readonly pairing: PairingState;
+  /** The string to draw as a QR code, straight from Rust. Non-null only
+      while a live code is on screen. */
+  readonly pairingPayload: string | null;
+  /** RFC 3339, the relay's own deadline — what the countdown counts to. */
+  readonly pairingExpiresAt: string | null;
 
   load(): Promise<void>;
   signIn(): Promise<void>;
@@ -105,6 +128,8 @@ export interface HostedSyncSettings {
   continueAfterRecoveryKey(): Promise<void>;
   unlockWithPassword(vaultPassword: string): Promise<void>;
   unlockWithRecoveryKey(typed: string): Promise<void>;
+  showPairingCode(): Promise<void>;
+  cancelPairing(): Promise<void>;
   manageSubscription(): Promise<void>;
   signOut(): Promise<void>;
 }
@@ -129,8 +154,29 @@ class HostedSyncSettingsState implements HostedSyncSettings {
   #email = $state('');
   #error = $state<LocalizedMessage | null>(null);
 
+  #pairing = $state<PairingState>('idle');
+  #pairingPayload = $state<string | null>(null);
+  #pairingExpiresAt = $state<string | null>(null);
+
+  // The first sync runs once per arrival at a set-up, unlocked vault — not
+  // once per `current_step` read, which happens several times per wizard.
+  // Signing out clears it, because signing back in is a new arrival.
+  #startedSyncing = false;
+
   get recoveryKey(): string | null {
     return this.#recoveryKey;
+  }
+
+  get pairing(): PairingState {
+    return this.#pairing;
+  }
+
+  get pairingPayload(): string | null {
+    return this.#pairingPayload;
+  }
+
+  get pairingExpiresAt(): string | null {
+    return this.#pairingExpiresAt;
   }
 
   get email(): string {
@@ -267,6 +313,67 @@ class HostedSyncSettingsState implements HostedSyncSettings {
     });
   }
 
+  /**
+   * Opens a pairing and shows its code until the other device answers.
+   *
+   * One call covers the whole wait: Rust mints the one-time keypair, publishes
+   * the public half to the relay, and polls for the sealed vault key until the
+   * relay's own five minutes are up. What comes back decides the state, which
+   * is why nothing here has its own timer — the countdown on screen only
+   * describes this deadline, it does not enforce it.
+   */
+  async showPairingCode(): Promise<void> {
+    await this.#step(async () => {
+      this.#pairing = 'idle';
+      this.#pairingPayload = null;
+      const code = await beginPairing();
+      this.#pairingPayload = code.payload;
+      this.#pairingExpiresAt = code.expiresAt;
+      this.#pairing = 'waiting';
+      try {
+        const outcome = await awaitPairing();
+        this.#pairingPayload = null;
+        if (outcome.kind === 'cancelled') {
+          this.#pairing = 'idle';
+          return;
+        }
+        // The key arrived and is kept: this device is unlocked. Said here
+        // rather than after the step read, so the code's disappearance is
+        // explained while that read is in flight.
+        this.#pairing = 'received';
+        await this.#readStep();
+      } catch (cause) {
+        this.#pairingPayload = null;
+        const kind = hostedErrorVariant(cause)?.kind;
+        // A person who declined on their phone sent nothing, so this is also
+        // what declining looks like from here. The copy says so rather than
+        // claiming to know which happened.
+        if (kind === 'pairingExpired') {
+          this.#pairing = 'expired';
+          return;
+        }
+        if (kind === 'pairingRefused' || kind === 'pairingAlreadyKeyed') {
+          this.#pairing = 'refused';
+          return;
+        }
+        this.#pairing = 'idle';
+        throw cause;
+      }
+    });
+  }
+
+  /**
+   * Stops waiting and puts the three doors back. The code itself stays live on
+   * the relay until it ages out — there is no way to withdraw one — so showing
+   * a code again mints a new one rather than resuming this.
+   */
+  async cancelPairing(): Promise<void> {
+    if (this.#pairing === 'waiting') await cancelHostedWait();
+    this.#pairing = 'idle';
+    this.#pairingPayload = null;
+    this.#pairingExpiresAt = null;
+  }
+
   async manageSubscription(): Promise<void> {
     await this.#step(async () => {
       openExternalUrl(await hostedBillingPortal());
@@ -281,6 +388,11 @@ class HostedSyncSettingsState implements HostedSyncSettings {
     if (!confirmed) return;
     await this.#step(async () => {
       await hostedSignOut();
+      forgetHostedE2ee();
+      this.#startedSyncing = false;
+      this.#pairing = 'idle';
+      this.#pairingPayload = null;
+      this.#pairingExpiresAt = null;
       await this.#readStep();
     });
   }
@@ -305,6 +417,31 @@ class HostedSyncSettingsState implements HostedSyncSettings {
     const who = await hostedSession();
     this.#email = who?.email ?? '';
     this.billing = await hostedBillingStatus();
+    if (current.kind === 'ready') await this.#startSyncing();
+  }
+
+  /**
+   * Turns a set-up, unlocked vault into a running sync.
+   *
+   * This is the end of the wizard doing what the wizard is for: Rust hands the
+   * vault key and the session token it already holds to the sync engine, and
+   * then the ordinary sync path runs a cycle — the same `requestSync` a
+   * self-hosted connect and every later auto-sync go through, not a second
+   * one written for hosted.
+   *
+   * Once per arrival. A failure puts that back, so reopening this screen tries
+   * again rather than leaving a set-up vault that never syncs.
+   */
+  async #startSyncing(): Promise<void> {
+    if (this.#startedSyncing) return;
+    this.#startedSyncing = true;
+    try {
+      await connectHostedE2ee();
+      await requestSync();
+    } catch (cause) {
+      this.#startedSyncing = false;
+      throw cause;
+    }
   }
 
   /**

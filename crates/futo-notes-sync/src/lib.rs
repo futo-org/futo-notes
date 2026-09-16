@@ -25,7 +25,7 @@ pub use hosted::{
 pub use journal::SyncTrigger;
 pub use open_note::{classify_open_note, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts};
 pub use session::connect::AuthenticatedSession;
-pub use session::{ResumeCredentials, SyncSession, SyncSessionListener};
+pub use session::{HostedCredentials, ResumeCredentials, SyncSession, SyncSessionListener};
 pub use sync::{
     ConnectInfo, FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure,
     SyncProgress, SyncSummary,

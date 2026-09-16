@@ -7,7 +7,20 @@
 // remembered step would show up here as a screen that disagrees with the stub.
 import { describe, expect, it, vi } from 'vitest';
 
-import type { BillingStatusOutput, SetupStepOutput } from '$features/sync/syncContract.generated';
+import type {
+  BillingStatusOutput,
+  PairingOutcomeOutput,
+  SetupStepOutput,
+} from '$features/sync/syncContract.generated';
+
+/** The shape Rust's `begin_pairing` actually answers with. */
+const PAIRING_PAYLOAD = JSON.stringify({
+  futo_notes_pairing: 1,
+  id: '01JBXYZABCDEF0123456789ABCD',
+  public_key: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  device_name: 'Kitchen laptop',
+  platform: 'desktop',
+});
 
 const rust = vi.hoisted(() => ({
   hostedServerUrl: vi.fn(async () => 'https://notes-sync.futo.org'),
@@ -37,10 +50,28 @@ const rust = vi.hoisted(() => ({
   createHostedVault: vi.fn(async () => 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345'),
   unlockWithVaultPassword: vi.fn(async () => {}),
   unlockWithRecoveryKey: vi.fn(async () => {}),
+  beginPairing: vi.fn(async () => ({
+    payload: PAIRING_PAYLOAD,
+    expiresAt: '2026-09-15T12:05:00.000Z',
+  })),
+  awaitPairing: vi.fn(async (): Promise<PairingOutcomeOutput> => ({ kind: 'paired' })),
   hostedSignOut: vi.fn(async () => {}),
   saveTextFile: vi.fn(async () => true),
 }));
 vi.mock('$lib/platform/tauri', () => rust);
+
+// The sync side of the world, which this controller only ever asks two things
+// of: hand the engine the hosted secrets, then run a cycle.
+const sync = vi.hoisted(() => ({
+  connectHostedE2ee: vi.fn(async () => {}),
+  forgetHostedE2ee: vi.fn(),
+  requestSync: vi.fn(async () => ({})),
+}));
+vi.mock('$features/sync/syncServiceE2ee', () => ({
+  connectHostedE2ee: sync.connectHostedE2ee,
+  forgetHostedE2ee: sync.forgetHostedE2ee,
+}));
+vi.mock('$features/sync/autoSync', () => ({ requestSync: sync.requestSync }));
 
 const openExternalUrl = vi.hoisted(() => vi.fn());
 vi.mock('$lib/platform/openExternalUrl', () => ({ openExternalUrl }));
@@ -311,6 +342,170 @@ describe('the account card', () => {
     expect(rust.hostedSignOut).toHaveBeenCalled();
     expect(hosted.screen).toBe('signIn');
     expect(hosted.email).toBe('');
+  });
+});
+
+describe('showing a pairing code', () => {
+  /** A rejected Tauri command: the serialized `HostedError` variant. */
+  function rejectsWith(kind: string): void {
+    rust.awaitPairing.mockRejectedValue({ kind });
+  }
+
+  async function atTheScanDoor() {
+    stepIs('unlock');
+    const hosted = createHostedSyncSettings();
+    await hosted.load();
+    return hosted;
+  }
+
+  it('asks Rust for a code and waits on it, without naming this computer itself', async () => {
+    const hosted = await atTheScanDoor();
+    rust.awaitPairing.mockImplementation(
+      () => new Promise<PairingOutcomeOutput>(() => {}), // still waiting
+    );
+    void hosted.showPairingCode();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The desktop has no way to know what this machine is called, so it does
+    // not pretend to: Rust fills the name in.
+    expect(rust.beginPairing).toHaveBeenCalledWith();
+    expect(hosted.pairing).toBe('waiting');
+    expect(hosted.pairingPayload).toBe(PAIRING_PAYLOAD);
+    expect(hosted.pairingExpiresAt).toBe('2026-09-15T12:05:00.000Z');
+  });
+
+  it('paired: keeps the moment visible, then lands on the account card', async () => {
+    const hosted = await atTheScanDoor();
+    stepIs('ready');
+    await hosted.showPairingCode();
+
+    expect(hosted.pairing).toBe('received');
+    expect(hosted.pairingPayload).toBeNull();
+    expect(hosted.screen).toBe('account');
+  });
+
+  it('expired: is a state, not a red error — and is what declining looks like', async () => {
+    const hosted = await atTheScanDoor();
+    rejectsWith('pairingExpired');
+    await hosted.showPairingCode();
+
+    expect(hosted.pairing).toBe('expired');
+    expect(hosted.pairingPayload).toBeNull();
+    expect(hosted.error).toBe('');
+    expect(hosted.screen).toBe('unlock');
+  });
+
+  it('refused: a relay that will not serve the pairing is its own state', async () => {
+    const hosted = await atTheScanDoor();
+    rejectsWith('pairingRefused');
+    await hosted.showPairingCode();
+
+    expect(hosted.pairing).toBe('refused');
+    expect(hosted.error).toBe('');
+  });
+
+  it('refused: a pairing another device already answered reads the same way', async () => {
+    const hosted = await atTheScanDoor();
+    rejectsWith('pairingAlreadyKeyed');
+    await hosted.showPairingCode();
+
+    expect(hosted.pairing).toBe('refused');
+  });
+
+  it('reports anything else as the sentence it is, and shows no dead code', async () => {
+    const hosted = await atTheScanDoor();
+    rejectsWith('network');
+    await hosted.showPairingCode();
+
+    expect(hosted.pairing).toBe('idle');
+    expect(hosted.error).toContain('reach the server');
+  });
+
+  it('cancelling stops the wait in Rust and puts the doors back', async () => {
+    const hosted = await atTheScanDoor();
+    rust.awaitPairing.mockImplementation(() => new Promise<PairingOutcomeOutput>(() => {}));
+    void hosted.showPairingCode();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await hosted.cancelPairing();
+    expect(rust.cancelHostedWait).toHaveBeenCalled();
+    expect(hosted.pairing).toBe('idle');
+    expect(hosted.pairingPayload).toBeNull();
+  });
+
+  it('showing a new code after an expiry mints a new one rather than resuming', async () => {
+    const hosted = await atTheScanDoor();
+    rejectsWith('pairingExpired');
+    await hosted.showPairingCode();
+    expect(rust.beginPairing).toHaveBeenCalledTimes(1);
+
+    rust.awaitPairing.mockResolvedValue({ kind: 'cancelled' });
+    await hosted.showPairingCode();
+    expect(rust.beginPairing).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('reaching a set-up, unlocked vault starts syncing', () => {
+  it('hands the engine the hosted secrets and runs one cycle', async () => {
+    stepIs('ready');
+    const hosted = createHostedSyncSettings();
+    await hosted.load();
+
+    expect(hosted.screen).toBe('account');
+    expect(sync.connectHostedE2ee).toHaveBeenCalledTimes(1);
+    expect(sync.requestSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs it whichever door got there, pairing included', async () => {
+    stepIs('unlock');
+    const hosted = createHostedSyncSettings();
+    await hosted.load();
+    expect(sync.requestSync).not.toHaveBeenCalled();
+
+    stepIs('ready');
+    await hosted.showPairingCode();
+    expect(sync.connectHostedE2ee).toHaveBeenCalledTimes(1);
+    expect(sync.requestSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-sync on every step read, only on arriving', async () => {
+    stepIs('ready');
+    const hosted = createHostedSyncSettings();
+    await hosted.load();
+    await hosted.load();
+    expect(sync.requestSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('never starts a cycle before the vault is unlocked', async () => {
+    stepIs('unlock');
+    const hosted = createHostedSyncSettings();
+    await hosted.load();
+    expect(sync.connectHostedE2ee).not.toHaveBeenCalled();
+    expect(sync.requestSync).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed first sync and tries again when the screen is reopened', async () => {
+    stepIs('ready');
+    sync.requestSync.mockRejectedValueOnce(new Error('Offline — reconnect to sync'));
+    const hosted = createHostedSyncSettings();
+    await hosted.load();
+    expect(hosted.error).not.toBe('');
+
+    await hosted.load();
+    expect(sync.requestSync).toHaveBeenCalledTimes(2);
+    expect(hosted.error).toBe('');
+  });
+
+  it('signing out ends the hosted session as far as sync is concerned', async () => {
+    stepIs('ready');
+    const hosted = createHostedSyncSettings();
+    await hosted.load();
+
+    stepIs('signIn');
+    await hosted.signOut();
+    expect(sync.forgetHostedE2ee).toHaveBeenCalled();
   });
 });
 

@@ -641,6 +641,27 @@
           "button": "Unlock",
           "scanNotReady": "Pairing with another device is not available yet. Use your vault password or your recovery key."
         },
+        "pairing": {
+          "title": "Scan this code with an unlocked device",
+          "body": "On a device that already has your notes, open FUTO Notes, choose “Scan another device”, and point it at this code.",
+          "codeAccessibilityLabel": "Pairing code for this computer",
+          "expiresIn": "This code expires in {remaining}.",
+          "expiresInAccessibilityLabel": "Time left on this code: {remaining}",
+          "showCode": "Show a pairing code",
+          "showNewCode": "Show a new code",
+          "received": {
+            "title": "Your vault is unlocked",
+            "body": "The key arrived from your other device. Syncing your notes now…"
+          },
+          "expired": {
+            "title": "That code expired",
+            "body": "A code lasts five minutes. Saying no on the other device looks the same from here — either way nothing was sent and no key was shared."
+          },
+          "refused": {
+            "title": "That code can’t be used",
+            "body": "The server wouldn’t hand this pairing over — it was already answered, or it belongs to a different account. No key was shared."
+          }
+        },
         "account": {
           "heading": "FUTO account",
           "storage": "{used} of {quota} used",

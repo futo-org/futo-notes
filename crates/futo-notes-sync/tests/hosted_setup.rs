@@ -40,6 +40,8 @@ against_the_stub! {
     a_second_device_unlocks_with_the_recovery_key,
     quitting_mid_wizard_resumes_at_the_right_step,
     signing_out_forgets_the_key_the_token_and_the_live_state,
+    a_set_up_vault_starts_syncing,
+    a_locked_device_cannot_start_syncing,
     pairing_hands_the_vault_key_to_a_new_device,
     a_scanned_code_sends_nothing_until_the_person_confirms,
     a_scan_that_is_not_a_pairing_code_sends_nothing,

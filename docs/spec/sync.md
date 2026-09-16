@@ -704,10 +704,37 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   a different message from a well-formed key that belongs to another vault.
   → `hosted/vault.rs` `unlock_with_recovery_key`, UnlockStep.svelte _(desktop)_,
   UnlockStepView.swift _(iOS)_, UnlockStep.kt _(Android)_
-  > **Gap:** the scan door is a placeholder on every shell: it names itself and
-  > says pairing is not available yet rather than doing nothing. The Rust engine
-  > behind it landed in futo-notes#180 (below); the shells — QR rendering,
-  > camera, and the confirmation sheet — are #181/#182/#183.
+  > **Gap:** _(iOS, Android)_ the scan door is still a placeholder on the two
+  > native shells: it names itself and says pairing is not available yet rather
+  > than doing nothing. The engine landed in futo-notes#180 and desktop's half
+  > in #181; the camera, the confirmation sheet, and the native QR renderer are
+  > #182/#183.
+- **The desktop scan door shows a code and waits; it never scans.** _(desktop)_
+  A laptop is the new device, so it draws the payload Rust hands it as a QR code
+  for an unlocked phone to read (parent spec user stories 13 and 14). Four
+  states, each one Rust's answer rendered: **waiting** (the code, a live
+  countdown to the relay's own `expires_at`, and Cancel), **received** (the key
+  arrived, the vault is unlocked, the first sync is running), **expired**, and
+  **refused**. Cancel stops the wait and puts the three doors back, as does
+  choosing another door; the code itself stays live on the relay until it ages
+  out, so showing one again mints a new one. The countdown only describes the
+  deadline — `await_pairing` is rebuilt from that same timestamp and is the only
+  thing that ends a wait, so no shell clock can disagree with the engine about
+  whether a code is alive. The code is drawn black-on-white in both themes,
+  because a camera reads dark modules on a light field. The name on the other
+  device's confirmation sheet is this computer's hostname, filled in by the
+  desktop shell rather than asked of the frontend.
+  → ScanDoor.svelte + `qrCode.ts` + `pairingCountdown.ts` _(desktop)_,
+  `e2ee_hosted_begin_pairing`
+- **"Expired" is what declining looks like, and the wording says so.**
+  _(desktop)_ The relay carries no declined signal — a person who says no on the
+  scanning device sends nothing at all — so a decline and a walk-away both reach
+  the waiting device as the five minutes running out. The expired screen
+  therefore says a code lasts five minutes and that saying no looks the same from
+  here, with nothing shared either way; it never claims to know which happened.
+  **Refused** is the narrower, rarer case where the relay would not serve the
+  pairing at all. → `hosted/pairing.rs` `await_pairing`,
+  `sync.hosted.pairing.expired` / `.refused`
 - **QR pairing moves the vault key between two devices, new-device-shows.** The
   new device opens a pairing on the server's account-scoped relay and shows a
   code carrying the pairing id, a **one-time X25519 public key**, and its own
@@ -780,12 +807,27 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   browser onto a route that is not there. The capability document is probed
   before the first hand-off is minted. → `e2ee_hosted_probe`
 
-> **Gap:** reaching the end of the wizard does not start a sync cycle yet.
-> `current_step` answers `ready` once the device holds the vault key and the
-> session token, but nothing connects `SyncSession` with those two — it still
-> only has the password-mode `connect`/`resume` pair. The hosted connect path
-> and `window.__testSync.connectHosted()` are futo-notes#186's; until then the
-> hosted wizard sets a vault up and the first sync does not run.
+- **Reaching a set-up, unlocked vault starts syncing.** Whichever door got there
+  — vault password, recovery key, or a paired device — the engine hands the vault
+  key and the session token it already holds to `SyncSession` and one ordinary
+  cycle runs: the same `requestSync` path a self-hosted connect and every later
+  auto-sync go through, not a second one written for hosted. The connect carries
+  no password and makes no request; the wizard has already signed in, resolved
+  the collection, and unwrapped the key. A device with no vault key is refused
+  rather than half-connected. → `hosted/vault.rs` `connect_sync`,
+  `session/connect.rs` `hosted`, `e2ee_hosted_connect`,
+  `syncServiceE2ee.ts` `connectHostedE2ee` _(desktop)_
+
+> **Gap:** _(iOS, Android)_ the native shells still do not start a sync cycle
+> when their wizard finishes — their SyncManagers have only the password-mode
+> connect. Desktop does, as of futo-notes#181; iOS and Android are #182/#183.
+
+> **Gap:** _(desktop)_ a hosted session is re-established only when the sync
+> settings screen is opened, because nothing at boot knows this vault is hosted:
+> `isE2eeConfigured()` reads password-mode app state, and the hosted secrets are
+> in the keyring where only Rust looks. So a restart syncs on the first visit to
+> Settings rather than on launch, and `window.__testSync.connectHosted()` does
+> not exist yet. Both are futo-notes#186's.
 
 
 ## Live sync (SSE)

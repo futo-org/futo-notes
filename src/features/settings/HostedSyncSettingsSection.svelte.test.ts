@@ -41,6 +41,9 @@ function hostedStub(overrides: Partial<HostedSyncSettings> = {}): HostedSyncSett
     recoveryKeySaved: false,
     unlockDoor: 'vaultPassword',
     selfHostedOpen: false,
+    pairing: 'idle',
+    pairingPayload: null,
+    pairingExpiresAt: null,
     load: vi.fn(async () => {}),
     signIn: vi.fn(async () => {}),
     cancelWaiting: vi.fn(async () => {}),
@@ -51,6 +54,8 @@ function hostedStub(overrides: Partial<HostedSyncSettings> = {}): HostedSyncSett
     continueAfterRecoveryKey: vi.fn(async () => {}),
     unlockWithPassword: vi.fn(async () => {}),
     unlockWithRecoveryKey: vi.fn(async () => {}),
+    showPairingCode: vi.fn(async () => {}),
+    cancelPairing: vi.fn(async () => {}),
     manageSubscription: vi.fn(async () => {}),
     signOut: vi.fn(async () => {}),
     ...overrides,
@@ -226,10 +231,18 @@ describe('the three unlock doors', () => {
     expect(hosted.unlockWithPassword).toHaveBeenCalledWith('rhubarb crumble');
   });
 
-  it('says plainly that the scan door is not ready instead of doing nothing', () => {
-    render({ screen: 'unlock', unlockDoor: 'scan' });
-    expect(text()).toContain('not available yet');
+  it('offers a pairing code behind the scan door, with nothing to type', () => {
+    const hosted = render({ screen: 'unlock', unlockDoor: 'scan' });
     expect(button('Unlock')).toBeUndefined();
+    button('Show a pairing code')!.click();
+    expect(hosted.showPairingCode).toHaveBeenCalled();
+  });
+
+  it('stops waiting on a code when the person leaves the scan door', () => {
+    const hosted = render({ screen: 'unlock', unlockDoor: 'scan', pairing: 'waiting' });
+    button('Vault password')!.click();
+    expect(hosted.cancelPairing).toHaveBeenCalled();
+    expect(hosted.unlockDoor).toBe('vaultPassword');
   });
 
   it('unlocks with a typed recovery key through the third door', async () => {
@@ -238,6 +251,82 @@ describe('the three unlock doors', () => {
     await type(field, 'abcd efgh');
     button('Unlock')!.click();
     expect(hosted.unlockWithRecoveryKey).toHaveBeenCalledWith('abcd efgh');
+  });
+});
+
+/**
+ * One test per pairing state, on the door that shows a code.
+ *
+ * Desktop never scans: it draws what Rust hands it and waits. Which state it
+ * is in is Rust's answer, so each of these is just that answer rendered.
+ */
+describe('one test per pairing state on the scan door', () => {
+  const PAYLOAD = JSON.stringify({
+    futo_notes_pairing: 1,
+    id: '01JBXYZABCDEF0123456789ABCD',
+    public_key: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+    device_name: 'Kitchen laptop',
+    platform: 'desktop',
+  });
+
+  function waiting(secondsLeft: number): Partial<HostedSyncSettings> {
+    return {
+      screen: 'unlock',
+      unlockDoor: 'scan',
+      pairing: 'waiting',
+      pairingPayload: PAYLOAD,
+      pairingExpiresAt: new Date(Date.now() + secondsLeft * 1000).toISOString(),
+    };
+  }
+
+  it('waiting: draws the code, says what to do with it, and counts it down', () => {
+    render(waiting(300));
+
+    const code = target.querySelector<SVGElement>('svg[role="img"]')!;
+    expect(code.getAttribute('aria-label')).toBe('Pairing code for this computer');
+    // A grid, not an empty frame: the path carries one box per dark module.
+    expect(code.querySelector('path')!.getAttribute('d')!.length).toBeGreaterThan(1000);
+
+    expect(text()).toContain('Scan this code with an unlocked device');
+    expect(text()).toContain('Scan another device');
+    expect(text()).toContain('This code expires in 5:00.');
+  });
+
+  it('waiting: Cancel puts the three doors back rather than leaving a poll running', () => {
+    const hosted = render(waiting(300));
+    button('Cancel')!.click();
+    expect(hosted.cancelPairing).toHaveBeenCalled();
+  });
+
+  it('received: says the vault is unlocked and that the notes are on their way', () => {
+    render({ screen: 'unlock', unlockDoor: 'scan', pairing: 'received' });
+    expect(text()).toContain('Your vault is unlocked');
+    expect(text()).toContain('Syncing your notes now');
+    expect(target.querySelector('svg[role="img"]')).toBeNull();
+  });
+
+  it('expired: offers a new code and does NOT claim to know whether it was declined', () => {
+    const hosted = render({ screen: 'unlock', unlockDoor: 'scan', pairing: 'expired' });
+    expect(text()).toContain('That code expired');
+    // The relay has no declined signal, so the copy has to say that saying no
+    // and walking away look the same — and must never claim a refusal it
+    // cannot see.
+    expect(text()).toContain('looks the same from here');
+    expect(text()).not.toContain('declined');
+    expect(target.querySelector('svg[role="img"]')).toBeNull();
+
+    button('Show a new code')!.click();
+    expect(hosted.showPairingCode).toHaveBeenCalled();
+  });
+
+  it('refused: names the server turning the pairing down, and offers a new code', () => {
+    const hosted = render({ screen: 'unlock', unlockDoor: 'scan', pairing: 'refused' });
+    expect(text()).toContain('That code can’t be used');
+    expect(text()).toContain('already answered');
+    expect(text()).toContain('No key was shared');
+
+    button('Show a new code')!.click();
+    expect(hosted.showPairingCode).toHaveBeenCalled();
   });
 });
 

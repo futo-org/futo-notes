@@ -23,6 +23,7 @@ import {
   saveAppState,
 } from '$shared/state/appState';
 import { getPlatformFS, isTauri } from '$lib/platform';
+import { connectHostedSync } from '$lib/platform/tauri/hostedSync';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import type {
   E2eeConnectInput,
@@ -207,7 +208,36 @@ export async function forgetStoredSyncPassword(): Promise<void> {
   });
 }
 
+// ── Hosted sessions ─────────────────────────────────────────────────────
+//
+// A hosted vault has no password to cache and no token on disk: both secrets
+// live in the OS keyring, keyed per notes root, and Rust reads them (ADR 0003,
+// decision 4). So the password-mode configured check below cannot see one, and
+// this flag is what says "the engine is holding a hosted session this process
+// connected". It is deliberately in-memory only — a restart re-derives it from
+// Rust rather than from anything written down here.
+let hostedConnected = false;
+
+/**
+ * Hands this vault's hosted secrets to the engine, so cycles can run. Called
+ * when the hosted wizard reaches its set-up, unlocked state, whichever door
+ * got it there. Idempotent: Rust rebuilds the session from the same two
+ * secrets, with no network and no password.
+ */
+export async function connectHostedE2ee(): Promise<void> {
+  await connectHostedSync();
+  hostedConnected = true;
+}
+
+/** Signing out ends the hosted session as far as this module is concerned;
+    Rust has already forgotten both secrets and demoted the sync state. */
+export function forgetHostedE2ee(): void {
+  hostedConnected = false;
+  liveStarted = false;
+}
+
 export function isE2eeConfigured(): boolean {
+  if (hostedConnected) return true;
   const s = getAppState();
   return Boolean(
     s.e2eeServerUrl && s.e2eeAuthToken && s.e2eeUserId && s.e2eeCollectionId && cachedPassword,
@@ -265,6 +295,14 @@ export async function reauthenticateE2ee(password: string): Promise<void> {
 async function ensureConnected(passwordOverride?: string): Promise<void> {
   const status = await invoke<E2eeStatusOutput>('e2ee_status');
   if (status.connected && passwordOverride == null) return;
+
+  // A hosted session has no password to resume with, and needs none: the key
+  // and the token are already in the keyring, so reconnecting is the same call
+  // that made it in the first place.
+  if (hostedConnected && passwordOverride == null) {
+    await connectHostedSync();
+    return;
+  }
 
   const s = getAppState();
   const password = passwordOverride ?? cachedPassword ?? undefined;
@@ -411,6 +449,9 @@ export async function disconnectE2ee(): Promise<void> {
   // The Rust `e2ee_disconnect` already stops the live loop internally;
   // reset the flag so a future reconnect can restart the live stream.
   liveStarted = false;
+  // A hosted session is a session too: a reset must not leave this module
+  // claiming one the engine has just dropped.
+  hostedConnected = false;
   try {
     await invoke('e2ee_disconnect');
   } catch {

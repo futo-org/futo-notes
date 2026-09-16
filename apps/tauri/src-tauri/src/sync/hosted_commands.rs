@@ -289,16 +289,38 @@ pub async fn e2ee_hosted_unlock_with_recovery_key(
         .map_err(Into::into)
 }
 
+/// What this computer calls itself on the other device's confirmation sheet.
+///
+/// The shell's job, not the engine's: iOS and Android read a name a person set
+/// in Settings, and a desktop's equivalent is its hostname. A machine with no
+/// readable hostname still has to say something, because the sheet names the
+/// device it is about to hand a vault key to.
+fn this_computer() -> String {
+    gethostname::gethostname()
+        .into_string()
+        .ok()
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Desktop".to_owned())
+}
+
 /// Opens a pairing and returns the code for this device to show as a QR.
 /// Called on the **new** device; follow it with `e2ee_hosted_await_pairing`.
+///
+/// `device_name` is optional because the desktop frontend has no way to know
+/// what this computer is called — omitting it means "this computer's own name".
 ///
 /// The one-time keypair's private half never leaves Rust.
 #[tauri::command]
 pub async fn e2ee_hosted_begin_pairing(
     state: State<'_, AppState>,
-    device_name: String,
+    device_name: Option<String>,
 ) -> Result<PairingCodeOutput, HostedErrorOutput> {
     let setup = state.hosted.current()?;
+    let device_name = device_name
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(this_computer);
     let code = setup.begin_pairing(&device_name).await?;
     Ok(PairingCodeOutput {
         payload: code.payload,
@@ -349,6 +371,26 @@ pub async fn e2ee_hosted_await_pairing(
         .await_pairing()
         .await
         .map(Into::into)
+        .map_err(Into::into)
+}
+
+/// Hands this vault's hosted secrets to the sync engine, so a cycle can run.
+/// The step after the wizard reaches `ready`, whichever door got it there.
+///
+/// Like the step and sign out, this builds an attempt when the process has
+/// none: the frontend calls it the moment it sees an unlocked vault, which on
+/// a restart is before anything else has begun one.
+#[tauri::command]
+pub async fn e2ee_hosted_connect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    server_url: Option<String>,
+) -> Result<(), HostedErrorOutput> {
+    let root = vault_root(&app)?;
+    let setup = state.hosted.adopt_or_build(&app, server_url.as_deref())?;
+    setup
+        .connect_sync(&state.sync, &root)
+        .await
         .map_err(Into::into)
 }
 

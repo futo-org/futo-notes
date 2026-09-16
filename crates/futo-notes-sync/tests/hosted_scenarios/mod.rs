@@ -708,6 +708,99 @@ pub async fn signing_out_forgets_the_key_the_token_and_the_live_state(base: &str
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// The end of the wizard is a running sync, not a set-up vault that sits
+/// there: a device holding the vault key and the session token hands both to
+/// the sync engine and is connected, with the checkpoint on disk to prove it.
+/// Whichever door unlocked the vault, this is the same call.
+pub async fn a_set_up_vault_starts_syncing(base: &str) {
+    let secrets = DeviceSecrets::new();
+    let phone = device_signed_in(base, &secrets).await;
+    without_a_vault(&phone).await;
+    entitled(&phone).await;
+    phone
+        .create_vault(VAULT_PASSWORD)
+        .await
+        .expect("create the vault");
+    assert_eq!(phone.current_step().await.expect("step"), SetupStep::Ready);
+
+    let root = fresh_vault();
+    let sync = SyncSession::new();
+    assert!(!sync.is_connected().await, "connected before connecting");
+
+    phone
+        .connect_sync(&sync, &root)
+        .await
+        .expect("connect sync");
+
+    assert!(
+        sync.is_connected().await,
+        "the wizard finished without a session to sync with"
+    );
+    let state = sync.snapshot().await.expect("a connected session");
+    assert_eq!(
+        Some(state.collection_id.clone()),
+        phone.collection_id(),
+        "the sync session is pointed at a different vault than the wizard set up"
+    );
+    assert_eq!(
+        Some(state.vault_key),
+        secrets.held_vault_key(),
+        "the sync session is not using this device's vault key"
+    );
+    let checkpoint = std::fs::read_to_string(root.join(".e2ee-state.json"))
+        .expect("connecting left no checkpoint, so a restart would lose the collection");
+    assert!(checkpoint.contains(&state.collection_id), "{checkpoint}");
+
+    // Calling it again is the same session, not a second one: a shell may call
+    // it whenever it notices an unlocked vault.
+    phone
+        .connect_sync(&sync, &root)
+        .await
+        .expect("connect again");
+    assert!(sync.is_connected().await);
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A device that has not unlocked has nothing to sync with, and says so rather
+/// than connecting a session with no key in it.
+pub async fn a_locked_device_cannot_start_syncing(base: &str) {
+    let secrets = DeviceSecrets::new();
+    let phone = device_signed_in(base, &secrets).await;
+    without_a_vault(&phone).await;
+    entitled(&phone).await;
+    phone
+        .create_vault(VAULT_PASSWORD)
+        .await
+        .expect("create the vault");
+    secrets.forget_vault_key();
+
+    let root = fresh_vault();
+    let sync = SyncSession::new();
+    assert_eq!(
+        reopened(base, &secrets)
+            .connect_sync(&sync, &root)
+            .await
+            .unwrap_err(),
+        HostedError::VaultLocked
+    );
+    assert!(!sync.is_connected().await);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// An empty vault root, the way a device that has never synced starts.
+fn fresh_vault() -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "futo-hosted-connect-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&root).expect("create the vault root");
+    root
+}
+
 /// A vault mid-sync: one note already pushed, and the live checkpoint that
 /// says so. Written as the file the engine reads rather than through
 /// `ConnectedState`, which a test outside the crate cannot serialize — the

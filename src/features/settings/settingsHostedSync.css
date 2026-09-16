@@ -169,3 +169,16 @@
   line-height: 1.45;
   color: var(--color-muted);
 }
+
+/* The pairing code. White field and a quiet margin whatever the theme is:
+   a camera reads dark modules on a light one, so this is the one surface in
+   Settings that must NOT follow the theme. */
+.hosted-pairing-code {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: #ffffff;
+}

@@ -1928,6 +1928,7 @@ dependencies = [
  "futo-notes-core",
  "futo-notes-store",
  "futo-notes-sync",
+ "gethostname",
  "glib",
  "hex",
  "keyring",
