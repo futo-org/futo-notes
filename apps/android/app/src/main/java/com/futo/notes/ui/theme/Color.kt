@@ -41,6 +41,45 @@ object FutoPalette {
 
     // Text on an ink/inverse surface (warm off-white).
     val OnInk = Color(0xFFF3F1EC)
+
+    // ── Steel Ledger (the License plate) ────────────────────────────────────
+    // Gunmetal and gold, and deliberately NOT the warm neutral ramp above: the
+    // license plate is the one surface in the app made of a different material,
+    // and it is that on all three platforms (docs/plan/license-ship.md D1/D5).
+    // These are the same values the desktop plate defines as --plate-* in
+    // src/features/license/LicenseSettingsSection.svelte — change one, change
+    // all three shells.
+    val PlateTopLight    = Color(0xFFDFE4E8) // --plate-a
+    val PlateBottomLight = Color(0xFFCDD5DC) // --plate-b
+    val PlateInkLight    = Color(0xFF1C2733)
+    val PlateInkDimLight = Color(0xFF4F5D6A)
+    val PlateRuleLight   = Color(0xFFA9B4BE)
+    val PlateGoldLight   = Color(0xFFB8860B)
+
+    val PlateTopDark     = Color(0xFF2A3139)
+    val PlateBottomDark  = Color(0xFF1C2228)
+    val PlateInkDark     = Color(0xFFE6EBEF)
+    val PlateInkDimDark  = Color(0xFF9AA6B1)
+    val PlateRuleDark    = Color(0xFF3D4650)
+    val PlateGoldDark    = Color(0xFFFFBB00)
+}
+
+/**
+ * The well's inset shadow — the only thing that says the 184dp circle is sunk
+ * into the plate, since it carries no fill and no ring (D1).
+ *
+ * Identical in both themes on purpose: a depression is geometry, not colour,
+ * and the CSS the desktop plate uses
+ * (`inset 0 2px 6px rgba(0,0,0,.28), inset 0 -1px 0 rgba(255,255,255,.35)`)
+ * is likewise one declaration for both. Kept out of [FutoColors] for exactly
+ * that reason — there is nothing for the dark variant to override.
+ */
+object FutoPlateWell {
+    /** rgba(0, 0, 0, .28) — the cast shadow under the top edge and around the rim. */
+    val Shadow = Color(0x47000000)
+
+    /** rgba(255, 255, 255, .35) — the light line along the bottom inside edge. */
+    val Highlight = Color(0x59FFFFFF)
 }
 
 /**
@@ -68,6 +107,16 @@ data class FutoColors(
 
     val success: Color = FutoPalette.Success,
     val danger: Color = FutoPalette.Danger,
+
+    // The License plate (Steel Ledger). Read only by the license card; every
+    // other Settings group is still the app's own paper-and-hairline surface.
+    val plateTop: Color = FutoPalette.PlateTopLight,
+    val plateBottom: Color = FutoPalette.PlateBottomLight,
+    val plateInk: Color = FutoPalette.PlateInkLight,
+    val plateInkDim: Color = FutoPalette.PlateInkDimLight,
+    val plateRule: Color = FutoPalette.PlateRuleLight,
+    /** Gold. Rules, the badge border and the plate's own links — never a fill. */
+    val plateAccent: Color = FutoPalette.PlateGoldLight,
 )
 
 val darkFutoColors = FutoColors(
@@ -89,4 +138,11 @@ val darkFutoColors = FutoColors(
 
     success = FutoPalette.Success,
     danger = FutoPalette.Danger,
+
+    plateTop = FutoPalette.PlateTopDark,
+    plateBottom = FutoPalette.PlateBottomDark,
+    plateInk = FutoPalette.PlateInkDark,
+    plateInkDim = FutoPalette.PlateInkDimDark,
+    plateRule = FutoPalette.PlateRuleDark,
+    plateAccent = FutoPalette.PlateGoldDark,
 )

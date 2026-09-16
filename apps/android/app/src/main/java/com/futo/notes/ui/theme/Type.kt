@@ -39,6 +39,18 @@ object FutoType {
     val caption = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Normal,   fontSize = 13.sp, lineHeight = 19.sp, letterSpacing = 0.em)
     // micro: render with text.uppercase() at the call site
     val micro   = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Medium,   fontSize = 11.sp, lineHeight = 15.sp, letterSpacing = 0.01.em)
+
+    // ── The License plate (Steel Ledger) ────────────────────────────────────
+    // No new font file ships for it (docs/plan/license-ship.md D10): the mock's
+    // Barlow Condensed becomes Barlow 700 uppercased at the call site with
+    // positive tracking — the only positive tracking in this ramp, because the
+    // plate's name is engraved rather than set.
+    val plateName = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 26.sp, letterSpacing = 0.02.em)
+
+    // A license key is data, not prose. The platform's own monospace stack
+    // (D10) so the masked dots and the revealed key sit on the same grid and
+    // the value does not reflow when it is revealed.
+    val plateKey  = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 19.sp, letterSpacing = 0.02.em)
 }
 
 val FutoTypography = Typography(

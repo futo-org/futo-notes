@@ -1,13 +1,33 @@
 package com.futo.notes.license
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.futo.notes.BuildConfig
+import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.localization.Localization
+import com.futo.notes.ui.LicenseSettingsSection
+import com.futo.notes.ui.theme.FutoNotesTheme
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
 import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicensePlatform
 import uniffi.futo_notes_ffi.LicenseStatus
@@ -20,8 +40,22 @@ import uniffi.futo_notes_ffi.licenseRowActions
  * rules can see it: the manifest's URL scheme and the store-posture flag.
  * Mirrors iOS `LicenseSurfaceTests`.
  */
+@RunWith(AndroidJUnit4::class)
 class LicenseSurfaceTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @get:Rule
+    val compose = createComposeRule()
+
+    // A prefs file of this test's own: the app's real license must be neither
+    // read nor written by a test run.
+    private val preferences =
+        context.getSharedPreferences("license-surface-test", Context.MODE_PRIVATE)
+
+    @After
+    fun clearPreferences() {
+        preferences.edit().clear().commit()
+    }
 
     /**
      * The scheme is registered at BUILD time, in `AndroidManifest.xml`, where no
@@ -108,4 +142,53 @@ class LicenseSurfaceTest {
         assertTrue(staging, staging.startsWith("https://staging-pay2.futo.org/"))
         assertTrue(production, production.startsWith("https://pay2.futo.org/"))
     }
+
+    /**
+     * The card shows the stored key masked to its last group, and reveals the
+     * whole thing — with a way to copy it — only when it is asked for (D4).
+     *
+     * A Compose test rather than a model one because the masking itself is
+     * already locked at the model level (`LicenseCopyTest`): what is untested
+     * anywhere else is that the plate STARTS masked, that the masked value is
+     * the control, and that its accessible name says what tapping it does
+     * instead of reading thirty-two middle dots aloud.
+     */
+    @Test
+    fun theCardMasksTheStoredKeyAndRevealsItOnTap() {
+        val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
+        val license = LicenseModel(LicenseStorage(preferences), LicenseFixture.DEV_APPLICATION_ID)
+        license.showMessage = {}
+        license.handle(LicenseFixture.deepLink)
+        val view = checkNotNull(license.view) { "the fixture link did not license the device" }
+        val storedKey = checkNotNull(view.key)
+        val masked = checkNotNull(licenseCardModel(view, localization).maskedKey)
+
+        compose.setContent {
+            FutoNotesTheme(darkTheme = false) {
+                CompositionLocalProvider(LocalLocalization provides localization) {
+                    // The plate lives in a scrolling Settings column; give it
+                    // one here too, so an assertion cannot fail merely because
+                    // this device's screen is shorter than the card.
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        LicenseSettingsSection(license)
+                    }
+                }
+            }
+        }
+
+        compose.onNodeWithText(masked).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(storedKey).assertDoesNotExist()
+
+        compose
+            .onNodeWithContentDescription(localization.localizedText("license.card.revealKey"))
+            .performScrollTo()
+            .performClick()
+
+        compose.onNodeWithText(storedKey).performScrollTo().assertIsDisplayed()
+        compose
+            .onNodeWithText(localization.localizedText("license.card.copyKey"))
+            .assertIsDisplayed()
+        compose.onNodeWithText(masked).assertDoesNotExist()
+    }
 }
+

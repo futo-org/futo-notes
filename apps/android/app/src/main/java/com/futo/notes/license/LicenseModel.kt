@@ -194,6 +194,14 @@ class LicenseModel(
      */
     fun clearForFullReset() = remove()
 
+    /**
+     * The card put the stored key on the clipboard. Purely local UI — no rule,
+     * no state change, nothing stored — but it is announced through [announce]
+     * like every other outcome so the message cannot be lost silently if the
+     * destination is ever missing (M11).
+     */
+    fun announceKeyCopied() = announce(LocalizedMessage("license.card.keyCopied"))
+
     private fun announce(message: LocalizedMessage) {
         val destination = showMessage
         if (destination == null) {
