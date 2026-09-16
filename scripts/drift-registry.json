@@ -485,9 +485,9 @@
     },
     {
       "concept": "hosted-sync-shell-presentation",
-      "description": "Turning the hosted engine's answers into what a person reads: which catalog message each HostedError variant gets, which sentence each subscription state gets, and the vault-password strength estimate. Hand-written per shell because this is presentation — Rust owns the rules underneath (the 12-character minimum, the error variants themselves). Android grows a third copy in futo-notes#179.",
+      "description": "Turning the hosted engine's answers into what a person reads: which catalog message each HostedError variant gets, which sentence each subscription state gets, and the vault-password strength estimate. Hand-written per shell because this is presentation — Rust owns the rules underneath (the 12-character minimum, the error variants themselves). Android is the third copy (futo-notes#179).",
       "lockStatus": "unlocked",
-      "note": "UNLOCKED: nothing but you keeps these in step. A new HostedError variant, a new subscription state, or a change to the strength thresholds must land in every copy in one commit. Each side has its own tests (hostedSyncErrors.test.ts / HostedSyncErrorsTests.swift and siblings); no fixture is shared between them yet.",
+      "note": "UNLOCKED: nothing but you keeps these in step. A new HostedError variant, a new subscription state, or a change to the strength thresholds must land in every copy in one commit. Each side has its own tests (hostedSyncErrors.test.ts / HostedSyncErrorsTests.swift / HostedSyncErrorsTest.kt and siblings), and the three strength suites deliberately assert the same inputs; no fixture is shared between them yet.",
       "copies": [
         {
           "location": "src/features/sync/hostedSyncErrors.ts",
@@ -512,6 +512,18 @@
         {
           "location": "apps/ios/Sources/Sync/Hosted/VaultPasswordStrength.swift",
           "pattern": "func vaultPasswordStrength"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/HostedSyncErrors.kt",
+          "pattern": "fun hostedErrorMessage"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/SubscriptionState.kt",
+          "pattern": "fun subscriptionStateMessage"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/VaultPasswordStrength.kt",
+          "pattern": "fun vaultPasswordStrength"
         }
       ]
     }

@@ -8,6 +8,13 @@
 #
 # `release-ffi` preserves panic unwinding for UniFFI and keeps symbols for AGP
 # to extract before stripping the device libraries.
+#
+# FUTO_ANDROID_FFI_PROFILE=dev builds the `dev` profile instead — the Android
+# twin of build-rust-ios.sh's FUTO_IOS_FFI_PROFILE. It is the only way to reach
+# the engine's own debug-only overrides from this shell, because they are gated
+# on `debug_assertions`, which `release-ffi` inherits from `release` with off.
+# `FUTO_HOSTED_SERVER` is the one that matters today: without a dev build the
+# hosted wizard can only ever talk to the baked address. Never ship it.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,10 +49,11 @@ KOTLIN_OUT="$APP/app/src/main/java"
 # ABIs: arm64 (modern devices), armv7 (older), x86_64 (emulator). i686 is rarely
 # needed; add "x86" here if you target 32-bit emulators.
 ABIS="${ABIS:-arm64-v8a,armeabi-v7a,x86_64}"
+PROFILE="${FUTO_ANDROID_FFI_PROFILE:-release-ffi}"
 
-echo "==> Building futo-notes-ffi for Android ABIs: $ABIS (profile: release-ffi)"
+echo "==> Building futo-notes-ffi for Android ABIs: $ABIS (profile: $PROFILE)"
 cargo ndk --platform 24 --target "$ABIS" --output-dir "$JNI" \
-  build -p futo-notes-ffi --profile release-ffi
+  build -p futo-notes-ffi --profile "$PROFILE"
 
 echo "==> Building host lib (for binding generation metadata)"
 cargo build -p futo-notes-ffi

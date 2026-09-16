@@ -1491,6 +1491,19 @@ build:android-native:
     # release can't ship past a red unit test. This job is a release:gate
     # dependency, so a failure here blocks publish (M14) without a separate
     # test job.
+    # Hosted sync ("Log in with FUTO") is on for debug and for the INTERNAL
+    # track, off for the store (ADR 0003 decision 13). On Android the internal
+    # build is a prerelease tag (v1.7.2-4): it builds everything and publishes
+    # nothing, because every publish job gates on ^v[0-9]+\.[0-9]+\.[0-9]+$.
+    # So a stable tag — the only build that reaches Play or a GitLab release —
+    # never sets this, and compiles the flow out.
+    - |
+      if [ -n "$CI_COMMIT_TAG" ] && ! echo "$CI_COMMIT_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+        export FUTO_HOSTED_SYNC=true
+        echo "Prerelease tag $CI_COMMIT_TAG — internal build, hosted sync ON"
+      else
+        echo "Hosted sync OFF in the release build (stable tag or no tag)"
+      fi
     - |
       if [ -n "$CI_COMMIT_TAG" ]; then
         cd apps/android && ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease :app:testDebugUnitTest

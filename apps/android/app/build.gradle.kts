@@ -73,9 +73,23 @@ android {
         debug {
             applicationIdSuffix = ".dev"
             manifestPlaceholders["appLabel"] = "@string/app_name_debug"
+            // Hosted sync ("Log in with FUTO") is always compiled into a debug
+            // build — this is the dogfooding surface (ADR 0003 decision 13).
+            buildConfigField("boolean", "HOSTED_SYNC", "true")
         }
 
         release {
+            // Hosted sync in a RELEASE build is opt-in, and the default is off,
+            // because this build type is what reaches the store. CI turns it on
+            // for the internal track only (see .gitlab-ci.yml build:android-native:
+            // a prerelease tag is the internal build; a stable vX.Y.Z tag is the
+            // store build and never sets this). Locally:
+            //   FUTO_HOSTED_SYNC=true ./gradlew :app:assembleRelease
+            buildConfigField(
+                "boolean",
+                "HOSTED_SYNC",
+                if (System.getenv("FUTO_HOSTED_SYNC") == "true") "true" else "false",
+            )
             // R8 minification: shrinks the app and emits the deobfuscation
             // mapping file Play wants. Keep rules for JNA, the UniFFI bindings,
             // and the WebView JS bridge live in proguard-rules.pro.
@@ -173,6 +187,11 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.12.4")
     // FileProvider (camera capture staging for the editor image picker).
     implementation("androidx.core:core-ktx:1.13.1")
+    // Chrome Custom Tabs: the hosted sign-in / checkout / customer-portal
+    // surface (ADR 0003 decision 1). A tab keeps the browser's own cookies, so
+    // an existing FUTO session makes a second sign-in one tap — which is
+    // exactly what an embedded WebView cannot do.
+    implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     // View-based Material Components: supplies the app's manifest theme
@@ -180,6 +199,9 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.5")
+    // LocalLifecycleOwner: the hosted wizard watches pause/resume to notice the
+    // person coming back from a Custom Tab (which has no dismissal callback).
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.5")
 
     // UniFFI-generated Kotlin bindings use JNA to call libfuto_notes_ffi.so.
     // 5.17.0: first version whose bundled libjnidispatch.so is 16 KB-page-aligned

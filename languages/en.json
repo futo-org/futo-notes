@@ -674,6 +674,9 @@
           "confirmationBody": "Sign out of FUTO sync on this device? Your notes stay on this computer, and syncing stops until you sign in again.",
           "ios": {
             "confirmationBody": "Sign out of FUTO sync on this device? Your notes stay on this device, and syncing stops until you sign in again."
+          },
+          "android": {
+            "confirmationBody": "Sign out of FUTO sync on this device? Your notes stay on this device, and syncing stops until you sign in again."
           }
         },
         "errors": {
@@ -696,6 +699,7 @@
           "secretStore": "This device's secret store refused. Nothing was saved.",
           "crypto": "The vault's key material could not be read.",
           "checkoutGaveUp": "Checkout hasn't come through yet. Try again in a moment.",
+          "noBrowser": "This device has no browser to sign in with.",
           "unexpected": "Something went wrong. Try again."
         }
       }

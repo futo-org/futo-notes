@@ -44,6 +44,13 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   identical screen either way, and with the flag off nothing about the Sync sheet
   changes. Behaviour is specified once, in [sync.md](sync.md) "Hosted sync". →
   HostedSyncSections.swift, SyncView.swift, HostedSyncBuild.swift
+- **Sync screen, with hosted sync built in** _(Android)_: the same, on the Sync
+  screen reached from Settings → Sync, gated by `BuildConfig.HOSTED_SYNC` — every
+  debug build, and a release build made with `FUTO_HOSTED_SYNC=true`. The
+  disclosed rows are the same `SelfHostedSyncSections` a flag-off build renders.
+  The screen scrolls, because the wizard's steps are taller than the self-hosted
+  form it replaced. →
+  HostedSyncSections.kt, SyncScreen.kt, HostedSyncBuild.kt
 - **Appearance**: the Theme Light/Dark/Auto control from "All platforms"
   applies immediately, including to the open Settings sheet the user changed it
   from, in both directions (iOS: the scene's windows get an
