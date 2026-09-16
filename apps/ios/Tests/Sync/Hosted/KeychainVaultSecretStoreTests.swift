@@ -73,6 +73,37 @@ struct KeychainVaultSecretStoreTests {
         #expect(try other.vaultKey() == nil)
     }
 
+    @Test("a hosted connect clears the self-hosted password and keeps its own secrets")
+    func clearsTheSelfHostedPassword() throws {
+        // The app-global entry is shared with whatever this simulator already
+        // had, so put it back afterwards rather than QA-wiping it.
+        let existing = Keychain.syncPassword
+        defer { Keychain.syncPassword = existing }
+
+        let root = uniqueRoot()
+        let store = KeychainVaultSecretStore(notesRoot: root)
+        defer {
+            try? store.deleteVaultKey()
+            try? store.deleteSessionToken()
+        }
+
+        Keychain.syncPassword = "the password for my own server"
+        try store.setVaultKey(key: Data(repeating: 3, count: 32))
+        try store.setSessionToken(token: "session-token")
+
+        try store.deleteSyncPassword()
+
+        #expect(Keychain.syncPassword == nil)
+        // The two hosted secrets have to survive it, or the connect that just
+        // cleared the password would have nothing left to resume with.
+        #expect(try store.vaultKey() == Data(repeating: 3, count: 32))
+        #expect(try store.sessionToken() == "session-token")
+
+        // Every launch's repeat connect clears it again; a device that never
+        // had one must not fail.
+        try store.deleteSyncPassword()
+    }
+
     @Test("a key that is not 32 bytes is refused rather than stored short")
     func wrongLengthIsRefused() {
         let store = KeychainVaultSecretStore(notesRoot: uniqueRoot())

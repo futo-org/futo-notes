@@ -156,6 +156,12 @@ pub enum SecretStoreError {
 /// A missing entry is `null`, never an error — a device that has not been set
 /// up is the ordinary case — and deleting something absent succeeds. These
 /// run on Tokio workers and may block; they never touch UI.
+///
+/// `delete_sync_password` is the odd one out: the secret it removes belongs to
+/// self-hosted sync, which is app-global on both shells rather than scoped to
+/// this notes root. The engine calls it at the one moment a hosted session
+/// starts, so a device is never holding both credentials — see
+/// `futo_notes_sync::VaultSecrets::delete_sync_password` for why.
 #[uniffi::export(callback_interface)]
 pub trait VaultSecretStore: Send + Sync {
     fn vault_key(&self) -> Result<Option<Vec<u8>>, SecretStoreError>;
@@ -164,6 +170,7 @@ pub trait VaultSecretStore: Send + Sync {
     fn session_token(&self) -> Result<Option<String>, SecretStoreError>;
     fn set_session_token(&self, token: String) -> Result<(), SecretStoreError>;
     fn delete_session_token(&self) -> Result<(), SecretStoreError>;
+    fn delete_sync_password(&self) -> Result<(), SecretStoreError>;
 }
 
 /// Adapts a shell's store to the engine's port. The one thing it adds is a
@@ -205,6 +212,12 @@ impl VaultSecrets for ShellSecrets {
     fn delete_session_token(&self) -> Result<(), String> {
         self.0
             .delete_session_token()
+            .map_err(|error| error.to_string())
+    }
+
+    fn delete_sync_password(&self) -> Result<(), String> {
+        self.0
+            .delete_sync_password()
             .map_err(|error| error.to_string())
     }
 }
@@ -853,6 +866,9 @@ mod tests {
         fn delete_session_token(&self) -> Result<(), SecretStoreError> {
             Ok(())
         }
+        fn delete_sync_password(&self) -> Result<(), SecretStoreError> {
+            Ok(())
+        }
     }
 
     #[test]
@@ -894,6 +910,9 @@ mod tests {
                 Ok(())
             }
             fn delete_session_token(&self) -> Result<(), SecretStoreError> {
+                Ok(())
+            }
+            fn delete_sync_password(&self) -> Result<(), SecretStoreError> {
                 Ok(())
             }
         }

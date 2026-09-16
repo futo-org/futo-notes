@@ -999,7 +999,10 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   storage figure is what the vault now weighs. At a cold start the shell restores
   the password session first and, when there is no stored password, asks
   `has_saved_vault` and connects hosted — so a force-quit and relaunch resumes
-  sync with Settings never opened. `NotSignedIn` and `VaultLocked` mean the wizard
+  sync with Settings never opened. That order is safe only because a hosted
+  device has no stored password to prefer: see "Exactly one sync credential
+  exists at a time" below, which is what makes the absence of one mean "this is
+  a hosted vault" instead of "this device never used its own server". `NotSignedIn` and `VaultLocked` mean the wizard
   is unfinished and read as not connected, never as a failure; a transport failure
   keeps both secrets and takes the muted live line, and the next foreground or
   session heal retries. → SyncManager.swift / SyncManager.kt `connectHosted` +
@@ -1020,17 +1023,48 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   existing initial and background retry ladders. → `syncServiceE2ee.ts`
   `isE2eeConfigured` + `ensureConnected`
 
-> **Gap:** _(iOS, Android)_ a device with a self-hosted sync password stored does
-> not resume its hosted session at launch. `restoreSession` prefers the password
-> branch, and the stored password is app-global rather than scoped per vault, so
-> a device that ever connected to its own server keeps reconnecting there at every
-> launch and the hosted branch never runs — the hosted secrets are untouched and
-> opening the sync screen still connects, so it looks exactly like the hosted
-> restore being broken. Seen on the iOS simulator on 2026-09-16 while verifying
-> the line above (`docs/qa/hosted-sync-ios.md`). Only `disconnect` and Full reset
-> clear the stored password today, which is itself specified behaviour; closing
-> this means deciding whether finishing hosted setup should end a self-hosted
-> session for that vault.
+- **Exactly one sync credential exists at a time: starting a hosted session
+  clears the stored self-hosted sync password.** The password is app-global
+  rather than scoped per vault, and every shell restores the password session
+  before asking `has_saved_vault` — so a device that had ever connected to
+  someone's own server reconnected there at every launch and the hosted branch
+  never ran, with the hosted secrets untouched and the sync screen still
+  connecting, which presents exactly like the hosted restore being broken (iOS
+  simulator, 2026-09-16, `docs/qa/hosted-sync-ios.md`). The rule makes the
+  presence of a password a correct answer to "which mode is this device in?"
+  rather than a guess, and reads as **whichever mode you set up last wins**:
+  finishing hosted setup clears the password, while setting up self-hosted sync
+  leaves the hosted secrets to the sign-out that owns them and the password
+  branch takes precedence from there. Justin's call, 2026-09-16; the rejected
+  alternatives were an explicit mode field in `AppState` (correct, but a schema
+  change plus migration) and inverting the branch precedence (a guess, and it
+  breaks the reverse case identically). It is one rule in the engine, not three
+  shell copies: `connect_sync` clears the password through the same secret-store
+  port it already reads the vault key and token through, at the point where all
+  three hosted facts — session, vault key, collection — are in hand. Before the
+  engine is handed the session and not after, so opening the hosted screen on a
+  self-hosted device costs nobody a password they still need, and a connect that
+  then fails because the device is offline still leaves the next launch resuming
+  *this* vault. → `hosted/secrets.rs` `VaultSecrets::delete_sync_password`,
+  `hosted/vault.rs` `connect_sync`, KeychainVaultSecretStore.swift _(iOS)_,
+  KeystoreVaultSecretStore.kt _(Android)_, `sync/password_store.rs` +
+  `syncServiceE2ee.ts` `connectHostedE2ee` _(desktop)_
+
+> **Gap:** _(iOS, Android)_ finishing hosted setup **while a self-hosted session
+> is live** starts no hosted session, so the rule above never fires and that
+> device still reconnects to its own server at every launch. `connectHosted`
+> returns early on `connected && client != nil && !healing` — a guard that
+> exists so the wizard's repeated connects cannot stack a second live loop — and
+> a live *password* session satisfies it just as a hosted one does. Verified on
+> the simulator, 2026-09-16 (`docs/qa/hosted-sync-ios.md`): with a password
+> session connected, the whole wizard ran to the account card and it read
+> **`0 B of 10 GB used`** with no cycle behind it; the same wizard with the
+> password session merely disconnected read `555 B` and resumed hosted across a
+> relaunch. The two shells share the guard (`SyncManager.swift` `connectHosted`,
+> `SyncManager.kt` `connectHostedLocked`); desktop does not, because
+> `ensureConnected` prefers hosted. Closing it means deciding whether completing
+> hosted setup should end a live self-hosted session — a change of specified
+> intent, not a gap to close unilaterally.
 
 
 
@@ -1182,8 +1216,9 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   deliberate:
   storing the password on-device means device compromise → password → vault key.
   The stored password is cleared on explicit disconnect (after which a relaunch
-  stays local) and by Full reset (desktop `resetAllNotes` → `disconnectE2ee`
-  deletes the keyring entry, M4). Verified on the emulator 2026-06-09: connect →
+  stays local), by Full reset (desktop `resetAllNotes` → `disconnectE2ee`
+  deletes the keyring entry, M4), and by a hosted connect — see "Exactly one
+  sync credential exists at a time" under "Hosted sync". Verified on the emulator 2026-06-09: connect →
   `am force-stop` → relaunch reconnects silently (SYNCED); disconnect → relaunch
   stays LOCAL.
   On web (non-Tauri, not a shipping sync surface) there is no OS keyring, so the

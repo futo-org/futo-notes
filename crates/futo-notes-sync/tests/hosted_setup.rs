@@ -42,6 +42,7 @@ against_the_stub! {
     signing_out_forgets_the_key_the_token_and_the_live_state,
     a_set_up_vault_starts_syncing,
     a_locked_device_cannot_start_syncing,
+    finishing_hosted_setup_clears_the_self_hosted_password,
     a_finished_wizard_is_recognised_without_the_network,
     pairing_hands_the_vault_key_to_a_new_device,
     a_scanned_code_sends_nothing_until_the_person_confirms,

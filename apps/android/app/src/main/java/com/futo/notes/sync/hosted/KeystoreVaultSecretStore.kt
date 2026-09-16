@@ -12,13 +12,20 @@ import uniffi.futo_notes_ffi.VaultSecretStore
  * 0003, decision 4); this only says where they live. The vault password is
  * never among them — a device set up by password and one set up by a recovery
  * key are indistinguishable afterwards, and neither is asked for anything
- * again. It never touches the self-hosted password entry.
+ * again.
  *
  * A missing entry is `null`, never an error, because a device that has not been
  * set up is the ordinary case. A refusal to *keep* a secret is an error,
  * because the alternative is a device that looks set up and is not — so writes
  * read back what they stored and say so when it did not land. UniFFI calls
  * these on Tokio workers, so nothing here touches UI.
+ *
+ * [deleteSyncPassword] is the odd one out, and the one entry here that is not
+ * scoped to [notesRoot]: the self-hosted sync password is app-global. The
+ * engine clears it the moment a hosted session starts, so this device is never
+ * holding both credentials and [com.futo.notes.SyncManager.restoreSession]
+ * cannot mistake a stale password for "this is a self-hosted vault". Mirrors
+ * iOS `KeychainVaultSecretStore`. → docs/spec/sync.md
  */
 class KeystoreVaultSecretStore(
     private val secure: SecureStore,
@@ -49,5 +56,9 @@ class KeystoreVaultSecretStore(
 
     override fun deleteSessionToken() {
         secure.clearSessionToken(notesRoot)
+    }
+
+    override fun deleteSyncPassword() {
+        secure.clearPassword()
     }
 }

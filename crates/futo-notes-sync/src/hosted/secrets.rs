@@ -9,6 +9,10 @@
 //! Service / Keychain / Credential Manager on desktop, the iOS Keychain, and
 //! Android's `SecureStore` are three different APIs, and each is already scoped
 //! per notes root by the shell that owns it — so this trait takes no root.
+//!
+//! One secret the engine names but never writes: the self-hosted sync
+//! password. It belongs to the other way of syncing, and the two are exclusive
+//! — see [`VaultSecrets::delete_sync_password`].
 
 use futo_notes_core::e2ee::KEY_BYTES;
 
@@ -29,4 +33,27 @@ pub trait VaultSecrets: Send + Sync + 'static {
     fn session_token(&self) -> Result<Option<String>, String>;
     fn set_session_token(&self, token: &str) -> Result<(), String>;
     fn delete_session_token(&self) -> Result<(), String>;
+
+    /// Forget the self-hosted sync password, if this device is keeping one.
+    ///
+    /// The one secret here that hosted sync does not own. A device syncs
+    /// against the FUTO service or against someone's own server, never both,
+    /// and the stored password is what reconnects to the latter — on every
+    /// shell it is app-global rather than per-vault, so its mere presence
+    /// cannot say which kind of vault this is. Every shell resolves that
+    /// ambiguity the same way, by trying the password first, which on a device
+    /// that had moved to hosted sync meant reconnecting to the abandoned
+    /// self-hosted server at every launch and never resuming the hosted
+    /// session at all (device QA, 2026-09-16; Justin's call the same day).
+    ///
+    /// So exactly one sync credential exists at a time, and whichever mode was
+    /// set up last wins: [`crate::HostedSetup::connect_sync`] clears the
+    /// password, while setting up self-hosted sync leaves the hosted secrets
+    /// to the sign-out that owns them and the password branch takes it from
+    /// there. "Is there a password?" is then a correct answer to "which mode
+    /// is this device in?" rather than a guess.
+    ///
+    /// Idempotent, like the other deletes: a device that never had one
+    /// succeeds.
+    fn delete_sync_password(&self) -> Result<(), String>;
 }

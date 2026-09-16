@@ -12,7 +12,12 @@ import Security
 /// Tradeoff: an on-device password weakens E2EE (device compromise → password →
 /// vault key). Stored as a generic-password item with
 /// `kSecAttrAccessibleWhenUnlocked` (readable only while the device is unlocked).
-/// Cleared on explicit `disconnect()`.
+/// Cleared on explicit `disconnect()`, and by a hosted connect — the password
+/// is app-global rather than per-vault, so leaving it in place on a device that
+/// has moved to hosted sync sent `restoreSession` back to the abandoned
+/// self-hosted server at every launch. Rust decides *when*, through
+/// `KeychainVaultSecretStore.deleteSyncPassword`; this only says where it
+/// lives. → docs/spec/sync.md
 ///
 /// The vault key and the session token are what hosted sync keeps instead of a
 /// password (ADR 0003, decision 4), read and written through
@@ -78,6 +83,14 @@ enum Keychain {
                 try? delete(.syncPassword)
             }
         }
+    }
+
+    /// Forget the stored sync password, reporting a Keychain refusal instead
+    /// of swallowing it. The property above stays non-throwing for the call
+    /// sites that have nothing to do about a failure; the hosted connect does,
+    /// because a password that outlives it is the bug this exists to prevent.
+    static func deleteSyncPassword() throws {
+        try delete(.syncPassword)
     }
 
     // ── Vault key ────────────────────────────────────────────────────────

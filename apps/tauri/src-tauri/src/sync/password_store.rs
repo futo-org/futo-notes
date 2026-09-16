@@ -157,6 +157,10 @@ fn session_token_delete_impl(store: &dyn SecretStore, root: &Path) -> Result<(),
 /// One instance is scoped to one notes root, which is what keeps the debug
 /// (`fake-notes`) and production (`futo-notes`) vaults — and every worktree's
 /// `FUTO_NOTES_DATA_DIR` — reading independent entries (M3).
+///
+/// It also reaches the self-hosted password entry, which the engine clears
+/// when a hosted session starts. That is not a fourth hosted secret: it is the
+/// *other* credential, and the two are exclusive.
 pub(crate) struct KeyringVaultSecrets {
     root: std::path::PathBuf,
 }
@@ -190,6 +194,14 @@ impl futo_notes_sync::VaultSecrets for KeyringVaultSecrets {
 
     fn delete_session_token(&self) -> Result<(), String> {
         session_token_delete_impl(&KeyringStore, &self.root)
+    }
+
+    /// The same per-vault entry the `e2ee_password_*` commands read and write —
+    /// the engine reaches it here so a hosted connect leaves exactly one sync
+    /// credential on this machine, on every platform at once rather than three
+    /// times over.
+    fn delete_sync_password(&self) -> Result<(), String> {
+        delete_impl(&KeyringStore, &self.root)
     }
 }
 
@@ -400,6 +412,27 @@ mod tests {
             .unwrap();
         let error = vault_key_get_impl(&store, root).unwrap_err();
         assert!(error.contains("not hex"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn clearing_the_sync_password_leaves_the_hosted_secrets_alone() {
+        // What `VaultSecrets::delete_sync_password` does here: a hosted connect
+        // must end this vault's self-hosted password and nothing else — the key
+        // and token it just saved have to survive it.
+        let store = MemStore::default();
+        let root = Path::new("/vault");
+        set_impl(&store, root, "hunter2").unwrap();
+        vault_key_set_impl(&store, root, &A_KEY).unwrap();
+        session_token_set_impl(&store, root, "session-abc").unwrap();
+
+        delete_impl(&store, root).unwrap();
+
+        assert_eq!(get_impl(&store, root).unwrap(), None);
+        assert_eq!(vault_key_get_impl(&store, root).unwrap(), Some(A_KEY));
+        assert_eq!(
+            session_token_get_impl(&store, root).unwrap(),
+            Some("session-abc".to_owned())
+        );
     }
 
     #[test]

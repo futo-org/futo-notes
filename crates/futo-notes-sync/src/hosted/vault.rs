@@ -290,6 +290,17 @@ impl HostedSetup {
     /// Refuses rather than half-connecting: a device with no vault key is
     /// [`HostedError::VaultLocked`], and one with no session is
     /// [`HostedError::NotSignedIn`].
+    ///
+    /// This is also where a device stops being a self-hosted one. Reaching the
+    /// line below means all three hosted facts are in hand — a live session, a
+    /// vault key, a collection — which is the first moment it is certain the
+    /// wizard actually finished, so the self-hosted sync password goes
+    /// ([`VaultSecrets::delete_sync_password`]). Before that line and not
+    /// after, for two reasons: opening the hosted screen on a self-hosted
+    /// device must not cost someone the password they still need, and a
+    /// connect that then fails because the phone is offline must still leave
+    /// the next launch resuming *this* vault rather than dialling the old
+    /// server.
     pub async fn connect_sync(&self, sync: &SyncSession, root: &Path) -> Result<(), HostedError> {
         let session = self
             .restored_session()
@@ -300,6 +311,8 @@ impl HostedSetup {
             .await?
             .ok_or(HostedError::VaultLocked)?;
         let collection_id = self.collection().await?;
+        let secrets = self.secrets()?;
+        blocking_secrets(secrets, |store| store.delete_sync_password()).await?;
         sync.connect_hosted(
             root,
             crate::HostedCredentials {

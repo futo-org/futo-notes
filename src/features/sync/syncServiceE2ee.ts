@@ -240,11 +240,21 @@ let hostedSavedVault = false;
  * got it there, and again at launch for a vault that was already set up.
  * Idempotent: Rust rebuilds the session from the same two secrets, with no
  * password.
+ *
+ * A hosted session that started means this machine no longer has a self-hosted
+ * sync password — exactly one sync credential exists at a time, and Rust
+ * dropped the keyring entry inside the connect above (`VaultSecrets::
+ * delete_sync_password`). Dropping `cachedPassword` is not a second copy of
+ * that rule and never re-decides it: it refreshes this module's in-memory
+ * mirror of the keyring, which `hasStoredSyncPassword()` and
+ * `isE2eeConfigured()` answer from synchronously and would otherwise keep
+ * reporting a password that is gone. → docs/spec/sync.md
  */
 export async function connectHostedE2ee(): Promise<void> {
   await connectHostedSync();
   hostedConnected = true;
   hostedSavedVault = true;
+  cachedPassword = null;
 }
 
 /**

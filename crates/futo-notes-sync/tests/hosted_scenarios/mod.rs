@@ -37,10 +37,14 @@ fn setup(base: &str) -> Arc<HostedSetup> {
 /// It also keeps every value ever written, which is how a test can assert the
 /// negative that matters most here: the vault password is not among them
 /// (ADR 0003, decision 4).
+///
+/// `sync_password` is the OTHER credential a real device's store can hold —
+/// the self-hosted sync password — which no hosted step writes and one clears.
 #[derive(Default)]
 pub struct DeviceSecrets {
     vault_key: Mutex<Option<[u8; 32]>>,
     token: Mutex<Option<String>>,
+    sync_password: Mutex<Option<String>>,
     written: Mutex<Vec<String>>,
 }
 
@@ -66,6 +70,16 @@ impl DeviceSecrets {
     /// forgotten — while its saved session stays good.
     fn forget_vault_key(&self) {
         *self.vault_key.lock().unwrap() = None;
+    }
+
+    /// A device that has connected to someone's own server before, and so is
+    /// still holding the sync password that reconnects to it.
+    fn hold_sync_password(&self, password: &str) {
+        *self.sync_password.lock().unwrap() = Some(password.to_owned());
+    }
+
+    fn held_sync_password(&self) -> Option<String> {
+        self.sync_password.lock().unwrap().clone()
     }
 }
 
@@ -97,6 +111,11 @@ impl VaultSecrets for DeviceSecrets {
 
     fn delete_session_token(&self) -> Result<(), String> {
         *self.token.lock().unwrap() = None;
+        Ok(())
+    }
+
+    fn delete_sync_password(&self) -> Result<(), String> {
+        *self.sync_password.lock().unwrap() = None;
         Ok(())
     }
 }
@@ -141,6 +160,11 @@ const VAULT_PASSWORD: &str = "a long enough vault password";
 /// that. Distinct so a scenario can say which of the three the vault takes.
 const NEW_VAULT_PASSWORD: &str = "the second vault password";
 const THIRD_VAULT_PASSWORD: &str = "the third vault password";
+
+/// The OTHER credential — what a device that once connected to someone's own
+/// server is still holding. Nothing hosted ever writes it; one hosted step
+/// clears it.
+const A_SELF_HOSTED_PASSWORD: &str = "the password for my own server";
 
 /// Stands in for the platform auth sheet: a browser-shaped client that follows
 /// redirects and keeps cookies. The real server's login chain hands back an
@@ -827,6 +851,7 @@ pub async fn a_finished_wizard_is_recognised_without_the_network(base: &str) {
 /// than connecting a session with no key in it.
 pub async fn a_locked_device_cannot_start_syncing(base: &str) {
     let secrets = DeviceSecrets::new();
+    secrets.hold_sync_password(A_SELF_HOSTED_PASSWORD);
     let phone = device_signed_in(base, &secrets).await;
     without_a_vault(&phone).await;
     entitled(&phone).await;
@@ -846,6 +871,74 @@ pub async fn a_locked_device_cannot_start_syncing(base: &str) {
         HostedError::VaultLocked
     );
     assert!(!sync.is_connected().await);
+    // Nothing was finished, so the way back to this person's own server is
+    // still here. Only a hosted session that actually started may take it.
+    assert_eq!(
+        secrets.held_sync_password().as_deref(),
+        Some(A_SELF_HOSTED_PASSWORD),
+        "a hosted connect that refused still threw away the self-hosted password",
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// One sync credential at a time. A device that has ever connected to
+/// someone's own server keeps that sync password, and it is app-global rather
+/// than per-vault — so a shell restoring a session at launch cannot tell from
+/// its presence which kind of vault this is. Every shell resolves that by
+/// trying the password first, which on a device that later moved to hosted
+/// sync meant dialling the old self-hosted server at every launch and never
+/// reaching the hosted session at all (device QA, 2026-09-16).
+///
+/// The rule that removes the ambiguity: finishing hosted setup clears the
+/// password, so whichever mode was set up last wins. It lives here, in the one
+/// call every shell makes to start a hosted session, rather than three times
+/// over in Swift, Kotlin and TypeScript.
+pub async fn finishing_hosted_setup_clears_the_self_hosted_password(base: &str) {
+    let secrets = DeviceSecrets::new();
+    secrets.hold_sync_password(A_SELF_HOSTED_PASSWORD);
+    let phone = device_signed_in(base, &secrets).await;
+    without_a_vault(&phone).await;
+    entitled(&phone).await;
+    phone
+        .create_vault(VAULT_PASSWORD)
+        .await
+        .expect("create the vault");
+
+    // Reaching the end of the wizard is not yet the moment: someone who opens
+    // the hosted screen, signs in and stops there still has their own server
+    // to go back to.
+    assert_eq!(phone.current_step().await.expect("step"), SetupStep::Ready);
+    assert_eq!(
+        secrets.held_sync_password().as_deref(),
+        Some(A_SELF_HOSTED_PASSWORD),
+        "the self-hosted password went away before a hosted session had started",
+    );
+
+    let root = fresh_vault();
+    let sync = SyncSession::new();
+    phone
+        .connect_sync(&sync, &root)
+        .await
+        .expect("connect sync");
+
+    assert!(sync.is_connected().await);
+    assert_eq!(
+        secrets.held_sync_password(),
+        None,
+        "a connected hosted device is still holding a self-hosted sync password, \
+         so its next launch reconnects to the old server instead of resuming this session",
+    );
+
+    // Still gone across the repeat connect every launch makes, and the hosted
+    // secrets are untouched by the clearing.
+    phone
+        .connect_sync(&sync, &root)
+        .await
+        .expect("connect again");
+    assert_eq!(secrets.held_sync_password(), None);
+    assert!(secrets.held_vault_key().is_some());
+    assert!(secrets.held_token().is_some());
+
     std::fs::remove_dir_all(&root).ok();
 }
 

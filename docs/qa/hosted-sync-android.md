@@ -214,8 +214,22 @@ at the top of the note list within twenty seconds.
 
 - **Pairing and sign out** were not re-walked; the previous run above covers them.
 - **A physical phone's camera**, as ever.
-- **A device that has a self-hosted password stored.** `restoreSession` prefers the
-  password branch, so such a device would reconnect to its own server at launch rather
-  than to FUTO; this emulator was cleared first. See the gap in `docs/spec/sync.md`.
+- **A device that has a self-hosted password stored — on Android.** `restoreSession`
+  still prefers the password branch, but a device is no longer left holding both
+  credentials: starting a hosted session clears the stored password
+  (`VaultSecrets::delete_sync_password`, reached from `KeystoreVaultSecretStore`), so
+  the branch that runs first is the one that matches this device's mode. The rule is
+  covered by the engine's own scenario
+  (`finishing_hosted_setup_clears_the_self_hosted_password`, run against both the stub
+  and a real stand-in server) and was driven end to end **on the iOS simulator**
+  (`docs/qa/hosted-sync-ios.md`, 2026-09-16); this emulator was cleared first, so no
+  Android run has walked it. The Android leg of that fix is compile-verified plus
+  `just test-android-native` only.
+- **Switching to hosted while a self-hosted session is live — on Android.** The iOS run
+  found that `connectHosted` returns early when a password session is already
+  connected, so the wizard finishes without starting a hosted session or clearing the
+  password. `SyncManager.kt` `connectHostedLocked` carries the same guard, so Android is
+  expected to behave identically, but that was not driven here. Recorded as a gap in
+  `docs/spec/sync.md`.
 - **Offline at boot.** Covered only by the JVM tests; no run has pulled the network out
   from under a launching app.

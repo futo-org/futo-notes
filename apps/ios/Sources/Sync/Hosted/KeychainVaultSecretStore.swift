@@ -13,6 +13,12 @@ import Foundation
 /// been set up is the ordinary case. A refusal to *keep* a secret is an error,
 /// because the alternative is a device that looks set up and is not. UniFFI
 /// calls these on Tokio workers, so nothing here touches UI.
+///
+/// `deleteSyncPassword` is the odd one out, and the one entry here that is not
+/// scoped to `notesRoot`: the self-hosted sync password is app-global. The
+/// engine clears it the moment a hosted session starts, so this device is
+/// never holding both credentials and `SyncManager.restoreSession` cannot
+/// mistake a stale password for "this is a self-hosted vault". → sync.md
 final class KeychainVaultSecretStore: VaultSecretStore {
     private let notesRoot: String
 
@@ -42,6 +48,10 @@ final class KeychainVaultSecretStore: VaultSecretStore {
 
     func deleteSessionToken() throws {
         try refusal { try Keychain.deleteSessionToken(notesRoot: notesRoot) }
+    }
+
+    func deleteSyncPassword() throws {
+        try refusal { try Keychain.deleteSyncPassword() }
     }
 
     /// The engine has one variant for every way a secret store can say no,

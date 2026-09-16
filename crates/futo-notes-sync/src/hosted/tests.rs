@@ -197,6 +197,9 @@ fn the_server_address_is_normalised() {
 struct TestSecrets {
     vault_key: std::sync::Mutex<Option<[u8; 32]>>,
     token: std::sync::Mutex<Option<String>>,
+    /// The self-hosted sync password, which no hosted step writes and
+    /// `connect_sync` clears.
+    sync_password: std::sync::Mutex<Option<String>>,
 }
 
 impl TestSecrets {
@@ -204,6 +207,7 @@ impl TestSecrets {
         Arc::new(Self {
             vault_key: std::sync::Mutex::new(Some(vault_key)),
             token: std::sync::Mutex::new(Some(token.to_owned())),
+            ..Default::default()
         })
     }
 }
@@ -229,6 +233,10 @@ impl VaultSecrets for TestSecrets {
     }
     fn delete_session_token(&self) -> Result<(), String> {
         *self.token.lock().unwrap() = None;
+        Ok(())
+    }
+    fn delete_sync_password(&self) -> Result<(), String> {
+        *self.sync_password.lock().unwrap() = None;
         Ok(())
     }
 }

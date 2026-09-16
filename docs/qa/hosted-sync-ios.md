@@ -58,12 +58,21 @@ Two mechanics, from driving this:
   (Xcode 27 ships none), is the normal state after a plain boot. `just qa-claim ios
   --reboot` fixes it; `simctl` screenshots keep working the whole time, which is why it
   looks like an app bug.
-- **A leftover self-hosted password hides the hosted restore.** `restoreSession` takes
-  the password branch first, and `Keychain.syncPassword` is app-global rather than
-  per-vault — so a simulator that ever ran a self-hosted QA story keeps reconnecting to
-  `localhost:3005` at launch and the hosted branch never runs. It looks exactly like the
-  hosted restore being broken. `xcrun simctl uninstall` plus `xcrun simctl keychain
-  "$SIM" reset` before the run is the fix; see the gap in `docs/spec/sync.md`.
+- **A leftover self-hosted password used to hide the hosted restore — fixed 2026-09-16.**
+  `restoreSession` still takes the password branch first, and `Keychain.syncPassword` is
+  app-global rather than per-vault; what changed is that a device can no longer hold both
+  credentials. Starting a hosted session clears the stored password in the engine
+  (`VaultSecrets::delete_sync_password`, called from `HostedSetup::connect_sync`), so the
+  branch that runs first is the one that matches this device's mode. Proven on this
+  simulator below. `xcrun simctl uninstall` plus `xcrun simctl keychain "$SIM" reset` is
+  still the right way to get a genuinely first-run device, and it is still the fix for a
+  device stranded by a build from *before* that change — such a device never reaches a
+  hosted connect, so nothing clears its password until the sync screen is opened once.
+- **`SIMCTL_CHILD_FUTO_HOSTED_SERVER` is a property of the launch, not of the install.**
+  A plain `xcrun simctl launch` for a restart test drops it and the app silently goes
+  back to the baked production address, which surfaces as "Couldn't reach the server" on
+  the hosted screen and looks like a hosted-sync bug. Set it on **every** launch in a
+  restart story, not just the first.
 - **`axe tap -x -y` on a SwiftUI `Toggle` reports success and does nothing** — the
   recovery-key checkbox in particular. `axe tap --id <accessibilityIdentifier>` uses the
   element's own activation point with a physical touch and does flip it. This is
@@ -214,3 +223,60 @@ note list within fifteen seconds.
 - **Offline at boot.** The muted line and the keep-the-secrets behaviour are covered by
   `SyncManagerRestoreTests` only; no run has pulled the network out from under a
   launching device.
+
+## Run 3 — 2026-09-16, C12: one sync credential at a time
+
+Simulator `futo-qa-4` (`32D26530-…`, iPhone 17 Pro), debug app `com.futo.notes.dev`,
+`just qa-claim ios` → `just qa-release`. **Two** servers, which is what makes the
+question answerable: the pinned release in stand-in mode on `127.0.0.1:3131` (hosted,
+`just qa-server --standin`) and a password-mode one on `127.0.0.1:3181` (a stand-in for
+"my own server", `tests/lib/sync-test-server.mjs`, password `testing123`). Started fresh
+with `simctl uninstall` + `simctl keychain reset`.
+
+The oracle throughout is **which server the app holds a socket to** —
+`lsof -nP -iTCP:3181 -sTCP:ESTABLISHED` / `…3131…` — because live sync keeps the SSE
+stream open. It answers "which vault is this device actually syncing" without trusting a
+status string, and it is what a person's notes follow.
+
+**A device that has moved to hosted resumes hosted, not its old server: PASS.** With a
+self-hosted password stored (connected once to `:3181`, "Sync complete") and hosted setup
+then completed — sign-in consent → **Unlock your vault** → vault password → account card
+reading `person@standin.test` · `Active` · **`555 B of 10 GB used`** · `Sync complete` —
+the app was force-quit (`simctl terminate`) and relaunched with **both servers running**
+and nothing tapped. It connected to **`:3131` only**; `:3181` had no connection at all,
+though it was up and would have accepted one. Before the hosted connect, the same binary
+on the same device did the opposite: relaunch dialled `:3181` and never `:3131`. Same
+build, same device — the stored password is the whole difference, which is what the fix
+removes.
+
+**The red state, observed on device.** With the self-hosted server stopped so the
+password branch could not succeed, a relaunch connected to neither server and fell
+through to nothing — `restoreSession` had already spent itself on the password branch.
+That is the reported bug exactly.
+
+### Not proven by this run
+
+- **Android.** The engine rule is shared and its scenario runs against both the stub and
+  a real stand-in server, but no Android device walked this story; see
+  `docs/qa/hosted-sync-android.md`.
+- **A device stranded by an older build** (hosted secrets *and* a password, both already
+  saved). Nothing clears its password until a hosted connect runs, which at launch it
+  never reaches — so it self-heals only when the sync screen is opened once. Not walked.
+- **Switching while connected**, which is now a recorded gap — see the run note below.
+
+### What this run FOUND: switching to hosted while a self-hosted session is live
+
+Walked first, before the passing story above, and it does **not** work. With the
+password session connected to `:3181`, the entire hosted wizard ran to a normal-looking
+account card — `person@standin.test` · `Active` · `Sync complete` — but storage read
+**`0 B of 10 GB used`**, and the next relaunch went back to `:3181`. No hosted cycle had
+run: `SyncManager.connectHosted` returns early on
+`connected && client != nil && !healing`, and a live *password* session satisfies that
+guard exactly as a hosted one does. So the wizard finishes, nothing connects, and the
+password is never cleared.
+
+`0 B` versus the `555 B` the same wizard produced once the password session was merely
+disconnected is the tell, and it is easy to miss — the card looks finished either way.
+Recorded as a gap in `docs/spec/sync.md`; closing it means deciding whether completing
+hosted setup should tear down a live self-hosted session, which is a change of specified
+intent rather than a gap to close in passing.
