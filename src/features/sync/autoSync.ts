@@ -79,6 +79,12 @@ async function performSync(
     return null;
   }
   const blockedByAutoPause = autoPaused && backgroundTrigger;
+  // `isE2eeConfigured()` answers "there is a vault set up to sync", not "a
+  // session is live" — a hosted vault whose launch connect failed still counts,
+  // and `syncE2eeAuto` rebuilds its session on the way in. That is deliberately
+  // the only place a hosted reconnect happens: every trigger below already ends
+  // up here, and the initial/background retry ladders already re-run it, so the
+  // launch-offline case needs no scheduler of its own. → syncServiceE2ee
   if (syncing || paused || blockedByAutoPause || !callbacks || !isE2eeConfigured()) {
     if (
       !options.requireExecution &&
