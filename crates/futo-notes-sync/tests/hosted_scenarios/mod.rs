@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use futo_notes_sync::{
     probe_sign_in_flow, BillingStatus, Checkout, EntitlementOutcome, HostedError, HostedSetup,
-    PairingOutcome, PollSchedule, SetupStep, SignInFlow, SignInOutcome, SyncSession, VaultSecrets,
+    PairingOutcome, PollSchedule, SetupStep, SignInFlow, SignInHandoff, SignInOutcome, SyncSession,
+    VaultSecrets,
 };
 
 /// Both waits, shrunk so a test spends milliseconds where a person spends
@@ -170,10 +171,16 @@ async fn signed_in(base: &str) -> Arc<HostedSetup> {
 /// more devices than that, so this does what a shell does with the
 /// `Retry-After` the engine hands back. The stub never rate limits, so a CI
 /// run never waits.
-async fn sign_in(setup: &HostedSetup) {
-    let handoff = loop {
+///
+/// EVERY mint in this file goes through here. It used to live inside `sign_in`
+/// alone, and the three scenarios that mint a hand-off directly — because the
+/// hand-off itself is what they assert on — failed against a real server with
+/// `RateLimited { retry_after_seconds: 59 }` as soon as a run crossed ten
+/// sign-ins in a minute.
+async fn mint_handoff(setup: &HostedSetup) -> SignInHandoff {
+    loop {
         match setup.begin_sign_in().await {
-            Ok(handoff) => break handoff,
+            Ok(handoff) => return handoff,
             Err(HostedError::RateLimited {
                 retry_after_seconds,
             }) => {
@@ -181,7 +188,13 @@ async fn sign_in(setup: &HostedSetup) {
             }
             Err(error) => panic!("begin sign in: {error}"),
         }
-    };
+    }
+}
+
+/// The three steps behind every sign-in above: mint, open the URL in a
+/// browser-shaped client, wait for the session.
+async fn sign_in(setup: &HostedSetup) {
+    let handoff = mint_handoff(setup).await;
     browser_visit(&handoff.url).await;
     match setup.await_sign_in(&handoff).await.expect("await sign in") {
         SignInOutcome::SignedIn(_) => {}
@@ -302,7 +315,7 @@ pub async fn the_probe_offers_hosted_sign_in(base: &str) {
 pub async fn sign_in_then_subscribe(base: &str) {
     let setup = setup(base);
 
-    let handoff = setup.begin_sign_in().await.expect("begin sign in");
+    let handoff = mint_handoff(&setup).await;
     assert!(
         handoff.url.contains(&handoff.ticket),
         "the hand-off URL carries its ticket: {}",
@@ -332,7 +345,7 @@ pub async fn sign_in_then_subscribe(base: &str) {
 /// half state — the wait ends, and no session is left behind.
 pub async fn a_dismissed_sheet_cancels_the_wait(base: &str) {
     let setup = setup(base);
-    let handoff = setup.begin_sign_in().await.expect("begin sign in");
+    let handoff = mint_handoff(&setup).await;
 
     let waiting = tokio::spawn({
         let setup = Arc::clone(&setup);
@@ -355,7 +368,7 @@ pub async fn a_dismissed_sheet_cancels_the_wait(base: &str) {
 /// expiry, so the app offers a fresh sign-in instead of polling forever.
 pub async fn a_spent_ticket_is_reported_as_expired(base: &str) {
     let first = setup(base);
-    let handoff = first.begin_sign_in().await.expect("begin sign in");
+    let handoff = mint_handoff(&first).await;
     browser_visit(&handoff.url).await;
     assert!(matches!(
         first.await_sign_in(&handoff).await.expect("await sign in"),

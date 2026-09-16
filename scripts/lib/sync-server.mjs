@@ -20,8 +20,14 @@
 // Downloads are cached per version under ~/.cache/futo-notes/sync-server, so
 // only the first run on a machine pays for it (~15 MB, about a second).
 //
+// A server runs in one of three modes (`SERVER_MODES` below): password, dev, or
+// the hosted stand-in test mode the Rust hosted scenarios need. Whether the
+// pinned release can do the third is `standinMode` in the pin, overridable with
+// $FUTO_NOTES_E2EE_SERVER_STANDIN for a server you built yourself.
+//
 // CLI: `node scripts/lib/sync-server.mjs path`     prints the binary path
 //      `node scripts/lib/sync-server.mjs version`  prints the pinned version
+//      `node scripts/lib/sync-server.mjs standin`  says whether stand-in mode is available
 //      `node scripts/lib/sync-server.mjs refresh`  prints an updated pin block
 
 import { spawnSync } from 'node:child_process';
@@ -43,7 +49,7 @@ import { formatSpawnFailure } from './spawn-result.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-/** @type {{version: string, packageUrl: string, binaries: Record<string, {asset: string, sha256: string}>}} */
+/** @type {{version: string, standinMode: boolean, packageUrl: string, binaries: Record<string, {asset: string, sha256: string}>}} */
 export const SERVER_PIN = JSON.parse(
   readFileSync(join(HERE, '..', 'sync-server-pin.json'), 'utf8'),
 );
@@ -89,21 +95,144 @@ export async function syncServerBinary() {
 }
 
 /**
- * Environment for a password-mode server with its own SQLite database and blob
- * directory under `dataDir`. Every harness gets a private database this way, so
- * nothing has to reset shared tables between runs.
+ * The three shapes a harness-started server comes in.
  *
- * @param {{port: number, dataDir: string, password?: string}} options
+ *   password — `AUTH_MODE=password`, one shared password. The cross-platform
+ *              suite and `scripts/start-test-server.sh` want this.
+ *   dev      — `AUTH_MODE=dev`, one fixed identity (`local@futo-notes.local`),
+ *              no password. The Rust `server_integration` suite asserts
+ *              `auth_mode == "dev"` and posts to `/api/auth/dev/login`.
+ *   standin  — hosted/OIDC mode against the server's in-process stand-ins for
+ *              Zitadel and Polar, so a suite can drive Log in with FUTO,
+ *              checkout and billing with no network and no credentials. This
+ *              is what the hosted scenarios in `server_integration` need.
+ *              See the server's docs/adr/0009-stand-in-test-mode.md.
  */
-export function syncServerEnv({ port, dataDir, password = SERVER_PASSWORD }) {
+export const SERVER_MODES = ['password', 'dev', 'standin'];
+
+/**
+ * What a running server in each mode reports as `auth_mode` at `GET /`.
+ *
+ * Next to `SERVER_MODES` on purpose: a launcher asserts the mode it asked for
+ * is the mode it got, and a new mode without an entry here would make that
+ * assertion compare against `undefined`.
+ */
+export const REPORTED_AUTH_MODE = { password: 'password', dev: 'dev', standin: 'oidc' };
+
+/**
+ * The settings `STANDIN_MODE=true` REFUSES TO BOOT ALONGSIDE, because each one
+ * names a real identity provider, a real payment provider or a real sign-up
+ * gate, and stand-in mode replaces what they name with fakes (ADR 0009).
+ *
+ * This matters to a launcher because a server process inherits the shell's
+ * environment: one stray `AUTH_MODE=password` exported in the session that
+ * starts the harness turns the stand-in server into a boot failure. So the
+ * stand-in patch names every one of them as `undefined`, and
+ * `serverProcessEnv` drops those keys from the child's environment rather than
+ * passing them through.
+ */
+export const STANDIN_REFUSED_VARS = [
+  'OIDC_ISSUER',
+  'OIDC_CLIENT_ID',
+  'OIDC_CLIENT_SECRET',
+  'OIDC_REDIRECT_URI',
+  'POLAR_BASE_URL',
+  'POLAR_ACCESS_TOKEN',
+  'POLAR_PRODUCT_ID',
+  'POLAR_WEBHOOK_SECRET',
+  'POLAR_DISCOUNT_ID',
+  'HOSTED_ALLOWED_EMAIL_DOMAINS',
+  // Refused unless unset or `oidc` / `false` respectively; a launcher never
+  // wants either, so both are simply cleared.
+  'AUTH_MODE',
+  'COOKIE_SECURE',
+];
+
+/**
+ * Environment for a server with its own SQLite database and blob directory
+ * under `dataDir`. Every harness gets a private database this way, so nothing
+ * has to reset shared tables between runs.
+ *
+ * Returns a PATCH, not a whole environment — pass it through
+ * `serverProcessEnv` to get what the child process should actually see.
+ *
+ * @param {{port: number, dataDir: string, mode?: string, password?: string}} options
+ */
+export function syncServerEnv({ port, dataDir, mode = 'password', password = SERVER_PASSWORD }) {
+  if (!SERVER_MODES.includes(mode)) {
+    throw new Error(`Unknown sync server mode '${mode}'. Supported: ${SERVER_MODES.join(', ')}.`);
+  }
   const blobDir = join(dataDir, 'blobs');
   mkdirSync(blobDir, { recursive: true });
-  return {
+  const base = {
     PORT: String(port),
     BLOB_DIR: blobDir,
     DATABASE_URL: `sqlite:${join(dataDir, 'notes.db')}`,
-    AUTH_MODE: 'password',
-    FUTO_NOTES_PASSWORD: password,
+  };
+  if (mode === 'dev') return { ...base, AUTH_MODE: 'dev' };
+  if (mode === 'standin') {
+    // STANDIN_MODE supplies the hosted settings itself and binds loopback only.
+    return {
+      ...base,
+      STANDIN_MODE: 'true',
+      ...Object.fromEntries(STANDIN_REFUSED_VARS.map((name) => [name, undefined])),
+    };
+  }
+  return { ...base, AUTH_MODE: 'password', FUTO_NOTES_PASSWORD: password };
+}
+
+/**
+ * The environment a server child process gets: this process's, with `patch`
+ * applied and every key `patch` maps to `undefined` REMOVED.
+ *
+ * Node keeps a key whose value is the string `"undefined"` and the server
+ * reads that as set, so deleting is the only thing that clears an inherited
+ * variable.
+ *
+ * @param {Record<string, string | undefined>} patch
+ */
+export function serverProcessEnv(patch) {
+  const env = { ...process.env };
+  for (const [name, value] of Object.entries(patch)) {
+    if (value === undefined) delete env[name];
+    else env[name] = value;
+  }
+  return env;
+}
+
+/**
+ * Whether the server this harness will run can be started in stand-in mode.
+ *
+ * `standinMode` in the pin says whether the pinned RELEASE carries it;
+ * `$FUTO_NOTES_E2EE_SERVER_STANDIN` overrides that either way, which is how you
+ * run the hosted scenarios against a server you built yourself from an
+ * unreleased branch.
+ *
+ * @returns {{available: boolean, why: string}}
+ */
+export function standinModeAvailable() {
+  const override = process.env.FUTO_NOTES_E2EE_SERVER_STANDIN;
+  if (override !== undefined && override !== '') {
+    // Not a truthiness test: `FUTO_NOTES_E2EE_SERVER_STANDIN=yes` meaning
+    // "off" is a whole suite silently not running.
+    if (!['1', 'true', '0', 'false'].includes(override)) {
+      throw new Error(
+        `FUTO_NOTES_E2EE_SERVER_STANDIN must be 1, true, 0 or false — got '${override}'.`,
+      );
+    }
+    return {
+      available: override === '1' || override === 'true',
+      why: `FUTO_NOTES_E2EE_SERVER_STANDIN=${override}`,
+    };
+  }
+  if (SERVER_PIN.standinMode === true) {
+    return { available: true, why: `the pinned ${PINNED_SERVER_VERSION} release carries it` };
+  }
+  return {
+    available: false,
+    why:
+      `the pinned ${PINNED_SERVER_VERSION} release predates stand-in test mode ` +
+      `("standinMode": false in scripts/sync-server-pin.json)`,
   };
 }
 
@@ -115,10 +244,19 @@ export function syncServerEnv({ port, dataDir, password = SERVER_PASSWORD }) {
  * @param {string} baseUrl
  */
 export async function reportedServerVersion(baseUrl) {
+  return (await serverCapabilities(baseUrl)).version;
+}
+
+/**
+ * The capability document a running server serves at `GET /` — the one place
+ * it says its version and its auth mode.
+ *
+ * @param {string} baseUrl
+ */
+export async function serverCapabilities(baseUrl) {
   const response = await fetch(baseUrl.replace(/\/$/, '') + '/');
   if (!response.ok) throw new Error(`capability probe returned HTTP ${response.status}`);
-  const body = await response.json();
-  return body.version;
+  return await response.json();
 }
 
 // ── Sources ─────────────────────────────────────────────────────────
@@ -227,12 +365,27 @@ async function refresh() {
   }
   console.log(
     JSON.stringify(
-      { version: newest.version, packageUrl: SERVER_PIN.packageUrl, binaries },
+      {
+        version: newest.version,
+        // Carried through rather than re-derived: only a person who has read
+        // the release notes knows whether it carries stand-in test mode. A
+        // bump that leaves this false runs the hosted scenarios against the
+        // stub only, and says so on every run.
+        standinMode: SERVER_PIN.standinMode === true,
+        packageUrl: SERVER_PIN.packageUrl,
+        binaries,
+      },
       null,
       2,
     ),
   );
   if (newest.version === SERVER_PIN.version) console.error(`(already pinned to ${newest.version})`);
+  if (SERVER_PIN.standinMode !== true) {
+    console.error(
+      `(set "standinMode": true if ${newest.version} carries futo-notes-server#14-#17, ` +
+        `so the hosted Rust scenarios run against a real server)`,
+    );
+  }
 }
 
 function compareVersions(a, b) {
@@ -248,10 +401,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const command = process.argv[2] || 'path';
   try {
     if (command === 'version') console.log(PINNED_SERVER_VERSION);
-    else if (command === 'refresh') await refresh();
+    else if (command === 'standin') {
+      const { available, why } = standinModeAvailable();
+      console.log(`${available} (${why})`);
+    } else if (command === 'refresh') await refresh();
     else if (command === 'path') console.log((await syncServerBinary()).path);
     else {
-      console.error(`usage: node scripts/lib/sync-server.mjs [path|version|refresh]`);
+      console.error(`usage: node scripts/lib/sync-server.mjs [path|version|standin|refresh]`);
       process.exit(2);
     }
   } catch (err) {

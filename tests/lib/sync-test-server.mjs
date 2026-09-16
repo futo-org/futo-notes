@@ -21,7 +21,10 @@ import { Readable } from 'node:stream';
 import {
   PINNED_SERVER_VERSION,
   SERVER_PASSWORD,
+  REPORTED_AUTH_MODE,
   reportedServerVersion,
+  serverCapabilities,
+  serverProcessEnv,
   syncServerBinary,
   syncServerEnv,
 } from '../../scripts/lib/sync-server.mjs';
@@ -33,12 +36,16 @@ import {
  * worktree's slot band); the delay proxy, when requested, takes the port next
  * to it, so callers must allocate ports in pairs.
  *
+ * `mode` picks password (the default), dev, or the hosted stand-in test mode
+ * the Rust hosted scenarios need — see SERVER_MODES in scripts/lib/sync-server.mjs.
+ *
  * @param {number} port
- * @param {{ syncDelayMs?: number }} [options]
- * @returns {Promise<{proc, port, dataDir, url, password, stop}>}
+ * @param {{ syncDelayMs?: number, mode?: string }} [options]
+ * @returns {Promise<{proc, port, dataDir, url, mode, source, password, log, stop}>}
  */
 export async function startServer(port, options = {}) {
   const syncDelayMs = options.syncDelayMs ?? 0;
+  const mode = options.mode ?? 'password';
   // When a delay proxy is requested, the real server moves one port up and the
   // proxy takes `port` (the address the clients were handed).
   const serverPort = syncDelayMs > 0 ? port + 1 : port;
@@ -50,14 +57,17 @@ export async function startServer(port, options = {}) {
   if (serverPort !== port) await assertPortAvailable(port, 'sync delay proxy');
 
   const dataDir = mkdtempSync(join(tmpdir(), 'sf-test-server-'));
-  const { path: binary, expectedVersion } = await syncServerBinary();
+  const { path: binary, expectedVersion, source } = await syncServerBinary();
 
   // cwd is the server's own data directory: the binary reads a `.env` from
   // wherever it is started, and neither this repo's root nor a server checkout
   // is a place we want config picked up from.
   const proc = spawn(binary, [], {
     cwd: dataDir,
-    env: { ...process.env, ...syncServerEnv({ port: serverPort, dataDir }) },
+    // serverProcessEnv, not a spread: stand-in mode REFUSES TO BOOT next to an
+    // inherited AUTH_MODE or OIDC_*, so those keys have to be deleted from the
+    // child's environment rather than merged over.
+    env: serverProcessEnv(syncServerEnv({ port: serverPort, dataDir, mode })),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -77,12 +87,23 @@ export async function startServer(port, options = {}) {
   const upstreamUrl = `http://127.0.0.1:${serverPort}`;
   await waitForHealth(`${upstreamUrl}/health`, 30_000, proc).catch((err) => {
     proc.kill('SIGKILL');
+    // A binary that predates STANDIN_MODE does not refuse it — it ignores the
+    // variable and falls through to its default (password) mode, where it then
+    // dies for want of a password. That boot error says nothing about what is
+    // actually wrong, so name it here.
+    const hint =
+      mode === 'standin'
+        ? `\nIf this binary simply ignored STANDIN_MODE, it predates stand-in test mode ` +
+          `(futo-notes-server#14-#17). Point FUTO_NOTES_E2EE_SERVER_REPO at a checkout that has ` +
+          `it, or leave "standinMode": false in scripts/sync-server-pin.json.`
+        : '';
     throw new Error(
-      `E2EE server failed to start on port ${serverPort}: ${err.message}\nstdout: ${stdout.slice(-500)}\nstderr: ${stderr.slice(-500)}`,
+      `E2EE server failed to start on port ${serverPort} in ${mode} mode: ${err.message}${hint}\nstdout: ${stdout.slice(-500)}\nstderr: ${stderr.slice(-500)}`,
     );
   });
   assertListenerIsOurs(serverPort, proc.pid);
   await assertServerVersion(upstreamUrl, expectedVersion, proc);
+  await assertServerMode(upstreamUrl, mode, proc, () => stderr);
 
   let proxyServer = null;
   if (syncDelayMs > 0) {
@@ -149,7 +170,14 @@ export async function startServer(port, options = {}) {
     port,
     dataDir,
     url,
-    password: SERVER_PASSWORD,
+    mode,
+    /** Where the binary came from — a pinned release, or a build you supplied. */
+    source,
+    password: mode === 'password' ? SERVER_PASSWORD : null,
+    /** The tail of what the server printed, for a failing run's diagnostics. */
+    log() {
+      return `${stdout}${stderr}`.split('\n').slice(-40).join('\n');
+    },
     stop() {
       try {
         proxyServer?.close();
@@ -297,6 +325,37 @@ async function assertServerVersion(baseUrl, expectedVersion, proc) {
     throw new Error(
       `Sync server at ${baseUrl} reports version ${reported}, but this repo pins ` +
         `${PINNED_SERVER_VERSION} (scripts/sync-server-pin.json). Refusing to run against it.`,
+    );
+  }
+}
+
+// A server started with STANDIN_MODE=true that does not UNDERSTAND the variable
+// ignores it and boots in its default mode — a running, healthy, entirely wrong
+// server. The capability document names the auth mode, so ask it: that is the
+// one thing that distinguishes "hosted mode with stand-ins" from "a binary that
+// predates them" (M11 — assert what the run exists to prove).
+async function assertServerMode(baseUrl, mode, proc, tail) {
+  const want = REPORTED_AUTH_MODE[mode];
+  let reported;
+  try {
+    reported = (await serverCapabilities(baseUrl)).auth_mode;
+  } catch (err) {
+    proc.kill('SIGKILL');
+    throw new Error(`Could not read the sync server's auth mode at ${baseUrl}/: ${err.message}`, {
+      cause: err,
+    });
+  }
+  if (reported !== want) {
+    proc.kill('SIGKILL');
+    const extra =
+      mode === 'standin'
+        ? `\nSTANDIN_MODE=true was ignored, so this binary predates stand-in test mode ` +
+          `(futo-notes-server#14-#17). Point FUTO_NOTES_E2EE_SERVER_REPO at a checkout that ` +
+          `has it, or leave "standinMode": false in scripts/sync-server-pin.json.`
+        : '';
+    throw new Error(
+      `Sync server at ${baseUrl} was started in ${mode} mode but reports auth_mode ` +
+        `"${reported}", not "${want}".${extra}\nserver said:\n${tail()}`,
     );
   }
 }

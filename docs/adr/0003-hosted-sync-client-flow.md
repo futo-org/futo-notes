@@ -87,8 +87,11 @@ release, behind a build-time flag that is off for store builds until launch.
   account-scoped pairing relay (create with public key and device name, post ciphertext, poll,
   short expiry, single use); `PUT /api/collections/{id}/key` accepting a re-wrap from an unlocked
   client with 409 only on a stale `key_updated_at`; the recovery-envelope columns from ADR 0005;
-  and the stand-in test mode. Nothing here can be exercised until a server release carrying
-  these ships and `scripts/sync-server-pin.json` is bumped.
+  and the stand-in test mode. None of it can be exercised on CI until a server release carrying
+  these ships and `scripts/sync-server-pin.json` is bumped (`"standinMode": true` alongside the
+  version). Locally it can: `FUTO_NOTES_E2EE_SERVER_REPO=<checkout>
+  FUTO_NOTES_E2EE_SERVER_STANDIN=1 just test-sync-integration` runs the hosted scenarios against
+  a server built from the unreleased branch.
 - The client handles `invalid_session` on hosted by showing "log in again", not by treating it
   as a vault reset; sync state survives. `docs/spec/sync.md`'s "reauthenticates transparently
   from the saved password" line applies to password mode only.

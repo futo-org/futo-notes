@@ -49,7 +49,8 @@
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "_comment": "Tauri commands (dev, build, deploy) live in the justfile — use `just` from the monorepo root. Only toolchain scripts (vite, vitest, playwright, eslint) belong here.",
-    "test:cross-platform": "node tests/cross-platform-sync.mjs"
+    "test:cross-platform": "node tests/cross-platform-sync.mjs",
+    "test:sync-integration": "node tests/sync-integration.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.0",

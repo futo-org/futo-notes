@@ -3,7 +3,13 @@
 //! plus raw-HTTP checks for endpoints the native client doesn't wrap and the
 //! error contract.
 //!
-//! Gated on `FUTO_TEST_SERVER`; run single-threaded (shared dev vault):
+//! Gated on `FUTO_TEST_SERVER` (a DEV-mode server) and, for the hosted
+//! scenarios at the bottom, `FUTO_TEST_HOSTED_SERVER` (a STAND-IN-mode one).
+//! Run single-threaded (shared dev vault, and one stand-in account):
+//!
+//!   node tests/sync-integration.mjs        # starts both servers, runs both families
+//!
+//! or by hand against a server you already have:
 //!   FUTO_TEST_SERVER=http://127.0.0.1:3005 \
 //!     cargo test -p futo-notes-sync --test server_integration -- --ignored --test-threads=1
 
@@ -1569,35 +1575,57 @@ async fn measure_first_sync_large_vault() {
 // ── Hosted setup (Log in with FUTO, billing, checkout) ────────────────────
 //
 // The same scenario bodies `hosted_setup.rs` runs against the in-test stub,
-// run here against a REAL server started in stand-in test mode:
+// run here against a REAL server started in stand-in test mode.
+//
+// This file therefore drives TWO servers, because the two families need two
+// modes that cannot be one process: everything above authenticates through the
+// dev login on $FUTO_TEST_SERVER, and a hosted server answers those
+// `Auth("unauthorized")`; everything below needs Log in with FUTO and a
+// billing provider on $FUTO_TEST_HOSTED_SERVER, which a dev-mode server does
+// not mount. `node tests/sync-integration.mjs` starts both and sets both, so
+// one command runs the file. By hand:
 //
 //   STANDIN_MODE=true DATABASE_URL=sqlite:/tmp/standin.db PORT=3077 futo-notes-server
-//   FUTO_TEST_SERVER=http://127.0.0.1:3077 cargo test -p futo-notes-sync \
+//   FUTO_TEST_HOSTED_SERVER=http://127.0.0.1:3077 cargo test -p futo-notes-sync \
 //     --test server_integration -- --ignored --test-threads=1
 //
-// A server that is not in OIDC mode has none of these routes, so pointing
-// FUTO_TEST_SERVER at the password/dev-mode server the rest of this file wants
-// skips them with a line saying why rather than failing. Run single-threaded:
-// a stand-in server has ONE account, so two scenarios in flight would fight
-// over its entitlement.
+// Run single-threaded: a stand-in server has ONE account, so two scenarios in
+// flight would fight over its entitlement.
 
-/// `true` + an eprintln when the configured server does not offer hosted
-/// sign-in.
-async fn skip_if_not_hosted(test: &str) -> bool {
-    let Some(server) = common::server_url() else {
-        eprintln!("[skip] {test}: set FUTO_TEST_SERVER to a stand-in-mode server to run");
-        return true;
+/// Base URL of the STAND-IN-mode server the hosted scenarios need, or `None`
+/// when they should skip. Deliberately a different variable from
+/// `FUTO_TEST_SERVER`: the two modes are mutually exclusive in one server
+/// process. It lives here rather than in `common`, which `sse_live.rs` shares
+/// and which has no hosted scenarios.
+fn hosted_server_url() -> Option<String> {
+    match std::env::var("FUTO_TEST_HOSTED_SERVER") {
+        Ok(s) if !s.trim().is_empty() => Some(s),
+        _ => None,
+    }
+}
+
+/// The stand-in server to run a hosted scenario against, or `None` when there
+/// is none configured and the scenario should skip.
+///
+/// An UNSET variable skips, because the pinned server release may predate
+/// stand-in test mode. A variable that is SET and does not answer as a hosted
+/// server is a hard failure — somebody asked for this run, so a wrong or dead
+/// server must be red rather than a line nobody reads (M11).
+async fn hosted_server_or_skip(test: &str) -> Option<String> {
+    let Some(server) = hosted_server_url() else {
+        eprintln!(
+            "[skip] {test}: set FUTO_TEST_HOSTED_SERVER to a stand-in-mode server to run \
+             (node tests/sync-integration.mjs does)"
+        );
+        return None;
     };
     match futo_notes_sync::probe_sign_in_flow(&server).await {
-        Ok(futo_notes_sync::SignInFlow::Hosted { .. }) => false,
-        Ok(other) => {
-            eprintln!("[skip] {test}: {server} offers {other:?}, not hosted sign-in");
-            true
-        }
-        Err(error) => {
-            eprintln!("[skip] {test}: could not probe {server}: {error}");
-            true
-        }
+        Ok(futo_notes_sync::SignInFlow::Hosted { .. }) => Some(server),
+        Ok(other) => panic!(
+            "FUTO_TEST_HOSTED_SERVER={server} offers {other:?}, not hosted sign-in. \
+             It must be a server started with STANDIN_MODE=true."
+        ),
+        Err(error) => panic!("could not probe FUTO_TEST_HOSTED_SERVER={server}: {error}"),
     }
 }
 
@@ -1605,12 +1633,12 @@ macro_rules! against_the_real_server {
     ($($name:ident,)+) => {
         $(
             #[tokio::test]
-            #[ignore = "requires a stand-in-mode FUTO_TEST_SERVER"]
+            #[ignore = "requires a stand-in-mode FUTO_TEST_HOSTED_SERVER"]
             async fn $name() {
-                if skip_if_not_hosted(stringify!($name)).await {
+                let Some(server) = hosted_server_or_skip(stringify!($name)).await else {
                     return;
-                }
-                hosted_scenarios::$name(&common::server_url().unwrap()).await;
+                };
+                hosted_scenarios::$name(&server).await;
             }
         )+
     };

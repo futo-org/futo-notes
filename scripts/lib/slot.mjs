@@ -12,6 +12,11 @@ export const PORT_BASES = {
   tauriVite: 5200,
   web: 5250,
   sync: 3100,
+  // tests/sync-integration.mjs runs the Rust server-backed suites against TWO
+  // servers at once — a dev-mode one for the sync scenarios and a stand-in-mode
+  // one for the hosted scenarios — so it needs two disjoint bands, not one.
+  syncIntegration: 3150,
+  syncIntegrationHosted: 3200,
   cdp: 9330,
   // The debug MCP/QA bridge's BASE port. The plugin scans upward from it, so
   // this band is 100 wide per the plugin's scan range — but a slot only ever
@@ -94,6 +99,8 @@ export const ENV_NAMES = {
   tauriVite: 'VITE_PORT',
   web: 'WEB_VITE_PORT',
   sync: 'SYNC_PORT',
+  syncIntegration: 'SYNC_INTEGRATION_PORT',
+  syncIntegrationHosted: 'SYNC_INTEGRATION_HOSTED_PORT',
   cdp: 'CDP_PORT',
   mcp: 'FUTO_MCP_BASE_PORT',
 };

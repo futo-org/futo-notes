@@ -940,26 +940,27 @@ test:cross-platform-sync:
       fi
     - !reference [.setup-futo-notes-server, script]
     # Rust server-backed integration suite (futo-notes-sync orchestrator
-    # against a REAL server — e.g. the disconnect→reconnect conflict-spam
-    # regressions). Dev-mode instance with its own SQLite database and blob
-    # directory, so it cannot interfere with the password-mode servers the
-    # cross-platform run boots per scenario.
-    - mkdir -p /tmp/rust-it/blobs
+    # against REAL servers — e.g. the disconnect→reconnect conflict-spam
+    # regressions, plus the hosted setup flow). server_integration.rs holds two
+    # families that need two server MODES: dev for the sync scenarios, stand-in
+    # (STANDIN_MODE=true) for the hosted ones. The runner starts both on
+    # slot-derived ports with their own SQLite databases and blob directories,
+    # points each family at its own, stops both by PID, and prints the server
+    # logs itself when a run fails. It exits non-zero on any failure, so there
+    # is nothing here to mask (M11).
+    #
+    # The hosted leg runs only when the pinned server can do stand-in mode
+    # ("standinMode" in scripts/sync-server-pin.json) — the release pinned today
+    # predates it, so the runner says in full that those scenarios ran against
+    # the in-test stub instead (cargo test --test hosted_setup, in
+    # test:rust:workspace). Bumping the pin to a release that carries
+    # futo-notes-server#14-#17 turns this leg on with no CI change.
+    #
+    # $CI_PROJECT_DIR-anchored: `cd` persists across script lines (M12).
     - >-
-      (cd /tmp/rust-it &&
-      AUTH_MODE=dev PORT=3009 BLOB_DIR=/tmp/rust-it/blobs
-      DATABASE_URL=sqlite:/tmp/rust-it/notes.db
-      "$FUTO_NOTES_E2EE_SERVER_BIN" &> /tmp/rust-it-server.log &)
-    - for i in $(seq 1 30); do curl -sf http://127.0.0.1:3009/health && break; sleep 1; done
-    - >-
-      FUTO_TEST_SERVER=http://127.0.0.1:3009
-      cargo test -p futo-notes-sync --test server_integration --test sse_live
-      -- --ignored --test-threads=1
+      node "$CI_PROJECT_DIR/tests/sync-integration.mjs" --
       --skip measure_first_sync_large_vault
       --skip oversize_blob_is_surfaced_skipped_and_recovers
-      || { tail -50 /tmp/rust-it-server.log; exit 1; }
-    # (the dev-mode server is left running — own port + database, reaped with
-    # the job container)
     # The harness builds the hooks-enabled desktop binary itself (dist/ is
     # never cached, so its staleness checks always trigger exactly one
     # `cargo tauri build --debug` with VITE_INCLUDE_TEST_HOOKS, including the

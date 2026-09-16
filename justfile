@@ -497,6 +497,23 @@ test-e2e-rest:
 test-cross-platform:
   pnpm run test:cross-platform
 
+# The Rust server-backed sync suites against REAL servers, in one command.
+# server_integration.rs holds two families that need two different server
+# modes — the sync scenarios need a DEV-mode server, the hosted ones a
+# STAND-IN-mode server (STANDIN_MODE=true) — so this starts both on this
+# worktree's slot-derived ports, points each family at its own, and stops both
+# by PID. Extra arguments go to the test binary: `just test-sync-integration
+# --skip measure_first_sync_large_vault`.
+#
+# The hosted leg runs only when the resolved server can do stand-in mode
+# (`standinMode` in scripts/sync-server-pin.json, or
+# FUTO_NOTES_E2EE_SERVER_STANDIN=1 with your own build); when it cannot, the
+# run says so and those scenarios stay covered by the in-test stub
+# (`cargo test -p futo-notes-sync --test hosted_setup`).
+[positional-arguments]
+test-sync-integration *args:
+  node tests/sync-integration.mjs "$@"
+
 test-markdown-spec:
   pnpm run test:markdown-spec
 

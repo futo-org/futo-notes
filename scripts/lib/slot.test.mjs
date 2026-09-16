@@ -60,6 +60,8 @@ describe('portsFor', () => {
       tauriVite: PORT_BASES.tauriVite + slot,
       web: PORT_BASES.web + slot,
       sync: PORT_BASES.sync + slot,
+      syncIntegration: PORT_BASES.syncIntegration + slot,
+      syncIntegrationHosted: PORT_BASES.syncIntegrationHosted + slot,
       cdp: PORT_BASES.cdp + slot,
       mcp: PORT_BASES.mcp + slot,
     });
@@ -67,7 +69,15 @@ describe('portsFor', () => {
 
   // /verify's SKILL.md publishes these ranges, so the literals are the contract.
   it('pins the published port bases', () => {
-    expect(PORT_BASES).toEqual({ tauriVite: 5200, web: 5250, sync: 3100, cdp: 9330, mcp: 9223 });
+    expect(PORT_BASES).toEqual({
+      tauriVite: 5200,
+      web: 5250,
+      sync: 3100,
+      syncIntegration: 3150,
+      syncIntegrationHosted: 3200,
+      cdp: 9330,
+      mcp: 9223,
+    });
   });
 
   it('keeps the tauri-dev and web ranges disjoint so both can run at once', () => {
@@ -221,6 +231,8 @@ describe('CLI selectors', () => {
       tauriVite: 'VITE_PORT',
       web: 'WEB_VITE_PORT',
       sync: 'SYNC_PORT',
+      syncIntegration: 'SYNC_INTEGRATION_PORT',
+      syncIntegrationHosted: 'SYNC_INTEGRATION_HOSTED_PORT',
       cdp: 'CDP_PORT',
       mcp: 'FUTO_MCP_BASE_PORT',
     });
