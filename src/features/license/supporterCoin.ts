@@ -63,9 +63,7 @@ const CAMERA_DISTANCE = 1.55;
 /// frame; without this the coin jumps a random fraction of a turn on return.
 const MAX_FRAME_SECONDS = 1 / 20;
 
-/// Khronos PBR Neutral, not ACES. ACES pushes a bright saturated highlight
-/// toward white, which on this coin turns the gold sheen into a grey smear
-/// exactly where it should be most golden. Neutral holds the hue.
+/// Exposure for the Khronos PBR Neutral tone map (see `openStage`).
 const TONE_MAPPING_EXPOSURE = 1.0;
 
 export interface CoinHandle {
@@ -85,13 +83,27 @@ export interface CoinHandle {
 /// `null` when this browser cannot give us a WebGL context. Never throws for a
 /// missing context — the caller has a flat coin to fall back to and the user
 /// should not notice.
-export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> {
-  const [THREE, { GLTFLoader }, { RGBELoader }] = await Promise.all([
-    import('three'),
-    import('three/examples/jsm/loaders/GLTFLoader.js'),
-    import('three/examples/jsm/loaders/RGBELoader.js'),
-  ]);
+/// The renderer plus everything loaded onto it: the model and the prefiltered
+/// environment that lights it.
+interface CoinStage {
+  renderer: import('three').WebGLRenderer;
+  model: import('three').Group;
+  environment: import('three').Texture;
+  environmentTarget: import('three').WebGLRenderTarget;
+}
 
+/// Opens a WebGL context and loads both assets onto it, or resolves `null` when
+/// this browser cannot give us a context.
+///
+/// Both files or neither: a coin with its model but no environment would be a
+/// black disc, which is worse than the flat SVG the caller already has up. A
+/// load failure frees the context rather than leaving one of the document's
+/// small fixed pool stranded, then rethrows so the caller can log it.
+async function openStage(
+  THREE: typeof import('three'),
+  GLTFLoader: typeof import('three/examples/jsm/loaders/GLTFLoader.js').GLTFLoader,
+  RGBELoader: typeof import('three/examples/jsm/loaders/RGBELoader.js').RGBELoader,
+): Promise<CoinStage | null> {
   let renderer: import('three').WebGLRenderer;
   try {
     // `preserveDrawingBuffer` is what makes the coin survive a `toDataURL()`
@@ -109,35 +121,49 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
 
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x000000, 0);
+  // Khronos PBR Neutral, not ACES. ACES pushes a bright saturated highlight
+  // toward white, which on this coin turns the gold sheen into a grey smear
+  // exactly where it should be most golden. Neutral holds the hue.
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
 
-  // Both files or neither. A coin with its model but no environment would be a
-  // black disc, which is worse than the flat SVG the caller already has up.
-  let model: import('three').Group;
-  let environment: import('three').Texture;
-  let environmentTarget: import('three').WebGLRenderTarget;
   try {
     const [gltf, equirect] = await Promise.all([
       new GLTFLoader().loadAsync(coinModelUrl),
       new RGBELoader().loadAsync(coinEnvironmentUrl),
     ]);
-    model = gltf.scene;
     equirect.mapping = THREE.EquirectangularReflectionMapping;
     // Prefilter once into the roughness mip chain the standard material
     // samples. Doing it here rather than per frame is the difference between a
     // coin that costs nothing to turn and one that re-blurs its world 60x a
     // second.
     const pmrem = new THREE.PMREMGenerator(renderer);
-    environmentTarget = pmrem.fromEquirectangular(equirect);
-    environment = environmentTarget.texture;
+    const environmentTarget = pmrem.fromEquirectangular(equirect);
     equirect.dispose();
     pmrem.dispose();
+    return {
+      renderer,
+      model: gltf.scene,
+      environment: environmentTarget.texture,
+      environmentTarget,
+    };
   } catch (error) {
     renderer.dispose();
     renderer.forceContextLoss();
     throw error;
   }
+}
+
+export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> {
+  const [THREE, { GLTFLoader }, { RGBELoader }] = await Promise.all([
+    import('three'),
+    import('three/examples/jsm/loaders/GLTFLoader.js'),
+    import('three/examples/jsm/loaders/RGBELoader.js'),
+  ]);
+
+  const stage = await openStage(THREE, GLTFLoader, RGBELoader);
+  if (stage === null) return null;
+  const { renderer, model, environment, environmentTarget } = stage;
 
   // Only now is there something worth showing, so only now does the canvas go
   // into the page. Appending it earlier would blank the flat SVG behind it for
