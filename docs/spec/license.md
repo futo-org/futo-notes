@@ -761,6 +761,55 @@ relaunching confirmed the state persisted. → 49-shot ledger in
 > **Use `justin+<unique-id>@futo.tech` for test purchases**, never an
 > `@example.*` address.
 
+The **release gate for the License card** was re-run 2026-09-16 on one commit
+across all three clients, each story observed on screen *and* against storage
+(the desktop app data dir, UserDefaults, `futo_prefs`). All three verdicts were
+SHIP.
+
+- *(desktop)* Unlicensed card, the checkout URL, all four input shapes, a v1
+  license, mask/reveal/copy, Remove, Full reset, and dark/light plus a narrow
+  pane. The bare-key-offline case was driven by relaunching the dev process
+  under a scoped `HTTPS_PROXY=http://127.0.0.1:1` — the offline toast appeared
+  and no `license.json` was written. Copy was read back with `pbpaste` from
+  outside the app, which is the only way: the app deliberately holds no
+  clipboard-read permission.
+- *(ios)* A **fresh real staging purchase on this commit** — Stripe test card,
+  `justin+…@futo.tech`, key `D58B-…-3684` minted, the HTML key page, Activate
+  firing the deep link, and the pair landing in UserDefaults. The Buy URL was
+  read verbatim from Safari's address bar. The simulator happened to still hold
+  a **v1** license at launch, giving a live D2 reading: "Licensed since" present
+  and blank, Term "Perpetual".
+- *(android)* A second independent real staging purchase (key `2FFB-…-89J5`),
+  plus the one thing no other platform can do — **Expired rendered from a real
+  stored license**, by moving the emulator clock past the fixture's 2029 expiry
+  (`auto_time 0`, `adb root`, relaunch). The card showed the EXPIRED badge, an
+  empty well, the masked key, "Licensed since Jan 15, 2026", "Term: Expired
+  Jan 15, 2029" and **Renew** as the filled button. Restoring the clock
+  re-evaluated the same stored pair back to Licensed, proving the clock move
+  corrupted nothing. The `play` flavor's consumption-only shape was proven by
+  flipping `LICENSE_LINK_OUT` locally and reverting it — both flavors still ship
+  it `true` (D9).
+
+> Three results were **not** obtained, and are recorded here rather than left to
+> be rediscovered as failures. *(ios)* the bare-key-**offline** case: a simulator
+> proxies the host's network and has no Wi-Fi toggle, and host-level networking
+> was deliberately left alone because two sibling legs were mid-purchase against
+> the same host. *(desktop)* the OS browser actually painting the Buy URL: the
+> URL and the `openExternalUrl` code path were both proven, but confirming the
+> browser tab would have needed UI scripting, which is forbidden (M24).
+> *(desktop)* Full reset's native confirm sheet is not reachable from the webview
+> bridge, so the identical code path (`resetAllNotes()` → `deleteAllNotes()` →
+> `clearLicense()`) was invoked instead.
+
+> *Two false failures that were caught and refuted during that pass, recorded so
+> the next one does not re-report them:* *(ios)* after Remove, `futo.license.
+> activation` lingers in UserDefaults for a few seconds after `futo.license.key`
+> has gone — that is `NSUserDefaults` write coalescing, not a storage bug; both
+> are clear on a re-read. *(android)* `adb shell input text` silently truncates
+> at roughly 250 characters, so entering the 584-character v2 fixture by hand
+> needs chunking — an untruncated single call produces an activation failure
+> that looks exactly like a rejected key.
+
 > **Gap:** No revocation check — refunded or revoked keys stay valid on
 > activated devices because the license module makes no background requests.
 > An opportunistic re-check on explicit user action only would be the
