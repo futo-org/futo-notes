@@ -96,7 +96,7 @@
       <div class="license-name">{localizedText('license.card.productName')}</div>
 
       <dl class="license-rows">
-        <div class="license-row">
+        <div class="license-row license-row-stacked">
           <dt>{localizedText('license.card.keyLabel')}</dt>
           <dd>
             {#if card.maskedKey === null}
@@ -308,6 +308,16 @@
     border-bottom: 1px solid var(--plate-rule);
   }
 
+  /* The key gets the whole column width, label above value. Beside a 184px
+     well there is never room for a 39-character key next to its label, and
+     letting it fight for the space either overflowed the plate or broke the
+     value mid-group at narrow widths. */
+  .license-row-stacked {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+  }
+
   .license-row dt {
     flex: 0 0 96px;
     font-size: 11px;
@@ -324,7 +334,16 @@
     gap: 10px;
     margin: 0;
     min-width: 0;
+    max-width: 100%;
     font-size: 13px;
+  }
+
+  /* Same specificity as the two rules above, so it must come after them.
+     `flex-basis` is the MAIN axis: the label column's 96px would otherwise
+     become a 96px-TALL label once the row turns into a column. */
+  .license-row-stacked dt,
+  .license-row-stacked dd {
+    flex: 0 0 auto;
   }
 
   /* A blank row still occupies its line: the value is absent, not the row. */
@@ -335,14 +354,19 @@
   }
 
   .license-key {
+    max-width: 100%;
     font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
     font-size: 12px;
-    letter-spacing: 0.04em;
-    word-break: break-all;
+    /* No tracking: a 39-character key plus 0.04em lands 4px over the column
+       beside the well, and a two-line mask for four pixels is not a look. */
+    letter-spacing: normal;
+    /* Masked or revealed, the value wraps rather than overflowing the plate. */
+    overflow-wrap: anywhere;
   }
 
   .license-key-masked {
     padding: 0;
+    text-align: left;
     border: none;
     background: none;
     color: inherit;
