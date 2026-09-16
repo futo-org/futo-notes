@@ -1813,6 +1813,31 @@ test:ios-native:
 .proxmox_auth: &proxmox_auth
   - export PROXMOX_AUTH="PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
 
+# Fail in seconds with the actual cause instead of hanging for an hour.
+# PROXMOX_USER/PROXMOX_TOKEN_ID/PROXMOX_TOKEN_SECRET/PROXMOX_WIN_USER/
+# PROXMOX_WIN_PASSWORD are PROTECTED CI/CD variables — GitLab does not pass
+# them into a pipeline running on a non-protected ref, so an MR from a
+# non-protected branch has none of them. Without this guard, the resulting
+# unauthenticated Proxmox API calls return empty bodies, `jq` yields "", and
+# the chain polls an empty task/VM id until the job timeout (pipeline 36519,
+# job 255053 on windows:provision:internal: 65 minutes / 3900s to fail, with
+# the log showing only empty "Using VMID:" / "Clone task started:" lines and
+# no indication why).
+.proxmox_guard: &proxmox_guard
+  - |
+    missing=""
+    for var in PROXMOX_USER PROXMOX_TOKEN_ID PROXMOX_TOKEN_SECRET PROXMOX_WIN_USER PROXMOX_WIN_PASSWORD; do
+      eval "val=\${$var:-}"
+      [ -n "$val" ] || missing="$missing $var"
+    done
+    if [ -n "$missing" ]; then
+      echo "FATAL: missing Proxmox credential(s):$missing"
+      echo "These are PROTECTED CI/CD variables (ref protected: ${CI_COMMIT_REF_PROTECTED:-unknown})."
+      echo "They are not passed into a pipeline on a non-protected ref, so this chain cannot run from this branch/MR."
+      echo "See the windows:provision job comment in .gitlab-ci.yml."
+      exit 1
+    fi
+
 windows:provision:
   stage: build
   needs:
@@ -1820,6 +1845,7 @@ windows:provision:
   tags:
     - proxmoxshell
   before_script:
+    - *proxmox_guard
     - *proxmox_auth
   variables:
     PROXMOX_HOST: "127.0.0.1"
@@ -1833,6 +1859,10 @@ windows:provision:
       export NEXT_VMID=$(curl -s -k \
         -H "Authorization: ${PROXMOX_AUTH}" \
         "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
+      if [ -z "$NEXT_VMID" ] || [ "$NEXT_VMID" = "null" ]; then
+        echo "FATAL: Proxmox cluster/nextid returned no VMID — check PROXMOX_HOST/PROXMOX_NODE reachability and PROXMOX_AUTH."
+        exit 1
+      fi
       echo "VMID=${NEXT_VMID}" >> provision.env
       echo "Using VMID: ${NEXT_VMID}"
 
@@ -1844,6 +1874,10 @@ windows:provision:
         -d "newid=${NEXT_VMID}&name=${VM_NAME}&full=${CLONE_TYPE}" \
         "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone")
       UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
+      if [ -z "$UPID" ] || [ "$UPID" = "null" ]; then
+        echo "FATAL: Proxmox clone request returned no task id (UPID). Response: $CLONE_RESPONSE"
+        exit 1
+      fi
       echo "Clone task started: $UPID"
 
     - |
@@ -2146,6 +2180,7 @@ windows:provision:internal:
   tags:
     - proxmoxshell
   before_script:
+    - *proxmox_guard
     - *proxmox_auth
   variables:
     PROXMOX_HOST: "127.0.0.1"
@@ -2163,6 +2198,10 @@ windows:provision:internal:
       export NEXT_VMID=$(curl -s -k \
         -H "Authorization: ${PROXMOX_AUTH}" \
         "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
+      if [ -z "$NEXT_VMID" ] || [ "$NEXT_VMID" = "null" ]; then
+        echo "FATAL: Proxmox cluster/nextid returned no VMID — check PROXMOX_HOST/PROXMOX_NODE reachability and PROXMOX_AUTH."
+        exit 1
+      fi
       echo "VMID=${NEXT_VMID}" >> provision.env
       echo "Using VMID: ${NEXT_VMID}"
 
@@ -2174,6 +2213,10 @@ windows:provision:internal:
         -d "newid=${NEXT_VMID}&name=${VM_NAME}&full=${CLONE_TYPE}" \
         "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone")
       UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
+      if [ -z "$UPID" ] || [ "$UPID" = "null" ]; then
+        echo "FATAL: Proxmox clone request returned no task id (UPID). Response: $CLONE_RESPONSE"
+        exit 1
+      fi
       echo "Clone task started: $UPID"
 
     - |
