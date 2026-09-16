@@ -439,6 +439,22 @@ collect-secrets-from-op:
     policy: pull-push
     when: always
 
+# Own key (see the comment above the other linux-* caches): the internal
+# build compiles with FUTO_HOSTED_SERVER_BAKED set to the staging address,
+# which must never share a target/ with the production (unbaked) Linux
+# builds' cache.
+.cache-cargo-tauri-desktop-internal:
+  cache:
+    key:
+      prefix: desktop-internal
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: pull-push
+    when: always
+
 .cache-playwright:
   cache:
     key:
@@ -1304,6 +1320,124 @@ build:linux-appimage:
       when: manual
       allow_failure: true
 
+# ─────────────────────────────────────────────────────────────
+# Internal, hosted-enabled desktop build (D2, taken —
+# docs/plan/hosted-sync-to-staging.md, ticket C8). Prerelease tags only
+# (v1.7.2-4, never a stable vX.Y.Z — see the negated rule below). Builds the
+# SAME deb/rpm/AppImage bundles as build:linux-packages/build:linux-appimage,
+# but with VITE_HOSTED_SYNC=true and the staging hosted address baked in
+# (mirrors build:android-native's prerelease-tag branch, C3), so "Log in with
+# FUTO" is reachable on an internal Linux build.
+#
+# M23 — an internal (staging-pointed) build must never reach the production
+# updater manifest. Enforced structurally, not by convention:
+#   1. This job never passes `--config tauri.updater-release.conf.json`
+#      (the ONLY config with `createUpdaterArtifacts: true`). Building with
+#      the base tauri.conf.json means no .sig and no minisign step can be
+#      produced here at all — there is nothing for a later step to embed
+#      into latest.json even by mistake.
+#   2. TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) are unset before anything else
+#      runs, so no copy-pasted step could reach for the production key.
+#   3. release:internal (the only job that publishes this job's artifacts)
+#      never calls scripts/build-updater-manifest.mjs or
+#      scripts/verify-updater-signature.mjs, and uploads to a differently
+#      named package (futo-notes-internal) than release:'s (futo-notes) —
+#      see that job's own comment.
+build:desktop-internal:linux:
+  stage: build
+  tags:
+    - dind_fast
+  needs:
+    - job: test
+  image: ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
+  before_script:
+    - unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    - apt-get update
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates build-essential git file pkg-config unzip
+    - sh "$CI_PROJECT_DIR/ci/install-fnm.sh"
+    - cd "$CI_PROJECT_DIR" && eval "$(fnm env --shell bash)" && fnm use --install-if-missing
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
+    - export PATH="$CARGO_HOME/bin:$PATH"
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-tauri-desktop-internal, cache]
+  script:
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    - !reference [.set-version, script]
+    - export VITE_HOSTED_SYNC=true
+    - export FUTO_HOSTED_SERVER_BAKED=https://staging-notes-sync.futo.org
+    - |
+      echo "Prerelease tag $CI_COMMIT_TAG — internal desktop build, hosted sync ON, baked hosted server: $FUTO_HOSTED_SERVER_BAKED"
+    # Same Mesa/Wayland-backend AppImage patch as build:linux-appimage — no
+    # updater signing follows it in this job (see the block comment above).
+    - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --clean-dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
+    - (cd "$CI_PROJECT_DIR/apps/tauri" && cargo tauri build --bundles deb,rpm,appimage)
+    - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
+  after_script:
+    - |
+      echo "=== Internal desktop (Linux) artifacts ==="
+      find target/release/bundle -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) 2>/dev/null
+  artifacts:
+    paths:
+      - target/release/bundle/deb/*.deb
+      - target/release/bundle/rpm/*.rpm
+      - target/release/bundle/appimage/*.AppImage
+    expire_in: 4 weeks
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    # Manual MR rehearsal, same pattern as build:linux-appimage — lets this
+    # job's script be exercised on an MR pipeline before ever pushing the
+    # throwaway prerelease tag (M13).
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+# Internal, hosted-enabled macOS build — same D2/C8 as above. Invokes
+# buildFutoNotesMacOSInternal in .cirrus.yml, which deliberately never
+# receives MACOS_*/ASC_*/TAURI_* (only CI_* is exported to .cienv below), so
+# no Apple certificate, notarization credential, or the updater signing key
+# ever reaches this VM. The task builds with base tauri.conf.json (no
+# --config override), so it is unsigned/un-notarized and cannot produce an
+# updater artifact — same M23 enforcement as the Linux job above, applied by
+# withholding the secrets rather than by unsetting them. Testers bypass
+# Gatekeeper on the unsigned DMG (right-click → Open, or `xattr -d
+# com.apple.quarantine`), acceptable friction for an internal-only build.
+build:desktop-internal:macos:
+  stage: build
+  needs:
+    - job: test
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - cirrus run buildFutoNotesMacOSInternal --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  artifacts:
+    paths:
+      - buildFutoNotesMacOSInternal/binary/*.dmg
+    expire_in: 4 weeks
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    # Manual MR rehearsal, same pattern as build:desktop-internal:linux (M13).
+    # Unlike build:macos (no MR rule at all — it needs MACOS_CERT_PASSWORD,
+    # a protected var unavailable on non-protected-branch MR pipelines), this
+    # job needs zero Apple secrets (see the comment above), so it can safely
+    # run there.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - .cirrus.yml
+      when: manual
+      allow_failure: true
+
 # Rebuild the pre-baked Android CI image (JDK + SDK/NDK + Rust targets +
 # emulator + system image + desktop Tauri deps). Manual trigger only —
 # click "Run" on this job when ci/android.Dockerfile changes. Registry auth
@@ -1983,6 +2117,262 @@ windows:cleanup:
       allow_failure: true
 
 # ─────────────────────────────────────────────────────────────
+# Internal, hosted-enabled Windows build (D2, taken —
+# docs/plan/hosted-sync-to-staging.md, ticket C8). Prerelease tags only,
+# plus the same MR manual rehearsal as build:desktop-internal:{linux,macos}.
+#
+# Reuses the EXISTING Proxmox provision→build→cleanup chain and template VM
+# (same .proxmox_auth, same proxmoxshell runner, same clone/start/agent-IP
+# script) rather than inventing a second one — the only difference from
+# windows:provision/build:windows/windows:cleanup is the VM name (so the two
+# chains never collide when both run in the same prerelease-tag pipeline)
+# and the hosted flags passed to ci/win-build.ps1. One extra VM clone, on
+# prerelease tags only.
+#
+# Deliberately UNSIGNED — no windows:sign:internal exists. Authenticode
+# signing needs the EV code-signing credential (AWS KMS FUTO-EV-signing-key)
+# in ci/sign-windows.sh; wiring that into an internal/staging-flagged job
+# would be the one platform where M23's isolation gets weaker instead of
+# matching Linux (no signing key touched) and macOS (no Apple credential
+# touched). Recommendation to the coordinator: keep it unsigned, same
+# Gatekeeper-bypass-style friction as the macOS internal build (one SmartScreen
+# "Windows protected your PC" → More info → Run anyway click-through per
+# machine) rather than grow the EV credential's blast radius to cover an
+# internal build track. Not wired without an explicit go-ahead either way.
+windows:provision:internal:
+  stage: build
+  needs:
+    - job: test
+  tags:
+    - proxmoxshell
+  before_script:
+    - *proxmox_auth
+  variables:
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+    TEMPLATE_VMID: "101"
+    # Distinct name from windows:provision's futo-notes-win-${CI_PIPELINE_ID}
+    # — both chains run in the same prerelease-tag pipeline (the production
+    # Windows build jobs run on every tag, including prerelease, for
+    # validation), so this must never resolve to the same VM.
+    VM_NAME: "futo-notes-win-internal-${CI_PIPELINE_ID}"
+    CLONE_TYPE: "1"
+  script:
+    # Get next available VMID
+    - |
+      export NEXT_VMID=$(curl -s -k \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
+      echo "VMID=${NEXT_VMID}" >> provision.env
+      echo "Using VMID: ${NEXT_VMID}"
+
+    # Clone the template VM and poll task until done
+    - |
+      CLONE_RESPONSE=$(curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "newid=${NEXT_VMID}&name=${VM_NAME}&full=${CLONE_TYPE}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone")
+      UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
+      echo "Clone task started: $UPID"
+
+    - |
+      UPID_ENCODED=$(printf '%s' "$UPID" | jq -sRr @uri)
+      LATEST_TEMP=""
+      while true; do
+        TASK_STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/status")
+        STATUS=$(echo "$TASK_STATUS" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          EXIT_STATUS=$(echo "$TASK_STATUS" | jq -r '.data.exitstatus')
+          if [ "$EXIT_STATUS" = "OK" ]; then
+            echo "Clone completed successfully!"
+            break
+          else
+            echo "Clone failed: $EXIT_STATUS"
+            exit 1
+          fi
+        fi
+        TASK_LOG=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/log?limit=10000")
+        LATEST=$(echo "$TASK_LOG" | jq -r '.data | sort_by(.n) | last | .t // "waiting..."')
+        if [ "$LATEST_TEMP" != "$LATEST" ]; then
+          echo "Status: $STATUS | $LATEST"
+          LATEST_TEMP="$LATEST"
+        fi
+        sleep 5
+      done
+
+    # Start the VM
+    - |
+      source provision.env
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start"
+
+    # Wait for VM to get an IP via QEMU guest agent
+    - |
+      source provision.env
+      echo "Waiting for VM to boot and get IP..."
+      for i in $(seq 1 60); do
+        IP=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" 2>/dev/null \
+          | jq -r '.data.result[]? | select(.name != "Loopback Pseudo-Interface 1") | ."ip-addresses"[]? | select(."ip-address-type" == "ipv4") | ."ip-address"' \
+          | head -1)
+        if [ -n "$IP" ] && [ "$IP" != "null" ]; then
+          echo "VM_IP=${IP}" >> provision.env
+          echo "VM is up at: ${IP}"
+          break
+        fi
+        echo "Waiting for start and IP... (${i}/60)"
+        sleep 10
+      done
+      if [ -z "$IP" ] || [ "$IP" = "null" ]; then
+        echo "ERROR: No IP after 10 minutes"
+        exit 1
+      fi
+
+  artifacts:
+    when: always
+    reports:
+      dotenv: provision.env
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+build:desktop-internal:windows:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs:
+    - job: windows:provision:internal
+      artifacts: true
+  variables:
+    SSHPASS: "$PROXMOX_WIN_PASSWORD"
+  before_script: []
+  script:
+    # Wait for SSH to be ready
+    - |
+      for i in $(seq 1 30); do
+        if sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${PROXMOX_WIN_USER}@${VM_IP}" "echo ready" 2>/dev/null; then
+          echo "SSH is ready!"
+          break
+        fi
+        echo "Waiting for SSH... ($i/30)"
+        sleep 10
+      done
+
+    # Upload build scripts to VM
+    - |
+      sshpass -e scp -o StrictHostKeyChecking=no \
+        ci/win-install-deps.ps1 ci/win-build.ps1 \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/Users/${PROXMOX_WIN_USER}/"
+
+    # Install build dependencies
+    - |
+      sshpass -e ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-install-deps.ps1"
+
+    # Clone repo and build — same REF/VERSION derivation as build:windows,
+    # plus -HostedSync/-HostedServer (both default off in ci/win-build.ps1,
+    # so build:windows itself is byte-for-byte unchanged).
+    - |
+      REF="${CI_COMMIT_TAG:-${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_REF_NAME}}"
+      VERSION="${CI_COMMIT_TAG#v}"
+      [ -n "$VERSION" ] || VERSION="0.0.0"
+      echo "Internal Windows build — hosted sync ON, baked hosted server: https://staging-notes-sync.futo.org"
+      sshpass -e ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-build.ps1 -RepoUrl ${CI_REPOSITORY_URL} -Branch ${REF} -Version ${VERSION} -HostedSync true -HostedServer https://staging-notes-sync.futo.org"
+
+    # Retrieve build artifacts — own directory, distinct from build:windows's
+    # windows-artifacts/, so both can coexist as separate job artifacts in the
+    # same prerelease-tag pipeline.
+    - mkdir -p windows-internal-artifacts
+    - |
+      sshpass -e scp -o StrictHostKeyChecking=no -r \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/futo-notes/target/release/bundle/nsis/*" \
+        windows-internal-artifacts/
+    - |
+      echo "=== Internal Windows build artifacts (unsigned, see the job comment on windows:provision:internal) ==="
+      ls -la windows-internal-artifacts/
+
+  artifacts:
+    paths:
+      - windows-internal-artifacts/*
+    expire_in: 4 weeks
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - ci/win-build.ps1
+      when: manual
+      allow_failure: true
+
+windows:cleanup:internal:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs:
+    - job: windows:provision:internal
+      artifacts: true
+    - job: build:desktop-internal:windows
+  when: always
+  before_script:
+    - *proxmox_auth
+  variables:
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+  script:
+    - |
+      if [ -z "$VMID" ]; then
+        echo "No VMID from provision; looking up VM by name futo-notes-win-internal-${CI_PIPELINE_ID}..."
+        VMID=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu" \
+          | jq -r ".data[] | select(.name==\"futo-notes-win-internal-${CI_PIPELINE_ID}\") | .vmid" | head -1)
+      fi
+      if [ -z "$VMID" ] || [ "$VMID" = "null" ]; then
+        echo "No VM found for this pipeline, nothing to clean up."
+        exit 0
+      fi
+      echo "Stopping VM $VMID..."
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/stop"
+    - |
+      echo "Waiting for VM to stop..."
+      for i in $(seq 1 30); do
+        STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/current" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          echo "VM stopped!"
+          break
+        fi
+        sleep 5
+      done
+    - |
+      curl -s -k -X DELETE \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}"
+      echo "VM ${VMID} deleted"
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+# ─────────────────────────────────────────────────────────────
 # Release gate — all platform artifacts must exist
 # ─────────────────────────────────────────────────────────────
 
@@ -2341,6 +2731,124 @@ release:
     # they just don't publish a release. A future nightly channel = a second
     # fixed manifest + a client channel setting.)
     - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+# ─────────────────────────────────────────────────────────────
+# Internal release — hosted-enabled Android + desktop builds, prerelease
+# tags only (D2, taken — docs/plan/hosted-sync-to-staging.md, ticket C8)
+# ─────────────────────────────────────────────────────────────
+# Distribution for the hosted-enabled builds that already exist and go
+# nowhere: build:android-native turns hosted sync on for a prerelease tag
+# (C3) but publish:android is stable-tag-only, and there was no desktop build
+# with the flag on at all outside `just tauri-dev`. This publishes exactly
+# what build:android-native and build:desktop-internal:{linux,macos,windows}
+# produced as GitLab release assets, so a FUTO person can install one without
+# a terminal or a Rust/Android toolchain.
+#
+# Deliberately a SEPARATE job from `release:`, not a shared rule branch on it,
+# so M23 holds by construction rather than by a careful `if`:
+#   - `release:`'s own `needs:` and `rules:` (stable tags only) are untouched
+#     by this ticket — this job does not appear anywhere in them, so a
+#     prerelease-tag pipeline can never make `release:` itself run, let alone
+#     publish.
+#   - This job's script never calls scripts/build-updater-manifest.mjs or
+#     scripts/verify-updater-signature.mjs, and never writes/uploads a
+#     latest.json — those lines simply do not exist here.
+#   - It uploads to a DIFFERENTLY NAMED generic package (futo-notes-internal,
+#     not futo-notes) at a path release:'s script never references, so the
+#     two artifact trails cannot collide even by a typo.
+#   - The desktop artifacts it publishes were built from the base
+#     tauri.conf.json (build:desktop-internal:{linux,macos,windows}), which
+#     has no `createUpdaterArtifacts` — there is no .sig for this job to
+#     embed into a manifest even if it tried. Windows additionally never
+#     runs windows:sign (Authenticode + minisign) at all — see the comment
+#     on windows:provision:internal for why signing is deliberately withheld.
+# Not a test job (M14): it publishes artifacts other jobs already validated,
+# so it does not enter release:gate.needs — it DEPENDS on release:gate
+# instead, reusing the full test-suite + standard-build quality bar before
+# publishing an internal build.
+release:internal:
+  stage: release
+  interruptible: false
+  needs:
+    - job: release:gate
+    - job: build:android-native
+      artifacts: true
+    - job: build:desktop-internal:linux
+      artifacts: true
+    - job: build:desktop-internal:macos
+      artifacts: true
+    - job: build:desktop-internal:windows
+      artifacts: true
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes-internal/${CI_COMMIT_TAG}"
+    # Android APK (hosted sync ON, staging server — build:android-native, C3)
+    - |
+      APK=$(find apps/android/app/build/outputs/apk/release -name "*release*.apk" -type f 2>/dev/null | head -1)
+      test -n "$APK" || { echo "no release APK from build:android-native — nothing to publish" >&2; exit 1; }
+      NAME="futo-notes-internal-${VERSION}.apk"
+      echo "Uploading $NAME"
+      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$APK" "${REGISTRY_URL}/${NAME}"
+    # Linux (deb/rpm/AppImage) — unsigned by the updater key, see the job
+    # comment on build:desktop-internal:linux.
+    - |
+      for f in target/release/bundle/deb/*.deb; do
+        [ -f "$f" ] || continue
+        NAME="futo-notes-internal_${VERSION}_amd64.deb"
+        echo "Uploading $NAME"
+        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
+      done
+    - |
+      for f in target/release/bundle/rpm/*.rpm; do
+        [ -f "$f" ] || continue
+        NAME="futo-notes-internal-${VERSION}-1.x86_64.rpm"
+        echo "Uploading $NAME"
+        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
+      done
+    - |
+      for f in target/release/bundle/appimage/*.AppImage; do
+        [ -f "$f" ] || continue
+        NAME="FUTO-Notes-Internal-${VERSION}-x86_64.AppImage"
+        echo "Uploading $NAME"
+        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
+      done
+    # macOS DMG — unsigned/un-notarized, see the job comment on
+    # build:desktop-internal:macos.
+    - |
+      DMG=$(find buildFutoNotesMacOSInternal -name "*.dmg" -type f 2>/dev/null | head -1)
+      test -n "$DMG" || { echo "no DMG from build:desktop-internal:macos — nothing to publish" >&2; exit 1; }
+      NAME="FUTO-Notes-Internal-${VERSION}-universal.dmg"
+      echo "Uploading $NAME"
+      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
+    # Windows NSIS installer — unsigned (no Authenticode, no updater .sig),
+    # see the job comment on windows:provision:internal.
+    - |
+      EXE=$(find windows-internal-artifacts -name "*.exe" -type f 2>/dev/null | head -1)
+      test -n "$EXE" || { echo "no exe from build:desktop-internal:windows — nothing to publish" >&2; exit 1; }
+      NAME="FUTO-Notes-Internal-${VERSION}-x64-setup.exe"
+      echo "Uploading $NAME"
+      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$EXE" "${REGISTRY_URL}/${NAME}"
+    - |
+      curl -sL "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64" \
+        -o /usr/local/bin/release-cli && chmod +x /usr/local/bin/release-cli
+    # Retag-same-version dance, same as `release:` — delete any existing
+    # Release for this tag before recreating (release-cli create 409s otherwise).
+    - |
+      curl -s -X DELETE -H "JOB-TOKEN: $CI_JOB_TOKEN" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}" || true
+    - |
+      release-cli create \
+        --name "FUTO Notes ${CI_COMMIT_TAG} (INTERNAL — hosted sync, staging server)" \
+        --tag-name "${CI_COMMIT_TAG}" \
+        --description "INTERNAL FUTO-only build. Hosted sync (\"Log in with FUTO\") is ON and points at the STAGING server (staging-notes-sync.futo.org), never production. Desktop builds are unsigned (Linux, Windows) or un-notarized (macOS) — bypass Gatekeeper/SmartScreen/right-click Open as needed. Not for external distribution, and not reachable from the in-app updater (no manifest exists for this release)." \
+        --assets-link "{\"name\":\"futo-notes-internal-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/futo-notes-internal-${VERSION}.apk\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"futo-notes-internal_${VERSION}_amd64.deb\",\"url\":\"${REGISTRY_URL}/futo-notes-internal_${VERSION}_amd64.deb\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"futo-notes-internal-${VERSION}-1.x86_64.rpm\",\"url\":\"${REGISTRY_URL}/futo-notes-internal-${VERSION}-1.x86_64.rpm\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-Internal-${VERSION}-x86_64.AppImage\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-Internal-${VERSION}-x86_64.AppImage\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-Internal-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-Internal-${VERSION}-universal.dmg\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-Internal-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-Internal-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}"
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
 
 # ─────────────────────────────────────────────────────────────
 # Publish to the FUTO F-Droid repo (app.futo.org/fdroid)
