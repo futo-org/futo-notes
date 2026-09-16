@@ -988,13 +988,22 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   including when retry finds an uncertain prior `mkdir` already present; only
   then may object-map/cursor checkpoints advance.
   Other platforms reject symlinks observed while resolving the path, but do not
-  yet provide the same descriptor-relative race guarantee. The same fallible
+  yet provide the same descriptor-relative race guarantee. On every platform, a
+  vault-relative path whose parent folder is missing is ABSENT rather than a
+  fault: existence checks answer no, removes and renames report nothing moved,
+  and the write paths create the folders they need — so a note arriving for a
+  folder this client has never had is written, not failed (github#48). Only a
+  genuine obstacle — a symlink, a plain file where a folder belongs, no
+  permission — is an apply failure. The same fallible
   scanner is used by conflict/tombstone copy naming; no sync call site receives
   a best-effort file list. → futo-notes-sync `sync/vault.rs`,
-  `sync/vault_fs.rs`, and `sync/push/`; regression tests `scan_reports_*`,
+  `sync/vault_fs.rs`, and `sync/push/`, over futo-notes-core
+  `files/vault_fs/{unix,fallback}.rs`; regression tests `scan_reports_*`,
   `scan_never_follows_*`, `content_*_never_follow_*`,
-  `collision_placement_never_renames_*`, and
-  `incomplete_root_scan_stops_before_remote_deletion`
+  `collision_placement_never_renames_*`,
+  `incomplete_root_scan_stops_before_remote_deletion`,
+  `files::vault_fs::contract_tests::*` (stamped over both implementations), and
+  `a_note_in_a_folder_this_client_does_not_have_yet_is_written`
 - **The persisted pull cursor never advances past changes we have actually
   pulled — even across a crash mid-push.** State carries TWO watermarks:
   `max_version` (the highest `change_seq` seen; push folds its uploads in and

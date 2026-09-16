@@ -347,6 +347,78 @@ async fn a_note_under_a_file_where_a_folder_belongs_is_a_local_apply_failure_not
     );
 }
 
+/// github#48, at the seam that actually broke. A peer puts a note in a folder
+/// this client does not have yet — "make a folder on your phone", the everyday
+/// case — and the pull must create the folder and write the note. Before the
+/// write, the engine asks whether the target is already there, so the answer to
+/// "is `Work/Plan.md` there?" when there is no `Work` has to be "no", not an
+/// I/O error. On Windows it was an error: from v1.6.1, every note in every
+/// peer-made folder failed on every cycle with the pull cursor pinned behind
+/// it, and a fresh Windows install of a foldered vault received no foldered
+/// notes at all.
+///
+/// This rule holds on every platform, but only Windows could break it, so the
+/// executable red proof for the defect itself lives with the implementations
+/// in `futo_notes_core::files::vault_fs`'s contract tests. This test is what
+/// those contracts are FOR: it pins the behavior the engine leans on, so a
+/// future change to the existence probe cannot quietly take it away again.
+#[tokio::test]
+async fn a_note_in_a_folder_this_client_does_not_have_yet_is_written() {
+    const KEY: [u8; 32] = [5; 32];
+    let server = MockServer::start().await;
+    let root = TempRoot::new();
+
+    // One folder level and two, because a missing grandparent is the same
+    // question asked twice and the reporter hit both.
+    let plan = e2ee::aes_gcm_encrypt(&KEY, &e2ee::pack_note_v2("Work/Plan.md", "plan")).unwrap();
+    let alpha =
+        e2ee::aes_gcm_encrypt(&KEY, &e2ee::pack_note_v2("Work/Docs/Alpha.md", "alpha")).unwrap();
+    Mock::given(method("GET"))
+        .and(path("/api/collections/collection/objects"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "objects": [
+                {"id":"o1","version":1,"change_seq":1,"blob_key":"b1","updated_at":""},
+                {"id":"o2","version":1,"change_seq":2,"blob_key":"b2","updated_at":""}
+            ]
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/blobs/b1"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(plan))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/blobs/b2"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(alpha))
+        .mount(&server)
+        .await;
+
+    let state = connected_state(&server, KEY);
+    let (summary, next) = pull(&state, root.path(), 0, &|_| {}, &|_| {})
+        .await
+        .unwrap();
+
+    assert_eq!(
+        summary.failure_message(),
+        None,
+        "a folder this client lacks is made, not a failure"
+    );
+    assert_eq!(summary.downloaded, 2);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("Work").join("Plan.md")).unwrap(),
+        "plan"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("Work").join("Docs").join("Alpha.md")).unwrap(),
+        "alpha"
+    );
+    assert_eq!(
+        next.pull_cursor, 2,
+        "an applied change advances the cursor instead of pinning it"
+    );
+}
+
 /// A genuine download failure has to stay a download failure — and carry the
 /// status the engine already collects. `failure_message` printed the count and
 /// silently dropped `status_code`, so an nginx 502 and a missing folder rendered
