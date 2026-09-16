@@ -15,7 +15,9 @@ import {
   syncErrorDedupeKey,
   type SyncErrorClass,
 } from './syncErrorClassification';
+import { recordWriteRefusal } from './hostedWriteRefusal.svelte';
 import { createSyncCompletionReconciler } from './reconcileSyncCompletion';
+import type { WriteRefusalOutput } from './syncContract.generated';
 import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
 import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
 
@@ -69,7 +71,23 @@ export type SyncErrorSource = 'sync' | 'stream';
 // server still becomes actionable during the same working session.
 const RECONNECTING_GRACE_MS = 180_000;
 
-function syncErrorForSource(source: SyncErrorSource): LocalizedMessage {
+/**
+ * What the sync status line says about a failed cycle.
+ *
+ * A refused write is not a fault: nothing is broken, the account simply may
+ * not write, so it says so in its own words wherever the person happens to be
+ * — not "Sync completed with errors", which sent people looking for a server
+ * problem (ADR 0003 decision 8). Which refusal it is was decided in Rust
+ * (`futo_notes_sync::WriteRefusal`); this only chooses the sentence, the way
+ * the iOS and Android status lines choose theirs.
+ */
+function syncErrorForSource(
+  source: SyncErrorSource,
+  writeRefusal: WriteRefusalOutput | null = null,
+): LocalizedMessage {
+  if (writeRefusal === 'subscriptionRequired')
+    return { path: 'sync.errors.writePausedSubscription' };
+  if (writeRefusal === 'quotaExceeded') return { path: 'sync.errors.writePausedQuota' };
   return source === 'stream'
     ? { path: 'sync.errors.liveUnavailable' }
     : { path: 'sync.errors.completedWithErrors' };
@@ -81,6 +99,10 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
   let syncErrorDiagnostic = '';
   let reconnecting = $state(false);
   const syncErrors: Partial<Record<SyncErrorSource, string>> = {};
+  // Kept beside the diagnostic so clearing one source can rebuild the OTHER
+  // source's sentence with the refusal it was raised with, rather than
+  // silently demoting a paused sync back to "completed with errors".
+  const syncRefusals: Partial<Record<SyncErrorSource, WriteRefusalOutput | null>> = {};
   const reconnectingSince: Record<SyncErrorSource, number | null> = {
     sync: null,
     stream: null,
@@ -90,12 +112,17 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
     stream: false,
   };
 
-  function raiseSyncError(message: string, source: SyncErrorSource = 'sync'): void {
+  function raiseSyncError(
+    message: string,
+    source: SyncErrorSource = 'sync',
+    writeRefusal: WriteRefusalOutput | null = null,
+  ): void {
     const changed = message !== syncErrorDiagnostic;
     syncError = true;
-    syncErrorMessage = syncErrorForSource(source);
+    syncErrorMessage = syncErrorForSource(source, writeRefusal);
     syncErrorDiagnostic = message;
     syncErrors[source] = message;
+    syncRefusals[source] = writeRefusal;
     if (changed) showToast(syncErrorMessage);
   }
 
@@ -103,15 +130,18 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
     if (!source) {
       delete syncErrors.sync;
       delete syncErrors.stream;
+      delete syncRefusals.sync;
+      delete syncRefusals.stream;
     } else {
       delete syncErrors[source];
+      delete syncRefusals[source];
     }
     const remainingSource = (['stream', 'sync'] as const).find(
       (candidate) => syncErrors[candidate] !== undefined,
     );
     if (remainingSource) {
       syncError = true;
-      syncErrorMessage = syncErrorForSource(remainingSource);
+      syncErrorMessage = syncErrorForSource(remainingSource, syncRefusals[remainingSource] ?? null);
       syncErrorDiagnostic = syncErrors[remainingSource] ?? '';
     } else {
       syncError = false;
@@ -138,23 +168,29 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
 
   function reportFailure(
     message: string,
-    options: { source: SyncErrorSource; class: SyncErrorClass; immediate?: boolean },
+    options: {
+      source: SyncErrorSource;
+      class: SyncErrorClass;
+      immediate?: boolean;
+      writeRefusal?: WriteRefusalOutput | null;
+    },
   ): void {
     const { source } = options;
+    const refusal = options.writeRefusal ?? null;
     if (options.immediate || options.class === 'actionable') {
       clearReconnecting(source);
       if (options.class === 'transient') transientEscalated[source] = true;
-      raiseSyncError(message, source);
+      raiseSyncError(message, source, refusal);
       return;
     }
 
     if (transientEscalated[source]) {
-      raiseSyncError(message, source);
+      raiseSyncError(message, source, refusal);
       return;
     }
 
     if (syncErrors[source] !== undefined) {
-      raiseSyncError(message, source);
+      raiseSyncError(message, source, refusal);
       return;
     }
 
@@ -167,12 +203,20 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
     if (Date.now() - startedAt >= RECONNECTING_GRACE_MS) {
       clearReconnecting(source);
       transientEscalated[source] = true;
-      raiseSyncError(message, source);
+      raiseSyncError(message, source, refusal);
     }
   }
 
-  function reportActionableSyncFailure(message: string): void {
-    reportFailure(message, { source: 'sync', class: 'actionable', immediate: true });
+  function reportActionableSyncFailure(
+    message: string,
+    writeRefusal: WriteRefusalOutput | null = null,
+  ): void {
+    reportFailure(message, {
+      source: 'sync',
+      class: 'actionable',
+      immediate: true,
+      writeRefusal,
+    });
   }
 
   return {
@@ -244,7 +288,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     }
   }
 
-  const handleSyncComplete = createSyncCompletionReconciler({
+  const reconcileCompletion = createSyncCompletionReconciler({
     dependencies: { ...deps, onRename: applyReportedRename },
     externalChanges,
     writeSuppressor,
@@ -260,6 +304,18 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       syncCoord?.setStatusWithTimeout(message, durationMs),
     setSyncStatusMessage: (message) => (syncStatus = message),
   });
+
+  /**
+   * Every completed cycle, refused or not, records what the server said about
+   * its writes before the completion queue runs. Synchronously, because the
+   * banner in Settings reads it and the reconciliation behind it is serialized
+   * and may not have started yet — and because a cycle that was NOT refused is
+   * what clears the banner (`hostedWriteRefusal`).
+   */
+  function handleSyncComplete(summary: SyncSummary, trigger?: SyncTrigger): Promise<void> {
+    recordWriteRefusal(summary.writeRefusal);
+    return reconcileCompletion(summary, trigger);
+  }
 
   function start(): () => void {
     syncCoord = createSyncCoordinator(

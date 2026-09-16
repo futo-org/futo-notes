@@ -49,6 +49,7 @@ import {
 } from '$features/notes/noteSession.svelte';
 import { writeSuppressor } from '$lib/platform/writeSuppression';
 import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
+import { currentWriteRefusal } from './hostedWriteRefusal.svelte';
 import { createSyncManager, type SyncManagerDeps } from './syncManager.svelte';
 import type { SyncSummary } from './syncServiceE2ee';
 
@@ -65,6 +66,7 @@ const emptySummary: SyncSummary = {
   renamed: [],
   peerUpdatedIds: [],
   peerDeletedIds: [],
+  writeRefusal: null,
 };
 
 type SessionState = {
@@ -283,6 +285,64 @@ describe('sync outcome state', () => {
       { path: 'sync.errors.completedWithErrors' },
       { path: 'sync.errors.completedWithErrors' },
     ]);
+  });
+
+  /**
+   * A refused write is not a fault, and "Sync completed with errors" sent
+   * people looking for a server problem that was not there. Rust names the
+   * refusal (`futo_notes_sync::WriteRefusal`); the status line says so
+   * wherever the person happens to be, without Settings being open
+   * (ADR 0003 decision 8).
+   */
+  describe('a refused write', () => {
+    const refused = (writeRefusal: SyncSummary['writeRefusal'], code: number): SyncSummary => ({
+      ...emptySummary,
+      failures: [{ filename: 'note.md', kind: 'upload', statusCode: code }],
+      failureMessage: `1 change couldn't reach the server (HTTP ${code})`,
+      writeRefusal,
+    });
+
+    it('says the subscription lapsed rather than that sync broke', async () => {
+      const { manager, toasts } = makeManager();
+      await manager.handleSyncComplete(refused('subscriptionRequired', 402), 'poll');
+
+      expect(manager.syncError).toBe(true);
+      expect(manager.syncErrorMessage).toBe(
+        'Sync paused. Your subscription has lapsed, so changes made here are not uploaded. Notes from your other devices still arrive.',
+      );
+      expect(toasts).toEqual([{ path: 'sync.errors.writePausedSubscription' }]);
+    });
+
+    it('says the vault is full rather than that sync broke', async () => {
+      const { manager, toasts } = makeManager();
+      await manager.handleSyncComplete(refused('quotaExceeded', 507), 'poll');
+
+      expect(manager.syncErrorMessage).toBe(
+        'Vault is full. You have used all of your storage, so changes made here are not uploaded.',
+      );
+      expect(toasts).toEqual([{ path: 'sync.errors.writePausedQuota' }]);
+    });
+
+    it('goes back to the ordinary wording once the cycle is an ordinary failure', async () => {
+      const { manager } = makeManager();
+      await manager.handleSyncComplete(refused('subscriptionRequired', 402), 'poll');
+      await manager.handleSyncComplete(refused(null, 500), 'poll');
+
+      expect(manager.syncErrorMessage).toBe(
+        'Sync completed with errors. Some changes could not reach the server.',
+      );
+    });
+
+    // The banner in Settings reads the same cycle, and reads it whether or
+    // not anybody was looking when it ended.
+    it('records the refusal for the banner, and the next clean cycle clears it', async () => {
+      const { manager } = makeManager();
+      await manager.handleSyncComplete(refused('quotaExceeded', 507), 'poll');
+      expect(currentWriteRefusal()).toBe('quotaExceeded');
+
+      await manager.handleSyncComplete(emptySummary, 'poll');
+      expect(currentWriteRefusal()).toBeNull();
+    });
   });
 });
 

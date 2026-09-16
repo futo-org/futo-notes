@@ -3,6 +3,7 @@ package com.futo.notes
 import uniffi.futo_notes_ffi.RenamePair
 import uniffi.futo_notes_ffi.SyncFailure
 import uniffi.futo_notes_ffi.SyncSummary
+import uniffi.futo_notes_ffi.WriteRefusal
 
 /**
  * One builder for the FFI cycle report, so a new engine field is added in a
@@ -22,6 +23,7 @@ internal fun syncSummary(
     peerUpdatedIds: List<String> = emptyList(),
     peerDeletedIds: List<String> = emptyList(),
     renamed: List<RenamePair> = emptyList(),
+    writeRefusal: WriteRefusal? = null,
 ) = SyncSummary(
     uploaded = uploaded,
     downloaded = downloaded,
@@ -35,4 +37,5 @@ internal fun syncSummary(
     peerUpdatedIds = peerUpdatedIds,
     peerDeletedIds = peerDeletedIds,
     renamed = renamed,
+    writeRefusal = writeRefusal,
 )

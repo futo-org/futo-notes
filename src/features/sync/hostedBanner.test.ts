@@ -45,4 +45,39 @@ describe('hostedBanner', () => {
     expect(hostedBanner(billing({ entitled: false }), false)).toBe('none');
     expect(hostedBanner(null, true)).toBe('none');
   });
+
+  // The second input: what the last cycle's own 402/507 said, decided in Rust
+  // (`futo_notes_sync::WriteRefusal`). It is what makes the banner appear the
+  // moment the refused cycle ends instead of on the next billing read.
+  describe('the last cycle refusal', () => {
+    it('raises the banner with no billing reading at all', () => {
+      expect(hostedBanner(null, true, 'subscriptionRequired')).toBe('syncPaused');
+      expect(hostedBanner(null, true, 'quotaExceeded')).toBe('vaultFull');
+    });
+
+    it('raises the banner while the last billing reading still looks healthy', () => {
+      expect(hostedBanner(billing(), true, 'subscriptionRequired')).toBe('syncPaused');
+      expect(hostedBanner(billing(), true, 'quotaExceeded')).toBe('vaultFull');
+    });
+
+    // The same precedence, reached from either input or from one of each.
+    it('prefers sync paused over a full vault', () => {
+      expect(hostedBanner(billing({ bytesUsed: 5_000 }), true, 'subscriptionRequired')).toBe(
+        'syncPaused',
+      );
+      expect(hostedBanner(billing({ entitled: false }), true, 'quotaExceeded')).toBe('syncPaused');
+    });
+
+    it('is not a latch: a cycle that was not refused leaves the reading in charge', () => {
+      expect(hostedBanner(billing(), true, null)).toBe('none');
+      expect(hostedBanner(billing({ entitled: false }), true, null)).toBe('syncPaused');
+    });
+
+    // A refusal from the account that just signed out must not greet whoever
+    // signs in next.
+    it('says nothing before the wizard has finished', () => {
+      expect(hostedBanner(null, false, 'subscriptionRequired')).toBe('none');
+      expect(hostedBanner(null, false, 'quotaExceeded')).toBe('none');
+    });
+  });
 });

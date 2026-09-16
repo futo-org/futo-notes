@@ -47,6 +47,8 @@ import {
 
 import { requestSync } from './autoSync';
 import { hostedBanner, type HostedBanner } from './hostedBanner';
+import { currentWriteRefusal } from './hostedWriteRefusal.svelte';
+import type { WriteRefusalOutput } from './syncContract.generated';
 import { connectHostedE2ee, forgetHostedE2ee } from './syncServiceE2ee';
 
 /** Which door a `connectHosted` should take when the vault already exists. */
@@ -104,10 +106,17 @@ export interface HostedAccount {
   banner: HostedBanner;
 }
 
+/** The banner a refused cycle earned on its own, with no billing call. */
+export interface HostedRefusalBanner {
+  banner: HostedBanner;
+  writeRefusal: WriteRefusalOutput | null;
+}
+
 export interface TestHostedSyncApi {
   connectHosted(options: HostedConnectOptions): Promise<HostedAccount>;
   hostedProgress(): HostedProgress;
   hostedAccount(): Promise<HostedAccount>;
+  hostedRefusalBanner(): HostedRefusalBanner;
   hostedSessionToken(): Promise<string | null>;
   showPairingCode(): Promise<HostedAccount>;
   acceptPairing(scanned: string): Promise<{ deviceName: string; platform: string }>;
@@ -177,8 +186,22 @@ export async function getHostedAccount(): Promise<HostedAccount> {
     step: step.kind,
     email: who?.email ?? '',
     billing,
-    banner: hostedBanner(billing, step.kind === 'ready'),
+    banner: hostedBanner(billing, step.kind === 'ready', currentWriteRefusal()),
   };
+}
+
+/**
+ * The same rule, asked WITHOUT a billing reading — which is how the suite
+ * proves the banner is there before anybody opens the account screen.
+ *
+ * `hostedAccount()` reads `billing_status` on every call, so it can never tell
+ * a banner earned by the refusal apart from one earned by the reading it just
+ * took. This is deliberately synchronous and deliberately passes `null`
+ * billing: everything it answers came out of the last completed cycle.
+ */
+export function getHostedRefusalBanner(): HostedRefusalBanner {
+  const writeRefusal = currentWriteRefusal();
+  return { banner: hostedBanner(null, true, writeRefusal), writeRefusal };
 }
 
 /**
@@ -336,6 +359,7 @@ export function hostedTestApi(): TestHostedSyncApi {
     connectHosted: testConnectHosted,
     hostedProgress: getHostedProgress,
     hostedAccount: getHostedAccount,
+    hostedRefusalBanner: getHostedRefusalBanner,
     hostedSessionToken: getHostedSessionToken,
     showPairingCode: testShowPairingCode,
     acceptPairing: testAcceptPairing,

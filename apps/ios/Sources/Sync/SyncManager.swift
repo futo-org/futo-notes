@@ -35,6 +35,14 @@ final class SyncManager: ObservableObject {
     /// Whether the SSE live stream is currently connected.
     @Published private(set) var live = false
 
+    /// Whether the LAST completed cycle's writes were refused, and which way
+    /// (`futo_notes_sync::WriteRefusal`). Held here because this object
+    /// outlives the sync sheet, and the whole point is that a refusal arrives
+    /// while the person is somewhere else; `HostedSyncSections` hands it to the
+    /// hosted model, which turns it into a banner with an action. Never a
+    /// latch — every completed cycle writes its own answer, `nil` included.
+    @Published private(set) var lastWriteRefusal: WriteRefusal?
+
     private var resetting = false
     private var liveStartsInFlight = 0
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
@@ -93,13 +101,41 @@ final class SyncManager: ObservableObject {
     /// counts); per-item failures → the red error line, using
     /// `failureMessage` (computed once in the Rust core so every shell shows
     /// identical wording). Cleared by the next clean cycle.
+    ///
+    /// A refused write is the one failure that is not a fault: nothing is
+    /// broken, the account simply may not write, so the status line says so in
+    /// its own words instead of "Sync completed with errors", which sent people
+    /// looking for a server problem that was not there (ADR 0003 decision 8).
+    /// Rust names the refusal; this only chooses the sentence.
     private func applyOutcome(_ s: SyncSummary) {
-        if s.failureMessage != nil {
+        lastWriteRefusal = s.writeRefusal
+        if let refusal = s.writeRefusal {
+            statusMessage = LocalizedMessage(Self.writeRefusalHeadline(refusal))
+            lastErrorMessage = LocalizedMessage(Self.writeRefusalExplanation(refusal))
+        } else if s.failureMessage != nil {
             statusMessage = LocalizedMessage("sync.status.error")
             lastErrorMessage = LocalizedMessage("sync.errors.completedWithErrors")
         } else {
             statusMessage = LocalizedMessage("sync.status.complete")
             lastErrorMessage = nil
+        }
+    }
+
+    /// The short form, for the Settings row that shows sync status at a glance.
+    /// `internal` so the unit tests can pin the mapping.
+    static func writeRefusalHeadline(_ refusal: WriteRefusal) -> String {
+        switch refusal {
+        case .subscriptionRequired: "sync.hosted.banner.syncPaused.title"
+        case .quotaExceeded: "sync.hosted.banner.vaultFull.title"
+        }
+    }
+
+    /// The whole sentence, including what still works. Mirrors the desktop
+    /// status line's wording exactly — both read the same catalog entry.
+    static func writeRefusalExplanation(_ refusal: WriteRefusal) -> String {
+        switch refusal {
+        case .subscriptionRequired: "sync.errors.writePausedSubscription"
+        case .quotaExceeded: "sync.errors.writePausedQuota"
         }
     }
 

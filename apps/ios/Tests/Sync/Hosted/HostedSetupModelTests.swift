@@ -576,6 +576,89 @@ struct HostedSetupModelTests {
         #expect(model.banner == .none)
     }
 
+    // The second input: the last completed cycle's own 402/507, decided in
+    // Rust. It is what makes the banner appear the moment the refused cycle
+    // ends, instead of on the next billing read.
+
+    @Test("a refused cycle raises the banner with a billing reading that still looks healthy")
+    func refusalRaisesBannerWithoutBilling() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        setup.entitled = true
+        let model = makeModel(setup, StandInShell())
+
+        await model.load()
+        #expect(model.banner == .none)
+
+        model.writeRefusal = .subscriptionRequired
+        #expect(model.banner == .syncPaused)
+
+        model.writeRefusal = .quotaExceeded
+        #expect(model.banner == .vaultFull)
+    }
+
+    @Test("Sync paused wins over a full vault whichever input says so")
+    func refusalPrecedence() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        setup.entitled = true
+        setup.usedBytes = setup.quotaBytes
+        let model = makeModel(setup, StandInShell())
+
+        await model.load()
+        #expect(model.banner == .vaultFull)
+
+        // A lapse refuses the write whatever the quota says, so "buy more
+        // storage" would be the wrong instruction.
+        model.writeRefusal = .subscriptionRequired
+        #expect(model.banner == .syncPaused)
+
+        let lapsed = StandInSetup()
+        lapsed.signedIn = true
+        lapsed.vaultHasKeyMaterial = true
+        lapsed.deviceHoldsKey = true
+        lapsed.entitled = false
+        let lapsedModel = makeModel(lapsed, StandInShell())
+        await lapsedModel.load()
+        lapsedModel.writeRefusal = .quotaExceeded
+        #expect(lapsedModel.banner == .syncPaused)
+    }
+
+    @Test("a cycle that was not refused leaves the billing reading in charge")
+    func refusalIsNotALatch() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        setup.entitled = true
+        let model = makeModel(setup, StandInShell())
+
+        await model.load()
+        model.writeRefusal = .quotaExceeded
+        #expect(model.banner == .vaultFull)
+
+        model.writeRefusal = nil
+        #expect(model.banner == .none)
+    }
+
+    @Test("a refusal from the last account never greets the next one")
+    func refusalNeverShowsMidWizard() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = false
+        let model = makeModel(setup, StandInShell())
+
+        await model.load()
+        #expect(model.screen == .subscribe)
+
+        model.writeRefusal = .subscriptionRequired
+        #expect(model.banner == .none)
+    }
+
     // MARK: - Sign out and failures
 
     @Test("signing out returns the wizard to sign in")

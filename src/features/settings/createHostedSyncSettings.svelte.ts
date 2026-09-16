@@ -27,6 +27,7 @@ import { getPlatformFS } from '$lib/platform';
 import { openExternalUrl } from '$lib/platform/openExternalUrl';
 import { requestSync } from '$features/sync/autoSync';
 import { hostedBanner, type HostedBanner } from '$features/sync/hostedBanner';
+import { currentWriteRefusal } from '$features/sync/hostedWriteRefusal.svelte';
 import { hostedErrorMessage, hostedErrorVariant } from '$features/sync/hostedSyncErrors';
 import { connectHostedE2ee, forgetHostedE2ee } from '$features/sync/syncServiceE2ee';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
@@ -207,7 +208,10 @@ class HostedSyncSettingsState implements HostedSyncSettings {
   }
 
   get banner(): HostedBanner {
-    return hostedBanner(this.billing, this.screen === 'account');
+    // Two inputs, both live: the billing reading this screen took when it
+    // opened, and the last cycle's own refusal — which arrives the moment a
+    // refused cycle ends, whether or not anyone was looking at Settings.
+    return hostedBanner(this.billing, this.screen === 'account', currentWriteRefusal());
   }
 
   async load(): Promise<void> {

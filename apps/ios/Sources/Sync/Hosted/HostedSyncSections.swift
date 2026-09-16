@@ -8,6 +8,9 @@ import SwiftUI
 /// through setup and reopening land on the right step (ADR 0003, decision 3).
 struct HostedSyncSections: View {
     @StateObject private var model: HostedSetupModel
+    /// The live session, for the one fact the wizard cannot learn on its own:
+    /// whether the last completed cycle's writes were refused.
+    @EnvironmentObject private var sync: SyncManager
     @Environment(\.localization) private var localization
 
     init(notesRoot: String, store: NotesStore) {
@@ -72,6 +75,10 @@ struct HostedSyncSections: View {
             }
         }
         .task { await model.load() }
+        // The refused cycle may have ended long before this screen opened, and
+        // may end again while it is open; both must reach the banner.
+        .onAppear { model.writeRefusal = sync.lastWriteRefusal }
+        .onReceive(sync.$lastWriteRefusal) { model.writeRefusal = $0 }
     }
 
     @ViewBuilder

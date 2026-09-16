@@ -114,6 +114,15 @@ final class HostedSetupModel: ObservableObject {
     /// Send possible at all; nothing else in this shell can produce one.
     @Published private(set) var scannedPairing: (any ScannedPairing)?
 
+    /// Whether the LAST completed cycle's writes were refused, and which way.
+    ///
+    /// Rust decides it (`futo_notes_sync::WriteRefusal`, projected onto
+    /// `SyncSummary.writeRefusal`); `SyncManager` holds the newest answer
+    /// because it outlives this screen, and `HostedSyncSections` hands it
+    /// over. Never a latch: every completed cycle writes its own answer here,
+    /// `nil` included.
+    @Published var writeRefusal: WriteRefusal?
+
     @Published var recoveryKeySaved = false
     /// Which door the unlock screen is showing. `private(set)` because leaving
     /// the scan door has to stop a live wait, which a plain binding cannot do.
@@ -156,14 +165,31 @@ final class HostedSetupModel: ObservableObject {
         self.parseScanned = parseScanned
     }
 
-    /// A banner is a fact about the account, read the same way the account card
-    /// reads everything else. Sync paused wins over a full vault: a lapsed
+    /// Two ways to learn the same thing, and a banner either of them earns.
+    ///
+    /// `billing` is a reading of the account, taken when this screen opened.
+    /// `writeRefusal` is the last cycle's own answer — the 402 or 507 the
+    /// server actually returned — which arrives the moment the refused cycle
+    /// ends and needs no billing call at all. Neither is a latch.
+    ///
+    /// Sync paused wins over a full vault, whichever input says so: a lapsed
     /// subscription refuses the write whatever the quota says, so telling
     /// someone to buy more storage would be the wrong instruction.
+    ///
+    /// Nothing shows before the wizard has finished — which is also what keeps
+    /// one account's refusal off the sign-in screen of the next.
+    ///
+    /// The twin of `hostedBanner.ts` and Android's `HostedSetupModel.banner`
+    /// (`hosted-sync-banner-rule` in scripts/drift-registry.json).
     var banner: HostedBanner {
-        guard screen == .account, let billing else { return .none }
-        if !billing.entitled { return .syncPaused }
-        if billing.storageQuotaBytes > 0, billing.bytesUsed >= billing.storageQuotaBytes {
+        guard screen == .account else { return .none }
+        if writeRefusal == .subscriptionRequired || billing?.entitled == false {
+            return .syncPaused
+        }
+        if writeRefusal == .quotaExceeded { return .vaultFull }
+        if let billing, billing.storageQuotaBytes > 0,
+            billing.bytesUsed >= billing.storageQuotaBytes
+        {
             return .vaultFull
         }
         return .none

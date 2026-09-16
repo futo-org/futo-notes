@@ -138,7 +138,9 @@
             "uploadHttp403": "Upload 403",
             "deleteHttp500": "Delete 500",
             "networkWithoutStatus": "Network (no status)",
-            "threeFailures": "3 failures"
+            "threeFailures": "3 failures",
+            "subscriptionRequired": "Refused 402 (sync paused)",
+            "quotaExceeded": "Refused 507 (vault full)"
           },
           "successfulSync": "Successful sync"
         }
@@ -569,6 +571,8 @@
         "syncFailed": "Sync failed. Try again.",
         "previousFailure": "The last sync failed. Try again.",
         "completedWithErrors": "Sync completed with errors. Some changes could not reach the server.",
+        "writePausedSubscription": "Sync paused. Your subscription has lapsed, so changes made here are not uploaded. Notes from your other devices still arrive.",
+        "writePausedQuota": "Vault is full. You have used all of your storage, so changes made here are not uploaded.",
         "liveUnavailable": "Live sync is temporarily unavailable. FUTO Notes will keep retrying.",
         "forgetPasswordFailed": "Couldn't remove the saved sync password.",
         "dismissWithMessageAccessibilityLabel": "Sync error: {message}. Click to dismiss.",

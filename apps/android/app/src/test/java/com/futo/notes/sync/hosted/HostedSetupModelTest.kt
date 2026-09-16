@@ -24,6 +24,7 @@ import uniffi.futo_notes_ffi.SignInFlow
 import uniffi.futo_notes_ffi.SignInHandoff
 import uniffi.futo_notes_ffi.SignInOutcome
 import uniffi.futo_notes_ffi.SyncClient
+import uniffi.futo_notes_ffi.WriteRefusal
 
 /**
  * The Android wizard, driven against a stand-in for Rust's state machine.
@@ -617,6 +618,93 @@ class HostedSetupModelTest {
 
         wizard.load()
         assertEquals(HostedScreen.SUBSCRIBE, wizard.screen)
+        assertEquals(HostedBanner.NONE, wizard.banner)
+    }
+
+    // The second input: the last completed cycle's own 402/507, decided in
+    // Rust. It is what makes the banner appear the moment the refused cycle
+    // ends, instead of on the next billing read.
+
+    @Test
+    fun `a refused cycle raises the banner with a healthy billing reading`() = runBlocking {
+        val setup = StandInSetup().apply {
+            signedIn = true
+            vaultHasKeyMaterial = true
+            deviceHoldsKey = true
+            entitled = true
+        }
+        val wizard = model(setup)
+
+        wizard.load()
+        assertEquals(HostedBanner.NONE, wizard.banner)
+
+        wizard.writeRefusal = WriteRefusal.SUBSCRIPTION_REQUIRED
+        assertEquals(HostedBanner.SYNC_PAUSED, wizard.banner)
+
+        wizard.writeRefusal = WriteRefusal.QUOTA_EXCEEDED
+        assertEquals(HostedBanner.VAULT_FULL, wizard.banner)
+    }
+
+    @Test
+    fun `Sync paused wins over a full vault whichever input says so`() = runBlocking {
+        val full = StandInSetup().apply {
+            signedIn = true
+            vaultHasKeyMaterial = true
+            deviceHoldsKey = true
+            entitled = true
+        }
+        full.usedBytes = full.quotaBytes
+        val onFullVault = model(full)
+        onFullVault.load()
+        assertEquals(HostedBanner.VAULT_FULL, onFullVault.banner)
+
+        // A lapse refuses the write whatever the quota says, so "buy more
+        // storage" would be the wrong instruction.
+        onFullVault.writeRefusal = WriteRefusal.SUBSCRIPTION_REQUIRED
+        assertEquals(HostedBanner.SYNC_PAUSED, onFullVault.banner)
+
+        val lapsed = StandInSetup().apply {
+            signedIn = true
+            vaultHasKeyMaterial = true
+            deviceHoldsKey = true
+            entitled = false
+        }
+        val onLapsed = model(lapsed)
+        onLapsed.load()
+        onLapsed.writeRefusal = WriteRefusal.QUOTA_EXCEEDED
+        assertEquals(HostedBanner.SYNC_PAUSED, onLapsed.banner)
+    }
+
+    @Test
+    fun `a cycle that was not refused leaves the billing reading in charge`() = runBlocking {
+        val setup = StandInSetup().apply {
+            signedIn = true
+            vaultHasKeyMaterial = true
+            deviceHoldsKey = true
+            entitled = true
+        }
+        val wizard = model(setup)
+
+        wizard.load()
+        wizard.writeRefusal = WriteRefusal.QUOTA_EXCEEDED
+        assertEquals(HostedBanner.VAULT_FULL, wizard.banner)
+
+        wizard.writeRefusal = null
+        assertEquals(HostedBanner.NONE, wizard.banner)
+    }
+
+    @Test
+    fun `a refusal from the last account never greets the next one`() = runBlocking {
+        val setup = StandInSetup().apply {
+            signedIn = true
+            entitled = false
+        }
+        val wizard = model(setup)
+
+        wizard.load()
+        assertEquals(HostedScreen.SUBSCRIBE, wizard.screen)
+
+        wizard.writeRefusal = WriteRefusal.SUBSCRIPTION_REQUIRED
         assertEquals(HostedBanner.NONE, wizard.banner)
     }
 
