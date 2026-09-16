@@ -9,11 +9,19 @@ import { tmpdir } from 'node:os';
 import { discoverPort, connectWs } from './mcp-client.mjs';
 import { TauriTestClient, waitForTestHooks } from './tauri-test-client.mjs';
 
-export async function startDesktopTauriInstance(name, repoRoot) {
-  const dataDir = mkdtempSync(join(tmpdir(), `sf-${name}-`));
-  const notesDir = mkdtempSync(join(tmpdir(), `sf-notes-${name}-`));
+/**
+ * @param {string} name
+ * @param {string} repoRoot
+ * @param {{ reuse?: import('./tauri-test-client.mjs').TauriTestClient, env?: Record<string,string> }} [options]
+ *   `reuse` relaunches an existing client's data dir and notes dir into the
+ *   same client object — see `restartDesktopTauriInstance`.
+ */
+export async function startDesktopTauriInstance(name, repoRoot, options = {}) {
+  const { reuse = null, env: extraEnv = {} } = options;
+  const dataDir = reuse?.dataDir ?? mkdtempSync(join(tmpdir(), `sf-${name}-`));
+  const notesDir = reuse?.notesDir ?? mkdtempSync(join(tmpdir(), `sf-notes-${name}-`));
 
-  writeFileSync(join(dataDir, 'notes-dir-override.json'), JSON.stringify({ notesDir }));
+  if (!reuse) writeFileSync(join(dataDir, 'notes-dir-override.json'), JSON.stringify({ notesDir }));
 
   const logFile = join(tmpdir(), `tauri-${name}-${Date.now()}.log`);
   const logFd = openSync(logFile, 'w');
@@ -60,6 +68,7 @@ export async function startDesktopTauriInstance(name, repoRoot) {
       FUTO_NOTES_DATA_DIR: dataDir,
       FUTO_NOTES_MULTI_INSTANCE: '1',
       WEBKIT_DISABLE_DMABUF_RENDERER: '1',
+      ...extraEnv,
     },
     stdio: ['ignore', logFd, logFd],
   });
@@ -84,6 +93,17 @@ export async function startDesktopTauriInstance(name, repoRoot) {
     throw new Error(`${name}: desktop startup failed — ${err.message}`, { cause: err });
   }
 
+  if (reuse) {
+    // Same object, new process: the suite holds one client reference for the
+    // whole run, so a restart that handed back a different object would leave
+    // every later scenario driving a dead websocket.
+    reuse.proc = proc;
+    reuse.ws = ws;
+    reuse.port = port;
+    reuse.logFile = logFile;
+    return reuse;
+  }
+
   return new TauriTestClient({
     name,
     platform: 'desktop',
@@ -93,5 +113,43 @@ export async function startDesktopTauriInstance(name, repoRoot) {
     notesDir,
     dataDir,
     logFile,
+  });
+}
+
+/**
+ * Quit this instance and open it again — same data dir, same notes dir, same
+ * OS secret-store entries, a brand-new process with no in-memory session left.
+ *
+ * The only way to exercise anything that happens at LAUNCH: the suite starts
+ * its clients once and reuses them across every scenario, so without this a
+ * scenario can never see a cold start.
+ *
+ * `env` goes to the new process only. A hosted scenario passes
+ * `FUTO_HOSTED_SERVER` so the relaunched app's own boot path — which asks Rust
+ * for the compiled-in address, not the test's — points at that scenario's
+ * stand-in server instead of the real service.
+ */
+export async function restartDesktopTauriInstance(client, repoRoot, { env = {} } = {}) {
+  const proc = client.proc;
+  client.stop();
+  if (proc) await waitForExit(proc, 15_000);
+  return startDesktopTauriInstance(client.name, repoRoot, { reuse: client, env });
+}
+
+/** Resolves when [proc] has exited, SIGKILLing it if it outstays [timeoutMs]. */
+function waitForExit(proc, timeoutMs) {
+  if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }, timeoutMs);
+    proc.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
 }

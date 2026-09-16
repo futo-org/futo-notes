@@ -33,7 +33,7 @@ import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { startDesktopTauriInstance } from './lib/tauri-instance.mjs';
+import { restartDesktopTauriInstance, startDesktopTauriInstance } from './lib/tauri-instance.mjs';
 import {
   HARNESS_NOTE_PREFIX,
   findAndroidLegDevice,
@@ -2569,6 +2569,70 @@ async function hostedSignOutKeepsTheNotesOnDisk(a, _b, server) {
   assert(refusal.refused, `a signed-out device should not sync: ${refusal.detail}`);
 }
 
+/**
+ * Waits for a note to arrive on a client that NOTHING is driving.
+ *
+ * The other waiters call `syncNow()` each pass, which is the opposite of what
+ * this proves: the point is that the restarted app connected its hosted
+ * session and started cycling on its own. So the only calls here are reads —
+ * the sync status hook and the note itself. `lastSyncedAt` must also move past
+ * the value the previous process left on disk, or a note that was already
+ * there before the restart would pass this.
+ */
+async function waitForLaunchSync(client, id, expected, since, timeoutMs = 90_000) {
+  const start = Date.now();
+  let lastSyncedAt = since;
+  let body = null;
+  while (Date.now() - start < timeoutMs) {
+    const status = await client.syncStatus().catch(() => null);
+    lastSyncedAt = status?.appState?.lastSyncedAt ?? lastSyncedAt;
+    body = await client.readNote(id).catch(() => null);
+    if (body === expected && lastSyncedAt !== since) return;
+    await sleep(1_000);
+  }
+  throw new Error(
+    `${client.name}: the relaunched app never synced on its own ` +
+      `(lastSyncedAt ${JSON.stringify(since)} → ${JSON.stringify(lastSyncedAt)}, ` +
+      `${id} last read as ${JSON.stringify(body)}, wanted ${JSON.stringify(expected)})`,
+  );
+}
+
+/**
+ * C2 / story 27: a hosted device that is quit and reopened syncs at launch.
+ *
+ * Deliberately touches NO hosted hook after the restart. `hostedAccount()` and
+ * `connectHosted()` both connect the session themselves, so either one would
+ * re-create the Settings visit this exists to remove and the scenario would
+ * pass on a build that never resumes at boot. B is left completely alone: the
+ * proof is a cycle it ran and a note it fetched by itself.
+ */
+async function hostedRestartSyncsAtLaunchWithoutOpeningSettings(a, b, server) {
+  await hostedConnect(a, server);
+  await hostedConnect(b, server);
+
+  // A baseline both devices agree on, so the restart starts from a real
+  // synced state rather than an empty one.
+  const before = 'hosted before the restart';
+  const beforeBody = '# Before\nBoth devices have this.';
+  await a.writeNote(before, beforeBody);
+  await a.syncNow();
+  await waitForSyncedNote(b, before, beforeBody);
+  const lastSyncedAt = (await b.syncStatus()).appState.lastSyncedAt;
+  assert(lastSyncedAt !== null, 'B should have completed a cycle before it is restarted');
+
+  // Quit and reopen B. The new process has no hosted session in memory; the
+  // vault key and the session token are in the OS secret store, and only the
+  // boot credential load can hand them back to the engine.
+  await restartDesktopTauriInstance(b, REPO_ROOT, { env: { FUTO_HOSTED_SERVER: server.url } });
+
+  const noteId = 'hosted after the restart';
+  const body = '# After\nWritten on the other device while this one was closed.';
+  await a.writeNote(noteId, body);
+  await a.syncNow();
+
+  await waitForLaunchSync(b, noteId, body, lastSyncedAt);
+}
+
 // ── Scenario registry ───────────────────────────────────────────
 
 const scenarios = [
@@ -2753,6 +2817,12 @@ const scenarios = [
     matrices: ['desktop-desktop'],
     hosted: true,
   },
+  {
+    name: 'hosted restart syncs at launch without opening settings',
+    fn: hostedRestartSyncsAtLaunchWithoutOpeningSettings,
+    matrices: ['desktop-desktop'],
+    hosted: true,
+  },
   // Native Android leg — runs whenever a usable device is reachable, and is
   // skipped LOUDLY otherwise (see runAndroidLeg).
   {
@@ -2855,11 +2925,16 @@ function ensureDesktopDebugBinary() {
   // silently corrupts scenarios (empty notes dirs, no-op syncs). Rebuild
   // whenever the binary on disk is not the one rebuildDesktopBinary() last
   // produced.
+  //
+  // The stamp also records WHICH flags that build used, so a binary produced by
+  // an older harness — one that did not bake VITE_HOSTED_SYNC, say — is rebuilt
+  // rather than tested. Nothing in the bundle is greppable for a flag that
+  // compiles away to `false`, so the stamp is the only honest record of it.
   const stamp = join(REPO_ROOT, 'target', 'debug', '.harness-binary-stamp');
-  const binMtime = String(statSync(binPath).mtimeMs);
-  if (!existsSync(stamp) || readFileSync(stamp, 'utf8').trim() !== binMtime) {
+  const expectedStamp = `${statSync(binPath).mtimeMs} ${HARNESS_BUILD_SIGNATURE}`;
+  if (!existsSync(stamp) || readFileSync(stamp, 'utf8').trim() !== expectedStamp) {
     console.log(
-      'Desktop binary was rebuilt outside the harness (likely `cargo tauri dev`) — rebuilding with harness config…',
+      'Desktop binary was not built by this harness with these flags (a `cargo tauri dev` build, or an older harness) — rebuilding…',
     );
     rebuildDesktopBinary();
     return;
@@ -2912,6 +2987,24 @@ function newestSourceMtime() {
   return newest;
 }
 
+// What the harness bakes into its binary. `VITE_INCLUDE_TEST_HOOKS` is what
+// makes `window.__testSync` exist at all; `VITE_HOSTED_SYNC` is what makes
+// `hostedSyncEnabled()` true, and without it the built bundle compiles that
+// function to `return false` — the hosted flow is off, and so is the launch
+// resume that reads the saved vault at boot. The hosted scenarios used to pass
+// on such a binary because `__testSync.connectHosted()` drives the Rust
+// commands directly and never consults the flag; anything that runs on its own
+// (like the restart-at-launch scenario) does not.
+const HARNESS_BUILD_ENV = {
+  VITE_INCLUDE_TEST_HOOKS: 'true',
+  VITE_HOSTED_SYNC: 'true',
+};
+
+/** The stamp's second field: which flags the binary on disk was built with. */
+const HARNESS_BUILD_SIGNATURE = Object.entries(HARNESS_BUILD_ENV)
+  .map(([name, value]) => `${name}=${value}`)
+  .join(' ');
+
 function rebuildDesktopBinary() {
   // cargo clean -p so the tauri build script re-runs and re-embeds dist/ with
   // the test hooks: a futo-notes-tauri crate cached from a build without
@@ -2923,12 +3016,12 @@ function rebuildDesktopBinary() {
   });
   runOrThrow('cargo', ['tauri', 'build', '--debug', '--no-bundle'], {
     cwd: join(REPO_ROOT, 'apps', 'tauri'),
-    env: { ...process.env, VITE_INCLUDE_TEST_HOOKS: 'true' },
+    env: { ...process.env, ...HARNESS_BUILD_ENV },
   });
   const binPath = join(REPO_ROOT, 'target', 'debug', 'futo-notes-tauri');
   writeFileSync(
     join(REPO_ROOT, 'target', 'debug', '.harness-binary-stamp'),
-    String(statSync(binPath).mtimeMs),
+    `${statSync(binPath).mtimeMs} ${HARNESS_BUILD_SIGNATURE}`,
   );
 }
 
