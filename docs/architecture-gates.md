@@ -151,3 +151,26 @@ It stays outside `arch-gate` because these are translation-quality findings, not
 broken runtime behavior. `test:localization-audit` is `allow_failure: true` and deliberately absent
 from `release:gate.needs`. Catalog syntax and executable message structure remain blocking through
 the language-catalog unit test in the mandatory `test` job.
+
+## Not here: the code-quality ratchet
+
+`just quality` (`scripts/bca-quality.mjs`, also CI's `test:quality-report`) runs the pinned
+big-code-analysis `bca` release over `src/`, `packages/`, `crates/`, `apps/`, and `scripts/`. It
+stays outside `arch-gate` because it needs the network on first run (the binary download) while
+every gate above is an offline source scan.
+
+**The gate is a ratchet, not a verdict.** `bca.toml` pins thresholds (cyclomatic 15, cognitive 20,
+lloc 200) and `.bca-baseline.toml` pins today's 138 offenders; only a NEW or WORSENED function
+fails. Paying debt down means deleting baseline rows — `bca check --write-baseline` regenerates, and
+a shrinking baseline is the goal. In-source `bca: suppress` markers are the tool for debt nobody
+intends to pay down; both can coexist.
+
+**CI runs it as a reporter first, not a blocker.** `test:quality-report` is `allow_failure: true`
+and deliberately absent from `release:gate.needs` — a documented M14 exception, phase 1 of the
+adoption plan: observe thresholds, the sha-pinned cache, and the MR Code Quality widget on real
+pipelines before letting the gate block publication. Promotion is two same-commit edits: drop
+`allow_failure` and enter `release:gate.needs`. Exit 2 means findings; exit 1 plus a
+`BCA-DID-NOT-RUN` marker means the tool never ran (M11).
+
+Measured surface caveat: bca has no Svelte language, so `.svelte` files are skipped and the
+TypeScript numbers cover `.ts` only; the manifest records this too.

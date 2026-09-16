@@ -941,6 +941,14 @@ skills-swift:
 audit *args:
   node scripts/audit.mjs {{args}}
 
+# ── Code-quality ratchet (big-code-analysis) ──
+# Needs network on first run (downloads a pinned bca release into .bca-cache/);
+# set BCA_BIN=/path/to/bca to use a prebuilt binary. Gates new/worsened
+# complexity offenders against the committed .bca-baseline.toml. CI runs
+# this same script non-blocking (docs/architecture-gates.md).
+quality *args:
+  node scripts/bca-quality.mjs {{args}}
+
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
 clean:
