@@ -50,7 +50,7 @@ object FutoType {
     // A license key is data, not prose. The platform's own monospace stack
     // (D10) so the masked dots and the revealed key sit on the same grid and
     // the value does not reflow when it is revealed.
-    val plateKey  = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 19.sp, letterSpacing = 0.02.em)
+    val plateKey  = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 17.sp, letterSpacing = 0.em)
 }
 
 val FutoTypography = Typography(

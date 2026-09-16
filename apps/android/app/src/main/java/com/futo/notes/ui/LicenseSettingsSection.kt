@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -68,9 +67,6 @@ import uniffi.futo_notes_ffi.LicenseStatus
 /** The well is 184dp and the coin 160dp on every platform (D1/D5). */
 private val WELL_DIAMETER = 184.dp
 private val COIN_DIAMETER = 160.dp
-
-/** The label column of the plate's ledger rows; "Licensed since" is the widest. */
-private val ROW_LABEL_WIDTH = 108.dp
 
 /**
  * The License plate — the FIRST group of Settings on mobile, and the only place
@@ -297,22 +293,28 @@ private fun LicenseWell(licensed: Boolean, label: String?) {
             .size(WELL_DIAMETER)
             .clip(CircleShape)
             .drawBehind {
+                // The shadow hugs the rim: a 6px blur on a 184px circle reaches
+                // about a twelfth of the radius inward, so anything wider stops
+                // reading as a depression and starts reading as the ring D1
+                // explicitly does not want.
                 drawCircle(
                     brush = Brush.radialGradient(
-                        0.70f to Color.Transparent,
+                        0.90f to Color.Transparent,
                         1.0f to FutoPlateWell.Shadow,
                         radius = size.minDimension / 2f,
                     ),
                 )
+                // The 2px downward offset: a short cast under the top edge only.
                 drawCircle(
                     brush = Brush.verticalGradient(
                         0.0f to FutoPlateWell.Shadow,
-                        0.30f to Color.Transparent,
+                        0.06f to Color.Transparent,
                     ),
                 )
+                // inset 0 -1px 0 — one hairline of light at the bottom edge.
                 drawCircle(
                     brush = Brush.verticalGradient(
-                        0.97f to Color.Transparent,
+                        0.99f to Color.Transparent,
                         1.0f to FutoPlateWell.Highlight,
                     ),
                 )
@@ -358,22 +360,30 @@ private fun PlateRule() {
     HorizontalDivider(thickness = 1.dp, color = FutoTheme.colors.plateRule)
 }
 
-/** A label/value line of the plate's ledger. Every row is present in every
- *  state; a row with nothing to say renders blank rather than disappearing, so
- *  the plate does not change shape when a license arrives. */
+/**
+ * One line of the plate's ledger: the label above its value, both at the
+ * plate's full width.
+ *
+ * Desktop sets these as a two-column `dl` because its Settings pane is wide
+ * enough. A phone is not: a 32-character masked key beside a label leaves under
+ * 180dp for a monospace value, which wraps mid-group and reads like a mistake.
+ * Stacking gives every value the whole plate and keeps all three rows the same
+ * shape whatever a translation does to the labels.
+ *
+ * Every row is present in every state; a row with nothing to say renders blank
+ * rather than disappearing, so the plate does not change shape when a license
+ * arrives.
+ */
 @Composable
 private fun PlateRow(label: String, value: @Composable () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-    ) {
+    Column(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 8.dp)) {
         Text(
-            label,
-            style = FutoType.caption,
+            label.uppercase(),
+            style = FutoType.micro,
             color = FutoTheme.colors.plateInkDim,
-            modifier = Modifier.width(ROW_LABEL_WIDTH),
         )
-        Box(Modifier.weight(1f)) { value() }
+        Spacer(Modifier.height(2.dp))
+        value()
     }
 }
 
