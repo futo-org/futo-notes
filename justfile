@@ -62,8 +62,9 @@ lint-swift:
 
 # Desktop dev. `--fake-update[=X.Y.Z]` shows a simulated update (banner/Settings
 # iteration without a server or signed build); install is simulated.
+[positional-arguments]
 tauri-dev *args:
-  node scripts/tauri-dev.mjs {{args}}
+  node scripts/tauri-dev.mjs "$@"
 
 tauri-prod:
   pnpm run build
@@ -83,8 +84,9 @@ tauri-build:
 # and baked pubkey (localdev) differ. Builds OLD + NEW signed AppImages, serves
 # the update on :8787, prints the command to run the OLD app. See keys/README.md
 # + scripts/release-build.mjs. Linux/AppImage only; Ctrl-C to stop.
+[positional-arguments]
 updater-localdev *args:
-  node scripts/release-build.mjs e2e {{args}}
+  node scripts/release-build.mjs e2e "$@"
 
 # ── Instance journal (desktop) ──
 # Read what a running instance actually DID: the app writes a JSONL event
@@ -109,8 +111,9 @@ updater-localdev *args:
 # `just tauri-dev` sets, per worktree), then <app data>/<bundle id>/journal.
 # `--json` prints raw lines, so `just journal type sync_run --json | jq` works.
 # Native shells do not journal yet (see docs/spec/sync.md).
+[positional-arguments]
 journal *args:
-  @node scripts/journal.mjs {{args}}
+  @node scripts/journal.mjs "$@"
 
 # ── Native mobile shells (SwiftUI / Compose — the SHIPPING mobile apps) ──
 # These reuse the shared Rust core (futo-notes-ffi) + the embedded web editor.
@@ -314,8 +317,9 @@ test-ios-stories:
 # full shutdown/boot cycle is the only fix (simctl screenshot keeps working the
 # whole time, which is why it looks like an app bug).
 # Claim (create + boot if needed) this worktree's pooled simulator/emulator.
+[positional-arguments]
 qa-claim target="all" *flags:
-  @node scripts/qa.mjs claim {{target}} {{flags}}
+  @node scripts/qa.mjs claim "$@"
 
 # Show pool devices + per-slot sync servers, and which worktree owns each.
 qa-status:
@@ -328,8 +332,9 @@ ports:
 
 # Release this worktree's devices (add --shutdown to also power them off).
 # Also stops this worktree's qa-server so nothing is left orphaned.
+[positional-arguments]
 qa-release *flags:
-  @node scripts/qa.mjs release {{flags}}
+  @node scripts/qa.mjs release "$@"
 
 # Reap pool devices/servers owned by worktrees that no longer exist.
 qa-gc:
@@ -410,8 +415,9 @@ qa-server *flags:
   @node scripts/qa.mjs server-start {{flags}}
 
 # Stop it (add --drop to also delete its database and blobs).
+[positional-arguments]
 qa-server-stop *flags:
-  @node scripts/qa.mjs server-stop {{flags}}
+  @node scripts/qa.mjs server-stop "$@"
 
 # ── Simulator / emulator QA helpers ──
 # Mechanics for driving the native apps under QA. The judgment layer (how to
@@ -558,11 +564,12 @@ test-full:
 #   just test-one src/features/notes/noteSession.test.ts
 #   just test-one -t 'renames a note'
 # Run ONE test file or -t pattern (installs deps if the worktree is fresh).
+[positional-arguments]
 test-one *args:
   #!/usr/bin/env bash
   set -euo pipefail
   [ -d node_modules ] || { echo "==> node_modules missing — pnpm install"; pnpm install; }
-  node_modules/.bin/vitest run {{args}}
+  node_modules/.bin/vitest run "$@"
 
 test-unit:
   pnpm run test:unit
@@ -682,25 +689,29 @@ bench-search *args:
 # Prints the exact commands a human with sudo must run; start here when adding
 # a second Linux box.
 # Report what is present/missing on the remote (node, cargo, NDK, KVM…).
+[positional-arguments]
 remote-doctor *flags:
-  node scripts/remote-test.mjs --doctor {{flags}}
+  node scripts/remote-test.mjs --doctor "$@"
 
 # Run any portable recipe remotely: `just remote test-full`, `just remote --rsync test-unit`.
+[positional-arguments]
 remote *args:
-  node scripts/remote-test.mjs {{args}}
+  node scripts/remote-test.mjs "$@"
 
 # Equivalent to a Mac `just check` — tsc, eslint, prettier, svelte-check,
 # vitest (jsdom), vite build, arch gates, Rust conformance — none of which
 # touch a real web engine, so this carries no WebKit caveat.
 # The pre-merge umbrella, remotely.
+[positional-arguments]
 remote-check *flags:
-  node scripts/remote-test.mjs {{flags}} check
+  node scripts/remote-test.mjs "$@" check
 
 # The box's 32 cores also make futo-notes-search's CI-only "keyword index never
 # became ready" contention flake vanish.
 # The full Rust workspace, remotely.
+[positional-arguments]
 remote-rust *flags:
-  node scripts/remote-test.mjs {{flags}} test-rust-full
+  node scripts/remote-test.mjs "$@" test-rust-full
 
 # Sync state and files are engine-independent; rendering is not (see the doc).
 # Ports are slot-derived and every server gets its own SQLite database, so
@@ -708,15 +719,17 @@ remote-rust *flags:
 # slot, which the worktree lock prevents (and the harness refuses loudly instead
 # of adopting).
 # Cross-platform E2EE sync against the pinned sync-server release.
+[positional-arguments]
 remote-sync *flags:
-  node scripts/remote-test.mjs {{flags}} test-cross-platform
+  node scripts/remote-test.mjs "$@" test-cross-platform
 
 # Device/instrumentation legs still need an emulator booted ON the box; KVM
 # there makes those far faster than the Mac's emulation once wired up.
 # Android Rust .so + Kotlin bindings + both flavors' debug APKs + JVM unit tests.
+[positional-arguments]
 remote-android *flags:
-  node scripts/remote-test.mjs {{flags}} build-android-native
-  node scripts/remote-test.mjs {{flags}} test-android-native
+  node scripts/remote-test.mjs "$@" build-android-native
+  node scripts/remote-test.mjs "$@" test-android-native
 
 # ── Editor gauntlet (the permanent editor regression suite) ──
 # The matrix and oracles live behind EditorGauntletAdapter, with one adapter
@@ -862,8 +875,9 @@ check-drift:
 # need a genuinely VISIBLE window, which no capture tool can substitute for.
 #   just qa-shot list | pid <pid> | port <port> [--out <path>]
 # Screenshot this worktree's desktop QA window WITHOUT activating it.
+[positional-arguments]
 qa-shot *args:
-  @node scripts/qa-shot.mjs {{args}}
+  @node scripts/qa-shot.mjs "$@"
 
 # Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents, plus
 # this justfile) teaches OS-level input into this app (AppleScript UI scripting,
@@ -889,8 +903,9 @@ check-theme-single-pace:
 # inside THIS worktree (plus its data dir and vault) and exits 3 on anything
 # else — emphatically an installed application bundle.
 #   just qa-target list | pid <pid> | port <port> | kill
+[positional-arguments]
 qa-target *args:
-  @node scripts/qa-target.mjs {{args}}
+  @node scripts/qa-target.mjs "$@"
 
 # Fail on a broken `just <recipe>`/`pnpm run <script>`/repo-path reference inside
 # an instruction surface (README/AGENTS.md/skill SKILL.md+references/workflows) —
@@ -902,8 +917,9 @@ check-agent-docs:
 # Prove architecture gates fail for the violations they claim to catch. This is
 # intentionally NOT part of `just check` or `prepush`: run it when adding or
 # changing a gate, so unchanged gates do not get re-proved on every commit.
+[positional-arguments]
 gate-redproofs *args:
-  node scripts/gate-redproofs.mjs --include-cargo {{args}}
+  node scripts/gate-redproofs.mjs --include-cargo "$@"
 
 # Run the same focused architecture checks embedded in GitLab's mandatory test job.
 # package.json owns the membership because the pinned CI image does not include just.
@@ -955,8 +971,9 @@ skills-swift:
 # ignore entries whose advisory is gone. CI runs this same script, non-blocking
 # (docs/architecture-gates.md).
 # Report known vulnerabilities across the project (Rust + npm).
+[positional-arguments]
 audit *args:
-  node scripts/audit.mjs {{args}}
+  node scripts/audit.mjs "$@"
 
 # ── Code-quality ratchet (big-code-analysis) ──
 # Needs network on first run (downloads a pinned bca release into .bca-cache/);
