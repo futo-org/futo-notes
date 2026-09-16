@@ -375,3 +375,54 @@ async fn a_setup_with_no_secret_store_will_not_pretend_to_keep_one() {
         HostedError::SecretStore(_)
     ));
 }
+
+/// What a shell asks at a cold start, before it has a network or a reason to
+/// use one: is this vault hosted and already unlocked? Both secrets or nothing —
+/// a token without a key cannot decrypt and a key without a token cannot
+/// authenticate, so either alone is not a vault this device can resume.
+///
+/// The proof that it is local is the address: nothing listens on port 9, so a
+/// read that reached the network would answer `Network` instead of `true`.
+#[tokio::test]
+async fn a_saved_vault_is_both_secrets_and_is_read_without_the_network() {
+    let secrets = Arc::new(TestSecrets::default());
+    let setup = HostedSetup::at("http://127.0.0.1:9")
+        .unwrap()
+        .with_secrets(Arc::clone(&secrets) as Arc<dyn VaultSecrets>);
+
+    assert!(
+        !setup.has_saved_vault().await.unwrap(),
+        "a device that has never been set up reported a saved vault"
+    );
+
+    secrets.set_vault_key(&[7u8; 32]).unwrap();
+    assert!(
+        !setup.has_saved_vault().await.unwrap(),
+        "a vault key with no session token is not a vault this device can resume"
+    );
+
+    secrets.delete_vault_key().unwrap();
+    secrets.set_session_token("live").unwrap();
+    assert!(
+        !setup.has_saved_vault().await.unwrap(),
+        "a session token with no vault key is not a vault this device can resume"
+    );
+
+    secrets.set_vault_key(&[7u8; 32]).unwrap();
+    assert!(
+        setup.has_saved_vault().await.unwrap(),
+        "a device holding both secrets did not recognise its own hosted vault"
+    );
+}
+
+/// A setup built only to probe has nowhere to have kept a secret, and says so
+/// rather than answering "no vault" — which a shell would read as "this person
+/// never set up hosted sync" and act on.
+#[tokio::test]
+async fn a_saved_vault_cannot_be_read_without_a_secret_store() {
+    let setup = HostedSetup::at("http://127.0.0.1:9").unwrap();
+    assert!(matches!(
+        setup.has_saved_vault().await.unwrap_err(),
+        HostedError::SecretStore(_)
+    ));
+}

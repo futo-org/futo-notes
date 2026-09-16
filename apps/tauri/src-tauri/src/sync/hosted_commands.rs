@@ -424,6 +424,24 @@ pub async fn e2ee_hosted_connect(
         .map_err(Into::into)
 }
 
+/// Whether this vault has hosted secrets to resume, read from the OS secret
+/// store with **no request of any kind**.
+///
+/// What the frontend asks at boot, before it is willing to spend a round trip
+/// and while it may have no network at all. `e2ee_hosted_current_step` is not
+/// it — that validates the saved token and resolves the collection over the
+/// wire, so offline it answers a transport failure rather than "this vault is
+/// hosted".
+#[tauri::command]
+pub async fn e2ee_hosted_has_saved_vault(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    server_url: Option<String>,
+) -> Result<bool, HostedErrorOutput> {
+    let setup = state.hosted.adopt_or_build(&app, server_url.as_deref())?;
+    setup.has_saved_vault().await.map_err(Into::into)
+}
+
 /// One action: revoke the session, forget both secrets, and demote this
 /// vault's sync state exactly as `e2ee_disconnect` does. The notes stay.
 ///

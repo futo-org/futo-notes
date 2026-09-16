@@ -1662,6 +1662,7 @@ against_the_real_server! {
     signing_out_forgets_the_key_the_token_and_the_live_state,
     a_set_up_vault_starts_syncing,
     a_locked_device_cannot_start_syncing,
+    a_finished_wizard_is_recognised_without_the_network,
     // QR pairing. Two of the stub's pairing scenarios are missing here on
     // purpose: `an_expired_pairing_code_is_its_own_error` needs a window
     // shorter than the relay's five minutes, and

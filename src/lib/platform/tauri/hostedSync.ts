@@ -195,6 +195,15 @@ export function connectHostedSync(serverUrl?: string): Promise<void> {
   return invoke<void>('e2ee_hosted_connect', { serverUrl: serverUrl ?? null });
 }
 
+/**
+ * Whether this vault has hosted secrets to resume, read from the OS secret
+ * store with no network call. What boot asks before deciding to connect —
+ * `hostedCurrentStep` asks the server, so offline it cannot answer this.
+ */
+export function hasHostedSavedVault(serverUrl?: string): Promise<boolean> {
+  return invoke<boolean>('e2ee_hosted_has_saved_vault', { serverUrl: serverUrl ?? null });
+}
+
 /** Revokes the session, forgets key and token, and demotes sync state. */
 export function hostedSignOut(serverUrl?: string): Promise<void> {
   return invoke<void>('e2ee_hosted_sign_out', { serverUrl: serverUrl ?? null });
