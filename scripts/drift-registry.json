@@ -485,9 +485,9 @@
     },
     {
       "concept": "hosted-sync-pairing-countdown",
-      "description": "How long a pairing code has left, rendered for a person: whole seconds until the relay's own expires_at, and m:ss. Presentation, per shell, because the deadline itself is Rust's — await_pairing rebuilds its poll schedule from the same timestamp and is the only thing that ends a wait. Android is the third copy (futo-notes#183).",
+      "description": "How long a pairing code has left, rendered for a person: whole seconds until the relay's own expires_at, and m:ss. Presentation, per shell, because the deadline itself is Rust's — await_pairing rebuilds its poll schedule from the same timestamp and is the only thing that ends a wait.",
       "lockStatus": "unlocked",
-      "note": "UNLOCKED: nothing but you keeps these in step. Both sides read an unparseable timestamp as no time left, deliberately — a code shown as spent is the safe way to be wrong. Each has its own suite (pairingCountdown.test.ts / PairingCodeTests.swift); no fixture is shared between them.",
+      "note": "UNLOCKED: nothing but you keeps these in step. All three read an unparseable timestamp as no time left, deliberately — a code shown as spent is the safe way to be wrong. Each has its own suite (pairingCountdown.test.ts / PairingCodeTests.swift / PairingCountdownTest.kt); no fixture is shared between them.",
       "copies": [
         {
           "location": "src/features/sync/pairingCountdown.ts",
@@ -496,6 +496,10 @@
         {
           "location": "apps/ios/Sources/Sync/Hosted/PairingCountdown.swift",
           "pattern": "func pairingSecondsRemaining"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/PairingCountdown.kt",
+          "pattern": "fun pairingSecondsRemaining"
         }
       ]
     },

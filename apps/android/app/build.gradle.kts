@@ -203,6 +203,24 @@ dependencies {
     // person coming back from a Custom Tab (which has no dismissal callback).
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.5")
 
+    // Pairing's camera (ADR 0003 decision 5): CameraX for the preview and the
+    // frame stream, ZXing for both halves of the QR code — drawing the one this
+    // device shows, and reading the one it points at.
+    //
+    // ZXing rather than ML Kit deliberately. ML Kit's barcode scanning reaches
+    // Google Play services (the unbundled artifact requires it outright; even
+    // the bundled one pulls play-services-basement in), and this app ships on
+    // F-Droid and to de-Googled devices — the same audience the missing-splits
+    // work was for. A scanner that quietly does nothing there would fail
+    // exactly the people this repo cares most about. ZXing core is plain Java
+    // with no Google dependency at all, so the scanner behaves identically on a
+    // device with no Play services.
+    implementation("androidx.camera:camera-core:1.4.2")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("com.google.zxing:core:3.5.4")
+
     // UniFFI-generated Kotlin bindings use JNA to call libfuto_notes_ffi.so.
     // 5.17.0: first version whose bundled libjnidispatch.so is 16 KB-page-aligned
     // (the fix landed across 5.16.0 + 5.17.0; 5.16.0 alone was incomplete). 5.14.0

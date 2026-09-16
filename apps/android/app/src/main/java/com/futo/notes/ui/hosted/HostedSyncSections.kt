@@ -37,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -48,6 +50,7 @@ import com.futo.notes.sync.hosted.HostedBanner
 import com.futo.notes.sync.hosted.HostedScreen
 import com.futo.notes.sync.hosted.HostedWait
 import com.futo.notes.sync.hosted.LiveHostedSetupShell
+import com.futo.notes.sync.hosted.ScanPhase
 import com.futo.notes.sync.hosted.liveHostedSetupModel
 import com.futo.notes.ui.SelfHostedSyncSections
 import com.futo.notes.ui.theme.FutoRadius
@@ -185,17 +188,40 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
         HostedScreen.UNLOCK -> UnlockStep(
             door = model.unlockDoor,
             busy = model.busy,
-            onDoor = { model.unlockDoor = it },
+            pairing = model.pairing,
+            pairingPayload = model.pairingPayload,
+            pairingExpiresAt = model.pairingExpiresAt,
+            onDoor = { model.chooseDoor(it) },
             onVaultPassword = { scope.launch { model.unlockWithPassword(it) } },
             onRecoveryKey = { scope.launch { model.unlockWithRecoveryKey(it) } },
+            onShowPairingCode = { scope.launch { model.showPairingCode() } },
+            onCancelPairing = { model.cancelPairing() },
         )
         HostedScreen.ACCOUNT -> HostedAccountCard(
             email = model.email,
             billing = model.billing,
             busy = model.busy,
             onManage = { scope.launch { model.manageSubscription() } },
+            onScanAnotherDevice = { model.openScanner() },
             onSignOut = { scope.launch { model.signOut() } },
         )
+    }
+
+    // The scanner fills the screen rather than sitting in this scrolling form:
+    // a camera preview inside a vertical scroll is neither usable nor still.
+    // A dialog window is how Compose gives one composable the whole screen from
+    // inside another's layout, and its dismiss request is the system Back
+    // button, which must end the scan rather than leave a camera running.
+    if (model.scanPhase != ScanPhase.CLOSED) {
+        Dialog(
+            onDismissRequest = { model.closeScanner() },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
+        ) {
+            ScanAnotherDeviceScreen(model) { model.closeScanner() }
+        }
     }
 
     model.waiting?.let { waiting ->
@@ -259,7 +285,7 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
  * The Activity behind a Compose `LocalContext`, which may be a ContextWrapper
  * chain rather than the Activity itself.
  */
-private tailrec fun Context.findActivity(): Activity? = when (this) {
+internal tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null

@@ -5,6 +5,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import com.futo.notes.SecureStore
 import com.futo.notes.localization.Localization
@@ -27,6 +29,23 @@ class LiveHostedSetupShell(
     private val localization: () -> Localization,
 ) : HostedSetupShell {
     private val tab = CustomTabsAuthSheet(activity)
+
+    /**
+     * What this phone calls itself, for the other device's confirmation dialog.
+     *
+     * `Settings.Global.DEVICE_NAME` is the name a person actually set (About
+     * phone → Device name); it is unset on plenty of devices, and reading it is
+     * best-effort — a locked-down ROM can refuse — so the model name is the
+     * fallback. Either is an honest answer, and neither is worth a crash.
+     */
+    override fun deviceName(): String {
+        val chosen = try {
+            Settings.Global.getString(activity.contentResolver, Settings.Global.DEVICE_NAME)
+        } catch (_: SecurityException) {
+            null
+        }
+        return chosen?.takeIf { it.isNotBlank() } ?: Build.MODEL
+    }
 
     override fun openAuthTab(url: String, onDismiss: () -> Unit) = tab.open(url, onDismiss)
 

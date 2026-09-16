@@ -35,6 +35,7 @@ fun ColumnScope.HostedAccountCard(
     billing: BillingStatus?,
     busy: Boolean,
     onManage: () -> Unit,
+    onScanAnotherDevice: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     val c = FutoTheme.colors
@@ -64,6 +65,19 @@ fun ColumnScope.HostedAccountCard(
                 ),
             ),
             style = FutoType.small,
+            color = c.textSecondary,
+        )
+    }
+
+    // This device holds the vault key, so it is the one that can hand it to a
+    // new device: phones scan, laptops show (ADR 0003, decision 5).
+    OutlinedButton(
+        enabled = !busy,
+        shape = RoundedCornerShape(FutoRadius.md),
+        onClick = onScanAnotherDevice,
+    ) {
+        Text(
+            localization.localizedText("sync.hosted.pairing.scan.action"),
             color = c.textSecondary,
         )
     }

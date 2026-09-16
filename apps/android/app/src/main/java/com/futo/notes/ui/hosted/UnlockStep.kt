@@ -26,6 +26,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.sync.hosted.PairingState
 import com.futo.notes.sync.hosted.UnlockDoor
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
@@ -35,17 +36,22 @@ import com.futo.notes.ui.theme.FutoType
  * The three doors into an existing vault, all on one screen so a person picks
  * whichever they can do right now (parent spec user story 19).
  *
- * The scan door is named and visible from the start rather than hidden, because
- * the choice is made once; it says pairing is not available yet instead of
- * pretending, until futo-notes#183 lands it.
+ * The door is chosen through a callback rather than written directly because
+ * leaving the scan door has to stop a live pairing wait, which only the model
+ * can do.
  */
 @Composable
 fun ColumnScope.UnlockStep(
     door: UnlockDoor,
     busy: Boolean,
+    pairing: PairingState,
+    pairingPayload: String?,
+    pairingExpiresAt: String?,
     onDoor: (UnlockDoor) -> Unit,
     onVaultPassword: (String) -> Unit,
     onRecoveryKey: (String) -> Unit,
+    onShowPairingCode: () -> Unit,
+    onCancelPairing: () -> Unit,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
@@ -103,10 +109,13 @@ fun ColumnScope.UnlockStep(
                 onVaultPassword(vaultPassword)
             }
         }
-        UnlockDoor.SCAN -> Text(
-            localization.localizedText("sync.hosted.unlock.scanNotReady"),
-            style = FutoType.small,
-            color = c.textSecondary,
+        UnlockDoor.SCAN -> ShowPairingCode(
+            pairing = pairing,
+            payload = pairingPayload,
+            expiresAt = pairingExpiresAt,
+            busy = busy,
+            onShow = onShowPairingCode,
+            onCancel = onCancelPairing,
         )
         UnlockDoor.RECOVERY_KEY -> {
             OutlinedTextField(

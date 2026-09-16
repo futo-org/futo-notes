@@ -8,7 +8,9 @@ import com.futo.notes.localization.LocalizedMessage
 import uniffi.futo_notes_ffi.BillingStatus
 import uniffi.futo_notes_ffi.Checkout
 import uniffi.futo_notes_ffi.EntitlementOutcome
+import uniffi.futo_notes_ffi.HostedException
 import uniffi.futo_notes_ffi.HostedSetupClientInterface
+import uniffi.futo_notes_ffi.PairingOutcome
 import uniffi.futo_notes_ffi.SetupStep
 import uniffi.futo_notes_ffi.SignInFlow
 import uniffi.futo_notes_ffi.SignInOutcome
@@ -57,6 +59,38 @@ enum class HostedWait {
 }
 
 /**
+ * What the code THIS device is showing is doing, on the scan door of the
+ * unlock screen. Every one of these is Rust's answer rendered; nothing in this
+ * shell decides a state. [REFUSED] is the narrower case where the relay will
+ * not serve the pairing at all — an ordinary decline reaches us as [EXPIRED],
+ * because a person who says no on the other device sends nothing.
+ */
+enum class PairingState {
+    IDLE,
+    WAITING,
+    RECEIVED,
+    EXPIRED,
+    REFUSED,
+}
+
+/** What the scanner is doing on an already-unlocked device. */
+enum class ScanPhase {
+    CLOSED,
+
+    /** The camera is live, waiting for a code. */
+    SCANNING,
+
+    /** A code was read and parsed; the dialog names the device it came from. */
+    CONFIRMING,
+
+    /** Send was pressed: the vault key is being sealed and posted. */
+    SENDING,
+
+    /** The key is on the relay. The other device collects it. */
+    SENT,
+}
+
+/**
  * Everything the hosted sync screen renders from, and everything it can do.
  *
  * A direct counterpart of the desktop's `createHostedSyncSettings.svelte.ts`
@@ -87,6 +121,15 @@ class HostedSetupModel(
      * state machine to talk through.
      */
     private val probe: suspend (String) -> SignInFlow = { probeSignInFlow(it) },
+    /**
+     * Reads what the camera returned. A parameter because a JVM test has
+     * neither a camera nor a native library, so the string has to be
+     * injectable — everything downstream of it is the same code either way
+     * (ADR 0003, decision 12). The live one is Rust's `complete_pairing`,
+     * which parses and nothing else.
+     */
+    private val parseScanned: (HostedSetupClientInterface, String) -> ScannedPairing =
+        { setup, code -> RustScannedPairing(setup.completePairing(code), setup) },
     /** Rust's own minimum, so the Continue button and the engine agree. */
     private val readMinimumVaultPasswordLength: () -> Int = {
         minVaultPasswordLength().toInt()
@@ -122,8 +165,45 @@ class HostedSetupModel(
     var minimumVaultPasswordLength by mutableStateOf(12)
         private set
 
+    /**
+     * The show side of pairing: this device is the new one, drawing a code for
+     * an unlocked device to read.
+     */
+    var pairing by mutableStateOf(PairingState.IDLE)
+        private set
+
+    /**
+     * The payload to draw, straight from Rust. Non-null only while a live code
+     * is on screen.
+     */
+    var pairingPayload by mutableStateOf<String?>(null)
+        private set
+
+    /** RFC 3339, the relay's own deadline — what the countdown describes. */
+    var pairingExpiresAt by mutableStateOf<String?>(null)
+        private set
+
+    /** The scan side: this device is the unlocked one, reading someone else's code. */
+    var scanPhase by mutableStateOf(ScanPhase.CLOSED)
+        private set
+
+    /**
+     * The parsed code waiting on a confirmation. Holding one is what makes Send
+     * possible at all; nothing else in this shell can produce one.
+     */
+    var scannedPairing by mutableStateOf<ScannedPairing?>(null)
+        private set
+
     var recoveryKeySaved by mutableStateOf(false)
+
+    /**
+     * Which door the unlock screen is showing. Set through [chooseDoor] rather
+     * than written directly, because leaving the scan door has to stop a live
+     * pairing wait — which only this object can do.
+     */
     var unlockDoor by mutableStateOf(UnlockDoor.VAULT_PASSWORD)
+        private set
+
     var selfHostedOpen by mutableStateOf(false)
 
     private var setup: HostedSetupClientInterface? = null
@@ -235,12 +315,137 @@ class HostedSetupModel(
         readStep(setup)
     }
 
+    /**
+     * Moves the unlock screen to another door, stopping a live pairing wait on
+     * the way out. A code that is already on the relay cannot be withdrawn, so
+     * leaving abandons it rather than resuming it.
+     */
+    fun chooseDoor(door: UnlockDoor) {
+        if (unlockDoor == UnlockDoor.SCAN && door != UnlockDoor.SCAN) cancelPairing()
+        unlockDoor = door
+    }
+
+    /**
+     * Opens a pairing and shows its code until the other device answers.
+     *
+     * One call covers the whole wait: Rust mints the one-time keypair,
+     * publishes the public half to the relay, and polls for the sealed vault
+     * key until the relay's own five minutes are up. What comes back decides
+     * the state, which is why nothing here has its own timer — the countdown on
+     * screen only describes that deadline, it does not enforce it.
+     */
+    suspend fun showPairingCode() = step { setup ->
+        pairing = PairingState.IDLE
+        pairingPayload = null
+        val code = setup.beginPairing(shell.deviceName())
+        pairingPayload = code.payload
+        pairingExpiresAt = code.expiresAt
+        pairing = PairingState.WAITING
+        try {
+            val outcome = setup.awaitPairing()
+            pairingPayload = null
+            if (outcome == PairingOutcome.CANCELLED) {
+                pairing = PairingState.IDLE
+                return@step
+            }
+            // The key arrived and is kept: this device is unlocked. Said here
+            // rather than after the step read, so the code's disappearance is
+            // explained while that read is in flight.
+            pairing = PairingState.RECEIVED
+            readStep(setup)
+        } catch (e: HostedException) {
+            pairingPayload = null
+            when (e) {
+                // A person who declined on the other device sent nothing, so
+                // this is also what declining looks like from here. The copy
+                // says so rather than claiming to know which happened.
+                is HostedException.PairingExpired -> pairing = PairingState.EXPIRED
+                is HostedException.PairingRefused,
+                is HostedException.PairingAlreadyKeyed,
+                -> pairing = PairingState.REFUSED
+                else -> {
+                    pairing = PairingState.IDLE
+                    throw e
+                }
+            }
+        }
+    }
+
+    /**
+     * Stops waiting and puts the three doors back. Deliberately outside [step]:
+     * the wait it is cancelling is what holds `busy`.
+     */
+    fun cancelPairing() {
+        if (pairing == PairingState.WAITING) setup?.cancelWait()
+        pairing = PairingState.IDLE
+        pairingPayload = null
+        pairingExpiresAt = null
+    }
+
+    /** Opens the camera on an unlocked device (parent spec user story 15). */
+    fun openScanner() {
+        errorMessage = null
+        scannedPairing = null
+        scanPhase = ScanPhase.SCANNING
+    }
+
+    /**
+     * One code, from the camera or from a test. Parsing touches no network, no
+     * secret store, and no vault key — all it answers is the name to put on the
+     * confirmation dialog.
+     */
+    suspend fun readScannedCode(code: String) = step { setup ->
+        scannedPairing = parseScanned(setup, code)
+        scanPhase = ScanPhase.CONFIRMING
+    }
+
+    /**
+     * The confirmation (parent spec user story 16). This is the only thing in
+     * the app that sends a vault key anywhere.
+     */
+    suspend fun sendVaultKey() {
+        val scanned = scannedPairing ?: return
+        step {
+            scanPhase = ScanPhase.SENDING
+            try {
+                scanned.send()
+            } catch (e: Exception) {
+                // A refused or already-answered pairing cannot be retried, and
+                // a locked device has nothing to give: either way the next
+                // useful move is a fresh code, so the camera goes back on with
+                // the reason on screen.
+                scannedPairing = null
+                scanPhase = ScanPhase.SCANNING
+                throw e
+            }
+            scanPhase = ScanPhase.SENT
+        }
+    }
+
+    /** Said no on the confirmation dialog. Nothing was sent, and nothing is kept. */
+    fun cancelConfirmation() {
+        scannedPairing = null
+        errorMessage = null
+        scanPhase = ScanPhase.SCANNING
+    }
+
+    fun closeScanner() {
+        scannedPairing = null
+        scanPhase = ScanPhase.CLOSED
+    }
+
     suspend fun manageSubscription() = step { setup ->
         shell.openAuthTab(setup.billingPortal()) {}
     }
 
     /** Called only after the confirmation dialog the account card owns. */
-    suspend fun signOut() = step { setup ->
+    suspend fun signOut() {
+        cancelPairing()
+        closeScanner()
+        signOutStep()
+    }
+
+    private suspend fun signOutStep() = step { setup ->
         signOutEffect(setup)
         readStep(setup)
     }

@@ -45,6 +45,15 @@ fun hostedErrorMessage(error: Throwable): LocalizedMessage = when (error) {
     is HostedException.NoRecoveryKey -> LocalizedMessage("sync.hosted.errors.noRecoveryKey")
     is HostedException.SecretStore -> LocalizedMessage("sync.hosted.errors.secretStore")
     is HostedException.Crypto -> LocalizedMessage("sync.hosted.errors.crypto")
+    is HostedException.PairingCodeInvalid ->
+        LocalizedMessage("sync.hosted.errors.pairingCodeInvalid")
+    is HostedException.PairingRefused -> LocalizedMessage("sync.hosted.errors.pairingRefused")
+    is HostedException.PairingAlreadyKeyed ->
+        LocalizedMessage("sync.hosted.errors.pairingAlreadyKeyed")
+    is HostedException.PairingExpired -> LocalizedMessage("sync.hosted.errors.pairingExpired")
+    is HostedException.PairingNotStarted ->
+        LocalizedMessage("sync.hosted.errors.pairingNotStarted")
+    is HostedException.VaultLocked -> LocalizedMessage("sync.hosted.errors.vaultLocked")
     // Anything that is not one of the engine's variants — a JNA failure, a
     // coroutine cancellation surfacing as a throwable — says so plainly rather
     // than showing a stack-trace fragment.

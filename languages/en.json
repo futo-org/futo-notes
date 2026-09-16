@@ -638,8 +638,7 @@
           "recoveryKeyLabel": "Recovery key",
           "recoveryKeyPlaceholder": "ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345",
           "recoveryKeyHint": "Dashes and capitals do not matter.",
-          "button": "Unlock",
-          "scanNotReady": "Pairing with another device is not available yet. Use your vault password or your recovery key."
+          "button": "Unlock"
         },
         "pairing": {
           "title": "Scan this code with an unlocked device",
@@ -662,6 +661,12 @@
             "body": "The server wouldn’t hand this pairing over — it was already answered, or it belongs to a different account. No key was shared."
           },
           "ios": {
+            "codeAccessibilityLabel": "Pairing code for this device",
+            "received": {
+              "body": "The key arrived from your other device. Your vault is unlocked here."
+            }
+          },
+          "android": {
             "codeAccessibilityLabel": "Pairing code for this device",
             "received": {
               "body": "The key arrived from your other device. Your vault is unlocked here."
@@ -695,7 +700,14 @@
               "body": "There is nothing here to read a pairing code with."
             },
             "fallback": "You can set the other device up without a camera: on that device choose “Vault password” and type it.",
-            "openSettings": "Open Settings"
+            "openSettings": "Open Settings",
+            "android": {
+              "rationale": {
+                "title": "FUTO Notes needs the camera to read a code",
+                "body": "The camera is used here to read the pairing code on your other device, and for nothing else. Nothing is recorded or sent anywhere."
+              },
+              "allowCamera": "Allow the camera"
+            }
           }
         },
         "account": {

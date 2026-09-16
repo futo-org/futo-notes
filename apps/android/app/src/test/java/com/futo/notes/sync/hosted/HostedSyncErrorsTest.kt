@@ -33,6 +33,36 @@ class HostedSyncErrorsTest {
         )
     }
 
+    /**
+     * The four pairing failures are four different screens: a code that was
+     * never a code, one the relay will not serve, one already answered, and one
+     * that ran out of time. One sentence for all of them would leave a person
+     * showing a new code when the real problem is that they scanned a receipt.
+     */
+    @Test
+    fun `each pairing failure keeps its own sentence`() {
+        assertEquals(
+            "sync.hosted.errors.pairingCodeInvalid",
+            hostedErrorMessage(HostedException.PairingCodeInvalid()).path,
+        )
+        assertEquals(
+            "sync.hosted.errors.pairingRefused",
+            hostedErrorMessage(HostedException.PairingRefused()).path,
+        )
+        assertEquals(
+            "sync.hosted.errors.pairingAlreadyKeyed",
+            hostedErrorMessage(HostedException.PairingAlreadyKeyed()).path,
+        )
+        assertEquals(
+            "sync.hosted.errors.pairingExpired",
+            hostedErrorMessage(HostedException.PairingExpired()).path,
+        )
+        assertEquals(
+            "sync.hosted.errors.vaultLocked",
+            hostedErrorMessage(HostedException.VaultLocked()).path,
+        )
+    }
+
     @Test
     fun `every variant maps to its own message`() {
         val errors = everyVariant()
@@ -83,5 +113,11 @@ class HostedSyncErrorsTest {
         HostedException.NoRecoveryKey(),
         HostedException.SecretStore("locked"),
         HostedException.Crypto("bad envelope"),
+        HostedException.PairingCodeInvalid(),
+        HostedException.PairingRefused(),
+        HostedException.PairingAlreadyKeyed(),
+        HostedException.PairingExpired(),
+        HostedException.PairingNotStarted(),
+        HostedException.VaultLocked(),
     )
 }
