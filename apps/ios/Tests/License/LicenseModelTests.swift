@@ -236,7 +236,9 @@ struct LicenseModelTests {
         #expect(license.view?.status == .licensed)
         #expect(license.view?.issuedAtMillis == nil)
         #expect(license.view?.expiresAtMillis == nil)
-        #expect(LicenseStorage(defaults: defaults).read()?.activation == LicenseFixture.v1Activation)
+        #expect(
+            LicenseStorage(defaults: defaults).read()?.activation
+                == LicenseFixture.v1Activation)
     }
 
     /// Nothing is stored on a failure, so a bad paste leaves whatever was there

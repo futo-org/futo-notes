@@ -101,10 +101,15 @@ struct LicenseSettingsSection: View {
             .frame(width: Self.wellDiameter, height: Self.wellDiameter)
             .overlay {
                 if card?.status == .licensed {
-                    Image("SupporterCoin")
+                    // `decorative:` and not `Image("…")`: the well already
+                    // carries the coin's catalog label, and an undecorated
+                    // Image hands VoiceOver the ASSET NAME — a developer
+                    // string that is in no catalog.
+                    Image(decorative: "SupporterCoin")
                         .resizable()
                         .scaledToFit()
                         .frame(width: Self.coinDiameter, height: Self.coinDiameter)
+                        .accessibilityHidden(true)
                 }
             }
             .accessibilityElement(children: .ignore)
@@ -114,16 +119,20 @@ struct LicenseSettingsSection: View {
                     card?.status == .licensed
                         ? "license.coinAccessibilityLabel" : "license.card.emptyWell")
             )
+            // The well is the one element present in every state, so it is also
+            // where the state is readable from: Licensed shows no badge, exactly
+            // as the desktop and Android plates do.
+            .accessibilityValue(statusName)
             .accessibilityIdentifier("license-well")
     }
 
-    /// Status, eyebrow, product name. Licensed wears no chip — the coin in the
-    /// well is the statement — but the status element itself exists in every
-    /// state, because it is what names the state to VoiceOver and to QA.
+    /// Status, eyebrow, product name. Licensed wears no chip: the coin in the
+    /// well is the statement, and the state stays readable from the well's
+    /// accessibility value in every state.
     private var identity: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let card {
-                status(card)
+            if let badge = card?.badge {
+                status(badge)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(localization.localizedText("license.card.eyebrow"))
@@ -140,27 +149,27 @@ struct LicenseSettingsSection: View {
         }
     }
 
-    @ViewBuilder private func status(_ card: LicenseCardModel) -> some View {
-        if let badge = card.badge {
-            Text(badge)
-                .font(.caption2.weight(.bold))
-                .textCase(.uppercase)
-                .tracking(1.0)
-                .foregroundStyle(Theme.Plate.accent)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .overlay(
-                    Capsule().stroke(Theme.Plate.accent.opacity(0.7), lineWidth: 1)
-                )
-                .accessibilityIdentifier("license-status")
-        } else {
-            Text(localization.localizedText("license.statusLicensed"))
-                .font(.caption2.weight(.bold))
-                .textCase(.uppercase)
-                .tracking(1.0)
-                .foregroundStyle(Theme.Plate.accent)
-                .accessibilityIdentifier("license-status")
-        }
+    /// Unlicensed and Expired name themselves in a gold chip.
+    private func status(_ badge: String) -> some View {
+        Text(badge)
+            .font(.caption2.weight(.bold))
+            .textCase(.uppercase)
+            .tracking(1.0)
+            .foregroundStyle(Theme.Plate.accent)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .overlay(
+                Capsule().stroke(Theme.Plate.accent.opacity(0.7), lineWidth: 1)
+            )
+            .accessibilityIdentifier("license-status")
+    }
+
+    /// The state as one word, for the well's accessibility value. Licensed has
+    /// no badge to borrow, so it reads its own catalog entry; before the
+    /// license has been evaluated there is no state to name.
+    private var statusName: String {
+        guard let card else { return "" }
+        return card.badge ?? localization.localizedText("license.statusLicensed")
     }
 
     /// Key, Licensed since, Term — three rows, present in every state. A row
