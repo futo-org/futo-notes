@@ -17,9 +17,9 @@
 
 
 - The app version is shown.
-- **License**: the License row (Unlicensed / Licensed / Expired, Buy, Enter
+- **License**: the License card (Unlicensed / Licensed / Expired, Buy, Enter
   license key, Remove) follows [license.md](license.md). On the native shells it
-  is the first row at the top of Settings; on desktop the ambient label lives in
+  is the first thing at the top of Settings; on desktop the ambient label lives in
   the list view and opens Settings here. *(desktop)* The License section sits
   after Updates and before the Danger zone, and **Full reset** clears the stored
   license along with every other preference. →

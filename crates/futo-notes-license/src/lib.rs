@@ -1,9 +1,10 @@
 //! The paid client license: the one owner of every license rule.
 //!
-//! Behavioral truth is `docs/spec/license.md`. FUTO Notes is free to use; a
-//! license unlocks nothing functional. It removes the ambient "Unlicensed"
-//! label and shows "Supporter since {year}". Nothing in this crate gates a
-//! feature, and nothing ever should.
+//! Behavioral truth is `docs/spec/license.md`. FUTO Notes asks you to pay for
+//! it and enforces nothing; a license unlocks nothing functional. It removes
+//! the ambient "Unlicensed" label and fills the License card's well with the
+//! FUTO coin, above a "Licensed since {date}" row. Nothing in this crate gates
+//! a feature, and nothing ever should.
 //!
 //! # What this crate owns
 //!
@@ -41,7 +42,7 @@
 //! let config = Environment::for_bundle_id("com.futo.notes.dev").config();
 //! let now = OffsetDateTime::now_utc();
 //!
-//! // Render the License row from whatever is stored.
+//! // Render the License card from whatever is stored.
 //! // `issued_at` is absent for a v1 activation, and the clause is then dropped
 //! // rather than filled in with a stand-in date.
 //! let row = match stored.as_ref().map(|pair| evaluate(pair, config, now)) {

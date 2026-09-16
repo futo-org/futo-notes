@@ -22,9 +22,9 @@ pub struct LicenseDetails {
     /// because any other value is Invalid. `None` for a v1 activation, whose
     /// product binding is the org key pair rather than the payload.
     pub product: Option<String>,
-    /// Purchase time — the source of "Supporter since {year}". `None` for a v1
-    /// activation, and then the badge has no year to show, so the whole clause
-    /// is dropped (docs/spec/license.md § States and copy).
+    /// Purchase time — the source of the card's "Licensed since {date}". `None`
+    /// for a v1 activation, and the card then leaves that row blank rather than
+    /// inventing a date (docs/spec/license.md § States and copy).
     pub issued_at: Option<OffsetDateTime>,
     /// `None` for a perpetual product, and always `None` for v1, which cannot
     /// express an expiry at all.
@@ -33,14 +33,14 @@ pub struct LicenseDetails {
 
 /// The answer to "is this device licensed, at this instant?".
 ///
-/// How the shells' License row reads this:
+/// How the shells' License card reads this:
 ///
-/// | This crate says | Row state |
+/// | This crate says | Card state |
 /// |---|---|
 /// | nothing stored | **Unlicensed** |
 /// | `Invalid(_)` for a stored pair | **Unlicensed** |
-/// | `Licensed` | **Licensed** — "Supporter since {year} · Valid until {date}", each clause dropped when its field is `None` |
-/// | `Expired` | **Expired** — an expired license is kept and still says "Supporter since" |
+/// | `Licensed` | **Licensed** — "Licensed since {date}" and a "Perpetual" or "Valid until {date}" term, each row left blank when its field is `None` |
+/// | `Expired` | **Expired** — an expired license is kept and still shows its "Licensed since" date |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LicenseState {
     Licensed(LicenseDetails),

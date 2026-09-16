@@ -63,9 +63,9 @@ pub enum LicenseStatus {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct LicenseView {
     pub status: LicenseStatus,
-    /// `issued_at` — the source of "Supporter since {year}". `None` for a v1
-    /// activation, which carries no purchase time at all: the row then drops
-    /// the "Supporter since" clause rather than showing a stand-in year.
+    /// `issued_at` — the source of the card's "Licensed since {date}". `None`
+    /// for a v1 activation, which carries no purchase time at all: the row is
+    /// then rendered blank rather than showing a stand-in date.
     pub issued_at_millis: Option<i64>,
     /// `expires_at`, or `None` for a perpetual license. A shell must not
     /// invent a date when this is absent; the row drops the clause instead.
@@ -518,7 +518,7 @@ mod tests {
         assert_eq!(view, unlicensed());
     }
 
-    /// "Supporter since {year}" and "Valid until {date}" both come from the
+    /// "Licensed since {date}" and "Valid until {date}" both come from the
     /// payload, so both timestamps have to cross the boundary in a form a
     /// shell can parse.
     #[test]

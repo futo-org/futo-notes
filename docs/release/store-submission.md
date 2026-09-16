@@ -14,7 +14,8 @@ the review-notes copy. This reflects FUTO Notes' actual data behavior:
 - Notes live locally in the app's Documents container. No ads, no analytics, no
   tracking, no third-party data-collection SDKs.
 - **An optional paid client license** (docs/spec/license.md) gates **nothing**:
-  it removes an "Unlicensed" label and shows a "Supporter since {year}" badge.
+  it removes an "Unlicensed" label and shows a coin and a "Licensed since
+  {date}" row on a card in Settings.
   It is bought on the web, never in-app — there is no IAP and no Play Billing.
   The only network call it can make is **one** activation request to
   `pay2.futo.org`, and only when the user explicitly enters a bare key.
@@ -90,12 +91,12 @@ To review sync (optional): we can provide a temporary test server URL +
 credentials on request. Otherwise the app is fully functional offline without
 signing in.
 
-FUTO Notes is free and fully functional with no account and no purchase. Every
+FUTO Notes is fully functional with no account and no purchase. Every
 feature behaves identically whether or not a license is bought. A user may
 optionally buy a LICENSE on the web at pay2.futo.org; it unlocks NO
-functionality, removing only an "Unlicensed" label and showing a "Supporter
-since <year>" badge. There is no paywall, no trial, and no feature, theme, or
-capacity behind it. Settings shows a link that opens the system browser to that
+functionality, removing only an "Unlicensed" label and showing a coin and a
+"Licensed since <date>" row on a card in Settings. There is no paywall, no
+trial, and no feature, theme, or capacity behind it. Settings shows a link that opens the system browser to that
 page, plus a field where a user who already bought a license pastes their key.
 Verification is an offline signature check against a key compiled into the app;
 a user who pastes only a bare key causes exactly one HTTPS request to

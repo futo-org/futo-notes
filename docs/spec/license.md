@@ -2,12 +2,13 @@
 
 FUTO Notes asks the user to pay for it, and nothing in the app enforces that.
 A user may **buy a license** for the client. The license unlocks nothing
-functional: it removes the ambient **Unlicensed** label and shows a **Supporter
-since {year}** badge and the supporter coin. Unpaid is a fully working app, but
-the product never calls itself "free to use" — see § States and copy. This is
-the Grayjay / FUTO Keyboard / Immich model ("unregistered HyperCam 2"), sold
-through FUTOpay (Polar underneath). The server product is a separate, later product with no
-shared semantics; see [Out of scope](#out-of-scope).
+functional: it removes the ambient **Unlicensed** label and fills the License
+card's empty well with the FUTO coin, above a **Licensed since {date}** row.
+Unpaid is a fully working app, but the product never calls itself "free to use"
+— see § States and copy. This is the Grayjay / FUTO Keyboard / Immich model
+("unregistered HyperCam 2"), sold through FUTOpay (Polar underneath). The server
+product is a separate, later product with no shared semantics; see
+[Out of scope](#out-of-scope).
 
 Design decisions recorded 2026-09-09 (spec-first). All three clients implement
 the whole surface as of 2026-09-09, each driven on its own dev build against a
@@ -58,10 +59,38 @@ on iOS through both entry paths: the bare key over the network (200, "Licensed")
 and the OS deep link, plus Remove back to Unlicensed. What still does not work is
 **buying** one — see the purchase-delivery Gap.
 
+2026-09-16 replaced the one-line License row with the **License card** on all
+three clients (`docs/plan/license-ship.md`), each driven on the commit that
+shipped it. *(desktop)* Unlicensed, Licensed and the reveal/copy path through
+the dev build's webview bridge: the coin measured 160×160 inside the 184×184
+well, Copy put the exact 42-character normalized key on the pasteboard, and
+leaving Settings re-masked it. The celebrate spin is **measured**, not assumed —
+354 sampled frames, the canvas visible on all 355 samples, mean per-frame pixel
+delta decaying 8.9× from the opening half-second to rest, which is what
+`CELEBRATION_SPIN` decaying toward `BASE_SPIN` predicts. *(ios)* Unlicensed and
+Licensed in both themes on a pooled simulator, the reveal (`xcrun simctl
+pbpaste` returned that same normalized key, nothing else), and a v1 license
+showing "Licensed since" present and blank with the term "Perpetual".
+*(android)* All three states × light and dark × both distribution flavors on a
+pooled emulator, with Android's own clipboard chip showing the exact key after
+Copy.
+
+**Expired was reached from a stored license only on Android**, by moving the
+emulator clock forward against the v2 staging fixture. *(ios)* It has never been
+rendered on an iPhone: the only staging-signed fixture expires 2029 and a
+simulator's clock cannot be moved (`xcrun simctl` has no time subcommand), so
+the Expired card is covered there by `LicenseCopyTests` and the
+`licenseRowActions` golden alone. *(desktop)* Its Expired card was rendered from
+an **injected** `license.view`, not from a real activation — no staging-signed
+activation with a past expiry exists and the private key is not in this repo.
+Rust's expiry verdict has its own tests either way; what is unproven is the two
+shells' rendering of it. Minting one expired staging activation into the shared
+fixture would close that on all three platforms at once.
+
 ## Principles
 
 - **Nothing is gated.** Every feature works identically licensed or not. The
-  only differences are the label, the badge, and the License row's state. Never
+  only differences are the ambient label and what the License card shows. Never
   add a licensed-only feature, theme, icon, or limit; a requested "cosmetic"
   feature that non-payers would want is a gate by another name.
 - **It is a purchase, never a donation.** Copy says "license", "buy", "renew".
@@ -106,7 +135,7 @@ and the OS deep link, plus Remove back to Unlicensed. What still does not work i
     bytes. Payload fields:
     - `key` — the license key, uppercase, exactly as signed;
     - `product` — the FUTOpay product slug; for this app `futo-notes`;
-    - `issued_at` — RFC 3339 UTC purchase time; the source of "Supporter since";
+    - `issued_at` — RFC 3339 UTC purchase time; the source of "Licensed since";
     - `expires_at` — RFC 3339 UTC, or `null` for perpetual products. For
       `futo-notes` the server sets it to `issued_at` + 3 years. The client
       never knows or assumes a duration; it only compares `expires_at`.
@@ -116,16 +145,16 @@ and the OS deep link, plus Remove back to Unlicensed. What still does not work i
   signature verifies, against the baked-in FUTOpay public key for this app's
   org, over the normalized stored license key. Nothing else — the key *is* the
   signed message, so there is no separate key comparison to make. It is
-  **perpetual**: `issued_at` and `expires_at` are absent, the row drops the
-  clauses that need them, and no clock ever moves it out of Licensed.
+  **perpetual**: `issued_at` and `expires_at` are absent, so the card leaves the
+  rows that need them blank, and no clock ever moves it out of Licensed.
 - **Licensed (v2)** means all of: the activation parses as `v2.…`, the signature
   verifies against that same org public key, `payload.key` equals the stored
   license key, `payload.product` is `futo-notes`, and the current time is before
   `expires_at` (or `expires_at` is null). Nothing else.
   Verification is fully offline in both formats.
 - **Expired** means everything above holds for a **v2** activation except the
-  time check. An expired license is kept on the device and still yields
-  "Supporter since". A v1 license never reaches Expired — the format cannot
+  time check. An expired license is kept on the device and still shows its
+  "Licensed since" date and its key. A v1 license never reaches Expired — the format cannot
   express an expiry — so Expired and its Renew action are reachable only for a
   v2 activation carrying an `expires_at`.
 - **Invalid** is any other outcome. Invalid input is never stored.
@@ -201,8 +230,9 @@ Why the original reasoning did not survive contact with the deployed product:
   checkout as Buy. The same run confirmed the complement: a v1 license held
   under the same future clock stayed simply "Licensed", since no clock can move
   a v1 activation out of Licensed.
-- That left `issued_at`, the year in "Supporter since", as the only thing v2
-  buys today. `staging-pay2.futo.org` runs the pre-v2 code, so shipping against
+- That left `issued_at` — then rendered as the bare year in "Supporter since",
+  and since 2026-09-16 as the full date in "Licensed since" (D3) — as the only
+  thing v2 buys today. `staging-pay2.futo.org` runs the pre-v2 code, so shipping against
   v1 needs no lib-polar change at all.
 
 **v2 is not removed, and must not be.** Dual acceptance is what lets the server
@@ -286,7 +316,7 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   `futonotes://license/{key}/{activation}`; the app handles it per
   [Deep link](#deep-link). The page also shows the key and activation as text,
   so paste is always possible.
-- **Lost key**: the License row offers "Lost your key?" which opens
+- **Lost key**: the License card offers "Lost your key?" which opens
   `mailto:support@futo.tech`. There is no in-app restore flow (see Gaps). →
   *(desktop)* `license::license_links`, `LicenseSettingsSection.svelte`;
   *(ios)* `licenseLinks(platform:bundleId:).support`, opened with `openURL`;
@@ -304,6 +334,14 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   Recognition of the three shapes is one Rust function shared with the deep-link
   handler.
 - Shapes 2 and 3 verify **fully offline** and never touch the network.
+- **Paste and the deep link are the supported ways to put an activation in the
+  field; hand-typing one is not.** *(ios)* The system keyboard's smart-dash
+  substitution turns the `--` inside a v2 activation into an en dash, and the
+  app then correctly answers a corrupted signature with "This license key isn't
+  valid". `.autocorrectionDisabled()` does not disable smart dashes and SwiftUI
+  exposes no modifier that does. Both supported paths — a paste and the
+  `futonotes://` link — activated the same pair on the simulator 2026-09-16, so
+  this is a property of the input method rather than a gap in the surface.
 - Shape 1 requires **one** request: `GET
   {pay2}/api/v1/activate/{url-encoded key}` returns the v2 activation as plain
   text on 200, or 404 (`not found`, `not valid`, `revoked`). The app then
@@ -325,8 +363,8 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   both preference keys gone. A server-minted key carries **no org prefix** — the
   `futo-notes` org's `prefix` column is empty — and is eight groups of four from
   the restricted alphabet, so the shipped grammar takes it unchanged.
-- The key field is reachable only from the **Unlicensed** and **Expired** rows:
-  the Licensed row's only action is **Remove license**
+- The key field is reachable only in the **Unlicensed** and **Expired** states:
+  the Licensed card's only action is **Remove license**
   (`license_row_actions`), so there is no "Enter license key" while a license is
   stored. Replacing a license therefore happens through the **deep link**, which
   replaces without confirmation, or by removing the old one first — not by
@@ -381,7 +419,7 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
 - A valid link **replaces** an existing license without confirmation and shows
   the "License activated" toast. An invalid link shows one toast, "This license
   link isn't valid", and changes nothing. No dialog, no navigation; if Settings
-  is open its License row updates in place.
+  is open its License card updates in place.
 - A link arriving while the app is cold-starting is handled after the shell is
   interactive (M1): the shell renders first, then applies the link. *(ios)*
   SwiftUI hands a launch URL to `.onOpenURL` only once the root view exists, and
@@ -422,42 +460,82 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
 
 ## States and copy
 
-The License row has exactly three states. All strings are catalog entries
+The License **card** has exactly three states. All strings are catalog entries
 (`languages/en.json`, prefix `license.`); dates render in the user's locale
-(localization.md); the year in "Supporter since" is the year of `issued_at`.
+(localization.md) as a **full localized date, never a bare year**.
 
-| State | Row text | Actions |
-|---|---|---|
-| **Unlicensed** | "Unlicensed" | **Buy a license** · Enter license key · Lost your key? |
-| **Licensed** | "Licensed · Supporter since {year} · Valid until {date}" | Remove license |
-| **Expired** | "License expired {date} · Supporter since {year}" | **Renew** · Enter license key · Lost your key? |
+The card is the same object in every state: a status **badge**, the eyebrow
+"Client license", the product name "FUTO Notes", a circular **well** that holds
+the FUTO coin while Licensed and is empty otherwise, and three ledger rows —
+**Key**, **Licensed since**, **Term** — followed by the state's actions and its
+explanation paragraph. **Every row is present in every state**, and renders
+blank when the license carries no value for it; a blank row is what "nothing is
+invented" looks like, and it is what makes Unlicensed and a v1 license read as
+deliberate rather than broken. → `licenseCardModel` in
+`src/features/license/licenseCopy.ts`,
+`apps/ios/Sources/License/LicenseCopy.swift`,
+`apps/android/app/src/main/java/com/futo/notes/license/LicenseCopy.kt` — one
+drift-registered concept, `license-card-copy`
 
-- Bold is the one action the row leads with, and *(desktop)* it is the only
-  filled button in the card: Buy/Renew. Enter license key, Lost your key? and
-  Remove license are text links there — two black slabs of equal weight read as
-  two equally likely choices, and they are not. Availability is unchanged; this
-  is emphasis, not gating. The native shells keep their own platform-idiomatic
-  controls.
+| State | Badge | Key | Licensed since | Term | Actions |
+|---|---|---|---|---|---|
+| **Unlicensed** | "Unlicensed" | blank | blank | blank | **Buy a license** · Enter license key · Lost your key? |
+| **Licensed** | none | masked, revealable | "{date}", blank with no `issued_at` | "Perpetual" or "Valid until {date}" | Remove license |
+| **Expired** | "Expired" | masked, revealable | "{date}" | "Expired {date}" | **Renew** · Enter license key · Lost your key? |
 
-- A **perpetual** license (`expires_at` is `null`) is still the Licensed state;
-  the row simply drops the "Valid until" clause rather than inventing a date:
-  "Licensed · Supporter since {year}". → `license.licensedPerpetual`,
-  `licenseCopy.test.ts` "omits the expiry entirely for a perpetual license"
-- **With no `issued_at` — a v1 activation — the "Supporter since {year}" line is
-  not rendered at all.** There is no yearless variant of it, no placeholder
-  year, and the activation-fetch time is never used as a stand-in. The row is
-  then the single word "Licensed" (`license.licensedUndated`), which still reads
-  as the licensed state; the ambient label has nothing to put in place of
-  "Unlicensed", so the desktop footer is empty — removing the label is the whole
-  visible reward there, and it still happens. The supporter coin in Settings is
-  not a claim about a date and renders for a v1 activation regardless. →
-  `licenseCopy.ts`/`licenseCopy.test.ts` "reads as licensed with no since-clause
-  when there is no purchase year" + "has nothing to show when a license carries
-  no purchase year", `SidebarLicenseFooter.svelte`; *(ios)* `LicenseCopy.swift`,
-  `LicenseCopyTests` "a license with no purchase year drops the since-clause and
-  still reads as licensed"; *(android)* `LicenseCopy.kt`, `LicenseCopyTest`
-  "aLicenseWithNoPurchaseYearDropsTheSinceClause"
-- Under the row, in FUTO's house voice — the app **never** describes itself as
+- Bold is the one action the state leads with, and on every platform it is the
+  **only filled button on the card**: Buy/Renew. Enter license key, Lost your
+  key? and Remove license are text links beside it — two filled slabs of equal
+  weight read as two equally likely choices, and they are not. Availability is
+  unchanged; this is emphasis, not gating. *(native shells)* Which controls
+  exist at all is Rust's answer, `license_row_actions`, which also owns what
+  `LICENSE_LINK_OUT` hides; *(desktop)* the plate still derives its two buttons
+  inline, because desktop has no `LICENSE_LINK_OUT` to obey (drift concept
+  `license-row-actions`).
+- **The Licensed state wears no badge on any platform.** The coin in the well is
+  the statement; the word placed over the gold "Client license" eyebrow reads as
+  a duplicated eyebrow, which is why iOS removed it after seeing it on a device
+  (2026-09-16). The state stays machine-readable: *(ios)* `license-well` carries
+  the accessibility value `Licensed` / `Unlicensed` / `Expired`, with its label
+  being the coin's or "No license". **A QA playbook that reads `license-status`
+  on iOS must fall back to `license-well`'s value in the Licensed state**, where
+  no `license-status` element exists — otherwise it reports a false failure. →
+  `apps/ios/Sources/License/LicenseSettingsSection.swift`
+- **Term** is blank with no license: "Perpetual" there would be a claim the app
+  cannot make. It is "Perpetual" when `expires_at` is null **and** for a v1
+  activation, which is perpetual by format rather than by guess; "Valid until
+  {date}" while a v2 expiry is still in the future; "Expired {date}" once it has
+  passed. → `licenseCopy.test.ts` "reads a license with no expiry as Perpetual",
+  *(ios)* `LicenseCopyTests`, *(android)* `LicenseCopyTest`
+- **With no `issued_at` — a v1 activation — the "Licensed since" row is present
+  and blank.** There is no dateless variant of the line, no placeholder date,
+  and the activation-fetch time is never used as a stand-in. Production mints v1
+  today, so a blank "Licensed since" row is what a real buyer sees: the coin,
+  the key and the "Perpetual" term carry the state on their own. Observed on the
+  simulator 2026-09-16. → `licenseCopy.test.ts` "leaves the since row blank for
+  a v1 license and calls the term perpetual"; *(ios)* `LicenseCopyTests`;
+  *(android)* `LicenseCopyTest`
+- **The card shows the stored key masked to its last group** — seven groups of
+  four middle dots, then the key's real last four characters
+  (`···· ···· ···· ···· ···· ···· ···· RS78`) — and clicking or tapping it
+  reveals the whole normalized key and offers **Copy key**, which puts exactly
+  that key on the system clipboard and confirms with the "License key copied"
+  toast. **Revealing and copying is local UI, not a rule**: nothing is verified,
+  fetched or stored, the reveal lasts only while the card is mounted, and
+  leaving Settings re-masks it. The key reaches every shell already normalized,
+  on the license view itself, so no shell reads it back out of its own storage
+  to display it. → `licenseCopy.test.ts` "masks every group of the key but the
+  last", `tests/license-card.spec.ts` "the masked key reveals the full key and
+  offers Copy"; *(ios)* `LicenseSurfaceTests` "the card shows the masked key and
+  reveals on tap"; *(android)* `LicenseSurfaceTest`
+  "theCardMasksTheStoredKeyAndRevealsItOnTap"
+- Each row pairs a **label with a value**; the arrangement is the platform's.
+  *(native shells)* Every row stacks its label above its value, and *(desktop)*
+  the Key row does too — a 39-character monospace key does not fit beside a
+  label at phone width, and beside a 184px well it does not fit on a narrow
+  desktop pane either. The well itself sits beside the fields on desktop and
+  above them on the native shells and on a narrow desktop pane.
+- Under the rows, in FUTO's house voice — the app **never** describes itself as
   "free to use", because it is asking to be paid and only declines to force the
   issue. The wording follows Grayjay's `buy_text` and FUTO Keyboard's
   `payment_screen_sales_point_development_body`, which share the mission
@@ -468,9 +546,9 @@ The License row has exactly three states. All strings are catalog entries
     FUTO Notes asks you to pay for it, rather than serving you ads or selling
     your data."
   - Licensed (`license.explanationLicensed`), after FUTO Keyboard's
-    `payment_screen_aftersales_paragraph_1`/`_2`: "Thank you for paying for FUTO
-    Notes. Your purchase will help continued development of FUTO Notes, and
-    other FUTO projects."
+    `payment_screen_aftersales_paragraph_1`: "Thank you for paying for FUTO
+    Notes." One sentence: the second, about continued development, was dropped
+    2026-09-16 (plan D7) when the card replaced the row.
   → all three shells select the key off the state: `LicenseSettingsSection`
   in `src/features/license/`, `apps/ios/Sources/License/`, and
   `apps/android/app/src/main/java/com/futo/notes/ui/`
@@ -479,46 +557,64 @@ The License row has exactly three states. All strings are catalog entries
   the key) and returns the device to Unlicensed. It exists for testing and
   device hand-off.
 - No state ever shows a price, a countdown, a nag, or a banner. There is no
-  pre-expiry notice outside the row's own "Valid until" text.
-- **Ambient label** (the thing a purchase removes): the text "Unlicensed" when
-  Unlicensed or Expired; "Supporter since {year}" when Licensed. It is
-  informational, never interrupts, never appears inside the editor, never on
-  exported or shared content, and never on user data (M2).
-  - *(desktop)* The bottom-left corner of the sidebar, and the only thing in
-    it — the app version used to share that line and no longer appears there
-    at all, because Settings → Updates already reads "Currently running
-    v{version}". Clicking it opens Settings at the License row. The License
-    section sits after Updates and before the Danger zone, which stays last. →
-    `src/features/license/SidebarLicenseFooter.svelte`,
-    `DrawerSidebar.svelte`, `SettingsScreen.svelte` (`initialSection`),
-    `licenseCopy.ts` + `licenseCopy.test.ts`
-  - *(desktop)* **The supporter coin** is the one thing a purchase *adds*: a
-    gold FUTO coin, turning, filling its own column down the full height of the
-    License card in Settings while the state is Licensed. It is the storefront's
-    own coin — geometry and materials ported from lib-polar
-    `pylib/futopay_server/static/js/coin-bounce.js`, without that file's physics
-    world — rendered with three.js loaded on demand, so it costs a non-supporter
-    nothing at startup. It spins up once on the moment of activation and settles
-    again, holds still under `prefers-reduced-motion: reduce`, stops entirely
-    when scrolled out of view or the window is hidden (M5), and falls back to a
-    flat SVG coin where WebGL is unavailable.
+  pre-expiry notice outside the card's own "Valid until" term.
+- **The FUTO coin** is the one thing a purchase *adds*, on all three platforms:
+  a gold coin with the FUTO diamond punched through it, sized 160 inside the
+  184 well (CSS px on desktop, pt on iOS, dp on Android) while the state is
+  Licensed, and absent — leaving the well an empty recess — in every other
+  state. It is the storefront's own coin, geometry and
+  materials ported from lib-polar
+  `pylib/futopay_server/static/js/coin-bounce.js` without that file's physics
+  world, and one glyph rendered three ways: desktop's inline SVG, an iOS vector
+  imageset, an Android vector drawable (drift concept `supporter-coin-glyph`).
+  The coin is not a claim about a date and renders for a v1 activation
+  regardless.
+  - *(desktop)* The coin **turns**: three.js, loaded on demand, so it costs a
+    non-supporter nothing at startup. It spins up once on the moment of
+    activation and settles again, holds still under `prefers-reduced-motion:
+    reduce`, stops entirely when scrolled out of view or the window is hidden
+    (M5), and falls back to the flat SVG coin where WebGL is unavailable. The
+    spin-up was measured on the real app 2026-09-16, not inferred: per-frame
+    pixel motion decays 8.9× from the opening half-second to rest.
     **It is deliberately NOT in the sidebar footer**: that corner sits one
     keystroke from the editor, and a permanent animation beside it is exactly
     the background cost M5 exists to stop. Settings is a surface the user opened
     on purpose and can leave. → `SupporterCoin.svelte`, `supporterCoin.ts`,
     `license.svelte.ts` (`activations`) + `license.svelte.test.ts` "marking the
     moment of activation"
+  - *(native shells)* The coin is **static** — the same glyph, no motion and no
+    GL surface. Deliberate (plan D5): the plate, not the animation, is what the
+    native shells adopted.
 
-    > **Gap:** the coin is desktop-only. iOS and Android show the same Licensed
-    > row with no coin — a WebGL/three.js canvas is a web-shell affordance the
-    > native shells have no equivalent of, and re-authoring it per platform
-    > (SceneKit, a Compose GL surface) is a separate decision from adopting it
-    > on desktop. Open 2026-09-15.
+    > **Gap:** the coin animates only on desktop. iOS and Android show the same
+    > plate and the same coin as a still glyph, because a WebGL/three.js canvas
+    > is a web-shell affordance and re-authoring the motion per platform
+    > (SceneKit, a Compose GL surface) is a separate decision from adopting the
+    > coin itself, which they now have. Narrowed 2026-09-16 from "the coin is
+    > desktop-only" (open 2026-09-15), when both native plates shipped the
+    > glyph.
+- **Ambient label** (the thing a purchase removes): the text "Unlicensed" when
+  Unlicensed or Expired; "Licensed since {date}" when Licensed with an
+  `issued_at`; and **nothing at all** for a v1 license — the element is removed
+  rather than blanked, because there is no dateless variant of that line and
+  dropping the "Unlicensed" label is the whole visible reward there. It is
+  informational, never interrupts, never appears inside the editor, never on
+  exported or shared content, and never on user data (M2).
+  - *(desktop)* The bottom-left corner of the sidebar, and the only thing in
+    it — the app version used to share that line and no longer appears there
+    at all, because Settings → Updates already reads "Currently running
+    v{version}". Clicking it opens Settings at the License card. The License
+    section sits after Updates and before the Danger zone, which stays last. →
+    `src/features/license/SidebarLicenseFooter.svelte`,
+    `DrawerSidebar.svelte`, `SettingsScreen.svelte` (`initialSection`),
+    `licenseCopy.ts` (`licenseAmbientLabel`) + `licenseCopy.test.ts`
   - *(native shells)* Mobile has no ambient label outside Settings; the License
-    row is the **first row at the top of Settings** and its status text is the
-    label. → *(ios)* `LicenseSettingsSection` as the first `Section` of
-    `SettingsView`, `LicenseCopyTests`; *(android)* `LicenseSettingsSection` as
-    the first `SettingsGroup` of `SettingsScreen`,
+    card is the **first thing at the top of Settings**, and in the Licensed
+    state nothing on screen names the state at all — the coin in the well says
+    it, and the word is available only to assistive technology. → *(ios)*
+    `LicenseSettingsSection` as the first `Section` of `SettingsView`,
+    `LicenseCopyTests`; *(android)* `LicenseSettingsSection` as the first group
+    of `SettingsScreen`,
     `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
     `LicenseCopyTest`
 
@@ -711,11 +807,13 @@ relaunching confirmed the state persisted. → 49-shot ledger in
 > at a checkout that cannot take money. Both halves — the org/product and the
 > key — must land before any production release carries this surface.
 
-> **Gap:** _(ios, android)_ The row has a fourth, unspecified state: *not yet
+> **Gap:** _(ios, android)_ The card has a fourth, unspecified state: *not yet
 > known*. The spec gives it three, while desktop initializes to Unlicensed before
 > its asynchronous read lands. On both native shells a preference read and an RSA
-> verify are work M1 keeps off the thread that paints the shell, so the row shows
-> its explanation and no status until the answer lands. The window is one
+> verify are work M1 keeps off the thread that paints the shell, so the card
+> renders its frame with no status until the answer lands — *(android)* the well
+> carries no accessibility label at all in that window, because neither "No
+> license" nor the coin's label would yet be true. The window is one
 > background hop during startup and closes long before Settings can normally be
 > opened; it is recorded rather than blessed, and the line to reconcile is
 > whether the spec should name a loading state for all three clients. → iOS and

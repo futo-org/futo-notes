@@ -65,8 +65,8 @@ pub enum EnterKeyError {
 }
 
 /// A license the shell may store. `state` is `Licensed` or `Expired`, never
-/// `Invalid`: an already-expired license is still stored, and still says
-/// "Supporter since".
+/// `Invalid`: an already-expired license is still stored, and still shows its
+/// "Licensed since" date.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcceptedLicense {
     /// The two strings to persist, exactly as given.

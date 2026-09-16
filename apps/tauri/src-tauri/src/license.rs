@@ -42,9 +42,9 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 pub struct LicenseView {
     /// `unlicensed` | `licensed` | `expired`.
     pub state: &'static str,
-    /// `issued_at` — the source of "Supporter since {year}". `None` for a v1
-    /// activation, which carries no purchase time: the row and the ambient
-    /// label drop the clause rather than showing a stand-in year.
+    /// `issued_at` — the source of the card's "Licensed since {date}". `None`
+    /// for a v1 activation, which carries no purchase time: the row renders
+    /// blank and the ambient label is dropped, never a stand-in date.
     pub issued_at: Option<String>,
     /// `expires_at`, or `null` for a perpetual license.
     pub expires_at: Option<String>,
@@ -506,8 +506,8 @@ mod tests {
         assert_eq!(loaded, None);
     }
 
-    /// "Supporter since {year}" and "Valid until {date}" both come from the
-    /// payload, so the row cannot render unless both timestamps cross the IPC
+    /// "Licensed since {date}" and "Valid until {date}" both come from the
+    /// payload, so the card cannot render unless both timestamps cross the IPC
     /// boundary in a form the frontend can parse.
     #[test]
     fn a_licensed_state_carries_both_timestamps() {
@@ -518,8 +518,8 @@ mod tests {
         assert_eq!(view.expires_at.as_deref(), Some("2029-01-15T10:30:00Z"));
     }
 
-    /// An expired license is kept and still says "Supporter since", so it must
-    /// keep its dates too — the Expired row renders both.
+    /// An expired license is kept and still shows its "Licensed since" date, so
+    /// it must keep its dates too — the Expired card renders both.
     #[test]
     fn an_expired_state_keeps_its_dates() {
         let view = view_of(&LicenseState::Expired(details()));
@@ -543,8 +543,8 @@ mod tests {
 
     /// A v1 activation carries no purchase time and no expiry, so the view the
     /// frontend receives must have BOTH absent. Handing it a stand-in — `now`,
-    /// the fetch time, anything — is how a year nobody bought anything in ends
-    /// up in "Supporter since" (issue #161).
+    /// the fetch time, anything — is how a date nobody bought anything on ends
+    /// up in "Licensed since" (issue #161).
     #[test]
     fn a_v1_license_carries_no_dates_for_the_row_to_render() {
         let undated = LicenseDetails {
