@@ -651,7 +651,10 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
 - **Two shapes.** No vault yet: sign in → subscribe → choose a vault password →
   save the recovery key → sync. Vault exists: sign in → unlock → sync. Subscribe
   cannot be skipped in the first shape because writing the vault key is
-  entitlement-gated.
+  entitlement-gated. → `tests/cross-platform-sync.mjs` (`hosted no vault shape
+  reaches a first sync`, `hosted vault exists unlocks by vault password`,
+  `hosted vault exists unlocks by recovery key`), which drive the real desktop
+  app against a server in stand-in test mode
 - **Sign-in, checkout, and the customer portal open in the system browser
   through the app's existing opener** _(desktop)_**, in an
   `ASWebAuthenticationSession` sheet over the app** _(iOS)_**, or in a Chrome
@@ -822,7 +825,10 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   device set up by password. The private half of the one-time key never leaves
   the new device: it lives only in memory for the life of the code and is never
   returned across the FFI or Tauri boundary.
-  → `hosted/pairing.rs` `begin_pairing` / `await_pairing`, `e2ee/sealed_box.rs`
+  → `hosted/pairing.rs` `begin_pairing` / `await_pairing`, `e2ee/sealed_box.rs`,
+  `tests/cross-platform-sync.mjs` (`hosted pairing between two desktop
+  instances`, which passes the payload between two real app instances as a
+  string, the camera being the one part a test cannot have)
 - **A wrong scan sends nothing, structurally.** Reading a scanned code parses and
   returns the device name for the confirmation sheet; it touches no network, no
   secret store, and no vault key. Sealing and posting happen only in the confirm
@@ -862,6 +868,21 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   other devices still arrive; a full vault shows **Vault is full** with the
   portal button. Sync paused wins when both are true, because a lapsed
   subscription refuses the write whatever the quota says. Reads are never gated.
+  → `hostedBanner.ts` _(desktop)_, HostedSetupModel.swift _(iOS)_,
+  HostedSetupModel.kt _(Android)_; `tests/cross-platform-sync.mjs` (`hosted
+  lapsed subscription pauses writes and keeps reads`, `hosted full vault raises
+  the vault full banner`) proves both banners and the read still arriving on the
+  real desktop app
+  > **Gap:** the banner is a reading of the billing endpoint taken while the
+  > sync screen is open, not a reaction to the refused write — so a refused write
+  > IS also an error everywhere else. On desktop a lapsed push comes back through
+  > the ordinary sync-failure path as "1 change couldn't reach the server (HTTP
+  > 402)" (507 for a full vault), observed 2026-09-16 against a stand-in server;
+  > all three shells then show the right banner only once somebody opens the sync
+  > screen and billing is re-read. ADR 0003 decision 8 asks for the status line
+  > itself to become "Sync paused" with a Subscribe button; nothing maps a status
+  > code to a banner today. Closing it means classifying 402 and 507 in the sync
+  > error path the way `classifySyncError` classifies the rest.
 - **Changing the vault password and issuing a new recovery key ask for no
   current secret.** This device already holds the vault key, and a device set up
   by scanning a QR code never knew the vault password, so requiring it would
@@ -948,14 +969,21 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
 > futo-notes#181. futo-notes#182 and #183 landed iOS and Android pairing without
 > this, so both pairing screens say the vault is unlocked rather than that a
 > sync is running; the first sync still waits on a cycle the wizard cannot
-> start.
+> start. Seen on both devices on 2026-09-16: a wizard run to the end leaves the
+> account card reading `0 B of 10 GB used` with notes on disk
+> (`docs/qa/hosted-sync-ios.md`, `docs/qa/hosted-sync-android.md`). Nothing in
+> futo-notes#172's ticket series closes it; it needs a UniFFI projection of
+> `connect_sync` and a call from each SyncManager.
 
 > **Gap:** _(desktop)_ a hosted session is re-established only when the sync
 > settings screen is opened, because nothing at boot knows this vault is hosted:
 > `isE2eeConfigured()` reads password-mode app state, and the hosted secrets are
 > in the keyring where only Rust looks. So a restart syncs on the first visit to
-> Settings rather than on launch, and `window.__testSync.connectHosted()` does
-> not exist yet. Both are futo-notes#186's.
+> Settings rather than on launch. Closing it needs a local read — does this
+> vault's keyring hold a vault key and a session token — that `loadCredentialsOnBoot`
+> can make without a network call; `e2ee_hosted_current_step` is not it, because it
+> asks the server. futo-notes#186 built the test hook and left this open; it has no
+> ticket yet.
 
 
 ## Live sync (SSE)

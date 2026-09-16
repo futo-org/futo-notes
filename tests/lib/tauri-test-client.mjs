@@ -6,6 +6,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { URL } from 'node:url';
 import { executeJs, sleep } from './mcp-client.mjs';
+import { visitAsBrowser } from './standin-browser.mjs';
 
 const SCRIPT_EXECUTION_TIMEOUT = 'Script execution timeout';
 const MAIN_WINDOW_NOT_FOUND = "Window 'main' not found";
@@ -40,11 +41,23 @@ export async function waitForTestHooks(
         ws,
         `JSON.stringify({
         testSync: typeof window.__testSync,
+        // The hosted half is installed with the rest of the hook, so its
+        // absence means a bundle built before futo-notes#186 — not a hook
+        // that is still coming up. Probed here so that shows up now, with
+        // the "was it built with test hooks?" message, rather than six
+        // scenarios later as "connectHosted is not a function".
+        connectHosted: typeof window.__testSync?.connectHosted,
         notesShell: typeof window.__notesShellTest,
       })`,
       );
       const parsed = JSON.parse(String(result));
-      if (parsed.testSync === 'object' && parsed.notesShell === 'object') return;
+      if (
+        parsed.testSync === 'object' &&
+        parsed.connectHosted === 'function' &&
+        parsed.notesShell === 'object'
+      ) {
+        return;
+      }
       lastError = null;
     } catch (error) {
       // The bridge can accept WebSocket connections before the webview is
@@ -102,6 +115,7 @@ export class TauriTestClient {
     this.loopbackHost = loopbackHost;
     this._asyncSlotCounter = 0;
     this._startedSyncSlotRef = null;
+    this._pairingSlotRef = null;
     this.capabilities = {
       supportsHostExternalMutation: Boolean(notesDir),
     };
@@ -446,6 +460,114 @@ export class TauriTestClient {
     throw new Error(`${this.name}: timed out waiting for ${label}`);
   }
 
+  // ── Hosted sync (Log in with FUTO) ────────────────────────────
+  //
+  // Every call here forwards one `window.__testSync` hosted hook. The one that
+  // needs explaining is connectHosted: the app waits on a sign-in and a
+  // checkout that a person finishes IN A BROWSER, so this process has to be
+  // that browser. The app publishes the URL it would have opened, this visits
+  // it with a cookie jar, and the app's own poll then completes — nothing here
+  // reaches past the wait or fakes its outcome.
+
+  /** Runs the hosted wizard to a first sync, acting as the browser. */
+  async connectHosted(options, { timeoutMs = 180_000 } = {}) {
+    // No trailing slash: the engine trims one anyway, and a scenario that
+    // prints the address should print the one the app was told.
+    const serverUrl = this.normalizeServerUrl(options.serverUrl).replace(/\/$/, '');
+    const slotRef = this._nextAsyncSlotRef('connectHosted');
+    await this._kickOffAsync(
+      slotRef,
+      `window.__testSync.connectHosted(${JSON.stringify({ ...options, serverUrl })})`,
+    );
+    return this._awaitSlotActingAsBrowser(slotRef, timeoutMs, 'connectHosted');
+  }
+
+  async hostedProgress() {
+    return this._executeRead(`window.__testSync.hostedProgress()`, 'hostedProgress');
+  }
+
+  async hostedAccount() {
+    return this._executeMutation(`window.__testSync.hostedAccount()`, 'hostedAccount');
+  }
+
+  async hostedSessionToken() {
+    return this._executeMutation(`window.__testSync.hostedSessionToken()`, 'hostedSessionToken');
+  }
+
+  /**
+   * Starts showing a pairing code, on the device being set up. Long-running by
+   * design — it holds the relay's whole five-minute window — so the code is
+   * read with waitForPairingPayload() and the outcome awaited separately.
+   */
+  async startShowPairingCode() {
+    this._pairingSlotRef = this._nextAsyncSlotRef('showPairingCode');
+    await this._kickOffAsync(this._pairingSlotRef, `window.__testSync.showPairingCode()`);
+  }
+
+  /** The payload string a camera would have read off this client's screen. */
+  async waitForPairingPayload(timeoutMs = 30_000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const progress = await this.hostedProgress();
+      if (progress?.pairingPayload) return progress.pairingPayload;
+      await sleep(100);
+    }
+    throw new Error(`${this.name}: no pairing code appeared within ${timeoutMs}ms`);
+  }
+
+  async awaitShowPairingCode({ timeoutMs = 180_000 } = {}) {
+    if (!this._pairingSlotRef) throw new Error(`${this.name}: startShowPairingCode was not called`);
+    return this._awaitAsyncSlot(this._pairingSlotRef, timeoutMs, 'showPairingCode');
+  }
+
+  /** The scanning half, on the already-unlocked device. */
+  async acceptPairing(scanned, { timeoutMs = 60_000 } = {}) {
+    return this._executeMutation(
+      `window.__testSync.acceptPairing(${JSON.stringify(scanned)})`,
+      'acceptPairing',
+      { timeoutMs },
+    );
+  }
+
+  async hostedSignOut() {
+    return this._executeMutation(`window.__testSync.hostedSignOut()`, 'hostedSignOut');
+  }
+
+  /** Drops this device's hosted secrets, so the next scenario starts fresh. */
+  async forgetHosted() {
+    return this._executeMutation(`window.__testSync.forgetHosted()`, 'forgetHosted');
+  }
+
+  /**
+   * Awaits an async slot while acting as the browser for whatever it opens.
+   *
+   * A URL is visited exactly once: `opened` grows as the flow moves from
+   * sign-in to checkout, and re-fetching a spent hand-off would be a second
+   * login rather than a no-op.
+   */
+  async _awaitSlotActingAsBrowser(slotRef, timeoutMs, label) {
+    const visited = new Set();
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const status = await this._executeRead(
+        `window[${JSON.stringify(slotRef)}]`,
+        `${label} status`,
+      );
+      if (status?.done) {
+        if (status.error) throw new Error(`${label} failed: ${status.error}`);
+        return status.value;
+      }
+      const progress = await this.hostedProgress();
+      const url = progress?.openUrl;
+      if (url && !visited.has(url)) {
+        visited.add(url);
+        await visitAsBrowser(url);
+      }
+      await sleep(100);
+    }
+    throw new Error(`${this.name}: ${label} did not complete within ${timeoutMs}ms`);
+  }
+
   async connectSync(serverUrl, password, { timeoutMs = 180_000 } = {}) {
     return this._executeMutation(
       `window.__testSync.connect(${JSON.stringify(this.normalizeServerUrl(serverUrl))}, ${JSON.stringify(password)})`,
@@ -475,6 +597,16 @@ export class TauriTestClient {
   }
 
   async reset() {
+    // Before the password-mode disconnect: a hosted scenario leaves a vault key
+    // and a session token in this device's secret store, keyed per notes root
+    // and therefore surviving into the next scenario — which would then start
+    // on a device that is already set up. A no-op on a client that has never
+    // run one.
+    try {
+      await this.forgetHosted();
+    } catch {
+      /* hook may be missing, or nothing hosted ever ran here */
+    }
     try {
       await this.disconnectSync();
     } catch {

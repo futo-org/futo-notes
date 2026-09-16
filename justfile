@@ -322,8 +322,13 @@ qa-clone-target dest:
 # Start this worktree's isolated sync server (own port + own SQLite DB). Runs
 # the futo-notes-server release pinned in scripts/sync-server-pin.json,
 # downloaded on first use — no checkout, no database server, no Docker.
-qa-server:
-  @node scripts/qa.mjs server-start
+# `--standin` starts it in hosted stand-in test mode instead (Log in with FUTO
+# and billing answered by in-process fakes) — what the hosted QA stories under
+# docs/qa/ drive the native apps against. The pinned release predates that
+# mode, so today it needs FUTO_NOTES_E2EE_SERVER_REPO=<server checkout>
+# FUTO_NOTES_E2EE_SERVER_STANDIN=1 and it says so if it cannot.
+qa-server *flags:
+  @node scripts/qa.mjs server-start {{flags}}
 
 # Stop it (add --drop to also delete its database and blobs).
 qa-server-stop *flags:

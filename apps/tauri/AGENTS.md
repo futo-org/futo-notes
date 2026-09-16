@@ -65,10 +65,25 @@ For sync server switching, use the dev-only webview hook:
 - `await window.__testSync.pauseAutoSync()`
 - `await window.__testSync.resumeAutoSync()`
 
+The hosted half (Log in with FUTO) is on the same object:
+
+- `await window.__testSync.connectHosted({ serverUrl, vaultPassword, door, recoveryKey, stopAtStep })` —
+  runs the wizard to a first sync, whichever shape the account is in
+- `window.__testSync.hostedProgress()` — which step it is on, the URL it is waiting
+  on a browser to visit, the recovery key, a live pairing payload
+- `await window.__testSync.hostedAccount()` — email, billing, banner
+- `await window.__testSync.hostedSessionToken()` — for the stand-in server's `/standin/*` controls
+- `await window.__testSync.showPairingCode()` / `.acceptPairing(scanned)` — the two pairing sides
+- `await window.__testSync.hostedSignOut()` / `.forgetHosted()`
+
 Notes:
 - Desktop dev server URLs use `127.0.0.1`
 - `connect()` clears cached E2EE state first so sync state does not bleed across backend switches
 - The same test hooks are available in debug builds created with `VITE_INCLUDE_TEST_HOOKS=true`, which is how `just test-cross-platform` drives the app
+- `connectHosted()` never opens a browser: it publishes the URL on `hostedProgress()`
+  and keeps polling, so the caller visits it (`tests/lib/standin-browser.mjs` does,
+  with a cookie jar). `serverUrl` is required — the compiled-in hosted address is the
+  real service.
 
 ## Building & Testing
 

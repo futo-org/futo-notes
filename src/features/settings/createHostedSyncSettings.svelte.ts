@@ -26,6 +26,7 @@ import {
 import { getPlatformFS } from '$lib/platform';
 import { openExternalUrl } from '$lib/platform/openExternalUrl';
 import { requestSync } from '$features/sync/autoSync';
+import { hostedBanner, type HostedBanner } from '$features/sync/hostedBanner';
 import { hostedErrorMessage, hostedErrorVariant } from '$features/sync/hostedSyncErrors';
 import { connectHostedE2ee, forgetHostedE2ee } from '$features/sync/syncServiceE2ee';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
@@ -60,8 +61,9 @@ export type HostedScreen =
   | 'account'
   | 'changeVaultPassword';
 
-/** What the sync section says when the server would refuse a write. */
-export type HostedBanner = 'none' | 'syncPaused' | 'vaultFull';
+/** What the sync section says when the server would refuse a write.
+    The rule itself lives in `hostedBanner.ts`, shared with the test hook. */
+export type { HostedBanner };
 
 /** The three doors on the unlock screen. */
 export type UnlockDoor = 'vaultPassword' | 'scan' | 'recoveryKey';
@@ -204,20 +206,8 @@ class HostedSyncSettingsState implements HostedSyncSettings {
     return this.#error ? resolveLocalizedMessage(this.#error) : '';
   }
 
-  /**
-   * A banner is a fact about the account, read the same way the account card
-   * reads everything else. Sync paused wins over a full vault: a lapsed
-   * subscription refuses the write whatever the quota says, so telling someone
-   * to buy more storage would be the wrong instruction.
-   */
   get banner(): HostedBanner {
-    const billing = this.billing;
-    if (this.screen !== 'account' || !billing) return 'none';
-    if (!billing.entitled) return 'syncPaused';
-    if (billing.storageQuotaBytes > 0 && billing.bytesUsed >= billing.storageQuotaBytes) {
-      return 'vaultFull';
-    }
-    return 'none';
+    return hostedBanner(this.billing, this.screen === 'account');
   }
 
   async load(): Promise<void> {

@@ -40,6 +40,8 @@ import {
   startAndroidNativeInstance,
 } from './lib/android-native-instance.mjs';
 import { startServer } from './lib/sync-test-server.mjs';
+import { fillQuota, lapseSubscription, setQuota } from './lib/standin-browser.mjs';
+import { standinModeAvailable } from '../scripts/lib/sync-server.mjs';
 import { sleep } from './lib/mcp-client.mjs';
 import { xplatSyncBand } from '../scripts/lib/slot.mjs';
 
@@ -2226,6 +2228,347 @@ async function waitForAndroidConflictCopy(android, id, expectedText, timeoutMs =
   );
 }
 
+// ── Hosted sync (Log in with FUTO) ──────────────────────────────
+//
+// These drive the REAL desktop app through the whole hosted flow against a
+// server in stand-in test mode: sign in through the Login Hand-off, pay through
+// the stand-in payment provider, create or unlock the vault, and reach a first
+// sync. The parent spec's user stories are the acceptance test; each scenario
+// below names the ones it covers.
+//
+// Two things stand in for hardware that a test process does not have, and
+// neither hides a step:
+//   - the BROWSER is this process (tests/lib/standin-browser.mjs). The app
+//     publishes the URL it would have opened and keeps polling the server; the
+//     driver fetches it with a cookie jar, and the app's own wait completes.
+//   - the CAMERA is a string. `showPairingCode` hands the payload up as text and
+//     the other instance is given that text, which is exactly what a scanner
+//     would have produced — decision 5's relay round trip is otherwise real.
+//
+// They need two things that CI does not have: a server that carries stand-in
+// mode (see standinModeAvailable() and the skip in main()), and an OS secret
+// store, because the desktop keeps the vault key and the session token in the
+// keyring and nowhere else.
+
+const HOSTED_VAULT_PASSWORD = 'a long enough vault password';
+/** The one identity a stand-in login produces (server ADR 0009). */
+const HOSTED_EMAIL = 'person@standin.test';
+
+/** Runs the wizard on [client] against this scenario's stand-in server. */
+function hostedConnect(client, server, options = {}) {
+  return client.connectHosted({
+    serverUrl: server.url,
+    vaultPassword: HOSTED_VAULT_PASSWORD,
+    ...options,
+  });
+}
+
+/**
+ * Seven groups of four: 27 Crockford base32 data characters and one check
+ * character (ADR 0003 decision 6; the alphabets are in `recovery_key.rs`).
+ *
+ * Crockford's data alphabet leaves out I, L, O and U so a handwritten key
+ * cannot be misread; the check character has its own longer alphabet, which
+ * puts U and four punctuation marks back — so the last character is matched
+ * separately, not by the data pattern. A key that came back unformatted, or
+ * empty, is one a person cannot write down or type back.
+ *
+ * Asserted as a shape rather than a value: the key is 128 bits of entropy and
+ * differs every run.
+ */
+const CROCKFORD_DATA = '[0-9A-HJKMNP-TV-Z]';
+const CROCKFORD_CHECK = '[0-9A-HJKMNP-TV-Z*~$=U]';
+const RECOVERY_KEY_SHAPE = new RegExp(
+  `^(${CROCKFORD_DATA}{4}-){6}${CROCKFORD_DATA}{3}${CROCKFORD_CHECK}$`,
+);
+
+function assertRecoveryKeyShape(key, who) {
+  assert(typeof key === 'string', `${who}: no recovery key was produced`);
+  assert(
+    RECOVERY_KEY_SHAPE.test(key),
+    `${who}: recovery key is not 27 Crockford characters plus a check character, ` +
+      `in seven groups of four: ${JSON.stringify(key)}`,
+  );
+}
+
+/** Polls until a note's content arrives on [client], syncing each time. */
+async function waitForSyncedNote(client, id, expected, timeoutMs = 60_000) {
+  const start = Date.now();
+  let last = null;
+  while (Date.now() - start < timeoutMs) {
+    last = await client.readNote(id).catch(() => null);
+    if (last === expected) return;
+    await client.syncNow().catch(() => {});
+    await sleep(500);
+  }
+  throw new Error(
+    `${client.name}: ${id} never arrived (last: ${JSON.stringify(last)}, wanted ${JSON.stringify(expected)})`,
+  );
+}
+
+/**
+ * How a manual sync was refused, by HTTP status rather than by sentence.
+ *
+ * A 402 and a 507 come back inside the cycle's `failures` — the cycle itself
+ * reports success — so "did it throw" is not the question. The status code is a
+ * protocol fact and safe to assert on; the message is UI copy and is not (M15).
+ */
+async function syncRefusal(client) {
+  try {
+    const result = await client.syncNow();
+    const failures = result?.summary?.failures ?? [];
+    return {
+      refused: failures.length > 0,
+      statuses: failures.map((failure) => failure.statusCode),
+      detail: JSON.stringify(failures),
+    };
+  } catch (error) {
+    return { refused: true, statuses: [], detail: error.message };
+  }
+}
+
+/**
+ * Fails if [id] ever reaches [client]. Proof that a refused write stayed put.
+ *
+ * Asks whether the file exists rather than reading it: the local store answers
+ * a missing note with an empty string, so a `readNote(...) === null` check here
+ * never fires and would have passed whatever the server did.
+ */
+async function assertNeverArrives(client, id, forMs = 4_000) {
+  const start = Date.now();
+  while (Date.now() - start < forMs) {
+    await client.syncNow().catch(() => {});
+    const arrived = await client.noteExists(id).catch(() => false);
+    assert(!arrived, `${client.name}: ${id} arrived, but the write should have been refused`);
+    await sleep(500);
+  }
+}
+
+/**
+ * Stories 6, 7, 8, 10, 22 and 24: a brand-new account subscribes, chooses a
+ * vault password, is shown a recovery key once, and reaches a first sync.
+ */
+async function hostedNoVaultShapeReachesAFirstSync(a, _b, server) {
+  const account = await hostedConnect(a, server);
+
+  assertEqual(account.step, 'ready', 'the wizard should finish on the account card');
+  assertEqual(account.email, HOSTED_EMAIL, 'the account card names who is signed in');
+  assert(account.billing?.entitled === true, 'the account may write after checkout');
+  assertEqual(account.banner, 'none', 'a paid-up account with room shows no banner');
+
+  const progress = await a.hostedProgress();
+  assertEqual(
+    progress.opened.length,
+    2,
+    `a fresh account opens the browser twice — sign-in then checkout (opened ${progress.opened.length})`,
+  );
+  assertRecoveryKeyShape(progress.recoveryKey, a.name);
+
+  // The wizard exists to reach a sync, so the proof is a note on the server.
+  const noteId = 'hosted first sync';
+  const body = '# Hosted\nThe wizard finished and this went up.';
+  await a.writeNote(noteId, body);
+  const summary = await a.syncNow();
+  assertEqual(
+    summary.summary.failures.length,
+    0,
+    `the first hosted sync reported failures: ${JSON.stringify(summary.summary.failures)}`,
+  );
+  assert(
+    summary.status.appState.lastSyncedAt !== null,
+    'the first hosted sync never completed a cycle',
+  );
+  assertEqual(summary.status.appState.lastSyncError, '', 'the first hosted sync reported an error');
+}
+
+/**
+ * Stories 12 and 20: a second device signs in, finds a vault already there, and
+ * unlocks it by typing the vault password — no subscribe step, no recovery key.
+ */
+async function hostedVaultExistsUnlocksByVaultPassword(a, b, server) {
+  await hostedConnect(a, server);
+  const noteId = 'hosted by password';
+  const body = '# By password\nTyped on the first device.';
+  await a.writeNote(noteId, body);
+  await a.syncNow();
+
+  const account = await hostedConnect(b, server);
+  assertEqual(account.step, 'ready', 'the second device should reach the account card');
+
+  const progress = await b.hostedProgress();
+  assertEqual(
+    progress.opened.length,
+    1,
+    `a vault that exists skips subscribe — only sign-in opens a browser (opened ${JSON.stringify(progress.opened)})`,
+  );
+  assertEqual(
+    progress.recoveryKey,
+    null,
+    'the recovery key is shown on a fresh vault only, never on an unlock',
+  );
+
+  await waitForSyncedNote(b, noteId, body);
+}
+
+/**
+ * Stories 17 and 18: a device with nothing but the recovery key gets in — typed
+ * the way a person retypes one, in lower case with the dashes left out.
+ */
+async function hostedVaultExistsUnlocksByRecoveryKey(a, b, server) {
+  await hostedConnect(a, server);
+  const recoveryKey = (await a.hostedProgress()).recoveryKey;
+  assertRecoveryKeyShape(recoveryKey, a.name);
+
+  const noteId = 'hosted by recovery key';
+  const body = '# By recovery key\nTyped on the first device.';
+  await a.writeNote(noteId, body);
+  await a.syncNow();
+
+  const account = await hostedConnect(b, server, {
+    door: 'recoveryKey',
+    // No vault password at all: the door must not quietly fall back to one.
+    vaultPassword: undefined,
+    recoveryKey: recoveryKey.toLowerCase().replaceAll('-', ''),
+  });
+  assertEqual(account.step, 'ready', 'the recovery key should unlock the vault');
+
+  await waitForSyncedNote(b, noteId, body);
+}
+
+/**
+ * Stories 13, 14 and 16: the device being set up shows a code, the unlocked one
+ * reads it and confirms, and the key travels over the relay. The scanned string
+ * is passed between the two instances in place of a camera.
+ */
+async function hostedPairingBetweenTwoDesktopInstances(a, b, server) {
+  await hostedConnect(a, server);
+  const noteId = 'hosted by pairing';
+  const body = '# By pairing\nTyped on the unlocked device.';
+  await a.writeNote(noteId, body);
+  await a.syncNow();
+
+  // B signs in and stops at the unlock screen — signed in, still locked, which
+  // is where a person stands while holding the code up to their phone.
+  const locked = await hostedConnect(b, server, { stopAtStep: 'unlock' });
+  assertEqual(locked.step, 'unlock', 'the second device should be signed in and locked');
+
+  await b.startShowPairingCode();
+  const payload = await b.waitForPairingPayload();
+  assert(payload.includes('futo_notes_pairing'), `not a pairing payload: ${payload.slice(0, 120)}`);
+
+  // The confirmation sheet's content, on the unlocked device. Nothing has been
+  // sent at this point; acceptPairing reads the code and only then confirms.
+  const shown = await a.acceptPairing(payload);
+  assert(
+    typeof shown.deviceName === 'string' && shown.deviceName.length > 0,
+    'the confirmation sheet must name the device it is about to hand a key to',
+  );
+  assertEqual(shown.platform, 'desktop', 'a laptop pairing to a laptop reports desktop');
+
+  const account = await b.awaitShowPairingCode();
+  assertEqual(account.step, 'ready', 'the paired device should reach the account card');
+
+  await waitForSyncedNote(b, noteId, body);
+}
+
+/**
+ * Stories 27 and 28: a lapsed subscription pauses writes and says so, while the
+ * other device's notes keep arriving.
+ */
+async function hostedLapsedSubscriptionPausesWritesAndKeepsReads(a, b, server) {
+  await hostedConnect(a, server);
+  await hostedConnect(b, server);
+
+  const arriving = 'hosted lapsed arrival';
+  const arrivingBody = '# Pushed before the lapse\nThis still has to reach the other device.';
+  await a.writeNote(arriving, arrivingBody);
+  await a.syncNow();
+
+  const token = await a.hostedSessionToken();
+  assert(Boolean(token), 'the signed-in device should hold a session token');
+  await lapseSubscription(server.url, token);
+
+  // The read. A lapsed card must never strand a device.
+  await waitForSyncedNote(b, arriving, arrivingBody);
+
+  // The write. Refused with the subscription's own status, and it stays put.
+  const blocked = 'hosted lapsed write';
+  await b.writeNote(blocked, '# Written after the lapse\n');
+  const refusal = await syncRefusal(b);
+  assert(refusal.refused, `a lapsed account should not be able to push: ${refusal.detail}`);
+  assert(
+    refusal.statuses.includes(402),
+    `the refusal should be 402 subscription_required: ${refusal.detail}`,
+  );
+  await assertNeverArrives(a, blocked);
+
+  const account = await b.hostedAccount();
+  assertEqual(account.banner, 'syncPaused', 'a lapsed subscription raises the Sync paused banner');
+  assert(account.billing?.entitled === false, 'billing should report the account cannot write');
+}
+
+/** Story 29: a full vault says so, and stops saying so when there is room. */
+async function hostedFullVaultRaisesTheVaultFullBanner(a, _b, server) {
+  await hostedConnect(a, server);
+
+  // Something must already be stored: filling the quota drops the ceiling to
+  // what the account holds, and a ceiling of zero reads as "unknown", not full.
+  await a.writeNote('hosted quota', '# Stored\nSo the vault has a size to be full of.');
+  await a.syncNow();
+
+  const token = await a.hostedSessionToken();
+  await fillQuota(server.url, token);
+
+  const full = await a.hostedAccount();
+  assertEqual(full.banner, 'vaultFull', 'a full vault raises the Vault is full banner');
+  assert(
+    full.billing.bytesUsed >= full.billing.storageQuotaBytes && full.billing.storageQuotaBytes > 0,
+    `the quota was not actually filled: ${JSON.stringify(full.billing)}`,
+  );
+
+  const blocked = 'hosted quota second';
+  await a.writeNote(blocked, '# One byte too many\n');
+  const refusal = await syncRefusal(a);
+  assert(refusal.refused, `a full vault should refuse the next write: ${refusal.detail}`);
+  assert(
+    refusal.statuses.includes(507),
+    `the refusal should be 507 quota_exceeded: ${refusal.detail}`,
+  );
+
+  // The banner is a live reading of the account, not a latch: buy room and it
+  // goes away without anything being reset.
+  await setQuota(server.url, token, 64 * 1024 * 1024);
+  const roomy = await a.hostedAccount();
+  assertEqual(roomy.banner, 'none', 'room on the plan should clear the banner');
+}
+
+/** Story 30: sign out revokes the session and forgets the key. The notes stay. */
+async function hostedSignOutKeepsTheNotesOnDisk(a, _b, server) {
+  await hostedConnect(a, server);
+
+  const noteId = 'hosted sign out';
+  const body = '# Mine\nThese notes are on this disk and stay there.';
+  await a.writeNote(noteId, body);
+  await a.syncNow();
+
+  await a.hostedSignOut();
+
+  const after = await a.hostedAccount();
+  assertEqual(after.step, 'signIn', 'signing out puts the wizard back at its first screen');
+  assertEqual(after.email, '', 'nobody is signed in after a sign out');
+
+  assertEqual(await a.readNote(noteId), body, 'signing out must not touch the notes');
+  const files = await a.listNotes();
+  assert(
+    files.some((file) => file.name === `${noteId}.md`),
+    `the note file should still be on disk: ${JSON.stringify(files.map((file) => file.name))}`,
+  );
+
+  // And the device really is signed out: a sync has no session to run with.
+  const refusal = await syncRefusal(a);
+  assert(refusal.refused, `a signed-out device should not sync: ${refusal.detail}`);
+}
+
 // ── Scenario registry ───────────────────────────────────────────
 
 const scenarios = [
@@ -2364,6 +2707,52 @@ const scenarios = [
     fn: distinctSameBasenameSurvivesMoveDedup,
     matrices: ['desktop-desktop'],
   },
+  // Hosted sync (Log in with FUTO). Each needs a server in stand-in test mode,
+  // which the pinned release does not carry yet — so on CI they skip with the
+  // reason printed, and locally they run against a server built from the
+  // `hosted-server` branch (FUTO_NOTES_E2EE_SERVER_REPO).
+  {
+    name: 'hosted no vault shape reaches a first sync',
+    fn: hostedNoVaultShapeReachesAFirstSync,
+    matrices: ['desktop-desktop'],
+    hosted: true,
+  },
+  {
+    name: 'hosted vault exists unlocks by vault password',
+    fn: hostedVaultExistsUnlocksByVaultPassword,
+    matrices: ['desktop-desktop'],
+    hosted: true,
+  },
+  {
+    name: 'hosted vault exists unlocks by recovery key',
+    fn: hostedVaultExistsUnlocksByRecoveryKey,
+    matrices: ['desktop-desktop'],
+    hosted: true,
+  },
+  {
+    name: 'hosted pairing between two desktop instances',
+    fn: hostedPairingBetweenTwoDesktopInstances,
+    matrices: ['desktop-desktop'],
+    hosted: true,
+  },
+  {
+    name: 'hosted lapsed subscription pauses writes and keeps reads',
+    fn: hostedLapsedSubscriptionPausesWritesAndKeepsReads,
+    matrices: ['desktop-desktop'],
+    hosted: true,
+  },
+  {
+    name: 'hosted full vault raises the vault full banner',
+    fn: hostedFullVaultRaisesTheVaultFullBanner,
+    matrices: ['desktop-desktop'],
+    hosted: true,
+  },
+  {
+    name: 'hosted sign out keeps the notes on disk',
+    fn: hostedSignOutKeepsTheNotesOnDisk,
+    matrices: ['desktop-desktop'],
+    hosted: true,
+  },
   // Native Android leg — runs whenever a usable device is reachable, and is
   // skipped LOUDLY otherwise (see runAndroidLeg).
   {
@@ -2452,7 +2841,9 @@ function ensureDesktopDebugBinary() {
   // `npm run build`) produced a hooks-free bundle. Rebuild — the Rust
   // codegen embeds whatever dist/ currently contains.
   if (!distHasTestHooks()) {
-    console.log('dist/ was built without VITE_INCLUDE_TEST_HOOKS — rebuilding desktop binary…');
+    console.log(
+      `dist/ has no chunk carrying ${REQUIRED_TEST_HOOKS.join(' + ')} — rebuilding desktop binary…`,
+    );
     rebuildDesktopBinary();
     return;
   }
@@ -2547,12 +2938,24 @@ function rebuildDesktopBinary() {
 // and charged the run a `cargo clean -p` plus a full relink it did not need
 // (papercut pc_b1be12680b61). vite empties dist/ per build, so nothing here can
 // be a leftover from an older hooks-enabled bundle.
+//
+// Both names are required, and in the same chunk. `__testSync` alone was enough
+// while the hook was one object; the hosted half arrived later
+// (futo-notes#186), so a dist/ left over from before it — or from a branch
+// without it — would pass a `__testSync`-only check and then fail six scenarios
+// in with "connectHosted is not a function", which reads like a product bug
+// rather than a stale build.
+const REQUIRED_TEST_HOOKS = ['__testSync', 'connectHosted'];
+
 function distHasTestHooks() {
   const assetsDir = join(REPO_ROOT, 'dist', 'assets');
   if (!existsSync(assetsDir)) return false;
   return readdirSync(assetsDir)
     .filter((name) => name.endsWith('.js'))
-    .some((name) => fileContains(join(assetsDir, name), '__testSync'));
+    .some((name) => {
+      const path = join(assetsDir, name);
+      return REQUIRED_TEST_HOOKS.every((needle) => fileContains(path, needle));
+    });
 }
 
 function fileContains(path, needle) {
@@ -2608,7 +3011,10 @@ async function runScenarios(list, clientA, clientB) {
     // first's server and database.
     const port = allocateServerPort();
     const serverSetupStartedAt = Date.now();
-    const server = await startServer(port, scenario.serverOptions ?? {});
+    const server = await startServer(port, {
+      ...(scenario.hosted ? { mode: 'standin' } : {}),
+      ...(scenario.serverOptions ?? {}),
+    });
     const serverSetupMs = Date.now() - serverSetupStartedAt;
     timings.serverSetupMs += serverSetupMs;
     managedStops.push(() => server.stop());
@@ -2766,6 +3172,20 @@ async function main() {
     process.exit(1);
   }
 
+  // Hosted scenarios need a server that HAS stand-in test mode. Until a release
+  // carrying it is pinned, that means a local build — so on CI they skip, and
+  // the banner says exactly what would change that rather than leaving a
+  // shorter green run to look like a full one.
+  const standin = standinModeAvailable();
+  if (selected.some((scenario) => scenario.hosted) && !standin.available) {
+    console.log('='.repeat(72));
+    console.log('SKIP: the hosted (Log in with FUTO) scenarios need a stand-in server');
+    console.log(`  reason: ${standin.why}`);
+    console.log('  to include them: FUTO_NOTES_E2EE_SERVER_REPO=<futo-notes-server checkout>');
+    console.log('                   FUTO_NOTES_E2EE_SERVER_STANDIN=1 just test-cross-platform');
+    console.log('='.repeat(72));
+  }
+
   const toRun = [];
   const androidLegScenarios = [];
   for (const scenario of selected) {
@@ -2788,6 +3208,15 @@ async function main() {
     } else if (scenario.skipOnCi && process.env.CI) {
       results.push({ name: scenario.name, skip: true, reason: 'skipOnCi' });
       console.log(`  - ${scenario.name} (skipped: flaky on CI — see scenario registry TODO)`);
+    } else if (scenario.hosted && !standin.available) {
+      // Never a silent pass (M11): the reason is in the row, in the banner
+      // above, and in the JSON report.
+      results.push({
+        name: scenario.name,
+        skip: true,
+        reason: `no stand-in server: ${standin.why}`,
+      });
+      console.log(`  - ${scenario.name} (skipped: no stand-in server)`);
     } else if (scenario.slow && args['skip-slow']) {
       results.push({ name: scenario.name, skip: true, reason: 'slow (--skip-slow)' });
       console.log(`  - ${scenario.name} (skipped: slow — runs on main/tag pipelines)`);

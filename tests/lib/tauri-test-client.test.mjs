@@ -152,7 +152,7 @@ describe('waitForTestHooks', () => {
   it('retries transient execute_js failures while the webview starts', async () => {
     const ws = new FakeWs([
       new Error('Script execution timeout'),
-      JSON.stringify({ testSync: 'object', notesShell: 'object' }),
+      JSON.stringify({ testSync: 'object', connectHosted: 'function', notesShell: 'object' }),
     ]);
 
     await expect(
@@ -168,7 +168,7 @@ describe('waitForTestHooks', () => {
   it('retries while the bridge is available before the main window', async () => {
     const ws = new FakeWs([
       new Error("Window 'main' not found"),
-      JSON.stringify({ testSync: 'object', notesShell: 'object' }),
+      JSON.stringify({ testSync: 'object', connectHosted: 'function', notesShell: 'object' }),
     ]);
 
     await expect(
@@ -181,10 +181,25 @@ describe('waitForTestHooks', () => {
     expect(ws.sent).toHaveLength(2);
   });
 
+  // A bundle built before the hosted hook answers every probe the same way
+  // forever, so this has to be reported as "built without test hooks" rather
+  // than waited out — and then failed six scenarios later as a missing method.
+  it('keeps waiting when the hook is there but carries no hosted half', async () => {
+    const ws = new FakeWs([
+      JSON.stringify({ testSync: 'object', connectHosted: 'undefined', notesShell: 'object' }),
+      JSON.stringify({ testSync: 'object', connectHosted: 'undefined', notesShell: 'object' }),
+    ]);
+
+    await expect(
+      waitForTestHooks(ws, 'client-a', { initialDelayMs: 0, attempts: 2, intervalMs: 0 }),
+    ).rejects.toThrow('VITE_INCLUDE_TEST_HOOKS');
+    expect(ws.sent).toHaveLength(2);
+  });
+
   it('fails immediately when the startup probe returns a non-timeout error', async () => {
     const ws = new FakeWs([
       new Error('startup probe syntax error'),
-      JSON.stringify({ testSync: 'object', notesShell: 'object' }),
+      JSON.stringify({ testSync: 'object', connectHosted: 'function', notesShell: 'object' }),
     ]);
 
     await expect(

@@ -2,8 +2,9 @@
 // M19-adjacent: instruction files are followed literally by agents, so a
 // stale `just <recipe>`, `pnpm run <script>`, or repo path silently sends an
 // agent down a dead end). Scans README.md, CONTRIBUTING.md, every AGENTS.md
-// (root + nested), .claude/skills/**/SKILL.md + their references/*.md, and
-// .claude/workflows/*.js, then validates every `just`/`pnpm run`/repo-path
+// (root + nested), .claude/skills/**/SKILL.md + their references/*.md,
+// .claude/agents/*.md, docs/qa/*.md, and .claude/workflows/*.js, then validates
+// every `just`/`pnpm run`/repo-path
 // reference found inside backtick spans or fenced code blocks. It also
 // protects required verification command chains whose individual commands
 // can all exist while the instruction that composes them is incomplete.
@@ -387,6 +388,15 @@ export function collectInstructionFiles(root) {
   const agentsDir = path.join(root, '.claude', 'agents');
   if (fs.existsSync(agentsDir)) {
     files.push(...findFiles(agentsDir, (full) => full.endsWith('.md')));
+  }
+
+  // QA stories are instruction surfaces too: docs/qa/*.md tells a person the
+  // exact commands to drive the real apps with, and a stale `just` recipe there
+  // costs the same hour a stale one in a SKILL.md does — with no automated run
+  // to notice, because the whole point of a story is that no test covers it.
+  const qaDir = path.join(root, 'docs', 'qa');
+  if (fs.existsSync(qaDir)) {
+    files.push(...findFiles(qaDir, (full) => full.endsWith('.md')));
   }
 
   const workflowsDir = path.join(root, '.claude', 'workflows');

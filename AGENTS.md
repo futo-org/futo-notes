@@ -39,7 +39,10 @@ Their nested manuals own build, device, release, and test variants. Missing
   safety + atomic files) · `-store` (THE local note engine) · `-sync` (push-first `run_sync`, SSE) ·
   `-search` (Tantivy BM25) · `-ffi` (UniFFI projection; bindings gitignored).
 - `apps/`: Tauri desktop plus native iOS and Android shells.
-- `docs/spec/`: behavioral truth; `tests/` and `markdown-spec/`: fixture/oracle systems.
+- `docs/spec/`: behavioral truth; `docs/qa/`: story documents for what only a real
+  device can show (a camera, an OS auth sheet, a keychain), each carrying the result of
+  the last run and what that run could not prove; `tests/` and `markdown-spec/`:
+  fixture/oracle systems.
 
 Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
 (its own Go repo) receives only client-encrypted opaque blobs; sync tests download the release

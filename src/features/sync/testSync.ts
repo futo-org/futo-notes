@@ -8,13 +8,23 @@ import {
 } from '$shared/state/appState';
 import { pauseAutoSync, requestSync, resumeAutoSync } from './autoSync';
 import { connectE2ee, disconnectE2ee, type SyncSummary } from './syncServiceE2ee';
+import { hostedTestApi, type TestHostedSyncApi } from './testHostedSync';
 
 export interface TestSyncStatus {
   preferences: AppPreferences;
   appState: AppState;
 }
 
-export interface TestSyncApi {
+/**
+ * The automation surface the cross-platform suite drives.
+ *
+ * `connect` is self-hosted password mode; the hosted half comes from
+ * `testHostedSync.ts` and is spread in whole, so the guard that looks for
+ * `connectHosted` in a built bundle (`distHasTestHooks` in
+ * tests/cross-platform-sync.mjs) is looking for something that is either all
+ * there or all missing.
+ */
+export interface TestSyncApi extends TestHostedSyncApi {
   connect(serverUrl: string, password: string): Promise<TestSyncStatus>;
   status(): TestSyncStatus;
   syncNow(): Promise<{ summary: SyncSummary; status: TestSyncStatus }>;
@@ -74,6 +84,7 @@ export async function testDisconnectSync(): Promise<TestSyncStatus> {
 
 export function installTestSync(target: Window = window): void {
   target.__testSync = {
+    ...hostedTestApi(),
     connect: testConnectSync,
     status: getTestSyncStatus,
     syncNow: testSyncNow,
