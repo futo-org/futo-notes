@@ -1,10 +1,15 @@
 //! Where the hosted service lives.
 
 /// The FUTO hosted sync service. Compiled in, so nobody has to type a server
-/// address to use hosted sync (ADR 0003, decision 2). For the internal MVP the
-/// name points at the staging load balancer, which is why launch needs no
-/// client release to change it.
-pub const HOSTED_SERVER: &str = "https://notes-sync.futo.org";
+/// address to use hosted sync (ADR 0003, decision 2). Store builds get the
+/// production name; internal builds (debug, TestFlight, Android prerelease,
+/// desktop internal) set `FUTO_HOSTED_SERVER_BAKED` at build time to the
+/// staging load balancer instead, so launch needs no client release to change
+/// the hostname.
+pub const HOSTED_SERVER: &str = match option_env!("FUTO_HOSTED_SERVER_BAKED") {
+    Some(baked) => baked,
+    None => "https://notes-sync.futo.org",
+};
 
 /// Debug-build override, matching the shells' existing pattern of a dev-only
 /// server default: a debug build honours `FUTO_HOSTED_SERVER` so a developer
@@ -49,5 +54,18 @@ mod tests {
         assert_eq!(resolve(true, None), HOSTED_SERVER);
         assert_eq!(resolve(true, Some("")), HOSTED_SERVER);
         assert_eq!(resolve(true, Some("   ")), HOSTED_SERVER);
+    }
+
+    /// This build has no `FUTO_HOSTED_SERVER_BAKED`, so `HOSTED_SERVER` falls
+    /// back to the production name — but the constant only ever resolves to
+    /// one of the two sanctioned hosted addresses (C3), never a typo or a
+    /// stray local value baked in by mistake.
+    #[test]
+    fn the_baked_address_is_one_of_the_two_sanctioned_names() {
+        assert!(
+            HOSTED_SERVER == "https://notes-sync.futo.org"
+                || HOSTED_SERVER == "https://staging-notes-sync.futo.org",
+            "unexpected baked hosted address: {HOSTED_SERVER}"
+        );
     }
 }

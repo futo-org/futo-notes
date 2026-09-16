@@ -19,7 +19,10 @@ release, behind a build-time flag that is off for store builds until launch.
    an override). The sync screen leads with "Log in with FUTO"; "Use my own server" reveals
    today's URL and password fields. The app still probes the capability endpoint, so a self-hosted
    server in OIDC mode gets the hand-off too. For the internal MVP the name is DNS'd at the
-   staging load balancer, so launch needs no client release for the hostname.
+   staging load balancer, so launch needs no client release for the hostname. Internal builds
+   (debug, TestFlight dogfood, Android prerelease, desktop internal) bake the staging name
+   (`staging-notes-sync.futo.org`) via `FUTO_HOSTED_SERVER_BAKED` instead; store builds keep the
+   production name, so launch still needs no client release (C3, D1).
 3. **One wizard, step derived from server facts.** After login the step is chosen by
    `GET /api/billing` and whether the vault has key material — never from a stored wizard
    position, so quitting halfway and reopening lands on the right screen. Two shapes exist:

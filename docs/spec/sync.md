@@ -630,6 +630,13 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
 `.cirrus.yml` _(iOS)_, `HostedSyncBuild.kt` + `app/build.gradle.kts` +
 `.gitlab-ci.yml` _(Android)_, ADR 0003 decision 13
 
+Everywhere the flag turns on for an internal build (debug, the iOS
+default-branch dogfood archive, the Android prerelease-tag build), CI also
+sets `FUTO_HOSTED_SERVER_BAKED=https://staging-notes-sync.futo.org` before the
+Rust FFI build, so the hosted address compiled into that build is staging, not
+production; a store build sets neither and keeps `notes-sync.futo.org`. →
+`crates/futo-notes-sync/src/hosted/address.rs`, ADR 0003 decision 2
+
 - **The sync screen leads with "Log in with FUTO"; "Use my own server"
   discloses today's URL and password fields, unchanged.** The disclosed panel is
   literally the same `SyncSettingsSection` _(desktop)_ /
