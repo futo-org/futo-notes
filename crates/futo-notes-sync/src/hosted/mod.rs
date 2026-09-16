@@ -8,10 +8,13 @@
 //!
 //! The wire this drives is the sync server's hosted contract: `POST
 //! /api/auth/handoff` and its poll, `GET /api/billing`,
-//! `POST /api/billing/checkout`, and `GET /api/billing/portal`.
+//! `POST /api/billing/checkout`, `GET /api/billing/portal`, and the
+//! account-scoped pairing relay (`POST /api/pairings`, its key post, and its
+//! poll — server ADR 0008).
 
 mod address;
 mod capability;
+mod pairing;
 mod poll;
 mod secrets;
 #[cfg(test)]
@@ -27,6 +30,7 @@ use crate::server::{HandoffPoll, Http};
 
 pub use address::{hosted_server, HOSTED_SERVER};
 pub use capability::{probe_sign_in_flow, SignInFlow};
+pub use pairing::{PairingCode, PairingOutcome, PairingRequest};
 pub use poll::PollSchedule;
 pub use secrets::VaultSecrets;
 pub use vault::{SetupStep, MIN_VAULT_PASSWORD_CHARS};
@@ -109,6 +113,39 @@ pub enum HostedError {
     /// type would change.
     #[error("{0}")]
     Crypto(String),
+    /// What was scanned is not a FUTO Notes pairing code — another app's QR
+    /// code, a damaged read, or a payload from a version this build does not
+    /// speak. Caught on the device, with nothing sent (parent spec user story
+    /// 16: a wrong scan sends nothing).
+    #[error("that is not a FUTO Notes pairing code")]
+    PairingCodeInvalid,
+    /// The relay will not serve this pairing: unknown, expired, already
+    /// collected, or belonging to another account. The server answers all four
+    /// with one identical body so that a pairing id cannot be probed from
+    /// another account, and this client does not pretend to tell them apart
+    /// (server ADR 0008).
+    #[error("that pairing code is no longer valid; show a new one")]
+    PairingRefused,
+    /// A key has already been posted to this pairing. Not retryable: a sealed
+    /// box is nondeterministic, so a repeated post carries different bytes and
+    /// the server has nothing to match it against. Start a new pairing.
+    #[error("another device has already answered this pairing code")]
+    PairingAlreadyKeyed,
+    /// The five-minute window closed with no key delivered. A person who
+    /// declined on the other device sends nothing, so declining and walking
+    /// away reach the waiting device the same way.
+    #[error("that pairing code expired; show a new one")]
+    PairingExpired,
+    /// There is no pairing in flight on this device: no code being shown, and
+    /// no scanned code waiting on a confirmation. Both sides of pairing share
+    /// this, because both mean the same thing — a step ran out of order, and
+    /// nothing was sent.
+    #[error("no pairing is in progress on this device")]
+    PairingNotStarted,
+    /// A device that does not hold the vault key cannot hand it to another
+    /// one. The scanning side of pairing is by definition the unlocked side.
+    #[error("this device does not hold the vault key")]
+    VaultLocked,
 }
 
 /// Who is signed in, and the token that proves it.
@@ -214,6 +251,10 @@ pub struct HostedSetup {
     /// Where this device keeps the vault key and the session token. Absent on
     /// a setup built only to probe or sign in.
     secrets: Option<std::sync::Arc<dyn VaultSecrets>>,
+    /// The pairing this device is showing a code for, if any: its one-time
+    /// keypair and the relay id. In memory only, for the few minutes a code
+    /// lives — the private half never reaches disk, a shell, or a log.
+    pairing: Mutex<Option<pairing::PendingPairing>>,
     sign_in_schedule: PollSchedule,
     entitlement_schedule: PollSchedule,
     cancelled: AtomicBool,
@@ -239,6 +280,7 @@ impl HostedSetup {
             session: Mutex::new(None),
             collection_id: Mutex::new(None),
             secrets: None,
+            pairing: Mutex::new(None),
             sign_in_schedule: PollSchedule::SIGN_IN,
             entitlement_schedule: PollSchedule::ENTITLEMENT,
             cancelled: AtomicBool::new(false),

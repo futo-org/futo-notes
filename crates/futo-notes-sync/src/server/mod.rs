@@ -17,7 +17,7 @@ pub(crate) use batch_upload::{
     batch_write_frame_size, BatchMutation, BatchWriteEntry, BatchWriteOperation,
 };
 use batch_upload::{encode_batch_write_frames, parse_batch_write_results};
-pub(crate) use hosted::{hosted_error, HandoffPoll};
+pub(crate) use hosted::{hosted_error, HandoffPoll, PairingPoll};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);

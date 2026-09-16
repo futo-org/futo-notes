@@ -18,8 +18,9 @@ use std::path::Path;
 pub use checkpoint::{ConnectedState, ObjectState as E2eeObjectMapEntry};
 pub use hosted::{
     hosted_server, probe_sign_in_flow, BillingStatus, Checkout, EntitlementOutcome, HostedError,
-    HostedSession, HostedSetup, PollSchedule, SetupStep, SignInFlow, SignInHandoff, SignInOutcome,
-    VaultSecrets, HOSTED_SERVER, MIN_VAULT_PASSWORD_CHARS,
+    HostedSession, HostedSetup, PairingCode, PairingOutcome, PairingRequest, PollSchedule,
+    SetupStep, SignInFlow, SignInHandoff, SignInOutcome, VaultSecrets, HOSTED_SERVER,
+    MIN_VAULT_PASSWORD_CHARS,
 };
 pub use journal::SyncTrigger;
 pub use open_note::{classify_open_note, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts};

@@ -293,7 +293,7 @@ impl HostedSetup {
     }
 
     /// Writes both secrets, so the next cold start needs no prompt at all.
-    async fn keep(&self, vault_key: [u8; KEY_BYTES]) -> Result<(), HostedError> {
+    pub(super) async fn keep(&self, vault_key: [u8; KEY_BYTES]) -> Result<(), HostedError> {
         let token = self
             .restored_session()
             .await?

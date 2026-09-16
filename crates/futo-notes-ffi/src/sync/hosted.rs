@@ -74,6 +74,29 @@ pub enum HostedError {
     SecretStore { reason: String },
     #[error("{reason}")]
     Crypto { reason: String },
+    /// What was scanned is not a FUTO Notes pairing code. Caught on the
+    /// device, with nothing sent.
+    #[error("that is not a FUTO Notes pairing code")]
+    PairingCodeInvalid,
+    /// The relay will not serve this pairing — unknown, expired, already
+    /// collected, or another account's. The server answers all four alike, so
+    /// neither does this.
+    #[error("that pairing code is no longer valid; show a new one")]
+    PairingRefused,
+    /// A key has already been posted to this pairing. Not retryable; show a
+    /// new code.
+    #[error("another device has already answered this pairing code")]
+    PairingAlreadyKeyed,
+    /// The pairing window closed with no key delivered.
+    #[error("that pairing code expired; show a new one")]
+    PairingExpired,
+    /// No pairing in flight: no code being shown, and no scanned code waiting
+    /// on a confirmation. A step ran out of order; nothing was sent.
+    #[error("no pairing is in progress on this device")]
+    PairingNotStarted,
+    /// A locked device cannot hand the vault key to another one.
+    #[error("this device does not hold the vault key")]
+    VaultLocked,
 }
 
 impl From<sync::HostedError> for HostedError {
@@ -102,6 +125,12 @@ impl From<sync::HostedError> for HostedError {
             sync::HostedError::NoRecoveryKey => Self::NoRecoveryKey,
             sync::HostedError::SecretStore(reason) => Self::SecretStore { reason },
             sync::HostedError::Crypto(reason) => Self::Crypto { reason },
+            sync::HostedError::PairingCodeInvalid => Self::PairingCodeInvalid,
+            sync::HostedError::PairingRefused => Self::PairingRefused,
+            sync::HostedError::PairingAlreadyKeyed => Self::PairingAlreadyKeyed,
+            sync::HostedError::PairingExpired => Self::PairingExpired,
+            sync::HostedError::PairingNotStarted => Self::PairingNotStarted,
+            sync::HostedError::VaultLocked => Self::VaultLocked,
         }
     }
 }
@@ -323,6 +352,48 @@ pub enum EntitlementOutcome {
     },
 }
 
+/// What the new device shows: the string to draw as a QR code, and when it
+/// stops being scannable.
+#[derive(uniffi::Record)]
+pub struct PairingCode {
+    pub payload: String,
+    /// RFC 3339, five minutes from when the code was opened.
+    pub expires_at: String,
+}
+
+/// A scanned pairing code, parsed and nothing more.
+///
+/// An **opaque handle on purpose**: a shell reads the name to put on the
+/// confirmation sheet and hands the same object back to `confirm_pairing`. It
+/// cannot build one, which is what makes the confirmation a real gate rather
+/// than a convention — a wrong scan has nothing to send.
+#[derive(uniffi::Object)]
+pub struct PairingRequest(sync::PairingRequest);
+
+#[uniffi::export]
+impl PairingRequest {
+    /// What the new device calls itself. Self-reported by that device and
+    /// shown verbatim on the confirmation sheet.
+    pub fn device_name(&self) -> String {
+        self.0.device_name().to_owned()
+    }
+
+    /// `ios`, `android`, or `desktop`.
+    pub fn platform(&self) -> String {
+        self.0.platform().to_owned()
+    }
+}
+
+/// How waiting for the other device ended. An expired or refused pairing is an
+/// error, because each is something to tell the person; these two are not.
+#[derive(uniffi::Enum)]
+pub enum PairingOutcome {
+    /// The key arrived and is kept. This device is unlocked.
+    Paired,
+    /// The pairing screen was left. Nothing was kept.
+    Cancelled,
+}
+
 /// One hosted setup attempt.
 #[derive(uniffi::Object)]
 pub struct HostedSetupClient {
@@ -448,6 +519,44 @@ impl HostedSetupClient {
     pub async fn sign_out(&self, sync: Arc<SyncClient>) -> Result<(), HostedError> {
         let (session, root) = sync.parts();
         Ok(self.setup.sign_out(session, root).await?)
+    }
+
+    /// Opens a pairing and returns the code for this device to show as a QR.
+    /// Called on the **new** device; follow it with `await_pairing`.
+    ///
+    /// The one-time keypair's private half stays inside the engine: nothing
+    /// hands it to a shell, and it dies with the process.
+    pub async fn begin_pairing(&self, device_name: String) -> Result<PairingCode, HostedError> {
+        let code = self.setup.begin_pairing(&device_name).await?;
+        Ok(PairingCode {
+            payload: code.payload,
+            expires_at: code.expires_at,
+        })
+    }
+
+    /// Reads what the camera returned, on the **unlocked** device. Parsing
+    /// only: nothing is sent, and no vault key is touched. Show the
+    /// confirmation naming `device_name`, then call `confirm_pairing`.
+    pub fn complete_pairing(&self, scanned: String) -> Result<Arc<PairingRequest>, HostedError> {
+        Ok(Arc::new(PairingRequest(
+            self.setup.complete_pairing(&scanned)?,
+        )))
+    }
+
+    /// The confirm step: seals this device's vault key to the scanned code and
+    /// posts it to the relay. The only call that sends a vault key anywhere.
+    pub async fn confirm_pairing(&self, request: Arc<PairingRequest>) -> Result<(), HostedError> {
+        Ok(self.setup.confirm_pairing(&request.0).await?)
+    }
+
+    /// Waits on the **new** device for the other one to answer, then keeps the
+    /// key. `Paired` means the vault is unlocked and `current_step` answers
+    /// `Ready`. `cancel_wait` ends it from the main thread.
+    pub async fn await_pairing(&self) -> Result<PairingOutcome, HostedError> {
+        Ok(match self.setup.await_pairing().await? {
+            sync::PairingOutcome::Paired => PairingOutcome::Paired,
+            sync::PairingOutcome::Cancelled => PairingOutcome::Cancelled,
+        })
     }
 
     /// Waits for the checkout to make the account entitled.
@@ -617,6 +726,86 @@ mod tests {
             HostedError::from(sync::HostedError::Crypto("bad envelope".into())),
             HostedError::Crypto { .. }
         ));
+    }
+
+    /// Pairing's failures are four different screens plus two programming
+    /// errors, so none of them may be folded into a generic one on the way
+    /// out: "show a new code" and "somebody already answered this one" are
+    /// different things to do.
+    #[test]
+    fn every_pairing_failure_projects_as_its_own_variant() {
+        assert!(matches!(
+            HostedError::from(sync::HostedError::PairingCodeInvalid),
+            HostedError::PairingCodeInvalid
+        ));
+        assert!(matches!(
+            HostedError::from(sync::HostedError::PairingRefused),
+            HostedError::PairingRefused
+        ));
+        assert!(matches!(
+            HostedError::from(sync::HostedError::PairingAlreadyKeyed),
+            HostedError::PairingAlreadyKeyed
+        ));
+        assert!(matches!(
+            HostedError::from(sync::HostedError::PairingExpired),
+            HostedError::PairingExpired
+        ));
+        assert!(matches!(
+            HostedError::from(sync::HostedError::PairingNotStarted),
+            HostedError::PairingNotStarted
+        ));
+        assert!(matches!(
+            HostedError::from(sync::HostedError::VaultLocked),
+            HostedError::VaultLocked
+        ));
+    }
+
+    /// A scanned code reaches a native shell as a handle it cannot build, so
+    /// the only way to the relay is through the confirmation sheet.
+    #[test]
+    fn a_scanned_code_carries_what_the_confirmation_sheet_shows() {
+        let client = HostedSetupClient::at("https://pairing.example".into(), Box::new(NoSecrets))
+            .expect("client");
+        // A payload in the engine's own format: 32 bytes of key as unpadded
+        // base64url, the version tag, and the two self-reported strings.
+        let code = concat!(
+            r#"{"futo_notes_pairing":1,"id":"pairing-1","#,
+            r#""public_key":"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc","#,
+            r#""device_name":"Kitchen laptop","platform":"desktop"}"#,
+        );
+
+        let request = client.complete_pairing(code.into()).expect("parse");
+        assert_eq!(request.device_name(), "Kitchen laptop");
+        assert_eq!(request.platform(), "desktop");
+
+        assert!(matches!(
+            client.complete_pairing("not a pairing code".into()),
+            Err(HostedError::PairingCodeInvalid)
+        ));
+    }
+
+    /// A secret store that keeps nothing, for the projections that never reach
+    /// one.
+    struct NoSecrets;
+    impl VaultSecretStore for NoSecrets {
+        fn vault_key(&self) -> Result<Option<Vec<u8>>, SecretStoreError> {
+            Ok(None)
+        }
+        fn set_vault_key(&self, _key: Vec<u8>) -> Result<(), SecretStoreError> {
+            Ok(())
+        }
+        fn delete_vault_key(&self) -> Result<(), SecretStoreError> {
+            Ok(())
+        }
+        fn session_token(&self) -> Result<Option<String>, SecretStoreError> {
+            Ok(None)
+        }
+        fn set_session_token(&self, _token: String) -> Result<(), SecretStoreError> {
+            Ok(())
+        }
+        fn delete_session_token(&self) -> Result<(), SecretStoreError> {
+            Ok(())
+        }
     }
 
     #[test]

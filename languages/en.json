@@ -698,6 +698,12 @@
           "noRecoveryKey": "This vault has no recovery key.",
           "secretStore": "This device's secret store refused. Nothing was saved.",
           "crypto": "The vault's key material could not be read.",
+          "pairingCodeInvalid": "That is not a FUTO Notes pairing code.",
+          "pairingRefused": "That pairing code is no longer valid. Show a new one on the other device.",
+          "pairingAlreadyKeyed": "Another device has already answered this pairing code. Show a new one.",
+          "pairingExpired": "That pairing code expired. Show a new one.",
+          "pairingNotStarted": "No pairing is in progress on this device.",
+          "vaultLocked": "This device doesn't have the vault key yet, so it can't give it to another device.",
           "checkoutGaveUp": "Checkout hasn't come through yet. Try again in a moment.",
           "noBrowser": "This device has no browser to sign in with.",
           "unexpected": "Something went wrong. Try again."

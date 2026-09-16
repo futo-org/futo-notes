@@ -34,6 +34,19 @@ impl PollSchedule {
         give_up_after: Duration::from_secs(300),
     };
 
+    /// Waiting for the other device to scan a pairing code and confirm.
+    ///
+    /// Shorter and flatter than the two browser waits, because this one is on
+    /// a person holding a phone in front of a screen rather than reading a
+    /// login page. `give_up_after` is a floor, not the real limit: the wait is
+    /// rebuilt per call from the relay's own `expires_at`, so it never
+    /// outlives the pairing it is waiting on.
+    pub const PAIRING: Self = Self {
+        first: Duration::from_millis(500),
+        max: Duration::from_secs(2),
+        give_up_after: Duration::from_secs(300),
+    };
+
     /// The interval after `current`.
     pub(super) fn next(self, current: Duration) -> Duration {
         (current * 2).min(self.max)

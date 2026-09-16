@@ -14,12 +14,21 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::json;
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 /// The one identity a stand-in server signs everybody in as.
 pub const STANDIN_EMAIL: &str = "person@standin.test";
+
+/// The account every hand-off signs in as, and the one `/standin/second-identity`
+/// mints instead. A real stand-in server has exactly one identity, so the second
+/// exists only for the scenarios that have to prove an account cannot reach
+/// another account's pairing — those run against this stub alone.
+const STANDIN_USER: &str = "01a0a6a5-d217-736a-8116-d2ad1914f788";
+const OTHER_USER: &str = "01a0a6a5-d217-736a-8116-d2ad1914f789";
+const OTHER_EMAIL: &str = "somebody-else@standin.test";
 
 const STORAGE_QUOTA_BYTES: u64 = 10_000_000_000;
 const BLOB_MAX_BYTES: u64 = 104_857_600;
@@ -32,13 +41,34 @@ enum Ticket {
     Fulfilled,
 }
 
+/// One open pairing on the relay.
+struct Pairing {
+    /// Which account opened it. A pairing another account asks about is a
+    /// `404`, byte for byte the one an unknown id gets.
+    owner: String,
+    /// Set by the one `POST .../key` this pairing accepts.
+    ciphertext: Option<String>,
+    /// Enforced when the row is read, exactly as the real relay does, so an
+    /// expired pairing is unreachable rather than merely stale.
+    expires_at: time::OffsetDateTime,
+}
+
 struct State {
     base: String,
     next: u64,
     /// A spent ticket is removed, not kept: unknown, expired, redeemed, and
     /// refused are one answer on this contract.
     tickets: HashMap<String, Ticket>,
-    tokens: Vec<String>,
+    /// Token to the account it signs in as. One identity comes out of the
+    /// hand-off, the way a stand-in server has one; `/standin/second-identity`
+    /// mints the other, which exists only so a scenario can own a pairing this
+    /// account must not be able to reach.
+    tokens: HashMap<String, String>,
+    pairings: HashMap<String, Pairing>,
+    /// How long a pairing this stub opens lives. Five minutes like the real
+    /// relay; `/standin/pairing-window` shortens it so the expiry scenario
+    /// does not have to wait out a real one.
+    pairing_window: Duration,
     checkouts: Vec<String>,
     entitled: bool,
     subscription_state: String,
@@ -82,7 +112,9 @@ impl HostedStub {
             base: server.uri().trim_end_matches('/').to_owned(),
             next: 0,
             tickets: HashMap::new(),
-            tokens: Vec::new(),
+            tokens: HashMap::new(),
+            pairings: HashMap::new(),
+            pairing_window: Duration::from_secs(300),
             checkouts: Vec::new(),
             entitled: false,
             subscription_state: "none".to_owned(),
@@ -246,11 +278,9 @@ impl Respond for Router {
         let path = request.url.path().to_owned();
         let query: HashMap<_, _> = request.url.query_pairs().into_owned().collect();
 
-        let authorised = |state: &State| {
-            bearer(request)
-                .map(|token| state.tokens.contains(&token))
-                .unwrap_or(false)
-        };
+        let account =
+            |state: &State| bearer(request).and_then(|token| state.tokens.get(&token).cloned());
+        let authorised = |state: &State| account(state).is_some();
 
         match (method, path.as_str()) {
             ("GET", "/") => json_response(
@@ -296,13 +326,13 @@ impl Respond for Router {
                     Some(Ticket::Fulfilled) => {
                         state.tickets.remove(&ticket);
                         let token = state.id("token-");
-                        state.tokens.push(token.clone());
+                        state.tokens.insert(token.clone(), STANDIN_USER.to_owned());
                         json_response(
                             200,
                             json!({
                                 "token": token,
                                 "user": {
-                                    "id": "01a0a6a5-d217-736a-8116-d2ad1914f788",
+                                    "id": STANDIN_USER,
                                     "email": STANDIN_EMAIL,
                                     "name": "Stand-in Person",
                                 },
@@ -314,20 +344,22 @@ impl Respond for Router {
 
             // Who this token belongs to — what a device with a saved token
             // asks on a cold start before deciding which step to show.
-            ("GET", "/api/auth") if authorised(&state) => json_response(
-                200,
-                json!({
-                    "user": {
-                        "id": "01a0a6a5-d217-736a-8116-d2ad1914f788",
-                        "email": STANDIN_EMAIL,
-                        "name": "Stand-in Person",
-                    },
-                }),
-            ),
+            ("GET", "/api/auth") if authorised(&state) => {
+                let user = account(&state).expect("an authorised request has an account");
+                let (email, name) = if user == OTHER_USER {
+                    (OTHER_EMAIL, "Somebody Else")
+                } else {
+                    (STANDIN_EMAIL, "Stand-in Person")
+                };
+                json_response(
+                    200,
+                    json!({ "user": { "id": user, "email": email, "name": name } }),
+                )
+            }
 
             ("POST", "/api/auth/logout") if authorised(&state) => {
                 if let Some(token) = bearer(request) {
-                    state.tokens.retain(|held| held != &token);
+                    state.tokens.remove(&token);
                 }
                 ResponseTemplate::new(204)
             }
@@ -403,6 +435,135 @@ impl Respond for Router {
                 ResponseTemplate::new(204)
             }
 
+            // ── The pairing relay (server ADR 0008) ──
+            //
+            // Authenticated, account-scoped, and NOT entitlement-gated: a
+            // lapsed subscriber still has to be able to set up a device to
+            // read what they already stored.
+            ("POST", "/api/pairings") if authorised(&state) => {
+                let owner = account(&state).expect("an authorised request has an account");
+                let Some(sent) = request.body_json::<serde_json::Value>().ok() else {
+                    return json_response(400, json!({ "error": "invalid json" }));
+                };
+                for field in ["public_key", "device_name", "platform"] {
+                    match sent.get(field).and_then(serde_json::Value::as_str) {
+                        None | Some("") => {
+                            return json_response(
+                                400,
+                                json!({ "error": format!("{field} is required") }),
+                            )
+                        }
+                        Some(value) if value.len() > 1024 => {
+                            return json_response(
+                                400,
+                                json!({ "error": format!("{field} is too long") }),
+                            )
+                        }
+                        Some(_) => {}
+                    }
+                }
+                let id = state.id("pairing-");
+                let expires_at = time::OffsetDateTime::now_utc() + state.pairing_window;
+                state.pairings.insert(
+                    id.clone(),
+                    Pairing {
+                        owner,
+                        ciphertext: None,
+                        expires_at,
+                    },
+                );
+                json_response(
+                    201,
+                    json!({
+                        "id": id,
+                        "expires_at": expires_at
+                            .format(&time::format_description::well_known::Rfc3339)
+                            .expect("format an expiry"),
+                    }),
+                )
+            }
+
+            // One key per pairing. A stranger's post is refused as 404 before
+            // the pairing's state is consulted, so the 409 that tells the
+            // owner "somebody already answered this" tells a stranger nothing.
+            ("POST", path)
+                if authorised(&state)
+                    && path.starts_with("/api/pairings/")
+                    && path.ends_with("/key") =>
+            {
+                let owner = account(&state).expect("an authorised request has an account");
+                let id = path
+                    .trim_start_matches("/api/pairings/")
+                    .trim_end_matches("/key")
+                    .to_owned();
+                let Some(sent) = request.body_json::<serde_json::Value>().ok() else {
+                    return json_response(400, json!({ "error": "invalid json" }));
+                };
+                let Some(ciphertext) = sent
+                    .get("ciphertext")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|value| !value.is_empty() && value.len() <= 1024)
+                else {
+                    return json_response(400, json!({ "error": "ciphertext is required" }));
+                };
+                let ciphertext = ciphertext.to_owned();
+                let now = time::OffsetDateTime::now_utc();
+                match state.pairings.get_mut(&id) {
+                    Some(pairing) if pairing.owner == owner && pairing.expires_at > now => {
+                        if pairing.ciphertext.is_some() {
+                            return json_response(
+                                409,
+                                json!({ "error": "pairing already has a key" }),
+                            );
+                        }
+                        pairing.ciphertext = Some(ciphertext);
+                        ResponseTemplate::new(204)
+                    }
+                    _ => not_found(),
+                }
+            }
+
+            // Collecting spends the pairing: the poll that returns the
+            // ciphertext deletes the row in the same breath, so a second poll
+            // is a 404 rather than a replay.
+            ("GET", path) if authorised(&state) && path.starts_with("/api/pairings/") => {
+                let owner = account(&state).expect("an authorised request has an account");
+                let id = path.trim_start_matches("/api/pairings/").to_owned();
+                let now = time::OffsetDateTime::now_utc();
+                match state.pairings.get(&id) {
+                    Some(pairing) if pairing.owner == owner && pairing.expires_at > now => {
+                        match pairing.ciphertext.clone() {
+                            None => ResponseTemplate::new(202),
+                            Some(ciphertext) => {
+                                state.pairings.remove(&id);
+                                json_response(200, json!({ "ciphertext": ciphertext }))
+                            }
+                        }
+                    }
+                    _ => not_found(),
+                }
+            }
+
+            // Stub-only. A real stand-in server has one identity and a fixed
+            // five-minute window, so the two scenarios these serve — another
+            // account's live pairing, and an expiry reached inside a test —
+            // run against this stub alone.
+            ("POST", "/standin/second-identity") => {
+                let token = state.id("token-");
+                state.tokens.insert(token.clone(), OTHER_USER.to_owned());
+                json_response(200, json!({ "token": token }))
+            }
+
+            ("POST", "/standin/pairing-window") if authorised(&state) => {
+                let seconds = request
+                    .body_json::<serde_json::Value>()
+                    .ok()
+                    .and_then(|body| body.get("seconds").and_then(serde_json::Value::as_u64))
+                    .unwrap_or(300);
+                state.pairing_window = Duration::from_secs(seconds);
+                json_response(200, json!({ "status": "applied" }))
+            }
+
             ("GET", "/api/billing") if authorised(&state) => json_response(200, state.billing()),
 
             ("POST", "/api/billing/checkout") if authorised(&state) => {
@@ -458,9 +619,12 @@ impl Respond for Router {
             | ("GET", "/api/billing")
             | ("POST", "/api/billing/checkout")
             | ("GET", "/api/billing/portal")
+            | ("POST", "/api/pairings")
             | ("POST", "/standin/lapse")
-            | ("POST", "/standin/quota") => invalid_session(),
+            | ("POST", "/standin/quota")
+            | ("POST", "/standin/pairing-window") => invalid_session(),
             (_, path) if path.starts_with("/api/collections/") => invalid_session(),
+            (_, path) if path.starts_with("/api/pairings/") => invalid_session(),
 
             _ => not_found(),
         }

@@ -12,29 +12,58 @@ use tauri::{AppHandle, State};
 
 use super::frontend_contract::{
     BillingStatusOutput, CheckoutOutput, EntitlementOutcomeOutput, HostedErrorOutput,
-    HostedSessionOutput, SetupStepOutput, SignInFlowOutput, SignInHandoffOutput,
-    SignInOutcomeOutput,
+    HostedSessionOutput, PairingCodeOutput, PairingOutcomeOutput, ScannedPairingOutput,
+    SetupStepOutput, SignInFlowOutput, SignInHandoffOutput, SignInOutcomeOutput,
 };
 use super::password_store::KeyringVaultSecrets;
 use crate::application_state::AppState;
 
-/// The hosted setup attempt in progress, if any.
+/// The hosted setup attempt in progress, if any, plus the scanned pairing code
+/// waiting on a confirmation.
+///
+/// The scan is held **here** rather than handed to the frontend, which is what
+/// makes the confirmation sheet a real gate on desktop: the frontend learns the
+/// device name and nothing else, so there is no pairing id or public key it
+/// could post a vault key to (parent spec user story 16).
 #[derive(Default)]
-pub(crate) struct HostedSetupState(Mutex<Option<Arc<HostedSetup>>>);
+pub(crate) struct HostedSetupState {
+    setup: Mutex<Option<Arc<HostedSetup>>>,
+    scanned: Mutex<Option<futo_notes_sync::PairingRequest>>,
+}
 
 impl HostedSetupState {
     fn replace(&self, setup: Arc<HostedSetup>) {
-        *self.0.lock().expect("hosted setup lock") = Some(setup);
+        *self.setup.lock().expect("hosted setup lock") = Some(setup);
     }
 
     /// The running attempt. The guard is released before the caller awaits
     /// anything, so a long poll never blocks `cancel_wait`.
     fn current(&self) -> Result<Arc<HostedSetup>, HostedErrorOutput> {
-        self.0
+        self.setup
             .lock()
             .expect("hosted setup lock")
             .clone()
             .ok_or(HostedErrorOutput::NotSignedIn)
+    }
+
+    /// Holds the scan the confirmation sheet is about. A second scan replaces
+    /// the first — what pointing the camera somewhere else means.
+    fn hold_scan(&self, request: futo_notes_sync::PairingRequest) {
+        *self.scanned.lock().expect("scanned pairing lock") = Some(request);
+    }
+
+    /// The scan a confirmation is confirming. Absent means the sheet was never
+    /// reached, which is the one thing a confirm must not act on.
+    fn held_scan(&self) -> Result<futo_notes_sync::PairingRequest, HostedErrorOutput> {
+        self.scanned
+            .lock()
+            .expect("scanned pairing lock")
+            .clone()
+            .ok_or(HostedErrorOutput::PairingNotStarted)
+    }
+
+    fn forget_scan(&self) {
+        *self.scanned.lock().expect("scanned pairing lock") = None;
     }
 
     /// The running attempt, or a fresh one over this vault's keyring entries.
@@ -47,7 +76,7 @@ impl HostedSetupState {
         app: &AppHandle,
         server_url: Option<&str>,
     ) -> Result<Arc<HostedSetup>, HostedErrorOutput> {
-        let mut slot = self.0.lock().expect("hosted setup lock");
+        let mut slot = self.setup.lock().expect("hosted setup lock");
         if let Some(setup) = slot.clone() {
             return Ok(setup);
         }
@@ -260,6 +289,69 @@ pub async fn e2ee_hosted_unlock_with_recovery_key(
         .map_err(Into::into)
 }
 
+/// Opens a pairing and returns the code for this device to show as a QR.
+/// Called on the **new** device; follow it with `e2ee_hosted_await_pairing`.
+///
+/// The one-time keypair's private half never leaves Rust.
+#[tauri::command]
+pub async fn e2ee_hosted_begin_pairing(
+    state: State<'_, AppState>,
+    device_name: String,
+) -> Result<PairingCodeOutput, HostedErrorOutput> {
+    let setup = state.hosted.current()?;
+    let code = setup.begin_pairing(&device_name).await?;
+    Ok(PairingCodeOutput {
+        payload: code.payload,
+        expires_at: code.expires_at,
+    })
+}
+
+/// Reads what a scanner returned, on the **unlocked** device. Parsing only:
+/// nothing is sent and no vault key is touched. Rust keeps the scan; the
+/// frontend gets the name for the confirmation sheet and calls
+/// `e2ee_hosted_confirm_pairing` if the person says yes.
+#[tauri::command]
+pub async fn e2ee_hosted_complete_pairing(
+    state: State<'_, AppState>,
+    scanned: String,
+) -> Result<ScannedPairingOutput, HostedErrorOutput> {
+    let setup = state.hosted.current()?;
+    let request = setup.complete_pairing(&scanned)?;
+    let shown = ScannedPairingOutput::from(&request);
+    state.hosted.hold_scan(request);
+    Ok(shown)
+}
+
+/// The confirm step: seals this device's vault key to the held scan and posts
+/// it to the relay. The only call that sends a vault key anywhere.
+#[tauri::command]
+pub async fn e2ee_hosted_confirm_pairing(
+    state: State<'_, AppState>,
+) -> Result<(), HostedErrorOutput> {
+    let setup = state.hosted.current()?;
+    let request = state.hosted.held_scan()?;
+    let sent = setup.confirm_pairing(&request).await;
+    // One key per pairing either way: a delivered scan has nothing left to
+    // send, and a refused one must not be retried from a stale sheet.
+    state.hosted.forget_scan();
+    sent.map_err(Into::into)
+}
+
+/// Waits on the **new** device for the other one to answer, then keeps the
+/// key. `paired` means the vault is unlocked and `e2ee_hosted_current_step`
+/// answers `ready`. `e2ee_hosted_cancel_wait` ends it.
+#[tauri::command]
+pub async fn e2ee_hosted_await_pairing(
+    state: State<'_, AppState>,
+) -> Result<PairingOutcomeOutput, HostedErrorOutput> {
+    let setup = state.hosted.current()?;
+    setup
+        .await_pairing()
+        .await
+        .map(Into::into)
+        .map_err(Into::into)
+}
+
 /// One action: revoke the session, forget both secrets, and demote this
 /// vault's sync state exactly as `e2ee_disconnect` does. The notes stay.
 ///
@@ -308,5 +400,54 @@ mod tests {
             state.current().expect("an attempt").server_url(),
             "https://two.example"
         );
+    }
+
+    /// Confirming without having scanned anything has nothing to post, and is
+    /// refused rather than reaching the relay with whatever was last there.
+    #[test]
+    fn confirming_before_a_scan_has_nothing_to_send() {
+        let state = HostedSetupState::default();
+        assert!(matches!(
+            state.held_scan().err(),
+            Some(HostedErrorOutput::PairingNotStarted)
+        ));
+    }
+
+    /// A scan is held for exactly one confirmation. Pointing the camera
+    /// somewhere else replaces it, and a confirmation spends it — so a stale
+    /// sheet cannot re-post a vault key.
+    #[test]
+    fn a_held_scan_is_replaced_by_the_next_one_and_spent_by_a_confirm() {
+        let state = HostedSetupState::default();
+        let setup = HostedSetup::at("https://pairing.example").expect("setup");
+        let code = |name: &str| {
+            format!(
+                concat!(
+                    r#"{{"futo_notes_pairing":1,"id":"pairing-1","#,
+                    r#""public_key":"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc","#,
+                    r#""device_name":"{}","platform":"desktop"}}"#,
+                ),
+                name
+            )
+        };
+
+        state.hold_scan(
+            setup
+                .complete_pairing(&code("Kitchen laptop"))
+                .expect("scan"),
+        );
+        assert_eq!(
+            state.held_scan().expect("held").device_name(),
+            "Kitchen laptop"
+        );
+
+        state.hold_scan(setup.complete_pairing(&code("Studio iMac")).expect("scan"));
+        assert_eq!(
+            state.held_scan().expect("held").device_name(),
+            "Studio iMac"
+        );
+
+        state.forget_scan();
+        assert!(state.held_scan().is_err());
     }
 }

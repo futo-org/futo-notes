@@ -78,7 +78,32 @@ export type HostedErrorOutput =
  */
 { kind: "recoveryKeyTypo" } | { kind: "wrongRecoveryKey" } | { kind: "noRecoveryKey" } | 
 // The OS secret store refused; nothing was kept.
-{ kind: "secretStore"; reason: string } | { kind: "crypto"; reason: string };
+{ kind: "secretStore"; reason: string } | { kind: "crypto"; reason: string } | 
+/**
+ *  What was scanned is not a FUTO Notes pairing code. Caught on the
+ *  device, with nothing sent.
+ */
+{ kind: "pairingCodeInvalid" } | 
+/**
+ *  The relay will not serve this pairing — unknown, expired, already
+ *  collected, or another account's. The server answers all four alike, so
+ *  neither does this.
+ */
+{ kind: "pairingRefused" } | 
+/**
+ *  A key has already been posted to this pairing. Not retryable; show a
+ *  new code.
+ */
+{ kind: "pairingAlreadyKeyed" } | 
+// The pairing window closed with no key delivered.
+{ kind: "pairingExpired" } | 
+/**
+ *  No pairing in flight: no code being shown, and no scanned code waiting
+ *  on a confirmation. A step ran out of order; nothing was sent.
+ */
+{ kind: "pairingNotStarted" } | 
+// A locked device cannot hand the vault key to another one.
+{ kind: "vaultLocked" };
 
 export type HostedSessionOutput = {
 	userId: string,
@@ -108,9 +133,40 @@ export type OpenNoteRequestInput = {
 	editedDuringCycle: boolean,
 };
 
+// What the new device shows. `payload` is the string to draw as a QR code.
+export type PairingCodeOutput = {
+	payload: string,
+	// RFC 3339, five minutes from when the code was opened.
+	expiresAt: string,
+};
+
+/**
+ *  How waiting for the other device ended. An expired or refused pairing is an
+ *  error instead, because each is something to tell the person.
+ */
+export type PairingOutcomeOutput = 
+// The key arrived and is kept. This device is unlocked.
+{ kind: "paired" } | 
+// The pairing screen was left. Nothing was kept.
+{ kind: "cancelled" };
+
 export type RenamePair = {
 	fromId: string,
 	toId: string,
+};
+
+/**
+ *  What a scanned code says, for the confirmation sheet — and **only** that.
+ * 
+ *  The pairing id and the public key stay in Rust: the frontend reads the name
+ *  here and calls `e2ee_hosted_confirm_pairing`, which acts on the scan Rust
+ *  is holding. Nothing the frontend can send reaches the relay, so a wrong
+ *  scan has nothing to post (parent spec user story 16).
+ */
+export type ScannedPairingOutput = {
+	deviceName: string,
+	// `ios`, `android`, or `desktop`.
+	platform: string,
 };
 
 /**

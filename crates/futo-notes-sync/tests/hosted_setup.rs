@@ -40,4 +40,16 @@ against_the_stub! {
     a_second_device_unlocks_with_the_recovery_key,
     quitting_mid_wizard_resumes_at_the_right_step,
     signing_out_forgets_the_key_the_token_and_the_live_state,
+    pairing_hands_the_vault_key_to_a_new_device,
+    a_scanned_code_sends_nothing_until_the_person_confirms,
+    a_scan_that_is_not_a_pairing_code_sends_nothing,
+    a_pairing_this_account_cannot_reach_is_refused,
+    a_pairing_can_only_be_answered_once,
+    collecting_the_key_spends_the_pairing,
+    leaving_the_pairing_screen_cancels_the_wait,
+    // Stub-only: a stand-in server has one identity and a fixed five-minute
+    // window, so neither of these can be reached against one. Everything else
+    // about pairing runs both ways.
+    an_expired_pairing_code_is_its_own_error,
+    another_accounts_live_pairing_is_refused,
 }

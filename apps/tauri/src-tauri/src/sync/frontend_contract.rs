@@ -396,6 +396,62 @@ impl From<futo_notes_sync::EntitlementOutcome> for EntitlementOutcomeOutput {
     }
 }
 
+/// What the new device shows. `payload` is the string to draw as a QR code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PairingCodeOutput {
+    pub(crate) payload: String,
+    /// RFC 3339, five minutes from when the code was opened.
+    pub(crate) expires_at: String,
+}
+
+/// What a scanned code says, for the confirmation sheet — and **only** that.
+///
+/// The pairing id and the public key stay in Rust: the frontend reads the name
+/// here and calls `e2ee_hosted_confirm_pairing`, which acts on the scan Rust
+/// is holding. Nothing the frontend can send reaches the relay, so a wrong
+/// scan has nothing to post (parent spec user story 16).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ScannedPairingOutput {
+    pub(crate) device_name: String,
+    /// `ios`, `android`, or `desktop`.
+    pub(crate) platform: String,
+}
+
+impl From<&futo_notes_sync::PairingRequest> for ScannedPairingOutput {
+    fn from(request: &futo_notes_sync::PairingRequest) -> Self {
+        Self {
+            device_name: request.device_name().to_owned(),
+            platform: request.platform().to_owned(),
+        }
+    }
+}
+
+/// How waiting for the other device ended. An expired or refused pairing is an
+/// error instead, because each is something to tell the person.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum PairingOutcomeOutput {
+    /// The key arrived and is kept. This device is unlocked.
+    Paired,
+    /// The pairing screen was left. Nothing was kept.
+    Cancelled,
+}
+
+impl From<futo_notes_sync::PairingOutcome> for PairingOutcomeOutput {
+    fn from(outcome: futo_notes_sync::PairingOutcome) -> Self {
+        use futo_notes_sync::PairingOutcome;
+        match outcome {
+            PairingOutcome::Paired => Self::Paired,
+            PairingOutcome::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
 /// Why a hosted step failed, as a variant rather than a sentence: each one is
 /// a different thing for a person to do about it, and `signInAgain` in
 /// particular must never be rendered as a broken vault. The sentence-carrying
@@ -447,6 +503,23 @@ pub(crate) enum HostedErrorOutput {
     Crypto {
         reason: String,
     },
+    /// What was scanned is not a FUTO Notes pairing code. Caught on the
+    /// device, with nothing sent.
+    PairingCodeInvalid,
+    /// The relay will not serve this pairing — unknown, expired, already
+    /// collected, or another account's. The server answers all four alike, so
+    /// neither does this.
+    PairingRefused,
+    /// A key has already been posted to this pairing. Not retryable; show a
+    /// new code.
+    PairingAlreadyKeyed,
+    /// The pairing window closed with no key delivered.
+    PairingExpired,
+    /// No pairing in flight: no code being shown, and no scanned code waiting
+    /// on a confirmation. A step ran out of order; nothing was sent.
+    PairingNotStarted,
+    /// A locked device cannot hand the vault key to another one.
+    VaultLocked,
 }
 
 /// Which screen the hosted wizard is on, derived from server facts and this
@@ -502,6 +575,12 @@ impl From<futo_notes_sync::HostedError> for HostedErrorOutput {
             HostedError::NoRecoveryKey => Self::NoRecoveryKey,
             HostedError::SecretStore(reason) => Self::SecretStore { reason },
             HostedError::Crypto(reason) => Self::Crypto { reason },
+            HostedError::PairingCodeInvalid => Self::PairingCodeInvalid,
+            HostedError::PairingRefused => Self::PairingRefused,
+            HostedError::PairingAlreadyKeyed => Self::PairingAlreadyKeyed,
+            HostedError::PairingExpired => Self::PairingExpired,
+            HostedError::PairingNotStarted => Self::PairingNotStarted,
+            HostedError::VaultLocked => Self::VaultLocked,
         }
     }
 }
@@ -541,6 +620,9 @@ mod tests {
             .register::<CheckoutOutput>()
             .register::<EntitlementOutcomeOutput>()
             .register::<SetupStepOutput>()
+            .register::<PairingCodeOutput>()
+            .register::<ScannedPairingOutput>()
+            .register::<PairingOutcomeOutput>()
             .register::<HostedErrorOutput>();
 
         Typescript::default()

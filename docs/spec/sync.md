@@ -705,8 +705,42 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   → `hosted/vault.rs` `unlock_with_recovery_key`, UnlockStep.svelte _(desktop)_,
   UnlockStepView.swift _(iOS)_, UnlockStep.kt _(Android)_
   > **Gap:** the scan door is a placeholder on every shell: it names itself and
-  > says pairing is not available yet rather than doing nothing. Pairing lands in
-  > futo-notes#180 (Rust) and #181/#182/#183 (the shells).
+  > says pairing is not available yet rather than doing nothing. The Rust engine
+  > behind it landed in futo-notes#180 (below); the shells — QR rendering,
+  > camera, and the confirmation sheet — are #181/#182/#183.
+- **QR pairing moves the vault key between two devices, new-device-shows.** The
+  new device opens a pairing on the server's account-scoped relay and shows a
+  code carrying the pairing id, a **one-time X25519 public key**, and its own
+  name and platform; the unlocked device scans it, confirms, seals the vault key
+  to that public key, and posts the ciphertext; the new device collects it,
+  opens it, and keeps the key — after which it is indistinguishable from a
+  device set up by password. The private half of the one-time key never leaves
+  the new device: it lives only in memory for the life of the code and is never
+  returned across the FFI or Tauri boundary.
+  → `hosted/pairing.rs` `begin_pairing` / `await_pairing`, `e2ee/sealed_box.rs`
+- **A wrong scan sends nothing, structurally.** Reading a scanned code parses and
+  returns the device name for the confirmation sheet; it touches no network, no
+  secret store, and no vault key. Sealing and posting happen only in the confirm
+  step, which takes the parsed scan a shell cannot fabricate — on desktop Rust
+  holds it and the frontend never sees the pairing id or public key at all.
+  → `hosted/pairing.rs` `complete_pairing` / `confirm_pairing`
+- **A pairing lives five minutes from creation and is collected exactly once.**
+  The collecting poll deletes it, so a second poll is not a replay. Waiting past
+  the window is `pairingExpired` — which is also what a declined confirmation
+  looks like from the waiting device, because declining sends nothing. A relay
+  that will not serve the pairing is `pairingRefused`, one answer for unknown,
+  expired, already collected, and another account's, because the server answers
+  all four identically so a pairing id cannot be probed from another account. A
+  second key posted to one's own pairing is `pairingAlreadyKeyed` and is never
+  retried: a sealed box is nondeterministic, so a repeat is new bytes the server
+  cannot match. → server ADR 0008,
+  `tests/hosted_scenarios/mod.rs` (`pairing_hands_the_vault_key_to_a_new_device`,
+  `a_scanned_code_sends_nothing_until_the_person_confirms`,
+  `collecting_the_key_spends_the_pairing`,
+  `a_pairing_this_account_cannot_reach_is_refused`,
+  `a_pairing_can_only_be_answered_once`,
+  `an_expired_pairing_code_is_its_own_error`,
+  `another_accounts_live_pairing_is_refused`)
 - **The account card reads one billing endpoint** and shows the email, the
   subscription state in words ("Active", "Payment failed. In 4 days, sync
   pauses.", "Expired"), storage used against the quota, "Manage subscription",

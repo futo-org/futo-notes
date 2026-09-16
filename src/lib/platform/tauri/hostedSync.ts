@@ -19,6 +19,9 @@ import type {
   CheckoutOutput,
   EntitlementOutcomeOutput,
   HostedSessionOutput,
+  PairingCodeOutput,
+  PairingOutcomeOutput,
+  ScannedPairingOutput,
   SetupStepOutput,
   SignInFlowOutput,
   SignInHandoffOutput,
@@ -30,6 +33,9 @@ export type {
   CheckoutOutput,
   EntitlementOutcomeOutput,
   HostedSessionOutput,
+  PairingCodeOutput,
+  PairingOutcomeOutput,
+  ScannedPairingOutput,
   SetupStepOutput,
   SignInFlowOutput,
   SignInHandoffOutput,
@@ -111,6 +117,42 @@ export function unlockWithVaultPassword(vaultPassword: string): Promise<void> {
 
 export function unlockWithRecoveryKey(typed: string): Promise<void> {
   return invoke<void>('e2ee_hosted_unlock_with_recovery_key', { typed });
+}
+
+/**
+ * Opens a pairing and returns the code for this device to show as a QR.
+ *
+ * Called on the **new** device — the one with no vault key. Start
+ * `awaitPairing()` as soon as the code is on screen. The one-time keypair's
+ * private half never leaves Rust.
+ */
+export function beginPairing(deviceName: string): Promise<PairingCodeOutput> {
+  return invoke<PairingCodeOutput>('e2ee_hosted_begin_pairing', { deviceName });
+}
+
+/**
+ * Reads a scanned pairing code, on the **unlocked** device. Parsing only:
+ * nothing is sent and no vault key is touched, so a wrong scan costs a message.
+ *
+ * Rust keeps the scan. What comes back is the name for the confirmation sheet
+ * and nothing else — there is no pairing id or public key on this side to post
+ * a vault key to, which is what makes the sheet a real gate.
+ */
+export function completePairing(scanned: string): Promise<ScannedPairingOutput> {
+  return invoke<ScannedPairingOutput>('e2ee_hosted_complete_pairing', { scanned });
+}
+
+/** The confirm step: seals the vault key to the held scan and posts it. */
+export function confirmPairing(): Promise<void> {
+  return invoke<void>('e2ee_hosted_confirm_pairing');
+}
+
+/**
+ * Waits on the **new** device for the other one to answer, then keeps the key.
+ * `paired` means the vault is unlocked; `cancelHostedWait()` ends the wait.
+ */
+export function awaitPairing(): Promise<PairingOutcomeOutput> {
+  return invoke<PairingOutcomeOutput>('e2ee_hosted_await_pairing');
 }
 
 /** Revokes the session, forgets key and token, and demotes sync state. */

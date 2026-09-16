@@ -25,6 +25,12 @@ const EVERY_VARIANT: HostedErrorOutput[] = [
   { kind: 'noRecoveryKey' },
   { kind: 'secretStore', reason: 'no secret service' },
   { kind: 'crypto', reason: 'unsupported kdf' },
+  { kind: 'pairingCodeInvalid' },
+  { kind: 'pairingRefused' },
+  { kind: 'pairingAlreadyKeyed' },
+  { kind: 'pairingExpired' },
+  { kind: 'pairingNotStarted' },
+  { kind: 'vaultLocked' },
 ];
 
 describe('hostedErrorMessage', () => {
@@ -35,6 +41,13 @@ describe('hostedErrorMessage', () => {
       expect(text, variant.kind).not.toMatch(/^sync\./);
       expect(text.length, variant.kind).toBeGreaterThan(0);
     }
+  });
+
+  it('tells an expired pairing code apart from one somebody else answered', () => {
+    const expired = resolveLocalizedMessage(hostedErrorMessage({ kind: 'pairingExpired' }));
+    const answered = resolveLocalizedMessage(hostedErrorMessage({ kind: 'pairingAlreadyKeyed' }));
+    const notOurs = resolveLocalizedMessage(hostedErrorMessage({ kind: 'pairingRefused' }));
+    expect(new Set([expired, answered, notOurs]).size).toBe(3);
   });
 
   it('reports an expired session as sign in again, never as a lost vault', () => {

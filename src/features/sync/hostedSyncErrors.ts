@@ -56,6 +56,18 @@ export function hostedErrorMessage(error: unknown): LocalizedMessage {
       return { path: 'sync.hosted.errors.secretStore' };
     case 'crypto':
       return { path: 'sync.hosted.errors.crypto' };
+    case 'pairingCodeInvalid':
+      return { path: 'sync.hosted.errors.pairingCodeInvalid' };
+    case 'pairingRefused':
+      return { path: 'sync.hosted.errors.pairingRefused' };
+    case 'pairingAlreadyKeyed':
+      return { path: 'sync.hosted.errors.pairingAlreadyKeyed' };
+    case 'pairingExpired':
+      return { path: 'sync.hosted.errors.pairingExpired' };
+    case 'pairingNotStarted':
+      return { path: 'sync.hosted.errors.pairingNotStarted' };
+    case 'vaultLocked':
+      return { path: 'sync.hosted.errors.vaultLocked' };
   }
 }
 

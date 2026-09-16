@@ -11,6 +11,7 @@
 
 use reqwest::Method;
 use serde::Deserialize;
+use serde_json::json;
 
 use super::{transport_error, Http, HttpError, PROBE_TIMEOUT};
 use crate::hosted::{BillingStatus, Checkout, HostedError, HostedSession, SignInHandoff};
@@ -243,6 +244,103 @@ impl Http {
                 .await?
                 .url,
         )
+    }
+}
+
+/// What `POST /api/pairings` answered: the id the QR code carries, and when
+/// the relay stops serving it.
+pub(crate) struct CreatedPairing {
+    pub id: String,
+    pub expires_at: String,
+}
+
+/// One poll of a pairing by the device waiting for the key.
+pub(crate) enum PairingPoll {
+    /// Nothing has been posted yet.
+    Pending,
+    /// The sealed vault key — served exactly once, because the poll that
+    /// returns it deletes the pairing in the same transaction.
+    Delivered(String),
+    /// Unknown, expired, already collected, or another account's. The relay
+    /// answers all four with one identical body on purpose, so that a pairing
+    /// id cannot be probed for existence from another account (server ADR
+    /// 0008); nothing here pretends to tell them apart.
+    Gone,
+}
+
+impl Http {
+    /// `POST /api/pairings` — the new device publishes its one-time public
+    /// key. Not gated on entitlement: someone whose subscription lapsed still
+    /// has to be able to set up a device to read what they already stored.
+    pub(crate) async fn create_pairing(
+        &self,
+        public_key: &str,
+        device_name: &str,
+        platform: &str,
+    ) -> Result<CreatedPairing, HostedError> {
+        #[derive(Deserialize)]
+        struct Body {
+            id: String,
+            expires_at: String,
+        }
+        let body = json::<Body>(self.request(Method::POST, "/api/pairings").json(&json!({
+            "public_key": public_key,
+            "device_name": device_name,
+            "platform": platform,
+        })))
+        .await?;
+        Ok(CreatedPairing {
+            id: body.id,
+            expires_at: body.expires_at,
+        })
+    }
+
+    /// `POST /api/pairings/{id}/key` — the unlocked device posts the sealed
+    /// vault key.
+    ///
+    /// A `409` is not retryable and is never turned into one: a sealed box is
+    /// nondeterministic, so a repeated post carries different bytes and the
+    /// server has nothing to match it against. A client that cannot tell
+    /// whether its post landed starts a new pairing.
+    pub(crate) async fn deliver_pairing_key(
+        &self,
+        id: &str,
+        ciphertext: &str,
+    ) -> Result<(), HostedError> {
+        let path = format!("/api/pairings/{}/key", urlencoding(id));
+        let response = send(
+            self.request(Method::POST, &path)
+                .json(&json!({ "ciphertext": ciphertext })),
+        )
+        .await?;
+        match response.status().as_u16() {
+            404 => Err(HostedError::PairingRefused),
+            409 => Err(HostedError::PairingAlreadyKeyed),
+            status if (200..300).contains(&status) => Ok(()),
+            _ => Err(refusal(response).await),
+        }
+    }
+
+    /// `GET /api/pairings/{id}` — the new device collects the key, once.
+    pub(crate) async fn collect_pairing(&self, id: &str) -> Result<PairingPoll, HostedError> {
+        #[derive(Deserialize)]
+        struct Body {
+            ciphertext: String,
+        }
+        let path = format!("/api/pairings/{}", urlencoding(id));
+        let response = send(self.request(Method::GET, &path)).await?;
+        match response.status().as_u16() {
+            202 => Ok(PairingPoll::Pending),
+            404 => Ok(PairingPoll::Gone),
+            status if (200..300).contains(&status) => {
+                let body: Body = response
+                    .json()
+                    .await
+                    .map_err(|error| HostedError::Server(transport_error(error).message))?;
+                Ok(PairingPoll::Delivered(body.ciphertext))
+            }
+            _ => Err(refusal(response).await),
+        }
     }
 }
 

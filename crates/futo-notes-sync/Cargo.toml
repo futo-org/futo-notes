@@ -26,6 +26,10 @@ wiremock = "0.6"
 # jar is the difference between signing in and `missing oidc flow cookie`.
 # Dev-only under resolver 2, so the shipped client keeps its current features.
 reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls", "cookies"] }
+# The hosted stub mints pairing expiries the way the relay does, which means
+# writing RFC 3339. The client only ever parses one, so `formatting` stays
+# dev-only for the same reason the cookie jar does.
+time = { version = "0.3", features = ["formatting"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }
