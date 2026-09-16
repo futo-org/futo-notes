@@ -288,7 +288,14 @@ build_macos_internal_task:
     - rustup target add aarch64-apple-darwin x86_64-apple-darwin
     - cargo install tauri-cli --locked
 
-    - VERSION="${CI_COMMIT_TAG#v}"
+    # Tag builds derive the version from the tag; MR rehearsal builds have no
+    # tag, so fall back to 0.0.0 (same fallback build:windows uses in
+    # .gitlab-ci.yml) rather than passing desktop-version.mjs an empty string.
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      if [ -z "$VERSION" ]; then
+        VERSION="0.0.0"
+      fi
     - echo "Building internal macOS version $VERSION (hosted sync ON, staging server)"
 
     - pnpm install --frozen-lockfile
