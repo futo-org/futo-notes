@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { LicenseView } from '$lib/platform/license';
 
-import { licenseAmbientLabel, licenseRowText } from './licenseCopy';
+import { licenseAmbientLabel, licenseCardModel } from './licenseCopy';
 
 // Mid-year, midday UTC: the *year* these render is the same in every time zone,
 // so the assertions below cannot flake on the runner's TZ. Assertions that would
@@ -10,91 +10,155 @@ import { licenseAmbientLabel, licenseRowText } from './licenseCopy';
 const ISSUED = '2026-06-15T12:00:00Z';
 const EXPIRES = '2029-06-15T12:00:00Z';
 
-const unlicensed: LicenseView = { state: 'unlicensed', issuedAt: null, expiresAt: null };
-const licensed: LicenseView = { state: 'licensed', issuedAt: ISSUED, expiresAt: EXPIRES };
-const expired: LicenseView = { state: 'expired', issuedAt: ISSUED, expiresAt: EXPIRES };
+// Eight hyphenated groups of four, from the key alphabet (no I, L, O or 0), in
+// the normalized form the Rust crate stores and hands over: trimmed, uppercase.
+const KEY = 'AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV';
+const MASKED = '···· ···· ···· ···· ···· ···· ···· 6UJV';
+
+const unlicensed: LicenseView = {
+  state: 'unlicensed',
+  issuedAt: null,
+  expiresAt: null,
+  key: null,
+};
+const licensed: LicenseView = {
+  state: 'licensed',
+  issuedAt: ISSUED,
+  expiresAt: EXPIRES,
+  key: KEY,
+};
+const expired: LicenseView = { state: 'expired', issuedAt: ISSUED, expiresAt: EXPIRES, key: KEY };
 // What a v1 activation produces: Licensed, with no purchase time and no expiry
 // — the format carries neither, and neither may be invented (issue #161).
-const licensedV1: LicenseView = { state: 'licensed', issuedAt: null, expiresAt: null };
+const licensedV1: LicenseView = {
+  state: 'licensed',
+  issuedAt: null,
+  expiresAt: null,
+  key: KEY,
+};
 
 describe('the ambient label', () => {
   it('reads Unlicensed with no license', () => {
     expect(licenseAmbientLabel(unlicensed)).toBe('Unlicensed');
   });
 
-  it('reads Supporter since the purchase year once licensed', () => {
-    expect(licenseAmbientLabel(licensed)).toBe('Supporter since 2026');
+  // The full localized date, never a bare year (decision D3): the line the
+  // footer shows is the same sentence the card's since row is titled with.
+  it('reads Licensed since the purchase date once licensed', () => {
+    const label = licenseAmbientLabel(licensed);
+
+    expect(label).toContain('Licensed since');
+    expect(label).toContain('2026');
+    expect(label).not.toBe('Licensed since 2026');
+    expect(label).not.toContain('NaN');
   });
 
   // The ambient label is the thing a purchase removes — and an expired license
-  // no longer removes it. Showing "Supporter since" here would mean an expired
+  // no longer removes it. Showing "Licensed since" here would mean an expired
   // license looks exactly like a current one everywhere outside Settings.
   it('goes back to Unlicensed when the license has expired', () => {
     expect(licenseAmbientLabel(expired)).toBe('Unlicensed');
   });
 
-  // A v1 license has no year, and there is no yearless "Supporter since"
-  // variant to fall back to. `null` means the footer renders the version alone
-  // — dropping "Unlicensed" is the whole visible reward, and that still happens.
-  it('has nothing to show when a license carries no purchase year', () => {
+  // A v1 license has no date, and there is no dateless "Licensed since"
+  // variant to fall back to. `null` means the footer renders nothing at all —
+  // dropping "Unlicensed" is the whole visible reward, and that still happens.
+  it('has nothing to show when a license carries no purchase date', () => {
     expect(licenseAmbientLabel(licensedV1)).toBeNull();
     expect(licenseAmbientLabel(licensedV1)).not.toBe('Unlicensed');
   });
 });
 
-describe('the License row', () => {
-  it('reads Unlicensed with no license', () => {
-    expect(licenseRowText(unlicensed)).toBe('Unlicensed');
+describe('the license card', () => {
+  it('shows the Unlicensed badge and no license of any kind with no license', () => {
+    const card = licenseCardModel(unlicensed);
+
+    expect(card.status).toBe('unlicensed');
+    expect(card.badge).toBe('Unlicensed');
+    expect(card.since).toBeNull();
+    expect(card.term).toBe('');
+    expect(card.maskedKey).toBeNull();
   });
 
-  it('names the purchase year and the expiry when licensed', () => {
-    const row = licenseRowText(licensed);
+  it('names the purchase date and the expiry when licensed', () => {
+    const card = licenseCardModel(licensed);
 
-    expect(row).toContain('Licensed');
-    expect(row).toContain('Supporter since 2026');
-    expect(row).toContain('Valid until');
-    expect(row).toContain('2029');
+    expect(card.status).toBe('licensed');
+    // Licensed is the state with no badge: the coin in the well says it.
+    expect(card.badge).toBeNull();
+    expect(card.since).toContain('2026');
+    expect(card.since).not.toBe('2026');
+    expect(card.term).toContain('Valid until');
+    expect(card.term).toContain('2029');
+    expect(card.maskedKey).toBe(MASKED);
   });
 
-  // A perpetual product has no expiry, and the row must not invent one — an
+  // A perpetual product has no expiry, and the term must not invent one — an
   // empty or "Invalid Date" tail would be worse than saying nothing.
-  it('omits the expiry entirely for a perpetual license', () => {
-    const row = licenseRowText({ state: 'licensed', issuedAt: ISSUED, expiresAt: null });
+  it('reads a license with no expiry as Perpetual', () => {
+    const card = licenseCardModel({ ...licensed, expiresAt: null });
 
-    expect(row).toBe('Licensed · Supporter since 2026');
-    expect(row).not.toContain('Valid until');
+    expect(card.term).toBe('Perpetual');
+    expect(card.since).toContain('2026');
+    expect(card.term).not.toContain('Valid until');
   });
 
-  // An expired license is kept on the device and still says "Supporter since":
-  // the user did pay, and the row is the only place that stays true to it.
-  it('still credits the supporter when expired', () => {
-    const row = licenseRowText(expired);
+  // The v1 reality (decision D2): production mints activations with no
+  // `issued_at`, so the since row is present and blank. No stand-in, no fetch
+  // time, no current year — and the state is still unmistakably Licensed.
+  it('leaves the since row blank for a v1 license and calls the term perpetual', () => {
+    const card = licenseCardModel(licensedV1);
 
-    expect(row).toContain('License expired');
-    expect(row).toContain('Supporter since 2026');
+    expect(card.status).toBe('licensed');
+    expect(card.since).toBeNull();
+    expect(card.term).toBe('Perpetual');
+    expect(card.maskedKey).toBe(MASKED);
+    expect(card.badge).toBeNull();
+    // Nothing was substituted for the missing date — not this year, not any.
+    expect(JSON.stringify(card)).not.toContain(String(new Date().getFullYear()));
   });
 
-  // A v1 license is licensed and says so — but it knows no year, so the whole
-  // "Supporter since" clause goes rather than gaining a placeholder.
-  it('reads as licensed with no since-clause when there is no purchase year', () => {
-    const row = licenseRowText(licensedV1);
+  // An expired license is kept on the device and still says when it was bought:
+  // the user did pay, and the card is the only place that stays true to it.
+  it('badges an expired license and dates its term', () => {
+    const card = licenseCardModel(expired);
 
-    expect(row).toBe('Licensed');
-    expect(row).not.toContain('Supporter since');
-    expect(row).not.toContain('Valid until');
-    expect(row).not.toContain('NaN');
-    expect(row).not.toBe('Unlicensed');
+    expect(card.status).toBe('expired');
+    expect(card.badge).toBe('Expired');
+    expect(card.since).toContain('2026');
+    expect(card.term).toContain('Expired');
+    expect(card.term).toContain('2029');
+    expect(card.maskedKey).toBe(MASKED);
   });
 
   // Defensive: an Expired state can only come from a v2 activation whose
   // expiry passed, so it always has both dates. One arriving without them must
-  // fall back rather than render "Supporter since NaN".
+  // fall back to the whole Unlicensed card rather than render "since NaN".
   it('falls back to Unlicensed when an expired state arrives without its dates', () => {
-    expect(licenseRowText({ state: 'expired', issuedAt: ISSUED, expiresAt: null })).toBe(
-      'Unlicensed',
-    );
-    expect(licenseRowText({ state: 'expired', issuedAt: null, expiresAt: EXPIRES })).toBe(
-      'Unlicensed',
-    );
+    for (const view of [
+      { ...expired, expiresAt: null },
+      { ...expired, issuedAt: null },
+    ]) {
+      const card = licenseCardModel(view);
+
+      expect(card.status).toBe('unlicensed');
+      expect(card.badge).toBe('Unlicensed');
+      expect(card.since).toBeNull();
+      expect(card.term).toBe('');
+      expect(card.maskedKey).toBeNull();
+    }
+  });
+
+  // The whole point of the mask: seven groups of dots and the real last group,
+  // so a support conversation can name a key without the screen showing it.
+  it('masks every group of the key but the last', () => {
+    const masked = licenseCardModel(licensed).maskedKey ?? '';
+
+    expect(masked).toBe(MASKED);
+    expect(masked.endsWith('6UJV')).toBe(true);
+    expect(masked).not.toContain('AB12');
+    expect(masked).not.toContain('RS3T');
+    // The dots stand in for the key's own groups, not for its separators.
+    expect(masked.split(' ')).toHaveLength(8);
   });
 });

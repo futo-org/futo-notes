@@ -3,13 +3,14 @@ package com.futo.notes.license
 import com.futo.notes.localization.Localization
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.futo_notes_ffi.LicenseStatus
 import uniffi.futo_notes_ffi.LicenseView
 
 /**
- * How each license state reads on the row. Instrumented because the dates go
+ * How each license state reads on the card. Instrumented because the dates go
  * through Android's ICU, which a JVM unit test does not have. Mirrors iOS
  * `LicenseCopyTests` and desktop `licenseCopy.test.ts`.
  */
@@ -20,59 +21,128 @@ class LicenseCopyTest {
     private val issuedAt = 1_768_473_000_000L
     private val expiresAt = 1_863_138_600_000L
 
-    @Test
-    fun unlicensedIsTheAmbientLabel() {
-        val text = licenseRowText(LicenseView(LicenseStatus.UNLICENSED, null, null), localization)
+    // Eight hyphenated groups of four from the key alphabet (no I, L, O or 0),
+    // in the normalized form the Rust crate stores and hands over.
+    private val key = "AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV"
+    private val masked = "···· ···· ···· ···· ···· ···· ···· 6UJV"
 
-        assertEquals("Unlicensed", text)
+    private fun view(
+        status: LicenseStatus,
+        issued: Long?,
+        expires: Long?,
+        storedKey: String? = key,
+    ) = LicenseView(status, issued, expires, if (status == LicenseStatus.UNLICENSED) null else storedKey)
+
+    @Test
+    fun unlicensedIsBadgedAndCarriesNothingElse() {
+        val card = licenseCardModel(view(LicenseStatus.UNLICENSED, null, null), localization)
+
+        assertEquals(LicenseStatus.UNLICENSED, card.status)
+        assertEquals("Unlicensed", card.badge)
+        assertNull(card.since)
+        assertEquals("", card.term)
+        assertNull(card.maskedKey)
     }
 
     @Test
-    fun licensedNamesTheSupporterYearAndTheExpiry() {
-        val text =
-            licenseRowText(LicenseView(LicenseStatus.LICENSED, issuedAt, expiresAt), localization)
+    fun licensedNamesThePurchaseDateAndTheExpiry() {
+        val card = licenseCardModel(view(LicenseStatus.LICENSED, issuedAt, expiresAt), localization)
+        val since = card.since!!
 
-        assertTrue(text, text.startsWith("Licensed · Supporter since 2026 · Valid until "))
-        assertTrue(text, text.contains("2029"))
-        // A year is a date field, not a number: "2,026" would mean the copy went
-        // through the number formatter.
-        assertFalse(text, text.contains("2,026"))
+        assertEquals(LicenseStatus.LICENSED, card.status)
+        // Licensed is the state with no badge: the coin in the well says it.
+        assertNull(card.badge)
+        assertTrue(since, since.contains("2026"))
+        // The full date, never a bare year (decision D3).
+        assertFalse(since, since == "2026")
+        // A year is a date field, not a number: "2,026" would mean the copy
+        // went through the number formatter.
+        assertFalse(since, since.contains("2,026"))
+        assertTrue(card.term, card.term.startsWith("Valid until "))
+        assertTrue(card.term, card.term.contains("2029"))
+        assertEquals(masked, card.maskedKey)
     }
 
-    /** A perpetual product has no expiry, and the row drops the clause rather
-     *  than inventing a date. */
+    /** A perpetual product has no expiry, and the term drops the date rather
+     *  than inventing one. */
     @Test
-    fun omitsTheExpiryEntirelyForAPerpetualLicense() {
-        val text =
-            licenseRowText(LicenseView(LicenseStatus.LICENSED, issuedAt, null), localization)
+    fun aLicenseWithNoExpiryReadsAsPerpetual() {
+        val card = licenseCardModel(view(LicenseStatus.LICENSED, issuedAt, null), localization)
+        val since = card.since!!
 
-        assertEquals("Licensed · Supporter since 2026", text)
+        assertEquals("Perpetual", card.term)
+        assertTrue(since, since.contains("2026"))
     }
 
     /**
-     * The v1 reversal on this surface: still unmistakably the licensed state,
-     * with the "Supporter since" clause simply gone. No yearless variant, no
-     * placeholder year, and emphatically not the Unlicensed copy.
+     * The v1 reality on this surface (decision D2): the since row is present
+     * and blank. No dateless variant, no placeholder, no fetch time — and the
+     * state is still unmistakably Licensed.
      */
     @Test
-    fun aLicenseWithNoPurchaseYearDropsTheSinceClause() {
-        val text = licenseRowText(LicenseView(LicenseStatus.LICENSED, null, null), localization)
+    fun aLicenseWithNoPurchaseDateLeavesTheSinceRowBlank() {
+        val card = licenseCardModel(view(LicenseStatus.LICENSED, null, null), localization)
 
-        assertEquals("Licensed", text)
-        assertFalse(text, text.contains("Supporter"))
-        assertFalse(text, text.contains("Valid until"))
-        // Nothing was substituted for the missing year — not this year, not any.
-        assertFalse(text, text.contains(localization.localizedYear(System.currentTimeMillis())))
+        assertEquals(LicenseStatus.LICENSED, card.status)
+        assertNull(card.since)
+        assertNull(card.badge)
+        assertEquals("Perpetual", card.term)
+        assertEquals(masked, card.maskedKey)
+        // Nothing was substituted for the missing date — not this year, not any.
+        assertFalse(
+            card.term,
+            card.term.contains(localization.localizedYear(System.currentTimeMillis())),
+        )
     }
 
     /** An expired license still says when it was bought — it is kept on the
-     *  device and still earns "Supporter since". */
+     *  device, and the purchase still happened. */
     @Test
-    fun expiredKeepsTheSupporterYear() {
-        val text =
-            licenseRowText(LicenseView(LicenseStatus.EXPIRED, issuedAt, expiresAt), localization)
+    fun expiredIsBadgedAndDatesItsTerm() {
+        val card = licenseCardModel(view(LicenseStatus.EXPIRED, issuedAt, expiresAt), localization)
+        val since = card.since!!
 
-        assertTrue(text, text.startsWith("License expired "))
-        assertTrue(text, text.endsWith("· Supporter since 2026"))
+        assertEquals(LicenseStatus.EXPIRED, card.status)
+        assertEquals("Expired", card.badge)
+        assertTrue(since, since.contains("2026"))
+        assertTrue(card.term, card.term.startsWith("Expired "))
+        assertTrue(card.term, card.term.contains("2029"))
+        assertEquals(masked, card.maskedKey)
+    }
+
+    /**
+     * Defensive: an Expired state can only come from a v2 activation whose
+     * expiry passed, so it always has both dates. One arriving without them
+     * must fall back to the whole Unlicensed card.
+     */
+    @Test
+    fun anExpiredStateWithoutItsDatesFallsBackToUnlicensed() {
+        val unlicensed =
+            licenseCardModel(view(LicenseStatus.UNLICENSED, null, null), localization)
+
+        assertEquals(
+            unlicensed,
+            licenseCardModel(view(LicenseStatus.EXPIRED, issuedAt, null), localization),
+        )
+        assertEquals(
+            unlicensed,
+            licenseCardModel(view(LicenseStatus.EXPIRED, null, expiresAt), localization),
+        )
+    }
+
+    /** The whole point of the mask: seven groups of dots and the real last
+     *  group, so a support conversation can name a key without the screen
+     *  showing it. */
+    @Test
+    fun theMaskedKeyShowsOnlyTheLastGroup() {
+        val card = licenseCardModel(view(LicenseStatus.LICENSED, issuedAt, expiresAt), localization)
+        val maskedKey = card.maskedKey!!
+
+        assertEquals(masked, maskedKey)
+        assertTrue(maskedKey, maskedKey.endsWith("6UJV"))
+        assertFalse(maskedKey, maskedKey.contains("AB12"))
+        assertFalse(maskedKey, maskedKey.contains("RS3T"))
+        // The dots stand in for the key's own groups, not for its separators.
+        assertEquals(8, maskedKey.split(" ").size)
     }
 }

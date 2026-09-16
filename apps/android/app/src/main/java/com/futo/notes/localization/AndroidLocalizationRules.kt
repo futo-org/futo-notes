@@ -58,7 +58,7 @@ internal object AndroidLocalizationRules {
         DateFormat.getDateInstance(DateFormat.MEDIUM, ULocale.forLanguageTag(languageTag))
             .format(Date(timestampMillis))
 
-    /** The year alone, for "Supporter since {year}".
+    /** The year alone.
      *
      *  A year is a date FIELD, not a number: through `formatNumber` above it
      *  would come out grouped — "2,026" in English — so it goes through the

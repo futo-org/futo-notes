@@ -8,59 +8,112 @@ import uniffi.futo_notes_ffi.LicenseView
 /** The one logcat tag for everything license — `just emu-logs` lists it. */
 internal const val LICENSE_LOG_TAG = "FutoLicense"
 
+/** Four U+00B7 middle dots — one masked group of the key. */
+private const val MASK_GROUP = "····"
+
+/** A key is eight groups; the card shows the last one and masks the rest. */
+private const val MASKED_GROUPS = 7
+private const val LAST_GROUP_LENGTH = 4
+
 /**
- * How a license state reads on the License row. Pure: state in, string out.
+ * What the License card renders, once per state.
  *
- * Presentation only — which catalog entry a state selects and which timestamps
- * it formats. Whether a license *is* licensed, expired or invalid is decided in
- * Rust (`futo-notes-license`, via `licenseEvaluate`) and arrives already
- * judged, so nothing here re-derives it (AGENTS.md M6). Mirrors iOS
- * `LicenseCopy.swift` and desktop `licenseCopy.ts`.
+ * Every field is a finished string for the composable to place: the model
+ * decides nothing about the license itself, and [status] is Rust's answer
+ * carried through (the one exception is the Expired guard, which falls back to
+ * the Unlicensed card rather than rendering a half-built date).
+ *
+ * @property status already judged by Rust; never re-derived here.
+ * @property badge Unlicensed and Expired name themselves; Licensed is said by
+ *   the coin.
+ * @property since the purchase date, or null when the activation carried none
+ *   — the row is present and blank, and nothing is invented to fill it.
+ * @property term "Perpetual", "Valid until {date}" or "Expired {date}"; empty
+ *   when there is no license to have a term.
+ * @property maskedKey the stored key, masked to its last group; null with no
+ *   license.
  */
-fun licenseRowText(view: LicenseView, localization: Localization): String = when (view.status) {
-    LicenseStatus.LICENSED -> {
-        // A v1 activation carries no purchase time, and there is no yearless
-        // "Supporter since" to fall back to: the clause is dropped and the row
-        // is the single word "Licensed" (decision 2026-09-10, issue #161).
-        val issuedAt = view.issuedAtMillis
-        val expiresAt = view.expiresAtMillis
-        when {
-            issuedAt == null -> localization.localizedText("license.licensedUndated")
-            // A perpetual product has no expiry, and the row must not invent one.
-            expiresAt == null -> localization.localizedText(
-                "license.licensedPerpetual",
-                mapOf("year" to localization.localizedYear(issuedAt)),
-            )
-            else -> localization.localizedText(
-                "license.licensed",
-                mapOf(
-                    "year" to localization.localizedYear(issuedAt),
-                    "date" to localization.localizedAbsoluteDate(expiresAt),
-                ),
+data class LicenseCardModel(
+    val status: LicenseStatus,
+    val badge: String?,
+    val since: String?,
+    val term: String,
+    val maskedKey: String?,
+)
+
+/**
+ * How a license state reads on the card. Pure: state in, strings out.
+ *
+ * Presentation only — which catalog entry a state selects, which timestamps it
+ * formats, and how the stored key is masked. Whether a license *is* licensed,
+ * expired or invalid is decided in Rust (`futo-notes-license`, via
+ * `licenseEvaluate`) and arrives already judged, so nothing here re-derives it
+ * (AGENTS.md M6). Mirrors iOS `LicenseCopy.swift` and desktop `licenseCopy.ts`.
+ */
+fun licenseCardModel(view: LicenseView, localization: Localization): LicenseCardModel =
+    when (view.status) {
+        LicenseStatus.UNLICENSED -> unlicensedCard(localization)
+        LicenseStatus.EXPIRED -> {
+            // Only a v2 activation whose `expires_at` has passed reaches
+            // Expired, so both dates are always there. The guard is kept, and
+            // kept identical to the iOS and desktop copy, so the three cannot
+            // drift over an impossible case — and no card is ever dated "NaN".
+            val issuedAt = view.issuedAtMillis
+            val expiresAt = view.expiresAtMillis
+            if (issuedAt == null || expiresAt == null) {
+                unlicensedCard(localization)
+            } else {
+                LicenseCardModel(
+                    status = LicenseStatus.EXPIRED,
+                    badge = localization.localizedText("license.statusExpired"),
+                    since = localization.localizedAbsoluteDate(issuedAt),
+                    term = localization.localizedText(
+                        "license.card.termExpired",
+                        mapOf("date" to localization.localizedAbsoluteDate(expiresAt)),
+                    ),
+                    maskedKey = view.key?.let(::maskLicenseKey),
+                )
+            }
+        }
+        LicenseStatus.LICENSED -> {
+            // A v1 activation carries no purchase time: `since` is null, the
+            // row renders blank, and no stand-in date is put in its place
+            // (decision 2026-09-16 D2, issue #161). It is perpetual by format,
+            // not by guess.
+            val expiresAt = view.expiresAtMillis
+            LicenseCardModel(
+                status = LicenseStatus.LICENSED,
+                // Licensed wears no badge: the coin in the well is the statement.
+                badge = null,
+                since = view.issuedAtMillis?.let(localization::localizedAbsoluteDate),
+                term = if (expiresAt == null) {
+                    localization.localizedText("license.card.termPerpetual")
+                } else {
+                    localization.localizedText(
+                        "license.card.termValidUntil",
+                        mapOf("date" to localization.localizedAbsoluteDate(expiresAt)),
+                    )
+                },
+                maskedKey = view.key?.let(::maskLicenseKey),
             )
         }
     }
-    LicenseStatus.EXPIRED -> {
-        // Only a v2 activation whose `expires_at` has passed reaches Expired,
-        // so both dates are always there. The guard is kept, and kept identical
-        // to the iOS and desktop copy, so the three cannot drift over an
-        // impossible case.
-        val issuedAt = view.issuedAtMillis
-        val expiresAt = view.expiresAtMillis
-        if (issuedAt == null || expiresAt == null) {
-            localization.localizedText("license.unlicensed")
-        } else {
-            localization.localizedText(
-                "license.expired",
-                mapOf(
-                    "year" to localization.localizedYear(issuedAt),
-                    "date" to localization.localizedAbsoluteDate(expiresAt),
-                ),
-            )
-        }
-    }
-    LicenseStatus.UNLICENSED -> localization.localizedText("license.unlicensed")
-}
+
+private fun unlicensedCard(localization: Localization) = LicenseCardModel(
+    status = LicenseStatus.UNLICENSED,
+    badge = localization.localizedText("license.unlicensed"),
+    since = null,
+    term = "",
+    maskedKey = null,
+)
+
+/**
+ * The stored key with everything but its last group replaced by dots:
+ * `···· ···· ···· ···· ···· ···· ···· 6UJV`. The key arrives normalized
+ * (trimmed, uppercased) from the Rust crate, so it is sliced as it stands.
+ */
+private fun maskLicenseKey(key: String): String =
+    (List(MASKED_GROUPS) { MASK_GROUP } + key.takeLast(LAST_GROUP_LENGTH)).joinToString(" ")
 
 /**
  * The catalog entry each control's label comes from. Copy is

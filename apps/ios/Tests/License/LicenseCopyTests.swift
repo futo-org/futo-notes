@@ -13,69 +13,127 @@ struct LicenseCopyTests {
     private static let issuedAt: Int64 = 1_768_473_000_000
     private static let expiresAt: Int64 = 1_863_167_400_000
 
-    private func view(_ status: LicenseStatus, issued: Int64?, expires: Int64?) -> LicenseView {
-        LicenseView(status: status, issuedAtMillis: issued, expiresAtMillis: expires)
+    /// Eight hyphenated groups of four from the key alphabet (no I, L, O or 0),
+    /// in the normalized form the Rust crate stores and hands over.
+    private static let key = "AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV"
+    private static let masked = "···· ···· ···· ···· ···· ···· ···· 6UJV"
+
+    private func view(
+        _ status: LicenseStatus, issued: Int64?, expires: Int64?,
+        key: String? = LicenseCopyTests.key
+    ) -> LicenseView {
+        LicenseView(
+            status: status, issuedAtMillis: issued, expiresAtMillis: expires,
+            key: status == .unlicensed ? nil : key)
     }
 
-    @Test("a licensed row names the supporter year and the expiry date")
-    func licensedRow() {
-        let text = licenseRowText(
+    @Test("a licensed card names the purchase date and the expiry")
+    func licensedCard() {
+        let card = licenseCardModel(
             view(.licensed, issued: Self.issuedAt, expires: Self.expiresAt),
             localization)
 
-        #expect(text.contains("2026"))
-        #expect(text.contains("2029"))
+        #expect(card.status == .licensed)
+        // Licensed is the state with no badge: the coin in the well says it.
+        #expect(card.badge == nil)
+        #expect(card.since?.contains("2026") == true)
+        // The full date, never a bare year (decision D3).
+        #expect(card.since != "2026")
+        #expect(card.term.contains("2029"))
+        #expect(card.maskedKey == Self.masked)
         // A year is a date field, not a number: "2,026" would be a grouped number.
-        #expect(!text.contains("2,026"))
+        #expect(!(card.since ?? "").contains("2,026"))
     }
 
-    /// A perpetual product has no expiry, and the row must drop the clause
-    /// rather than invent a date.
-    @Test("a perpetual license omits the expiry entirely")
-    func perpetualRow() {
-        let text = licenseRowText(
+    /// A perpetual product has no expiry, and the term must drop the date
+    /// rather than invent one.
+    @Test("a perpetual license reads as Perpetual")
+    func perpetualCard() {
+        let card = licenseCardModel(
             view(.licensed, issued: Self.issuedAt, expires: nil), localization)
 
-        #expect(text.contains("2026"))
-        #expect(!text.contains("2029"))
-        #expect(text != licenseRowText(view(.unlicensed, issued: nil, expires: nil), localization))
+        #expect(card.term == localization.localizedText("license.card.termPerpetual"))
+        #expect(card.term != "license.card.termPerpetual")
+        #expect(!card.term.contains("2029"))
+        #expect(card.since?.contains("2026") == true)
     }
 
-    /// An expired license still says "Supporter since": it is kept on the
+    /// An expired license still says when it was bought: it is kept on the
     /// device, and the purchase still happened.
-    @Test("an expired row keeps the supporter year")
-    func expiredRow() {
-        let text = licenseRowText(
+    @Test("an expired card is badged and its term carries the expiry date")
+    func expiredCard() {
+        let card = licenseCardModel(
             view(.expired, issued: Self.issuedAt, expires: Self.expiresAt),
             localization)
 
-        #expect(text.contains("2026"))
-        #expect(text.contains("2029"))
+        #expect(card.status == .expired)
+        #expect(card.badge == localization.localizedText("license.statusExpired"))
+        #expect(card.since?.contains("2026") == true)
+        #expect(card.term.contains("2029"))
+        #expect(card.maskedKey == Self.masked)
     }
 
-    /// The v1 reversal on this surface: still unmistakably the licensed state,
-    /// with the "Supporter since" clause simply gone. No yearless variant, no
-    /// placeholder year, and emphatically not the Unlicensed copy.
-    @Test("a license with no purchase year drops the since-clause and still reads as licensed")
-    func undatedLicensedRow() {
-        let text = licenseRowText(view(.licensed, issued: nil, expires: nil), localization)
+    /// The v1 reality on this surface (decision D2): the since row is present
+    /// and blank. No dateless variant, no placeholder, no fetch time — and the
+    /// state is still unmistakably Licensed.
+    @Test("a license with no purchase date leaves the since row blank")
+    func undatedLicensedCard() {
+        let card = licenseCardModel(view(.licensed, issued: nil, expires: nil), localization)
 
-        #expect(text == localization.localizedText("license.licensedUndated"))
-        #expect(text != "license.licensedUndated")
-        #expect(text != licenseRowText(view(.unlicensed, issued: nil, expires: nil), localization))
-        #expect(!text.contains("Supporter"))
-        #expect(!text.contains("Valid until"))
-        // Nothing was substituted for the missing year — not this year, not any.
+        #expect(card.status == .licensed)
+        #expect(card.since == nil)
+        #expect(card.badge == nil)
+        #expect(card.term == localization.localizedText("license.card.termPerpetual"))
+        #expect(card.maskedKey == Self.masked)
+        // Nothing was substituted for the missing date — not this year, not any.
         let thisYear = localization.localizedYear(Date().timeIntervalSince1970 * 1000)
-        #expect(!text.contains(thisYear))
+        #expect(!card.term.contains(thisYear))
     }
 
     @Test("no stored license reads as Unlicensed")
-    func unlicensedRow() {
-        let text = licenseRowText(view(.unlicensed, issued: nil, expires: nil), localization)
+    func unlicensedCard() {
+        let card = licenseCardModel(view(.unlicensed, issued: nil, expires: nil), localization)
 
-        #expect(text == localization.localizedText("license.unlicensed"))
+        #expect(card.status == .unlicensed)
+        #expect(card.badge == localization.localizedText("license.unlicensed"))
         // The catalog answered — a missing entry renders as its own path.
-        #expect(text != "license.unlicensed")
+        #expect(card.badge != "license.unlicensed")
+        #expect(card.since == nil)
+        #expect(card.term == "")
+        #expect(card.maskedKey == nil)
+    }
+
+    /// Defensive: an Expired state can only come from a v2 activation whose
+    /// expiry passed, so it always has both dates. One arriving without them
+    /// must fall back to the whole Unlicensed card.
+    @Test("an expired state without its dates falls back to Unlicensed")
+    func expiredWithoutDates() {
+        let unlicensed = licenseCardModel(
+            view(.unlicensed, issued: nil, expires: nil), localization)
+
+        for card in [
+            licenseCardModel(view(.expired, issued: Self.issuedAt, expires: nil), localization),
+            licenseCardModel(view(.expired, issued: nil, expires: Self.expiresAt), localization),
+        ] {
+            #expect(card == unlicensed)
+        }
+    }
+
+    /// The whole point of the mask: seven groups of dots and the real last
+    /// group, so a support conversation can name a key without the screen
+    /// showing it.
+    @Test("the masked key shows only the last group")
+    func maskedKey() {
+        let masked =
+            licenseCardModel(
+                view(.licensed, issued: Self.issuedAt, expires: Self.expiresAt), localization
+            ).maskedKey ?? ""
+
+        #expect(masked == Self.masked)
+        #expect(masked.hasSuffix("6UJV"))
+        #expect(!masked.contains("AB12"))
+        #expect(!masked.contains("RS3T"))
+        // The dots stand in for the key's own groups, not for its separators.
+        #expect(masked.split(separator: " ").count == 8)
     }
 }

@@ -573,7 +573,7 @@ export function createLocalizationModule(options: LocalizationModuleOptions): Lo
     return absoluteDateFormatter.format(new Date(timestamp));
   }
 
-  /** The year alone, for "Supporter since {year}". */
+  /** The year alone — a year is a date field, never a grouped number. */
   function localizedYear(timestamp: number): string {
     return yearFormatter.format(new Date(timestamp));
   }

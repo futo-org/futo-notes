@@ -488,22 +488,22 @@
       }
     },
     {
-      "concept": "license-row-copy",
-      "description": "How a license state reads on the License row: which of the four `license.*` catalog entries a state selects, and formatting issued_at as a year and expires_at as an absolute date. The license RULES are Rust's alone (futo-notes-license, projected through Tauri and UniFFI) and are NOT duplicated; this is the per-shell view-model on top of the already-judged state, which each shell must write in its own UI language.",
+      "concept": "license-card-copy",
+      "description": "How a license state reads on the License card: the badge, the `Licensed since` date, the term and the masked key each shell renders — which `license.*` catalog entry a state selects, formatting issued_at and expires_at as absolute dates, and masking the stored key to its last group. The license RULES are Rust's alone (futo-notes-license, projected through Tauri and UniFFI) and are NOT duplicated; this is the per-shell view-model on top of the already-judged state, which each shell must write in its own UI language.",
       "lockStatus": "partial",
-      "note": "Partial: all three copies select among the same four `license.*` catalog entries for the same four states, and each has its own test doing so, but there is no shared fixture pinning them to identical OUTPUT — the platforms' date formatters legitimately differ in spacing and separators, and each renders the year and date with its own locale engine. Android's lock is an instrumented test rather than a unit test, because its dates go through android.icu, which a JVM test does not have.",
+      "note": "Partial: all three copies build the same five-field card model from the same `license.*` catalog entries for the same states, including the identical Expired-without-dates fallback and the identical key mask, and each has its own test doing so — but there is no shared fixture pinning them to identical OUTPUT, because the platforms' date formatters legitimately differ in spacing and separators and each renders the date with its own locale engine. Android's lock is an instrumented test rather than a unit test, because its dates go through android.icu, which a JVM test does not have.",
       "copies": [
         {
           "location": "src/features/license/licenseCopy.ts",
-          "pattern": "export function licenseRowText"
+          "pattern": "export function licenseCardModel"
         },
         {
           "location": "apps/ios/Sources/License/LicenseCopy.swift",
-          "pattern": "func licenseRowText"
+          "pattern": "func licenseCardModel"
         },
         {
           "location": "apps/android/app/src/main/java/com/futo/notes/license/LicenseCopy.kt",
-          "pattern": "fun licenseRowText"
+          "pattern": "fun licenseCardModel"
         }
       ],
       "locks": [
@@ -523,7 +523,7 @@
       "scan": {
         "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
         "extensions": [".ts", ".swift", ".kt"],
-        "pattern": "(function licenseRowText|func licenseRowText|fun licenseRowText)\\b"
+        "pattern": "(function licenseCardModel|func licenseCardModel|fun licenseCardModel)\\b"
       }
     },
     {

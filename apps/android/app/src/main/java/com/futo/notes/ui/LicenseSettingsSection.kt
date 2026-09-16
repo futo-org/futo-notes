@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.futo.notes.license.LICENSE_LOG_TAG
 import com.futo.notes.license.LicenseModel
 import com.futo.notes.license.catalogPath
-import com.futo.notes.license.licenseRowText
+import com.futo.notes.license.licenseCardModel
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
@@ -80,7 +80,12 @@ fun LicenseSettingsSection(license: LicenseModel) {
         // (M1). The section keeps its shape and says nothing rather than
         // flashing "Unlicensed" at a licensed user for a frame.
         license.view?.let { view ->
-            SettingsRow(title = licenseRowText(view, localization))
+            // The plate card is Phase 4/5 of docs/plan/license-ship.md;
+            // today this renders the shared model's badge alone.
+            SettingsRow(
+                title = licenseCardModel(view, localization).badge
+                    ?: localization.localizedText("license.statusLicensed"),
+            )
 
             if (entering) {
                 Divider()

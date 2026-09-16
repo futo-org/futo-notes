@@ -4,11 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LicenseActionResult, LicenseView } from '$lib/platform/license';
 
-const UNLICENSED: LicenseView = { state: 'unlicensed', issuedAt: null, expiresAt: null };
+const UNLICENSED: LicenseView = {
+  state: 'unlicensed',
+  issuedAt: null,
+  expiresAt: null,
+  key: null,
+};
 const LICENSED: LicenseView = {
   state: 'licensed',
   issuedAt: '2026-06-15T12:00:00Z',
   expiresAt: '2029-06-15T12:00:00Z',
+  key: 'AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV',
 };
 
 const platform = vi.hoisted(() => ({
@@ -22,7 +28,7 @@ const platform = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/platform/license', () => ({
-  UNLICENSED: { state: 'unlicensed', issuedAt: null, expiresAt: null },
+  UNLICENSED: { state: 'unlicensed', issuedAt: null, expiresAt: null, key: null },
   readLicenseStatus: platform.readLicenseStatus,
   submitLicenseKey: platform.submitLicenseKey,
   clearLicense: platform.clearLicense,

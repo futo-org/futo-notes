@@ -768,13 +768,11 @@
     "license": {
       "sectionTitle": "License",
       "explanation": "FUTO's mission is for open-source software and non-malicious software business practices to become a sustainable income source for projects and their developers. That is why FUTO Notes asks you to pay for it, rather than serving you ads or selling your data.",
-      "explanationLicensed": "Thank you for paying for FUTO Notes. Your purchase will help continued development of FUTO Notes, and other FUTO projects.",
+      "explanationLicensed": "Thank you for paying for FUTO Notes.",
       "unlicensed": "Unlicensed",
-      "licensed": "Licensed · Supporter since {year} · Valid until {date}",
-      "licensedPerpetual": "Licensed · Supporter since {year}",
-      "licensedUndated": "Licensed",
-      "expired": "License expired {date} · Supporter since {year}",
-      "supporterSince": "Supporter since {year}",
+      "statusLicensed": "Licensed",
+      "statusExpired": "Expired",
+      "licensedSince": "Licensed since {date}",
       "buy": "Buy a license",
       "renew": "Renew",
       "enterKey": "Enter license key",
@@ -790,7 +788,21 @@
       "activated": "License activated",
       "keyInvalid": "This license key isn't valid",
       "linkInvalid": "This license link isn't valid",
-      "offline": "Connect to the internet to activate this key"
+      "offline": "Connect to the internet to activate this key",
+      "card": {
+        "eyebrow": "Client license",
+        "productName": "FUTO Notes",
+        "keyLabel": "Key",
+        "sinceLabel": "Licensed since",
+        "termLabel": "Term",
+        "termPerpetual": "Perpetual",
+        "termValidUntil": "Valid until {date}",
+        "termExpired": "Expired {date}",
+        "revealKey": "Show key",
+        "copyKey": "Copy key",
+        "keyCopied": "License key copied",
+        "emptyWell": "No license"
+      }
     },
     "feedback": {
       "placeholder": "What would you like us to hear?",

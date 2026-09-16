@@ -2,17 +2,18 @@
   import { localizedText } from '$shared/localization';
 
   import { license } from './license.svelte';
-  import { licenseRowText } from './licenseCopy';
+  import { licenseCardModel } from './licenseCopy';
   import SupporterCoin from './SupporterCoin.svelte';
 
   // The three states and their actions are docs/spec/license.md § States and
   // copy. Nothing here is gated on a license: the row is the only difference a
   // purchase makes.
   //
-  // The row *text* is shared law — `licenseRowText` is a registered drift
+  // The card *copy* is shared law — `licenseCardModel` is a registered drift
   // concept with iOS and Android copies (scripts/drift-registry.json
-  // "license-row-copy") — so this file changes how the state looks, never what
-  // it says.
+  // "license-card-copy") — so this file changes how the state looks, never what
+  // it says. The plate itself (the full card) is Phase 4 of
+  // docs/plan/license-ship.md; today this renders the model's badge alone.
   let entering = $state(false);
   let draft = $state('');
   let field: HTMLInputElement | null = $state(null);
@@ -60,7 +61,7 @@
           <span class="license-dot" class:license-dot-expired={expired}></span>
         {/if}
         <p class="license-status" class:license-status-licensed={licensed}>
-          {licenseRowText(license.view)}
+          {licenseCardModel(license.view).badge ?? localizedText('license.statusLicensed')}
         </p>
       </div>
 

@@ -31,8 +31,13 @@ struct LicenseSettingsSection: View {
     var body: some View {
         Section(localization.localizedText("license.sectionTitle")) {
             if let view = license.view {
-                Text(licenseRowText(view, localization))
-                    .accessibilityIdentifier("license-status")
+                // The plate card is Phase 4/5 of docs/plan/license-ship.md;
+                // today this renders the shared model's badge alone.
+                Text(
+                    licenseCardModel(view, localization).badge
+                        ?? localization.localizedText("license.statusLicensed")
+                )
+                .accessibilityIdentifier("license-status")
 
                 if entering {
                     keyField

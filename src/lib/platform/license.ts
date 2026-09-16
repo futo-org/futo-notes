@@ -18,7 +18,9 @@ export type LicenseStateName = 'unlicensed' | 'licensed' | 'expired';
  *  the frontend's job, because only it knows the user's locale. */
 export interface LicenseView {
   state: LicenseStateName;
-  /** The source of "Supporter since {year}". */
+  /** The purchase time — the card's "Licensed since" row and the desktop
+   *  footer's ambient label. `null` for a v1 activation, which carries none:
+   *  the row is then present and blank (decision D2). */
   issuedAt: string | null;
   /** `null` for a perpetual license. */
   expiresAt: string | null;

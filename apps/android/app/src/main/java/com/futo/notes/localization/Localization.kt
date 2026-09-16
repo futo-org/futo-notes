@@ -126,7 +126,7 @@ class Localization private constructor(
         AndroidLocalizationRules.formatAbsoluteDate(formatLanguageTag, timestampMillis)
 
     /**
-     * The year alone, for "Supporter since {year}".
+     * The year alone.
      *
      * **A year is a date field, not a number**: a number formatter would group
      * it as "2,026", so this goes through the date formatter too.

@@ -261,7 +261,7 @@ describe('localized formatters', () => {
 
   // A year is a date field, not a number. Through Intl.NumberFormat it would
   // come out grouped — "2,026" in English, and worse in locales that group by
-  // other rules — so "Supporter since {year}" has its own formatter.
+  // other rules — so a year has its own formatter.
   it('formats a year as a year, never as a grouped number', () => {
     const midYear = Date.parse('2026-06-15T12:00:00Z');
 
