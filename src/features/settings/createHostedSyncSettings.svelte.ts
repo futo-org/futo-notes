@@ -441,7 +441,7 @@ class HostedSyncSettingsState implements HostedSyncSettings {
     if (!confirmed) return;
     await this.#step(async () => {
       await hostedSignOut();
-      forgetHostedE2ee();
+      await forgetHostedE2ee();
       this.#recoveryKey = null;
       this.#recoveryKeyReplaced = false;
       this.#startedSyncing = false;

@@ -21,6 +21,7 @@ import {
   getLegacySyncState,
   loadAppState,
   saveAppState,
+  updateAppState,
 } from '$shared/state/appState';
 import { getPlatformFS, isTauri } from '$lib/platform';
 import { connectHostedSync } from '$lib/platform/tauri/hostedSync';
@@ -231,9 +232,10 @@ export async function connectHostedE2ee(): Promise<void> {
 
 /** Signing out ends the hosted session as far as this module is concerned;
     Rust has already forgotten both secrets and demoted the sync state. */
-export function forgetHostedE2ee(): void {
+export async function forgetHostedE2ee(): Promise<void> {
   hostedConnected = false;
   liveStarted = false;
+  await clearLastSyncedAt();
 }
 
 export function isE2eeConfigured(): boolean {
@@ -445,6 +447,15 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
   await scrubLegacySyncStateIfConsumed();
 }
 
+/** Clears the "last synced" time Settings shows, so a disconnected or
+    signed-out vault can never display a stale one. Shared by self-hosted
+    disconnect and hosted sign-out — sign-out "demotes this vault's sync
+    state exactly as disconnect does" (ADR 0003 decision 9), and this is
+    part of that state. */
+async function clearLastSyncedAt(): Promise<void> {
+  await updateAppState({ lastSyncedAt: null });
+}
+
 export async function disconnectE2ee(): Promise<void> {
   // The Rust `e2ee_disconnect` already stops the live loop internally;
   // reset the flag so a future reconnect can restart the live stream.
@@ -475,6 +486,7 @@ export async function disconnectE2ee(): Promise<void> {
       e2eeSalt: undefined,
     });
   });
+  await clearLastSyncedAt();
 }
 
 export async function syncE2eeAuto(): Promise<SyncSummary> {

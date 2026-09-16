@@ -20,14 +20,23 @@ vi.mock('$shared/state/appState', () => ({
     appStateMock.state = state;
     return Promise.resolve();
   }),
+  // Same merge-into-mock-state shape as the real `updateAppState` (partial
+  // update over whatever `getAppState()` currently holds), so a test can
+  // assert on `appStateMock.state` after either helper runs.
+  updateAppState: vi.fn((updates: Record<string, unknown>) => {
+    appStateMock.state = { ...appStateMock.state, ...updates };
+    return Promise.resolve();
+  }),
 }));
 
 import { invoke } from '@tauri-apps/api/core';
-import { getAppState, saveAppState } from '$shared/state/appState';
+import { getAppState, saveAppState, updateAppState } from '$shared/state/appState';
 import {
   classifyOpenNote,
   validateSyncServerUrl,
   connectE2ee,
+  disconnectE2ee,
+  forgetHostedE2ee,
   isRecoverableSessionError,
   reauthenticateE2ee,
   syncE2eeAuto,
@@ -35,6 +44,7 @@ import {
 
 const mockInvoke = vi.mocked(invoke);
 const mockSaveAppState = vi.mocked(saveAppState);
+const mockUpdateAppState = vi.mocked(updateAppState);
 
 const serverUrlFixture = JSON.parse(
   readFileSync(new URL('../../../tests/conformance/server-url.json', import.meta.url), 'utf8'),
@@ -187,5 +197,32 @@ describe('expired-session recovery', () => {
       'e2ee_password_set',
       'e2ee_sync_run',
     ]);
+  });
+});
+
+// C6: a disconnected or signed-out vault must not go on claiming a stale
+// "last synced" time (Settings reads it from `getCachedPreferences().sync.
+// lastSyncedAt`, backed by this same `lastSyncedAt` field).
+describe('disconnect and hosted sign-out clear lastSyncedAt', () => {
+  beforeEach(() => {
+    mockInvoke.mockReset();
+    mockInvoke.mockResolvedValue(undefined);
+    appStateMock.state = { lastSyncedAt: 1_700_000_000_000 };
+    mockSaveAppState.mockClear();
+    mockUpdateAppState.mockClear();
+  });
+
+  it('self-hosted disconnectE2ee clears it', async () => {
+    await disconnectE2ee();
+
+    expect(mockUpdateAppState).toHaveBeenCalledWith({ lastSyncedAt: null });
+    expect((appStateMock.state as { lastSyncedAt: number | null }).lastSyncedAt).toBeNull();
+  });
+
+  it('hosted forgetHostedE2ee clears it', async () => {
+    await forgetHostedE2ee();
+
+    expect(mockUpdateAppState).toHaveBeenCalledWith({ lastSyncedAt: null });
+    expect((appStateMock.state as { lastSyncedAt: number | null }).lastSyncedAt).toBeNull();
   });
 });

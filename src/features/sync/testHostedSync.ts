@@ -304,7 +304,7 @@ export async function testAcceptPairing(
 
 export async function testHostedSignOut(): Promise<void> {
   await hostedSignOut(hostedServerUrl ?? undefined);
-  forgetHostedE2ee();
+  await forgetHostedE2ee();
   progress = freshProgress();
 }
 
@@ -320,7 +320,7 @@ export async function testHostedSignOut(): Promise<void> {
 export async function testForgetHosted(): Promise<void> {
   if (!hostedServerUrl) return;
   await hostedSignOut(hostedServerUrl);
-  forgetHostedE2ee();
+  await forgetHostedE2ee();
   hostedServerUrl = null;
   progress = freshProgress();
 }

@@ -935,9 +935,12 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   setup routes and has no object API to sync against)
 - **Sign out is one action**: it revokes the session on the server (best
   effort), deletes the vault key and the session token from the OS secret store,
-  and demotes this vault's sync state exactly as disconnect does. It asks for
-  confirmation first. The notes on disk are untouched. There is no
-  locked-but-signed-in halfway state. → `hosted/vault.rs` `sign_out`
+  and demotes this vault's sync state exactly as disconnect does — desktop
+  clears the shown "last synced" time on both paths, through the same
+  `clearLastSyncedAt` call. It asks for confirmation first. The notes on disk
+  are untouched. There is no locked-but-signed-in halfway state. →
+  `hosted/vault.rs` `sign_out`, `syncServiceE2ee.ts` `disconnectE2ee` /
+  `forgetHostedE2ee`
 - **An expired hosted session is a trip to the browser, never a vault reset.**
   `invalid_session` surfaces as "log in again"; the vault key, the object map,
   the pull cursor, and every note stay exactly where they are. → `hosted/mod.rs`
