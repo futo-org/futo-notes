@@ -14,7 +14,7 @@ pub use sync::{
     BillingStatus, Checkout, ConnectInfo, EntitlementOutcome, HostedError, HostedSession,
     HostedSetupClient, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts, RenamePair,
     SecretStoreError, SetupStep, SignInFlow, SignInHandoff, SignInOutcome, SyncClient, SyncError,
-    SyncEventListener, SyncFailure, SyncStatus, SyncSummary, VaultSecretStore,
+    SyncEventListener, SyncFailure, SyncStatus, SyncSummary, VaultSecretStore, WriteRefusal,
 };
 
 uniffi::setup_scaffolding!();

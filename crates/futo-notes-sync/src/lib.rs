@@ -28,7 +28,7 @@ pub use session::connect::AuthenticatedSession;
 pub use session::{HostedCredentials, ResumeCredentials, SyncSession, SyncSessionListener};
 pub use sync::{
     ConnectInfo, FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure,
-    SyncProgress, SyncSummary,
+    SyncProgress, SyncSummary, WriteRefusal,
 };
 
 /// Logs in and resolves the collection to sync. The vault stays locked: a

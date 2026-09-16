@@ -11,6 +11,7 @@
   function fakeSummary(
     failures: SyncSummary['failures'],
     failureMessage: string | null = null,
+    writeRefusal: SyncSummary['writeRefusal'] = null,
   ): SyncSummary {
     return {
       uploaded: 0,
@@ -25,6 +26,7 @@
       renamed: [],
       peerUpdatedIds: [],
       peerDeletedIds: [],
+      writeRefusal,
     };
   }
 
@@ -58,6 +60,21 @@
       ],
       message: "3 changes couldn't reach the server (HTTP 500)",
     },
+    // The two refusals the engine names for itself. Rust decides these from
+    // the status codes; here they are set by hand so the status line, the
+    // toast, and the Settings banner can be seen without a lapsed account.
+    {
+      label: () => localizedText('settings.debug.syncErrorTest.scenarios.subscriptionRequired'),
+      failures: [{ filename: 'note.md', kind: 'upload' as const, statusCode: 402 }],
+      message: "1 change couldn't reach the server (HTTP 402)",
+      writeRefusal: 'subscriptionRequired' as const,
+    },
+    {
+      label: () => localizedText('settings.debug.syncErrorTest.scenarios.quotaExceeded'),
+      failures: [{ filename: 'note.md', kind: 'upload' as const, statusCode: 507 }],
+      message: "1 change couldn't reach the server (HTTP 507)",
+      writeRefusal: 'quotaExceeded' as const,
+    },
   ];
 </script>
 
@@ -73,8 +90,10 @@
       {#each scenarios as scenario}
         <button
           class="settings-btn settings-btn-inline"
-          onclick={() => void simulate(fakeSummary(scenario.failures, scenario.message))}
-          >{scenario.label()}</button
+          onclick={() =>
+            void simulate(
+              fakeSummary(scenario.failures, scenario.message, scenario.writeRefusal ?? null),
+            )}>{scenario.label()}</button
         >
       {/each}
       <button

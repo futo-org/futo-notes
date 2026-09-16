@@ -14,6 +14,7 @@ import uniffi.futo_notes_ffi.PairingOutcome
 import uniffi.futo_notes_ffi.SetupStep
 import uniffi.futo_notes_ffi.SignInFlow
 import uniffi.futo_notes_ffi.SignInOutcome
+import uniffi.futo_notes_ffi.WriteRefusal
 import uniffi.futo_notes_ffi.minVaultPasswordLength
 import uniffi.futo_notes_ffi.probeSignInFlow
 
@@ -217,17 +218,46 @@ class HostedSetupModel(
     private var setup: HostedSetupClientInterface? = null
 
     /**
-     * A banner is a fact about the account, read the same way the account card
-     * reads everything else. Sync paused wins over a full vault: a lapsed
+     * Whether the LAST completed cycle's writes were refused, and which way.
+     *
+     * Rust decides it (`futo_notes_sync::WriteRefusal`, projected onto
+     * `SyncSummary.writeRefusal`); [com.futo.notes.SyncManager] holds the newest
+     * answer because it outlives this screen, and `HostedSyncSections` hands it
+     * over. Never a latch: every completed cycle writes its own answer here,
+     * null included.
+     */
+    var writeRefusal by mutableStateOf<WriteRefusal?>(null)
+
+    /**
+     * Two ways to learn the same thing, and a banner either of them earns.
+     *
+     * [billing] is a reading of the account, taken when this screen opened.
+     * [writeRefusal] is the last cycle's own answer — the 402 or 507 the server
+     * actually returned — which arrives the moment the refused cycle ends and
+     * needs no billing call at all. Neither is a latch.
+     *
+     * Sync paused wins over a full vault, whichever input says so: a lapsed
      * subscription refuses the write whatever the quota says, so telling
      * someone to buy more storage would be the wrong instruction.
+     *
+     * Nothing shows before the wizard has finished — which is also what keeps
+     * one account's refusal off the sign-in screen of the next.
+     *
+     * The twin of `hostedBanner.ts` and iOS `HostedSetupModel.banner`
+     * (`hosted-sync-banner-rule` in scripts/drift-registry.json).
      */
     val banner: HostedBanner
         get() {
             if (screen != HostedScreen.ACCOUNT) return HostedBanner.NONE
-            val status = billing ?: return HostedBanner.NONE
-            if (!status.entitled) return HostedBanner.SYNC_PAUSED
-            if (status.storageQuotaBytes > 0uL && status.bytesUsed >= status.storageQuotaBytes) {
+            val status = billing
+            if (writeRefusal == WriteRefusal.SUBSCRIPTION_REQUIRED || status?.entitled == false) {
+                return HostedBanner.SYNC_PAUSED
+            }
+            if (writeRefusal == WriteRefusal.QUOTA_EXCEEDED) return HostedBanner.VAULT_FULL
+            if (status != null &&
+                status.storageQuotaBytes > 0uL &&
+                status.bytesUsed >= status.storageQuotaBytes
+            ) {
                 return HostedBanner.VAULT_FULL
             }
             return HostedBanner.NONE

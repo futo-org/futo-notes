@@ -16,6 +16,7 @@ import uniffi.futo_notes_ffi.SyncClient
 import uniffi.futo_notes_ffi.SyncEventListener
 import uniffi.futo_notes_ffi.SyncException
 import uniffi.futo_notes_ffi.SyncSummary
+import uniffi.futo_notes_ffi.WriteRefusal
 
 /**
  * Thin wrapper over the Rust `SyncClient` (UniFFI) — the counterpart of the iOS
@@ -54,6 +55,15 @@ class SyncManager(
     var lastErrorDiagnostic: String? = null
         private set
     private var errorMessage by mutableStateOf<LocalizedMessage?>(null)
+
+    /** Whether the LAST completed cycle's writes were refused, and which way
+     *  (`futo_notes_sync::WriteRefusal`). Held here because this object
+     *  outlives the sync screen, and the whole point is that a refusal arrives
+     *  while the person is somewhere else; `HostedSyncSections` hands it to the
+     *  hosted model, which turns it into a banner with an action. Never a latch
+     *  — every completed cycle writes its own answer, null included. */
+    var lastWriteRefusal by mutableStateOf<WriteRefusal?>(null)
+        private set
 
     fun localizedStatus(localization: Localization): String =
         localization.localizedText(statusMessage.path, statusMessage.arguments)
@@ -263,8 +273,20 @@ class SyncManager(
      *  using `failureMessage` (computed once in the Rust core so every shell
      *  shows identical wording). Cleared by the next clean cycle. */
     internal fun applyOutcome(summary: SyncSummary) {
+        lastWriteRefusal = summary.writeRefusal
         val message = summary.failureMessage
-        if (message != null) {
+        val refusal = summary.writeRefusal
+        if (refusal != null) {
+            // A refused write is the one failure that is not a fault: nothing
+            // is broken, the account simply may not write, so the status line
+            // says so in its own words instead of "Sync completed with
+            // errors", which sent people looking for a server problem that was
+            // not there (ADR 0003 decision 8). Rust names the refusal; this
+            // only chooses the sentence. Mirrors iOS `applyOutcome`.
+            lastErrorDiagnostic = message
+            statusMessage = LocalizedMessage(writeRefusalHeadline(refusal))
+            errorMessage = LocalizedMessage(writeRefusalExplanation(refusal))
+        } else if (message != null) {
             lastErrorDiagnostic = message
             statusMessage = LocalizedMessage("sync.status.error")
             errorMessage = LocalizedMessage("sync.errors.completedWithErrors")
@@ -428,5 +450,22 @@ class SyncManager(
          *  bearer session but recoverable with the securely stored password. */
         internal fun shouldHealLiveError(message: String): Boolean =
             message.startsWith("auth:") || message.contains("collection-gone")
+
+        /** The short form of a refused write, for the row that shows sync
+         *  status at a glance. Mirrors iOS `writeRefusalHeadline`. */
+        internal fun writeRefusalHeadline(refusal: WriteRefusal): String =
+            when (refusal) {
+                WriteRefusal.SUBSCRIPTION_REQUIRED -> "sync.hosted.banner.syncPaused.title"
+                WriteRefusal.QUOTA_EXCEEDED -> "sync.hosted.banner.vaultFull.title"
+            }
+
+        /** The whole sentence, including what still works. All three shells
+         *  read the same catalog entries, so a paused sync reads the same on
+         *  every platform. Mirrors iOS `writeRefusalExplanation`. */
+        internal fun writeRefusalExplanation(refusal: WriteRefusal): String =
+            when (refusal) {
+                WriteRefusal.SUBSCRIPTION_REQUIRED -> "sync.errors.writePausedSubscription"
+                WriteRefusal.QUOTA_EXCEEDED -> "sync.errors.writePausedQuota"
+            }
     }
 }

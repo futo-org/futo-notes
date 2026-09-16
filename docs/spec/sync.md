@@ -880,16 +880,26 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   lapsed subscription pauses writes and keeps reads`, `hosted full vault raises
   the vault full banner`) proves both banners and the read still arriving on the
   real desktop app
-  > **Gap:** the banner is a reading of the billing endpoint taken while the
-  > sync screen is open, not a reaction to the refused write — so a refused write
-  > IS also an error everywhere else. On desktop a lapsed push comes back through
-  > the ordinary sync-failure path as "1 change couldn't reach the server (HTTP
-  > 402)" (507 for a full vault), observed 2026-09-16 against a stand-in server;
-  > all three shells then show the right banner only once somebody opens the sync
-  > screen and billing is re-read. ADR 0003 decision 8 asks for the status line
-  > itself to become "Sync paused" with a Subscribe button; nothing maps a status
-  > code to a banner today. Closing it means classifying 402 and 507 in the sync
-  > error path the way `classifySyncError` classifies the rest.
+- **The refused cycle raises the banner itself, before anyone opens the account
+  screen.** The engine reports a `402` or `507` on the write half of a cycle as
+  one named verdict on that cycle — the same precedence, decided once in Rust —
+  and each shell keeps the newest one beside its billing reading, so the banner
+  is up the moment the refused cycle ends rather than on the next billing read.
+  It is never a latch: the first cycle that is not refused clears it, which is
+  how buying room makes the banner go away with nothing reset.
+  → `futo_notes_sync::WriteRefusal` + `SyncSummary.write_refusal`
+  (`sync/outcome.rs`), projected as `writeRefusal` through both shell
+  contracts; `hostedWriteRefusal.svelte.ts` _(desktop)_,
+  `SyncManager.lastWriteRefusal` _(iOS, Android)_; the two cross-platform
+  scenarios above assert the banner with no billing call in between
+- **A refused write says what actually happened on the sync status line.** It
+  reads "Sync paused" / "Vault is full" with the explanation, not "Sync
+  completed with errors" — nothing is broken, the account simply may not write,
+  and the generic wording sent people looking for a server fault. The Subscribe
+  and portal buttons live on the banner on the sync screen. → ADR 0003 decision
+  8; `syncManager.svelte.ts` `syncErrorForSource` _(desktop)_,
+  `SyncManager.applyOutcome` _(iOS, Android)_,
+  `sync.errors.writePausedSubscription` / `writePausedQuota`
 - **Changing the vault password and issuing a new recovery key ask for no
   current secret.** This device already holds the vault key, and a device set up
   by scanning a QR code never knew the vault password, so requiring it would

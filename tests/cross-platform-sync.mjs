@@ -2320,10 +2320,13 @@ async function syncRefusal(client) {
     return {
       refused: failures.length > 0,
       statuses: failures.map((failure) => failure.statusCode),
+      // The engine's own reading of those statuses, which is what every shell
+      // renders a banner from (futo_notes_sync::WriteRefusal).
+      writeRefusal: result?.summary?.writeRefusal ?? null,
       detail: JSON.stringify(failures),
     };
   } catch (error) {
-    return { refused: true, statuses: [], detail: error.message };
+    return { refused: true, statuses: [], writeRefusal: null, detail: error.message };
   }
 }
 
@@ -2500,6 +2503,22 @@ async function hostedLapsedSubscriptionPausesWritesAndKeepsReads(a, b, server) {
     refusal.statuses.includes(402),
     `the refusal should be 402 subscription_required: ${refusal.detail}`,
   );
+
+  // Before anybody opens the account screen. The engine named the refusal, so
+  // the banner is already earned — nothing here has read billing since the
+  // lapse (ADR 0003 decision 8; docs/spec/sync.md).
+  assertEqual(
+    refusal.writeRefusal,
+    'subscriptionRequired',
+    'the cycle itself should report the refusal, not just a status code',
+  );
+  const onTheSpot = await b.hostedRefusalBanner();
+  assertEqual(
+    onTheSpot.banner,
+    'syncPaused',
+    'the Sync paused banner must be up the moment the refused cycle ends',
+  );
+
   await assertNeverArrives(a, blocked);
 
   const account = await b.hostedAccount();
@@ -2535,9 +2554,34 @@ async function hostedFullVaultRaisesTheVaultFullBanner(a, _b, server) {
     `the refusal should be 507 quota_exceeded: ${refusal.detail}`,
   );
 
+  // Before anybody opens the account screen, and with no billing call in
+  // between: the refused cycle earned the banner on its own.
+  assertEqual(
+    refusal.writeRefusal,
+    'quotaExceeded',
+    'the cycle itself should report the refusal, not just a status code',
+  );
+  const onTheSpot = await a.hostedRefusalBanner();
+  assertEqual(
+    onTheSpot.banner,
+    'vaultFull',
+    'the Vault is full banner must be up the moment the refused cycle ends',
+  );
+
   // The banner is a live reading of the account, not a latch: buy room and it
   // goes away without anything being reset.
   await setQuota(server.url, token, 64 * 1024 * 1024);
+  const cleared = await syncRefusal(a);
+  assertEqual(
+    cleared.writeRefusal,
+    null,
+    'a cycle that was not refused must clear the refusal it carries',
+  );
+  assertEqual(
+    (await a.hostedRefusalBanner()).banner,
+    'none',
+    'room on the plan should clear the banner without anything being reset',
+  );
   const roomy = await a.hostedAccount();
   assertEqual(roomy.banner, 'none', 'room on the plan should clear the banner');
 }

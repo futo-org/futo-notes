@@ -103,6 +103,13 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
 
     LaunchedEffect(model) { model.load() }
 
+    // The refused cycle may have ended long before this screen opened, and may
+    // end again while it is open; both must reach the banner. `sync` holds the
+    // newest answer because it outlives every screen.
+    LaunchedEffect(model, sync.lastWriteRefusal) {
+        model.writeRefusal = sync.lastWriteRefusal
+    }
+
     model.errorMessage?.let { error ->
         Text(
             localization.localizedText(error.path, error.arguments),

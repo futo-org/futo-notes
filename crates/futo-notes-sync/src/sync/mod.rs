@@ -25,7 +25,7 @@ pub(super) use outcome::SyncPhase;
 pub(crate) use outcome::{decision, ReconcileDecision};
 pub use outcome::{
     ConnectInfo, FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure,
-    SyncProgress, SyncSummary,
+    SyncProgress, SyncSummary, WriteRefusal,
 };
 pub(crate) use pull::pull;
 pub(crate) use push::push;

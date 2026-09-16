@@ -4,6 +4,7 @@ import { updateAppState } from '$shared/state/appState';
 
 import type { SyncTrigger } from './autoSync';
 import type { createExternalChangeCoordinator } from './createExternalChangeCoordinator';
+import type { WriteRefusalOutput } from './syncContract.generated';
 import type { SyncSummary } from './syncServiceE2ee';
 import type { WriteSuppressor } from '$lib/platform/writeSuppression';
 import type { LocalizedMessage } from '$shared/localization';
@@ -30,7 +31,10 @@ interface SyncCompletionOptions {
   dependencies: SyncCompletionDependencies;
   externalChanges: ExternalChangeCoordinator;
   getSyncStartEditVersion: (trigger?: SyncTrigger) => number;
-  raiseSyncError: (message: string) => void;
+  /** The engine's failure sentence, plus this cycle's refusal when the server
+   *  would not take the writes at all — a 402 or 507 says "Sync paused" /
+   *  "Vault is full" rather than "Sync completed with errors". */
+  raiseSyncError: (message: string, writeRefusal: WriteRefusalOutput | null) => void;
   setCompletionStatus: (message: LocalizedMessage, durationMilliseconds: number) => void;
   setSyncStatusMessage: (message: LocalizedMessage | null) => void;
   writeSuppressor: WriteSuppressor;
@@ -133,7 +137,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     syncStartEditVersion: number,
   ): Promise<void> {
     if (summary.failureMessage) {
-      options.raiseSyncError(summary.failureMessage);
+      options.raiseSyncError(summary.failureMessage, summary.writeRefusal);
     } else {
       options.clearSyncError();
       if (trigger === 'manual') dependencies.showToast({ path: 'sync.status.complete' });

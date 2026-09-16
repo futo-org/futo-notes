@@ -495,6 +495,16 @@ export class TauriTestClient {
   }
 
   /**
+   * The banner the LAST completed cycle earned on its own — no billing call,
+   * no account screen. hostedAccount() re-reads `billing_status` every time,
+   * so it can never tell a banner earned by a refused write apart from one
+   * earned by the reading it just took; this can.
+   */
+  async hostedRefusalBanner() {
+    return this._executeRead(`window.__testSync.hostedRefusalBanner()`, 'hostedRefusalBanner');
+  }
+
+  /**
    * Starts showing a pairing code, on the device being set up. Long-running by
    * design — it holds the relay's whole five-minute window — so the code is
    * read with waitForPairingPayload() and the outcome awaited separately.
