@@ -729,6 +729,16 @@ test:rust:workspace:
     # One metadata traversal replaces the former standalone dep-guard job.
     # The workspace tests already contain model conformance coverage.
     - node scripts/check-rust-dependency-boundaries.mjs
+    # Windows is the only non-Unix target we ship, and its build is tag-only
+    # and slow, so a cfg-gating mistake in the `cfg(not(unix))` vault layer or
+    # in platform-gated test scaffolding is otherwise found at release time at
+    # the earliest. github#48's fix hit exactly that: `cargo test -p
+    # futo-notes-core` had never compiled on Windows at all. Type-checking that
+    # target needs no linker and no MSVC, and futo-notes-core is the one crate
+    # with no C dependencies (ring/zstd-sys need lib.exe), so it is the crate
+    # this can cover — which is also the crate that owns the platform branches.
+    - rustup target add x86_64-pc-windows-msvc
+    - cargo check --target x86_64-pc-windows-msvc --tests -p futo-notes-core
     - mkdir -p dist
     - cargo test --workspace
     - node --experimental-strip-types "$CI_PROJECT_DIR/tests/conformance/title-rules-differential.mjs"
