@@ -91,6 +91,21 @@ Invoke-Step "Cloning repo (branch: $Branch)" {
 
 Set-Location C:\build\futo-notes
 
+# The only place the Rust suites run on Windows, and the only build that
+# compiles the `#[cfg(not(unix))]` vault layer at all. A defect there reaches
+# users without failing anything first: github#48 shipped one for three
+# releases — the Windows implementation reported a missing parent FOLDER as an
+# I/O error instead of absence, so every note a peer put in a folder this
+# client did not have yet failed on every sync cycle, forever. The portable
+# implementation is now compiled under test on Unix too (futo-notes-core's
+# vault_fs contract tests), which is the fast guard; this step is the one that
+# runs the shipped Windows build's own code. It sits before the frontend build
+# so it fails in a minute rather than ten, and needs no `dist/` because none of
+# these crates embed the frontend.
+Invoke-Step "Rust tests (Windows)" {
+    cargo test -p futo-notes-core -p futo-notes-sync -p futo-notes-store
+}
+
 # .nvmrc only exists now that the repo is cloned; that is why win-install-deps
 # installs fnm but no version. One native command per step: PowerShell 5.1
 # ignores $ErrorActionPreference for native exit codes, so a failed `fnm use`
