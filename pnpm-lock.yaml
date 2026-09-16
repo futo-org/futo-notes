@@ -115,9 +115,6 @@ importers:
       '@tauri-apps/plugin-updater':
         specifier: ^2.9.0
         version: 2.10.1
-      '@types/three':
-        specifier: ^0.186.0
-        version: 0.186.0
       svelte:
         specifier: ^5.57.0
         version: 5.57.0(@typescript-eslint/types@8.69.0)
@@ -140,6 +137,9 @@ importers:
       '@types/pngjs':
         specifier: ^6.0.5
         version: 6.0.5
+      '@types/three':
+        specifier: ^0.186.0
+        version: 0.186.0
       ajv:
         specifier: ^8.17.1
         version: 8.20.0
