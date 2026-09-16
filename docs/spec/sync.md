@@ -973,6 +973,21 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   `session/connect.rs` `hosted`, `e2ee_hosted_connect`,
   `syncServiceE2ee.ts` `connectHostedE2ee` _(desktop)_
 
+- **A restart resumes the hosted session at launch _(desktop)_**, not on the
+  first visit to Settings. The boot credential load asks Rust — a local secret
+  store read with no request of any kind — whether this vault holds both a vault
+  key and a session token, and if it does it connects inside the same credential
+  lock, so `isE2eeConfigured()` is already true when auto-sync's first cycle is
+  released. A build without the hosted flow never asks. → `hosted/vault.rs`
+  `has_saved_vault`, `e2ee_hosted_has_saved_vault`, `syncServiceE2ee.ts`
+  `resumeHostedSessionOnBoot`
+- **A launch with no network leaves the vault configured and retries the
+  connect on the next sync trigger _(desktop)_**, rather than reporting it
+  unconfigured and skipping it until Settings is opened. The retry is the
+  ordinary `ensureConnected` on the way into a cycle, carried by auto-sync's
+  existing initial and background retry ladders. → `syncServiceE2ee.ts`
+  `isE2eeConfigured` + `ensureConnected`
+
 > **Gap:** _(iOS, Android)_ the native shells still do not start a sync cycle
 > when their wizard finishes — their SyncManagers have only the password-mode
 > connect, and `connect_sync` has no UniFFI projection. Desktop does, as of
@@ -985,15 +1000,6 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
 > futo-notes#172's ticket series closes it; it needs a UniFFI projection of
 > `connect_sync` and a call from each SyncManager.
 
-> **Gap:** _(desktop)_ a hosted session is re-established only when the sync
-> settings screen is opened, because nothing at boot knows this vault is hosted:
-> `isE2eeConfigured()` reads password-mode app state, and the hosted secrets are
-> in the keyring where only Rust looks. So a restart syncs on the first visit to
-> Settings rather than on launch. Closing it needs a local read — does this
-> vault's keyring hold a vault key and a session token — that `loadCredentialsOnBoot`
-> can make without a network call; `e2ee_hosted_current_step` is not it, because it
-> asks the server. futo-notes#186 built the test hook and left this open; it has no
-> ticket yet.
 
 
 ## Live sync (SSE)
